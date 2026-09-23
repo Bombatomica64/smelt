@@ -1267,6 +1267,23 @@ impl FunctionEmitter<'_> {
     ) -> Result<(), EmitError> {
         let local = self.local_decl(dest)?;
         let call_text = self.call_text(callee, args)?;
+        let join = self.throwing_join_for(target, handler, dest, continuation)?;
+        let join_visited = BlockIdSet::default();
+        let join_region;
+        // With a shared join the arms are forward regions that END at it, and
+        // the join is emitted once after the `match` (`emitter::throwing_join`);
+        // without one each arm carries the whole tail, as before.
+        let arm_continuation = match join {
+            Some(stop) => {
+                join_region = Continuation::Region {
+                    stop,
+                    visited: &join_visited,
+                };
+                &join_region
+            }
+            None => continuation,
+        };
+        let before_match_declared = self.declared_locals_snapshot();
         let Some(raw_call) = call_text.strip_suffix('?') else {
             out.push_str(&format!(
                 "    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {call_text})) {{\n"
@@ -1307,7 +1324,7 @@ impl FunctionEmitter<'_> {
             }
             self.mark_local_declared(dest);
             let __smelt_arm_declared = self.declared_locals_snapshot();
-            self.emit_continuation(target, continuation, out)?;
+            self.emit_continuation(target, arm_continuation, out)?;
             out.push_str("        }\n");
             // Each arm of the emitted `match` re-emits the SAME continuation,
             // and each is its own Rust lexical scope. Restoring the declaration
@@ -1343,10 +1360,16 @@ impl FunctionEmitter<'_> {
                 out.push_str(&format!("            let {exception_name} = {value};\n"));
                 self.mark_local_declared(exception_local);
             }
-            self.emit_continuation(handler.catch_block, continuation, out)?;
+            self.emit_continuation(handler.catch_block, arm_continuation, out)?;
             self.restore_declared_locals(__smelt_arm_declared);
             out.push_str("        }\n");
             out.push_str("    }\n");
+            if let Some(shared_join) = join {
+                // Locals the arms declared are scoped to them; the join sees only
+                // what was in scope before the `match`.
+                self.restore_declared_locals(before_match_declared);
+                self.emit_continuation(shared_join, continuation, out)?;
+            }
             return Ok(());
         };
         let source_ty = self.call_source_ty(callee)?;
@@ -1386,7 +1409,7 @@ impl FunctionEmitter<'_> {
         // Rust lexical scope, so each needs its own declaration set — see the
         // note on the two-arm site above.
         let __smelt_arm_declared = self.declared_locals_snapshot();
-        self.emit_continuation(target, continuation, out)?;
+        self.emit_continuation(target, arm_continuation, out)?;
         out.push_str("        }\n");
         self.restore_declared_locals(__smelt_arm_declared.clone());
         out.push_str("        Ok(Err(__smelt_error)) => {\n");
@@ -1401,7 +1424,7 @@ impl FunctionEmitter<'_> {
             out.push_str(&format!("            let {exception_name} = {value};\n"));
             self.mark_local_declared(exception_local);
         }
-        self.emit_continuation(handler.catch_block, continuation, out)?;
+        self.emit_continuation(handler.catch_block, arm_continuation, out)?;
         out.push_str("        }\n");
         self.restore_declared_locals(__smelt_arm_declared.clone());
         out.push_str("        Err(__smelt_panic) => {\n");
@@ -1426,10 +1449,16 @@ impl FunctionEmitter<'_> {
             out.push_str(&format!("            let {exception_name} = {value};\n"));
             self.mark_local_declared(exception_local);
         }
-        self.emit_continuation(handler.catch_block, continuation, out)?;
+        self.emit_continuation(handler.catch_block, arm_continuation, out)?;
         self.restore_declared_locals(__smelt_arm_declared);
         out.push_str("        }\n");
         out.push_str("    }\n");
+        if let Some(shared_join) = join {
+            // Locals the arms declared are scoped to them; the join sees only
+            // what was in scope before the `match`.
+            self.restore_declared_locals(before_match_declared);
+            self.emit_continuation(shared_join, continuation, out)?;
+        }
         Ok(())
     }
 
@@ -1445,6 +1474,23 @@ impl FunctionEmitter<'_> {
     ) -> Result<(), EmitError> {
         let local = self.local_decl(dest)?;
         let future_text = self.await_operand_text(future)?;
+        let join = self.throwing_join_for(target, handler, dest, continuation)?;
+        let join_visited = BlockIdSet::default();
+        let join_region;
+        // With a shared join the arms are forward regions that END at it, and
+        // the join is emitted once after the `match` (`emitter::throwing_join`);
+        // without one each arm carries the whole tail, as before.
+        let arm_continuation = match join {
+            Some(stop) => {
+                join_region = Continuation::Region {
+                    stop,
+                    visited: &join_visited,
+                };
+                &join_region
+            }
+            None => continuation,
+        };
+        let before_match_declared = self.declared_locals_snapshot();
         out.push_str(&format!("    match {future_text}.await {{\n"));
         out.push_str("        Ok(__smelt_value) => {\n");
         let name = self.local_name(dest)?;
@@ -1479,7 +1525,7 @@ impl FunctionEmitter<'_> {
         }
         self.mark_local_declared(dest);
         let __smelt_arm_declared = self.declared_locals_snapshot();
-        self.emit_continuation(target, continuation, out)?;
+        self.emit_continuation(target, arm_continuation, out)?;
         out.push_str("        }\n");
         // Each arm of the emitted `match` re-emits the SAME continuation, and
         // each is its own Rust lexical scope. Restoring the declaration set
@@ -1501,10 +1547,16 @@ impl FunctionEmitter<'_> {
             out.push_str(&format!("            let {exception_name} = {value};\n"));
             self.mark_local_declared(exception_local);
         }
-        self.emit_continuation(handler.catch_block, continuation, out)?;
+        self.emit_continuation(handler.catch_block, arm_continuation, out)?;
         self.restore_declared_locals(__smelt_arm_declared);
         out.push_str("        }\n");
         out.push_str("    }\n");
+        if let Some(shared_join) = join {
+            // Locals the arms declared are scoped to them; the join sees only
+            // what was in scope before the `match`.
+            self.restore_declared_locals(before_match_declared);
+            self.emit_continuation(shared_join, continuation, out)?;
+        }
         Ok(())
     }
 
@@ -2857,9 +2909,88 @@ impl FunctionEmitter<'_> {
                 out,
                 visited,
             ),
+            // A branch inside a FORWARD region must stay inside it. Handing it
+            // to `emit_terminator` emitted it as a top-level branch, whose
+            // arms (or hoisted join) ran on past `stop` — so the caller's own
+            // emission of the join after the region repeated that tail, and
+            // every nested `if` in a `try`/`catch` arm doubled it.
+            Some(Terminator::Switch {
+                cond,
+                then_block,
+                else_block,
+            }) if matches!(exit, RegionExit::Join) => {
+                self.emit_forward_region_switch(cond, *then_block, *else_block, stop, out, visited)
+            }
             Some(terminator) => self.emit_terminator(block.id, terminator, out),
             None => Err(EmitError::new("basic block has no terminator")),
         }
+    }
+
+    /// Emits an `if`/`else` that sits inside a forward region ending at `stop`.
+    ///
+    /// When the two arms meet at an inner join before `stop` (see
+    /// `emitter::throwing_join::forked_region_join`), each arm is a region
+    /// ending at that inner join and the inner join then continues the outer
+    /// region once. Otherwise each arm runs to `stop` on its own. Either way no
+    /// edge leaves the region: `stop` itself is emitted by the caller.
+    fn emit_forward_region_switch(
+        &self,
+        cond: &Operand,
+        then_block: smelt_mir::BlockId,
+        else_block: smelt_mir::BlockId,
+        stop: smelt_mir::BlockId,
+        out: &mut String,
+        visited: &mut BlockIdSet,
+    ) -> Result<(), EmitError> {
+        let inner = self
+            .forked_region_join(&[then_block, else_block], &[], &[stop])?
+            .filter(|join| !visited.contains(join));
+        let arm_stop = inner.unwrap_or(stop);
+        let declared = self.declared_locals_snapshot();
+        out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+        self.emit_region_arm(then_block, arm_stop, out, visited)?;
+        let then_diverged = last_emit_diverged();
+        out.push_str("    } else {\n");
+        self.restore_declared_locals(declared.clone());
+        self.emit_region_arm(else_block, arm_stop, out, visited)?;
+        let else_diverged = last_emit_diverged();
+        out.push_str("    }\n");
+        self.restore_declared_locals(declared);
+        if let Some(inner_join) = inner {
+            return self.emit_block_until_goto_inner(
+                self.block(inner_join)?,
+                stop,
+                RegionExit::Join,
+                out,
+                visited,
+            );
+        }
+        set_last_emit_diverged(then_diverged && else_diverged);
+        Ok(())
+    }
+
+    /// Emits one arm of a forward-region branch, ending at `stop`.
+    ///
+    /// An arm that starts AT `stop` is empty. Each arm walks with its own copy
+    /// of `visited`, because both arms legitimately reach the same blocks.
+    fn emit_region_arm(
+        &self,
+        start: smelt_mir::BlockId,
+        stop: smelt_mir::BlockId,
+        out: &mut String,
+        visited: &BlockIdSet,
+    ) -> Result<(), EmitError> {
+        set_last_emit_diverged(false);
+        if start == stop {
+            return Ok(());
+        }
+        self.emit_block_until_goto_inner(
+            self.block(start)?,
+            stop,
+            RegionExit::Join,
+            out,
+            &mut visited.clone(),
+        )
     }
 
     /// Emits a branch inside a loop.

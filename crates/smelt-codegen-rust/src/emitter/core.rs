@@ -802,37 +802,10 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Returns whether a local is read anywhere in the function body.
     pub(super) fn local_has_uses(&self, local: LocalId) -> bool {
-        self.function.blocks.iter().any(|block| {
-            block.phis.iter().any(|phi| {
-                phi.incoming
-                    .iter()
-                    .any(|(_, operand)| operand_uses_local(operand, local))
-            }) || block.statements.iter().any(|statement| match statement {
-                Statement::Assign { value, .. } => rvalue_uses_local(value, local),
-                Statement::AssignPlace { place, value } => {
-                    assignment_place_reads_local(place, local) || rvalue_uses_local(value, local)
-                }
-                // The container, the key, the seed and the stored rvalue's
-                // operands are all reads; `current` is the definition, so it is
-                // not counted here (matching the `Assign` arm above).
-                Statement::DictEntryUpdate {
-                    base,
-                    index,
-                    default,
-                    current: _,
-                    value,
-                } => {
-                    *base == local
-                        || operand_uses_local(index, local)
-                        || operand_uses_local(default, local)
-                        || rvalue_uses_local(value, local)
-                }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => false,
-            }) || block
-                .terminator
-                .as_ref()
-                .is_some_and(|terminator| terminator_uses_local(terminator, local))
-        })
+        self.function
+            .blocks
+            .iter()
+            .any(|block| block_reads_local(block, local))
     }
 
     /// Returns the source operand for a single-assignment unknown cast local.
@@ -5579,6 +5552,43 @@ pub(crate) fn is_erased_unknown_rest_function_in(
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Never)
             )
     )
+}
+
+/// Return whether one MIR block reads `local` in a phi, statement, or terminator.
+///
+/// The per-block half of [`FunctionEmitter::local_has_uses`], shared with the
+/// throwing-terminator join analysis (`emitter::throwing_join`), which asks the
+/// same question of only the blocks after a candidate join.
+pub(super) fn block_reads_local(block: &BasicBlock, local: LocalId) -> bool {
+    block.phis.iter().any(|phi| {
+        phi.incoming
+            .iter()
+            .any(|(_, operand)| operand_uses_local(operand, local))
+    }) || block.statements.iter().any(|statement| match statement {
+        Statement::Assign { value, .. } => rvalue_uses_local(value, local),
+        Statement::AssignPlace { place, value } => {
+            assignment_place_reads_local(place, local) || rvalue_uses_local(value, local)
+        }
+        // The container, the key, the seed and the stored rvalue's operands are
+        // all reads; `current` is the definition, so it is not counted here
+        // (matching the `Assign` arm above).
+        Statement::DictEntryUpdate {
+            base,
+            index,
+            default,
+            current: _,
+            value,
+        } => {
+            *base == local
+                || operand_uses_local(index, local)
+                || operand_uses_local(default, local)
+                || rvalue_uses_local(value, local)
+        }
+        Statement::StorageLive(_) | Statement::StorageDead(_) => false,
+    }) || block
+        .terminator
+        .as_ref()
+        .is_some_and(|terminator| terminator_uses_local(terminator, local))
 }
 
 pub(super) fn operand_uses_local(operand: &Operand, local: LocalId) -> bool {
