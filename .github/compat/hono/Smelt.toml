@@ -94,7 +94,12 @@ exclude = [
   # is also emitted as an empty module-level `fn request_id()` — E0428
   # `request_id` defined twice. phase 3 pending.
   "src/middleware/request-id/index.test.ts",
-  # (re-measured after merge)
+  # Lower now (round 2), but break the `cargo check` gate: `language`
+  # reaches `utils/accept.ts` + `utils/cookie.ts` (the library family below)
+  # and its own E0308 `SmeltUnion` vs `SmeltUnknown` (11); `secure-headers`
+  # has E0428 (the same named-function-expression shadowing as `request-id`),
+  # E0381 and E0369 `==` on `Option<ContentSecurityPolicyOptions>`.
+  # phase 3 pending.
   "src/middleware/language/index.test.ts",
   "src/middleware/secure-headers/index.test.ts",
   # `toContain`/`toMatch` on a nullable actual now lowers (round 2); what

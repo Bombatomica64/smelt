@@ -758,6 +758,71 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Routes an erased → record-class extraction through ONE shared helper
+    /// function per target type instead of inlining it at every site.
+    ///
+    /// The inline extraction rebuilds the class field by field from the erased
+    /// record, and each field that is itself a record class or a function
+    /// nests its own adapter, so the text of one extraction grows with the
+    /// whole reachable type graph. Hono's `Context` class (30 fields,
+    /// several of them callable interfaces and nested classes) made every
+    /// erased middleware call site ~230 KB of Rust; `middleware/timeout`'s test
+    /// module went from 0.8 MB to 8 MB and `cargo check --tests` no longer
+    /// finished in 30 minutes. A hand-written crate would call one conversion
+    /// function; this is that function, `__smelt_from_record_<Type>`, emitted
+    /// once at the crate root and flushed after every body (see the
+    /// `record_extractors` flush in `lib.rs`).
+    ///
+    /// Semantics are unchanged by construction: the helper's body is exactly
+    /// the text the inline arm renders at an EMPTY record-conversion stack, so
+    /// only such top-level sites are routed here; a site nested inside another
+    /// extraction keeps the inline text (whose recursion guard then answers
+    /// `Default::default()` for a cycle, as before). Only targets whose Rust
+    /// spelling carries no type arguments qualify, so the body cannot depend on
+    /// the call site's type-parameter scope.
+    ///
+    /// Returns `None` when the site does not qualify or the inline arm would
+    /// produce no adapter (the caller then falls back exactly as before).
+    fn shared_record_extractor_call(
+        &self,
+        text: &str,
+        target: TypeId,
+        string_ty: TypeId,
+        unknown_ty: TypeId,
+        scope: &RenderScope,
+    ) -> Result<Option<String>, EmitError> {
+        if !self.record_conversion_stack.borrow().is_empty() {
+            return Ok(None);
+        }
+        let target_text = self.type_text_with_impl_trait(target, false)?;
+        if target_text.contains(['<', ' ', ':', '(']) {
+            return Ok(None);
+        }
+        let helper = format!("__smelt_from_record_{target_text}");
+        let known = self.context.record_extractors.borrow().contains_key(&helper);
+        if !known {
+            self.record_conversion_stack.borrow_mut().push(target);
+            let adapter_result = self.string_dict_record_adapter_text(
+                "smelt_record_map",
+                string_ty,
+                unknown_ty,
+                target,
+                scope,
+            );
+            self.record_conversion_stack.borrow_mut().pop();
+            let Some(adapter) = adapter_result? else {
+                return Ok(None);
+            };
+            self.context.record_extractors.borrow_mut().insert(
+                helper.clone(),
+                format!(
+                    "\n#[allow(dead_code, unused_variables, unused_mut, unused_braces, clippy::all)]\nfn {helper}(smelt_value: SmeltUnknown) -> {target_text} {{\n    match smelt_value {{ SmeltUnknown::Object(values) => {{ let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); {adapter} }}, _ => Default::default() }}\n}}\n"
+                ),
+            );
+        }
+        Ok(Some(format!("{helper}(({text}).into_smelt_unknown())")))
+    }
+
     /// Marks a `source` → `target` structural coercion as being expanded.
     ///
     /// Returns `None` when the pair is already on
@@ -3113,6 +3178,9 @@ impl FunctionEmitter<'_> {
                 ) else {
                     return Ok("Default::default()".to_owned());
                 };
+                if let Some(call) = self.shared_record_extractor_call(text, target, string_ty, unknown_ty, scope)? {
+                    return Ok(call);
+                }
                 self.record_conversion_stack.borrow_mut().push(target);
                 let adapter_result = self.string_dict_record_adapter_text(
                     "smelt_record_map",
