@@ -199,13 +199,13 @@ exclude = [
   "src/utils/concurrent.test.ts",
   "src/helper/cookie/index.test.ts",
   "src/utils/cookie.test.ts",
-  # Pulls in `middleware/trailing-slash/index.ts`, which emits a 3 MB /
-  # 11k-line module from a 158-line source; plain `cargo check` (no tests)
-  # is SIGKILLed at >11 GB RSS within 40 s. Measured in round 2: NOT the
-  # try/catch class (that join landed and did not shrink it) — the
-  # short-circuit `&&`/`||` chains in the returned `async function`'s
-  # CLOSURE body each re-emit the whole rest of the body in both arms
-  # (2^k over the chained conditions; see hono-current.md). phase 3 pending.
+  # Its size blocker is fixed (closure-body forks now rejoin once:
+  # `trailing-slash/index.ts` 3 MB / 11k lines -> 60 KB / 367 lines, plain
+  # `cargo check` stays 0 with it admitted). Admitting the TEST still adds
+  # 48 E0308 to `cargo check --tests`: `app.get(path, handler)` passes a
+  # `String` where the variadic `...handlers` list is expected, and a
+  # string option where a string-literal union is expected (the generic
+  # E0308 families). phase 3 pending.
   "src/middleware/trailing-slash/index.test.ts",
 ]
 

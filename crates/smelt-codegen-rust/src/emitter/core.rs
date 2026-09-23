@@ -1005,6 +1005,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 .cloned();
             if source_field.is_none()
                 && !self.is_virtual_method_storage_field(target, target_field.name)
+                && !self.class_method_implements_interface_field(source, target, target_field.name)
                 && !matches!(self.mir.types.get(target_field.ty), Some(Type::Optional(_)))
             {
                 return None;
@@ -1092,7 +1093,14 @@ impl<'mir> FunctionEmitter<'mir> {
                 value
             } else if let Some(source_field) = source_field_match {
                 let source_field_name = sanitize_ident(self.symbol_name(source_field.name)?);
-                let source_value = format!("smelt_struct_value.{source_field_name}.clone()");
+                // A reference class keeps its fields inside its shared cell, so
+                // they are read through `.0.borrow()` (a class instance viewed
+                // through an interface it implements reaches here).
+                let source_value = if self.is_reference_class_type(source) {
+                    format!("smelt_struct_value.0.borrow().{source_field_name}.clone()")
+                } else {
+                    format!("smelt_struct_value.{source_field_name}.clone()")
+                };
                 let adapted =
                     self.value_at_type_text(&source_value, source_field.ty, target_field.ty, scope)?;
                 // Narrowing a callable object to a callable interface that
@@ -1250,6 +1258,39 @@ impl<'mir> FunctionEmitter<'mir> {
         ))
     }
 
+    /// Returns whether an interface record's `field` is implemented by a METHOD
+    /// of the class `source` (its own or inherited).
+    ///
+    /// An interface is emitted as a record whose methods are callable fields,
+    /// while a class implements them as real methods on its own `impl`. A class
+    /// instance viewed through the interface (`const r: Router<T> = new
+    /// RegExpRouter()`, an interface-typed parameter or list element, a factory
+    /// callback's result) therefore fills each such slot with a closure that
+    /// dispatches to the class's method on the SAME instance (a reference class
+    /// handle shares its cell), exactly as the abstract-base storage slots of
+    /// [`Self::is_virtual_method_storage_field`] do. Without this the
+    /// structural adapter declined (no source field of that name), the class
+    /// value flowed unconverted into the interface's Rust type (E0308), and an
+    /// erasure of it read the methods as fields of the class (E0609 / E0615).
+    ///
+    /// Data properties the interface declares are read from the class's field
+    /// when the view is built (the record ABI stores them by value), so a
+    /// `readonly` property is exact; a mutable one written through the class
+    /// after the view exists is not observed by it. Methods always dispatch
+    /// live, which is what an interface's `this`-using contract needs.
+    pub(super) fn class_method_implements_interface_field(
+        &self,
+        source: TypeId,
+        target: TypeId,
+        field: Symbol,
+    ) -> bool {
+        self.is_interface_record_type(target)
+            && !self.is_interface_record_type(source)
+            && self
+                .class_for_type(source)
+                .is_some_and(|class| self.find_class_method_function(class.name, field).is_some())
+    }
+
     /// Returns true when `field` is a callable slot that represents a class method.
     ///
     /// Abstract/base classes store virtual method members as function fields so
@@ -1288,7 +1329,9 @@ impl<'mir> FunctionEmitter<'mir> {
         target: TypeId,
         method: Symbol,
     ) -> Result<Option<String>, EmitError> {
-        if !self.is_virtual_method_storage_field(target, method) {
+        if !self.is_virtual_method_storage_field(target, method)
+            && !self.class_method_implements_interface_field(source, target, method)
+        {
             return Ok(None);
         }
         let Some(Type::Function(function_ty)) = self
@@ -1413,6 +1456,20 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             source_function.params.len().saturating_sub(1)
         };
+        // The method's signature is written in the class's OWN type parameters;
+        // the receiver is one instantiation of it (`Square<String>`), so its
+        // parameter and return types are read at that instantiation. Without
+        // this a generic class's `T` rendered erased and every argument and
+        // result crossed a spurious `SmeltUnknown` seam against the method's
+        // real `String` signature.
+        let receiver_substitutions = self.class_instance_type_substitutions(source);
+        let at_receiver = |ty: TypeId| {
+            if receiver_substitutions.is_empty() {
+                ty
+            } else {
+                self.substitute_type_params_in_type(ty, &receiver_substitutions)
+            }
+        };
         let mut arg_preludes = Vec::new();
         let args = function_ty
             .params
@@ -1427,7 +1484,7 @@ impl<'mir> FunctionEmitter<'mir> {
                         .params
                         .get(index.saturating_add(1))
                         .and_then(|param| self.function_local_decl(source_function, *param).ok())
-                        .map_or(*target_param, |decl| decl.ty)
+                        .map_or(*target_param, |decl| at_receiver(decl.ty))
                 };
                 let arg_source_text = if function_ty.mutable_params.contains(&index) {
                     format!("(*arg{index}).clone()")
@@ -1483,7 +1540,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let source_return_ty = if dispatches_to_source_field {
             function_ty.return_ty
         } else {
-            source_function.return_ty
+            at_receiver(source_function.return_ty)
         };
         let adjusted_call = if source_can_throw && function_ty.may_throw {
             call
@@ -1515,6 +1572,26 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(Some(format!(
             "{{ let smelt_virtual_receiver = {receiver_value}; let smelt_virtual_method: ::std::rc::Rc<dyn Fn({param_types}) -> {return_ty}> = ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let {receiver_mut}smelt_method_receiver = smelt_virtual_receiver.clone(); {prelude}{wrapped_body} }}); smelt_virtual_method }}"
         )))
+    }
+
+    /// Maps a class type's own type parameters to the arguments of `ty`.
+    ///
+    /// `Square<String>` answers `{T: String}` for `class Square<T>`. Empty for a
+    /// non-generic class, an interface, or a non-class type.
+    fn class_instance_type_substitutions(&self, ty: TypeId) -> HashMap<Symbol, TypeId> {
+        let Some(Type::Class { args, .. }) = self.mir.types.get(ty) else {
+            return HashMap::new();
+        };
+        self.class_for_type(ty)
+            .map(|class| {
+                class
+                    .type_params
+                    .iter()
+                    .zip(args.iter().copied())
+                    .map(|(param, arg)| (param.name, arg))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Return the MIR class described by a class type.

@@ -1,0 +1,187 @@
+class Square fields [Public name: String, Public tagged: Float, Private side: Float] constructor Some(FuncId(2)) methods [FuncId(3), FuncId(4)]
+class Circle fields [Private radius: Float, Public name: String, Public tagged: Float] constructor Some(FuncId(5)) methods [FuncId(6), FuncId(7)]
+interface Shape
+
+fn describe (FuncId(0)) -> String throws
+  locals
+    %0 param shape: Shape
+    %1 temp: String
+    %2 temp: String
+    %3 temp: Float
+    %4 temp: String
+    %5 temp: String
+    %6 temp: String
+    %7 temp: String
+  bb0:
+    %1 = "" + copy %0.field7
+    %2 = move %1 + " area="
+    %3 = closure_call copy %0.field8()
+    %4 = move %2 + move %3
+    %5 = move %4 + " "
+    %6 = closure_call copy %0.field10("x")
+    %7 = move %5 + move %6
+    return move %7
+
+fn run_suite (FuncId(1)) -> None throws
+  locals
+    %0 param __param0: Dict<String, fn() -> Shape>
+    %1 user make: fn() -> Shape
+    %2 user shape: Shape
+    %3 temp: Shape
+    %4 temp: Float
+    %5 temp: String
+    %6 temp: None
+  bb0:
+    %1 = copy %0.field4
+    %3 = closure_call move %1()
+    %2 = move %3
+    %4 = closure_call copy %2.field8()
+    %5 = closure_call copy %2.field10("suite")
+    %6 = call @console_log(copy %2.field7, move %4, move %5) -> bb1
+  bb1:
+    return none
+
+fn new (FuncId(2)) -> Square
+  locals
+    %0 user this: Square
+    %1 param side: Float
+  bb0:
+    %0 = struct0 {}
+    %0.field7 = "square"
+    %0.field11 = 0.0
+    %0.field12 = copy %1
+    return move %0
+
+fn area (FuncId(3)) -> Float
+  locals
+    %0 param this: Square
+    %1 temp: Float
+  bb0:
+    %1 = copy %0.field12 * copy %0.field12
+    return move %1
+
+fn tag (FuncId(4)) -> String
+  locals
+    %0 param this: Square
+    %1 param label: String
+    %2 temp: Float
+  bb0:
+    %2 = copy %0.field11 + 1.0
+    %0.field11 = move %2
+    return copy %1
+
+fn new (FuncId(5)) -> Circle
+  locals
+    %0 user this: Circle
+    %1 param radius: Float
+  bb0:
+    %0 = struct15 {}
+    %0.field7 = "circle"
+    %0.field11 = 0.0
+    %0.field16 = copy %1
+    return move %0
+
+fn area (FuncId(6)) -> Float
+  locals
+    %0 param this: Circle
+    %1 temp: Float
+    %2 temp: Float
+    %3 temp: Float
+  bb0:
+    %1 = 3.141592653589793 * copy %0.field16
+    %2 = move %1 * copy %0.field16
+    %3 = numeric_round move %2
+    return move %3
+
+fn tag (FuncId(7)) -> String
+  locals
+    %0 param this: Circle
+    %1 param label: String
+    %2 temp: Float
+  bb0:
+    %2 = copy %0.field11 + 2.0
+    %0.field11 = move %2
+    return copy %1
+
+fn main (FuncId(8)) -> None throws
+  locals
+    %0 user square: Square
+    %1 user shapes: List<Shape>
+    %2 user shape: Shape
+    %3 temp: Square
+    %4 temp: Circle
+    %5 temp: List<Shape>
+    %6 temp: Float
+    %7 temp: Float
+    %8 temp: Bool
+    %9 temp: String
+    %10 temp: None
+    %11 temp: Square
+    %12 temp: String
+    %13 temp: None
+    %14 temp: None
+    %15 temp: fn() -> Shape
+    %16 temp: Dict<String, fn() -> Shape>
+    %17 temp: None
+    %18 temp: fn() -> Shape
+    %19 temp: Dict<String, fn() -> Shape>
+    %20 temp: None
+  bb0:
+    %3 = call fn2(3.0) -> bb1
+  bb1:
+    %0 = move %3
+    %4 = call fn5(2.0) -> bb2
+  bb2:
+    %5 = [copy %0, move %4]
+    %1 = move %5
+    %6 = 0.0
+    goto bb3
+  bb3:
+    %7 = len copy %1
+    %8 = copy %6 < move %7
+    switch move %8 ? bb4 : bb6
+  bb4:
+    %2 = copy %1[copy %6]
+    %9 = call fn0(move %2) -> bb7
+  bb5:
+    %6 = copy %6 + 1.0
+    goto bb3
+  bb6:
+    %11 = call fn2(5.0) -> bb9
+  bb7:
+    %10 = call @console_log(move %9) -> bb8
+  bb8:
+    goto bb5
+  bb9:
+    %12 = call fn0(move %11) -> bb10
+  bb10:
+    %13 = call @console_log(move %12) -> bb11
+  bb11:
+    %14 = call @console_log("square tagged", copy %0.field11) -> bb12
+  bb12:
+    %15 = closure ClosureId(0) []
+    %16 = {"make": move %15}
+    %17 = call fn1(move %16) -> bb13
+  bb13:
+    %18 = closure ClosureId(1) []
+    %19 = {"make": move %18}
+    %20 = call fn1(move %19) -> bb14
+  bb14:
+    return none
+
+closure ClosureId(0) -> Shape
+  locals
+    %0 temp: Square
+  bb0:
+    %0 = call fn2(4.0) -> bb1
+  bb1:
+    return copy %0
+
+closure ClosureId(1) -> Shape
+  locals
+    %0 temp: Circle
+  bb0:
+    %0 = call fn5(1.0) -> bb1
+  bb1:
+    return copy %0
+

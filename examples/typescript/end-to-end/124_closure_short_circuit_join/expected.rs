@@ -3098,7 +3098,7 @@ pub(crate) fn make_handler(prefix: String) -> ::std::rc::Rc<dyn Fn(String, bool)
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let prefix = prefix.clone();
     move |closure_arg_0: String, closure_arg_1: bool| { let prefix = prefix.clone(); SmeltFuture::from_future_primed(Box::pin(async move {
-        let smelt_async_value = {
+        let smelt_async_value: Result<String, Box<dyn std::error::Error>> = {
     let settled: f64;
     let mut parsed: f64;
     let mut _smelt_tmp_9: bool;
@@ -3126,28 +3126,31 @@ pub(crate) fn make_handler(prefix: String) -> ::std::rc::Rc<dyn Fn(String, bool)
     let _smelt_tmp_31: bool;
     let _smelt_tmp_32: f64;
     let _smelt_tmp_34: f64;
-    let mut _smelt_tmp_35: bool;
-    let _smelt_tmp_36: bool;
-    let mut _smelt_tmp_37: bool;
-    let _smelt_tmp_38: String;
-    let _smelt_tmp_39: String;
+    let _smelt_tmp_35: String;
+    let _smelt_tmp_37: f64;
+    let _smelt_tmp_38: f64;
+    let mut _smelt_tmp_39: bool;
     let _smelt_tmp_40: bool;
     let mut _smelt_tmp_41: bool;
     let _smelt_tmp_42: String;
     let _smelt_tmp_43: String;
     let _smelt_tmp_44: bool;
-    let _smelt_tmp_45: f64;
-    let _smelt_tmp_46: bool;
-    let mut _smelt_tmp_47: bool;
+    let mut _smelt_tmp_45: bool;
+    let _smelt_tmp_46: String;
+    let _smelt_tmp_47: String;
     let _smelt_tmp_48: bool;
-    let _smelt_tmp_49: String;
-    let _smelt_tmp_51: bool;
-    let _smelt_tmp_52: f64;
+    let _smelt_tmp_49: f64;
+    let _smelt_tmp_50: bool;
+    let mut _smelt_tmp_51: bool;
+    let _smelt_tmp_52: bool;
     let _smelt_tmp_53: String;
-    let _smelt_tmp_54: String;
-    let _smelt_tmp_55: String;
-    let _smelt_tmp_56: String;
+    let _smelt_tmp_55: bool;
+    let _smelt_tmp_56: f64;
     let _smelt_tmp_57: String;
+    let _smelt_tmp_58: String;
+    let _smelt_tmp_59: String;
+    let _smelt_tmp_60: String;
+    let _smelt_tmp_61: String;
     let mut score: f64 = 0.0;
     let _smelt_tmp_7: f64 = closure_arg_0.chars().count() as f64;
     let _smelt_tmp_8: bool = _smelt_tmp_7 > 0.0;
@@ -3210,82 +3213,87 @@ pub(crate) fn make_handler(prefix: String) -> ::std::rc::Rc<dyn Fn(String, bool)
     let _smelt_tmp_33: SmeltFuture<f64> = SmeltFuture::from_future(Box::pin(async move { smelt_sleep_ms(0.0 as f64).await; Ok::<_, Box<dyn std::error::Error>>(score) }));
     _smelt_tmp_34 = _smelt_tmp_33.await?;
     settled = _smelt_tmp_34;
+    _smelt_tmp_35 = closure_arg_0.clone().chars().skip({ let smelt_len = closure_arg_0.clone().chars().count() as i64; let smelt_index = 0.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = closure_arg_0.clone().chars().count() as i64; let smelt_index = 2.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = closure_arg_0.clone().chars().count() as i64; let smelt_index = 0.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
+    let _smelt_tmp_36: f64 = check(_smelt_tmp_35.clone())?;
+    _smelt_tmp_37 = _smelt_tmp_36 - 2.0;
+    _smelt_tmp_38 = score + _smelt_tmp_37;
+    score = _smelt_tmp_38;
     if closure_arg_1 {
-    _smelt_tmp_35 = true;
+    _smelt_tmp_39 = true;
     } else {
-    _smelt_tmp_36 = closure_arg_0.clone() == prefix.clone();
-    _smelt_tmp_35 = _smelt_tmp_36;
+    _smelt_tmp_40 = closure_arg_0.clone() == prefix.clone();
+    _smelt_tmp_39 = _smelt_tmp_40;
     }
-    if _smelt_tmp_35 {
-    _smelt_tmp_37 = true;
-    } else {
-    _smelt_tmp_38 = closure_arg_0.clone();
-    _smelt_tmp_39 = ".html".to_owned();
-    _smelt_tmp_40 = _smelt_tmp_38.clone().ends_with(&_smelt_tmp_39.clone());
-    _smelt_tmp_37 = _smelt_tmp_40;
-    }
-    if _smelt_tmp_37 {
+    if _smelt_tmp_39 {
     _smelt_tmp_41 = true;
     } else {
     _smelt_tmp_42 = closure_arg_0.clone();
-    _smelt_tmp_43 = ".json".to_owned();
+    _smelt_tmp_43 = ".html".to_owned();
     _smelt_tmp_44 = _smelt_tmp_42.clone().ends_with(&_smelt_tmp_43.clone());
     _smelt_tmp_41 = _smelt_tmp_44;
     }
     if _smelt_tmp_41 {
-    _smelt_tmp_45 = score + 10.0;
-    score = _smelt_tmp_45;
+    _smelt_tmp_45 = true;
+    } else {
+    _smelt_tmp_46 = closure_arg_0.clone();
+    _smelt_tmp_47 = ".json".to_owned();
+    _smelt_tmp_48 = _smelt_tmp_46.clone().ends_with(&_smelt_tmp_47.clone());
+    _smelt_tmp_45 = _smelt_tmp_48;
+    }
+    if _smelt_tmp_45 {
+    _smelt_tmp_49 = score + 10.0;
+    score = _smelt_tmp_49;
     } else {
     }
-    _smelt_tmp_46 = settled == 0.0;
-    if _smelt_tmp_46 {
-    _smelt_tmp_48 = !(closure_arg_1);
-    _smelt_tmp_47 = _smelt_tmp_48;
+    _smelt_tmp_50 = settled == 0.0;
+    if _smelt_tmp_50 {
+    _smelt_tmp_52 = !(closure_arg_1);
+    _smelt_tmp_51 = _smelt_tmp_52;
     } else {
-    _smelt_tmp_47 = false;
+    _smelt_tmp_51 = false;
     }
-    if _smelt_tmp_47 {
-    _smelt_tmp_49 = "reject ".to_owned() + &closure_arg_0.clone();
-    _smelt_tmp_49.clone()
+    if _smelt_tmp_51 {
+    _smelt_tmp_53 = "reject ".to_owned() + &closure_arg_0.clone();
+    Ok::<String, Box<dyn std::error::Error>>(_smelt_tmp_53.clone())
     } else {
     parsed = 0.0;
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| check(closure_arg_0.clone()))) {
         Ok(Ok(__smelt_value)) => {
-            let _smelt_tmp_50: f64 = __smelt_value;
-    parsed = _smelt_tmp_50;
+            let _smelt_tmp_54: f64 = __smelt_value;
+    parsed = _smelt_tmp_54;
         }
         Ok(Err(__smelt_error)) => {
             let error = smelt_thrown_value(&*__smelt_error);
-    _smelt_tmp_51 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if value.contains_key("__smelt_error"));
-    if _smelt_tmp_51 {
-    _smelt_tmp_52 = -1.0;
-    parsed = _smelt_tmp_52;
+    _smelt_tmp_55 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if value.contains_key("__smelt_error"));
+    if _smelt_tmp_55 {
+    _smelt_tmp_56 = -1.0;
+    parsed = _smelt_tmp_56;
     } else {
     }
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let error = smelt_panic_error_value(&*__smelt_panic);
-    _smelt_tmp_51 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if value.contains_key("__smelt_error"));
-    if _smelt_tmp_51 {
-    _smelt_tmp_52 = -1.0;
-    parsed = _smelt_tmp_52;
+    _smelt_tmp_55 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if value.contains_key("__smelt_error"));
+    if _smelt_tmp_55 {
+    _smelt_tmp_56 = -1.0;
+    parsed = _smelt_tmp_56;
     } else {
     }
         }
     }
-    _smelt_tmp_53 = "".to_owned() + &closure_arg_0.clone();
-    _smelt_tmp_54 = _smelt_tmp_53.clone() + &" score=".to_owned();
-    _smelt_tmp_55 = _smelt_tmp_54.clone() + &smelt_number_to_string(score);
-    _smelt_tmp_56 = _smelt_tmp_55.clone() + &" parsed=".to_owned();
-    _smelt_tmp_57 = _smelt_tmp_56.clone() + &smelt_number_to_string(parsed);
-    _smelt_tmp_57.clone()
+    _smelt_tmp_57 = "".to_owned() + &closure_arg_0.clone();
+    _smelt_tmp_58 = _smelt_tmp_57.clone() + &" score=".to_owned();
+    _smelt_tmp_59 = _smelt_tmp_58.clone() + &smelt_number_to_string(score);
+    _smelt_tmp_60 = _smelt_tmp_59.clone() + &" parsed=".to_owned();
+    _smelt_tmp_61 = _smelt_tmp_60.clone() + &smelt_number_to_string(parsed);
+    Ok::<String, Box<dyn std::error::Error>>(_smelt_tmp_61.clone())
     }
         };
-        Ok::<String, Box<dyn std::error::Error>>(smelt_async_value)
+        Ok::<String, Box<dyn std::error::Error>>(smelt_async_value?)
     }) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<String, Box<dyn std::error::Error>>>>>) }
 });
-    return _smelt_tmp_1.clone();
+    return ::std::rc::Rc::new({ let _smelt_adapted_callback = _smelt_tmp_1.clone(); move |arg0: String, arg1: bool| { let smelt_async_callback = _smelt_adapted_callback.clone(); { let smelt_async_source = (smelt_async_callback)(arg0, arg1); SmeltFuture::from_future(Box::pin(async move { let smelt_async_output = smelt_async_source.await?; Ok::<_, Box<dyn std::error::Error>>(smelt_async_output) })) } } });
 }
 
 pub(crate) fn check(path: String) -> Result<f64, Box<dyn std::error::Error>> {

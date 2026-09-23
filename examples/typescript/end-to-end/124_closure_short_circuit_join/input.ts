@@ -27,6 +27,9 @@ function makeHandler(prefix: string): Handler {
       score += 1
     }
     const settled = await Promise.resolve(score)
+    // An unguarded throwing call makes the closure fallible: its early
+    // `return` below is a statement while its tail is an `Ok(..)` value.
+    score += check(path.slice(0, 2)) - 2
     if (strict || path === prefix || path.endsWith('.html') || path.endsWith('.json')) {
       score += 10
     }

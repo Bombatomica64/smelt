@@ -457,3 +457,34 @@ function read(e: FetcherError): number { return e.innerError; }
         "readonly parameter property should declare an inner_error field: {source}"
     );
 }
+
+/// A class instance viewed through an interface it implements dispatches the
+/// interface's methods to the class's own `impl` on the same instance, and
+/// reads the interface's property through the class's field.
+///
+/// Before, the structural adapter declined (the class has no FIELD named like
+/// the method), the class value flowed unconverted into the interface's Rust
+/// record type (E0308), and Hono's `router/common.case.test.ts` harness read
+/// `name` / `add` / `match` as fields of `RegExpRouter` (E0609 / E0615).
+#[test]
+fn class_viewed_through_interface_dispatches_its_methods() {
+    let source = source_for(
+        "interface Shape { readonly name: string; area(): number }\n\
+         class Square implements Shape {\n\
+         \x20 readonly name: string = 'square'\n\
+         \x20 side: number\n\
+         \x20 constructor(side: number) { this.side = side }\n\
+         \x20 area(): number { return this.side * this.side }\n\
+         }\n\
+         function describe(shape: Shape): string { return shape.name + shape.area() }\n\
+         console.log(describe(new Square(3)));\n",
+    );
+    assert!(
+        source.contains("smelt_method_receiver.area()"),
+        "the interface slot must call the class method:\n{source}"
+    );
+    assert!(
+        source.contains("Shape { name: smelt_struct_value."),
+        "the interface property must read the class field:\n{source}"
+    );
+}

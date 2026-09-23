@@ -888,15 +888,21 @@ impl FunctionEmitter<'_> {
                 // `smelt_async_value`, so the block is a `Result<Ok, Box<dyn Error>>`
                 // whose `Ok` type equals the erased `SmeltUnknown` or the concrete
                 // `output_text` the `Ok::<..>` returns already use.
+                // A fallible, non-awaited body's tail is an `Ok::<..>(..)` value,
+                // so its block is a `Result` even when it also contains explicit
+                // `return Ok(..)` statements (a closure `if` whose arms end at a
+                // shared join renders its `Return`s that way): those leave the
+                // `async` block, not the inner one, and say nothing about its type.
+                let fallible_block = closure.can_throw && !async_value_needs_await;
                 let async_value_annotation: Option<String> =
-                    if body_text.contains("return Ok") {
+                    if body_text.contains("return Ok") && !fallible_block {
                         // Explicit returns diverge from the inner block, so pin
                         // its otherwise-unconstrained binding for Rust inference.
                         // Reaching this branch already proves the wrapper is
                         // async; contextual function types can lose their
                         // `is_async` flag while retaining a future return.
                         Some(format!(": {output_text}"))
-                    } else if closure.can_throw && !async_value_needs_await {
+                    } else if fallible_block {
                         let ok_ty_text = if matches!(
                             emitter.mir.types.get(output_ty),
                             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))

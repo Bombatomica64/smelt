@@ -114,7 +114,7 @@ async fn main (FuncId(4)) -> None throws
     %3 = await move %2
     return none
 
-closure ClosureId(0) -> Future<String>
+closure ClosureId(0) -> Future<String> throws
   locals
     %0 param path: String
     %1 param strict: Bool
@@ -151,29 +151,33 @@ closure ClosureId(0) -> Future<String>
     %32 temp: Float
     %33 temp: Future<Float>
     %34 temp: Float
-    %35 temp: Bool
-    %36 temp: Bool
-    %37 temp: Bool
-    %38 temp: String
-    %39 temp: String
+    %35 temp: String
+    %36 temp: Float
+    %37 temp: Float
+    %38 temp: Float
+    %39 temp: Bool
     %40 temp: Bool
     %41 temp: Bool
     %42 temp: String
     %43 temp: String
     %44 temp: Bool
-    %45 temp: Float
-    %46 temp: Bool
-    %47 temp: Bool
+    %45 temp: Bool
+    %46 temp: String
+    %47 temp: String
     %48 temp: Bool
-    %49 temp: String
-    %50 temp: Float
+    %49 temp: Float
+    %50 temp: Bool
     %51 temp: Bool
-    %52 temp: Float
+    %52 temp: Bool
     %53 temp: String
-    %54 temp: String
-    %55 temp: String
-    %56 temp: String
+    %54 temp: Float
+    %55 temp: Bool
+    %56 temp: Float
     %57 temp: String
+    %58 temp: String
+    %59 temp: String
+    %60 temp: String
+    %61 temp: String
   bb0:
     %3 = 0.0
     %7 = len copy %0
@@ -259,81 +263,87 @@ closure ClosureId(0) -> Future<String>
     %33 = async_resolve(0.0, copy %3)
     %34 = await copy %33
     %4 = copy %34
-    switch copy %1 ? bb24 : bb25
+    %35 = string_slice copy %0, 0.0, 2.0
+    %36 = call fn1(copy %35) -> bb24
   bb24:
-    %35 = true
-    goto bb26
+    %37 = copy %36 - 2.0
+    %38 = copy %3 + copy %37
+    %3 = copy %38
+    switch copy %1 ? bb25 : bb26
   bb25:
-    %36 = copy %0 == copy %2
-    %35 = copy %36
-    goto bb26
+    %39 = true
+    goto bb27
   bb26:
-    switch copy %35 ? bb27 : bb28
+    %40 = copy %0 == copy %2
+    %39 = copy %40
+    goto bb27
   bb27:
-    %37 = true
-    goto bb29
+    switch copy %39 ? bb28 : bb29
   bb28:
-    %38 = copy %0
-    %39 = ".html"
-    %40 = string_ends_with copy %38, copy %39
-    %37 = copy %40
-    goto bb29
-  bb29:
-    switch copy %37 ? bb30 : bb31
-  bb30:
     %41 = true
-    goto bb32
-  bb31:
+    goto bb30
+  bb29:
     %42 = copy %0
-    %43 = ".json"
+    %43 = ".html"
     %44 = string_ends_with copy %42, copy %43
     %41 = copy %44
-    goto bb32
+    goto bb30
+  bb30:
+    switch copy %41 ? bb31 : bb32
+  bb31:
+    %45 = true
+    goto bb33
   bb32:
-    switch copy %41 ? bb33 : bb34
+    %46 = copy %0
+    %47 = ".json"
+    %48 = string_ends_with copy %46, copy %47
+    %45 = copy %48
+    goto bb33
   bb33:
-    %45 = copy %3 + 10.0
-    %3 = copy %45
-    goto bb34
+    switch copy %45 ? bb34 : bb35
   bb34:
-    %46 = copy %4 == 0.0
-    switch copy %46 ? bb35 : bb36
+    %49 = copy %3 + 10.0
+    %3 = copy %49
+    goto bb35
   bb35:
-    %48 = !copy %1
-    %47 = copy %48
-    goto bb37
+    %50 = copy %4 == 0.0
+    switch copy %50 ? bb36 : bb37
   bb36:
-    %47 = false
-    goto bb37
+    %52 = !copy %1
+    %51 = copy %52
+    goto bb38
   bb37:
-    switch copy %47 ? bb38 : bb39
+    %51 = false
+    goto bb38
   bb38:
-    %49 = "reject " + copy %0
-    return copy %49
+    switch copy %51 ? bb39 : bb40
   bb39:
-    %5 = 0.0
-    goto bb40
+    %53 = "reject " + copy %0
+    return copy %53
   bb40:
-    %50 = call fn1(copy %0) -> bb43 unwind bb42
+    %5 = 0.0
+    goto bb41
   bb41:
-    %53 = "" + copy %0
-    %54 = copy %53 + " score="
-    %55 = copy %54 + copy %3
-    %56 = copy %55 + " parsed="
-    %57 = copy %56 + copy %5
-    return copy %57
+    %54 = call fn1(copy %0) -> bb44 unwind bb43
   bb42:
-    %51 = instanceof copy %6, class13
-    switch copy %51 ? bb44 : bb45
+    %57 = "" + copy %0
+    %58 = copy %57 + " score="
+    %59 = copy %58 + copy %3
+    %60 = copy %59 + " parsed="
+    %61 = copy %60 + copy %5
+    return copy %61
   bb43:
-    %5 = copy %50
-    goto bb41
+    %55 = instanceof copy %6, class13
+    switch copy %55 ? bb45 : bb46
   bb44:
-    %52 = -1.0
-    %5 = copy %52
-    goto bb45
+    %5 = copy %54
+    goto bb42
   bb45:
-    goto bb41
+    %56 = -1.0
+    %5 = copy %56
+    goto bb46
+  bb46:
+    goto bb42
 
 closure ClosureId(1) -> Float
   locals
