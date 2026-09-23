@@ -2300,6 +2300,7 @@ impl ModuleBuilder<'_> {
                 ));
             }
         };
+        self.settle_evolving_nullish_local(&assign.left, target, Self::expr_ty(body, value), body);
         self.apply_assignment_observed_type(&assign.left, Self::expr_ty(body, value), body);
         Ok((target, value))
     }
@@ -2679,6 +2680,73 @@ impl ModuleBuilder<'_> {
             );
         }
         Ok(true)
+    }
+
+    /// Settle the storage type of an evolving `let x = undefined` binding.
+    ///
+    /// TypeScript types an unannotated `let` initialized to `undefined`/`null`
+    /// by what is later assigned to it (`let userPass = undefined; userPass =
+    /// re.exec(s)` is `RegExpExecArray | null`), so storing it as the unit type
+    /// made the assignment ill-typed (Hono's `utils/basic-auth.ts`, E0308
+    /// `()` vs `SmeltMatch`). On the first assignment of a concrete value the
+    /// binding's declaration, its `let` statement and the assignment target
+    /// are retyped to `Optional<observed>` (an already-optional value keeps
+    /// its own type). The rule is flow-insensitive on purpose: reads lowered
+    /// before the assignment only ever observed `undefined`, which the
+    /// optional storage still represents. A later assignment of a different
+    /// type is not reconciled here (it keeps the settled storage).
+    fn settle_evolving_nullish_local(
+        &mut self,
+        left: &AssignmentTarget<'_>,
+        target: smelt_hir::ExprId,
+        observed_ty: smelt_hir::TypeId,
+        body: &mut Body,
+    ) {
+        let AssignmentTarget::AssignmentTargetIdentifier(identifier) = left else {
+            return;
+        };
+        let Some(local) = self.scope.lookup(identifier.name.as_str()) else {
+            return;
+        };
+        if !self.scope.evolving_nullish(local) {
+            return;
+        }
+        let storage_ty = match self.ctx.krate.types.get(observed_ty) {
+            Some(Type::None | Type::Unknown | Type::Never) | None => return,
+            Some(Type::Optional(_)) => observed_ty,
+            Some(_) => self.ctx.krate.types.intern(Type::Optional(observed_ty)),
+        };
+        // Local ids are per body: only settle a binding whose `let` lives in
+        // THIS body (an assignment from a nested closure reaches a captured
+        // local through a different body and leaves it alone).
+        let Some(let_ty) = body.stmts.iter_mut().find_map(|stmt| match stmt {
+            Stmt::Let { pat, ty, .. }
+                if matches!(
+                    body.patterns.get(usize::try_from(pat.0).unwrap_or(usize::MAX)),
+                    Some(Pattern::Binding(bound)) if *bound == local
+                ) =>
+            {
+                Some(ty)
+            }
+            _ => None,
+        }) else {
+            return;
+        };
+        *let_ty = storage_ty;
+        if let Some(decl) = usize::try_from(local.0)
+            .ok()
+            .and_then(|index| body.locals.get_mut(index))
+        {
+            decl.ty = storage_ty;
+        }
+        if let Some(expr) = usize::try_from(target.0)
+            .ok()
+            .and_then(|index| body.exprs.get_mut(index))
+            && matches!(expr.kind, ExprKind::Local(bound) if bound == local)
+        {
+            expr.ty = storage_ty;
+        }
+        self.scope.settle_evolving_nullish(local);
     }
 
     /// Record the observed type produced by assigning into an unknown local.

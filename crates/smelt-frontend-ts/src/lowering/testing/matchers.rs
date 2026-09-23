@@ -5073,6 +5073,15 @@ impl ModuleBuilder<'_> {
                 }) {
                     self.scope.mark_explicit_any(local);
                 }
+                // `let x = undefined` without an annotation: TypeScript's
+                // evolving type. The storage type is settled by the first
+                // concrete assignment (see `settle_evolving_nullish_local`).
+                if mutable
+                    && annotated_ty.is_none()
+                    && matches!(self.ctx.krate.types.get(ty), Some(Type::None))
+                {
+                    self.scope.mark_evolving_nullish(local);
+                }
                 self.scope.bind(name.to_owned(), local);
                 let pat = body.push_pattern(Pattern::Binding(local));
                 body.push_stmt_to_block(block, Stmt::Let { pat, ty, value });

@@ -105,6 +105,11 @@ pub(in crate::lowering) struct LocalScope {
     /// assignment must not flow-narrow them to that value's type; the source
     /// deliberately opted out of static shape tracking.
     explicit_any: ExplicitAnyLocals,
+    /// Unannotated `let x = undefined` / `let x = null` bindings. TypeScript
+    /// gives such a binding an EVOLVING type — the union of what is later
+    /// assigned to it — so its storage type is settled by the first concrete
+    /// assignment (`apply_assignment_observed_type`), not by the initializer.
+    evolving_nullish: HashSet<LocalId>,
     /// Static-member property writes collected onto function-typed locals.
     callable_props: CallableLocalPropWrites,
     /// Local closure values available to non-escaping callback consumers.
@@ -181,6 +186,24 @@ impl LocalScope {
     /// Return whether a local was declared with an explicit `any` annotation.
     pub(in crate::lowering) fn is_explicit_any(&self, local: LocalId) -> bool {
         self.explicit_any.0.contains(&local)
+    }
+
+    /// Record an unannotated `let` binding initialized to `undefined`/`null`.
+    pub(in crate::lowering) fn mark_evolving_nullish(&mut self, local: LocalId) {
+        self.evolving_nullish.insert(local);
+    }
+
+    /// Return whether `local` still carries its evolving-type mark.
+    ///
+    /// Callers must confirm the local belongs to the body being lowered (ids
+    /// are per body), which is why the mark is only consumed on a match.
+    pub(in crate::lowering) fn evolving_nullish(&self, local: LocalId) -> bool {
+        self.evolving_nullish.contains(&local)
+    }
+
+    /// Clear the evolving-type mark once the storage type has been settled.
+    pub(in crate::lowering) fn settle_evolving_nullish(&mut self, local: LocalId) {
+        self.evolving_nullish.remove(&local);
     }
 
     /// Take the explicit-`any` facts, leaving an empty set for a nested body.

@@ -664,6 +664,19 @@ impl FunctionEmitter<'_> {
             let erased = self.erase_value_text(&operand_text, source_ty)?;
             return self.extract_value_text(&erased, target, scope);
         }
+        // Two different tuple types convert element-wise: `[i, item] as
+        // [number, Item]` returned as `[number, Item | undefined]` wraps the
+        // item (Hono's `utils/accept.ts`). The text-level seam owns the
+        // element-wise rule; this operand entry point used to fall through to
+        // the bare operand and hand back the unconverted tuple (E0308).
+        if source_ty != target
+            && matches!(
+                (self.mir.types.get(source_ty), self.mir.types.get(target)),
+                (Some(Type::Tuple(_)), Some(Type::Tuple(_)))
+            )
+        {
+            return self.value_at_type_text(&operand_text, source_ty, target, scope);
+        }
         self.operand_text(operand)
     }
 
