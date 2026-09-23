@@ -1088,6 +1088,8 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "124_closure_short_circuit_join",
     "125_interface_receiver_dispatch",
     "126_subclass_into_base_parameter",
+    "127_tuple_assertion_into_optional_element",
+    "128_let_undefined_evolving_type",
     "11_console_log_expressions",
     "12_while_sum",
     "13_for_of_sum",

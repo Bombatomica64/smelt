@@ -3122,8 +3122,15 @@ impl ModuleBuilder<'_> {
                 })
             }
         };
+        // `x ||= v` and `x ??= v` store `v` only where `x` was falsy/nullish,
+        // so `v` is checked against the target's NON-nullish type: `promise ||=
+        // new Promise<T>(..)` builds a `Promise<T>`, not a promise of the
+        // optional slot's `Promise<T> | undefined` (Hono's
+        // `utils/concurrent.ts`, E0308 `SmeltFuture<Option<SmeltFuture<T>>>`).
         let right_hint = match assign.operator {
-            AssignmentOperator::LogicalNullish => self.non_nullish_type(target_ty),
+            AssignmentOperator::LogicalNullish | AssignmentOperator::LogicalOr => {
+                self.non_nullish_type(target_ty).or(Some(target_ty))
+            }
             _ => Some(target_ty),
         };
         // The VALUE of `x ??= v` is never nullish: either the store happened and
@@ -3248,6 +3255,19 @@ impl ModuleBuilder<'_> {
             else_block,
         };
         self.push_logical_assignment_stmt(body, target_block, branch);
+        // After `x ??= v` / `x ||= v` with a non-nullish `v`, `x` is non-nullish
+        // on every path (either it already was, or it now holds `v`), which is
+        // the narrowing TypeScript applies. Without it a later `return x` read
+        // the optional storage and was coerced as a maybe-absent value.
+        if matches!(
+            assign.operator,
+            AssignmentOperator::LogicalNullish | AssignmentOperator::LogicalOr
+        ) && let oxc::ast::ast::AssignmentTarget::AssignmentTargetIdentifier(identifier) =
+            &assign.left
+            && let Some(inner) = self.optional_inner_for_narrowing(target_ty, right_ty)
+        {
+            self.apply_narrowing(identifier.name.as_str().to_owned(), inner);
+        }
         Ok(result_local.map(|result_local| {
             body.push_expr(Expr {
                 kind: ExprKind::Local(result_local),

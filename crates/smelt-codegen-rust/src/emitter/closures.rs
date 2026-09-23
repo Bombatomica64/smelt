@@ -730,6 +730,13 @@ impl FunctionEmitter<'_> {
                 format!(" {}", owned_param_prelude.trim_end())
             };
             let mut body_text = param_rebinds;
+            // A closure PARAMETER written by a nested closure (`(r) => (resolve
+            // = r)` assigning the enclosing arrow's `resolve` parameter) lives
+            // in a shared cell like any captured-and-mutated local; parameters
+            // exist at entry, so the cell is bound before the first statement.
+            // Without it the nested closures named an unbound
+            // `smelt_capture_<param>` (E0425, Hono's `utils/concurrent.ts`).
+            emitter.emit_shared_closure_parameter_preludes(&mut body_text)?;
             emitter.emit_mutable_local_preludes(&mut body_text)?;
             emitter.emit_closure_block(emitter.entry_block()?, &mut body_text)?;
             let returns_future = matches!(
@@ -1199,6 +1206,27 @@ impl FunctionEmitter<'_> {
         })
     }
 
+    /// Emits shared cells for closure parameters that a nested closure writes.
+    ///
+    /// The closure-body counterpart of the function-level parameter prelude:
+    /// the cell is seeded with a CLONE of the parameter, because a nested
+    /// closure that only reads the parameter may still capture the raw binding
+    /// through a capture alias (`smelt_captured_<param>`), so the binding has
+    /// to stay usable after the cell is created (moving it was E0382 in Hono's
+    /// `compose.ts`).
+    fn emit_shared_closure_parameter_preludes(&self, out: &mut String) -> Result<(), EmitError> {
+        for local in &self.function.params {
+            if !self.local_uses_shared_capture_storage(*local) {
+                continue;
+            }
+            let name = self.local_name(*local)?;
+            out.push_str(&format!(
+                "    let smelt_capture_{name} = ::std::rc::Rc::new(::std::cell::RefCell::new({name}.clone()));\n"
+            ));
+        }
+        Ok(())
+    }
+
     /// Return whether the value this closure yields is itself a future.
     ///
     /// An async wrapper stores the closure body's result in `smelt_async_value`.
@@ -1211,20 +1239,58 @@ impl FunctionEmitter<'_> {
     /// Returns `false` when the closure has no `Return` terminator so the
     /// wrapper falls back to treating the body value as already-resolved, which
     /// matches the previous text-based behaviour for those degenerate shapes.
+    ///
+    /// A body that MIXES the two — an `async` arrow returning `result` on one
+    /// path and `promise` on another (Hono's `utils/concurrent.ts`) — yields a
+    /// future on every path: [`Self::closure_return_value_text`] lifts each
+    /// resolved value with `SmeltFuture::resolved`, so this answers `true` as
+    /// soon as ANY return carries a future.
     pub(super) fn closure_yields_future_value(&self) -> Result<bool, EmitError> {
-        let mut saw_return = false;
         for block in &self.function.blocks {
-            if let Some(Terminator::Return(operand)) = &block.terminator {
-                saw_return = true;
-                if !matches!(
+            if let Some(Terminator::Return(operand)) = &block.terminator
+                && matches!(
                     self.mir.types.get(self.operand_ty(operand)?),
                     Some(Type::Future(_))
-                ) {
-                    return Ok(false);
-                }
+                )
+            {
+                return Ok(true);
             }
         }
-        Ok(saw_return)
+        Ok(false)
+    }
+
+    /// Renders a closure body's returned value and the Rust type it has.
+    ///
+    /// For an async closure (declared `Future<item>`) the body value is the
+    /// resolved `item` when every return is resolved, and a future when any
+    /// return is one (see [`Self::closure_yields_future_value`]); a resolved
+    /// operand in a future-yielding body is lifted with `SmeltFuture::resolved`
+    /// so all paths agree (the `if`/`else` arms were E0308 otherwise). A
+    /// generator's value is its completion type.
+    fn closure_return_value_text(&self, operand: &Operand) -> Result<(String, TypeId), EmitError> {
+        let operand_is_future = matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::Future(_))
+        );
+        match self.mir.types.get(self.function.return_ty) {
+            Some(Type::Future(item)) if !operand_is_future => {
+                let item = *item;
+                let value = self.value_at_type(operand, item)?;
+                if self.closure_yields_future_value()? {
+                    Ok((format!("SmeltFuture::resolved({value})"), self.function.return_ty))
+                } else {
+                    Ok((value, item))
+                }
+            }
+            Some(Type::Generator { return_ty, .. }) if self.function.is_generator => {
+                let return_ty = *return_ty;
+                Ok((self.value_at_type(operand, return_ty)?, return_ty))
+            }
+            _ => Ok((
+                self.value_at_type(operand, self.function.return_ty)?,
+                self.function.return_ty,
+            )),
+        }
     }
 
     /// Emits a closure block with return terminators scoped to the closure body.
@@ -1261,16 +1327,7 @@ impl FunctionEmitter<'_> {
             }
             return Ok(());
         }
-        let operand_is_future = matches!(
-            self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::Future(_))
-        );
-        let return_ty = match self.mir.types.get(self.function.return_ty) {
-            Some(Type::Future(item)) if !operand_is_future => *item,
-            Some(Type::Generator { return_ty, .. }) if self.function.is_generator => *return_ty,
-            _ => self.function.return_ty,
-        };
-        let value = self.value_at_type(operand, return_ty)?;
+        let (value, return_ty) = self.closure_return_value_text(operand)?;
         if self.function.can_throw || self.function.is_async {
             let return_ty_text = self.type_text_with_impl_trait(return_ty, false)?;
             out.push_str(&format!(
@@ -1426,18 +1483,7 @@ impl FunctionEmitter<'_> {
                     // fallthrough that the textual promotion pass patched up after
                     // the fact). Only when the operand is a resolved value do we
                     // strip to the inner type as before.
-                    let operand_is_future = matches!(
-                        self.mir.types.get(self.operand_ty(operand)?),
-                        Some(Type::Future(_))
-                    );
-                    let return_ty = match self.mir.types.get(self.function.return_ty) {
-                        Some(Type::Future(item)) if !operand_is_future => *item,
-                        Some(Type::Generator { return_ty, .. }) if self.function.is_generator => {
-                            *return_ty
-                        }
-                        _ => self.function.return_ty,
-                    };
-                    let value = self.value_at_type(operand, return_ty)?;
+                    let (value, return_ty) = self.closure_return_value_text(operand)?;
                     if self.function.can_throw {
                         let return_ty_text = self.type_text_with_impl_trait(return_ty, false)?;
                         out.push_str(&format!(

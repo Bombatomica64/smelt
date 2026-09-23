@@ -135,19 +135,20 @@ fn main (FuncId(1)) -> None
     %121 temp: String
     %122 temp: None
     %123 temp: Bool
-    %124 temp: String
+    %124 temp: Float
     %125 temp: String
-    %126 temp: None
-    %127 temp: Dict<String, Optional<Float>>
-    %128 temp: Bool
-    %129 temp: String
+    %126 temp: String
+    %127 temp: None
+    %128 temp: Dict<String, Optional<Float>>
+    %129 temp: Bool
     %130 temp: String
-    %131 temp: None
-    %132 temp: Bool
+    %131 temp: String
+    %132 temp: None
     %133 temp: Bool
-    %134 temp: String
+    %134 temp: Bool
     %135 temp: String
-    %136 temp: None
+    %136 temp: String
+    %137 temp: None
   bb0:
     %0 = 0.0
     %0 = 5.0
@@ -340,35 +341,36 @@ fn main (FuncId(1)) -> None
     %27 = move %28
     goto bb32
   bb32:
-    %124 = primitive_cast_string move %27
-    %125 = "nullish local: " + move %124
-    %126 = call @console_log(move %125) -> bb33
+    %124 = move %27
+    %125 = primitive_cast_string move %124
+    %126 = "nullish local: " + move %125
+    %127 = call @console_log(move %126) -> bb33
   bb33:
-    %127 = {}
-    %29 = move %127
-    %128 = copy %29.field0 == none
-    switch move %128 ? bb34 : bb35
+    %128 = {}
+    %29 = move %128
+    %129 = copy %29.field0 == none
+    switch move %129 ? bb34 : bb35
   bb34:
     %30 = 4.0
     %29.field0 = move %30
     goto bb35
   bb35:
-    %129 = primitive_cast_string copy %29.field0
-    %130 = "nullish field: " + move %129
-    %131 = call @console_log(move %130) -> bb36
+    %130 = primitive_cast_string copy %29.field0
+    %131 = "nullish field: " + move %130
+    %132 = call @console_log(move %131) -> bb36
   bb36:
     %31 = 1.0
-    %132 = copy %31 != 0.0
-    %133 = !move %132
-    switch move %133 ? bb37 : bb38
+    %133 = copy %31 != 0.0
+    %134 = !move %133
+    switch move %134 ? bb37 : bb38
   bb37:
     %32 = 8.0
     %31 = move %32
     goto bb38
   bb38:
-    %134 = primitive_cast_string move %31
-    %135 = "or truthy: " + move %134
-    %136 = call @console_log(move %135) -> bb39
+    %135 = primitive_cast_string move %31
+    %136 = "or truthy: " + move %135
+    %137 = call @console_log(move %136) -> bb39
   bb39:
     return none
 

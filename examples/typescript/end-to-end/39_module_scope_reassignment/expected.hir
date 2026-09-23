@@ -59,39 +59,37 @@ module examples/typescript/end-to-end/39_module_scope_reassignment/input.ts (Mod
     #43: Float = if #37 then #39 else #42
     #44: None = @6(console_log)
     #45: None = call #44(#43)
-    #46: Optional<fn(String) -> Float> = %3
+    #46: fn(String) -> Float = %3
     #47: None = undefined
     #48: Bool = JsStrictEq #46, #47
     #49: Float = 1.0
     #50: Float = Neg #49
-    #51: Optional<fn(String) -> Float> = %3
-    #52: fn(String) -> Float = assert_type #51
-    #53: String = "ab"
-    #54: Float = closure_call #52(#53)
-    #55: Float = if #48 then #50 else #54
-    #56: None = @7(console_log)
-    #57: None = call #56(#55)
-    #58: Optional<fn(String) -> Float> = %5
-    #59: None = undefined
-    #60: Bool = JsStrictEq #58, #59
-    #61: Float = 1.0
-    #62: Float = Neg #61
-    #63: Optional<fn(String) -> Float> = %5
-    #64: fn(String) -> Float = assert_type #63
-    #65: String = "ab"
-    #66: Float = closure_call #64(#65)
-    #67: Float = if #60 then #62 else #66
-    #68: None = @8(console_log)
-    #69: None = call #68(#67)
-    #70: fn(String) -> Float = %7
-    #71: String = "ab"
-    #72: Float = closure_call #70(#71)
-    #73: None = @9(console_log)
-    #74: None = call #73(#72)
-    #75: fn() -> String = @2(inside_a_function)
-    #76: String = call #75()
-    #77: None = @10(console_log)
-    #78: None = call #77(#76)
+    #51: fn(String) -> Float = %3
+    #52: String = "ab"
+    #53: Float = closure_call #51(#52)
+    #54: Float = if #48 then #50 else #53
+    #55: None = @7(console_log)
+    #56: None = call #55(#54)
+    #57: fn(String) -> Float = %5
+    #58: None = undefined
+    #59: Bool = JsStrictEq #57, #58
+    #60: Float = 1.0
+    #61: Float = Neg #60
+    #62: fn(String) -> Float = %5
+    #63: String = "ab"
+    #64: Float = closure_call #62(#63)
+    #65: Float = if #59 then #61 else #64
+    #66: None = @8(console_log)
+    #67: None = call #66(#65)
+    #68: fn(String) -> Float = %7
+    #69: String = "ab"
+    #70: Float = closure_call #68(#69)
+    #71: None = @9(console_log)
+    #72: None = call #71(#70)
+    #73: fn() -> String = @2(inside_a_function)
+    #74: String = call #73()
+    #75: None = @10(console_log)
+    #76: None = call #75(#74)
   stmts
     s0: let %0: Optional<Float>
     s1: #0 = #1
@@ -111,10 +109,10 @@ module examples/typescript/end-to-end/39_module_scope_reassignment/input.ts (Mod
     s15: #31
     s16: #34
     s17: #45
-    s18: #57
-    s19: #69
-    s20: #74
-    s21: #78
+    s18: #56
+    s19: #67
+    s20: #72
+    s21: #76
 
 interned types
   t0 = String

@@ -260,7 +260,7 @@ module examples/typescript/end-to-end/79_logical_assignment_store/input.ts (Modu
     #220: Float = 4.0
     #221: Float = %28
     #222: String = "nullish local: "
-    #223: Optional<Float> = %27
+    #223: Float = %27
     #224: String = primitive_cast_string #223
     #225: String = Add #222, #224
     #226: None = @12(console_log)

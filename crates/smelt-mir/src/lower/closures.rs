@@ -49,7 +49,7 @@ use std::convert::TryFrom;
 use smelt_hir::Type;
 
 use crate::{
-    BasicBlock, ClosureId, LocalDecl, LocalId, Mir, MirClosure, MirClosureCapture, MirFunction,
+    BasicBlock, ClosureId, LocalDecl, LocalId, Mir, MirClosure, MirClosureCapture,
     Operand, Place, Rvalue, Statement, Terminator,
 };
 
@@ -195,20 +195,34 @@ impl LoweringCtx<'_> {
 ///
 /// Publishes invariants 1 and 2 in the module docstring.
 pub(super) fn mark_escaping_closures(mir: &mut Mir) {
-    let closure_defs_by_function = mir
+    // Every body that can create and return a closure: named functions AND
+    // closure bodies. A factory arrow (`const make = () => { const run = ..;
+    // return run }`) is itself a closure, and scanning only named functions
+    // left the closure it returns marked non-escaping — its self-recursive
+    // capture became a `Weak` that dangled once the factory returned
+    // ("self-recursive closure called after its defining scope returned",
+    // fixture 131 and Hono's `utils/concurrent.ts` `createPool`).
+    let bodies = mir
         .functions
         .iter()
-        .map(closure_definitions)
+        .map(|function| function.blocks.as_slice())
+        .chain(mir.closures.iter().map(|closure| closure.blocks.as_slice()))
         .collect::<Vec<_>>();
-    let local_rvalues_by_function = mir.functions.iter().map(local_rvalues).collect::<Vec<_>>();
+    let closure_defs_by_function = bodies
+        .iter()
+        .map(|blocks| closure_definitions(blocks))
+        .collect::<Vec<_>>();
+    let local_rvalues_by_function = bodies
+        .iter()
+        .map(|blocks| local_rvalues(blocks))
+        .collect::<Vec<_>>();
     let mut escaping = HashSet::new();
-    for ((function, definitions), local_rvalues) in mir
-        .functions
+    for ((blocks, definitions), local_rvalues) in bodies
         .iter()
         .zip(&closure_defs_by_function)
         .zip(&local_rvalues_by_function)
     {
-        for block in &function.blocks {
+        for block in *blocks {
             let Some(Terminator::Return(operand)) = &block.terminator else {
                 continue;
             };
@@ -280,9 +294,9 @@ pub(super) fn mark_escaping_closures(mir: &mut Mir) {
 }
 
 /// Return local assignments in a function for escape analysis.
-fn local_rvalues(function: &MirFunction) -> HashMap<LocalId, Rvalue> {
+fn local_rvalues(blocks: &[BasicBlock]) -> HashMap<LocalId, Rvalue> {
     let mut rvalues = HashMap::new();
-    for block in &function.blocks {
+    for block in blocks {
         for statement in &block.statements {
             if let Statement::Assign { dest, value } = statement {
                 rvalues.insert(*dest, value.clone());
@@ -371,9 +385,9 @@ fn mark_local_escaping_closures(
 }
 
 /// Return the closure and alias definitions inside one MIR function.
-fn closure_definitions(function: &MirFunction) -> HashMap<LocalId, ClosureLocalDef> {
+fn closure_definitions(blocks: &[BasicBlock]) -> HashMap<LocalId, ClosureLocalDef> {
     let mut definitions = HashMap::new();
-    for block in &function.blocks {
+    for block in blocks {
         for statement in &block.statements {
             let Statement::Assign { dest, value } = statement else {
                 continue;

@@ -2004,6 +2004,31 @@ impl ModuleBuilder<'_> {
                     ));
                 };
                 let duration = self.argument(duration_argument, body)?;
+                // `setTimeout(callback)` — a lone CALLBACK is the ordinary timer
+                // with its delay omitted, which JavaScript defaults to 0 (Hono's
+                // `utils/concurrent.ts` re-queues `run` this way). Only a
+                // non-callable lone argument is the `setTimeout(ms)` sleep shim;
+                // treating a callback as the duration cast it to `f64` (E0605).
+                if matches!(
+                    self.ctx.krate.types.get(Self::expr_ty(body, duration)),
+                    Some(Type::Function(_))
+                ) {
+                    let zero_ty = self.ctx.krate.types.intern(Type::Float);
+                    let zero = body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::Float(0.0)),
+                        ty: zero_ty,
+                        span: self.span(call.span.start, call.span.end),
+                    });
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok(Some(body.push_expr(Expr {
+                        kind: ExprKind::AsyncOp {
+                            op: AsyncOp::SetTimeout,
+                            args: vec![duration, zero],
+                        },
+                        ty,
+                        span: self.span(call.span.start, call.span.end),
+                    })));
+                }
                 let none_ty = self.ctx.krate.types.intern(Type::None);
                 let ty = self.ctx.krate.types.intern(Type::Future(none_ty));
                 Ok(Some(body.push_expr(Expr {

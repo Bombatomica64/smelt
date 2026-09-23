@@ -150,31 +150,33 @@ fn main (FuncId(6)) -> None
     %20 temp: None
     %21 temp: String
     %22 temp: None
-    %23 temp: Bool
-    %24 temp: Headers
-    %25 temp: None
-    %26 temp: Optional<String>
-    %27 temp: String
-    %28 temp: Headers
-    %29 temp: Optional<String>
-    %30 temp: String
-    %31 temp: None
-    %32 temp: Bool
+    %23 temp: Headers
+    %24 temp: Bool
+    %25 temp: Headers
+    %26 temp: None
+    %27 temp: Optional<String>
+    %28 temp: String
+    %29 temp: Headers
+    %30 temp: Optional<String>
+    %31 temp: String
+    %32 temp: None
     %33 temp: Headers
-    %34 temp: Optional<String>
-    %35 temp: String
-    %36 temp: None
-    %37 temp: Bool
-    %38 temp: Bool
-    %39 temp: None
-    %40 temp: Dict<String, String>
-    %41 temp: Response
-    %42 temp: Headers
-    %43 temp: None
-    %44 temp: None
-    %45 temp: String
-    %46 temp: String
-    %47 temp: None
+    %34 temp: Bool
+    %35 temp: Headers
+    %36 temp: Optional<String>
+    %37 temp: String
+    %38 temp: None
+    %39 temp: Bool
+    %40 temp: Bool
+    %41 temp: None
+    %42 temp: Dict<String, String>
+    %43 temp: Response
+    %44 temp: Headers
+    %45 temp: None
+    %46 temp: None
+    %47 temp: String
+    %48 temp: String
+    %49 temp: None
   bb0:
     %13 = call fn5() -> bb1
   bb1:
@@ -199,50 +201,52 @@ fn main (FuncId(6)) -> None
   bb10:
     %1 = undefined
     %2 = undefined
-    %23 = copy %1 == none
-    switch move %23 ? bb11 : bb12
+    %23 = copy %1
+    %24 = copy %23 == none
+    switch move %24 ? bb11 : bb12
   bb11:
-    %24 = headers_new
-    %3 = move %24
+    %25 = headers_new
+    %3 = move %25
     %1 = copy %3
     %2 = move %3
     goto bb13
   bb12:
-    %2 = copy %1
+    %2 = move %23
     goto bb13
   bb13:
     %4 = move %2
-    %25 = headers_set copy %4, "y", "3"
-    %26 = headers_get move %4, "y"
-    %27 = move %26 ?? "absent"
-    %28 = copy %1
-    %29 = headers_get move %28, "y"
-    %30 = move %29 ?? "absent"
-    %31 = call @console_log(move %27, move %30) -> bb14
+    %26 = headers_set copy %4, "y", "3"
+    %27 = headers_get move %4, "y"
+    %28 = move %27 ?? "absent"
+    %29 = copy %1
+    %30 = headers_get move %29, "y"
+    %31 = move %30 ?? "absent"
+    %32 = call @console_log(move %28, move %31) -> bb14
   bb14:
     %5 = undefined
-    %32 = copy %1 == none
-    switch move %32 ? bb15 : bb16
+    %33 = move %1
+    %34 = copy %33 == none
+    switch move %34 ? bb15 : bb16
   bb15:
-    %33 = headers_new
-    %6 = move %33
+    %35 = headers_new
+    %6 = move %35
     %1 = copy %6
     %5 = move %6
     goto bb17
   bb16:
-    %5 = move %1
+    %5 = move %33
     goto bb17
   bb17:
     %7 = move %5
-    %34 = headers_get move %7, "y"
-    %35 = move %34 ?? "absent"
-    %36 = call @console_log(move %35) -> bb18
+    %36 = headers_get move %7, "y"
+    %37 = move %36 ?? "absent"
+    %38 = call @console_log(move %37) -> bb18
   bb18:
     %8 = ""
     %9 = undefined
-    %37 = copy %8 != ""
-    %38 = !move %37
-    switch move %38 ? bb19 : bb20
+    %39 = copy %8 != ""
+    %40 = !move %39
+    switch move %40 ? bb19 : bb20
   bb19:
     %10 = "fallback"
     %8 = copy %10
@@ -253,21 +257,21 @@ fn main (FuncId(6)) -> None
     goto bb21
   bb21:
     %11 = move %9
-    %39 = call @console_log(move %11, move %8) -> bb22
+    %41 = call @console_log(move %11, move %8) -> bb22
   bb22:
-    %40 = {"x-from": "response"}
-    %41 = response_new body="body" headers=move %40
-    %12 = move %41
-    %42 = response_headers move %12
-    %43 = call fn4(copy %0, move %42) -> bb23
+    %42 = {"x-from": "response"}
+    %43 = response_new body="body" headers=move %42
+    %12 = move %43
+    %44 = response_headers move %12
+    %45 = call fn4(copy %0, move %44) -> bb23
   bb23:
-    %44 = call fn0(copy %0, "x-added", "4") -> bb24
+    %46 = call fn0(copy %0, "x-added", "4") -> bb24
   bb24:
-    %45 = call fn1(copy %0, "x-from") -> bb25
+    %47 = call fn1(copy %0, "x-from") -> bb25
   bb25:
-    %46 = call fn1(move %0, "x-added") -> bb26
+    %48 = call fn1(move %0, "x-added") -> bb26
   bb26:
-    %47 = call @console_log(move %45, move %46) -> bb27
+    %49 = call @console_log(move %47, move %48) -> bb27
   bb27:
     return none
 

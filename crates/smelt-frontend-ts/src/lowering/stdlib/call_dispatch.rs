@@ -5257,11 +5257,19 @@ impl<'builder> ModuleBuilder<'builder> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
+        // A parameter is omittable when it has a default OR is declared
+        // optional (`extra?: T`). Counting only defaults made a call that
+        // omits an optional parameter look under-applied, and the shortfall
+        // branch below returned an EMPTY argument list the emitter padded with
+        // defaults — `run(2)` became `run(0.0, None, None)`, a silent wrong
+        // answer (fixture 131).
+        let optional_from = function.required_params.unwrap_or(fixed_param_count);
         let required_arg_count = defaults
             .iter()
             .take(fixed_param_count)
             .position(Option::is_some)
-            .unwrap_or(fixed_param_count);
+            .unwrap_or(fixed_param_count)
+            .min(optional_from);
         if supplied_arg_count < required_arg_count
             || (rest.is_none() && supplied_arg_count > function.params.len())
         {
@@ -5308,6 +5316,18 @@ impl<'builder> ModuleBuilder<'builder> {
             .collect::<Result<Vec<_>, _>>()?;
         for index in supplied_arg_count..fixed_param_count {
             let Some(default) = defaults.get(index).and_then(|default| default.as_ref()) else {
+                // An omitted OPTIONAL parameter without a default is `undefined`:
+                // a typed `None` at the parameter's declared type.
+                if index >= optional_from
+                    && let Some(param_ty) = function.params.get(index).copied()
+                {
+                    args.push(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty: param_ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
+                    continue;
+                }
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),
                     "closure call argument count does not match closure parameters",
