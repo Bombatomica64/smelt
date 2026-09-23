@@ -1149,6 +1149,9 @@ impl ModuleBuilder<'_> {
                     body,
                     span,
                 )
+                .or_else(|| {
+                    self.callback_erased_receiver_method_call(receiver, receiver_ty, method, args, ty, body, span)
+                })
                 .ok_or_else(|| {
                     SmeltError::unsupported(
                         span,
@@ -1158,6 +1161,75 @@ impl ModuleBuilder<'_> {
                     )
                 }),
         }
+    }
+
+    /// Lower `value.m(args)` inside a closure body when `value` is ERASED.
+    ///
+    /// An erased receiver (`SmeltUnknown`, e.g. a getter whose return type did
+    /// not survive lowering) has no static member to resolve. Outside a closure
+    /// the ordinary member-call path (`callable_static_member_call`) reads the
+    /// member as a dynamic value, binds the receiver as its `this`, and calls it
+    /// through the runtime call ABI with a signature synthesized from the
+    /// argument types. This is that same lowering for the callback path, which
+    /// rejected the call instead. The receiver's type is what is erased; this
+    /// adds no erasure of its own: the result is `unknown` exactly as the
+    /// outside-closure path types it, then asserted to the expected type.
+    ///
+    /// Returns `None` for any receiver that is not `unknown`.
+    fn callback_erased_receiver_method_call(
+        &mut self,
+        receiver: smelt_hir::ExprId,
+        receiver_ty: smelt_hir::TypeId,
+        method: smelt_hir::Symbol,
+        args: &[smelt_hir::ExprId],
+        ty: smelt_hir::TypeId,
+        body: &mut Body,
+        span: Span,
+    ) -> Option<smelt_hir::ExprId> {
+        if !matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Unknown)) {
+            return None;
+        }
+        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+        let field_read = body.push_expr(Expr {
+            kind: ExprKind::Field {
+                receiver,
+                field: method,
+            },
+            ty: unknown,
+            span,
+        });
+        let bound = self.bind_this_receiver(field_read, receiver, body, span);
+        let function = FunctionType {
+            params: args.iter().map(|arg| Self::expr_ty(body, *arg)).collect(),
+            rest: None,
+            required_params: None,
+            mutable_params: Vec::new(),
+            return_ty: unknown,
+            is_async: false,
+            may_throw: false,
+        };
+        let function_ty = self.ctx.krate.types.intern(Type::Function(function));
+        let callee = body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value: bound },
+            ty: function_ty,
+            span,
+        });
+        let call = body.push_expr(Expr {
+            kind: ExprKind::ClosureCall {
+                callee,
+                args: args.to_vec(),
+            },
+            ty: unknown,
+            span,
+        });
+        if ty == unknown {
+            return Some(call);
+        }
+        Some(body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value: call },
+            ty,
+            span,
+        }))
     }
 
     /// Lower a callback method call whose receiver has a callable field.
@@ -1173,16 +1245,18 @@ impl ModuleBuilder<'_> {
         span: Span,
     ) -> Option<smelt_hir::ExprId> {
         let field_ty = self.class_field_type(receiver_ty, method).ok()?;
-        let function = self
-            .ctx
-            .krate
-            .types
-            .get(self.type_param_constraint_or_self(field_ty))
-            .and_then(|field_type| match field_type {
-                Type::Function(function) => Some(function.clone()),
-                _ => None,
-            })?;
-        let callee = body.push_expr(Expr {
+        // The field's callable shape: a function type directly, or — for a
+        // field typed by a CALLABLE INTERFACE (`header: SetHeaders`, an
+        // interface whose members are call signatures) — the call signature
+        // the call's arity selects, exactly as the non-callback member-call
+        // path (`callable_static_member_call`) resolves it. The interface only
+        // supplies the signature; the call is still a field read plus a call.
+        let function_ty = self.function_member_type_for_arg_count(field_ty, Some(raw_args.len()))?;
+        let function = match self.ctx.krate.types.get(function_ty) {
+            Some(Type::Function(function)) => function.clone(),
+            _ => return None,
+        };
+        let field_read = body.push_expr(Expr {
             kind: ExprKind::Field {
                 receiver,
                 field: method,
@@ -1190,6 +1264,18 @@ impl ModuleBuilder<'_> {
             ty: field_ty,
             span,
         });
+        // A callable-interface field is read at its record type and then
+        // viewed at the selected call signature, so MIR coerces it through the
+        // interface's `__smelt_call` slot rather than calling a record.
+        let callee = if function_ty == field_ty {
+            field_read
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: field_read },
+                ty: function_ty,
+                span,
+            })
+        };
         let args = self
             .callback_spread_call_args_to_body_exprs(
                 &function,

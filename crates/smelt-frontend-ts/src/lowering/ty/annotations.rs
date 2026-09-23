@@ -1919,7 +1919,23 @@ return_ty: function.return_ty,
         {
             return Ok(init_ty);
         }
-        match (name_text.as_str(), args.as_slice()) {
+        // A module that DECLARES a type named like an ECMAScript/DOM library
+        // global (`interface Set<E> { (key, value): void }` in Hono's
+        // `context.ts`) shadows the global for every reference in that module,
+        // exactly as TypeScript's own scoping does. The builtin table below
+        // must then not fire: it would lower `Set<E>` to the JS `Set`
+        // collection, so a field typed by the callable interface became a
+        // `Type::Set` and `c.set(k, v)` could not be called. A shadowed name
+        // skips straight to the user-declaration arm, which resolves it
+        // through the module's own symbol.
+        let table_name = if LIB_GLOBAL_TYPE_NAMES.contains(&name_text.as_str())
+            && self.source_declares_type(&name_text)
+        {
+            ""
+        } else {
+            name_text.as_str()
+        };
+        match (table_name, args.as_slice()) {
             ("RegExp", []) => Ok(self.regexp_type()),
             // `BodyInit` is a UNION, not an opaque class. Leaving it opaque made
             // `JSON.stringify(body)` report "value must be JSON-serializable
@@ -2443,7 +2459,10 @@ return_ty: function.return_ty,
     /// for a name that is not ambiguous or whose module does not declare it —
     /// so a barrel re-export, a host module and every crate without a collision
     /// keep resolving exactly as before.
-    fn imported_ambiguous_type_name(&mut self, name_text: &str) -> Option<smelt_hir::Symbol> {
+    pub(in crate::lowering) fn imported_ambiguous_type_name(
+        &mut self,
+        name_text: &str,
+    ) -> Option<smelt_hir::Symbol> {
         let specifier = self.imports.import_source(name_text)?.to_owned();
         let exported = self
             .imports
@@ -4348,18 +4367,66 @@ return_ty: function.return_ty,
     /// same reason: a declaration can appear after the reference that needs to
     /// know about it, so the interface registry is not yet populated when the
     /// question is asked.
+    ///
+    /// The match must sit on identifier boundaries, so `type SetOptions` does
+    /// not count as declaring `Set`.
     fn source_declares_type(&self, name: &str) -> bool {
-        [
-            format!("interface {name}"),
-            format!("type {name}"),
-            format!("class {name}"),
-            format!("enum {name}"),
-        ]
-        .iter()
-        .any(|needle| self.source.contains(needle.as_str()))
+        let is_ident = |ch: char| ch.is_alphanumeric() || ch == '_' || ch == '$';
+        ["interface", "type", "class", "enum"].iter().any(|keyword| {
+            let needle = format!("{keyword} {name}");
+            self.source.match_indices(needle.as_str()).any(|(start, _)| {
+                let before_ok = self.source[..start]
+                    .chars()
+                    .next_back()
+                    .is_none_or(|ch| !is_ident(ch));
+                let after_ok = self.source[start + needle.len()..]
+                    .chars()
+                    .next()
+                    .is_none_or(|ch| !is_ident(ch));
+                before_ok && after_ok
+            })
+        })
     }
 
 }
+
+/// ECMAScript / DOM library type names the builtin reference table in
+/// `type_reference_to_hir` maps to a built-in HIR type.
+///
+/// A source declaration of one of these names shadows the library global in
+/// its module (see `source_declares_type`), so the table is skipped for it.
+/// Names the table maps that are NOT library globals (a library's own helper
+/// aliases) are deliberately absent: the table is how those are modelled.
+const LIB_GLOBAL_TYPE_NAMES: &[&str] = &[
+    "RegExp",
+    "ArrayBufferView",
+    "BodyInit",
+    "Capitalize",
+    "Uncapitalize",
+    "Uppercase",
+    "Lowercase",
+    "Array",
+    "ArrayLike",
+    "Iterable",
+    "ReadonlyArray",
+    "Partial",
+    "Readonly",
+    "Required",
+    "Extract",
+    "Exclude",
+    "Pick",
+    "Set",
+    "ReadonlySet",
+    "Record",
+    "Map",
+    "ReadonlyMap",
+    "Promise",
+    "Generator",
+    "AsyncGenerator",
+    "Parameters",
+    "ConstructorParameters",
+    "ReturnType",
+];
 
 /// The typed shape of one ambient init key.
 ///

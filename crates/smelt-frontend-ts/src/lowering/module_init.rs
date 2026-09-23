@@ -3046,6 +3046,41 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Record where each imported name came from, and nothing else.
+    ///
+    /// The predeclaration pass (`predeclare_type_declarations_with_path`)
+    /// lowers type-alias bodies before the module's own lowering runs its
+    /// [`Self::import_declaration`]s, so an alias that names an imported type
+    /// could not ask which module that name came from. For an ambiguous name
+    /// that question is the whole answer: Hono's `types.ts` declares
+    /// `ErrorHandler<E> = (err, c: Context<E>) => ..` with `Context` imported
+    /// from `./context`, and without the provenance the predeclared alias
+    /// resolved `Context` to the bare spelling — `reg-exp-router/node.ts`'s
+    /// interface — which every module using the alias then inherited
+    /// (`compose.rs`'s `Context<SmeltUnknown>`, E0107). Only the two
+    /// provenance maps are written; no item is aliased and no value import is
+    /// classified, so the full pass later is unaffected.
+    pub(super) fn record_import_provenance(&mut self, program: &oxc::ast::ast::Program<'_>) {
+        for statement in &program.body {
+            let Statement::ImportDeclaration(import) = statement else {
+                continue;
+            };
+            let Some(specifiers) = &import.specifiers else {
+                continue;
+            };
+            let source = import.source.value.as_str();
+            for specifier in specifiers {
+                if let ImportDeclarationSpecifier::ImportSpecifier(named) = specifier {
+                    let local = named.local.name.as_str().to_owned();
+                    self.imports
+                        .record_import_source(local.clone(), source.to_owned());
+                    self.imports
+                        .record_imported_name(local, module_export_name(&named.imported));
+                }
+            }
+        }
+    }
+
     /// Lower an import declaration into module metadata and local item aliases.
     pub(super) fn import_declaration(
         &mut self,

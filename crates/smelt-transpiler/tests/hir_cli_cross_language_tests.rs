@@ -984,6 +984,69 @@ clone-strategy = "aggressive"
     Ok(())
 }
 
+/// A class name that another module ALSO declares (as an interface) resolves
+/// to the right declaration through an import cycle, a barrel re-export and a
+/// `new` expression.
+///
+/// Hono's shape (phase-3 round 2): `context.ts` declares `class Context<E, P,
+/// I>` while `router/reg-exp-router/node.ts` declares `interface Context`, so
+/// the class renders as `Context_1`. Three paths spelled the class by its bare
+/// name and so named the interface: a type alias predeclared before the
+/// module's imports were recorded (`types.ts`'s `ErrorHandler<E>`, in an
+/// import cycle with `context.ts`), an import through a barrel
+/// (`import { Context } from '../..'`), and `new Context(..)` in a module
+/// that lowers before `context.ts`. The generated crate failed with E0107 and
+/// E0308 `Context` vs `Context_1`; it must build and print Node's output.
+#[test]
+fn build_resolves_an_ambiguous_class_through_cycles_barrels_and_new() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src/router"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ambiguous-ctx"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ambiguous_ctx"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/router/node.ts"),
+        "export interface Ctx {\n  varIndex: number;\n}\n\nexport function useNode(ctx: Ctx): number {\n  return ctx.varIndex + 1;\n}\n",
+    )?;
+    fs::write(
+        project_path.join("src/types.ts"),
+        "import type { Ctx } from './ctx';\n\nexport type Handler<E = string> = (c: Ctx<E>) => string;\n",
+    )?;
+    fs::write(
+        project_path.join("src/ctx.ts"),
+        "import type { Handler } from './types';\n\nexport class Ctx<E = string, P = string, I = number> {\n  env: E;\n  path: P;\n  input: I;\n  handler: Handler<E> | undefined;\n  constructor(env: E, path: P, input: I) {\n    this.env = env;\n    this.path = path;\n    this.input = input;\n    this.handler = undefined;\n  }\n}\n",
+    )?;
+    fs::write(project_path.join("src/index.ts"), "export * from './ctx';\n")?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import { Ctx } from './index';\nimport type { Handler } from './types';\nimport { useNode } from './router/node';\n\nconst describe: Handler = (c) => c.env + ':' + c.path;\nconst c = new Ctx('root', '/a', 1);\nconsole.log(describe(c));\nconsole.log(useNode({ varIndex: 2 }));\n",
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"root:/a\n3\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
 /// Every TypeScript end-to-end example the golden suite checks.
 ///
 /// A list rather than a directory scan: an example is only checked once it
@@ -1019,6 +1082,8 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "118_concise_callback_call_args",
     "119_arrow_param_default",
     "120_forward_arrow_after_class",
+    "122_defaulted_type_arguments",
+    "123_callable_interface_field",
     "11_console_log_expressions",
     "12_while_sum",
     "13_for_of_sum",

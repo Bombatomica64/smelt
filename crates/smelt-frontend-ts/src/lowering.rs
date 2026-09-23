@@ -503,6 +503,7 @@ pub fn predeclare_type_declarations_with_path(
         None,
         Vec::new(),
     );
+    builder.record_import_provenance(&parsed.program);
     builder.predeclare_class_method_fields(&parsed.program);
     builder.predeclare_type_alias_items(&parsed.program);
     // Class type-parameter DEFAULTS have to be readable crate-wide before any
@@ -635,6 +636,105 @@ pub fn scan_declared_type_names(source: &str, path: &str) -> Vec<String> {
         }
     }
     names
+}
+
+/// One module-scope re-export a TypeScript source makes.
+///
+/// `exported` is the name the module exports, `specifier` the module it comes
+/// from as written, and `imported` the name that module exported it under, or
+/// `None` for `export * from '..'` (every name, each under its own spelling).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeReexport {
+    /// Name this module exports (`B` in `export { A as B } from './m'`).
+    pub exported: Option<String>,
+    /// Module specifier as written (`./m`).
+    pub specifier: String,
+    /// Name the source module exported (`A`); `None` for a star re-export.
+    pub imported: Option<String>,
+}
+
+/// Scan one TypeScript source for the names it RE-EXPORTS from other modules.
+///
+/// The companion of [`scan_declared_type_names`]: the crate-wide rename map is
+/// keyed by the DECLARING module, but a consumer usually imports an ambiguous
+/// name through a barrel (`import { Context } from '../..'`, whose `index.ts`
+/// re-exports `./context`). Resolving that consumer's reference needs to follow
+/// the barrel to the declaration before any module lowers, because in an
+/// import cycle the barrel's item map is not populated yet. Three spellings
+/// count: `export { A as B } from './m'`, `export * from './m'`, and a local
+/// re-export of an import (`import { A } from './m'; export { A }`). Parse
+/// failures yield an empty list.
+#[must_use]
+pub fn scan_type_reexports(source: &str, path: &str) -> Vec<TypeReexport> {
+    let mut reexports = Vec::new();
+    if is_generated_declaration_file(path, source) {
+        return reexports;
+    }
+    let allocator = Allocator::default();
+    let source_type = if is_typescript_declaration_path(path) {
+        SourceType::d_ts()
+    } else {
+        SourceType::default().with_typescript(true)
+    };
+    let parsed = Parser::new(&allocator, source, source_type)
+        .with_options(ParseOptions::default())
+        .parse();
+    if !parsed.diagnostics.is_empty() {
+        return reexports;
+    }
+    let mut imports = HashMap::<String, (String, String)>::new();
+    for statement in &parsed.program.body {
+        if let Statement::ImportDeclaration(import) = statement
+            && let Some(specifiers) = &import.specifiers
+        {
+            for specifier in specifiers {
+                if let oxc::ast::ast::ImportDeclarationSpecifier::ImportSpecifier(named) = specifier {
+                    imports.insert(
+                        named.local.name.as_str().to_owned(),
+                        (
+                            import.source.value.as_str().to_owned(),
+                            support::module_export_name(&named.imported),
+                        ),
+                    );
+                }
+            }
+        }
+    }
+    for statement in &parsed.program.body {
+        match statement {
+            Statement::ExportAllDeclaration(export) if export.exported.is_none() => {
+                reexports.push(TypeReexport {
+                    exported: None,
+                    specifier: export.source.value.as_str().to_owned(),
+                    imported: None,
+                });
+            }
+            Statement::ExportFromDeclaration(export) => {
+                for specifier in &export.specifiers {
+                    reexports.push(TypeReexport {
+                        exported: Some(support::module_export_name(&specifier.exported)),
+                        specifier: export.source.value.as_str().to_owned(),
+                        imported: Some(support::module_export_name(&specifier.local)),
+                    });
+                }
+            }
+            Statement::ExportNamedDeclaration(export) => {
+                for specifier in &export.specifiers {
+                    let local = support::module_export_name(&specifier.local);
+                    let Some((source, imported)) = imports.get(&local) else {
+                        continue;
+                    };
+                    reexports.push(TypeReexport {
+                        exported: Some(support::module_export_name(&specifier.exported)),
+                        specifier: source.clone(),
+                        imported: Some(imported.clone()),
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    reexports
 }
 
 /// The module-scope type name a declaration introduces, if it introduces one.

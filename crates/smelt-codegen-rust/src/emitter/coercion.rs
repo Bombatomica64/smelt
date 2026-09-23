@@ -224,6 +224,12 @@ impl FunctionEmitter<'_> {
         )? {
             return Ok(slot);
         }
+        if let Some(slot_ty) = self.function_into_callable_object_slot_ty(source_ty, target)
+            && let Some(_guard) = self.enter_type_expansion(source_ty, target)
+        {
+            let slot_text = self.value_at_type_in(operand, slot_ty, scope)?;
+            return self.callable_object_with_slot_text(&slot_text, target);
+        }
         if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) = (
             self.mir.types.get(self.operand_ty(operand)?),
             self.mir.types.get(target),
@@ -713,6 +719,45 @@ impl FunctionEmitter<'_> {
         Ok(Some(self.value_at_type_text(&slot_text, call_ty, target, scope)?))
     }
 
+    /// The call-slot type a function value must be coerced to before it is
+    /// stored in a callable-interface destination.
+    ///
+    /// The inverse of [`Self::callable_object_call_slot_text`]. A slot whose
+    /// declared type is a callable interface (`set: Setter = (k, v) => ..`, a
+    /// class field typed by an interface with call signatures) lowers to the
+    /// interface's record struct, while the arrow initializer is a
+    /// `Type::Function`. Without this rule the function source fell through to
+    /// the record fallbacks, which rendered `Default::default()`: the field
+    /// then held the interface's no-op default callable and every later
+    /// `obj.set(..)` silently did nothing.
+    ///
+    /// Returns the `__smelt_call` slot's own declared type when the source is a
+    /// function and the target is a callable-interface struct, else `None`.
+    /// The caller coerces the function to that slot type with the ordinary
+    /// function → function adapters (arity, the erased overload ABI) and wraps
+    /// the result with [`Self::callable_object_with_slot_text`].
+    fn function_into_callable_object_slot_ty(&self, source: TypeId, target: TypeId) -> Option<TypeId> {
+        if !matches!(self.mir.types.get(source), Some(Type::Function(_)))
+            || !matches!(self.mir.types.get(target), Some(Type::Class { .. }))
+        {
+            return None;
+        }
+        self.callable_interface_call_field_ty(target)
+    }
+
+    /// Builds a callable-interface struct whose `__smelt_call` slot holds
+    /// `slot_text` (already coerced to the slot's type).
+    ///
+    /// The struct starts from its `Default`, which fills any declared
+    /// non-call members, so the rule holds for an interface that also carries
+    /// properties.
+    fn callable_object_with_slot_text(&self, slot_text: &str, target: TypeId) -> Result<String, EmitError> {
+        let target_text = self.type_text(target)?;
+        Ok(format!(
+            "{{ let mut smelt_callable_object: {target_text} = Default::default(); smelt_callable_object.__smelt_call = {slot_text}; smelt_callable_object }}"
+        ))
+    }
+
     /// Marks a `source` → `target` structural coercion as being expanded.
     ///
     /// Returns `None` when the pair is already on
@@ -950,6 +995,12 @@ impl FunctionEmitter<'_> {
         }
         if let Some(slot) = self.callable_object_call_slot_text(value_text, source, target, scope)? {
             return Ok(slot);
+        }
+        if let Some(slot_ty) = self.function_into_callable_object_slot_ty(source, target)
+            && let Some(_guard) = self.enter_type_expansion(source, target)
+        {
+            let slot_text = self.value_at_type_text(value_text, source, slot_ty, scope)?;
+            return self.callable_object_with_slot_text(&slot_text, target);
         }
         if let Some(adapter) =
             self.rendered_function_shape_adapter_text(value_text, source, target, scope)?

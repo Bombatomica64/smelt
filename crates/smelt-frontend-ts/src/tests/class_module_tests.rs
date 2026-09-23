@@ -1719,3 +1719,72 @@ export class Holder {
     ensure!(matches!(ctx.krate.types.get(args[2]), Some(Type::Float)));
     Ok(())
 }
+
+#[test]
+fn source_declared_interface_shadows_the_library_set_type() -> Result<(), String> {
+    // A module that declares `interface Set<E>` shadows the ECMAScript `Set`
+    // for its own references, as TypeScript scopes it. The builtin reference
+    // table used to fire anyway, so Hono's `Context.set: Set<E>` (a callable
+    // interface) became the JS `Set` collection and `c.set(k, v)` reported
+    // "unknown class method `set`".
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+interface Set<V> {
+  (key: string, value: V): void;
+}
+
+class Holder {
+  set: Set<number>;
+  constructor(set: Set<number>) {
+    this.set = set;
+  }
+}
+
+function store(holder: Holder): void {
+  holder.set("a", 1);
+}
+"#),
+        &mut ctx,
+    )?;
+    let args = class_field_type_args(&ctx, "Holder")?;
+    ensure_eq!(args.len(), 1);
+    ensure!(matches!(ctx.krate.types.get(args[0]), Some(Type::Float)));
+    Ok(())
+}
+
+#[test]
+fn a_longer_declared_name_does_not_shadow_the_library_set_type() -> Result<(), String> {
+    // The shadowing probe matches whole identifiers: declaring `SetOptions`
+    // must leave `Set<number>` the library collection.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+interface SetOptions {
+  append: boolean;
+}
+
+class Holder {
+  items: Set<number>;
+  constructor(items: Set<number>) {
+    this.items = items;
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    let class = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Class(class) if ctx.krate.symbols.get(class.name) == Some("Holder") => {
+                Some(class)
+            }
+            _ => None,
+        })
+        .ok_or("no Holder class")?;
+    let field = class.fields.first().ok_or("Holder has no field")?;
+    ensure!(matches!(ctx.krate.types.get(field.ty), Some(Type::Set(_))));
+    Ok(())
+}

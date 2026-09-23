@@ -83,16 +83,23 @@ exclude = [
   # Sequential `expect(..).toThrow()` duplicates the continuation: 616 MB
   # module, rustc OOM (round 2 item). phase 3 pending.
   "src/utils/cookie.test.ts",
-  # `unknown class method set`: a class FIELD typed as a callable interface
-  # (`Context.set`) is not callable yet. phase 3 pending.
-  "src/compose.test.ts",
-  "src/hono.test.ts",
+  # (The `unknown class method set` family — `Context.set: Set<E>`, a
+  # callable interface named like the library `Set` — landed in phase-3
+  # round 2; `compose.test.ts` is re-admitted. Its other six files sit behind
+  # the families below.)
+  #
+  # Import `hc` from `client`, which this manifest excludes (scope: the RPC
+  # client). phase 3 pending.
   "src/types.test.ts",
   "src/helper/factory/index.test.ts",
-  "src/middleware/language/index.test.ts",
+  # A named function expression that shadows its enclosing `const`
+  # (`export const requestId = () => async function requestId(c, next) ..`)
+  # is also emitted as an empty module-level `fn request_id()` — E0428
+  # `request_id` defined twice. phase 3 pending.
   "src/middleware/request-id/index.test.ts",
-  "src/middleware/secure-headers/index.test.ts",
   # `expect(..).toContain(..)` on an erased actual. phase 3 pending.
+  "src/middleware/language/index.test.ts",
+  "src/middleware/secure-headers/index.test.ts",
   "src/context.test.ts",
   "src/middleware/basic-auth/index.test.ts",
   "src/middleware/bearer-auth/index.test.ts",
@@ -118,6 +125,7 @@ exclude = [
   "src/middleware/context-storage/index.test.ts",
   # Dynamic `import()` is not lowered (in the test or `utils/color.ts`).
   # phase 3 pending.
+  "src/hono.test.ts",
   "src/jsx/context-isolation.test.ts",
   "src/preset/quick.test.ts",
   "src/preset/tiny.test.ts",
@@ -166,24 +174,18 @@ exclude = [
   # pulling library modules into the crate with generated-Rust errors
   # (measured on the 99-module build: 125 errors, table in hono-current.md).
   #
-  # Hono's `Context` class collides with `router/reg-exp-router/node.ts`'s
-  # `Context` interface (renamed `Context_1`); once a test constructs
-  # `new Context(req, ..)` the class carries its `E` type argument and the
-  # type-position spelling in `compose.rs`/`hono_base.rs` is emitted as the
-  # UNRENAMED `Context<SmeltUnknown>` (E0107 + E0308 `Context` vs
-  # `Context_1`; cross-kind name collision with type arguments).
+  # (The `Context`/`Context_1` cross-kind collision landed in phase-3 round
+  # 2: an ambiguous imported name now resolves through its declaring module
+  # in the predeclaration pass, through barrel re-exports, and at `new`.
+  # Seven conninfo/server/route tests are re-admitted.)
+  #
+  # `ClientCert` (aws-lambda `types.ts`) derives `serde::Deserialize` over a
+  # `SmeltRecord` field, which has no `Deserialize` impl (8 E0277).
   # phase 3 pending.
   "src/adapter/aws-lambda/conninfo.test.ts",
-  "src/adapter/bun/conninfo.test.ts",
-  "src/adapter/bun/server.test.ts",
-  "src/adapter/cloudflare-pages/conninfo.test.ts",
-  "src/adapter/cloudflare-workers/conninfo.test.ts",
-  "src/adapter/deno/conninfo.test.ts",
-  "src/adapter/netlify/conninfo.test.ts",
-  "src/adapter/vercel/conninfo.test.ts",
-  "src/helper/route/index.test.ts",
-  # Same collision, plus 28 E0308s in `middleware/serve-static/index.ts`
-  # (`Option<f64>` vs `SmeltResponse`). phase 3 pending.
+  # Pulls in `middleware/serve-static/index.ts`, which emits a 37 MB module;
+  # `cargo check` did not finish in 30 min (same duplication class as
+  # `trailing-slash` below). phase 3 pending.
   "src/adapter/cloudflare-workers/serve-static.test.ts",
   # Reach library modules with generated-Rust errors: `utils/accept.ts`
   # (E0308 tuple `Option<Accept>`), `utils/basic-auth.ts` (E0308

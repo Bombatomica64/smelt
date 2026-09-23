@@ -51,6 +51,7 @@ blocker-logs/*.md
 !blocker-logs/radash-globals-failures.md
 !blocker-logs/remeda-globals-failures.md
 !blocker-logs/hono-phase3-round2-brief.md
+!blocker-logs/hono-phase3-round2-generics.md
 !blocker-logs/hono-round34-captures.md
 !blocker-logs/hono-round34-hoisting.md
 !blocker-logs/hono-round34-scoping.md
