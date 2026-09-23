@@ -252,9 +252,9 @@ impl FunctionEmitter<'_> {
     /// Translates the enclosing continuation into the blocks that end its
     /// region (see [`Self::forked_region_join`]): nothing for a plain
     /// block, the stop block for a forward region, the header and exit for a
-    /// loop body. Closure bodies keep per-arm emission: their blocks are
-    /// rendered by the closure emitter, whose tail-expression `return`
-    /// handling a forward region would not reproduce.
+    /// loop body, and the enclosing stop plus the emission stack for a closure
+    /// body (whose arms then stay in the closure emitter, with `return` as a
+    /// statement; see `emit_closure_switch`).
     pub(super) fn throwing_join_for(
         &self,
         target: smelt_mir::BlockId,
@@ -270,7 +270,7 @@ impl FunctionEmitter<'_> {
                 break_target,
                 ..
             } => std::iter::once(*continue_target).chain(*break_target).collect(),
-            Continuation::Closure { .. } => return Ok(None),
+            Continuation::Closure { active, stop, .. } => Self::closure_region_exits(active, *stop),
         };
         let defined: Vec<LocalId> = std::iter::once(dest).chain(handler.exception_local).collect();
         self.forked_region_join(&[handler.catch_block, target], &defined, &exits)

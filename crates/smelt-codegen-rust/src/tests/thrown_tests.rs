@@ -646,3 +646,59 @@ fn try_catch_tail_is_emitted_once() {
         "the statement after the last try/catch must be emitted once:\n{body}"
     );
 }
+
+/// Builds a program whose returned async closure tests a `count`-long `&&`
+/// chain, awaits, then tests a `count`-long `||` chain before its tail.
+fn closure_short_circuit_program(count: usize) -> String {
+    let and_chain = (0..count.max(1))
+        .map(|index| format!("n > {index}"))
+        .collect::<Vec<_>>()
+        .join(" && ");
+    let or_chain = (0..count.max(1))
+        .map(|index| format!("n === {}", index * 3))
+        .collect::<Vec<_>>()
+        .join(" || ");
+    format!(
+        "function make(): (n: number) => Promise<number> {{\n\
+         \x20 return async (n: number): Promise<number> => {{\n\
+         \x20   let hits = 0\n\
+         \x20   if ({and_chain}) {{ hits += 1 }}\n\
+         \x20   const settled = await Promise.resolve(hits)\n\
+         \x20   if ({or_chain}) {{ return settled + 100 }}\n\
+         \x20   console.log('tail', hits)\n\
+         \x20   return settled\n\
+         \x20 }}\n\
+         }}\n\
+         async function run(): Promise<void> {{ console.log(await make()(5)) }}\n\
+         run();\n"
+    )
+}
+
+/// Short-circuit chains inside a closure body must emit Rust linear in their length.
+///
+/// Each `&&`/`||` operand is a `Switch` whose arms rejoin at the next test.
+/// The closure emitter used to emit that join inside both arms, so a k-long
+/// chain emitted 2^k copies of the rest of the closure (Hono's
+/// `trailing-slash` middleware reached 3 MB and was SIGKILLed in rustc). The
+/// arms now end at the shared join (`emit_closure_switch`), so doubling k at
+/// most doubles the closure.
+#[test]
+fn closure_short_circuit_chain_emits_linear_rust() {
+    let lines = |count: usize| {
+        let source = source_for(&closure_short_circuit_program(count));
+        emitted_function_body(&source, "fn make(").lines().count()
+    };
+    let four = lines(4);
+    let eight = lines(8);
+    assert!(
+        eight < four * 2,
+        "k=8 closure short-circuit chains emitted {eight} lines vs {four} for k=4: \
+         the join is being cloned into each arm"
+    );
+    let source = source_for(&closure_short_circuit_program(4));
+    assert_eq!(
+        source.matches("\"tail\"").count(),
+        1,
+        "the closure tail after the chains must be emitted once"
+    );
+}

@@ -1273,15 +1273,26 @@ impl FunctionEmitter<'_> {
         // With a shared join the arms are forward regions that END at it, and
         // the join is emitted once after the `match` (`emitter::throwing_join`);
         // without one each arm carries the whole tail, as before.
-        let arm_continuation = match join {
-            Some(stop) => {
+        let arm_continuation = match (join, continuation) {
+            // Inside a closure body the arms stay in the closure emitter, ending
+            // at the join; a `Return` in them is a statement (`in_loop`), since
+            // the join follows the `match` rather than the arms being the tail.
+            (Some(stop), Continuation::Closure { active, .. }) => {
+                join_region = Continuation::Closure {
+                    active,
+                    stop: Some(stop),
+                    in_loop: true,
+                };
+                &join_region
+            }
+            (Some(stop), _) => {
                 join_region = Continuation::Region {
                     stop,
                     visited: &join_visited,
                 };
                 &join_region
             }
-            None => continuation,
+            (None, _) => continuation,
         };
         let before_match_declared = self.declared_locals_snapshot();
         let Some(raw_call) = call_text.strip_suffix('?') else {
@@ -1480,15 +1491,26 @@ impl FunctionEmitter<'_> {
         // With a shared join the arms are forward regions that END at it, and
         // the join is emitted once after the `match` (`emitter::throwing_join`);
         // without one each arm carries the whole tail, as before.
-        let arm_continuation = match join {
-            Some(stop) => {
+        let arm_continuation = match (join, continuation) {
+            // Inside a closure body the arms stay in the closure emitter, ending
+            // at the join; a `Return` in them is a statement (`in_loop`), since
+            // the join follows the `match` rather than the arms being the tail.
+            (Some(stop), Continuation::Closure { active, .. }) => {
+                join_region = Continuation::Closure {
+                    active,
+                    stop: Some(stop),
+                    in_loop: true,
+                };
+                &join_region
+            }
+            (Some(stop), _) => {
                 join_region = Continuation::Region {
                     stop,
                     visited: &join_visited,
                 };
                 &join_region
             }
-            None => continuation,
+            (None, _) => continuation,
         };
         let before_match_declared = self.declared_locals_snapshot();
         out.push_str(&format!("    match {future_text}.await {{\n"));

@@ -2987,21 +2987,19 @@ fn main() {
     let mut _smelt_tmp_3: String;
     if closure_arg_0 {
     _smelt_tmp_3 = "t".to_owned();
-    _smelt_tmp_3.clone()
     } else {
     _smelt_tmp_3 = "f".to_owned();
-    _smelt_tmp_3.clone()
     }
+    _smelt_tmp_3.clone()
     });
     _smelt_tmp_59 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: bool, closure_arg_1: i64, closure_arg_2: &SmeltList<bool>| {
     let mut _smelt_tmp_3: String;
     if closure_arg_0 {
     _smelt_tmp_3 = "t".to_owned();
-    _smelt_tmp_3.clone()
     } else {
     _smelt_tmp_3 = "f".to_owned();
-    _smelt_tmp_3.clone()
     }
+    _smelt_tmp_3.clone()
     }); let smelt_array = _smelt_tmp_57; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     _smelt_tmp_60 = _smelt_tmp_59.borrow().join(&"|".to_owned());
     let _ = { println!("{}", _smelt_tmp_60); };

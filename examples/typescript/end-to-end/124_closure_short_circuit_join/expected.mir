@@ -1,0 +1,416 @@
+fn make_handler (FuncId(0)) -> fn(String, Bool) -> Future<String>
+  locals
+    %0 param prefix: String
+    %1 temp: async fn(String, Bool) -> Future<String>
+  bb0:
+    %1 = closure ClosureId(0) [copy %0]
+    return move %1
+
+fn check (FuncId(1)) -> Float throws
+  locals
+    %0 param path: String
+    %1 temp: Float
+    %2 temp: Bool
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Float
+  bb0:
+    %1 = len copy %0
+    %2 = move %1 > 10.0
+    switch move %2 ? bb1 : bb2
+  bb1:
+    %3 = {"__smelt_error": "Error", "message": "too long", "stack": undefined, "cause": undefined}
+    %4 = unknown_cast move %3 as t14
+    throw move %4
+  bb2:
+    %5 = len copy %0
+    return move %5
+
+fn counter (FuncId(2)) -> fn(Float) -> Float
+  locals
+    %0 temp: fn(Float) -> Float
+  bb0:
+    %0 = closure ClosureId(1) []
+    return move %0
+
+async fn run (FuncId(3)) -> None
+  locals
+    %0 user handler: fn(String, Bool) -> Future<String>
+    %1 user count: fn(Float) -> Float
+    %2 temp: fn(String, Bool) -> Future<String>
+    %3 temp: Future<String>
+    %4 temp: String
+    %5 temp: None
+    %6 temp: Future<String>
+    %7 temp: String
+    %8 temp: None
+    %9 temp: Future<String>
+    %10 temp: String
+    %11 temp: None
+    %12 temp: Future<String>
+    %13 temp: String
+    %14 temp: None
+    %15 temp: Future<String>
+    %16 temp: String
+    %17 temp: None
+    %18 temp: fn(Float) -> Float
+    %19 temp: Float
+    %20 temp: Float
+    %21 temp: Float
+    %22 temp: Float
+    %23 temp: Float
+    %24 temp: Float
+    %25 temp: Float
+    %26 temp: None
+  bb0:
+    %2 = call fn0("/api") -> bb1
+  bb1:
+    %0 = move %2
+    %3 = closure_call copy %0("/api/users", false)
+    %4 = await move %3
+    %5 = call @console_log(move %4) -> bb2
+  bb2:
+    %6 = closure_call copy %0("/api/users/", false)
+    %7 = await move %6
+    %8 = call @console_log(move %7) -> bb3
+  bb3:
+    %9 = closure_call copy %0("/api", true)
+    %10 = await move %9
+    %11 = call @console_log(move %10) -> bb4
+  bb4:
+    %12 = closure_call copy %0("/api/a", true)
+    %13 = await move %12
+    %14 = call @console_log(move %13) -> bb5
+  bb5:
+    %15 = closure_call move %0("relative", false)
+    %16 = await move %15
+    %17 = call @console_log(move %16) -> bb6
+  bb6:
+    %18 = call fn2() -> bb7
+  bb7:
+    %1 = move %18
+    %19 = closure_call copy %1(3.0)
+    %20 = -5.0
+    %21 = closure_call copy %1(move %20)
+    %22 = closure_call copy %1(30.0)
+    %23 = -7.0
+    %24 = closure_call copy %1(move %23)
+    %25 = closure_call move %1(0.0)
+    %26 = call @console_log(move %19, move %21, move %22, move %24, move %25) -> bb8
+  bb8:
+    return none
+
+async fn main (FuncId(4)) -> None throws
+  locals
+    %0 temp: Future<None>
+    %1 temp: None
+    %2 temp: Future<None>
+    %3 temp: None
+  bb0:
+    %0 = call fn3() -> bb1
+  bb1:
+    %1 = async_spawn_local(move %0)
+    %2 = async_exit_drain()
+    %3 = await move %2
+    return none
+
+closure ClosureId(0) -> Future<String>
+  locals
+    %0 param path: String
+    %1 param strict: Bool
+    %2 user prefix: String
+    %3 user score: Float
+    %4 user settled: Float
+    %5 user parsed: Float
+    %6 user error: Unknown
+    %7 temp: Float
+    %8 temp: Bool
+    %9 temp: Bool
+    %10 temp: String
+    %11 temp: String
+    %12 temp: Bool
+    %13 temp: Bool
+    %14 temp: String
+    %15 temp: String
+    %16 temp: Bool
+    %17 temp: Bool
+    %18 temp: Bool
+    %19 temp: Bool
+    %20 temp: Bool
+    %21 temp: Bool
+    %22 temp: Bool
+    %23 temp: Bool
+    %24 temp: Float
+    %25 temp: Bool
+    %26 temp: Bool
+    %27 temp: Float
+    %28 temp: Bool
+    %29 temp: Bool
+    %30 temp: String
+    %31 temp: Bool
+    %32 temp: Float
+    %33 temp: Future<Float>
+    %34 temp: Float
+    %35 temp: Bool
+    %36 temp: Bool
+    %37 temp: Bool
+    %38 temp: String
+    %39 temp: String
+    %40 temp: Bool
+    %41 temp: Bool
+    %42 temp: String
+    %43 temp: String
+    %44 temp: Bool
+    %45 temp: Float
+    %46 temp: Bool
+    %47 temp: Bool
+    %48 temp: Bool
+    %49 temp: String
+    %50 temp: Float
+    %51 temp: Bool
+    %52 temp: Float
+    %53 temp: String
+    %54 temp: String
+    %55 temp: String
+    %56 temp: String
+    %57 temp: String
+  bb0:
+    %3 = 0.0
+    %7 = len copy %0
+    %8 = copy %7 > 0.0
+    switch copy %8 ? bb1 : bb2
+  bb1:
+    %10 = copy %0
+    %11 = "/"
+    %12 = string_starts_with copy %10, copy %11
+    %9 = copy %12
+    goto bb3
+  bb2:
+    %9 = false
+    goto bb3
+  bb3:
+    switch copy %9 ? bb4 : bb5
+  bb4:
+    %14 = copy %0
+    %15 = "/"
+    %16 = string_ends_with copy %14, copy %15
+    %17 = !copy %16
+    %13 = copy %17
+    goto bb6
+  bb5:
+    %13 = false
+    goto bb6
+  bb6:
+    switch copy %13 ? bb7 : bb8
+  bb7:
+    %19 = copy %0 != "/"
+    %18 = copy %19
+    goto bb9
+  bb8:
+    %18 = false
+    goto bb9
+  bb9:
+    switch copy %18 ? bb10 : bb11
+  bb10:
+    %21 = string_contains copy %0, ".."
+    %22 = !copy %21
+    %20 = copy %22
+    goto bb12
+  bb11:
+    %20 = false
+    goto bb12
+  bb12:
+    switch copy %20 ? bb13 : bb14
+  bb13:
+    %24 = len copy %0
+    %25 = copy %24 < 64.0
+    %23 = copy %25
+    goto bb15
+  bb14:
+    %23 = false
+    goto bb15
+  bb15:
+    switch copy %23 ? bb16 : bb17
+  bb16:
+    %27 = string_find copy %0, copy %2
+    %28 = copy %27 == 0.0
+    %26 = copy %28
+    goto bb18
+  bb17:
+    %26 = false
+    goto bb18
+  bb18:
+    switch copy %26 ? bb19 : bb20
+  bb19:
+    %30 = string_char_at copy %0, 1.0
+    %31 = copy %30 != "_"
+    %29 = copy %31
+    goto bb21
+  bb20:
+    %29 = false
+    goto bb21
+  bb21:
+    switch copy %29 ? bb22 : bb23
+  bb22:
+    %32 = copy %3 + 1.0
+    %3 = copy %32
+    goto bb23
+  bb23:
+    %33 = async_resolve(0.0, copy %3)
+    %34 = await copy %33
+    %4 = copy %34
+    switch copy %1 ? bb24 : bb25
+  bb24:
+    %35 = true
+    goto bb26
+  bb25:
+    %36 = copy %0 == copy %2
+    %35 = copy %36
+    goto bb26
+  bb26:
+    switch copy %35 ? bb27 : bb28
+  bb27:
+    %37 = true
+    goto bb29
+  bb28:
+    %38 = copy %0
+    %39 = ".html"
+    %40 = string_ends_with copy %38, copy %39
+    %37 = copy %40
+    goto bb29
+  bb29:
+    switch copy %37 ? bb30 : bb31
+  bb30:
+    %41 = true
+    goto bb32
+  bb31:
+    %42 = copy %0
+    %43 = ".json"
+    %44 = string_ends_with copy %42, copy %43
+    %41 = copy %44
+    goto bb32
+  bb32:
+    switch copy %41 ? bb33 : bb34
+  bb33:
+    %45 = copy %3 + 10.0
+    %3 = copy %45
+    goto bb34
+  bb34:
+    %46 = copy %4 == 0.0
+    switch copy %46 ? bb35 : bb36
+  bb35:
+    %48 = !copy %1
+    %47 = copy %48
+    goto bb37
+  bb36:
+    %47 = false
+    goto bb37
+  bb37:
+    switch copy %47 ? bb38 : bb39
+  bb38:
+    %49 = "reject " + copy %0
+    return copy %49
+  bb39:
+    %5 = 0.0
+    goto bb40
+  bb40:
+    %50 = call fn1(copy %0) -> bb43 unwind bb42
+  bb41:
+    %53 = "" + copy %0
+    %54 = copy %53 + " score="
+    %55 = copy %54 + copy %3
+    %56 = copy %55 + " parsed="
+    %57 = copy %56 + copy %5
+    return copy %57
+  bb42:
+    %51 = instanceof copy %6, class13
+    switch copy %51 ? bb44 : bb45
+  bb43:
+    %5 = copy %50
+    goto bb41
+  bb44:
+    %52 = -1.0
+    %5 = copy %52
+    goto bb45
+  bb45:
+    goto bb41
+
+closure ClosureId(1) -> Float
+  locals
+    %0 param n: Float
+    %1 user hits: Float
+    %2 temp: Bool
+    %3 temp: Bool
+    %4 temp: Float
+    %5 temp: Bool
+    %6 temp: Bool
+    %7 temp: Float
+    %8 temp: Bool
+    %9 temp: Float
+    %10 temp: Float
+    %11 temp: Bool
+    %12 temp: Bool
+    %13 temp: Float
+    %14 temp: Bool
+    %15 temp: Bool
+    %16 temp: Float
+    %17 temp: Bool
+    %18 temp: Float
+  bb0:
+    %1 = 0.0
+    %2 = copy %0 > 0.0
+    switch copy %2 ? bb1 : bb2
+  bb1:
+    %3 = true
+    goto bb3
+  bb2:
+    %4 = -100.0
+    %5 = copy %0 < copy %4
+    %3 = copy %5
+    goto bb3
+  bb3:
+    switch copy %3 ? bb4 : bb5
+  bb4:
+    %6 = true
+    goto bb6
+  bb5:
+    %7 = -5.0
+    %8 = copy %0 == copy %7
+    %6 = copy %8
+    goto bb6
+  bb6:
+    switch copy %6 ? bb7 : bb8
+  bb7:
+    %9 = copy %1 + 1.0
+    %1 = copy %9
+    goto bb8
+  bb8:
+    %10 = copy %0 % 2.0
+    %11 = copy %10 == 0.0
+    switch copy %11 ? bb9 : bb10
+  bb9:
+    %13 = copy %0 % 3.0
+    %14 = copy %13 == 0.0
+    %12 = copy %14
+    goto bb11
+  bb10:
+    %12 = false
+    goto bb11
+  bb11:
+    switch copy %12 ? bb12 : bb13
+  bb12:
+    %16 = copy %0 % 5.0
+    %17 = copy %16 == 0.0
+    %15 = copy %17
+    goto bb14
+  bb13:
+    %15 = false
+    goto bb14
+  bb14:
+    switch copy %15 ? bb15 : bb16
+  bb15:
+    %18 = copy %1 + 100.0
+    return copy %18
+  bb16:
+    return copy %1
+
