@@ -1019,6 +1019,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "118_concise_callback_call_args",
     "119_arrow_param_default",
     "120_forward_arrow_after_class",
+    "121_callback_into_union_function_arm",
     "11_console_log_expressions",
     "12_while_sum",
     "13_for_of_sum",
@@ -1256,6 +1257,62 @@ console.log(ns.compose(addOne, addOne, three)())
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
     ensure_eq(&actual_stdout, &"4\n5\na-b-c\n4\n5\n".to_owned(), "unexpected stdout")?;
 
+    Ok(())
+}
+
+/// Runtime fixtures that are built, RUN and diffed against Node's output, but
+/// live outside `examples/`.
+///
+/// Each exercises a general rule whose surrounding program still crosses an
+/// erasure the fixture is not about (a source-`unknown` instantiation, a
+/// `Promise<any>` body reader, a destructured-parameter record), so keeping
+/// them in the examples corpus would break its avoidable-erasure == 0
+/// invariant for reasons unrelated to the rule under test. `input.ts` states
+/// the rule; `expected.stdout` is Node's output.
+const RUNTIME_FIXTURES: &[&str] = &[
+    "receiver_pinned_class_parameter",
+    "class_value_at_interface_type",
+    "overloaded_callable_interface_field",
+    "generic_slot_union_return",
+    "response_request_json",
+];
+
+#[test]
+fn build_runs_runtime_fixtures() -> TestResult {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime");
+    for name in RUNTIME_FIXTURES {
+        let source = fs::read_to_string(root.join(name).join("input.ts"))?;
+        let expected = fs::read_to_string(root.join(name).join("expected.stdout"))?;
+        let project = TempProject::new()?;
+        let project_path = project.path();
+        fs::create_dir_all(project_path.join("src"))?;
+        let crate_name = name.replace('-', "_");
+        fs::write(
+            project_path.join("Smelt.toml"),
+            format!(
+                r#"[project]
+name = "{crate_name}"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "{crate_name}"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#
+            ),
+        )?;
+        fs::write(project_path.join("src/main.ts"), source)?;
+        let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+        smelt(&["--manifest-path", &manifest_arg, "build"])?;
+        let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+        ensure_eq(&actual_stdout, &expected, format!("unexpected stdout for {name}"))?;
+    }
     Ok(())
 }
 

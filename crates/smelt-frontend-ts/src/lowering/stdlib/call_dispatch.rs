@@ -2628,13 +2628,29 @@ impl<'builder> ModuleBuilder<'builder> {
         // hono's smart router), and treating the spread as one argument put the
         // whole tuple in parameter 0 and let the emitter pad the rest with
         // defaults.
+        //
+        // An overloaded callable-interface field (`app.use('/p', handler)`
+        // against `use: MiddlewareHandlerInterface`) selects the overload from
+        // the call's argument count and probed argument types, exactly as a
+        // callable-interface VALUE callee does; the first declared signature
+        // is only the answer when there is no call site to select against.
+        let probed_arg_tys = self.probe_argument_types(&call.arguments, body);
         let expanded = self.expanded_call_arguments(&call.arguments, body)?;
+        let arg_count = expanded.len();
+        // A spread expanded into several positions no longer lines up with the
+        // per-source-argument probes, so selection falls back to arity alone.
+        let probed_arg_tys = if arg_count == call.arguments.len() {
+            probed_arg_tys
+        } else {
+            Vec::new()
+        };
         let mut args = Vec::with_capacity(expanded.len());
         for argument in expanded {
             args.push(self.lower_call_arg(argument, None, body)?);
         }
-        let (function_ty, function) =
-            if let Some(function_ty) = self.function_member_type(callee_ty) {
+        let (function_ty, function) = if let Some(function_ty) =
+            self.function_member_type_for_args(callee_ty, Some(arg_count), &probed_arg_tys)
+        {
                 let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty).cloned()
                 else {
                     return Ok(None);

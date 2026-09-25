@@ -347,6 +347,13 @@ impl FunctionEmitter<'_> {
                 self.operand_text(operand)?
             ));
         }
+        // A function stored into a callable-interface record fills its
+        // `__smelt_call` slot; it is asked before the no-adapter default below.
+        if let Some(wrapped) =
+            self.callable_interface_from_function_text(&operand_text, source_ty, target, scope)?
+        {
+            return Ok(wrapped);
+        }
         if matches!(
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::Function(_))
@@ -752,6 +759,98 @@ impl FunctionEmitter<'_> {
             && !value_text.starts_with(|ch: char| ch.is_ascii_digit())
     }
 
+    /// Wrap a function value into a callable-interface record.
+    ///
+    /// A callable interface (`interface Use { (h: H): App; (p: string, h: H):
+    /// App }`) is emitted as a record whose synthetic `__smelt_call` slot holds
+    /// the implementation; assigning a function to it (`this.use = (arg1,
+    /// ...handlers) => ..`, Hono's `HonoBase` constructor) stores that function
+    /// in the slot. Without this the coercion found no adapter and emitted the
+    /// record's `Default::default()`, so every later `app.use(..)` called an
+    /// inert default and did nothing.
+    ///
+    /// Declines (`None`) unless `source` is a function type and `target` is a
+    /// record carrying `__smelt_call` whose every OTHER field is optional (a
+    /// bare function has no value for a required data member; those records
+    /// keep the `Object.assign` construction path).
+    fn callable_interface_from_function_text(
+        &self,
+        value_text: &str,
+        source: TypeId,
+        target: TypeId,
+        scope: &RenderScope,
+    ) -> Result<Option<String>, EmitError> {
+        if !matches!(self.mir.types.get(source), Some(Type::Function(_))) {
+            return Ok(None);
+        }
+        let Some(Type::Class { name, args }) = self.mir.types.get(target) else {
+            return Ok(None);
+        };
+        let Some(fields) = self.structural_record_fields(target) else {
+            return Ok(None);
+        };
+        let mut call_slot = None;
+        for field in &fields {
+            if self.symbol_name(field.name)? == "__smelt_call" {
+                call_slot = Some(field.ty);
+            } else if !matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
+                return Ok(None);
+            }
+        }
+        let Some(call_slot_ty) = call_slot else {
+            return Ok(None);
+        };
+        let mut field_text = Vec::new();
+        for field in &fields {
+            let raw_name = self.symbol_name(field.name)?;
+            let value = if raw_name == "__smelt_call" {
+                self.callable_interface_slot_value_text(value_text, source, call_slot_ty, scope)?
+            } else {
+                self.default_value(field.ty)?
+            };
+            field_text.push(format!("{}: {value}", sanitize_ident(raw_name)));
+        }
+        if self
+            .context
+            .type_param_elision()
+            .emits_phantom(*name, args.len())
+        {
+            field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
+        }
+        let type_name = sanitize_ident(self.symbol_name(*name)?);
+        Ok(Some(format!("{type_name} {{ {} }}", field_text.join(", "))))
+    }
+
+    /// Render a function value at a callable interface's `__smelt_call` slot.
+    ///
+    /// An OVERLOADED interface stores its implementation in the erased
+    /// variadic slot (`SmeltErasedFunction`), because no single typed signature
+    /// covers every overload. The typed source is therefore first erased to a
+    /// runtime callable — whose adapter converts each positional runtime
+    /// argument to the source's own parameter, and gathers a trailing rest
+    /// parameter from the remaining ones — and that callable fills the slot.
+    /// Coercing typed-to-erased-variadic directly instead read the slot's own
+    /// `(...args: unknown[])` view and handed the whole argument vector to the
+    /// source's FIRST parameter (E0308). A typed slot takes the ordinary
+    /// function-to-function coercion.
+    fn callable_interface_slot_value_text(
+        &self,
+        value_text: &str,
+        source: TypeId,
+        slot_ty: TypeId,
+        scope: &RenderScope,
+    ) -> Result<String, EmitError> {
+        let slot_is_erased = matches!(
+            self.mir.types.get(slot_ty),
+            Some(Type::Function(slot)) if self.is_erased_unknown_rest_function(slot)
+        );
+        if slot_is_erased && let Ok(unknown_ty) = self.type_id(Type::Unknown) {
+            let erased = self.value_at_type_text(value_text, source, unknown_ty, scope)?;
+            return self.value_at_type_text(&erased, unknown_ty, slot_ty, scope);
+        }
+        self.value_at_type_text(value_text, source, slot_ty, scope)
+    }
+
     /// Coerces already-rendered Rust value text from a known source type to a destination type.
     ///
     /// `scope` is the render position's type-parameter environment
@@ -777,6 +876,11 @@ impl FunctionEmitter<'_> {
         }
         if let Some(projected) = self.project_union_value_text(value_text, source, target)? {
             return Ok(projected);
+        }
+        if let Some(wrapped) =
+            self.callable_interface_from_function_text(value_text, source, target, scope)?
+        {
+            return Ok(wrapped);
         }
         // A bare `Default::default()` is an ambiguous inference source for the
         // collection adapters below, which drive `.clone().into_iter().map(…)`

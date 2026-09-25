@@ -413,6 +413,13 @@ impl FunctionEmitter<'_> {
                     Some(Type::Class { .. }),
                 )
                 | (Some(Type::Class { .. }), Some(Type::Dict(_, _)))
+                // A callback injected into a union's function arm (`ExFn | Ex`
+                // receiving `() => new Ex(..)`). TypeScript admits a callback
+                // with FEWER parameters than the arm declares, so the source is
+                // a different function type; the ordinary function-to-function
+                // coercion adapts the arity once the arm is chosen, and the
+                // unique-shape rule keeps a union of two callbacks ambiguous.
+                | (Some(Type::Function(_)), Some(Type::Function(_)))
         )
     }
 

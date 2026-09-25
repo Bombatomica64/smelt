@@ -1032,6 +1032,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 .cloned();
             if source_field.is_none()
                 && !self.is_virtual_method_storage_field(target, target_field.name)
+                && !self.is_interface_method_slot_bound_by_source(source, target, target_field.name)
                 && !matches!(self.mir.types.get(target_field.ty), Some(Type::Optional(_)))
             {
                 return None;
@@ -1119,7 +1120,14 @@ impl<'mir> FunctionEmitter<'mir> {
                 value
             } else if let Some(source_field) = source_field_match {
                 let source_field_name = sanitize_ident(self.symbol_name(source_field.name)?);
-                let source_value = format!("smelt_struct_value.{source_field_name}.clone()");
+                // A reference-class source keeps its fields inside the shared
+                // `Rc<RefCell<Inner>>` cell, so they are read through it.
+                let source_base = if self.is_reference_class_type(source) {
+                    "smelt_struct_value.0.borrow()"
+                } else {
+                    "smelt_struct_value"
+                };
+                let source_value = format!("{source_base}.{source_field_name}.clone()");
                 let adapted =
                     self.value_at_type_text(&source_value, source_field.ty, target_field.ty, scope)?;
                 // Narrowing a callable object to a callable interface that
@@ -1154,6 +1162,19 @@ impl<'mir> FunctionEmitter<'mir> {
             .emits_phantom(*name, args.len())
         {
             field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
+        }
+        // A reference-class target is a handle newtype over its `Inner` record,
+        // so the field-wise value is built as the record and wrapped in a fresh
+        // shared cell (a struct literal against the tuple newtype was E0560).
+        // This is the structural conversion between two distinct classes TS
+        // accepts because they expose the same members (Hono's `basePath`
+        // returns the base class, handed to a parameter typed as the subclass
+        // that adds no members); it copies the members into a new instance.
+        if self.is_reference_class_type(target) {
+            return Ok(Some(format!(
+                "{{ let smelt_struct_value = {value_text}.clone(); {target_name}(::std::rc::Rc::new(::std::cell::RefCell::new({target_name}Inner {{ {} }}))) }}",
+                field_text.join(", ")
+            )));
         }
         Ok(Some(format!(
             "{{ let smelt_struct_value = {value_text}.clone(); {target_name} {{ {} }} }}",
@@ -1303,6 +1324,60 @@ impl<'mir> FunctionEmitter<'mir> {
             })
     }
 
+    /// Instantiate a type declared inside `source`'s class at `source`'s own
+    /// class arguments.
+    ///
+    /// A method bound into a record slot is called on a receiver of type
+    /// `source` (`ListRouter<string>`), so its declared `handler: T` really
+    /// takes a `String` there. Adapting a slot argument to the bare declared `T`
+    /// instead rendered it as the erased carrier (`expected String, found
+    /// SmeltUnknown`). A receiver that pins nothing concretely (an erased
+    /// argument, a non-class source) keeps the declared type, which is what the
+    /// emitted method's Rust `T` then is.
+    fn source_class_substituted_ty(&self, source: TypeId, declared: TypeId) -> TypeId {
+        let Some(class) = self.class_for_type(source) else {
+            return declared;
+        };
+        let names = class.type_params.iter().map(|param| param.name).collect::<Vec<_>>();
+        if names.is_empty() {
+            return declared;
+        }
+        let bindings = crate::generic_bindings::bind_class_type_params(self.mir, &names, source);
+        crate::generic_bindings::substituted_type_id(self.mir, declared, &bindings)
+            .unwrap_or(declared)
+    }
+
+    /// Returns whether an interface record's callable slot is filled by one of
+    /// the SOURCE class's methods.
+    ///
+    /// `interface Router { add(m: string): void }` is emitted as a record whose
+    /// `add` is a function-typed field, while `class ListRouter implements
+    /// Router` carries `add` as a method, not a field. Structural assignability
+    /// (`const r: Router = new ListRouter()`) is about members, so the slot is
+    /// filled by binding the source's method to the source value — the same
+    /// bound closure [`Self::virtual_method_storage_field_text`] already emits
+    /// for a base-class slot. Without this the field pairing found no source for
+    /// `add` and the adapter declined (`expected Router, found ListRouter`).
+    fn is_interface_method_slot_bound_by_source(
+        &self,
+        source: TypeId,
+        target: TypeId,
+        field: Symbol,
+    ) -> bool {
+        if !self.is_interface_record_type(target) {
+            return false;
+        }
+        let slot_is_callable = self
+            .structural_record_fields(target)
+            .and_then(|fields| fields.into_iter().find(|candidate| candidate.name == field))
+            .is_some_and(|slot| matches!(self.mir.types.get(slot.ty), Some(Type::Function(_))));
+        slot_is_callable
+            && self
+                .class_for_type(source)
+                .and_then(|class| self.find_class_method_function(class.name, field))
+                .is_some()
+    }
+
     /// Emits a bound closure for a virtual method storage field when possible.
     ///
     /// The closure captures the concrete source value and dispatches to the
@@ -1315,7 +1390,9 @@ impl<'mir> FunctionEmitter<'mir> {
         target: TypeId,
         method: Symbol,
     ) -> Result<Option<String>, EmitError> {
-        if !self.is_virtual_method_storage_field(target, method) {
+        if !self.is_virtual_method_storage_field(target, method)
+            && !self.is_interface_method_slot_bound_by_source(source, target, method)
+        {
             return Ok(None);
         }
         let Some(Type::Function(function_ty)) = self
@@ -1454,7 +1531,9 @@ impl<'mir> FunctionEmitter<'mir> {
                         .params
                         .get(index.saturating_add(1))
                         .and_then(|param| self.function_local_decl(source_function, *param).ok())
-                        .map_or(*target_param, |decl| decl.ty)
+                        .map_or(*target_param, |decl| {
+                            self.source_class_substituted_ty(source, decl.ty)
+                        })
                 };
                 let arg_source_text = if function_ty.mutable_params.contains(&index) {
                     format!("(*arg{index}).clone()")
@@ -1510,7 +1589,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let source_return_ty = if dispatches_to_source_field {
             function_ty.return_ty
         } else {
-            source_function.return_ty
+            self.source_class_substituted_ty(source, source_function.return_ty)
         };
         let adjusted_call = if source_can_throw && function_ty.may_throw {
             call

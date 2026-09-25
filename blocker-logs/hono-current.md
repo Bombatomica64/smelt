@@ -6,6 +6,23 @@
 - CI: `.github/workflows/ci.yml`'s `hono` job now hard-gates `smelt build` + `cargo check` on `dist-smelt` (mirroring radash); `cargo test` and the SmeltUnknown erasure report stay advisory until the phase-3 test baseline is stable.
 
 
+## Phase 3 round 2 — the test binary compiles (`claude/blocker-logs-hono-current-s5qmdu`)
+
+`cargo check --tests` on `dist-smelt`: **402 → 0 errors**. Seven general families (receiver-pinned
+class type parameters, class→interface member-wise conversion incl. bound-method slots,
+overloaded callable-interface field calls, generic-slot union returns, callbacks into a union's
+function arm, unrelated-operand equality matchers, `Response`/`Request.json()`), plus the runtime
+blocker behind every app test (a function stored into a callable-interface slot was replaced by
+its default). Fixtures: `examples/typescript/end-to-end/121_callback_into_union_function_arm` and the five runtime fixtures under `crates/smelt-transpiler/tests/fixtures/runtime/` (`build_runs_runtime_fixtures`).
+
+| gate | result |
+| --- | --- |
+| `cargo check --tests` | **0 errors** |
+| `cargo test` | compiles; `router/trie-router/node.test.ts` (88 tests) hangs — H8 |
+| phase-3 baseline (`--skip __smelt_module_node_test`) | **71 passed / 121 failed / 88 not run** |
+
+Details and the next queue (H8–H14): `hono-phase3-round2.md`.
+
 ## Phase 3 overlay pass — the gated build passes again (`worktree-agent-a027ada4a0cd01ce8`)
 
 With the test glob fixed the committed overlay selected 84 test files and `smelt build` aborted
