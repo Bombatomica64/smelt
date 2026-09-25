@@ -51,6 +51,7 @@ blocker-logs/*.md
 !blocker-logs/radash-globals-failures.md
 !blocker-logs/remeda-globals-failures.md
 !blocker-logs/hono-phase3-round2-brief.md
+!blocker-logs/hono-handoff-2026-09-25.md
 !blocker-logs/hono-phase3-round2-generics.md
 !blocker-logs/hono-round34-captures.md
 !blocker-logs/hono-round34-hoisting.md
@@ -337,6 +338,7 @@ third_party/es-toolkit-src/
 !blocker-logs/hono-tests.md
 !blocker-logs/hono-phase3-round1.md
 !blocker-logs/hono-phase3-round2-brief.md
+!blocker-logs/hono-handoff-2026-09-25.md
 !blocker-logs/hono-phase3-round2-closures.md
 !blocker-logs/hono-phase3-round2-continuations.md
 
