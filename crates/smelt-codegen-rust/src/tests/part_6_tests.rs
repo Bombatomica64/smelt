@@ -1504,7 +1504,7 @@ fn injects_serde_json_dependency_for_json_mapping() {
         ReleaseProfile::Optimized,
     );
 
-    assert!(manifest.contains("serde_json = \"1\""));
+    assert!(manifest.contains("serde_json = { version = \"1\", features = [\"preserve_order\"] }"));
 }
 
 #[test]

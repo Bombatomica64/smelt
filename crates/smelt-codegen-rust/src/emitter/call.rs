@@ -999,6 +999,13 @@ impl FunctionEmitter<'_> {
                                     Some(&class_type_params),
                                 );
                             }
+                            if let Some(bound_text) = self
+                                .receiver_bound_class_param_argument_text(
+                                    function, receiver, arg, target_ty,
+                                )?
+                            {
+                                return Ok(bound_text);
+                            }
                             self.callee_generic_argument_text(
                                 arg,
                                 function,
@@ -1746,6 +1753,70 @@ impl FunctionEmitter<'_> {
             .find(|class| class.name == class_name)
             .map(|class| class.type_params.iter().map(|param| param.name).collect())
             .unwrap_or_default()
+    }
+
+    /// Render a bare class-type-parameter method argument at the type the
+    /// RECEIVER's class arguments pin it to.
+    ///
+    /// `node.insert(m, p, "x")` against `class Node<T> { insert(.., handler: T) }`
+    /// declares `handler: T`, and the default method-argument path renders a
+    /// concrete argument at its own type so Rust infers `T` from it. That
+    /// inference is only free when nothing else has fixed `T` — but the
+    /// receiver already has: its Rust type is `Node<Arg>`, so the method's `T`
+    /// IS `Arg` and an argument of any other type is `E0308` (`expected
+    /// SmeltUnknown, found String` at every `insert` of a `new Node()` whose `T`
+    /// TypeScript infers as `unknown`, 238 errors in Hono's trie-router tests).
+    ///
+    /// Coerces to the receiver's argument for that parameter; a type parameter
+    /// the caller cannot spell (the class's own uninstantiated `T`, which the
+    /// receiver's local renders as `SmeltUnknown`) is a source-`unknown`
+    /// instantiation, so the argument crosses the existing `SmeltUnknown`
+    /// boundary adapter (`erase`). Returns `None` — keep the existing pass-through — when the
+    /// target is not a bare class type parameter, when the receiver is not an
+    /// instantiation of the callee's class, or when the receiver's argument is
+    /// a type parameter the caller itself spells (a generic caller forwarding
+    /// its own `T`, which Rust already unifies).
+    fn receiver_bound_class_param_argument_text(
+        &self,
+        function: &MirFunction,
+        receiver: &Operand,
+        arg: &Operand,
+        target_ty: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        let HirOrigin::ClassMethod { class, .. } = function.origin else {
+            return Ok(None);
+        };
+        let Some(Type::TypeParam { name }) = self.mir.types.get(target_ty) else {
+            return Ok(None);
+        };
+        let ordered = self.callee_class_type_param_names(function);
+        let Some(position) = ordered.iter().position(|param| param == name) else {
+            return Ok(None);
+        };
+        let Some(Type::Class {
+            name: receiver_class,
+            args,
+        }) = self.mir.types.get(self.operand_ty(receiver)?)
+        else {
+            return Ok(None);
+        };
+        if *receiver_class != class || args.len() != ordered.len() {
+            return Ok(None);
+        }
+        let Some(bound) = args.get(position).copied() else {
+            return Ok(None);
+        };
+        match self.mir.types.get(bound) {
+            Some(Type::TypeParam { name: bound_name }) => {
+                if self.current_function_type_params().contains(bound_name) {
+                    Ok(None)
+                } else {
+                    self.erase(arg).map(Some)
+                }
+            }
+            Some(_) => self.value_at_type(arg, bound).map(Some),
+            None => Ok(None),
+        }
     }
 
     /// Return whether `ty` mentions any of `names`.
@@ -2835,10 +2906,37 @@ impl FunctionEmitter<'_> {
                 let Some(Type::Function(function)) = self.mir.types.get(callee_ty) else {
                     return Err(EmitError::new("indirect call target is not a function"));
                 };
+                if self.declared_slot_return_is_erased(indirect_callee, function) {
+                    return self.type_id(Type::Unknown);
+                }
                 function.return_ty
             }
         };
         Ok(source_ty)
+    }
+
+    /// Returns whether a class/interface callable slot's DECLARED return renders
+    /// as the erased carrier while MIR types this call at a concrete return.
+    ///
+    /// A slot keeps the ABI its declaration gave it. A declared return that is a
+    /// union over the class's type parameters (`match: .. => Result<T>`, a union
+    /// of tuples of `T`) has no generated enum and renders `SmeltUnknown` in the
+    /// slot, even though MIR hands the call the receiver-substituted union
+    /// (`Result<string>`, a concrete generated enum). The call really produces
+    /// the erased carrier, so callers treat its source type as `Unknown` and the
+    /// destination extracts from it instead of receiving it unconverted (E0308
+    /// `expected SmeltUnionN, found SmeltUnknown`, Hono's router `match`).
+    pub(super) fn declared_slot_return_is_erased(
+        &self,
+        callee: &Operand,
+        function: &FunctionType,
+    ) -> bool {
+        self.class_field_declared_function_type(callee)
+            .is_some_and(|declared| {
+                declared.return_ty != function.return_ty
+                    && matches!(self.mir.types.get(declared.return_ty), Some(Type::Union(_)))
+                    && self.concrete_union_members(declared.return_ty).is_none()
+            })
     }
 
     /// Returns the Rust suffix needed when calling a throwing function.

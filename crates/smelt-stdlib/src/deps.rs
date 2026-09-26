@@ -72,8 +72,12 @@ impl BackendDependency {
             Self::Reqwest => {
                 "reqwest = { version = \"0.12\", default-features = false, features = [\"blocking\", \"rustls-tls\"] }\n"
             }
+            // `preserve_order`: a parsed JSON object keeps its source key
+            // order, as a JavaScript object does. Without it `serde_json::Map`
+            // is a `BTreeMap` and `JSON.stringify(JSON.parse(s))` came back
+            // with its keys sorted.
             Self::SerdeJson => {
-                "serde = { version = \"1\", features = [\"derive\"] }\nserde_json = \"1\"\n"
+                "serde = { version = \"1\", features = [\"derive\"] }\nserde_json = { version = \"1\", features = [\"preserve_order\"] }\n"
             }
             Self::Regex => "regex = \"1\"\nfancy-regex = \"0.14\"\n",
             Self::Rand => "rand = \"0.9\"\n",

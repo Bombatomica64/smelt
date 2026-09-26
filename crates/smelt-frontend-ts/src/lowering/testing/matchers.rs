@@ -663,6 +663,24 @@ impl ModuleBuilder<'_> {
         let uses_asymmetric_matcher = (expected_has_matcher
             || self.asymmetric_matchers_lowered != matchers_before_operands)
             && matches!(matcher, TestMatcher::Equal | TestMatcher::StrictEqual);
+        // `expect(x)` and every equality matcher take `any`, so a test may
+        // compare values whose STATIC types are unrelated — a mocked KV store
+        // returns a string where the declaration says `ReadableStream | null`,
+        // and the test asserts `toBe('This is index')`. Neither side is
+        // assignable to the other, so there is no typed comparison to emit
+        // (`Option<SmeltBody> == Option<String>` was E0308). JavaScript compares
+        // the runtime VALUES, which is exactly the erased comparison: both
+        // operands cross the `unknown` boundary and the matcher's runtime
+        // equality decides.
+        let (actual, expected) = if matches!(
+            matcher,
+            TestMatcher::Be | TestMatcher::Equal | TestMatcher::StrictEqual
+        ) && !uses_asymmetric_matcher
+        {
+            self.erase_unrelated_matcher_operands(actual, expected, call.span, body)
+        } else {
+            (actual, expected)
+        };
         // Vitest compares primitive numbers with `Object.is` under every
         // equality matcher, not just `toBe`. Only `toBe` additionally treats
         // objects and arrays by reference, so the identity rule stays gated on
@@ -707,6 +725,77 @@ impl ModuleBuilder<'_> {
             body,
         );
         Ok(true)
+    }
+
+    /// Erase both operands of an equality matcher whose static types are
+    /// unrelated (neither assignable to the other), so the comparison runs on
+    /// the runtime values the way JavaScript's matcher does. Related operands
+    /// are returned unchanged and keep their typed comparison.
+    fn erase_unrelated_matcher_operands(
+        &mut self,
+        actual: smelt_hir::ExprId,
+        expected: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> (smelt_hir::ExprId, smelt_hir::ExprId) {
+        let actual_ty = Self::expr_ty(body, actual);
+        let expected_ty = Self::expr_ty(body, expected);
+        if self.type_assignable_to(expected_ty, actual_ty)
+            || self.type_assignable_to(actual_ty, expected_ty)
+            || !self.matcher_operand_is_scalar_or_instance(actual_ty)
+            || !self.matcher_operand_is_scalar_or_instance(expected_ty)
+            || (self.matcher_operand_is_number(actual_ty)
+                && self.matcher_operand_is_number(expected_ty))
+        {
+            return (actual, expected);
+        }
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let span = self.span(span.start, span.end);
+        let erased_actual = body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value: actual },
+            ty: unknown_ty,
+            span,
+        });
+        let erased_expected = body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value: expected },
+            ty: unknown_ty,
+            span,
+        });
+        (erased_actual, erased_expected)
+    }
+
+    /// Whether an equality-matcher operand is a JavaScript number (`Int` or
+    /// `Float`, optionally absent). Two such operands are one JS type even when
+    /// the lowering picked different widths, and compare numerically as-is.
+    fn matcher_operand_is_number(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Optional(inner)) => self.matcher_operand_is_number(*inner),
+            Some(Type::Int | Type::Float) => true,
+            _ => false,
+        }
+    }
+
+    /// Whether an equality-matcher operand is a scalar or a class instance
+    /// (optionally absent) with no erased component.
+    ///
+    /// Only such operands take the unrelated-types erasure above. Collections
+    /// already compare through the matcher's structural walk, which erases
+    /// element-wise where the two sides disagree, and an operand that already
+    /// carries `unknown` compares at runtime anyway; routing either through
+    /// extra erased temporaries would add boundary crossings for nothing.
+    fn matcher_operand_is_scalar_or_instance(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Optional(inner)) => self.matcher_operand_is_scalar_or_instance(*inner),
+            Some(Type::Bool | Type::Int | Type::Float | Type::String) => true,
+            // A class instance qualifies only when its type arguments do too:
+            // one whose arguments carry `unknown` (an unresolved helper alias
+            // such as `Awaited<unknown>`) is already compared at runtime.
+            Some(Type::Class { args, .. }) => args
+                .clone()
+                .into_iter()
+                .all(|arg| self.matcher_operand_is_scalar_or_instance(arg)),
+            _ => false,
+        }
     }
 
     /// Return whether Vitest `toBe` needs JavaScript `SameValue` semantics.
@@ -2865,10 +2954,23 @@ impl ModuleBuilder<'_> {
                 return true;
             };
             // A rest slot absorbs every argument from its index on, and its
-            // declared type is the *list*, not the element, so it is not a
+            // declared type is the *list*: each absorbed argument is checked
+            // against the list's ELEMENT type. Without that check a leading
+            // `(...handlers: Handler[])` overload claimed `use('/p', h)` ahead
+            // of the `(path: string, handler: Handler)` one the call really
+            // runs, and the string was packed into the handler list (E0308).
+            // A rest slot of any other shape (a tuple rest) is not a
             // per-argument constraint this probe can check.
-            if signature.rest.is_some_and(|rest| index >= rest) {
-                return true;
+            if let Some(rest) = signature.rest
+                && index >= rest
+            {
+                let Some(rest_ty) = signature.params.get(rest) else {
+                    return true;
+                };
+                return match self.ctx.krate.types.get(*rest_ty) {
+                    Some(Type::List(element)) => self.type_assignable_to(arg_ty, *element),
+                    _ => true,
+                };
             }
             let Some(param_ty) = signature.params.get(index) else {
                 return true;

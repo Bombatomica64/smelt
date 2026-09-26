@@ -708,7 +708,8 @@ fn rvalue_needs_rand(rvalue: &Rvalue) -> bool {
     )
 }
 
-/// Returns whether the program calls the fallible `JSON.parse` builtin.
+/// Returns whether the program calls the fallible `JSON.parse` builtin or a
+/// `json()` body reader.
 ///
 /// `JSON.parse` is a `Terminator::Call` to [`BuiltinFn::JsonParse`] rather than
 /// an rvalue (it needs an unwind edge), so the rvalue-based dependency scan
@@ -721,6 +722,19 @@ pub(crate) fn needs_json_parse_runtime(mir: &Mir) -> bool {
             terminator,
             Terminator::Call {
                 callee: Callee::Builtin(BuiltinFn::JsonParse),
+                ..
+            }
+        )
+    }) || any_rvalue_needs(mir, |rvalue| {
+        // A `Response`/`Request` `json()` body reader parses through the same
+        // fallible adapter.
+        matches!(
+            rvalue,
+            Rvalue::ResponseOp {
+                op: smelt_hir::ResponseOp::Json,
+                ..
+            } | Rvalue::RequestOp {
+                op: smelt_hir::RequestOp::Json,
                 ..
             }
         )

@@ -407,6 +407,8 @@ pub enum RequestOp {
     Body,
     /// `text()`: the body decoded as UTF-8. Async, and consumes the body.
     Text,
+    /// `json()`: the body parsed as JSON; see `ResponseOp::Json`.
+    Json,
     /// `formData()`: the body parsed as a form. Async, and consumes the body.
     ///
     /// Beside `Text` rather than under it because it answers a different type,
@@ -588,6 +590,12 @@ pub enum ResponseOp {
     Body,
     /// `text()`: the body decoded as UTF-8. Async, and consumes the body.
     Text,
+    /// `json()`: the body decoded as UTF-8 and parsed as JSON. Async, consumes
+    /// the body, and rejects with a `SyntaxError` on malformed text. The value
+    /// is `Promise<any>` in the spec: JSON text has no static shape, so the
+    /// parsed value is the erased carrier (a genuine dynamic boundary, the same
+    /// one `JSON.parse` crosses).
+    Json,
     /// `formData()`: the body parsed as a form. Async, and consumes the body.
     FormData,
     /// `arrayBuffer()`: the body's bytes as storage. Async, and consumes it.

@@ -342,3 +342,4 @@ third_party/es-toolkit-src/
 target-*/
 !blocker-logs/hono-phase3-round1-families.md
 !blocker-logs/hono-phase3-round1-measure-excludes.txt
+!blocker-logs/hono-phase3-round2.md

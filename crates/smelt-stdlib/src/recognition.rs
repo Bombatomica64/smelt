@@ -400,6 +400,11 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
     ),
     method(
         TypeScriptReceiverKind::Response,
+        "json",
+        RuleId::TsResponseBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Response,
         "formData",
         RuleId::TsResponseBodyRead,
     ),
@@ -424,6 +429,11 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
     method(
         TypeScriptReceiverKind::Request,
         "text",
+        RuleId::TsRequestBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Request,
+        "json",
         RuleId::TsRequestBodyRead,
     ),
     method(

@@ -630,6 +630,11 @@ impl FunctionEmitter<'_> {
             smelt_hir::RequestOp::Text => format!(
                 "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(smelt_request.take_text()?) }})) }}"
             ),
+            // Same `text()` + fallible `JSON.parse` shape as `Response::json`.
+            smelt_hir::RequestOp::Json => format!(
+                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_text = smelt_request.take_text()?; {json}(&smelt_text) }})) }}",
+                json = crate::thrown::JSON_PARSE_FN
+            ),
             // The same single-use reader, handing its bytes plus the request's
             // OWN `Content-Type` to the parser: the encoding (and a multipart
             // boundary) is a header, not a property of the bytes.
@@ -872,6 +877,13 @@ impl FunctionEmitter<'_> {
             // is exactly what the spec says happens.
             smelt_hir::ResponseOp::Text => format!(
                 "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) }})) }}"
+            ),
+            // `json()` is `text()` followed by the fallible `JSON.parse`
+            // adapter, so malformed text rejects with the same catchable
+            // `SyntaxError` a source-level `JSON.parse` throws.
+            smelt_hir::ResponseOp::Json => format!(
+                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_text = smelt_response.take_text()?; {json}(&smelt_text) }})) }}",
+                json = crate::thrown::JSON_PARSE_FN
             ),
             // The two BYTE readers, one `take_bytes` apart: storage owns the
             // bytes, a view is an element window over them. Both consume the

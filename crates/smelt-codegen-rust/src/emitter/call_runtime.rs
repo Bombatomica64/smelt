@@ -1485,7 +1485,18 @@ impl FunctionEmitter<'_> {
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                 ) || self.is_erased_class_type(callee_ty)
                 {
-                    let callee_text = self.operand_text(callee)?;
+                    // The dynamic dispatch below matches on the ERASED carrier.
+                    // A union with concrete members renders as its generated
+                    // enum, not as `SmeltUnknown`, so it crosses the boundary
+                    // adapter first (`match SmeltUnionN { SmeltUnknown::.. }`
+                    // was E0308).
+                    let callee_text = if matches!(self.mir.types.get(callee_ty), Some(Type::Union(_)))
+                        && self.concrete_union_members(callee_ty).is_some()
+                    {
+                        self.erase(callee)?
+                    } else {
+                        self.operand_text(callee)?
+                    };
                     let rendered_args =
                         args.iter()
                             .map(|arg| self.erase(arg))
@@ -1753,7 +1764,9 @@ impl FunctionEmitter<'_> {
                         // destination needs, so treat the erased-rest call's source
                         // type as `Unknown` and let `value_at_type_text` inject the
                         // correct `Some(..)`/extraction at the assignment seam.
-                        let source_ty = if callee_is_erased_rest {
+                        let source_ty = if callee_is_erased_rest
+                            || self.declared_slot_return_is_erased(callee, function)
+                        {
                             self.type_id(Type::Unknown)?
                         } else {
                             function.return_ty
