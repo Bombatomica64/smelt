@@ -651,6 +651,37 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Lower a callback-body regex search to its optional match, viewed at `ty`.
+    ///
+    /// `RegexFind` answers the `String.prototype.match` value (see
+    /// `string_match_result_type`); when the callback's declared result
+    /// type differs — `bool` for `test`, or an erased slot — an explicit
+    /// `TypeAssert` converts it, so the search node itself keeps one type.
+    fn callback_regex_find_expr(
+        &mut self,
+        pattern: smelt_hir::ExprId,
+        haystack: smelt_hir::ExprId,
+        ty: smelt_hir::TypeId,
+        body: &mut Body,
+        span: Span,
+    ) -> smelt_hir::ExprId {
+        let static_flags = self.static_regexp_flags(pattern, body);
+        let found_ty = self.string_match_result_type(static_flags);
+        let found = body.push_expr(Expr {
+            kind: ExprKind::RegexFind { pattern, haystack },
+            ty: found_ty,
+            span,
+        });
+        if ty == found_ty {
+            return found;
+        }
+        body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value: found },
+            ty,
+            span,
+        })
+    }
+
     /// Convert a callback method call into the corresponding normal HIR expression.
     pub(in crate::lowering) fn callback_method_call_to_body_expr(
         &mut self,
@@ -757,26 +788,21 @@ impl ModuleBuilder<'_> {
                     span,
                 }))
             }
-            "test" if args.len() == 1 => Ok(body.push_expr(Expr {
-                kind: ExprKind::RegexFind {
-                    pattern: receiver,
-                    haystack: args.first().copied().ok_or_else(|| {
-                        SmeltError::unsupported(span, "callback regex test requires a haystack")
-                    })?,
-                },
-                ty,
-                span,
-            })),
-            "match" if args.len() == 1 => Ok(body.push_expr(Expr {
-                kind: ExprKind::RegexFind {
-                    pattern: args.first().copied().ok_or_else(|| {
-                        SmeltError::unsupported(span, "callback string match requires a pattern")
-                    })?,
-                    haystack: receiver,
-                },
-                ty,
-                span,
-            })),
+            // Both searches produce the `String.prototype.match` value (see
+            // `string_match_result_type`) and then view it at the
+            // callback's declared result type: `test` reads its truthiness.
+            "test" if args.len() == 1 => {
+                let haystack = args.first().copied().ok_or_else(|| {
+                    SmeltError::unsupported(span, "callback regex test requires a haystack")
+                })?;
+                Ok(self.callback_regex_find_expr(receiver, haystack, ty, body, span))
+            }
+            "match" if args.len() == 1 => {
+                let pattern = args.first().copied().ok_or_else(|| {
+                    SmeltError::unsupported(span, "callback string match requires a pattern")
+                })?;
+                Ok(self.callback_regex_find_expr(pattern, receiver, ty, body, span))
+            }
             "has" if args.len() == 1
                 && matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Set(_))) =>
             {

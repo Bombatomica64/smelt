@@ -596,16 +596,30 @@ impl FunctionEmitter<'_> {
         &self,
         pattern: &Operand,
         haystack: &Operand,
+        dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let pattern_text = self.regexp_operand_text(pattern)?;
         let haystack_text = self.string_like_operand_text(haystack, "regex find")?;
-        // `SmeltRegExp::match_string` returns the match array as a raw
-        // `Option<Vec<String>>`; the Smelt type of `String.prototype.match` is
-        // `Option<SmeltList<String>>`, so project the present arm through
-        // `SmeltList::from` to agree with the declared slot type.
-        Ok(format!(
-            "{pattern_text}.match_string(&{haystack_text}).map(SmeltList::from)"
-        ))
+        // The frontend types `String.prototype.match` `string[] | null` only
+        // where the regex is statically GLOBAL; that answer is the list of
+        // whole matches, which `match_all_strings` builds directly.
+        if let Some(Type::Optional(inner)) = self.mir.types.get(dest_ty)
+            && let Some(Type::List(item)) = self.mir.types.get(*inner)
+            && self.mir.types.get(*item) == Some(&Type::String)
+        {
+            return Ok(format!(
+                "{pattern_text}.match_all_strings(&{haystack_text}).map(SmeltList::from)"
+            ));
+        }
+        // Everywhere else `SmeltRegExp::match_string` answers the typed
+        // `Option<SmeltMatch>` the frontend declares (the same value `exec`
+        // answers), so the present arm needs no projection. As for `exec`,
+        // only an erased result slot takes the explicit adapter.
+        let call = format!("{pattern_text}.match_string(&{haystack_text})");
+        if self.optional_inner_is_erased_boundary(dest_ty) {
+            return Ok(format!("{call}.map(SmeltMatch::into_smelt_unknown)"));
+        }
+        Ok(call)
     }
 
     /// Converts JavaScript `RegExp.prototype.exec` to a concrete match result.

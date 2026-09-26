@@ -475,6 +475,13 @@ impl ModuleBuilder<'_> {
             let span = self.expression_span(source);
             return self.typed_array_elements_expression(iter, span, body);
         }
+        // A regex match iterates its numbered groups, `undefined` for one that
+        // did not participate. Asked before the `Type::Class` arm below, which
+        // would erase the match into an `unknown` list.
+        let span = self.expression_span(source);
+        if let Some(view) = self.match_array_view(iter, span, body) {
+            return view;
+        }
         match self.ctx.krate.types.get(iter_ty).cloned() {
             Some(Type::Set(item_ty)) => {
                 let ty = self.ctx.krate.types.intern(Type::List(item_ty));
@@ -655,12 +662,26 @@ Type::Optional(_)) => {
     }
 
     /// Lower an expression without type hint.
+    ///
+    /// When the node is the receiver of an array-method call being lowered
+    /// (listed in `array_view_receivers`, see
+    /// [`Self::call_expression`]) and it lowers to a regex match
+    /// value, the result is the match's array view rather than the match itself.
     pub(in crate::lowering) fn expression(
         &mut self,
         expression: &Expression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        self.expression_with_hint(expression, body, None)
+        let lowered = self.expression_with_hint(expression, body, None)?;
+        if !self.array_view_receivers.is_empty()
+            && self
+                .array_view_receivers
+                .contains(&std::ptr::from_ref(expression).addr())
+        {
+            let span = self.expression_span(expression);
+            return Ok(self.match_array_view(lowered, span, body).unwrap_or(lowered));
+        }
+        Ok(lowered)
     }
 
     // Continued in the next split builder file.

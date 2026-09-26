@@ -5636,16 +5636,27 @@ fn emit_source_with_free_function_router(
                 fn_writer.line("compiled");
             });
             impl_writer.line("/// Match a string with JavaScript String.prototype.match semantics.");
-            impl_writer.block("pub fn match_string(&self, haystack: &str) -> Option<Vec<String>>", |fn_writer| {
+            impl_writer.line("///");
+            impl_writer.line("/// A non-global regex answers exactly what `exec` answers (the spec's");
+            impl_writer.line("/// `RegExp.prototype[@@match]` IS `RegExpBuiltinExec` then), so an");
+            impl_writer.line("/// unmatched capture group is `None` (JavaScript `undefined`) and a");
+            impl_writer.line("/// sticky regex reads and advances `lastIndex`. A global regex resets");
+            impl_writer.line("/// `lastIndex` to 0 and answers every whole match, built by");
+            impl_writer.line("/// `SmeltMatch::from_global_matches`; no match at all is `None` (`null`).");
+            impl_writer.block("pub fn match_string(&self, haystack: &str) -> Option<SmeltMatch>", |fn_writer| {
+                fn_writer.line("if !self.has_flag('g') { return self.exec(haystack); }");
+                fn_writer.line("self.match_all_strings(haystack).map(|matches| SmeltMatch::from_global_matches(matches, haystack))");
+            });
+            impl_writer.line("/// Every whole match of a GLOBAL String.prototype.match, or `None` (`null`).");
+            impl_writer.line("///");
+            impl_writer.line("/// The spec resets `lastIndex` to 0 first and leaves it there. Called");
+            impl_writer.line("/// directly where the regex is statically known to be global, which is");
+            impl_writer.line("/// where the frontend types the result `string[] | null`.");
+            impl_writer.block("pub fn match_all_strings(&self, haystack: &str) -> Option<Vec<String>>", |fn_writer| {
+                fn_writer.line("*self.last_index.borrow_mut() = 0;");
                 fn_writer.line("let regex = self.compiled();");
-                fn_writer.block("if self.has_flag('g')", |if_writer| {
-                    if_writer.line("let matches = regex.find_iter(haystack).filter_map(Result::ok).map(|value| value.as_str().to_owned()).collect::<Vec<_>>();");
-                    if_writer.line("if matches.is_empty() { None } else { Some(matches) }");
-                });
-                fn_writer.block("else", |else_writer| {
-                    else_writer.line("let captures = regex.captures(haystack).ok().flatten()?;");
-                    else_writer.line("Some((0..captures.len()).map(|index| captures.get(index).map_or(String::new(), |value| value.as_str().to_owned())).collect::<Vec<_>>())");
-                });
+                fn_writer.line("let matches = regex.find_iter(haystack).filter_map(Result::ok).map(|value| value.as_str().to_owned()).collect::<Vec<_>>();");
+                fn_writer.line("if matches.is_empty() { None } else { Some(matches) }");
             });
             impl_writer.line("/// Split a string with JavaScript RegExp separator semantics.");
             impl_writer.block("pub fn split_string(&self, haystack: &str) -> Vec<String>", |fn_writer| {
@@ -6751,6 +6762,26 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool) {
                 fn_writer.line("Self { id: smelt_next_object_id(), groups, named, match_index, input: input.to_owned() }");
             },
         );
+        impl_writer.line("/// Build the array a GLOBAL `String.prototype.match` answers.");
+        impl_writer.line("///");
+        impl_writer.line("/// JavaScript returns a plain array of every whole match there, with no");
+        impl_writer.line("/// capture groups, `index`, `input` or `groups`. It is carried as a");
+        impl_writer.line("/// match value so both spellings of `match` share one type: the numbered");
+        impl_writer.line("/// entries are the whole matches (all present), there are no named");
+        impl_writer.line("/// groups, and `index` is 0 with `input` the searched string, which a");
+        impl_writer.line("/// global match's reader does not consult.");
+        impl_writer.block("fn from_global_matches(matches: Vec<String>, input: &str) -> Self", |fn_writer| {
+            fn_writer.line("Self { id: smelt_next_object_id(), groups: matches.into_iter().map(Some).collect(), named: ::std::collections::HashMap::new(), match_index: 0, input: input.to_owned() }");
+        });
+        impl_writer.line("/// The match viewed as the JavaScript array it is (`[...match]`).");
+        impl_writer.line("///");
+        impl_writer.line("/// Entry 0 is the whole match; a group that did not participate is");
+        impl_writer.line("/// `None` (`undefined`). The list keeps the match's identity (`===`)");
+        impl_writer.line("/// but copies its entries: array methods lowered against it only read");
+        impl_writer.line("/// (writes to a match are not lowered through it).");
+        impl_writer.block("pub fn to_array_view(&self) -> SmeltList<Option<String>>", |fn_writer| {
+            fn_writer.line("SmeltList::with_id(self.id, self.groups.clone())");
+        });
         impl_writer.line("/// Read a numbered capture group (`match[n]`).");
         impl_writer.block("fn group(&self, index: usize) -> Option<&str>", |fn_writer| {
             fn_writer.line("self.groups.get(index).and_then(|value| value.as_deref())");

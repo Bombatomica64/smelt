@@ -1,0 +1,375 @@
+fn pick (FuncId(0)) -> String
+  locals
+    %0 param path: String
+    %1 user m: Optional<__SmeltMatch>
+    %2 user index: Float
+    %3 temp: RegExp
+    %4 temp: Optional<__SmeltMatch>
+    %5 temp: Bool
+    %6 temp: __SmeltMatch
+    %7 temp: List<Optional<String>>
+    %8 temp: Float
+    %9 temp: String
+    %10 temp: String
+    %11 temp: __SmeltMatch
+    %12 temp: Float
+    %13 temp: String
+    %14 temp: String
+    %15 temp: __SmeltMatch
+    %16 temp: Optional<String>
+    %17 temp: Bool
+    %18 temp: String
+    %19 temp: String
+  bb0:
+    %3 = external_new0("^\/a(?:\/b()|\/c())$", "")
+    %4 = regex_find move %3, copy %0
+    %1 = move %4
+    %5 = !copy %1
+    switch move %5 ? bb1 : bb2
+  bb1:
+    return "none"
+  bb2:
+    %6 = copy %1
+    %7 = move %6
+    %8 = list_find move %7, "", 1.0
+    %2 = move %8
+    %9 = "" + move %2
+    %10 = move %9 + ":"
+    %11 = copy %1
+    %12 = len move %11
+    %13 = move %10 + move %12
+    %14 = move %13 + ":"
+    %15 = move %1
+    %16 = move %15?.[1.0]
+    %17 = move %16 == undefined
+    switch move %17 ? bb3 : bb4
+  bb3:
+    %18 = "u"
+    goto bb5
+  bb4:
+    %18 = "e"
+    goto bb5
+  bb5:
+    %19 = move %14 + move %18
+    return move %19
+
+fn describe (FuncId(1)) -> None
+  locals
+    %0 param text: String
+    %1 user m: Optional<__SmeltMatch>
+    %2 user rest: List<Optional<String>>
+    %3 user group: Optional<String>
+    %4 user first: Optional<String>
+    %5 user second: Optional<String>
+    %6 temp: RegExp
+    %7 temp: Optional<__SmeltMatch>
+    %8 temp: Bool
+    %9 temp: None
+    %10 temp: __SmeltMatch
+    %11 temp: List<Optional<String>>
+    %12 temp: List<Optional<String>>
+    %13 temp: Float
+    %14 temp: __SmeltMatch
+    %15 temp: List<Optional<String>>
+    %16 temp: String
+    %17 temp: __SmeltMatch
+    %18 temp: List<Optional<String>>
+    %19 temp: fn(Optional<String>, Int, List<Optional<String>>) -> Optional<String>
+    %20 temp: List<Optional<String>>
+    %21 temp: String
+    %22 temp: None
+    %23 temp: __SmeltMatch
+    %24 temp: List<Optional<String>>
+    %25 temp: Float
+    %26 temp: Float
+    %27 temp: Bool
+    %28 temp: Bool
+    %29 temp: Optional<String>
+    %30 temp: None
+    %31 temp: __SmeltMatch
+    %32 temp: Optional<String>
+    %33 temp: Optional<String>
+    %34 temp: __SmeltMatch
+    %35 temp: List<Optional<String>>
+    %36 temp: List<Optional<String>>
+    %37 temp: List<Optional<String>>
+    %38 temp: Float
+    %39 temp: __SmeltMatch
+    %40 temp: __SmeltMatch
+    %41 temp: Bool
+    %42 temp: None
+  bb0:
+    %6 = external_new0("(\d+)-(\d+)?", "")
+    %7 = regex_find move %6, copy %0
+    %1 = move %7
+    %8 = !copy %1
+    switch move %8 ? bb1 : bb2
+  bb1:
+    %9 = call @console_log("no match") -> bb3
+  bb2:
+    %10 = copy %1
+    %11 = move %10
+    %12 = list_slice move %11, 1.0, _
+    %2 = move %12
+    %13 = len move %2
+    %14 = copy %1
+    %15 = move %14
+    %16 = string_join move %15, "|"
+    %17 = copy %1
+    %18 = move %17
+    %19 = closure ClosureId(0) []
+    %20 = list_map move %18, move %19
+    %21 = string_join move %20, ","
+    %22 = call @console_log(move %13, move %16, move %21) -> bb4
+  bb3:
+    return none
+  bb4:
+    %23 = copy %1
+    %24 = move %23
+    %25 = 0.0
+    goto bb5
+  bb5:
+    %26 = len copy %24
+    %27 = copy %25 < move %26
+    switch move %27 ? bb6 : bb8
+  bb6:
+    %3 = copy %24[copy %25]
+    %28 = copy %3 == undefined
+    switch move %28 ? bb9 : bb10
+  bb7:
+    %25 = copy %25 + 1.0
+    goto bb5
+  bb8:
+    %31 = copy %1
+    %32 = copy %31?.[1.0]
+    %4 = move %32
+    %33 = move %31?.[2.0]
+    %5 = move %33
+    %34 = copy %1
+    %35 = move %34
+    %36 = []
+    %37 = list_concat move %35, move %36
+    %38 = len move %37
+    %39 = copy %1
+    %40 = move %1
+    %41 = move %5 == undefined
+    %42 = call @console_log(move %38, copy %39.field10, copy %40.field20, move %4, move %41) -> bb13
+  bb9:
+    %29 = "undefined"
+    goto bb11
+  bb10:
+    %29 = move %3
+    goto bb11
+  bb11:
+    %30 = call @console_log(move %29) -> bb12
+  bb12:
+    goto bb7
+  bb13:
+    return none
+
+fn digits (FuncId(2)) -> String
+  locals
+    %0 param text: String
+    %1 user all: Optional<List<String>>
+    %2 user joined: String
+    %3 user tagged: String
+    %4 temp: RegExp
+    %5 temp: Optional<List<String>>
+    %6 temp: Bool
+    %7 temp: String
+    %8 temp: List<String>
+    %9 temp: String
+    %10 temp: RegExp
+    %11 temp: Optional<List<String>>
+    %12 temp: List<String>
+    %13 temp: List<String>
+    %14 temp: fn(String, Int, List<String>) -> String
+    %15 temp: List<String>
+    %16 temp: String
+    %17 temp: Bool
+    %18 temp: Bool
+    %19 temp: Optional<Float>
+    %20 temp: List<String>
+    %21 temp: Float
+    %22 temp: Float
+    %23 temp: String
+    %24 temp: String
+    %25 temp: String
+    %26 temp: String
+    %27 temp: String
+  bb0:
+    %4 = external_new0("\d", "g")
+    %5 = regex_find move %4, copy %0
+    %1 = move %5
+    %6 = copy %1 != none
+    switch move %6 ? bb1 : bb2
+  bb1:
+    %8 = copy %1
+    %9 = string_join move %8, "+"
+    %7 = move %9
+    goto bb3
+  bb2:
+    %7 = "none"
+    goto bb3
+  bb3:
+    %2 = move %7
+    %10 = external_new0("\d", "g")
+    %11 = regex_find move %10, copy %0
+    %12 = []
+    %13 = move %11 ?? move %12
+    %14 = closure ClosureId(1) []
+    %15 = list_map move %13, move %14
+    %16 = string_join move %15, ""
+    %3 = move %16
+    %17 = unknown_is Null copy %1
+    %18 = !move %17
+    switch move %18 ? bb4 : bb5
+  bb4:
+    %20 = move %1
+    %21 = len move %20
+    %19 = move %21
+    goto bb6
+  bb5:
+    %19 = none
+    goto bb6
+  bb6:
+    %22 = move %19 ?? 0.0
+    %23 = "" + move %22
+    %24 = move %23 + " "
+    %25 = move %24 + move %2
+    %26 = move %25 + " "
+    %27 = move %26 + move %3
+    return move %27
+
+fn first_two (FuncId(3)) -> String
+  locals
+    %0 param text: String
+    %1 param pattern: RegExp
+    %2 user groups: List<Optional<String>>
+    %3 temp: Optional<__SmeltMatch>
+    %4 temp: Optional<List<Optional<String>>>
+    %5 temp: List<Optional<String>>
+    %6 temp: List<Optional<String>>
+    %7 temp: List<Optional<String>>
+    %8 temp: fn(Optional<String>, Int, List<Optional<String>>) -> Optional<String>
+    %9 temp: List<Optional<String>>
+    %10 temp: String
+  bb0:
+    %3 = regex_find copy %1, copy %0
+    %4 = move %3
+    %5 = []
+    %6 = move %4 ?? move %5
+    %2 = move %6
+    %7 = list_slice move %2, 0.0, 2.0
+    %8 = closure ClosureId(2) []
+    %9 = list_map move %7, move %8
+    %10 = string_join move %9, "|"
+    return move %10
+
+fn main (FuncId(4)) -> None
+  locals
+    %0 user routes: RegExp
+    %1 temp: RegExp
+    %2 temp: String
+    %3 temp: String
+    %4 temp: String
+    %5 temp: None
+    %6 temp: None
+    %7 temp: None
+    %8 temp: None
+    %9 temp: String
+    %10 temp: String
+    %11 temp: None
+    %12 temp: RegExp
+    %13 temp: String
+    %14 temp: RegExp
+    %15 temp: String
+    %16 temp: RegExp
+    %17 temp: String
+    %18 temp: None
+  bb0:
+    %1 = external_new0("^\/a(?:\/b()|\/c())$", "")
+    %0 = move %1
+    %2 = call fn0("/a/b") -> bb1
+  bb1:
+    %3 = call fn0("/a/c") -> bb2
+  bb2:
+    %4 = call fn0("/x") -> bb3
+  bb3:
+    %5 = call @console_log(move %2, move %3, move %4) -> bb4
+  bb4:
+    %6 = call fn1("12-") -> bb5
+  bb5:
+    %7 = call fn1("3-4") -> bb6
+  bb6:
+    %8 = call fn1("x") -> bb7
+  bb7:
+    %9 = call fn2("a1b22") -> bb8
+  bb8:
+    %10 = call fn2("ab") -> bb9
+  bb9:
+    %11 = call @console_log(move %9, move %10) -> bb10
+  bb10:
+    %12 = external_new0("([a-z])(\d)?", "")
+    %13 = call fn3("a1", move %12) -> bb11
+  bb11:
+    %14 = external_new0("([a-z])(\d)?", "")
+    %15 = call fn3("b", move %14) -> bb12
+  bb12:
+    %16 = external_new0("z", "")
+    %17 = call fn3("b", move %16) -> bb13
+  bb13:
+    %18 = call @console_log(move %13, move %15, move %17) -> bb14
+  bb14:
+    return none
+
+closure ClosureId(0) -> Optional<String>
+  locals
+    %0 param __callback_param_0: Optional<String>
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<Optional<String>>
+    %3 temp: Bool
+    %4 temp: Optional<String>
+  bb0:
+    %3 = copy %0 != none
+    switch copy %3 ? bb1 : bb2
+  bb1:
+    %4 = copy %0
+    goto bb3
+  bb2:
+    %4 = "U"
+    goto bb3
+  bb3:
+    return copy %4
+
+closure ClosureId(1) -> String
+  locals
+    %0 param __callback_param_0: String
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<String>
+    %3 temp: String
+    %4 temp: String
+  bb0:
+    %3 = "<" + copy %0
+    %4 = copy %3 + ">"
+    return copy %4
+
+closure ClosureId(2) -> Optional<String>
+  locals
+    %0 param __callback_param_0: Optional<String>
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<Optional<String>>
+    %3 temp: Bool
+    %4 temp: Optional<String>
+  bb0:
+    %3 = copy %0 != none
+    switch copy %3 ? bb1 : bb2
+  bb1:
+    %4 = copy %0
+    goto bb3
+  bb2:
+    %4 = "-"
+    goto bb3
+  bb3:
+    return copy %4
+

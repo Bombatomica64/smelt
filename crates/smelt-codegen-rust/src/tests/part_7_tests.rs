@@ -5023,6 +5023,70 @@ function parts(value: string): string[] | undefined {
     assert!(source.contains("tokens.match_string(&"), "{source}");
 }
 
+/// `String.prototype.match` emits the typed `Option<SmeltMatch>` value and an
+/// array method on it reads the match's array view, with no erasure.
+#[test]
+fn emits_string_match_as_typed_match_with_array_view() {
+    let source = source_for(
+        r"
+function marker(path: string): number {
+  const m = path.match(/^(?:a()|b())$/);
+  if (!m) return -1;
+  return m.indexOf('', 1);
+}
+",
+    );
+
+    assert!(source.contains("Option<SmeltMatch> = "), "{source}");
+    assert!(source.contains(".match_string(&"), "{source}");
+    assert!(!source.contains(".map(SmeltList::from)"), "{source}");
+    assert!(source.contains(".to_array_view()"), "{source}");
+    assert!(!source.contains(".into_smelt_unknown()"), "{source}");
+}
+
+/// The prelude's `match_string` answers a match value: a non-global regex is
+/// `exec`, a global one is built by `SmeltMatch::from_global_matches`. A
+/// statically global literal skips the match value entirely.
+#[test]
+fn prelude_string_match_answers_match_value_for_both_regex_kinds() {
+    let source = source_for(
+        r"
+function words(text: string): number {
+  return text.match(/[a-z]+/g)?.length ?? 0;
+}
+",
+    );
+
+    assert!(
+        source.contains("pub fn match_string(&self, haystack: &str) -> Option<SmeltMatch>"),
+        "{source}"
+    );
+    assert!(source.contains("if !self.has_flag('g') { return self.exec(haystack); }"), "{source}");
+    assert!(source.contains("fn from_global_matches(matches: Vec<String>, input: &str) -> Self"), "{source}");
+    assert!(source.contains("pub fn to_array_view(&self) -> SmeltList<Option<String>>"), "{source}");
+    // The literal is statically global, so the call site takes the direct
+    // whole-match list rather than a match value.
+    assert!(source.contains(".match_all_strings(&"), "{source}");
+}
+
+/// A match passed where `string[]` is expected is converted through its array
+/// view (an unmatched group reads `""` there), never through `SmeltUnknown`.
+#[test]
+fn coerces_match_to_string_list_through_array_view() {
+    let source = source_for(
+        r"
+function takes(xs: string[]): number { return xs.length; }
+function count(text: string): number {
+  const m = text.match(/(a)(b)?/);
+  return m ? takes(m) : 0;
+}
+",
+    );
+
+    assert!(source.contains(".to_array_view()"), "{source}");
+    assert!(!source.contains(".into_smelt_unknown()"), "{source}");
+}
+
 #[test]
 fn emits_regexp_array_elements_with_flags_preserved() {
     let source = source_for(

@@ -1026,6 +1026,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "125_module_const_state_and_record_union",
     "126_optional_presence_through_assertion",
     "127_nested_closure_shared_write",
+    "128_match_array_groups",
     "11_console_log_expressions",
     "12_while_sum",
     "13_for_of_sum",

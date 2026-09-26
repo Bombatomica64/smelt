@@ -351,6 +351,53 @@ pub const MATCH_CLASS_NAME: &str = "__SmeltMatch";
 /// Reserved synthetic class name for `matchResult.groups` named-group access.
 pub const MATCH_GROUPS_CLASS_NAME: &str = "__SmeltMatchGroups";
 
+/// `Array.prototype` methods that READ an array without mutating it.
+///
+/// A regex match result (`exec` / `String.prototype.match`) IS a JavaScript
+/// array: it answers every array method. Smelt models the match as the concrete
+/// `SmeltMatch` value (so `index`, `input` and `groups` stay typed) and lowers
+/// array methods called on it against its array VIEW, a `string | undefined`
+/// list. The view is a copy of the numbered groups, which is exact for the
+/// methods listed here because none of them writes to its receiver; the
+/// mutating methods (`push`, `sort`, `splice`, `fill`, ...) are deliberately
+/// absent so a write to a match is never silently applied to a detached copy.
+pub const ARRAY_NON_MUTATING_METHODS: &[&str] = &[
+    "at",
+    "concat",
+    "entries",
+    "every",
+    "filter",
+    "find",
+    "findIndex",
+    "findLast",
+    "findLastIndex",
+    "flat",
+    "flatMap",
+    "forEach",
+    "includes",
+    "indexOf",
+    "join",
+    "keys",
+    "lastIndexOf",
+    "map",
+    "reduce",
+    "reduceRight",
+    "slice",
+    "some",
+    "toReversed",
+    "toSorted",
+    "toSpliced",
+    "values",
+    "with",
+];
+
+/// Return whether `name` is an `Array.prototype` method that never mutates
+/// its receiver (see [`ARRAY_NON_MUTATING_METHODS`]).
+#[must_use]
+pub fn is_array_non_mutating_method(name: &str) -> bool {
+    ARRAY_NON_MUTATING_METHODS.contains(&name)
+}
+
 /// Return the stdlib class modeled by a TypeScript class type name.
 ///
 /// Codegen consults this instead of comparing class symbol names inline so
@@ -437,6 +484,18 @@ pub fn is_typed_array_class_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Array read methods are recognized; mutating methods never are, so a
+    /// write to a match's detached array view cannot be lowered silently.
+    #[test]
+    fn array_non_mutating_methods_exclude_writes() {
+        for name in ["indexOf", "slice", "map", "join", "includes", "forEach"] {
+            assert!(is_array_non_mutating_method(name), "{name}");
+        }
+        for name in ["push", "pop", "shift", "unshift", "sort", "reverse", "splice", "fill", "copyWithin", "length"] {
+            assert!(!is_array_non_mutating_method(name), "{name}");
+        }
+    }
 
     /// Exact stdlib class names resolve to their registry identity.
     #[test]

@@ -1713,6 +1713,7 @@ impl ModuleBuilder<'_> {
         };
         let pattern = self.argument(pattern_argument, body)?;
         let pattern_ty = Self::expr_ty(body, pattern);
+        let static_flags = self.static_regexp_flags(pattern, body);
         // Erased receivers only lower to String.match for regex-shaped arguments;
         // a function-typed argument (neverthrow single-callback style) stays dynamic.
         if !(receiver_is_string
@@ -1743,14 +1744,118 @@ impl ModuleBuilder<'_> {
                 span: self.span(pattern_argument.span().start, pattern_argument.span().end),
             })
         };
-        let string_ty = self.ctx.krate.types.intern(Type::String);
-        let list_ty = self.ctx.krate.types.intern(Type::List(string_ty));
-        let ty = self.ctx.krate.types.intern(Type::Optional(list_ty));
+        let ty = self.string_match_result_type(static_flags);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::RegexFind { pattern, haystack },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// The result type of `String.prototype.match` given the regex's static flags.
+    ///
+    /// ECMAScript `RegExp.prototype[@@match]` answers two different shapes:
+    ///
+    /// * a GLOBAL regex yields the plain array of every whole match (no
+    ///   groups, no `index`/`input`), so a regex whose flags are fixed by
+    ///   its expression and include `g` is typed `string[] | null` exactly;
+    /// * otherwise the answer IS `RegExpBuiltinExec`, the same match value
+    ///   `re.exec` returns, so it carries the same concrete type: a numbered
+    ///   group that did not participate reads `undefined`, not `""`.
+    ///
+    /// A regex whose flags are only known at run time takes the match type;
+    /// the runtime then builds a global answer as a match value whose
+    /// numbered entries are the whole matches (`SmeltRegExp::match_string`).
+    pub(in crate::lowering) fn string_match_result_type(
+        &mut self,
+        static_flags: Option<String>,
+    ) -> smelt_hir::TypeId {
+        if static_flags.is_some_and(|flags| flags.contains('g')) {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            let list_ty = self.ctx.krate.types.intern(Type::List(string_ty));
+            self.ctx.krate.types.intern(Type::Optional(list_ty))
+        } else {
+            let match_ty = self.match_result_type();
+            self.ctx.krate.types.intern(Type::Optional(match_ty))
+        }
+    }
+
+    /// Return the flags of a lowered regex operand when its expression fixes them.
+    ///
+    /// A regex literal and a module-level regex constant both lower to
+    /// `new RegExp(pattern, "<flags>")`, a `RegExp(pattern)` construction has
+    /// no flags, and a STRING pattern (`text.match("x")`) is converted by
+    /// `String.prototype.match` into a flagless `new RegExp(x)`. Any other
+    /// operand (a parameter, a local, a field) carries its flags in the VALUE,
+    /// so the answer is `None` rather than a guess.
+    pub(in crate::lowering) fn static_regexp_flags(&self, pattern: smelt_hir::ExprId, body: &Body) -> Option<String> {
+        let expr = body.exprs.get(usize::try_from(pattern.0).ok()?)?;
+        match &expr.kind {
+            ExprKind::New { class, args }
+                if self
+                    .ctx
+                    .krate
+                    .names
+                    .get(*class)
+                    .or_else(|| self.ctx.krate.symbols.get(*class))
+                    == Some("RegExp") =>
+            {
+                match args.as_slice() {
+                    [_] => Some(String::new()),
+                    [_, flags] => match &body.exprs.get(usize::try_from(flags.0).ok()?)?.kind {
+                        ExprKind::Literal(Literal::String(flags)) => Some(flags.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            }
+            _ if self.ctx.krate.types.get(expr.ty) == Some(&Type::String) => Some(String::new()),
+            _ => None,
+        }
+    }
+
+    /// The type of a regex match value's ARRAY view: `(string | undefined)[]`.
+    ///
+    /// Entry 0 is the whole match; a numbered group that did not participate
+    /// is `undefined`, exactly as JavaScript stores it in the match array.
+    pub(in crate::lowering) fn match_array_view_type(&mut self) -> smelt_hir::TypeId {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let group_ty = self.ctx.krate.types.intern(Type::Optional(string_ty));
+        self.ctx.krate.types.intern(Type::List(group_ty))
+    }
+
+    /// View a regex match value as the JavaScript array it is.
+    ///
+    /// A match result (`re.exec(s)`, `s.match(re)`) is an `Array` carrying
+    /// `index`, `input` and `groups` as extra properties. Smelt keeps it typed
+    /// as the concrete match class so those properties stay typed, and converts
+    /// it to its array view — `(string | undefined)[]`, see
+    /// [`Self::match_array_view_type`] — wherever it is USED as an array:
+    /// array-method receivers, `for...of`, and spread. The conversion is an
+    /// explicit `TypeAssert` whose backend coercion reads the numbered groups
+    /// out of the match, so every list rule then applies unchanged.
+    ///
+    /// Returns `None` when `value` is not a match value (the named-groups
+    /// record is not an array and is left alone).
+    pub(in crate::lowering) fn match_array_view(
+        &mut self,
+        value: smelt_hir::ExprId,
+        span: smelt_hir::Span,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(Self::expr_ty(body, value))
+        else {
+            return None;
+        };
+        if self.match_stdlib_class(*name) != Some(smelt_stdlib::StdlibClass::Match) {
+            return None;
+        }
+        let ty = self.match_array_view_type();
+        Some(body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value },
+            ty,
+            span,
+        }))
     }
 
     /// Return whether every possible receiver variant is definitely a string.

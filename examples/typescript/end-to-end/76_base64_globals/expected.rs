@@ -2555,16 +2555,27 @@ impl SmeltRegExp {
         compiled
     }
     /// Match a string with JavaScript String.prototype.match semantics.
-    pub fn match_string(&self, haystack: &str) -> Option<Vec<String>> {
+    ///
+    /// A non-global regex answers exactly what `exec` answers (the spec's
+    /// `RegExp.prototype[@@match]` IS `RegExpBuiltinExec` then), so an
+    /// unmatched capture group is `None` (JavaScript `undefined`) and a
+    /// sticky regex reads and advances `lastIndex`. A global regex resets
+    /// `lastIndex` to 0 and answers every whole match, built by
+    /// `SmeltMatch::from_global_matches`; no match at all is `None` (`null`).
+    pub fn match_string(&self, haystack: &str) -> Option<SmeltMatch> {
+        if !self.has_flag('g') { return self.exec(haystack); }
+        self.match_all_strings(haystack).map(|matches| SmeltMatch::from_global_matches(matches, haystack))
+    }
+    /// Every whole match of a GLOBAL String.prototype.match, or `None` (`null`).
+    ///
+    /// The spec resets `lastIndex` to 0 first and leaves it there. Called
+    /// directly where the regex is statically known to be global, which is
+    /// where the frontend types the result `string[] | null`.
+    pub fn match_all_strings(&self, haystack: &str) -> Option<Vec<String>> {
+        *self.last_index.borrow_mut() = 0;
         let regex = self.compiled();
-        if self.has_flag('g') {
-            let matches = regex.find_iter(haystack).filter_map(Result::ok).map(|value| value.as_str().to_owned()).collect::<Vec<_>>();
-            if matches.is_empty() { None } else { Some(matches) }
-        }
-        else {
-            let captures = regex.captures(haystack).ok().flatten()?;
-            Some((0..captures.len()).map(|index| captures.get(index).map_or(String::new(), |value| value.as_str().to_owned())).collect::<Vec<_>>())
-        }
+        let matches = regex.find_iter(haystack).filter_map(Result::ok).map(|value| value.as_str().to_owned()).collect::<Vec<_>>();
+        if matches.is_empty() { None } else { Some(matches) }
     }
     /// Split a string with JavaScript RegExp separator semantics.
     pub fn split_string(&self, haystack: &str) -> Vec<String> {
@@ -2708,6 +2719,26 @@ impl SmeltMatch {
             named.insert(snake, value);
         }
         Self { id: smelt_next_object_id(), groups, named, match_index, input: input.to_owned() }
+    }
+    /// Build the array a GLOBAL `String.prototype.match` answers.
+    ///
+    /// JavaScript returns a plain array of every whole match there, with no
+    /// capture groups, `index`, `input` or `groups`. It is carried as a
+    /// match value so both spellings of `match` share one type: the numbered
+    /// entries are the whole matches (all present), there are no named
+    /// groups, and `index` is 0 with `input` the searched string, which a
+    /// global match's reader does not consult.
+    fn from_global_matches(matches: Vec<String>, input: &str) -> Self {
+        Self { id: smelt_next_object_id(), groups: matches.into_iter().map(Some).collect(), named: ::std::collections::HashMap::new(), match_index: 0, input: input.to_owned() }
+    }
+    /// The match viewed as the JavaScript array it is (`[...match]`).
+    ///
+    /// Entry 0 is the whole match; a group that did not participate is
+    /// `None` (`undefined`). The list keeps the match's identity (`===`)
+    /// but copies its entries: array methods lowered against it only read
+    /// (writes to a match are not lowered through it).
+    pub fn to_array_view(&self) -> SmeltList<Option<String>> {
+        SmeltList::with_id(self.id, self.groups.clone())
     }
     /// Read a numbered capture group (`match[n]`).
     fn group(&self, index: usize) -> Option<&str> {

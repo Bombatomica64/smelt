@@ -772,6 +772,17 @@ struct ModuleBuilder<'ctx> {
     current_arguments_arities: Vec<usize>,
     /// HIR block that owns side-effect statements emitted while lowering an expression.
     current_statement_block: Option<smelt_hir::BlockId>,
+    /// AST receivers (by node address) of the array-method calls currently
+    /// being lowered.
+    ///
+    /// A regex match value is a JavaScript array, so `m.indexOf('', 1)` or
+    /// `m.slice(1)` is an array method on it. While such a call is lowered its
+    /// receiver node is listed here, and [`Self::expression`] lowers that node
+    /// to the match's array view (see [`Self::match_array_view`]) instead of
+    /// the bare match value, so every array-method rule sees an ordinary list.
+    /// Keyed by the node's address because the address identifies exactly the
+    /// one receiver node; nested calls push and pop their own entries.
+    array_view_receivers: Vec<usize>,
     /// Postfix updates waiting for the variable initializer that reads their original value.
     deferred_postfix_updates: Option<Vec<Stmt>>,
     /// Name a class EXPRESSION takes from the binding it initializes.

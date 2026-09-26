@@ -851,6 +851,69 @@ impl FunctionEmitter<'_> {
         self.value_at_type_text(value_text, source, slot_ty, scope)
     }
 
+    /// Coerce a regex match value to a LIST: the match's array view.
+    ///
+    /// A JavaScript match result IS an array, so wherever one is used at an
+    /// array type — an array-method receiver, `for...of`, spread, a `string[]`
+    /// parameter — its value is the list of numbered groups. The frontend
+    /// types that view `(string | undefined)[]`; `SmeltMatch::to_array_view`
+    /// builds exactly it (an unmatched group is `None`), and any other list
+    /// target is reached from the view by the ordinary element-wise list
+    /// coercion. This replaces erasing the match to `SmeltUnknown` and walking
+    /// the erased array back into a list.
+    ///
+    /// When the view type is not in the program's type table the only target
+    /// reached is `string[]` (TypeScript's own `RegExpMatchArray` element
+    /// type): an unmatched group then reads `""`, the missing value an
+    /// `Option<String>` takes at a `String` slot everywhere else.
+    ///
+    /// Returns `None` when `source` is not the match class, `target` is not
+    /// a list, or the list's element slot is erased, leaving the caller's
+    /// other rules (the erasure adapter) in charge.
+    fn match_array_view_text(
+        &self,
+        value_text: &str,
+        source: TypeId,
+        target: TypeId,
+        scope: &RenderScope,
+    ) -> Result<Option<String>, EmitError> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(source) else {
+            return Ok(None);
+        };
+        if self.match_class_kind(*name)? != Some(smelt_stdlib::StdlibClass::Match) {
+            return Ok(None);
+        }
+        let Some(Type::List(target_item)) = self.mir.types.get(target) else {
+            return Ok(None);
+        };
+        // An ERASED element slot keeps the erasure adapter: it records
+        // `index`/`input`/`groups` against the array's identity, which a
+        // `T[]` reader that narrows with `Array.isArray` still consults.
+        if matches!(
+            self.mir.types.get(*target_item),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) {
+            return Ok(None);
+        }
+        let view = format!("({value_text}).to_array_view()");
+        let interned_view_ty = self
+            .find_type_id(&Type::String)
+            .and_then(|string_ty| self.find_type_id(&Type::Optional(string_ty)))
+            .and_then(|group_ty| self.find_type_id(&Type::List(group_ty)));
+        if let Some(view_ty) = interned_view_ty {
+            if view_ty == target {
+                return Ok(Some(view));
+            }
+            return self.value_at_type_text(&view, view_ty, target, scope).map(Some);
+        }
+        if self.mir.types.get(*target_item) == Some(&Type::String) {
+            return Ok(Some(format!(
+                "SmeltList::new({view}.into_iter().map(|group| group.unwrap_or_default()).collect::<Vec<_>>())"
+            )));
+        }
+        Ok(None)
+    }
+
     /// Coerces already-rendered Rust value text from a known source type to a destination type.
     ///
     /// `scope` is the render position's type-parameter environment
@@ -924,6 +987,9 @@ impl FunctionEmitter<'_> {
             )
         {
             return self.value_truthy_text(value_text, source);
+        }
+        if let Some(view) = self.match_array_view_text(value_text, source, target, scope)? {
+            return Ok(view);
         }
         // A concrete host value cast to a RECORD or a COLLECTION goes through
         // its erasure adapter first.

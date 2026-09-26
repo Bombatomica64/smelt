@@ -1368,11 +1368,7 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::RegexSplit { pattern, haystack } => self.regex_split_text(pattern, haystack),
             Rvalue::RegexFind { pattern, haystack } => {
-                let text = self.regex_find_text(pattern, haystack)?;
-                let string_ty = self.type_id(Type::String)?;
-                let list_ty = self.type_id(Type::List(string_ty))?;
-                let source_ty = self.type_id(Type::Optional(list_ty))?;
-                self.value_at_type_text(&text, source_ty, dest_ty, &self.render_scope())
+                self.regex_find_text(pattern, haystack, dest_ty)
             }
             Rvalue::RegexExec { regex, haystack } => {
                 self.regex_exec_text(regex, haystack, dest_ty)

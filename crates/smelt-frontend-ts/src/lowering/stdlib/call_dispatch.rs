@@ -178,7 +178,38 @@ impl<'builder> ModuleBuilder<'builder> {
         Ok(Some(self.wrap_optional_receiver_method(receiver, op, call.span, body)))
     }
 
+    /// Lower a call expression.
+    ///
+    /// An `Array.prototype` read method (`indexOf`, `slice`, `map`, ...)
+    /// registers its receiver node in `array_view_receivers` for the duration
+    /// of the call, so a regex-match receiver lowers to its array view and the
+    /// ordinary list rules apply to it (see [`Self::match_array_view`]). Every
+    /// other receiver lowers exactly as before: the view only replaces a value
+    /// whose type is the match class.
     pub(in crate::lowering) fn call_expression(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let receiver_key = match &call.callee {
+            Expression::StaticMemberExpression(member)
+                if smelt_stdlib::is_array_non_mutating_method(member.property.name.as_str()) =>
+            {
+                Some(std::ptr::from_ref(&member.object).addr())
+            }
+            _ => None,
+        };
+        let Some(receiver_key) = receiver_key else {
+            return self.call_expression_lowering(call, body);
+        };
+        self.array_view_receivers.push(receiver_key);
+        let lowered = self.call_expression_lowering(call, body);
+        self.array_view_receivers.pop();
+        lowered
+    }
+
+    /// Lower a call expression once its receiver view (if any) is registered.
+    fn call_expression_lowering(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,

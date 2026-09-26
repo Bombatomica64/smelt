@@ -51,3 +51,26 @@ Every fix is a general lowering/codegen rule, each with an end-to-end example di
 | H19 | a class method named `find` is dispatched as `Array.prototype.find` ("array callback methods currently require arrow function callbacks") | `b.find('get')` on a user class |
 | H20 | `body.test.ts` 24, `node.test.ts` 19 (param/regexp matching), `url`/`crypto`/`index`/`mime` 2–4 each | `smelt rust-test-report` on `dist-smelt` |
 | H9, H10, H14 | unchanged from round 2 | `hono-phase3-round2.md` |
+
+## Round 4, part 1 — H15 (match arrays)
+
+`str.match(re)` now returns the precise match value. When the regex's flags are statically known
+(a literal, a module regex const, `RegExp(p)` without flags, a string pattern), a known-global
+regex yields `Optional<List<String>>` (the plain array of whole matches) and anything else yields
+the same `Optional<match class>` as `exec`: an unmatched group is `undefined`. For a regex whose
+`g` flag is only known at run time, `match_string` builds `SmeltMatch::from_global_matches`.
+A match used AS an array (non-mutating array methods from `smelt_stdlib::ARRAY_NON_MUTATING_METHODS`,
+`for..of`, spread, `m || [..]`, a concrete-list coercion) goes through `SmeltMatch::to_array_view()`
+(`SmeltList<Option<String>>`, keeping the match's identity), so every existing list rule applies.
+Example `128_match_array_groups`; the 74 other golden diffs are the same 40-line prelude hunk.
+
+Gates: examples avoidable 0; es-toolkit 27179 (+0), lib/tests compile; radash 384/3, remeda
+1787/2; hono unchanged at 192/88 — the reg-exp-router's 22 failures now come from:
+
+| # | family | evidence |
+| ---: | --- | --- |
+| H21 | 9 panic "optional value was absent after narrowing" at `matcher.rs`: `(matchers[method] \|\| matchers[METHOD_NAME_ALL]) as Matcher<T>` over the GENERIC `MatcherMap<T>` (the non-generic fixture works), and `if (staticMatch)` on an erased value folded to `if true` | `router/reg-exp-router/matcher.ts` |
+| H22 | 13 `expect(() => router.add(..)).toThrowError(UnsupportedPathError)`: the router never throws (`throw PATH_ERROR` / `e === PATH_ERROR ? new UnsupportedPathError(path) : e` over a `Symbol()` sentinel) | `router/reg-exp-router/node.ts`, `router.ts` |
+| H23 | string operations on elements of a non-global/dynamic match (`s.match(/x/)!.map(t => t[0])`): elements are `string \| undefined`, string ops on an optional string do not lower (no corpus hit) | — |
+| H24 | `xs.includes(undefined)` on `(string \| undefined)[]` folds to `false` (pre-existing) | — |
+| H25 | a conditional inside a call argument skips truthiness narrowing (`console.log(a ? a.join('+') : 'none')` → "array join requires an array receiver"; fine as a `const`/`return`) (pre-existing) | — |

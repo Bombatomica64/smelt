@@ -29,6 +29,17 @@ enum SpreadPiece {
     Item(smelt_hir::ExprId),
 }
 
+/// Outcome of the `match || [..]` rule
+/// (`ModuleBuilder::match_or_array_fallback_expression`).
+enum MatchArrayFallback {
+    /// The left operand is not a regex match; the fallback was not lowered.
+    NotMatch,
+    /// The left operand is a match but the lowered fallback is not a list.
+    NotArray(smelt_hir::ExprId),
+    /// The whole `||` expression, typed as the match's array view.
+    Selected(smelt_hir::ExprId),
+}
+
 impl ModuleBuilder<'_> {
     /// Lower static `Array.from({ length }, mapper)` calls into indexed list construction.
     pub(in crate::lowering) fn array_from_call(
@@ -1861,7 +1872,13 @@ impl ModuleBuilder<'_> {
                 span: self.span(logical.span.start, logical.span.end),
             })));
         }
-        let fallback = self.expression_with_hint(&logical.right, body, Some(ty))?;
+        let fallback = match self.match_or_array_fallback_expression(logical, body, optional, ty)? {
+            MatchArrayFallback::Selected(expr) => return Ok(Some(expr)),
+            MatchArrayFallback::NotArray(fallback) => fallback,
+            MatchArrayFallback::NotMatch => {
+                self.expression_with_hint(&logical.right, body, Some(ty))?
+            }
+        };
         let fallback_ty = Self::expr_ty(body, fallback);
         let ty = if fallback_ty == ty {
             ty
@@ -1909,6 +1926,64 @@ impl ModuleBuilder<'_> {
             kind: ExprKind::OptionalCoalesce { optional, fallback },
             ty,
             span: self.span(logical.span.start, logical.span.end),
+        })))
+    }
+
+    /// Lower `match || [..]` / `match ?? [..]`: an optional regex match whose
+    /// fallback is an array.
+    ///
+    /// `(s.match(re) || []).map(..)` is the idiomatic "matches or nothing"
+    /// spelling. Both operands are arrays, so the result is the match's array
+    /// view (see [`Self::match_array_view`]) when present and the fallback
+    /// list otherwise — typed `(string | undefined)[]` rather than joined into
+    /// an erased value. A present match is an object and so always truthy,
+    /// which is why `||` agrees with `??` here: both are presence-coalescing
+    /// (`OptionalCoalesce`).
+    ///
+    /// `present_ty` is the left operand's non-nullish type. Answers
+    /// [`MatchArrayFallback::NotMatch`] (fallback not lowered) when it is not
+    /// the match class, and [`MatchArrayFallback::NotArray`] with the lowered
+    /// fallback when that is not a list, so the caller's general join goes on
+    /// without lowering the right operand twice.
+    fn match_or_array_fallback_expression(
+        &mut self,
+        logical: &oxc::ast::ast::LogicalExpression<'_>,
+        body: &mut Body,
+        optional: smelt_hir::ExprId,
+        present_ty: smelt_hir::TypeId,
+    ) -> Result<MatchArrayFallback, SmeltError> {
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(present_ty) else {
+            return Ok(MatchArrayFallback::NotMatch);
+        };
+        if self.match_stdlib_class(*name) != Some(smelt_stdlib::StdlibClass::Match) {
+            return Ok(MatchArrayFallback::NotMatch);
+        }
+        let view_ty = self.match_array_view_type();
+        let fallback = self.expression_with_hint(&logical.right, body, Some(view_ty))?;
+        let fallback_ty = Self::expr_ty(body, fallback);
+        if !matches!(self.ctx.krate.types.get(fallback_ty), Some(Type::List(_))) {
+            return Ok(MatchArrayFallback::NotArray(fallback));
+        }
+        let span = self.span(logical.span.start, logical.span.end);
+        let fallback = if fallback_ty == view_ty {
+            fallback
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: fallback },
+                ty: view_ty,
+                span: self.span(logical.right.span().start, logical.right.span().end),
+            })
+        };
+        let optional_view_ty = self.ctx.krate.types.intern(Type::Optional(view_ty));
+        let optional = body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value: optional },
+            ty: optional_view_ty,
+            span: self.span(logical.left.span().start, logical.left.span().end),
+        });
+        Ok(MatchArrayFallback::Selected(body.push_expr(Expr {
+            kind: ExprKind::OptionalCoalesce { optional, fallback },
+            ty: view_ty,
+            span,
         })))
     }
 
@@ -2230,7 +2305,13 @@ impl ModuleBuilder<'_> {
             }
             _ => Some(ty),
         };
-        let mut fallback = self.expression_with_hint(&logical.right, body, right_hint)?;
+        let mut fallback = match self.match_or_array_fallback_expression(logical, body, optional, ty)? {
+            MatchArrayFallback::Selected(expr) => return Ok(expr),
+            MatchArrayFallback::NotArray(fallback) => fallback,
+            MatchArrayFallback::NotMatch => {
+                self.expression_with_hint(&logical.right, body, right_hint)?
+            }
+        };
         let fallback_ty = Self::expr_ty(body, fallback);
         let ty = if fallback_ty == ty || self.numeric_type_compatible(ty, fallback_ty)
         {
@@ -3127,6 +3208,11 @@ impl ModuleBuilder<'_> {
             if let Some(elements) = self.typed_array_spread_list(spread_value, element_span, body) {
                 return Ok(elements);
             }
+            // A regex match spreads its numbered groups; the view is already
+            // the list `[...m]` builds, typed rather than erased.
+            let spread_value = self
+                .match_array_view(spread_value, element_span, body)
+                .unwrap_or(spread_value);
             let value_ty = self.type_param_constraint_or_self(Self::expr_ty(body, spread_value));
             let item_ty = match self.ctx.krate.types.get(value_ty) {
                 Some(Type::List(item_ty) | Type::Set(item_ty)) => *item_ty,
@@ -3172,6 +3258,7 @@ impl ModuleBuilder<'_> {
                     let element_span = self.span(spread.span.start, spread.span.end);
                     let spread_value = self
                         .typed_array_spread_list(spread_value, element_span, body)
+                        .or_else(|| self.match_array_view(spread_value, element_span, body))
                         .unwrap_or(spread_value);
                     pieces.push(SpreadPiece::Spread(spread_value, spread.span));
                 }
