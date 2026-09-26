@@ -179,6 +179,16 @@ impl FunctionEmitter<'_> {
         }
 
         let type_name = sanitize_ident(self.symbol_name(*name)?);
+        // A reference-class record is a handle newtype over its `Inner`
+        // struct (it is mutated through somewhere), so the literal builds the
+        // inner record inside a fresh shared cell, exactly as the structural
+        // adapter does; a bare `Name { .. }` against the newtype is E0560.
+        if self.is_reference_class_type(dest_ty) {
+            return Ok(Some(format!(
+                "{type_name}(::std::rc::Rc::new(::std::cell::RefCell::new({type_name}Inner {{ {} }})))",
+                field_text.join(", ")
+            )));
+        }
         Ok(Some(format!("{type_name} {{ {} }}", field_text.join(", "))))
     }
 
