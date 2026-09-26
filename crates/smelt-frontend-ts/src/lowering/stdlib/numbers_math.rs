@@ -833,6 +833,67 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower `String.fromCharCode(...codes)` / `String.fromCodePoint(...points)`.
+    ///
+    /// The arguments are gathered into one numeric list (each taken through
+    /// `ToNumber` first, as the spec does, so an erased argument such as a
+    /// typed-array element read still yields its number) and converted by a
+    /// single primitive cast. Before this the call was not recognized at all:
+    /// `String` resolved to its erased host value and the call answered
+    /// `undefined`, so `binary += String.fromCharCode(bytes[i])` built the text
+    /// `"nullnull.."` (every Hono base64 encoder test).
+    pub(in crate::lowering) fn string_from_codes_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let op = match member.property.name.as_str() {
+            "fromCharCode" => PrimitiveCastOp::FromCharCodes,
+            "fromCodePoint" => PrimitiveCastOp::FromCodePoints,
+            _ => return Ok(None),
+        };
+        if self.call_has_spread_arguments_or_source_spread(call) {
+            return Ok(None);
+        }
+        let span = self.span(call.span.start, call.span.end);
+        let float_ty = self.ctx.krate.types.intern(Type::Float);
+        let mut codes = Vec::with_capacity(call.arguments.len());
+        for argument in &call.arguments {
+            let value = self.argument(argument, body)?;
+            let value = if matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, value)),
+                Some(Type::Float)
+            ) {
+                value
+            } else {
+                body.push_expr(Expr {
+                    kind: ExprKind::PrimitiveCast {
+                        op: PrimitiveCastOp::ToJsNumber,
+                        operand: value,
+                    },
+                    ty: float_ty,
+                    span,
+                })
+            };
+            codes.push(value);
+        }
+        let list_ty = self.ctx.krate.types.intern(Type::List(float_ty));
+        let list = body.push_expr(Expr {
+            kind: ExprKind::ListLit(codes),
+            ty: list_ty,
+            span,
+        });
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::PrimitiveCast { op, operand: list },
+            ty: string_ty,
+            span,
+        })))
+    }
+
     /// Lower one JavaScript `parseFloat` operand through its `ToString` step.
     ///
     /// ECMAScript parses the string representation of its input rather than

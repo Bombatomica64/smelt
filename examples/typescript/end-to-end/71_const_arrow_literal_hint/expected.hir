@@ -44,32 +44,33 @@ module examples/typescript/end-to-end/71_const_arrow_literal_hint/input.ts (Modu
     #33: None = @5(console_log)
     #34: None = call #33(#32)
     #35: fn(Optional<Opts>) -> String = %0
-    #36: String = closure_call #35()
-    #37: None = @6(console_log)
-    #38: None = call #37(#36)
-    #39: fn(List<Opts>) -> Float = closure BodyId(4) captures 0 -> Float
-    #40: fn(List<Opts>) -> Float = %2
-    #41: String = "status"
-    #42: Float = 1.0
-    #43: Opts = {#41: #42}
-    #44: String = "status"
-    #45: Float = 2.0
-    #46: String = "label"
-    #47: String = "two"
-    #48: Opts = {#44: #45, #46: #47}
-    #49: List<Opts> = [#43, #48]
-    #50: Float = closure_call #40(#49)
-    #51: None = @7(console_log)
-    #52: None = call #51(#50)
+    #36: Optional<Opts> = none
+    #37: String = closure_call #35(#36)
+    #38: None = @6(console_log)
+    #39: None = call #38(#37)
+    #40: fn(List<Opts>) -> Float = closure BodyId(4) captures 0 -> Float
+    #41: fn(List<Opts>) -> Float = %2
+    #42: String = "status"
+    #43: Float = 1.0
+    #44: Opts = {#42: #43}
+    #45: String = "status"
+    #46: Float = 2.0
+    #47: String = "label"
+    #48: String = "two"
+    #49: Opts = {#45: #46, #47: #48}
+    #50: List<Opts> = [#44, #49]
+    #51: Float = closure_call #41(#50)
+    #52: None = @7(console_log)
+    #53: None = call #52(#51)
   stmts
     s0: let %0: fn(Optional<Opts>) -> String = #0
     s1: #9
     s2: #18
     s3: #27
     s4: #34
-    s5: #38
-    s6: let %2: fn(List<Opts>) -> Float = #39
-    s7: #52
+    s5: #39
+    s6: let %2: fn(List<Opts>) -> Float = #40
+    s7: #53
 
 interned types
   t0 = Opts

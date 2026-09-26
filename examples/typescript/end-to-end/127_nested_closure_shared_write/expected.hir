@@ -1,0 +1,27 @@
+module examples/typescript/end-to-end/127_nested_closure_shared_write/input.ts (ModuleId(0))
+  body BodyId(6)
+  items
+    fn defer owner Module
+    fn run owner Module
+  exprs
+    #0: fn() -> Float = @1(run)
+    #1: Float = call #0()
+    #2: None = @2(console_log)
+    #3: None = call #2(#1)
+  stmts
+    s0: #3
+
+interned types
+  t0 = None
+  t1 = fn() -> None
+  t2 = fn(fn() -> None) -> None
+  t3 = fn(fn(fn() -> None) -> None) -> None
+  t4 = fn(fn(fn(fn() -> None) -> None) -> None) -> None
+  t5 = Float
+  t6 = fn() -> Float
+  t7 = List<fn() -> None>
+  t8 = fn(fn() -> None) -> None
+  t9 = fn() -> None
+  t10 = fn(fn(fn() -> None) -> None) -> None
+  t11 = fn(fn(fn(fn() -> None) -> None) -> None) -> None
+  t12 = fn() -> Float

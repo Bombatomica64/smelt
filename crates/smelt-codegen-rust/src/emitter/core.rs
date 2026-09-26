@@ -1021,16 +1021,29 @@ impl<'mir> FunctionEmitter<'mir> {
         if target_fields.is_empty() {
             return None;
         }
+        let field_key = |field: &MirField| self.symbol_name(field.name).ok().map(sanitize_ident);
+        // A DOWNCAST: the target declares every source field and adds more
+        // (`base as Derived` where `interface Derived extends Base`). `tsc`
+        // only accepts an assertion between comparable types, and a target that
+        // is not assignable from the source must then be assignable TO it, so
+        // this shape reaches codegen only through an assertion. At runtime the
+        // added properties are absent until the source assigns them
+        // (`handlerSet.params = {}` right after the cast); the adapter fills
+        // them with their default value, the non-optional spelling of absent.
+        let is_downcast = !source_fields.is_empty()
+            && source_fields.iter().all(|source_field| {
+                target_fields
+                    .iter()
+                    .any(|target_field| field_key(target_field) == field_key(source_field))
+            });
         let mut adapted_fields = Vec::new();
         for target_field in target_fields {
             let source_field = source_fields
                 .iter()
-                .find(|field| {
-                    self.symbol_name(field.name).ok().map(sanitize_ident)
-                        == self.symbol_name(target_field.name).ok().map(sanitize_ident)
-                })
+                .find(|field| field_key(field) == field_key(&target_field))
                 .cloned();
             if source_field.is_none()
+                && !is_downcast
                 && !self.is_virtual_method_storage_field(target, target_field.name)
                 && !self.is_interface_method_slot_bound_by_source(source, target, target_field.name)
                 && !matches!(self.mir.types.get(target_field.ty), Some(Type::Optional(_)))

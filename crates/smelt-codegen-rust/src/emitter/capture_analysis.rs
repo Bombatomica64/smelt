@@ -713,12 +713,36 @@ impl FunctionEmitter<'_> {
                         || self.closure_rvalue_forwards_local_to_mutable_callback(
                             closure, value, target,
                         )
+                        || self.nested_closure_writes_capture(value, target)
                 }
                 _ => false,
             });
             statement_writes
                 || self.closure_terminator_writes_local(closure, block.terminator.as_ref(), target)
         })
+    }
+
+    /// Returns whether `value` builds a NESTED closure that re-captures
+    /// `target` and writes it.
+    ///
+    /// A write two closure levels down (`outer(async d => { d(() => { v = 1 }) })`)
+    /// is still a write through the middle closure's capture: the middle
+    /// closure must hand the inner one the SAME shared cell, which it can only
+    /// do if its own capture is shared. Recurses through any depth of nesting.
+    fn nested_closure_writes_capture(&self, value: &Rvalue, target: LocalId) -> bool {
+        let Rvalue::Closure { id, .. } = value else {
+            return false;
+        };
+        self.mir
+            .closures
+            .get(usize::try_from(id.0).unwrap_or(usize::MAX))
+            .is_some_and(|nested| {
+                nested.captures.iter().any(|nested_capture| {
+                    nested_capture.source_local == target
+                        && (nested_capture.mode == smelt_hir::CaptureMode::ByMut
+                            || self.closure_capture_body_writes(nested, nested_capture))
+                })
+            })
     }
 
     /// Returns whether a closure block terminator writes to `target`.

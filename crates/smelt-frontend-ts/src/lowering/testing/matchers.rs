@@ -2070,16 +2070,37 @@ impl ModuleBuilder<'_> {
         let span = self.statement_span(statement);
         let block = body.push_block(span);
         if let Statement::BlockStatement(block_stmt) = statement {
+            let saved = self.scope.snapshot_bindings();
             // A nested `function` declaration is bound for its whole BLOCK, not
             // just from its textual position (`lowering::hoisting`).
             for nested_statement in crate::lowering::hoisting::hoisted_statements(&block_stmt.body)
             {
                 self.statement_in_block(nested_statement, body, block)?;
             }
+            self.scope
+                .close_lexical_block(&saved, &Self::lexically_declared_names(&block_stmt.body));
         } else {
             self.statement_in_block(statement, body, block)?;
         }
         Ok(block)
+    }
+
+    /// The names a statement list declares LEXICALLY at its own level:
+    /// `let`/`const` declarators (not `var`, which is function-scoped) and a
+    /// nested `for (let ..)` head's bindings are handled by the loop itself.
+    /// Used to close the block's scope ([`LocalScope::close_lexical_block`]).
+    pub(in crate::lowering) fn lexically_declared_names(statements: &[Statement<'_>]) -> Vec<String> {
+        let mut names = Vec::new();
+        for statement in statements {
+            if let Statement::VariableDeclaration(decl) = statement
+                && !matches!(decl.kind, oxc::ast::ast::VariableDeclarationKind::Var)
+            {
+                for declarator in &decl.declarations {
+                    Self::binding_pattern_names(&declarator.id, &mut names);
+                }
+            }
+        }
+        names
     }
 
     /// Create a HIR block from a JavaScript block statement.
@@ -2089,9 +2110,12 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::BlockId, SmeltError> {
         let block = body.push_block(self.span(block_stmt.span.start, block_stmt.span.end));
+        let saved = self.scope.snapshot_bindings();
         for statement in crate::lowering::hoisting::hoisted_statements(&block_stmt.body) {
             self.statement_in_block(statement, body, block)?;
         }
+        self.scope
+            .close_lexical_block(&saved, &Self::lexically_declared_names(&block_stmt.body));
         Ok(block)
     }
 
@@ -3531,10 +3555,15 @@ impl ModuleBuilder<'_> {
         expression: &Expression<'_>,
         body: &Body,
     ) -> Option<(String, smelt_hir::TypeId)> {
-        let Expression::Identifier(identifier) = expression else {
-            return None;
+        let name = match expression {
+            Expression::Identifier(identifier) => identifier.name.as_str(),
+            // A TRUTHY optional chain rooted at a local (`x?.a`, `x?.a.b`,
+            // `x?.m()`) proves the root present: a nullish root makes the
+            // whole chain `undefined`, which is falsy. So `if (!x?.length)
+            // return` leaves `x` narrowed to its present type afterwards.
+            Expression::ChainExpression(chain) => Self::optional_chain_root_name(chain)?,
+            _ => return None,
         };
-        let name = identifier.name.as_str();
         let local = self.scope.lookup(name)?;
         let local_ty = match self.narrowed_type(name) {
             Some(ty) => ty,
@@ -3558,6 +3587,30 @@ impl ModuleBuilder<'_> {
                 }
             }
             _ => None,
+        }
+    }
+
+    /// Name of the local an optional chain is rooted at, when the root is a
+    /// plain identifier reached through member reads and calls.
+    fn optional_chain_root_name<'b>(
+        chain: &'b oxc::ast::ast::ChainExpression<'_>,
+    ) -> Option<&'b str> {
+        use oxc::ast::ast::ChainElement;
+        let mut current: &Expression<'_> = match &chain.expression {
+            ChainElement::StaticMemberExpression(member) => &member.object,
+            ChainElement::ComputedMemberExpression(member) => &member.object,
+            ChainElement::CallExpression(call) => &call.callee,
+            _ => return None,
+        };
+        loop {
+            current = match current {
+                Expression::Identifier(identifier) => return Some(identifier.name.as_str()),
+                Expression::StaticMemberExpression(member) => &member.object,
+                Expression::ComputedMemberExpression(member) => &member.object,
+                Expression::CallExpression(call) => &call.callee,
+                Expression::ParenthesizedExpression(inner) => &inner.expression,
+                _ => return None,
+            };
         }
     }
 

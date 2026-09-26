@@ -276,6 +276,17 @@ enum TableBindingValue<'a> {
     ObjectField(&'a Expression<'a>),
 }
 
+impl TableBindingValue<'_> {
+    /// Source span of the row value, used to order bindings against setup.
+    fn source_span(&self) -> oxc::span::Span {
+        use oxc::span::GetSpan as _;
+        match self {
+            Self::Element(value) => value.span(),
+            Self::ObjectField(value) => value.span(),
+        }
+    }
+}
+
 /// A default argument expression stored for a local callback.
 #[derive(Debug, Clone)]
 enum LocalCallbackDefault {

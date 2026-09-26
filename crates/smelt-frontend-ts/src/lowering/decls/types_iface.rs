@@ -1132,9 +1132,13 @@ impl ModuleBuilder<'_> {
                 // A nested `function` declaration is bound for its whole BLOCK,
                 // not just from its textual position, so it lowers before the
                 // first sibling that mentions it (`lowering::hoisting`).
+                let saved = self.scope.snapshot_bindings();
                 for child in crate::lowering::hoisting::hoisted_statements(&block_stmt.body) {
                     self.statement_in_block(child, body, block)?;
                 }
+                // Its `let`/`const` bindings end with it, like any block's.
+                self.scope
+                    .close_lexical_block(&saved, &Self::lexically_declared_names(&block_stmt.body));
                 Ok(())
             }
             _ => Err(SmeltError::unsupported(

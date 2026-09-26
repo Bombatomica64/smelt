@@ -178,6 +178,9 @@ impl FunctionEmitter<'_> {
         let method_name = match op {
             smelt_hir::StringSearchOp::Find => "find",
             smelt_hir::StringSearchOp::RFind => "rfind",
+            smelt_hir::StringSearchOp::Regex => {
+                return self.string_regex_search_text(haystack, needle, missing, cast);
+            }
         };
         let haystack_text = self.string_like_operand_text(haystack, "string search")?;
         let needle_text = self.string_like_operand_text(needle, "string search")?;
@@ -190,10 +193,36 @@ impl FunctionEmitter<'_> {
                 smelt_hir::StringSearchOp::RFind => Ok(format!(
                     "{{ let smelt_haystack = {haystack_text}; let smelt_needle = {needle_text}; let smelt_from = ({index_text} as i64).max(0) as usize; let smelt_end_char = smelt_from.saturating_add(smelt_needle.chars().count()); let smelt_end_byte = smelt_haystack.char_indices().nth(smelt_end_char).map_or(smelt_haystack.len(), |(byte, _)| byte); smelt_haystack[..smelt_end_byte].rfind(&smelt_needle).map_or({missing}, |idx| idx as {cast}) }}"
                 )),
+                // `search` takes no position argument; the frontend never
+                // builds one.
+                smelt_hir::StringSearchOp::Regex => {
+                    Err(EmitError::new("String.search takes no fromIndex"))
+                }
             };
         }
         Ok(format!(
             "{haystack_text}.{method_name}(&{needle_text}).map_or({missing}, |idx| idx as {cast})"
+        ))
+    }
+
+    /// Render `haystack.search(pattern)`: the UTF-16 index of the first match
+    /// (JavaScript string indices count UTF-16 code units), or `-1`. A string
+    /// pattern is compiled as a `RegExp` with no flags, as `search` does.
+    fn string_regex_search_text(
+        &self,
+        haystack: &Operand,
+        needle: &Operand,
+        missing: &str,
+        cast: &str,
+    ) -> Result<String, EmitError> {
+        let haystack_text = self.string_like_operand_text(haystack, "string search")?;
+        let regex_text = if self.mir.types.get(self.operand_ty(needle)?) == Some(&Type::String) {
+            format!("SmeltRegExp::new({}, String::new())", self.operand_text(needle)?)
+        } else {
+            self.operand_text(needle)?
+        };
+        Ok(format!(
+            "{{ let smelt_haystack = {haystack_text}; let smelt_regex = {regex_text}; match smelt_regex.compiled().find(&smelt_haystack) {{ Ok(Some(smelt_found)) => smelt_haystack[..smelt_found.start()].encode_utf16().count() as {cast}, _ => {missing} }} }}"
         ))
     }
 

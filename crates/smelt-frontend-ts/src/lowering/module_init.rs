@@ -167,6 +167,33 @@ impl MutatedNameCollector {
 }
 
 impl<'a> oxc::ast_visit::Visit<'a> for MutatedNameCollector {
+    /// A MUTATING builtin method called directly on a binding
+    /// (`seen.push(x)`, `cache.set(k, v)`) writes through it exactly like an
+    /// index assignment does, so the binding is module state.
+    fn visit_call_expression(&mut self, call: &oxc::ast::ast::CallExpression<'a>) {
+        if let Expression::StaticMemberExpression(member) = &call.callee
+            && matches!(
+                member.property.name.as_str(),
+                "push"
+                    | "pop"
+                    | "shift"
+                    | "unshift"
+                    | "splice"
+                    | "sort"
+                    | "reverse"
+                    | "fill"
+                    | "copyWithin"
+                    | "set"
+                    | "add"
+                    | "delete"
+                    | "clear"
+            )
+        {
+            self.record_write_through_base(&member.object, true);
+        }
+        oxc::ast_visit::walk::walk_call_expression(self, call);
+    }
+
     fn visit_simple_assignment_target(
         &mut self,
         target: &oxc::ast::ast::SimpleAssignmentTarget<'a>,
@@ -740,6 +767,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         Ok(items) => module.items.extend(items),
                         Err(error) => errors.push(error),
                     }
+                    self.alias_exported_function_consts(variable);
                 }
             } else if let Statement::ExportNamedDeclaration(export) = statement {
                 self.reexport_named_declaration(export);
@@ -1579,7 +1607,23 @@ impl<'ctx> ModuleBuilder<'ctx> {
             // is left on the existing path rather than moved on an untested
             // assumption. It now fails with the named blocker in
             // `module_global_expression` instead of a wrong value.
-            if self.stdlib_class_of_type(ty).is_none() {
+            // A CONTAINER (record, array, map, set) whose initializer is not a
+            // literal the const folder owns (`const baseMimes: Record<string,
+            // M> = _baseMimes`, declared below the functions that read it, in
+            // Hono's `utils/mime`) has the same fabricated-default problem —
+            // every read saw an EMPTY record — and a slot holding its one value
+            // is the same fix: containers carry reference identity too.
+            // An object/array LITERAL initializer stays with the const folder
+            // (a function table, a record of constants); it is lifted only
+            // when mutated through, by `register_mutable_global_decl`.
+            let is_container = matches!(
+                self.ctx.krate.types.get(ty),
+                Some(Type::Dict(_, _) | Type::JsMap(_, _) | Type::List(_) | Type::Set(_))
+            ) && !matches!(
+                init.without_parentheses(),
+                Expression::ObjectExpression(_) | Expression::ArrayExpression(_)
+            );
+            if self.stdlib_class_of_type(ty).is_none() && !is_container {
                 continue;
             }
             let span = self.span(binding.span.start, binding.span.end);
@@ -1615,12 +1659,21 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if decl.declare {
             return;
         }
-        // `var` is treated like `let`; `const` bindings can never be reassigned
-        // and keep the existing inline/const-item path.
+        // `var` is treated like `let`. A `const` binding can never be
+        // REASSIGNED, but the value it names can still be written THROUGH
+        // (`const cache: Record<string, P> = {}; cache[key] = p`, Hono's
+        // `patternCache`): JavaScript `const` freezes the binding, not the
+        // object. Such a const is module state exactly like a mutated `let`,
+        // and the const-item path would have cloned its `{}` initializer into
+        // every use site — each write landed on a fresh empty record and every
+        // read missed. It is lifted here too; a const that is only read keeps
+        // the inline path.
+        let is_const = matches!(decl.kind, oxc::ast::ast::VariableDeclarationKind::Const);
         if !matches!(
             decl.kind,
             oxc::ast::ast::VariableDeclarationKind::Let
                 | oxc::ast::ast::VariableDeclarationKind::Var
+                | oxc::ast::ast::VariableDeclarationKind::Const
         ) {
             return;
         }
@@ -1630,6 +1683,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
             };
             let name = binding.name.as_str();
             if !mutated.contains(name) {
+                continue;
+            }
+            // Only a const holding a CONTAINER literal is lifted: a const whose
+            // initializer is a call or class construction keeps its existing
+            // path (`collect_class_value_globals` owns class instances).
+            if is_const
+                && !declarator.init.as_ref().is_some_and(|init| {
+                    matches!(
+                        init.without_parentheses(),
+                        Expression::ObjectExpression(_) | Expression::ArrayExpression(_)
+                    )
+                })
+            {
                 continue;
             }
             let span = self.span(binding.span.start, binding.span.end);
@@ -2886,6 +2952,58 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })
     }
 
+    /// Export `export const alias = fn` (optionally `fn as Sig`) as the item
+    /// `fn` itself, exactly like `export { fn as alias }`.
+    ///
+    /// The ordinary exported-const path makes an importer INLINE the const's
+    /// initializer, and that initializer names a binding private to this
+    /// module (`const _getQueryParam = (..) => ..; export const getQueryParam =
+    /// _getQueryParam as ..` in Hono's `utils/url`), which the importing module
+    /// cannot resolve — the call lowered to `undefined`. When the initializer
+    /// is (a type-level wrapper around) a bare name bound to a function item,
+    /// the const IS that function under a second name, so the alias is
+    /// published as the item.
+    fn alias_exported_function_consts(&mut self, variable: &oxc::ast::ast::VariableDeclaration<'_>) {
+        if !matches!(variable.kind, oxc::ast::ast::VariableDeclarationKind::Const) {
+            return;
+        }
+        for declarator in &variable.declarations {
+            let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                continue;
+            };
+            let Some(mut init) = declarator.init.as_ref() else {
+                continue;
+            };
+            loop {
+                init = match init {
+                    Expression::ParenthesizedExpression(inner) => &inner.expression,
+                    Expression::TSAsExpression(inner) => &inner.expression,
+                    Expression::TSSatisfiesExpression(inner) => &inner.expression,
+                    Expression::TSNonNullExpression(inner) => &inner.expression,
+                    _ => break,
+                };
+            }
+            let Expression::Identifier(target) = init else {
+                continue;
+            };
+            let Some(item) = self.items.get(target.name.as_str()).copied() else {
+                continue;
+            };
+            let is_function = self
+                .ctx
+                .krate
+                .items
+                .get(usize::try_from(item.0).unwrap_or(usize::MAX))
+                .is_some_and(|candidate| matches!(candidate, Item::Function(_)));
+            if !is_function {
+                continue;
+            }
+            let exported = binding.name.as_str().to_owned();
+            self.items.insert(exported.clone(), item);
+            self.ctx.export_aliases.insert(exported, item);
+        }
+    }
+
     /// Lower `export { name } from "module"` metadata and local aliases.
     /// Alias locally declared items re-exported by name: `export { a, b as c }`.
     ///
@@ -3473,6 +3591,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     "exported const declarations require an initializer",
                 )
             })?;
+            // An exported const lifted to a module slot (a container written
+            // through, or one read before its declaration) is its slot: its
+            // initializer runs once, as the slot's lazy initializer, and it
+            // emits no const item.
+            if self.is_lifted_global_declarator(binding.name.as_str(), binding.span) {
+                self.lower_pending_mutable_global_init(binding.name.as_str(), init)?;
+                continue;
+            }
             let type_hint = declarator
                 .type_annotation
                 .as_ref()
@@ -4163,8 +4289,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                             {
                                 arrow_consts
                                     .push((binding.name.as_str().to_owned(), binding.span.start));
-                                referrer_spans.push((declarator.span.start, declarator.span.end));
                             }
+                            // An arrow const's body refers to other arrows; any
+                            // other EXPORTED const is inlined into its importers,
+                            // so an arrow its initializer names (`export const
+                            // getQueryParam = _getQueryParam as ..`) must be a
+                            // module item they can call, not a body-local only
+                            // this module can see. Both are referrer spans.
+                            referrer_spans.push((declarator.span.start, declarator.span.end));
                         }
                     }
                     _ => {}

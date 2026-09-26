@@ -1,0 +1,107 @@
+fn defer (FuncId(0)) -> None
+  locals
+    %0 param body: fn(fn(fn() -> None) -> None) -> None
+    %1 user cleanups: List<fn() -> None>
+    %2 user cleanup: fn() -> None
+    %3 temp: List<fn() -> None>
+    %4 temp: fn(fn() -> None) -> None
+    %5 temp: None
+    %6 temp: Float
+    %7 temp: Float
+    %8 temp: Bool
+    %9 temp: None
+  bb0:
+    %3 = []
+    %1 = move %3
+    %4 = closure ClosureId(0) [copy %1]
+    %5 = closure_call copy %0(move %4)
+    %6 = 0.0
+    goto bb1
+  bb1:
+    %7 = len copy %1
+    %8 = copy %6 < move %7
+    switch move %8 ? bb2 : bb4
+  bb2:
+    %2 = copy %1[copy %6]
+    %9 = closure_call move %2()
+    goto bb3
+  bb3:
+    %6 = copy %6 + 1.0
+    goto bb1
+  bb4:
+    return none
+
+fn run (FuncId(1)) -> Float
+  locals
+    %0 user val: Float
+    %1 user calls: Float
+    %2 temp: fn(fn(fn() -> None) -> None) -> None
+    %3 temp: None
+    %4 temp: Float
+    %5 temp: Float
+  bb0:
+    %0 = 0.0
+    %1 = 0.0
+    %2 = closure ClosureId(1) [copy %1, copy %0]
+    %3 = call fn0(move %2) -> bb1
+  bb1:
+    %4 = copy %0 * 10.0
+    %5 = move %4 + copy %1
+    return move %5
+
+fn main (FuncId(2)) -> None
+  locals
+    %0 temp: Float
+    %1 temp: None
+  bb0:
+    %0 = call fn1() -> bb1
+  bb1:
+    %1 = call @console_log(move %0) -> bb2
+  bb2:
+    return none
+
+closure ClosureId(0) -> None
+  locals
+    %0 param cleanup: fn() -> None
+    %1 user cleanups: List<fn() -> None>
+    %2 temp: Float
+  bb0:
+    %2 = list_push copy %1, copy %0
+    return none
+
+closure ClosureId(1) -> None
+  locals
+    %0 param register: fn(fn() -> None) -> None
+    %1 user calls: Float
+    %2 user val: Float
+    %3 temp: fn() -> None
+    %4 temp: None
+    %5 temp: fn() -> None
+    %6 temp: None
+  bb0:
+    %3 = closure ClosureId(2) [copy %1, copy %2]
+    %4 = closure_call copy %0(copy %3)
+    %5 = closure ClosureId(3) [copy %1]
+    %6 = closure_call copy %0(copy %5)
+    return none
+
+closure ClosureId(2) -> None
+  locals
+    %0 user calls: Float
+    %1 user val: Float
+    %2 temp: Float
+  bb0:
+    %1 = 1.0
+    %2 = copy %0 + 1.0
+    %0 = copy %2
+    return none
+
+closure ClosureId(3) -> None
+  locals
+    %0 user calls: Float
+    %1 temp: Float
+  bb0:
+    %1 = copy %0 + 1.0
+    %0 = copy %1
+    return none
+

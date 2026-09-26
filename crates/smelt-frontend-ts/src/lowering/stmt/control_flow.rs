@@ -16,6 +16,29 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
+        // The head's `let`/`const` bindings are scoped to the loop (init, test,
+        // body AND update); an outer same-named binding comes back after it.
+        let saved = self.scope.snapshot_bindings();
+        let mut head_names = Vec::new();
+        if let Some(ForStatementInit::VariableDeclaration(decl)) = &for_stmt.init
+            && !matches!(decl.kind, oxc::ast::ast::VariableDeclarationKind::Var)
+        {
+            for declarator in &decl.declarations {
+                Self::binding_pattern_names(&declarator.id, &mut head_names);
+            }
+        }
+        let lowered = self.c_for_statement_in_scope(for_stmt, body, block);
+        self.scope.close_lexical_block(&saved, &head_names);
+        lowered
+    }
+
+    /// [`Self::c_for_statement`] with the loop's lexical scope already open.
+    fn c_for_statement_in_scope(
+        &mut self,
+        for_stmt: &oxc::ast::ast::ForStatement<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
         if let Some(init) = &for_stmt.init {
             match init {
                 ForStatementInit::VariableDeclaration(decl) => {

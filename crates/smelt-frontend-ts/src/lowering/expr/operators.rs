@@ -1865,6 +1865,17 @@ impl ModuleBuilder<'_> {
         let fallback_ty = Self::expr_ty(body, fallback);
         let ty = if fallback_ty == ty {
             ty
+        } else if matches!(
+            self.ctx.krate.types.get(fallback_ty),
+            Some(Type::Optional(inner)) if *inner == ty
+        ) && !self.type_contains_unknown(ty)
+            && self.type_is_always_truthy_object_surface(ty)
+        {
+            // `record[a] || record[b]` over object values: every present object
+            // is truthy, so `||` is presence-coalescing and the result is
+            // absent exactly when both operands are. The precise type is the
+            // fallback's own `Optional<X>`, not an erased value.
+            fallback_ty
         } else if self.ctx.krate.types.get(ty) == Some(&Type::Unknown)
             || self.ctx.krate.types.get(fallback_ty) == Some(&Type::Unknown)
             || self.type_contains_unknown(ty)
@@ -1875,6 +1886,19 @@ impl ModuleBuilder<'_> {
             // Object values are always truthy in JavaScript; keep the selected
             // runtime value when their fallback widens the expression surface.
             self.ctx.krate.types.intern(Type::Unknown)
+        } else if matches!(self.ctx.krate.types.get(ty), Some(Type::Union(_))) {
+            // A union left operand (`Pattern | null`, `Pattern` itself a union
+            // of a tuple and a string literal) keeps EVERY arm it can yield:
+            // the result is the left's present arms plus the fallback's. It
+            // was typed `string` because one arm is string-compatible, which
+            // stringified the tuple arm (Hono's trie-router `insert`).
+            let mut arms = self.flatten_union_member_types(ty);
+            for arm in self.flatten_union_member_types(fallback_ty) {
+                if !arms.contains(&arm) {
+                    arms.push(arm);
+                }
+            }
+            self.union_of_types_or_unknown(arms)
         } else if self.is_string_compatible_type(ty) && self.is_string_compatible_type(fallback_ty)
         {
             self.ctx.krate.types.intern(Type::String)
@@ -2091,6 +2115,19 @@ impl ModuleBuilder<'_> {
         value_ty: smelt_hir::TypeId,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         if !self.is_string_compatible_type(value_ty) {
+            return Ok(None);
+        }
+        // The truthiness test below is `value != ""`, which is only JavaScript
+        // truthiness for a STRING. A union that merely HAS a string arm
+        // (`Pattern | null`, where `Pattern = [..] | '*'`) is truthy for every
+        // array arm too; lowering it here typed the whole `||` as `string` and
+        // stringified the array to "[object Object]" (Hono's trie-router
+        // `insert`). Such a union takes the general value-preserving path.
+        if let Some(Type::Union(items)) = self.ctx.krate.types.get(value_ty)
+            && items.iter().any(|item| {
+                !matches!(self.ctx.krate.types.get(*item), Some(Type::String | Type::None))
+            })
+        {
             return Ok(None);
         }
         let fallback = self.expression_with_hint(&logical.right, body, Some(value_ty))?;
@@ -2706,6 +2743,24 @@ impl ModuleBuilder<'_> {
                 ));
             }
         };
+        // `!(a && b)` observes only the TRUTHINESS of the logical operand,
+        // which distributes over `&&`/`||`: lower it as a condition (a
+        // boolean) rather than as the operand-selecting value, whose type is
+        // the union of both operands and erases when they differ.
+        if matches!(op, UnaryOp::Not)
+            && matches!(
+                Self::unparenthesized_expression(&unary.argument),
+                Expression::LogicalExpression(_)
+            )
+        {
+            let operand = self.condition_expression(&unary.argument, body)?;
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::UnaryOp { op, operand },
+                ty,
+                span: self.span(unary.span.start, unary.span.end),
+            }));
+        }
         let operand = self.expression(&unary.argument, body)?;
         let operand = if matches!(op, UnaryOp::Not) {
             self.optional_known_date_presence_condition(
@@ -4489,7 +4544,33 @@ impl ModuleBuilder<'_> {
             _ => return None,
         };
         let fields = self.contextual_record_literal_fields(candidate)?;
-        if fields.is_empty() || fields.iter().any(|field| !field.optional) {
+        if fields.is_empty() {
+            return None;
+        }
+        // A REQUIRED field is fine as long as the literal supplies it
+        // (`const h: Entry = { handler: 'x', score: 1 }` is `Entry { .. }`);
+        // only a missing required field would force inventing a value.
+        let supplied_keys = entries
+            .iter()
+            .map(|(key, _)| {
+                let key_expr = body
+                    .exprs
+                    .get(usize::try_from(key.0).unwrap_or(usize::MAX))?;
+                match &key_expr.kind {
+                    ExprKind::Literal(Literal::String(field_key)) => Some(field_key.clone()),
+                    _ => None,
+                }
+            })
+            .collect::<Option<Vec<_>>>()?;
+        if fields.iter().any(|field| {
+            !field.optional
+                && !self
+                    .ctx
+                    .krate
+                    .symbols
+                    .get(field.name)
+                    .is_some_and(|name| supplied_keys.iter().any(|key| key == name))
+        }) {
             return None;
         }
         for (key, value) in entries {

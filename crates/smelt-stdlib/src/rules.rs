@@ -138,6 +138,8 @@ pub enum RuleId {
     TsNumberParseFloat,
     /// TypeScript `Number.parseInt(...)`.
     TsNumberParseInt,
+    /// TypeScript `String.fromCharCode(...)` / `String.fromCodePoint(...)`.
+    TsStringFromCodes,
     /// TypeScript supported static `Object.*` call.
     TsObjectStatic,
     /// TypeScript supported static `Array.*` call.
@@ -415,6 +417,7 @@ impl RuleId {
             | Self::TsNumberPredicate
             | Self::TsNumberParseFloat
             | Self::TsNumberParseInt
+            | Self::TsStringFromCodes
             | Self::TsObjectStatic
             | Self::TsArrayStatic
             | Self::TsBufferStatic
@@ -506,6 +509,7 @@ impl RuleId {
             Self::TsNumberPredicate => "Number predicate",
             Self::TsNumberParseFloat => "Number.parseFloat",
             Self::TsNumberParseInt => "Number.parseInt",
+            Self::TsStringFromCodes => "String.fromCharCode",
             Self::TsObjectStatic => "Object static method",
             Self::TsArrayStatic => "Array static method",
             Self::TsBufferStatic => "Buffer static method",

@@ -197,6 +197,8 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 crate::expr::PrimitiveCastOp::ToInt => "int",
                 crate::expr::PrimitiveCastOp::ToFloat => "float",
                 crate::expr::PrimitiveCastOp::ParseFloat => "parse_float",
+                crate::expr::PrimitiveCastOp::FromCharCodes => "from_char_codes",
+                crate::expr::PrimitiveCastOp::FromCodePoints => "from_code_points",
                 crate::expr::PrimitiveCastOp::ToJsNumber => "js_number",
                 crate::expr::PrimitiveCastOp::ToString => "string",
             };
@@ -266,6 +268,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             let op_name = match op {
                 crate::expr::StringSearchOp::Find => "find",
                 crate::expr::StringSearchOp::RFind => "rfind",
+                crate::expr::StringSearchOp::Regex => "search",
             };
             let base = format!(
                 "string_{op_name} {}, {}",

@@ -46,6 +46,59 @@ describe.each([[1], [2]])("outer", (value) => {
     Ok(())
 }
 
+/// A `describe.each` row that reads a suite-setup const declared BEFORE the
+/// call (`const enc = new TextEncoder(); describe.each([[enc.encode(..)]])`)
+/// must see that const: rows are bound in source order against the setup, not
+/// ahead of it, so the row keeps its concrete type instead of an erased read.
+#[test]
+fn vitest_describe_each_rows_read_preceding_suite_setup() -> Result<(), String> {
+    let source = ts!(r#"
+import { describe, test, expect } from "vitest";
+
+describe("outer", () => {
+  const words = ["a", "bb"];
+  describe.each([[words.length]])("group", (count) => {
+    test("case", () => {
+      expect(count).toBe(2);
+    });
+  });
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/describe-each-setup.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let mut checked = false;
+    for item in &module.items {
+        let Some(Item::Function(function)) = usize::try_from(item.0)
+            .ok()
+            .and_then(|index| ctx.krate.items.get(index))
+        else {
+            continue;
+        };
+        let Some(body) = function
+            .body
+            .and_then(|body| usize::try_from(body.0).ok())
+            .and_then(|index| ctx.krate.bodies.get(index))
+        else {
+            continue;
+        };
+        let Some(count) = body.locals.iter().find(|local| {
+            local.name.and_then(|symbol| ctx.krate.symbols.get(symbol)) == Some("count")
+        }) else {
+            continue;
+        };
+        ensure!(
+            matches!(ctx.krate.types.get(count.ty), Some(Type::Float | Type::Int)),
+            "expected the row to read the preceding setup const, got {:?}",
+            ctx.krate.types.get(count.ty)
+        );
+        checked = true;
+    }
+    ensure!(checked, "expected a test body binding `count`");
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
 #[test]
 fn vitest_describe_expression_setup_is_replayed_into_nested_tests() -> Result<(), String> {
     let source = ts!(r#"

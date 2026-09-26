@@ -549,6 +549,8 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::PrimitiveCastOp::ToInt => "int",
                 smelt_hir::PrimitiveCastOp::ToFloat => "float",
                 smelt_hir::PrimitiveCastOp::ParseFloat => "parse_float",
+                smelt_hir::PrimitiveCastOp::FromCharCodes => "from_char_codes",
+                smelt_hir::PrimitiveCastOp::FromCodePoints => "from_code_points",
                 smelt_hir::PrimitiveCastOp::ToJsNumber => "js_number",
                 smelt_hir::PrimitiveCastOp::ToString => "string",
             };
@@ -624,6 +626,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             let op_text = match op {
                 smelt_hir::StringSearchOp::Find => "find",
                 smelt_hir::StringSearchOp::RFind => "rfind",
+                smelt_hir::StringSearchOp::Regex => "search",
             };
             let base = format!(
                 "string_{op_text} {}, {}",

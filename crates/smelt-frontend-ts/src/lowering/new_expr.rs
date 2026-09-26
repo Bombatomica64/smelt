@@ -2546,6 +2546,16 @@ impl ModuleBuilder<'_> {
                 if unary.operator == UnaryOperator::Delete {
                     return self.unary_expression(unary, body);
                 }
+                // `!(a && b)` tests truthiness only; `unary_expression` lowers
+                // the logical operand as a condition.
+                if unary.operator == UnaryOperator::LogicalNot
+                    && matches!(
+                        Self::unparenthesized_expression(&unary.argument),
+                        Expression::LogicalExpression(_)
+                    )
+                {
+                    return self.unary_expression(unary, body);
+                }
                 if unary.operator == UnaryOperator::Void {
                     let ty = self.ctx.krate.types.intern(Type::None);
                     return Ok(body.push_expr(Expr {

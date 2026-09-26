@@ -522,11 +522,22 @@ impl ModuleBuilder<'_> {
                 receiver
             };
             if optional_access {
-                return Ok(body.push_expr(Expr {
+                let len = body.push_expr(Expr {
                     kind: ExprKind::Len { operand },
                     ty,
                     span: self.span(member.span.start, member.span.end),
-                }));
+                });
+                // `xs?.length` on an ABSENT `xs` is `undefined`, not a length:
+                // the read is `Optional<number>`, evaluated only when present
+                // (`!xs?.length` is then the presence-aware truthiness test).
+                // A plain `xs.length` is the source asserting presence and
+                // keeps its number.
+                if member.optional
+                    && matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Optional(_)))
+                {
+                    return Ok(self.wrap_optional_receiver_method(receiver, len, member.span, body));
+                }
+                return Ok(len);
             }
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Len { operand },
@@ -1498,6 +1509,52 @@ impl ModuleBuilder<'_> {
                 body,
             );
         }
+        // A TUPLE read through an `Optional` receiver. Its element is picked
+        // statically, so the read is the ordinary tuple projection on the
+        // present value: `x?.[i]` yields it when present and `undefined`
+        // otherwise, while a plain `x[i]` is the source asserting presence
+        // (`tsc` accepted it only because it believed `x` present; Smelt knows
+        // more, e.g. `(m[a] || m[b]) as Tuple`), so it narrows and projects.
+        let receiver = if optional_access
+            && matches!(
+                self.ctx.krate.types.get(receiver_ty),
+                Some(Type::Optional(_))
+            )
+            && matches!(
+                self.ctx.krate.types.get(access_receiver_ty),
+                Some(Type::Tuple(_))
+            ) {
+            let present = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: receiver },
+                ty: access_receiver_ty,
+                span: self.span(member.object.span().start, member.object.span().end),
+            });
+            if member.optional
+                && let Some(Type::Tuple(items)) =
+                    self.ctx.krate.types.get(access_receiver_ty).cloned()
+            {
+                let tuple_index = self.static_tuple_index(index, body, items.len(), member.span)?;
+                let ty = items.get(tuple_index).copied().ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(member.span.start, member.span.end),
+                        "tuple index is out of range",
+                    )
+                })?;
+                let read = body.push_expr(Expr {
+                    kind: ExprKind::TupleIndex {
+                        tuple: present,
+                        index: tuple_index,
+                    },
+                    ty,
+                    span: self.span(member.span.start, member.span.end),
+                });
+                return Ok(self.wrap_optional_receiver_method(receiver, read, member.span, body));
+            }
+            present
+        } else {
+            receiver
+        };
+        let optional_access = optional_access && Self::expr_ty(body, receiver) == receiver_ty;
         if optional_access {
             let value_ty = self.index_type(access_receiver_ty)?;
             let ty = self.optional_chain_result_type(value_ty);
@@ -1585,8 +1642,15 @@ impl ModuleBuilder<'_> {
         if matches!(
             self.ctx.krate.types.get(access_receiver_ty),
             Some(Type::Dict(_, _))
-        ) && matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
-        {
+        ) && matches!(
+            self.ctx.krate.types.get(ty),
+            Some(Type::Class { .. } | Type::Tuple(_))
+        ) {
+            // A missing key is `undefined`. For an OBJECT value (an instance, a
+            // tuple) there is no falsy stand-in: a fabricated default would be
+            // truthy and make `!record[k]` constantly false, so the read keeps
+            // its absence as `Optional`. A plain `record[k][i]` on it is then a
+            // presence assertion (see the tuple arm above).
             let ty = self.optional_chain_result_type(ty);
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Index { receiver, index },

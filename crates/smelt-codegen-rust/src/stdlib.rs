@@ -143,6 +143,11 @@ fn rvalue_needs_regex(rvalue: &Rvalue, _mir: &Mir) -> bool {
             | Rvalue::RegexTest { .. }
             | Rvalue::RegexMatchAll { .. }
             | Rvalue::StringSplit { .. }
+            // `string.search(pattern)` matches through `SmeltRegExp`.
+            | Rvalue::StringSearch {
+                op: smelt_hir::StringSearchOp::Regex,
+                ..
+            }
     )
 }
 

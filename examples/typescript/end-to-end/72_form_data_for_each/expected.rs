@@ -3782,7 +3782,6 @@ fn main() {
     _smelt_tmp_58 = _smelt_tmp_56.len() as f64;
     _smelt_tmp_59 = _smelt_tmp_57 < _smelt_tmp_58;
     if !(_smelt_tmp_59) { break; }
-    loop {
     __for_each_entry_1 = _smelt_tmp_56.borrow().get({ let smelt_normalized = _smelt_tmp_57 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), SmeltUnion7::M0(String::new())));
     _smelt_tmp_60 = __for_each_entry_1.clone().1.clone();
     value_2 = _smelt_tmp_60;
@@ -3790,12 +3789,15 @@ fn main() {
     key_1 = _smelt_tmp_61;
     parent = form.clone();
     _smelt_tmp_62 = form.clone().has(&key_1);
-    if !(_smelt_tmp_62) { break; }
+    if _smelt_tmp_62 {
     _smelt_tmp_63 = present + 1.0;
     present = _smelt_tmp_63;
-    break;
-    }
     _smelt_tmp_57 = _smelt_tmp_57 + 1.0;
+    continue;
+    } else {
+    _smelt_tmp_57 = _smelt_tmp_57 + 1.0;
+    continue;
+    }
     }
     let _ = { println!("{}", smelt_console_number(present)); };
     _smelt_tmp_65 = SmeltJsMap::from([("x".to_owned(), 1.0), ("y".to_owned(), 2.0)]);

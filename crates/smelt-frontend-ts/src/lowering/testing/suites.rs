@@ -649,21 +649,12 @@ impl ModuleBuilder<'_> {
         self.current_async = arrow.r#async;
         let mut body = Body::new(None, self.arrow_body_span(arrow));
         let mut errors = Vec::new();
-        for (name, value) in table_bindings {
-            if let Err(error) = self.bind_table_value(name, *value, &mut body) {
-                errors.push(error);
-            }
-        }
         if let Err(error) =
             self.synthesize_setup_constructor_functions(setup, arrow_block_statements(arrow))
         {
             errors.push(error);
         }
-        for statement in setup {
-            if let Err(error) = self.test_case_statement(statement, &mut body) {
-                errors.push(error);
-            }
-        }
+        self.lower_setup_with_table_bindings(setup, table_bindings, &mut body, &mut errors);
         for hook in before_each {
             for statement in arrow_block_statements(hook) {
                 if let Err(error) = self.test_case_statement(statement, &mut body) {
@@ -783,21 +774,12 @@ impl ModuleBuilder<'_> {
             self.span(function_body.span.start, function_body.span.end),
         );
         let mut errors = Vec::new();
-        for (name, value) in table_bindings {
-            if let Err(error) = self.bind_table_value(name, *value, &mut body) {
-                errors.push(error);
-            }
-        }
         if let Err(error) =
             self.synthesize_setup_constructor_functions(setup, &function_body.statements)
         {
             errors.push(error);
         }
-        for statement in setup {
-            if let Err(error) = self.test_case_statement(statement, &mut body) {
-                errors.push(error);
-            }
-        }
+        self.lower_setup_with_table_bindings(setup, table_bindings, &mut body, &mut errors);
         for hook in before_each {
             for statement in arrow_block_statements(hook) {
                 if let Err(error) = self.test_case_statement(statement, &mut body) {
@@ -1099,6 +1081,44 @@ impl ModuleBuilder<'_> {
         Ok(bindings)
     }
 
+    /// Replay suite setup statements and bind `.each` table rows in SOURCE order.
+    ///
+    /// A table row is evaluated when its `describe.each(...)`/`test.each(...)`
+    /// call runs, i.e. after every setup statement that precedes it in the
+    /// source (`const enc = new TextEncoder(); describe.each([[enc.encode(..)]])`)
+    /// and before the setup statements of the nested suite body it feeds. Each
+    /// binding is therefore bound just before the first setup statement that
+    /// starts after it; remaining bindings are bound after the whole setup.
+    /// (Constructor-function synthesis stays ahead of this: function
+    /// declarations are hoisted.)
+    fn lower_setup_with_table_bindings(
+        &mut self,
+        setup: &[&Statement<'_>],
+        table_bindings: &[(&str, TableBindingValue<'_>)],
+        body: &mut Body,
+        errors: &mut Vec<SmeltError>,
+    ) {
+        let mut pending = table_bindings.iter().peekable();
+        for statement in setup {
+            let statement_start = statement.span().start;
+            while let Some((name, value)) =
+                pending.next_if(|(_, value)| value.source_span().start < statement_start)
+            {
+                if let Err(error) = self.bind_table_value(name, *value, body) {
+                    errors.push(error);
+                }
+            }
+            if let Err(error) = self.test_case_statement(statement, body) {
+                errors.push(error);
+            }
+        }
+        for (name, value) in pending {
+            if let Err(error) = self.bind_table_value(name, *value, body) {
+                errors.push(error);
+            }
+        }
+    }
+
     /// Bind one `test.each` row value to a local used by the callback body.
     pub(in crate::lowering) fn bind_table_value(
         &mut self,
@@ -1112,10 +1132,7 @@ impl ModuleBuilder<'_> {
         };
         let ty = Self::expr_ty(body, expr);
         let symbol = self.intern_source_name(name);
-        let span = match value {
-            TableBindingValue::Element(value) => value.span(),
-            TableBindingValue::ObjectField(value) => value.span(),
-        };
+        let span = value.source_span();
         let local = body.push_local(LocalDecl {
             name: Some(symbol),
             ty,

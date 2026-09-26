@@ -1,0 +1,176 @@
+fn get_pattern (FuncId(0)) -> (String, String, Bool)
+  locals
+    %0 param label: String
+    %1 temp: Dict<String, (String, String, Bool)>
+    %2 temp: Optional<(String, String, Bool)>
+    %3 temp: Bool
+    %4 temp: String
+    %5 temp: Optional<(String, String, Bool)>
+    %6 temp: List<String>
+    %7 temp: Float
+    %8 temp: Dict<String, (String, String, Bool)>
+    %9 temp: Optional<(String, String, Bool)>
+  bb0:
+    %1 = global_get #0
+    %2 = move %1?.[copy %0]
+    %3 = !move %2
+    switch move %3 ? bb1 : bb2
+  bb1:
+    %4 = string_slice copy %0, 1.0, _
+    %5 = [copy %0, move %4, true]
+    global0[copy %0] = move %5
+    %6 = global_get #1
+    %7 = list_push move %6, copy %0
+    goto bb2
+  bb2:
+    %8 = global_get #0
+    %9 = move %8?.[copy %0]
+    return move %9
+
+fn smelt_global_init__cache__2 (FuncId(1)) -> Dict<String, (String, String, Bool)>
+  locals
+    %0 temp: Dict<String, (String, String, Bool)>
+  bb0:
+    %0 = {}
+    return move %0
+
+fn smelt_global_init__seen__3 (FuncId(2)) -> List<String>
+  locals
+    %0 temp: List<String>
+  bb0:
+    %0 = []
+    return move %0
+
+fn main (FuncId(3)) -> None
+  locals
+    %0 user a: (String, String, Bool)
+    %1 user b: (String, String, Bool)
+    %2 user collect: fn(Bool) -> Dict<String, String | List<String>>
+    %3 temp: (String, String, Bool)
+    %4 temp: (String, String, Bool)
+    %5 temp: (String, String, Bool)
+    %6 temp: String
+    %7 temp: String
+    %8 temp: List<String>
+    %9 temp: String
+    %10 temp: None
+    %11 temp: fn(Bool) -> Dict<String, String | List<String>>
+    %12 temp: Dict<String, String | List<String>>
+    %13 temp: String
+    %14 temp: Dict<String, String | List<String>>
+    %15 temp: String
+    %16 temp: None
+  bb0:
+    %3 = call fn0(":id") -> bb1
+  bb1:
+    %0 = move %3
+    %4 = call fn0(":id") -> bb2
+  bb2:
+    %1 = move %4
+    %5 = call fn0(":name") -> bb3
+  bb3:
+    %6 = tuple_index move %0, 1
+    %7 = tuple_index move %1, 0
+    %8 = global_get #1
+    %9 = string_join move %8, "|"
+    %10 = call @console_log(move %6, move %7, move %9) -> bb4
+  bb4:
+    %11 = closure ClosureId(0) []
+    %2 = move %11
+    %12 = closure_call copy %2(true)
+    %13 = json_stringify move %12
+    %14 = closure_call move %2(false)
+    %15 = json_stringify move %14
+    %16 = call @console_log(move %13, move %15) -> bb5
+  bb5:
+    return none
+
+closure ClosureId(0) -> Dict<String, String | List<String>>
+  locals
+    %0 param multiple: Bool
+    %1 user results: Dict<String, String | List<String>>
+    %2 user pairs: List<List<String>>
+    %3 user __smelt_for_item: List<String>
+    %4 user name: Optional<String>
+    %5 user value: Optional<String>
+    %6 user __smelt_logical_value_6: Optional<String>
+    %7 temp: Dict<String, String | List<String>>
+    %8 temp: List<String>
+    %9 temp: List<String>
+    %10 temp: List<String>
+    %11 temp: List<List<String>>
+    %12 temp: Float
+    %13 temp: Float
+    %14 temp: Bool
+    %15 temp: Optional<String>
+    %16 temp: Optional<String>
+    %17 temp: Bool
+    %18 temp: Bool
+    %19 temp: Bool
+    %20 temp: Bool
+    %21 temp: List<String>
+    %22 temp: List<String>
+    %23 temp: Float
+    %24 temp: Optional<String | List<String>>
+    %25 temp: Bool
+  bb0:
+    %7 = {}
+    %1 = copy %7
+    %8 = ["name", "hey"]
+    %9 = ["name", "ho"]
+    %10 = ["x", "1"]
+    %11 = [copy %8, copy %9, copy %10]
+    %2 = copy %11
+    %12 = 0.0
+    goto bb1
+  bb1:
+    %13 = len copy %2
+    %14 = copy %12 < copy %13
+    switch copy %14 ? bb2 : bb4
+  bb2:
+    %3 = copy %2[copy %12]
+    %15 = copy %3?.[0.0]
+    %4 = copy %15
+    %16 = copy %3?.[1.0]
+    %5 = copy %16
+    switch copy %0 ? bb5 : bb6
+  bb3:
+    %12 = copy %12 + 1.0
+    goto bb1
+  bb4:
+    return copy %1
+  bb5:
+    %17 = primitive_cast_bool copy %1[copy %4]
+    switch copy %17 ? bb7 : bb8
+  bb6:
+    %24 = copy %1?.[copy %4]
+    %25 = copy %24 == none
+    switch copy %25 ? bb13 : bb14
+  bb7:
+    %19 = unknown_is Array copy %1[copy %4]
+    %18 = copy %19
+    goto bb9
+  bb8:
+    %18 = false
+    goto bb9
+  bb9:
+    %20 = !copy %18
+    switch copy %20 ? bb10 : bb11
+  bb10:
+    %21 = []
+    %1[copy %4] = copy %21
+    goto bb11
+  bb11:
+    %22 = copy %1[copy %4]
+    %23 = list_push copy %22, copy %5
+    %1[copy %4] = copy %22
+    goto bb12
+  bb12:
+    goto bb3
+  bb13:
+    %6 = copy %5
+    %1[copy %4] = copy %6
+    goto bb14
+  bb14:
+    goto bb12
+

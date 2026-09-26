@@ -128,6 +128,56 @@ impl<'builder> ModuleBuilder<'builder> {
         self.call_expression(call, body)
     }
 
+    /// Lower `local?.method(..)` on an absent-able STRING or ARRAY local.
+    ///
+    /// The builtin method handlers are keyed on the receiver's static type, and
+    /// `string | undefined` is not `string`, so `base?.at(-1)` fell through to
+    /// a field read of `at` and called a default callback (`null`), and
+    /// `s?.indexOf('x')` was rejected outright (Hono's `mergePath`). The call
+    /// is instead lowered once with the local narrowed to its present type —
+    /// the handler sees an ordinary `string` receiver — and wrapped as
+    /// `local present ? call : undefined`, which is exactly what `?.` means.
+    fn optional_builtin_receiver_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if !member.optional {
+            return Ok(None);
+        }
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        let name = object.name.as_str();
+        let Some(local) = self.scope.lookup(name) else {
+            return Ok(None);
+        };
+        // Decided from the local's (narrowed) type WITHOUT lowering the
+        // receiver, so a call this rule declines lowers exactly as before.
+        let local_ty = self
+            .scope
+            .narrowed_type(name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        let Some(Type::Optional(inner)) = self.ctx.krate.types.get(local_ty).cloned() else {
+            return Ok(None);
+        };
+        if !matches!(
+            self.ctx.krate.types.get(inner),
+            Some(Type::String | Type::List(_) | Type::Tuple(_))
+        ) {
+            return Ok(None);
+        }
+        let receiver = self.expression(&member.object, body)?;
+        self.scope.push_narrowing_fact(name.to_owned(), inner);
+        let lowered = self.call_expression(call, body);
+        self.scope.pop_narrowing_scope();
+        let op = lowered?;
+        Ok(Some(self.wrap_optional_receiver_method(receiver, op, call.span, body)))
+    }
+
     pub(in crate::lowering) fn call_expression(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -149,6 +199,9 @@ impl<'builder> ModuleBuilder<'builder> {
         // than in each rule: it is one place, and it keeps the blocker's
         // wording tied to the import that caused it.
         if let Some(expr) = self.blocked_import_member_call(call)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.optional_builtin_receiver_call(call, body)? {
             return Ok(expr);
         }
         if let Expression::ComputedMemberExpression(member) = &call.callee
@@ -4140,6 +4193,7 @@ impl<'builder> ModuleBuilder<'builder> {
             RuleId::TsNumberPredicate => self.number_predicate_call(call, body),
             RuleId::TsNumberParseFloat => self.number_parse_float_call(call, body),
             RuleId::TsNumberParseInt => self.number_parse_int_call(call, body),
+            RuleId::TsStringFromCodes => self.string_from_codes_call(call, body),
             RuleId::TsObjectStatic => self.exact_object_static_call(call, body),
             RuleId::TsArrayStatic => self.exact_array_static_call(call, body),
             RuleId::TsBufferStatic => self.exact_buffer_static_call(call, body),
@@ -5267,11 +5321,18 @@ impl<'builder> ModuleBuilder<'builder> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
+        // An OPTIONAL parameter (`b?: string`, `required_params` on the
+        // function type) is omittable exactly like a defaulted one; it is
+        // padded with `undefined` below. Counting it as required sent
+        // `f('p')` against `(a: string, b?: string)` down the shortfall branch,
+        // which dropped EVERY argument (`f()`), so `getPattern(':id')` in Hono
+        // ran with an empty label.
         let required_arg_count = defaults
             .iter()
             .take(fixed_param_count)
             .position(Option::is_some)
-            .unwrap_or(fixed_param_count);
+            .unwrap_or(fixed_param_count)
+            .min(function.required_params.unwrap_or(fixed_param_count));
         if supplied_arg_count < required_arg_count
             || (rest.is_none() && supplied_arg_count > function.params.len())
         {
@@ -5318,6 +5379,17 @@ impl<'builder> ModuleBuilder<'builder> {
             .collect::<Result<Vec<_>, _>>()?;
         for index in supplied_arg_count..fixed_param_count {
             let Some(default) = defaults.get(index).and_then(|default| default.as_ref()) else {
+                // An optional parameter with no default receives `undefined`.
+                if index >= function.required_params.unwrap_or(fixed_param_count)
+                    && let Some(param_ty) = function.params.get(index).copied()
+                {
+                    args.push(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty: param_ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
+                    continue;
+                }
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),
                     "closure call argument count does not match closure parameters",
@@ -5370,7 +5442,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// not a shape to lower into. Peels `Optional` first, because
     /// `Optional<Opts>` is a real hint (fixture 66 covers it) while
     /// `Optional<unknown>` is not.
-    fn hint_preserves_argument_shape(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn hint_preserves_argument_shape(&self, ty: smelt_hir::TypeId) -> bool {
         let peeled = match self.ctx.krate.types.get(ty) {
             Some(Type::Optional(inner)) => *inner,
             _ => ty,

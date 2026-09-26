@@ -1,0 +1,171 @@
+module examples/typescript/end-to-end/126_optional_presence_through_assertion/input.ts (ModuleId(0))
+  body BodyId(3)
+  items
+    interface HandlerSet fields [Public handler: String, Public score: Float] methods []
+    interface HandlerParamsSet fields [Public handler: String, Public score: Float, Public params: Dict<String, String>] methods []
+    class Table fields [Public methods: List<Dict<String, HandlerSet>>] constructor Some(ItemId(4)) methods [ItemId(2), ItemId(3)] implements []
+  locals
+    %0 const table: Table
+    %1 const entries: Dict<String, HandlerSet>
+    %2 const picked: Optional<HandlerSet>
+    %3 const absent: Optional<HandlerSet>
+    %4 const base: HandlerSet
+    %5 const full: HandlerParamsSet
+  exprs
+    #0: Table = new Table()
+    #1: Table = %0
+    #2: Table = %0
+    #3: fn(String, String, Float) -> None = #2.add
+    #4: Table = %0
+    #5: String = "get"
+    #6: String = "get hello"
+    #7: Float = 1.0
+    #8: None = #4.add(#5, #6, #7)
+    #9: Table = %0
+    #10: Table = %0
+    #11: fn(String, String, Float) -> None = #10.add
+    #12: Table = %0
+    #13: String = "post"
+    #14: String = "post hello"
+    #15: Float = 2.0
+    #16: None = #12.add(#13, #14, #15)
+    #17: Table = %0
+    #18: Table = %0
+    #19: fn(String, String, Float) -> None = #18.add
+    #20: Table = %0
+    #21: String = "ALL"
+    #22: String = "any"
+    #23: Float = 3.0
+    #24: None = #20.add(#21, #22, #23)
+    #25: Table = %0
+    #26: fn(String) -> List<String> = #25.lookup
+    #27: Table = %0
+    #28: String = "get"
+    #29: List<String> = #27.lookup(#28)
+    #30: String = ","
+    #31: String = string_join #29, #30
+    #32: None = @6(console_log)
+    #33: None = call #32(#31)
+    #34: Table = %0
+    #35: fn(String) -> List<String> = #34.lookup
+    #36: Table = %0
+    #37: String = "post"
+    #38: List<String> = #36.lookup(#37)
+    #39: String = ","
+    #40: String = string_join #38, #39
+    #41: None = @7(console_log)
+    #42: None = call #41(#40)
+    #43: Table = %0
+    #44: fn(String) -> List<String> = #43.lookup
+    #45: Table = %0
+    #46: String = "put"
+    #47: List<String> = #45.lookup(#46)
+    #48: String = ","
+    #49: String = string_join #47, #48
+    #50: None = @8(console_log)
+    #51: None = call #50(#49)
+    #52: String = "a"
+    #53: String = "handler"
+    #54: String = "first"
+    #55: String = "score"
+    #56: Float = 1.0
+    #57: HandlerSet = {#53: #54, #55: #56}
+    #58: Dict<String, HandlerSet> = {#52: #57}
+    #59: Dict<String, HandlerSet> = %1
+    #60: String = "missing"
+    #61: Optional<HandlerSet> = #59[#60]
+    #62: Dict<String, HandlerSet> = %1
+    #63: String = "a"
+    #64: Optional<HandlerSet> = #62[#63]
+    #65: Optional<HandlerSet> = #61 ?? #64
+    #66: Optional<HandlerSet> = %2
+    #67: None = none
+    #68: Bool = NotEq #66, #67
+    #69: Optional<HandlerSet> = %2
+    #70: Optional<String> = #69?.handler
+    #71: String = "none"
+    #72: Optional<String> = if #68 then #70 else #71
+    #73: None = @9(console_log)
+    #74: None = call #73(#72)
+    #75: Dict<String, HandlerSet> = %1
+    #76: String = "missing"
+    #77: Optional<HandlerSet> = #75[#76]
+    #78: Dict<String, HandlerSet> = %1
+    #79: String = "other"
+    #80: Optional<HandlerSet> = #78[#79]
+    #81: Optional<HandlerSet> = #77 ?? #80
+    #82: Optional<HandlerSet> = %3
+    #83: None = none
+    #84: Bool = NotEq #82, #83
+    #85: Optional<HandlerSet> = %3
+    #86: Optional<String> = #85?.handler
+    #87: String = "none"
+    #88: Optional<String> = if #84 then #86 else #87
+    #89: None = @10(console_log)
+    #90: None = call #89(#88)
+    #91: String = "handler"
+    #92: String = "h"
+    #93: String = "score"
+    #94: Float = 1.0
+    #95: HandlerSet = {#91: #92, #93: #94}
+    #96: HandlerSet = %4
+    #97: HandlerParamsSet = assert_type #96
+    #98: HandlerParamsSet = %5
+    #99: Dict<String, String> = #98.params
+    #100: Dict<String, String> = {}
+    #101: HandlerParamsSet = %5
+    #102: Dict<String, String> = #101.params
+    #103: String = "k"
+    #104: String = #102[#103]
+    #105: String = "v"
+    #106: HandlerParamsSet = %5
+    #107: String = #106.handler
+    #108: HandlerParamsSet = %5
+    #109: Float = #108.score
+    #110: HandlerParamsSet = %5
+    #111: Dict<String, String> = #110.params
+    #112: String = "k"
+    #113: String = #111[#112]
+    #114: None = @11(console_log)
+    #115: None = call #114(#107, #109, #113)
+  stmts
+    s0: let %0: Table = #0
+    s1: #8
+    s2: #16
+    s3: #24
+    s4: #33
+    s5: #42
+    s6: #51
+    s7: let %1: Dict<String, HandlerSet> = #58
+    s8: let %2: Optional<HandlerSet> = #65
+    s9: #74
+    s10: let %3: Optional<HandlerSet> = #81
+    s11: #90
+    s12: let %4: HandlerSet = #95
+    s13: let %5: HandlerParamsSet = #97
+    s14: #99 = #100
+    s15: #104 = #105
+    s16: #115
+
+interned types
+  t0 = Table
+  t1 = String
+  t2 = Float
+  t3 = Unknown
+  t4 = Dict<String, Unknown>
+  t5 = Dict<String, Dict<String, Unknown>>
+  t6 = List<Dict<String, Unknown>>
+  t7 = HandlerSet
+  t8 = Dict<String, HandlerSet>
+  t9 = Bool
+  t10 = List<Unknown>
+  t11 = HandlerParamsSet
+  t12 = Dict<String, String>
+  t13 = List<Dict<String, HandlerSet>>
+  t14 = None
+  t15 = List<String>
+  t16 = Optional<HandlerSet>
+  t17 = Optional<HandlerParamsSet>
+  t18 = fn(String, String, Float) -> None
+  t19 = fn(String) -> List<String>
+  t20 = Optional<String>

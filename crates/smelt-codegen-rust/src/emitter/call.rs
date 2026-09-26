@@ -53,6 +53,12 @@ enum MutListArgKind {
     /// erased `SmeltUnknown` monomorphization). `&mut` invariance rules out a
     /// direct reborrow, so each element is converted on the way in and back out.
     Erased,
+    /// The callee's element is a concrete generated UNION the caller's element
+    /// injects into (`&mut SmeltList<SmeltUnion>` — `(string | Promise<string>)[]`
+    /// — receiving a `string[]`, Hono's `escapeToBuffer(str, buf)`). Each element
+    /// is injected on the way in and projected back to the caller's element on
+    /// the way out, so the callee's writes reach the caller's list.
+    UnionInjected,
 }
 
 /// How a mutable-list argument's caller-side place is spelled in Rust.
@@ -2215,6 +2221,34 @@ impl FunctionEmitter<'_> {
                             access.assign_target
                         ));
                     }
+                    MutListArgKind::UnionInjected => {
+                        let arg_item = self.list_element_ty(place_ty)?;
+                        let target_item = self.list_element_ty(target_ty)?;
+                        let scope = TypeSubstitution::lexical(&caller_scope);
+                        let temp_ty = self.rust_type(target_ty, false, &scope)?;
+                        let render_scope = self.render_scope();
+                        let inject = self.value_at_type_text(
+                            "smelt_element",
+                            arg_item,
+                            target_item,
+                            &render_scope,
+                        )?;
+                        let project = self.value_at_type_text(
+                            "smelt_element",
+                            target_item,
+                            arg_item,
+                            &render_scope,
+                        )?;
+                        prelude.push_str(&format!(
+                            "let mut {temp}: {temp_ty} = {}.into_iter().map(|smelt_element| {inject}).collect::<{temp_ty}>(); ",
+                            access.read
+                        ));
+                        rendered_args.push(format!("&mut {temp}"));
+                        writebacks.push_str(&format!(
+                            "{} = {temp}.into_iter().map(|smelt_element| {project}).collect::<SmeltList<_>>(); ",
+                            access.assign_target
+                        ));
+                    }
                 }
             } else if matches!(self.mir.types.get(target_ty), Some(Type::Function(_))) {
                 // No call-site bindings on this path: the mutable-list adapter
@@ -2394,10 +2428,16 @@ impl FunctionEmitter<'_> {
         // type, such as `SmeltErasedFunction`) has no such element bridge; leave
         // those on the ordinary call path rather than emit conversions that cannot
         // type-check.
-        if param_element_text != "SmeltUnknown" {
-            return Ok(None);
+        if param_element_text == "SmeltUnknown" {
+            return Ok(Some((place, MutListArgKind::Erased)));
         }
-        Ok(Some((place, MutListArgKind::Erased)))
+        if self
+            .concrete_union_members(*target_item)
+            .is_some_and(|members| members.contains(arg_item))
+        {
+            return Ok(Some((place, MutListArgKind::UnionInjected)));
+        }
+        Ok(None)
     }
 
     /// Returns how a mutable-list argument's local place is stored in Rust.

@@ -101,6 +101,12 @@ pub enum PrimitiveCastOp {
     ToJsNumber,
     /// Convert to string.
     ToString,
+    /// `String.fromCharCode(...codes)`: the operand is a list of numbers, each
+    /// taken through `ToUint16` as one UTF-16 code unit.
+    FromCharCodes,
+    /// `String.fromCodePoint(...points)`: the operand is a list of numbers,
+    /// each one Unicode code point.
+    FromCodePoints,
 }
 
 /// A directly lowered numeric predicate.
@@ -186,6 +192,10 @@ pub enum StringSearchOp {
     Find,
     /// Find the last occurrence.
     RFind,
+    /// `String.prototype.search(pattern)`: the UTF-16 index of the first
+    /// match of a regular expression (a string needle is compiled as one), or
+    /// `-1`. Ignores the pattern's `lastIndex` and `g` flag, as the spec does.
+    Regex,
 }
 
 /// A directly lowered string replacement operation.

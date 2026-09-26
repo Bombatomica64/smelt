@@ -1189,6 +1189,30 @@ impl ModuleBuilder<'_> {
         {
             return Ok(value);
         }
+        // An assertion is erased at runtime, so it cannot make an ABSENT value
+        // present: `(record[k] || record.fallback) as Entry` still evaluates to
+        // `undefined` when neither key exists, and the source then tests it
+        // (`if (entry)`). When the operand is statically `Optional<U>` and the
+        // asserted type admits no nullish value, the result keeps the
+        // optionality (`Optional<target>`). Dropping it would make the
+        // follow-up truthiness test provably true and fold it away. Scoped to
+        // OBJECT targets — the only ones whose truthiness folds — over a
+        // payload that is not itself erased: `key as string` on an
+        // `unknown | undefined` is the checked extraction of the erased value,
+        // not a presence-preserving assertion.
+        let target = if matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, value)),
+            Some(Type::Optional(inner)) if !self.type_contains_unknown(*inner)
+        ) && !self.is_nullishable_type(target)
+            && self.type_is_always_truthy_object_surface(target)
+        {
+            self.ctx.krate.types.intern(Type::Optional(target))
+        } else {
+            target
+        };
+        if Self::expr_ty(body, value) == target {
+            return Ok(value);
+        }
         Ok(body.push_expr(Expr {
             kind: ExprKind::TypeAssert { value },
             ty: target,

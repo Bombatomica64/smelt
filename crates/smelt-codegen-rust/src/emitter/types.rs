@@ -332,6 +332,19 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::String) => Ok(format!(
                 "{operand_text}.parse::<f64>().expect(\"float() parse failed\")"
             )),
+            // `String.fromCharCode`: each number through `ToUint16` (truncate,
+            // wrap modulo 2^16, non-finite is 0) as one UTF-16 code unit. A
+            // lone surrogate has no Rust `String` spelling and decodes to
+            // U+FFFD.
+            (smelt_hir::PrimitiveCastOp::FromCharCodes, Type::String, Type::List(_)) => Ok(format!(
+                "{{ let smelt_units: Vec<u16> = {operand_text}.borrow().iter().map(|smelt_code| {{ let smelt_code = *smelt_code; if smelt_code.is_finite() {{ smelt_code.trunc().rem_euclid(65536.0) as u16 }} else {{ 0 }} }}).collect(); String::from_utf16_lossy(&smelt_units) }}"
+            )),
+            // `String.fromCodePoint`: each number is one code point. The spec's
+            // `RangeError` for a non-integer or out-of-range value becomes
+            // U+FFFD here.
+            (smelt_hir::PrimitiveCastOp::FromCodePoints, Type::String, Type::List(_)) => Ok(format!(
+                "{operand_text}.borrow().iter().map(|smelt_code| {{ let smelt_code = *smelt_code; if smelt_code.fract() == 0.0 && (0.0..=1_114_111.0).contains(&smelt_code) {{ char::from_u32(smelt_code as u32).unwrap_or(char::REPLACEMENT_CHARACTER) }} else {{ char::REPLACEMENT_CHARACTER }} }}).collect::<String>()"
+            )),
             (smelt_hir::PrimitiveCastOp::ParseFloat, Type::Float, Type::String) => Ok(format!(
                 "{operand_text}.parse::<f64>().unwrap_or(f64::NAN)"
             )),

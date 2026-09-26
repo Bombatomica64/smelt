@@ -2888,16 +2888,19 @@ fn main() {
     loop {
     _smelt_tmp_38 = index < 3.0;
     if !(_smelt_tmp_38) { break; }
-    loop {
     _smelt_tmp_39 = SmeltRegExp::new("a".to_owned(), "g".to_owned());
     _smelt_tmp_40 = _smelt_tmp_39.test(&"aa".to_owned());
-    if !(_smelt_tmp_40) { break; }
+    if _smelt_tmp_40 {
     _smelt_tmp_41 = matched + 1.0;
     matched = _smelt_tmp_41;
-    break;
-    }
     _smelt_tmp_42 = index + 1.0;
     index = _smelt_tmp_42;
+    continue;
+    } else {
+    _smelt_tmp_42 = index + 1.0;
+    index = _smelt_tmp_42;
+    continue;
+    }
     }
     let _ = { println!("{}", smelt_console_number(matched)); };
     _smelt_tmp_44 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["alpha".to_owned(), "beta".to_owned(), "gamma".to_owned(), "delta".to_owned()]; smelt_list_items }));

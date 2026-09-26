@@ -803,10 +803,24 @@ impl FunctionEmitter<'_> {
                 } else {
                     ""
                 };
+                // The `URLSearchParams` and `FormData` arms carry their host
+                // marker across the boundary; each takes the same extraction
+                // its typed arm above uses (query string / multipart), so an
+                // erased form body keeps its bytes AND its content type.
+                let search_params_arm = if crate::stdlib::needs_url_search_params_runtime(self.mir) {
+                    "SmeltUnknown::Object(value) if value.contains_key(\"__smelt_urlsearchparams\") => SmeltBody::from_blob(<SmeltUrlSearchParams as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)).to_text().into_bytes(), \"application/x-www-form-urlencoded;charset=UTF-8\".to_owned()), "
+                } else {
+                    ""
+                };
+                let form_data_arm = if crate::stdlib::needs_form_data_runtime(self.mir) {
+                    "SmeltUnknown::Object(value) if value.contains_key(\"__smelt_formdata\") => { let smelt_boundary = smelt_multipart_boundary(); SmeltBody::from_blob(<SmeltFormData as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)).to_multipart(&smelt_boundary), format!(\"multipart/form-data; boundary={smelt_boundary}\")) }, "
+                } else {
+                    ""
+                };
                 Ok(format!(
                     "match {body_text} {{ SmeltUnknown::String(value) => SmeltBody::from_text(&value.to_string()), \
                      SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltBody::empty(), \
-                     {byte_arm}{blob_arm}\
+                     {byte_arm}{blob_arm}{search_params_arm}{form_data_arm}\
                      value => panic!(\"body arm is not modeled yet: {{value:?}}\") }}"
                 ))
             }
