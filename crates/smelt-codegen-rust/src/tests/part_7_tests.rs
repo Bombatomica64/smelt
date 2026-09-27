@@ -1277,8 +1277,9 @@ const p = new Point3(1, 2);
         "a reproducible base has a known arity, so nothing forwards through an erased slot:\n{source}"
     );
     // The forwarded `super(..)` is what makes the base's parameter properties
-    // run at all; without it the derived struct kept the field defaults.
-    assert!(source.contains("Point::new(x, y)"), "{source}");
+    // run at all; without it the derived struct kept the field defaults. It runs
+    // the base constructor over the derived instance (see `base_init`).
+    assert!(source.contains("Self::__smelt_init_Point(this, x, y)"), "{source}");
 }
 
 /// An implicit constructor over a GENERIC base forwards the base constructor's
