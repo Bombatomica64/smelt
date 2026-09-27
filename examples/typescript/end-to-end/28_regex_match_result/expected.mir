@@ -62,8 +62,8 @@ fn main (FuncId(0)) -> None
     %2 = copy %1[copy %13]
     %16 = copy %2?.[0.0]
     %3 = move %16
-    %17 = copy %2.field6
-    %4 = copy %17.field8
+    %17 = copy %2.field7
+    %4 = copy %17.field9
     %18 = copy %2?.[2.0]
     %5 = move %18
     %19 = call @console_log(move %3) -> bb5
@@ -82,9 +82,9 @@ fn main (FuncId(0)) -> None
   bb6:
     %21 = call @console_log(move %5) -> bb7
   bb7:
-    %22 = call @console_log(copy %2.field11) -> bb8
+    %22 = call @console_log(copy %2.field12) -> bb8
   bb8:
-    %23 = call @console_log(copy %2.field12) -> bb9
+    %23 = call @console_log(copy %2.field13) -> bb9
   bb9:
     %24 = copy %2?.[0.0]
     %6 = move %24
@@ -107,8 +107,8 @@ fn main (FuncId(0)) -> None
     return none
   bb15:
     %36 = copy %10
-    %37 = copy %36.field6
-    %38 = call @console_log(copy %37.field17) -> bb16
+    %37 = copy %36.field7
+    %38 = call @console_log(copy %37.field18) -> bb16
   bb16:
     %39 = copy %10
     %40 = move %39?.[1.0]
@@ -119,7 +119,7 @@ fn main (FuncId(0)) -> None
     %44 = call @console_log(move %43) -> bb18
   bb18:
     %45 = move %10
-    %46 = call @console_log(copy %45.field11) -> bb19
+    %46 = call @console_log(copy %45.field12) -> bb19
   bb19:
     goto bb14
 

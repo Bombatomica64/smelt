@@ -141,7 +141,7 @@ impl ModuleBuilder<'_> {
     /// receiver expression is shared by the presence test and the narrowed
     /// access; MIR memoizes each HIR expression, so the receiver is evaluated
     /// exactly once and its temporary dominates both uses.
-    fn wrap_optional_receiver_method(
+    pub(in crate::lowering) fn wrap_optional_receiver_method(
         &mut self,
         receiver: smelt_hir::ExprId,
         op: smelt_hir::ExprId,

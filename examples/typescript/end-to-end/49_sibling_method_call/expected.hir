@@ -7,31 +7,29 @@ module examples/typescript/end-to-end/49_sibling_method_call/input.ts (ModuleId(
   exprs
     #0: Registry = new Registry()
     #1: Registry = %0
-    #2: Registry = %0
-    #3: fn(String) -> None = #2.add
-    #4: Registry = %0
-    #5: String = "a"
-    #6: None = #4.add(#5)
-    #7: Registry = %0
+    #2: fn(String) -> None = #1.add
+    #3: Registry = %0
+    #4: String = "a"
+    #5: None = #3.add(#4)
+    #6: Registry = %0
+    #7: fn(String) -> None = #6.add
     #8: Registry = %0
-    #9: fn(String) -> None = #8.add
-    #10: Registry = %0
-    #11: String = "b"
-    #12: None = #10.add(#11)
-    #13: Registry = %0
-    #14: String = #13.private_log
-    #15: String = ","
-    #16: String = Add #14, #15
-    #17: Registry = %0
-    #18: String = #17.public_log
-    #19: String = Add #16, #18
-    #20: None = @5(console_log)
-    #21: None = call #20(#19)
+    #9: String = "b"
+    #10: None = #8.add(#9)
+    #11: Registry = %0
+    #12: String = #11.private_log
+    #13: String = ","
+    #14: String = Add #12, #13
+    #15: Registry = %0
+    #16: String = #15.public_log
+    #17: String = Add #14, #16
+    #18: None = @5(console_log)
+    #19: None = call #18(#17)
   stmts
     s0: let %0: Registry = #0
-    s1: #6
-    s2: #12
-    s3: #21
+    s1: #5
+    s2: #10
+    s3: #19
 
 interned types
   t0 = Registry

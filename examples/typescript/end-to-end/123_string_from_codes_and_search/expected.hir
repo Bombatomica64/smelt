@@ -1,0 +1,95 @@
+module examples/typescript/end-to-end/123_string_from_codes_and_search/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 const codes: List<Float>
+    %1 let text: String
+    %2 let i: Float
+    %3 const escapeRe: RegExp
+  exprs
+    #0: Float = 72.0
+    #1: Float = 101.0
+    #2: Float = 108.0
+    #3: Float = 108.0
+    #4: Float = 111.0
+    #5: List<Float> = [#0, #1, #2, #3, #4]
+    #6: String = ""
+    #7: Float = 0.0
+    #8: Float = %2
+    #9: List<Float> = %0
+    #10: Float = len #9
+    #11: Bool = Lt #8, #10
+    #12: String = %1
+    #13: List<Float> = %0
+    #14: Float = %2
+    #15: Float = #13[#14]
+    #16: List<Float> = [#15]
+    #17: String = primitive_cast_from_char_codes #16
+    #18: String = Add #12, #17
+    #19: Float = %2
+    #20: Float = 1.0
+    #21: Float = Add #19, #20
+    #22: String = %1
+    #23: None = @0(console_log)
+    #24: None = call #23(#22)
+    #25: Float = 19990.0
+    #26: Float = 30028.0
+    #27: Float = 65536.0
+    #28: Float = 65.0
+    #29: Float = Add #27, #28
+    #30: List<Float> = [#25, #26, #29]
+    #31: String = primitive_cast_from_char_codes #30
+    #32: None = @1(console_log)
+    #33: None = call #32(#31)
+    #34: Float = 128293.0
+    #35: Float = 65.0
+    #36: List<Float> = [#34, #35]
+    #37: String = primitive_cast_from_code_points #36
+    #38: None = @2(console_log)
+    #39: None = call #38(#37)
+    #40: List<Float> = []
+    #41: String = primitive_cast_from_char_codes #40
+    #42: Float = len #41
+    #43: None = @3(console_log)
+    #44: None = call #43(#42)
+    #45: String = "[\&<>'"]"
+    #46: String = ""
+    #47: RegExp = new RegExp(#45, #46)
+    #48: String = "I <b>"
+    #49: RegExp = %3
+    #50: Float = string_search #48, #49
+    #51: String = "ab"
+    #52: String = "b"
+    #53: Float = string_search #51, #52
+    #54: String = "héllo<"
+    #55: String = "<"
+    #56: String = ""
+    #57: RegExp = new RegExp(#55, #56)
+    #58: Float = string_search #54, #57
+    #59: String = "x"
+    #60: String = "y"
+    #61: String = ""
+    #62: RegExp = new RegExp(#60, #61)
+    #63: Float = string_search #59, #62
+    #64: None = @4(console_log)
+    #65: None = call #64(#50, #53, #58, #63)
+  stmts
+    s0: let %0: List<Float> = #5
+    s1: let %1: String = #6
+    s2: let %2: Float = #7
+    s3: #12 = #18
+    s4: #19 = #21
+    s5: while #11 BlockId(1) update-block BlockId(2)
+    s6: #24
+    s7: #33
+    s8: #39
+    s9: #44
+    s10: let %3: RegExp = #47
+    s11: #65
+
+interned types
+  t0 = Float
+  t1 = List<Float>
+  t2 = String
+  t3 = RegExp
+  t4 = Bool
+  t5 = None

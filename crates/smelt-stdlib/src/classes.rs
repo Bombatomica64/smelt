@@ -351,6 +351,53 @@ pub const MATCH_CLASS_NAME: &str = "__SmeltMatch";
 /// Reserved synthetic class name for `matchResult.groups` named-group access.
 pub const MATCH_GROUPS_CLASS_NAME: &str = "__SmeltMatchGroups";
 
+/// `Array.prototype` methods that READ an array without mutating it.
+///
+/// A regex match result (`exec` / `String.prototype.match`) IS a JavaScript
+/// array: it answers every array method. Smelt models the match as the concrete
+/// `SmeltMatch` value (so `index`, `input` and `groups` stay typed) and lowers
+/// array methods called on it against its array VIEW, a `string | undefined`
+/// list. The view is a copy of the numbered groups, which is exact for the
+/// methods listed here because none of them writes to its receiver; the
+/// mutating methods (`push`, `sort`, `splice`, `fill`, ...) are deliberately
+/// absent so a write to a match is never silently applied to a detached copy.
+pub const ARRAY_NON_MUTATING_METHODS: &[&str] = &[
+    "at",
+    "concat",
+    "entries",
+    "every",
+    "filter",
+    "find",
+    "findIndex",
+    "findLast",
+    "findLastIndex",
+    "flat",
+    "flatMap",
+    "forEach",
+    "includes",
+    "indexOf",
+    "join",
+    "keys",
+    "lastIndexOf",
+    "map",
+    "reduce",
+    "reduceRight",
+    "slice",
+    "some",
+    "toReversed",
+    "toSorted",
+    "toSpliced",
+    "values",
+    "with",
+];
+
+/// Return whether `name` is an `Array.prototype` method that never mutates
+/// its receiver (see [`ARRAY_NON_MUTATING_METHODS`]).
+#[must_use]
+pub fn is_array_non_mutating_method(name: &str) -> bool {
+    ARRAY_NON_MUTATING_METHODS.contains(&name)
+}
+
 /// Return the stdlib class modeled by a TypeScript class type name.
 ///
 /// Codegen consults this instead of comparing class symbol names inline so
@@ -434,9 +481,152 @@ pub fn is_typed_array_class_name(name: &str) -> bool {
     TYPED_ARRAY_CLASS_NAMES.contains(&name)
 }
 
+/// The members every ordinary object inherits from `Object.prototype`.
+///
+/// `'k' in value` walks the prototype chain, so for any object value these
+/// names answer `true` whatever its own shape: `'toString' in {}` is `true`.
+pub const OBJECT_PROTOTYPE_MEMBERS: &[&str] = &[
+    "constructor",
+    "hasOwnProperty",
+    "isPrototypeOf",
+    "propertyIsEnumerable",
+    "toLocaleString",
+    "toString",
+    "valueOf",
+    "__proto__",
+    "__defineGetter__",
+    "__defineSetter__",
+    "__lookupGetter__",
+    "__lookupSetter__",
+];
+
+/// Return whether a name is inherited from `Object.prototype`.
+#[must_use]
+pub fn is_object_prototype_member(name: &str) -> bool {
+    OBJECT_PROTOTYPE_MEMBERS.contains(&name)
+}
+
+/// The WHATWG `Body` mixin members a `Request` and a `Response` share.
+const BODY_MIXIN_MEMBERS: &[&str] = &[
+    "body",
+    "bodyUsed",
+    "arrayBuffer",
+    "blob",
+    "bytes",
+    "formData",
+    "json",
+    "text",
+];
+
+/// The members of an iterable pair collection (`Headers`, `URLSearchParams`,
+/// `FormData`) that its spec interface declares for iteration.
+const PAIR_ITERABLE_MEMBERS: &[&str] = &["entries", "forEach", "keys", "values"];
+
+/// Whether `'member' in value` holds for an instance of a modeled host class.
+///
+/// JavaScript's `in` walks the prototype chain, so the answer is the class's
+/// whole instance surface as its specification declares it (data properties,
+/// accessors and prototype methods), plus the `Object.prototype` members
+/// every object inherits. It is a property of the CLASS, independent of which
+/// members Smelt's runtime implements, so `'headers' in request` is `true`
+/// and `'raw' in request` is `false` for every `Request`.
+///
+/// `None` for a class whose surface is not listed here: the caller must not
+/// guess, and keeps its existing (runtime or conservative) answer.
+#[must_use]
+pub fn stdlib_class_instance_has_property(class: StdlibClass, member: &str) -> Option<bool> {
+    let own = stdlib_class_instance_members(class)?;
+    Some(own.iter().any(|members| members.contains(&member)) || is_object_prototype_member(member))
+}
+
+/// `Request`'s own members (the `Body` mixin is listed separately).
+const REQUEST_MEMBERS: &[&str] = &[
+    "method",
+    "url",
+    "headers",
+    "destination",
+    "referrer",
+    "referrerPolicy",
+    "mode",
+    "credentials",
+    "cache",
+    "redirect",
+    "integrity",
+    "keepalive",
+    "isReloadNavigation",
+    "isHistoryNavigation",
+    "signal",
+    "duplex",
+    "clone",
+];
+
+/// `Response`'s own members (the `Body` mixin is listed separately).
+const RESPONSE_MEMBERS: &[&str] =
+    &["type", "url", "redirected", "status", "ok", "statusText", "headers", "clone"];
+
+/// `Blob`'s members; `File` adds its own three.
+const BLOB_MEMBERS: &[&str] = &["size", "type", "arrayBuffer", "bytes", "slice", "stream", "text"];
+
+/// A class surface: several member lists, read as their union.
+type MemberLists = &'static [&'static [&'static str]];
+
+/// The spec member lists of a modeled host class, or `None` when not listed.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "only the classes with a listed surface answer; every other (and any future) class must answer `None`"
+)]
+const fn stdlib_class_instance_members(class: StdlibClass) -> Option<MemberLists> {
+    Some(match class {
+        StdlibClass::Request => &[REQUEST_MEMBERS, BODY_MIXIN_MEMBERS],
+        StdlibClass::Response => &[RESPONSE_MEMBERS, BODY_MIXIN_MEMBERS],
+        StdlibClass::Headers => &[
+            &["append", "delete", "get", "getSetCookie", "has", "set"],
+            PAIR_ITERABLE_MEMBERS,
+        ],
+        StdlibClass::FormData => &[
+            &["append", "delete", "get", "getAll", "has", "set"],
+            PAIR_ITERABLE_MEMBERS,
+        ],
+        StdlibClass::UrlSearchParams => &[
+            &["size", "append", "delete", "get", "getAll", "has", "set", "sort", "toString"],
+            PAIR_ITERABLE_MEMBERS,
+        ],
+        StdlibClass::Blob => &[BLOB_MEMBERS],
+        StdlibClass::File => &[BLOB_MEMBERS, &["name", "lastModified", "webkitRelativePath"]],
+        StdlibClass::TextEncoder => &[&["encoding", "encode", "encodeInto"]],
+        StdlibClass::TextDecoder => &[&["encoding", "fatal", "ignoreBOM", "decode"]],
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `in` over a host instance answers the class's spec surface plus the
+    /// inherited `Object.prototype` members, and nothing else.
+    #[test]
+    fn host_instance_in_answers_the_spec_surface() {
+        assert_eq!(stdlib_class_instance_has_property(StdlibClass::Request, "headers"), Some(true));
+        assert_eq!(stdlib_class_instance_has_property(StdlibClass::Request, "json"), Some(true));
+        assert_eq!(stdlib_class_instance_has_property(StdlibClass::Request, "toString"), Some(true));
+        assert_eq!(stdlib_class_instance_has_property(StdlibClass::Request, "raw"), Some(false));
+        assert_eq!(stdlib_class_instance_has_property(StdlibClass::Response, "status"), Some(true));
+        assert_eq!(stdlib_class_instance_has_property(StdlibClass::Headers, "status"), Some(false));
+        assert_eq!(stdlib_class_instance_has_property(StdlibClass::Date, "getTime"), None);
+    }
+
+    /// Array read methods are recognized; mutating methods never are, so a
+    /// write to a match's detached array view cannot be lowered silently.
+    #[test]
+    fn array_non_mutating_methods_exclude_writes() {
+        for name in ["indexOf", "slice", "map", "join", "includes", "forEach"] {
+            assert!(is_array_non_mutating_method(name), "{name}");
+        }
+        for name in ["push", "pop", "shift", "unshift", "sort", "reverse", "splice", "fill", "copyWithin", "length"] {
+            assert!(!is_array_non_mutating_method(name), "{name}");
+        }
+    }
 
     /// Exact stdlib class names resolve to their registry identity.
     #[test]

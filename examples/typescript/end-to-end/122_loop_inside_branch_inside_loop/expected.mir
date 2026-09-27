@@ -1,0 +1,210 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user out: List<String>
+    %1 user i: Float
+    %2 user len: Float
+    %3 user row: List<Float>
+    %4 user i: Float
+    %5 user len: Float
+    %6 user total: Float
+    %7 user k: Float
+    %8 user j: Float
+    %9 user x: String
+    %10 user x: String
+    %11 user seen: List<String>
+    %12 user rows: List<List<String>>
+    %13 user r: Float
+    %14 user j: Float
+    %15 user row_count: Float
+    %16 user p: String
+    %17 temp: List<String>
+    %18 temp: Bool
+    %19 temp: List<Float>
+    %20 temp: Bool
+    %21 temp: Float
+    %22 temp: Bool
+    %23 temp: String
+    %24 temp: Float
+    %25 temp: Float
+    %26 temp: String
+    %27 temp: Float
+    %28 temp: Float
+    %29 temp: String
+    %30 temp: None
+    %31 temp: Bool
+    %32 temp: Float
+    %33 temp: Bool
+    %34 temp: Float
+    %35 temp: Bool
+    %36 temp: Float
+    %37 temp: Float
+    %38 temp: Float
+    %39 temp: None
+    %40 temp: None
+    %41 temp: None
+    %42 temp: List<String>
+    %43 temp: List<String>
+    %44 temp: List<String>
+    %45 temp: List<List<String>>
+    %46 temp: Bool
+    %47 temp: Float
+    %48 temp: Bool
+    %49 temp: Bool
+    %50 temp: Float
+    %51 temp: List<String>
+    %52 temp: Float
+    %53 temp: Float
+    %54 temp: Bool
+    %55 temp: Bool
+    %56 temp: Float
+    %57 temp: Float
+    %58 temp: Float
+    %59 temp: Float
+    %60 temp: String
+    %61 temp: None
+  bb0:
+    %17 = []
+    %0 = move %17
+    %1 = 0.0
+    %2 = 3.0
+    goto bb1
+  bb1:
+    %18 = copy %1 < copy %2
+    switch move %18 ? bb2 : bb4
+  bb2:
+    %19 = [10.0, 20.0]
+    %3 = move %19
+    %20 = copy %1 != 1.0
+    switch move %20 ? bb5 : bb6
+  bb3:
+    %28 = move %1 + 1.0
+    %1 = move %28
+    goto bb1
+  bb4:
+    %29 = string_join move %0, ","
+    %30 = call @console_log(move %29) -> bb11
+  bb5:
+    %4 = 0.0
+    %21 = len copy %3
+    %5 = move %21
+    goto bb7
+  bb6:
+    %26 = "/" + copy %1
+    %27 = list_push copy %0, move %26
+    goto bb3
+  bb7:
+    %22 = copy %4 < copy %5
+    switch move %22 ? bb8 : bb10
+  bb8:
+    %23 = "" + copy %3[copy %4]
+    %24 = list_push copy %0, move %23
+    goto bb9
+  bb9:
+    %25 = move %4 + 1.0
+    %4 = move %25
+    goto bb7
+  bb10:
+    goto bb6
+  bb11:
+    %6 = 0.0
+    %7 = 0.0
+    goto bb12
+  bb12:
+    %31 = copy %7 < 3.0
+    switch move %31 ? bb13 : bb14
+  bb13:
+    %32 = copy %7 % 2.0
+    %33 = move %32 == 0.0
+    switch move %33 ? bb15 : bb16
+  bb14:
+    %39 = call @console_log(move %6) -> bb20
+  bb15:
+    %8 = 0.0
+    goto bb17
+  bb16:
+    %38 = move %7 + 1.0
+    %7 = move %38
+    goto bb12
+  bb17:
+    %34 = copy %7 + 1.0
+    %35 = copy %8 < move %34
+    switch move %35 ? bb18 : bb19
+  bb18:
+    %36 = move %6 + copy %8
+    %6 = move %36
+    %37 = move %8 + 1.0
+    %8 = move %37
+    goto bb17
+  bb19:
+    goto bb16
+  bb20:
+    %9 = "outer"
+    %10 = "inner"
+    %40 = call @console_log(move %10) -> bb21
+  bb21:
+    %41 = call @console_log(move %9) -> bb22
+  bb22:
+    %42 = []
+    %11 = move %42
+    %43 = ["a", "*"]
+    %44 = ["b"]
+    %45 = [move %43, move %44]
+    %12 = move %45
+    %13 = 0.0
+    goto bb23
+  bb23:
+    %46 = copy %13 < 2.0
+    switch move %46 ? bb24 : bb26
+  bb24:
+    %14 = 0.0
+    %47 = len copy %12
+    %15 = move %47
+    goto bb27
+  bb25:
+    %59 = move %13 + 1.0
+    %13 = move %59
+    goto bb23
+  bb26:
+    %60 = string_join move %11, ","
+    %61 = call @console_log(move %60) -> bb39
+  bb27:
+    %48 = copy %14 < copy %15
+    switch move %48 ? bb28 : bb30
+  bb28:
+    %49 = copy %13 == 1.0
+    switch move %49 ? bb31 : bb32
+  bb29:
+    %58 = move %14 + 1.0
+    %14 = move %58
+    goto bb27
+  bb30:
+    goto bb25
+  bb31:
+    %50 = list_push copy %11, "last"
+    goto bb32
+  bb32:
+    %51 = copy %12[copy %14]
+    %52 = 0.0
+    goto bb33
+  bb33:
+    %53 = len copy %51
+    %54 = copy %52 < move %53
+    switch move %54 ? bb34 : bb36
+  bb34:
+    %16 = copy %51[copy %52]
+    %55 = copy %16 == "*"
+    switch move %55 ? bb37 : bb38
+  bb35:
+    %52 = copy %52 + 1.0
+    goto bb33
+  bb36:
+    goto bb29
+  bb37:
+    %56 = list_push copy %11, "star"
+    goto bb35
+  bb38:
+    %57 = list_push copy %11, move %16
+    goto bb35
+  bb39:
+    return none
+

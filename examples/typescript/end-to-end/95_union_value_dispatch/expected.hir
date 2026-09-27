@@ -38,6 +38,5 @@ interned types
   t13 = async fn(String | Uint8Array) -> Future<String>
   t14 = Float
   t15 = List<Float>
-  t16 = Dict<String, String>
-  t17 = fn(Keyed | Noted, String) -> String
-  t18 = async fn() -> Future<None>
+  t16 = fn(Keyed | Noted, String) -> String
+  t17 = async fn() -> Future<None>

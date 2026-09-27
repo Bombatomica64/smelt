@@ -1,0 +1,397 @@
+class UnsupportedPathError fields [Public name: String, Public message: String, Public stack: Optional<String>, Public cause: Unknown] constructor Some(FuncId(1)) methods []
+class TrieNode fields [Public children: Dict<String, TrieNode>, Public terminal: Bool] constructor Some(FuncId(3)) methods [FuncId(2)]
+class Router fields [Public tries: Dict<String, TrieNode>, Public routes: Dict<String, Dict<String, List<String>>>, Public log: List<String>] constructor Some(FuncId(6)) methods [FuncId(4), FuncId(5)]
+
+fn try_add (FuncId(0)) -> None
+  locals
+    %0 param router: Router
+    %1 param method: String
+    %2 param path: String
+    %3 user e: Unknown
+    %4 temp: String
+    %5 temp: None
+    %6 temp: None
+    %7 temp: Bool
+    %8 temp: Bool
+    %9 temp: String
+    %10 temp: String
+    %11 temp: String
+    %12 temp: None
+    %13 temp: None
+  bb0:
+    goto bb1
+  bb1:
+    %4 = "h:" + copy %2
+    %5 = call fn5(copy %0, copy %1, copy %2, move %4) -> bb4 unwind bb3
+  bb2:
+    return none
+  bb3:
+    %7 = instanceof copy %3, class5
+    switch move %7 ? bb6 : bb7
+  bb4:
+    %6 = call @console_log("added", copy %1, copy %2) -> bb5 unwind bb3
+  bb5:
+    goto bb2
+  bb6:
+    %8 = instanceof copy %3, class6
+    %9 = "" + copy %3.field9
+    %10 = move %9 + ":"
+    %11 = move %10 + copy %3.field8
+    %12 = call @console_log("rejected", copy %2, move %8, move %11) -> bb8
+  bb7:
+    %13 = call @console_log("unexpected", copy %2) -> bb10
+  bb8:
+    goto bb9
+  bb9:
+    goto bb2
+  bb10:
+    goto bb9
+
+fn new (FuncId(1)) -> UnsupportedPathError
+  locals
+    %0 user this: UnsupportedPathError
+    %1 param message: Optional<String>
+    %2 temp: String
+  bb0:
+    %0 = struct5 {}
+    %0.field9 = "Error"
+    %2 = copy %1 ?? ""
+    %0.field8 = move %2
+    %0.field10 = ""
+    return move %0
+
+fn insert (FuncId(2)) -> None throws
+  locals
+    %0 param this: TrieNode
+    %1 param tokens: List<String>
+    %2 user node: TrieNode
+    %3 user token: String
+    %4 user next: Optional<TrieNode>
+    %5 user key: String
+    %6 temp: Float
+    %7 temp: Float
+    %8 temp: Bool
+    %9 temp: Optional<TrieNode>
+    %10 temp: Bool
+    %11 temp: List<String>
+    %12 temp: Float
+    %13 temp: Float
+    %14 temp: Bool
+    %15 temp: String
+    %16 temp: String
+    %17 temp: Bool
+    %18 temp: String
+    %19 temp: String
+    %20 temp: Bool
+    %21 temp: Bool
+    %22 temp: Dict<String, TrieNode>
+    %23 temp: TrieNode
+  bb0:
+    %2 = copy %0
+    %6 = 0.0
+    goto bb1
+  bb1:
+    %7 = len copy %1
+    %8 = copy %6 < move %7
+    switch move %8 ? bb2 : bb4
+  bb2:
+    %3 = copy %1[copy %6]
+    %4 = undefined
+    %9 = copy %2.field14?.[copy %3]
+    %4 = move %9
+    %10 = !copy %4
+    switch move %10 ? bb5 : bb6
+  bb3:
+    %6 = copy %6 + 1.0
+    goto bb1
+  bb4:
+    switch copy %2.field15 ? bb14 : bb15
+  bb5:
+    %11 = dict_for_in_keys copy %2.field14
+    %12 = 0.0
+    goto bb7
+  bb6:
+    %2 = move %4
+    goto bb3
+  bb7:
+    %13 = len copy %11
+    %14 = copy %12 < move %13
+    switch move %14 ? bb8 : bb10
+  bb8:
+    %5 = copy %11[copy %12]
+    %15 = copy %5
+    %16 = ":"
+    %17 = string_starts_with move %5, move %16
+    %18 = copy %3
+    %19 = ":"
+    %20 = string_starts_with copy %3, move %19
+    %21 = move %17 != move %20
+    switch move %21 ? bb11 : bb12
+  bb9:
+    %12 = copy %12 + 1.0
+    goto bb7
+  bb10:
+    %22 = copy %2.field14
+    %23 = call fn3() -> bb13
+  bb11:
+    throw symbol("Symbol()@237")
+  bb12:
+    goto bb9
+  bb13:
+    %22[copy %3] = copy %23
+    %2.field14 = move %22
+    %4 = move %23
+    goto bb6
+  bb14:
+    throw symbol("Symbol()@237")
+  bb15:
+    %2.field15 = true
+    return none
+
+fn new (FuncId(3)) -> TrieNode
+  locals
+    %0 user this: TrieNode
+    %1 temp: Dict<String, TrieNode>
+  bb0:
+    %0 = struct13 {}
+    %1 = {}
+    %0.field14 = move %1
+    %0.field15 = false
+    return move %0
+
+fn #insert_path (FuncId(4)) -> None throws
+  locals
+    %0 param this: Router
+    %1 param method: String
+    %2 param path: String
+    %3 user e: Unknown
+    %4 temp: Optional<TrieNode>
+    %5 temp: Bool
+    %6 temp: Optional<None>
+    %7 temp: TrieNode
+    %8 temp: List<String>
+    %9 temp: fn(String, Int, List<String>) -> Bool
+    %10 temp: List<String>
+    %11 temp: None
+    %12 temp: Bool
+    %13 temp: UnsupportedPathError
+  bb0:
+    goto bb1
+  bb1:
+    %4 = copy %0.field23?.[copy %1]
+    %5 = copy %4 != none
+    switch move %5 ? bb4 : bb5
+  bb2:
+    return none
+  bb3:
+    %12 = copy %3 == symbol("Symbol()@237")
+    switch move %12 ? bb8 : bb9
+  bb4:
+    %7 = move %4
+    %8 = string_split copy %2, "/", _
+    %9 = closure ClosureId(0) []
+    %10 = list_filter move %8, move %9
+    %11 = call fn2(move %7, move %10) -> bb6 unwind bb3
+  bb5:
+    %6 = none
+    goto bb7
+  bb6:
+    %6 = move %11
+    goto bb7
+  bb7:
+    goto bb2
+  bb8:
+    %13 = call fn1(copy %2) -> bb10
+  bb9:
+    throw move %3
+  bb10:
+    throw move %13
+
+fn add (FuncId(5)) -> None throws
+  locals
+    %0 param this: Router
+    %1 param method: String
+    %2 param path: String
+    %3 param handler: String
+    %4 user p: String
+    %5 temp: Bool
+    %6 temp: Bool
+    %7 temp: Dict<String, TrieNode>
+    %8 temp: TrieNode
+    %9 temp: Dict<String, Dict<String, List<String>>>
+    %10 temp: Dict<String, List<String>>
+    %11 temp: Dict<String, Dict<String, List<String>>>
+    %12 temp: List<String>
+    %13 temp: Float
+    %14 temp: Float
+    %15 temp: Bool
+    %16 temp: Dict<String, Dict<String, List<String>>>
+    %17 temp: Dict<String, List<String>>
+    %18 temp: Dict<String, Dict<String, List<String>>>
+    %19 temp: Dict<String, List<String>>
+    %20 temp: List<String>
+    %21 temp: List<String>
+    %22 temp: None
+    %23 temp: Bool
+    %24 temp: UnsupportedPathError
+    %25 temp: Dict<String, Dict<String, List<String>>>
+    %26 temp: Bool
+    %27 temp: Bool
+    %28 temp: None
+    %29 temp: Dict<String, Dict<String, List<String>>>
+    %30 temp: Dict<String, List<String>>
+    %31 temp: List<String>
+    %32 temp: Dict<String, Dict<String, List<String>>>
+    %33 temp: Dict<String, List<String>>
+    %34 temp: List<String>
+    %35 temp: Float
+    %36 temp: List<String>
+    %37 temp: String
+    %38 temp: String
+    %39 temp: Float
+  bb0:
+    %5 = dict_contains_key copy %0.field24, copy %1, own
+    %6 = !move %5
+    switch move %6 ? bb1 : bb2
+  bb1:
+    %7 = copy %0.field23
+    %8 = call fn3() -> bb3
+  bb2:
+    %23 = regex_search "\((?!\?:)", copy %2
+    switch move %23 ? bb9 : bb10
+  bb3:
+    %7[copy %1] = move %8
+    %0.field23 = move %7
+    %9 = copy %0.field24
+    %10 = {}
+    %9[copy %1] = move %10
+    %0.field24 = move %9
+    %11 = copy %0.field24
+    %12 = dict_for_in_keys copy %11["ALL"]
+    %13 = 0.0
+    goto bb4
+  bb4:
+    %14 = len copy %12
+    %15 = copy %13 < move %14
+    switch move %15 ? bb5 : bb7
+  bb5:
+    %4 = copy %12[copy %13]
+    %16 = copy %0.field24
+    %17 = copy %16[copy %1]
+    %18 = copy %0.field24
+    %19 = copy %18["ALL"]
+    %20 = []
+    %21 = list_concat copy %19[copy %4], move %20
+    %17[copy %4] = move %21
+    %16[copy %1] = move %17
+    %0.field24 = move %16
+    %22 = call fn4(copy %0, copy %1, move %4) -> bb8
+  bb6:
+    %13 = copy %13 + 1.0
+    goto bb4
+  bb7:
+    goto bb2
+  bb8:
+    goto bb6
+  bb9:
+    %24 = call fn1(copy %2) -> bb11
+  bb10:
+    %25 = copy %0.field24
+    %26 = dict_contains_key copy %25[copy %1], copy %2, own
+    %27 = !move %26
+    switch move %27 ? bb12 : bb13
+  bb11:
+    throw move %24
+  bb12:
+    %28 = call fn4(copy %0, copy %1, copy %2) -> bb14
+  bb13:
+    %32 = copy %0.field24
+    %33 = copy %32[copy %1]
+    %34 = copy %33[copy %2]
+    %32[copy %1] = copy %33
+    %0.field24 = move %32
+    %35 = list_push copy %34, copy %3
+    %33[copy %2] = move %34
+    %36 = copy %0.field25
+    %37 = copy %1 + " "
+    %38 = move %37 + copy %2
+    %39 = list_push copy %36, move %38
+    %0.field25 = move %36
+    return none
+  bb14:
+    %29 = copy %0.field24
+    %30 = copy %29[copy %1]
+    %31 = []
+    %30[copy %2] = move %31
+    %29[copy %1] = move %30
+    %0.field24 = move %29
+    goto bb13
+
+fn new (FuncId(6)) -> Router
+  locals
+    %0 user this: Router
+    %1 temp: TrieNode
+    %2 temp: Dict<String, TrieNode>
+    %3 temp: Dict<String, List<String>>
+    %4 temp: Dict<String, Dict<String, List<String>>>
+    %5 temp: List<String>
+  bb0:
+    %0 = struct0 {}
+    %1 = call fn3() -> bb1
+  bb1:
+    %2 = {"ALL": move %1}
+    %0.field23 = move %2
+    %3 = {}
+    %4 = {"ALL": move %3}
+    %0.field24 = move %4
+    %5 = []
+    %0.field25 = move %5
+    return move %0
+
+fn main (FuncId(7)) -> None
+  locals
+    %0 user path_error: Unknown
+    %1 user router: Router
+    %2 temp: Router
+    %3 temp: None
+    %4 temp: None
+    %5 temp: None
+    %6 temp: None
+    %7 temp: None
+    %8 temp: String
+    %9 temp: None
+    %10 temp: String
+    %11 temp: None
+  bb0:
+    %0 = symbol("Symbol()@237")
+    %2 = call fn6() -> bb1
+  bb1:
+    %1 = move %2
+    %3 = call fn0(copy %1, "GET", "/posts/:id") -> bb2
+  bb2:
+    %4 = call fn0(copy %1, "GET", "/posts/:id") -> bb3
+  bb3:
+    %5 = call fn0(copy %1, "GET", "/posts/new") -> bb4
+  bb4:
+    %6 = call fn0(copy %1, "POST", "/posts") -> bb5
+  bb5:
+    %7 = call fn0(copy %1, "GET", "/users/(a|b)") -> bb6
+  bb6:
+    %8 = string_join copy %1.field25, ", "
+    %9 = call @console_log(move %8) -> bb7
+  bb7:
+    %10 = json_stringify copy %1.field24
+    %11 = call @console_log(move %10) -> bb8
+  bb8:
+    return none
+
+closure ClosureId(0) -> Bool
+  locals
+    %0 param __callback_param_0: String
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<String>
+    %3 temp: Bool
+  bb0:
+    %3 = copy %0 != ""
+    return copy %3
+

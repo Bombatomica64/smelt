@@ -549,6 +549,8 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::PrimitiveCastOp::ToInt => "int",
                 smelt_hir::PrimitiveCastOp::ToFloat => "float",
                 smelt_hir::PrimitiveCastOp::ParseFloat => "parse_float",
+                smelt_hir::PrimitiveCastOp::FromCharCodes => "from_char_codes",
+                smelt_hir::PrimitiveCastOp::FromCodePoints => "from_code_points",
                 smelt_hir::PrimitiveCastOp::ToJsNumber => "js_number",
                 smelt_hir::PrimitiveCastOp::ToString => "string",
             };
@@ -624,6 +626,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             let op_text = match op {
                 smelt_hir::StringSearchOp::Find => "find",
                 smelt_hir::StringSearchOp::RFind => "rfind",
+                smelt_hir::StringSearchOp::Regex => "search",
             };
             let base = format!(
                 "string_{op_text} {}, {}",
@@ -995,6 +998,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::RequestOp::BodyUsed => "body_used",
                 smelt_hir::RequestOp::Body => "body",
                 smelt_hir::RequestOp::Text => "text",
+                smelt_hir::RequestOp::Json => "json",
                 smelt_hir::RequestOp::FormData => "form_data",
                 smelt_hir::RequestOp::ArrayBuffer => "array_buffer",
                 smelt_hir::RequestOp::Bytes => "bytes",
@@ -1043,6 +1047,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::ResponseOp::BodyUsed => "body_used",
                 smelt_hir::ResponseOp::Body => "body",
                 smelt_hir::ResponseOp::Text => "text",
+                smelt_hir::ResponseOp::Json => "json",
                 smelt_hir::ResponseOp::FormData => "form_data",
                 smelt_hir::ResponseOp::ArrayBuffer => "array_buffer",
                 smelt_hir::ResponseOp::Bytes => "bytes",
@@ -1311,8 +1316,10 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             list,
             initial,
             callback,
+            from_right,
         } => format!(
-            "list_reduce {}, {}, {}",
+            "{} {}, {}, {}",
+            if *from_right { "list_reduce_right" } else { "list_reduce" },
             operand_text(list),
             optional_operand_text(initial.as_ref()),
             operand_text(callback)

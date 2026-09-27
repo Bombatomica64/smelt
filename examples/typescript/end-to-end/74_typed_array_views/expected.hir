@@ -190,7 +190,7 @@ module examples/typescript/end-to-end/74_typed_array_views/input.ts (ModuleId(0)
     #171: Uint8Array = %0
     #172: Bool = instanceof #171, class0
     #173: Uint8Array = %0
-    #174: Bool = instanceof #173, class8
+    #174: Bool = instanceof #173, class10
     #175: None = @12(console_log)
     #176: None = call #175(#172, #174)
     #177: ArrayBuffer = %2

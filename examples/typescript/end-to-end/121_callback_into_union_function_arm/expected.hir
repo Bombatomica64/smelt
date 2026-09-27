@@ -1,0 +1,54 @@
+module examples/typescript/end-to-end/121_callback_into_union_function_arm/input.ts (ModuleId(0))
+  body BodyId(4)
+  items
+    class Ex fields [Public code: Float] constructor Some(ItemId(2)) methods [] implements []
+    fn timeout__module_examples/typescript/end-to-end/121_callback_into_union_function_arm/input.ts owner Module
+    type ExFn = fn(String) -> Ex
+  locals
+    %0 const e500: fn(String) -> Ex
+  exprs
+    #0: Float = 1.0
+    #1: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = @4(timeout__module_examples/typescript/end-to-end/121_callback_into_union_function_arm/input.ts)
+    #2: Float = call #1(#0)
+    #3: None = @6(console_log)
+    #4: None = call #3(#2)
+    #5: Float = 2.0
+    #6: fn() -> Ex = closure BodyId(2) captures 0 -> Ex
+    #7: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = @4(timeout__module_examples/typescript/end-to-end/121_callback_into_union_function_arm/input.ts)
+    #8: Float = call #7(#5, #6)
+    #9: None = @7(console_log)
+    #10: None = call #9(#8)
+    #11: fn(String) -> Ex = closure BodyId(3) captures 0 -> Ex
+    #12: Float = 3.0
+    #13: fn(String) -> Ex = %0
+    #14: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = @4(timeout__module_examples/typescript/end-to-end/121_callback_into_union_function_arm/input.ts)
+    #15: Float = call #14(#12, #13)
+    #16: None = @8(console_log)
+    #17: None = call #16(#15)
+    #18: Float = 4.0
+    #19: Float = 1.0
+    #20: Ex = new Ex(#19)
+    #21: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = @4(timeout__module_examples/typescript/end-to-end/121_callback_into_union_function_arm/input.ts)
+    #22: Float = call #21(#18, #20)
+    #23: None = @9(console_log)
+    #24: None = call #23(#22)
+  stmts
+    s0: #4
+    s1: #10
+    s2: let %0: fn(String) -> Ex = #11
+    s3: #17
+    s4: #24
+
+interned types
+  t0 = String
+  t1 = Ex
+  t2 = fn(String) -> Ex
+  t3 = Float
+  t4 = Ex | fn(String) -> Ex
+  t5 = fn(Float, Ex | fn(String) -> Ex) -> Float
+  t6 = None
+  t7 = Optional<Ex | fn(String) -> Ex>
+  t8 = Bool
+  t9 = fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float
+  t10 = fn() -> Ex
+  t11 = fn(String) -> Ex

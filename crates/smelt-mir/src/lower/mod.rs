@@ -35,6 +35,8 @@ mod context;
 mod expr;
 /// Interface field flattening and generic type-parameter substitution.
 mod generics;
+/// Optional-chained method calls lowered with an unwind edge inside `try`.
+mod optional_call;
 /// Lvalue (place) lowering for assignment targets.
 mod place;
 /// Statement, block, and control-flow terminator lowering.

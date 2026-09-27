@@ -1745,6 +1745,51 @@ return_ty,
         })))
     }
 
+    /// Lower `string.search(pattern)` on a concrete string receiver.
+    ///
+    /// Not modeled before: the call fell through to a member read of `search`
+    /// on the string and answered `undefined`, so `str.search(escapeRe) === -1`
+    /// was never true and Hono's HTML escaper returned its input unescaped. The
+    /// pattern is a `RegExp` or a string (compiled as a pattern at run time).
+    fn string_regex_search_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let [pattern_argument] = call.arguments.as_slice() else {
+            return Ok(None);
+        };
+        let haystack = self.expression(&member.object, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String) {
+            return Ok(None);
+        }
+        let needle = self.argument(pattern_argument, body)?;
+        let needle_ty = Self::expr_ty(body, needle);
+        let needle_is_pattern = self.ctx.krate.types.get(needle_ty) == Some(&Type::String)
+            || matches!(
+                self.ctx.krate.types.get(needle_ty),
+                Some(Type::Class { name, .. })
+                    if smelt_stdlib::typescript_stdlib_class(
+                        self.ctx.krate.symbols.get(*name).unwrap_or_default()
+                    ) == Some(smelt_stdlib::StdlibClass::RegExp)
+            );
+        if !needle_is_pattern {
+            return Ok(None);
+        }
+        let ty = self.ctx.krate.types.intern(Type::Float);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::StringSearch {
+                op: StringSearchOp::Regex,
+                haystack,
+                needle,
+                from_index: None,
+            },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower direct TypeScript string search methods.
     pub(in crate::lowering) fn string_search_call(
         &mut self,
@@ -1757,6 +1802,7 @@ return_ty,
         let op = match member.property.name.as_str() {
             "indexOf" => StringSearchOp::Find,
             "lastIndexOf" => StringSearchOp::RFind,
+            "search" => return self.string_regex_search_call(call, member, body),
             _ => return Ok(None),
         };
         if !(1..=2).contains(&call.arguments.len()) {

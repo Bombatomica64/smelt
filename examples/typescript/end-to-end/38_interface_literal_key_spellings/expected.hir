@@ -105,17 +105,17 @@ module examples/typescript/end-to-end/38_interface_literal_key_spellings/input.t
     s11: #78
 
 interned types
-  t0 = Float
-  t1 = String
-  t2 = Unknown
-  t3 = Dict<String, Unknown>
-  t4 = List<Unknown>
-  t5 = Shape
+  t0 = Shape
+  t1 = Float
+  t2 = String
+  t3 = Unknown
+  t4 = Dict<String, Unknown>
+  t5 = List<Unknown>
   t6 = Dict<String, String>
   t7 = List<String>
-  t8 = Dict<String, Dict<String, Unknown>>
-  t9 = List<Dict<String, Unknown>>
-  t10 = Wrapper
+  t8 = Wrapper
+  t9 = Dict<String, Dict<String, Unknown>>
+  t10 = List<Dict<String, Unknown>>
   t11 = None
   t12 = Optional<String>
   t13 = fn(Optional<String>) -> String

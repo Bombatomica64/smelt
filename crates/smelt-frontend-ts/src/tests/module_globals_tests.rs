@@ -513,3 +513,172 @@ describe('narrowing scope', () => {
     }
     Ok(())
 }
+
+#[test]
+fn reduce_right_lowers_to_a_typed_right_fold() -> Result<(), String> {
+    // `reduceRight` is the typed `ListReduce` with `from_right` set, not an
+    // unmodeled method whose call erases to a `none` stub. The destructured
+    // `[key]` element parameter keeps the tuple element type.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export function keys(xs: [string, number][]): Record<string, number> {
+  const seed: Record<string, number> = {};
+  return xs.reduceRight((map, [key], i) => { map[key] = i; return map; }, seed);
+}
+export function forward(xs: number[]): number {
+  return xs.reduce((acc, x) => acc - x);
+}
+"),
+        &mut ctx,
+    )?;
+    let string_ty = ctx.krate.types.intern(Type::String);
+    let float_ty = ctx.krate.types.intern(Type::Float);
+    let tuple_ty = ctx.krate.types.intern(Type::Tuple(vec![string_ty, float_ty]));
+    let tuple_list = ctx.krate.types.intern(Type::List(tuple_ty));
+    let module = module(&ctx, module_id)?;
+    let keys = function_body(&ctx, named_function_item(&ctx, module, "keys")?)?;
+    ensure!(
+        keys.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::ListReduce { from_right: true, list, .. }
+                if keys.exprs.get(list.0 as usize).map(|list| list.ty) == Some(tuple_list)
+        )),
+        "reduceRight should lower to a right fold over the typed tuple list",
+    );
+    let forward = function_body(&ctx, named_function_item(&ctx, module, "forward")?)?;
+    ensure!(
+        forward
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListReduce { from_right: false, .. })),
+        "reduce keeps the left-to-right fold",
+    );
+    Ok(())
+}
+
+#[test]
+fn annotated_record_const_recreates_declared_tuple_values() -> Result<(), String> {
+    // The folded metadata of `const paths: Record<string, [number, ...]>` takes
+    // its entry types from the annotation, so a function body that recreates
+    // the const builds a `TupleLit` at the declared tuple type instead of an
+    // erased `List<Unknown>`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+const paths: Record<string, [number, [string, number][]]> = { '/p': [0, [['id', 0]]] };
+export function first(p: string): number {
+  return paths[p][1][0][1];
+}
+"),
+        &mut ctx,
+    )?;
+    let unknown = ctx.krate.types.intern(Type::Unknown);
+    let module = module(&ctx, module_id)?;
+    let body = function_body(&ctx, named_function_item(&ctx, module, "first")?)?;
+    let tuple_lits = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::TupleLit(_)))
+        .count();
+    ensure!(
+        tuple_lits == 2,
+        "expected the entry and the assoc pair to recreate as tuples, found {tuple_lits}",
+    );
+    ensure!(
+        body.exprs.iter().all(|expr| {
+            !matches!(ctx.krate.types.get(expr.ty), Some(Type::List(item)) if *item == unknown)
+        }),
+        "no recreated value should erase to List<Unknown>",
+    );
+    Ok(())
+}
+
+#[test]
+fn annotated_array_const_is_recreated_in_function_and_closure_bodies() -> Result<(), String> {
+    // `const xs: number[] = [3, 1]` folds its elements like the unannotated
+    // spelling does, so a closure body reads `[3, 1]` rather than an erased
+    // `none` and a function body rather than a fabricated `[]`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+const replacement: number[] = [3, 1];
+export function shift(xs: string[]): number[] {
+  return xs.map((_, i) => replacement[i]);
+}
+"),
+        &mut ctx,
+    )?;
+    let float_ty = ctx.krate.types.intern(Type::Float);
+    let float_list = ctx.krate.types.intern(Type::List(float_ty));
+    let module = module(&ctx, module_id)?;
+    let shift = function_body(&ctx, named_function_item(&ctx, module, "shift")?)?;
+    let closure_body = shift
+        .exprs
+        .iter()
+        .find_map(|expr| match &expr.kind {
+            ExprKind::Closure(closure) => ctx.krate.bodies.get(closure.body.0 as usize),
+            _ => None,
+        })
+        .ok_or("shift should pass a closure to map")?;
+    ensure!(
+        closure_body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::ListLit(items) if items.len() == 2 && expr.ty == float_list
+        )),
+        "the annotated const should be recreated with its two elements",
+    );
+    Ok(())
+}
+
+#[test]
+fn erased_and_constructed_module_consts_read_from_functions_are_module_slots() -> Result<(), String> {
+    // `const emptyParams = createNullObject()` (an `any`-returning helper) and
+    // `const shared = new Counter()` are each ONE object that functions read
+    // and compare by identity. A read used to fabricate a fresh empty record
+    // per use, so `x === emptyParams` was never true and a function saw an
+    // empty instance instead of the module's. Both lift to module slots.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+function createNullObject(): any { return Object.create(null); }
+const emptyParams = createNullObject();
+class Counter { n = 1; }
+const shared = new Counter();
+export function isEmpty(value: Record<string, string>): boolean {
+  return value === emptyParams;
+}
+export function count(): number {
+  return shared.n;
+}
+"),
+        &mut ctx,
+    )?;
+    let slots = ctx
+        .krate
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::MutableGlobal(global) => ctx.krate.symbols.get(global.name).map(str::to_owned),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    ensure!(
+        slots.iter().any(|name| name == "empty_params") && slots.iter().any(|name| name == "shared"),
+        "expected module slots for `emptyParams` and `shared`, got {slots:?}",
+    );
+    // The fabricated read was `UnknownCast` of an EMPTY record literal.
+    let fabricates = ctx.krate.bodies.iter().any(|body| {
+        body.exprs.iter().any(|expr| {
+            let ExprKind::UnknownCast { value, .. } = expr.kind else {
+                return false;
+            };
+            usize::try_from(value.0)
+                .ok()
+                .and_then(|index| body.exprs.get(index))
+                .is_some_and(|value| matches!(&value.kind, ExprKind::DictLit(entries) if entries.is_empty()))
+        })
+    });
+    ensure!(!fabricates, "a module-const read must not fabricate an erased record");
+    Ok(())
+}

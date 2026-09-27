@@ -1,0 +1,260 @@
+module examples/typescript/end-to-end/132_user_methods_named_like_array_builtins/input.ts (ModuleId(0))
+  body BodyId(36)
+  items
+    global mut s: Stack
+    class Bag fields [Public items: List<Float>] constructor Some(ItemId(3)) methods [ItemId(4), ItemId(5), ItemId(6), ItemId(7), ItemId(8), ItemId(9), ItemId(10), ItemId(11), ItemId(12), ItemId(13)] implements []
+    class Stack fields [Public items: List<String>] constructor Some(ItemId(27)) methods [ItemId(15), ItemId(16), ItemId(17), ItemId(18), ItemId(19), ItemId(20), ItemId(21), ItemId(22), ItemId(23), ItemId(24), ItemId(25), ItemId(26)] implements []
+    class Holder fields [Public stack: Stack] constructor Some(ItemId(29)) methods [] implements []
+    fn make owner Module
+    fn via_global owner Module
+  locals
+    %0 const b: Bag
+    %1 const h: Holder
+    %2 const arr: List<Float>
+  exprs
+    #0: Float = 1.0
+    #1: Float = 2.0
+    #2: Float = 3.0
+    #3: List<Float> = [#0, #1, #2]
+    #4: Bag = new Bag(#3)
+    #5: Bag = %0
+    #6: fn(fn(Float, Float) -> Float, Float) -> Float = #5.reduce
+    #7: Bag = %0
+    #8: fn(Float, Float) -> Float = closure BodyId(30) captures 0 -> Float
+    #9: Float = 0.0
+    #10: Float = #7.reduce(#8, #9)
+    #11: None = @31(console_log)
+    #12: None = call #11(#10)
+    #13: Bag = %0
+    #14: fn(fn(Float, Float) -> Float, Float) -> Float = #13.reduce_right
+    #15: Bag = %0
+    #16: fn(Float, Float) -> Float = closure BodyId(31) captures 0 -> Float
+    #17: Float = 5.0
+    #18: Float = #15.reduce_right(#16, #17)
+    #19: None = @32(console_log)
+    #20: None = call #19(#18)
+    #21: Bag = %0
+    #22: fn(String) -> String = #21.map
+    #23: Bag = %0
+    #24: String = "m"
+    #25: String = #23.map(#24)
+    #26: Bag = %0
+    #27: fn(Float) -> List<Float> = #26.filter
+    #28: Bag = %0
+    #29: Float = 1.0
+    #30: List<Float> = #28.filter(#29)
+    #31: Float = len #30
+    #32: Bag = %0
+    #33: fn(String) -> String = #32.find
+    #34: Bag = %0
+    #35: String = "get"
+    #36: String = #34.find(#35)
+    #37: Bag = %0
+    #38: fn(Bool) -> String = #37.some
+    #39: Bag = %0
+    #40: Bool = true
+    #41: String = #39.some(#40)
+    #42: None = @33(console_log)
+    #43: None = call #42(#25, #31, #36, #41)
+    #44: Bag = %0
+    #45: fn() -> Float = #44.every
+    #46: Bag = %0
+    #47: Float = #46.every()
+    #48: Bag = %0
+    #49: fn(String) -> String = #48.for_each
+    #50: Bag = %0
+    #51: String = "p"
+    #52: String = #50.for_each(#51)
+    #53: Bag = %0
+    #54: fn(Float) -> Float = #53.find_index
+    #55: Bag = %0
+    #56: Float = 2.0
+    #57: Float = #55.find_index(#56)
+    #58: Bag = %0
+    #59: fn() -> Float = #58.total
+    #60: Bag = %0
+    #61: Float = #60.total()
+    #62: None = @34(console_log)
+    #63: None = call #62(#47, #52, #57, #61)
+    #64: Float = 4.0
+    #65: Float = 5.0
+    #66: List<Float> = [#64, #65]
+    #67: Bag = new Bag(#66)
+    #68: Float = 4.0
+    #69: Float = 5.0
+    #70: List<Float> = [#68, #69]
+    #71: Bag = new Bag(#70)
+    #72: fn(fn(Float, Float) -> Float, Float) -> Float = #71.reduce
+    #73: Float = 4.0
+    #74: Float = 5.0
+    #75: List<Float> = [#73, #74]
+    #76: Bag = new Bag(#75)
+    #77: fn(Float, Float) -> Float = closure BodyId(32) captures 0 -> Float
+    #78: Float = 1.0
+    #79: Float = #76.reduce(#77, #78)
+    #80: None = @35(console_log)
+    #81: None = call #80(#79)
+    #82: Stack = global_get @0(s)
+    #83: fn(String, String) -> Float = #82.push
+    #84: Stack = global_get @0(s)
+    #85: String = "a"
+    #86: String = "b"
+    #87: Float = #84.push(#85, #86)
+    #88: Stack = global_get @0(s)
+    #89: fn(Float) -> String = #88.pop
+    #90: Stack = global_get @0(s)
+    #91: Float = 1.0
+    #92: String = #90.pop(#91)
+    #93: Stack = global_get @0(s)
+    #94: fn(Float) -> String = #93.shift
+    #95: Stack = global_get @0(s)
+    #96: Float = 2.0
+    #97: String = #95.shift(#96)
+    #98: Stack = global_get @0(s)
+    #99: fn(String) -> String = #98.index_of
+    #100: Stack = global_get @0(s)
+    #101: String = "i"
+    #102: String = #100.index_of(#101)
+    #103: Stack = global_get @0(s)
+    #104: fn(String) -> String = #103.includes
+    #105: Stack = global_get @0(s)
+    #106: String = "c"
+    #107: String = #105.includes(#106)
+    #108: None = @37(console_log)
+    #109: None = call #108(#87, #92, #97, #102, #107)
+    #110: Stack = global_get @0(s)
+    #111: fn(Float) -> String = #110.at
+    #112: Stack = global_get @0(s)
+    #113: Float = 3.0
+    #114: String = #112.at(#113)
+    #115: Stack = global_get @0(s)
+    #116: fn(Float) -> String = #115.slice
+    #117: Stack = global_get @0(s)
+    #118: Float = 4.0
+    #119: String = #117.slice(#118)
+    #120: Stack = global_get @0(s)
+    #121: fn(Float) -> String = #120.join
+    #122: Stack = global_get @0(s)
+    #123: Float = 5.0
+    #124: String = #122.join(#123)
+    #125: Stack = global_get @0(s)
+    #126: fn(Float) -> String = #125.concat
+    #127: Stack = global_get @0(s)
+    #128: Float = 6.0
+    #129: String = #127.concat(#128)
+    #130: Stack = global_get @0(s)
+    #131: fn(Float) -> String = #130.reverse
+    #132: Stack = global_get @0(s)
+    #133: Float = 7.0
+    #134: String = #132.reverse(#133)
+    #135: Stack = global_get @0(s)
+    #136: fn(Float) -> String = #135.sort
+    #137: Stack = global_get @0(s)
+    #138: Float = 8.0
+    #139: String = #137.sort(#138)
+    #140: Stack = global_get @0(s)
+    #141: fn(Float) -> String = #140.entries
+    #142: Stack = global_get @0(s)
+    #143: Float = 9.0
+    #144: String = #142.entries(#143)
+    #145: None = @38(console_log)
+    #146: None = call #145(#114, #119, #124, #129, #134, #139, #144)
+    #147: Holder = new Holder()
+    #148: Holder = %1
+    #149: Stack = #148.stack
+    #150: fn(Float) -> String = #149.join
+    #151: Holder = %1
+    #152: Stack = #151.stack
+    #153: Float = 20.0
+    #154: String = #152.join(#153)
+    #155: Holder = %1
+    #156: Stack = #155.stack
+    #157: fn(Float) -> String = #156.reverse
+    #158: Holder = %1
+    #159: Stack = #158.stack
+    #160: Float = 21.0
+    #161: String = #159.reverse(#160)
+    #162: fn() -> Stack = @1(make)
+    #163: Stack = call #162()
+    #164: fn(Float) -> String = #163.pop
+    #165: fn() -> Stack = @1(make)
+    #166: Stack = call #165()
+    #167: Float = 22.0
+    #168: String = #166.pop(#167)
+    #169: fn() -> Stack = @1(make)
+    #170: Stack = call #169()
+    #171: fn(Float) -> String = #170.at
+    #172: fn() -> Stack = @1(make)
+    #173: Stack = call #172()
+    #174: Float = 23.0
+    #175: String = #173.at(#174)
+    #176: None = @39(console_log)
+    #177: None = call #176(#154, #161, #168, #175)
+    #178: fn() -> String = @2(via_global)
+    #179: String = call #178()
+    #180: Stack = global_get @0(s)
+    #181: List<String> = #180.items
+    #182: String = "|"
+    #183: String = string_join #181, #182
+    #184: None = @40(console_log)
+    #185: None = call #184(#179, #183)
+    #186: Float = 1.0
+    #187: Float = 2.0
+    #188: Float = 3.0
+    #189: List<Float> = [#186, #187, #188]
+    #190: List<Float> = %2
+    #191: Float = 0.0
+    #192: fn(Float, Float, Int, List<Float>) -> Float = closure BodyId(34) captures 0 -> Float
+    #193: Float = list_reduce #190, #191, #192
+    #194: List<Float> = %2
+    #195: fn(Float, Int, List<Float>) -> Float = closure BodyId(35) captures 0 -> Float
+    #196: List<Float> = list_map #194, #195
+    #197: String = "-"
+    #198: String = string_join #196, #197
+    #199: None = @41(console_log)
+    #200: None = call #199(#193, #198)
+  stmts
+    s0: let %0: Bag = #4
+    s1: #12
+    s2: #20
+    s3: #43
+    s4: #63
+    s5: #81
+    s6: #109
+    s7: #146
+    s8: let %1: Holder = #147
+    s9: #177
+    s10: #185
+    s11: let %2: List<Float> = #189
+    s12: #200
+
+interned types
+  t0 = Float
+  t1 = List<Float>
+  t2 = Bag
+  t3 = Stack
+  t4 = Holder
+  t5 = fn() -> Stack
+  t6 = String
+  t7 = fn() -> String
+  t8 = fn(Float, Float) -> Float
+  t9 = Bool
+  t10 = Int
+  t11 = Unknown
+  t12 = fn(Float, Int, List<Float>) -> Bool
+  t13 = List<Unknown>
+  t14 = fn(Float, Int, List<Float>) -> String
+  t15 = List<String>
+  t16 = fn(fn(Float, Float) -> Float, Float) -> Float
+  t17 = None
+  t18 = fn(Float) -> String
+  t19 = fn(String) -> String
+  t20 = fn(Float) -> List<Float>
+  t21 = fn(Bool) -> String
+  t22 = fn() -> Float
+  t23 = fn(Float) -> Float
+  t24 = fn(String, String) -> Float
+  t25 = fn() -> Stack
+  t26 = fn() -> String
+  t27 = fn(Float, Float, Int, List<Float>) -> Float
+  t28 = fn(Float, Int, List<Float>) -> Float

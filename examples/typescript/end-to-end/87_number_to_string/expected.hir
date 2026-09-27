@@ -119,9 +119,7 @@ interned types
   t0 = Float
   t1 = List<Float>
   t2 = String
-  t3 = Unknown
-  t4 = Dict<String, Unknown>
-  t5 = List<Unknown>
-  t6 = Dict<String, Float>
-  t7 = None
-  t8 = List<String>
+  t3 = Dict<String, Float>
+  t4 = None
+  t5 = Unknown
+  t6 = List<String>

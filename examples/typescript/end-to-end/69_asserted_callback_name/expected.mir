@@ -27,7 +27,7 @@ fn new (FuncId(2)) -> Checker
   locals
     %0 user this: Checker
   bb0:
-    %0 = struct3 {}
+    %0 = struct4 {}
     return move %0
 
 fn main (FuncId(3)) -> None
@@ -166,7 +166,7 @@ closure ClosureId(5) -> Float
   locals
     %0 param __callback_param_0: String
   bb0:
-    return copy %0.field1
+    return copy %0.field2
 
 closure ClosureId(6) -> Bool
   locals

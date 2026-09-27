@@ -701,10 +701,12 @@ impl ExprKind {
                 list,
                 initial,
                 callback,
+                from_right,
             } => Self::ListReduce {
                 list: f(list)?,
                 initial: map_opt(initial, f)?,
                 callback: f(callback)?,
+                from_right,
             },
             Self::ListSlice { list, start, end } => Self::ListSlice {
                 list: f(list)?,

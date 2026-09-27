@@ -46,6 +46,59 @@ describe.each([[1], [2]])("outer", (value) => {
     Ok(())
 }
 
+/// A `describe.each` row that reads a suite-setup const declared BEFORE the
+/// call (`const enc = new TextEncoder(); describe.each([[enc.encode(..)]])`)
+/// must see that const: rows are bound in source order against the setup, not
+/// ahead of it, so the row keeps its concrete type instead of an erased read.
+#[test]
+fn vitest_describe_each_rows_read_preceding_suite_setup() -> Result<(), String> {
+    let source = ts!(r#"
+import { describe, test, expect } from "vitest";
+
+describe("outer", () => {
+  const words = ["a", "bb"];
+  describe.each([[words.length]])("group", (count) => {
+    test("case", () => {
+      expect(count).toBe(2);
+    });
+  });
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/describe-each-setup.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let mut checked = false;
+    for item in &module.items {
+        let Some(Item::Function(function)) = usize::try_from(item.0)
+            .ok()
+            .and_then(|index| ctx.krate.items.get(index))
+        else {
+            continue;
+        };
+        let Some(body) = function
+            .body
+            .and_then(|body| usize::try_from(body.0).ok())
+            .and_then(|index| ctx.krate.bodies.get(index))
+        else {
+            continue;
+        };
+        let Some(count) = body.locals.iter().find(|local| {
+            local.name.and_then(|symbol| ctx.krate.symbols.get(symbol)) == Some("count")
+        }) else {
+            continue;
+        };
+        ensure!(
+            matches!(ctx.krate.types.get(count.ty), Some(Type::Float | Type::Int)),
+            "expected the row to read the preceding setup const, got {:?}",
+            ctx.krate.types.get(count.ty)
+        );
+        checked = true;
+    }
+    ensure!(checked, "expected a test body binding `count`");
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
 #[test]
 fn vitest_describe_expression_setup_is_replayed_into_nested_tests() -> Result<(), String> {
     let source = ts!(r#"
@@ -1057,6 +1110,9 @@ const parts = "abc"
     Ok(())
 }
 
+/// The tokenizer shape of date-fns `format` (`formatStr.match(tokensRegExp).map(..)`),
+/// whose tokens regex is GLOBAL: a global `match` answers `string[]`, so each
+/// token reaches the callback as a string.
 #[test]
 fn lowers_block_bodied_array_callback_control_flow() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -1065,7 +1121,7 @@ fn lowers_block_bodied_array_callback_control_flow() -> Result<(), String> {
 const formatters: Record<string, boolean> = { a: true };
 const re = /x/;
 const parts = "ab"
-  .match(/./)!
+  .match(/./g)!
   .map((substring) => {
     if (substring === "a") {
       return { isToken: false, value: "'" };
@@ -3714,6 +3770,121 @@ function firstMatch(text: string, pattern: string): string | undefined {
         body.exprs
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::RegexFind { .. }))
+    }));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Return whether `ty` is the synthetic regex match class.
+fn is_match_class_type(ctx: &HirCtx, ty: smelt_hir::TypeId) -> bool {
+    matches!(
+        ctx.krate.types.get(ty),
+        Some(Type::Class { name, .. })
+            if ctx.krate.symbols.get(*name).or_else(|| ctx.krate.names.get(*name))
+                == Some(smelt_stdlib::MATCH_CLASS_NAME)
+    )
+}
+
+/// Return whether `ty` is `(string | undefined)[]`, a match's array view.
+fn is_match_array_view_type(ctx: &HirCtx, ty: smelt_hir::TypeId) -> bool {
+    let Some(Type::List(item)) = ctx.krate.types.get(ty) else {
+        return false;
+    };
+    let Some(Type::Optional(inner)) = ctx.krate.types.get(*item) else {
+        return false;
+    };
+    ctx.krate.types.get(*inner) == Some(&Type::String)
+}
+
+/// `String.prototype.match` answers the same typed match value as `exec`, so
+/// an unmatched capture group can read `undefined` instead of `""`.
+#[test]
+fn string_match_result_is_the_typed_match_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let _ = lower_ok(
+        ts!(r"
+function group(text: string): string | undefined {
+  const m = text.match(/a(b)?/);
+  return m ? m[1] : undefined;
+}
+"),
+        &mut ctx,
+    )?;
+    let found = ctx.krate.bodies.iter().flat_map(|body| body.exprs.iter()).find(|expr| {
+        matches!(expr.kind, ExprKind::RegexFind { .. })
+    });
+    let Some(found) = found else {
+        return Err("no RegexFind lowered".to_owned());
+    };
+    let Some(Type::Optional(inner)) = ctx.krate.types.get(found.ty) else {
+        return Err(format!("RegexFind is not optional: {:?}", ctx.krate.types.get(found.ty)));
+    };
+    ensure!(is_match_class_type(&ctx, *inner));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A read-only array method on a match lowers against the match's array view
+/// (`(string | undefined)[]`), so the ordinary list rule applies to it.
+#[test]
+fn array_method_on_match_lowers_against_its_array_view() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let _ = lower_ok(
+        ts!(r"
+function marker(path: string): number {
+  const m = path.match(/^(?:a()|b())$/);
+  if (!m) return -1;
+  return m.indexOf('', 1);
+}
+"),
+        &mut ctx,
+    )?;
+    let viewed = ctx.krate.bodies.iter().any(|body| {
+        body.exprs.iter().any(|expr| {
+            let ExprKind::ListSearch { list, .. } = expr.kind else {
+                return false;
+            };
+            let list_expr = &body.exprs[list.0 as usize];
+            let ExprKind::TypeAssert { value } = list_expr.kind else {
+                return false;
+            };
+            is_match_array_view_type(&ctx, list_expr.ty)
+                && is_match_class_type(&ctx, body.exprs[value.0 as usize].ty)
+        })
+    });
+    ensure!(viewed);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// `for...of` over a match iterates its typed groups, not an erased list.
+#[test]
+fn for_of_over_match_iterates_optional_groups() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let _ = lower_ok(
+        ts!(r"
+function count(text: string): number {
+  const m = /(x)(y)?/.exec(text);
+  let present = 0;
+  if (m) {
+    for (const group of m) {
+      if (group !== undefined) present += 1;
+    }
+  }
+  return present;
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(ctx.krate.bodies.iter().any(|body| {
+        body.exprs.iter().any(|expr| {
+            matches!(expr.kind, ExprKind::TypeAssert { value }
+                if is_match_class_type(&ctx, body.exprs[value.0 as usize].ty))
+                && is_match_array_view_type(&ctx, expr.ty)
+        })
+    }));
+    ensure!(!ctx.krate.types.all().iter().any(|ty| {
+        matches!(ty, Type::List(item) if ctx.krate.types.get(*item) == Some(&Type::Unknown))
     }));
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())

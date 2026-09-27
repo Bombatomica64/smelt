@@ -1,0 +1,199 @@
+module examples/typescript/end-to-end/122_loop_inside_branch_inside_loop/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 const out: List<String>
+    %1 let i: Float
+    %2 let len: Float
+    %3 const row: List<Float>
+    %4 let i: Float
+    %5 let len: Float
+    %6 let total: Float
+    %7 let k: Float
+    %8 let j: Float
+    %9 const x: String
+    %10 const x: String
+    %11 const seen: List<String>
+    %12 const rows: List<List<String>>
+    %13 let r: Float
+    %14 let j: Float
+    %15 let rowCount: Float
+    %16 let p: String
+  exprs
+    #0: List<String> = []
+    #1: Float = 0.0
+    #2: Float = 3.0
+    #3: Float = %1
+    #4: Float = %2
+    #5: Bool = Lt #3, #4
+    #6: Float = 10.0
+    #7: Float = 20.0
+    #8: List<Float> = [#6, #7]
+    #9: Float = %1
+    #10: Float = 1.0
+    #11: Bool = JsStrictNotEq #9, #10
+    #12: Float = 0.0
+    #13: List<Float> = %3
+    #14: Float = len #13
+    #15: Float = %4
+    #16: Float = %5
+    #17: Bool = Lt #15, #16
+    #18: List<String> = %0
+    #19: String = ""
+    #20: List<Float> = %3
+    #21: Float = %4
+    #22: Float = #20[#21]
+    #23: String = Add #19, #22
+    #24: Float = list_push #18, #23
+    #25: Float = %4
+    #26: Float = 1.0
+    #27: Float = Add #25, #26
+    #28: List<String> = %0
+    #29: String = "/"
+    #30: Float = %1
+    #31: String = Add #29, #30
+    #32: Float = list_push #28, #31
+    #33: Float = %1
+    #34: Float = 1.0
+    #35: Float = Add #33, #34
+    #36: List<String> = %0
+    #37: String = ","
+    #38: String = string_join #36, #37
+    #39: None = @0(console_log)
+    #40: None = call #39(#38)
+    #41: Float = 0.0
+    #42: Float = 0.0
+    #43: Float = %7
+    #44: Float = 3.0
+    #45: Bool = Lt #43, #44
+    #46: Float = %7
+    #47: Float = 2.0
+    #48: Float = Rem #46, #47
+    #49: Float = 0.0
+    #50: Bool = JsStrictEq #48, #49
+    #51: Float = 0.0
+    #52: Float = %8
+    #53: Float = %7
+    #54: Float = 1.0
+    #55: Float = Add #53, #54
+    #56: Bool = Lt #52, #55
+    #57: Float = %6
+    #58: Float = %8
+    #59: Float = Add #57, #58
+    #60: Float = %8
+    #61: Float = 1.0
+    #62: Float = Add #60, #61
+    #63: Float = %7
+    #64: Float = 1.0
+    #65: Float = Add #63, #64
+    #66: Float = %6
+    #67: None = @1(console_log)
+    #68: None = call #67(#66)
+    #69: String = "outer"
+    #70: String = "inner"
+    #71: String = %10
+    #72: None = @2(console_log)
+    #73: None = call #72(#71)
+    #74: String = %9
+    #75: None = @3(console_log)
+    #76: None = call #75(#74)
+    #77: List<String> = []
+    #78: String = "a"
+    #79: String = "*"
+    #80: List<String> = [#78, #79]
+    #81: String = "b"
+    #82: List<String> = [#81]
+    #83: List<List<String>> = [#80, #82]
+    #84: Float = 0.0
+    #85: Float = %13
+    #86: Float = 2.0
+    #87: Bool = Lt #85, #86
+    #88: Float = 0.0
+    #89: List<List<String>> = %12
+    #90: Float = len #89
+    #91: Float = %14
+    #92: Float = %15
+    #93: Bool = Lt #91, #92
+    #94: Float = %13
+    #95: Float = 1.0
+    #96: Bool = JsStrictEq #94, #95
+    #97: List<String> = %11
+    #98: String = "last"
+    #99: Float = list_push #97, #98
+    #100: List<List<String>> = %12
+    #101: Float = %14
+    #102: List<String> = #100[#101]
+    #103: String = %16
+    #104: String = "*"
+    #105: Bool = JsStrictEq #103, #104
+    #106: List<String> = %11
+    #107: String = "star"
+    #108: Float = list_push #106, #107
+    #109: List<String> = %11
+    #110: String = %16
+    #111: Float = list_push #109, #110
+    #112: Float = %14
+    #113: Float = 1.0
+    #114: Float = Add #112, #113
+    #115: Float = %13
+    #116: Float = 1.0
+    #117: Float = Add #115, #116
+    #118: List<String> = %11
+    #119: String = ","
+    #120: String = string_join #118, #119
+    #121: None = @4(console_log)
+    #122: None = call #121(#120)
+  stmts
+    s0: let %0: List<String> = #0
+    s1: let %1: Float = #1
+    s2: let %2: Float = #2
+    s3: let %3: List<Float> = #8
+    s4: let %4: Float = #12
+    s5: let %5: Float = #14
+    s6: #24
+    s7: #25 = #27
+    s8: while #17 BlockId(3) update-block BlockId(4)
+    s9: if #11 then BlockId(2)
+    s10: #32
+    s11: #33 = #35
+    s12: while #5 BlockId(1) update-block BlockId(5)
+    s13: #40
+    s14: let %6: Float = #41
+    s15: let %7: Float = #42
+    s16: let %8: Float = #51
+    s17: #57 = #59
+    s18: #60 = #62
+    s19: while #56 BlockId(8)
+    s20: if #50 then BlockId(7)
+    s21: #63 = #65
+    s22: while #45 BlockId(6)
+    s23: #68
+    s24: let %9: String = #69
+    s25: let %10: String = #70
+    s26: #73
+    s27: #76
+    s28: let %11: List<String> = #77
+    s29: let %12: List<List<String>> = #83
+    s30: let %13: Float = #84
+    s31: let %14: Float = #88
+    s32: let %15: Float = #90
+    s33: #99
+    s34: if #96 then BlockId(11)
+    s35: #108
+    s36: continue
+    s37: if #105 then BlockId(13)
+    s38: #111
+    s39: for %16 in #102 BlockId(12)
+    s40: #112 = #114
+    s41: while #93 BlockId(10) update-block BlockId(14)
+    s42: #115 = #117
+    s43: while #87 BlockId(9) update-block BlockId(15)
+    s44: #122
+
+interned types
+  t0 = String
+  t1 = List<String>
+  t2 = Float
+  t3 = List<List<String>>
+  t4 = Bool
+  t5 = List<Float>
+  t6 = None

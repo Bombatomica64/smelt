@@ -1345,6 +1345,7 @@ fn operand_roles(value: &Rvalue) -> Vec<(&Operand, OperandRole)> {
             list,
             initial,
             callback,
+            ..
         } => {
             let mut roles = vec![(list, CALLED), (callback, CALLED)];
             roles.extend(initial.iter().map(|seed| (seed, CALLED)));

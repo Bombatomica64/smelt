@@ -2503,8 +2503,26 @@ impl PartialEq for SmeltRegExp { fn eq(&self, other: &Self) -> bool { self.sourc
 
 impl SmeltRegExp {
     /// Construct a JavaScript-like RegExp value with shared lastIndex state.
+    ///
+    /// `source` is stored as the spec's `EscapeRegExpPattern` renders it:
+    /// an unescaped `/` outside a character class reads back as `\/`, so
+    /// `new RegExp('a/b').source` is `a\/b` exactly as for the literal
+    /// `/a\/b/`, and the two compare equal.
     pub fn new(source: String, flags: String) -> Self {
+        let source = Self::escape_pattern_source(source);
         Self { id: smelt_next_object_id(), source, flags, last_index: ::std::rc::Rc::new(::std::cell::RefCell::new(0)) }
+    }
+    /// Escape every unescaped `/` outside a character class (`EscapeRegExpPattern`).
+    fn escape_pattern_source(source: String) -> String {
+        if !source.contains('/') { return source; }
+        let mut escaped = String::with_capacity(source.len() + 2);
+        let (mut in_class, mut after_backslash) = (false, false);
+        for ch in source.chars() {
+            if after_backslash { escaped.push(ch); after_backslash = false; continue; }
+            match ch { '\\' => after_backslash = true, '[' => in_class = true, ']' => in_class = false, '/' if !in_class => escaped.push('\\'), _ => {} }
+            escaped.push(ch);
+        }
+        escaped
     }
     /// Return true when this RegExp has a flag.
     pub fn has_flag(&self, flag: char) -> bool {
@@ -2541,16 +2559,27 @@ impl SmeltRegExp {
         compiled
     }
     /// Match a string with JavaScript String.prototype.match semantics.
-    pub fn match_string(&self, haystack: &str) -> Option<Vec<String>> {
+    ///
+    /// A non-global regex answers exactly what `exec` answers (the spec's
+    /// `RegExp.prototype[@@match]` IS `RegExpBuiltinExec` then), so an
+    /// unmatched capture group is `None` (JavaScript `undefined`) and a
+    /// sticky regex reads and advances `lastIndex`. A global regex resets
+    /// `lastIndex` to 0 and answers every whole match, built by
+    /// `SmeltMatch::from_global_matches`; no match at all is `None` (`null`).
+    pub fn match_string(&self, haystack: &str) -> Option<SmeltMatch> {
+        if !self.has_flag('g') { return self.exec(haystack); }
+        self.match_all_strings(haystack).map(|matches| SmeltMatch::from_global_matches(matches, haystack))
+    }
+    /// Every whole match of a GLOBAL String.prototype.match, or `None` (`null`).
+    ///
+    /// The spec resets `lastIndex` to 0 first and leaves it there. Called
+    /// directly where the regex is statically known to be global, which is
+    /// where the frontend types the result `string[] | null`.
+    pub fn match_all_strings(&self, haystack: &str) -> Option<Vec<String>> {
+        *self.last_index.borrow_mut() = 0;
         let regex = self.compiled();
-        if self.has_flag('g') {
-            let matches = regex.find_iter(haystack).filter_map(Result::ok).map(|value| value.as_str().to_owned()).collect::<Vec<_>>();
-            if matches.is_empty() { None } else { Some(matches) }
-        }
-        else {
-            let captures = regex.captures(haystack).ok().flatten()?;
-            Some((0..captures.len()).map(|index| captures.get(index).map_or(String::new(), |value| value.as_str().to_owned())).collect::<Vec<_>>())
-        }
+        let matches = regex.find_iter(haystack).filter_map(Result::ok).map(|value| value.as_str().to_owned()).collect::<Vec<_>>();
+        if matches.is_empty() { None } else { Some(matches) }
     }
     /// Split a string with JavaScript RegExp separator semantics.
     pub fn split_string(&self, haystack: &str) -> Vec<String> {
@@ -2694,6 +2723,26 @@ impl SmeltMatch {
             named.insert(snake, value);
         }
         Self { id: smelt_next_object_id(), groups, named, match_index, input: input.to_owned() }
+    }
+    /// Build the array a GLOBAL `String.prototype.match` answers.
+    ///
+    /// JavaScript returns a plain array of every whole match there, with no
+    /// capture groups, `index`, `input` or `groups`. It is carried as a
+    /// match value so both spellings of `match` share one type: the numbered
+    /// entries are the whole matches (all present), there are no named
+    /// groups, and `index` is 0 with `input` the searched string, which a
+    /// global match's reader does not consult.
+    fn from_global_matches(matches: Vec<String>, input: &str) -> Self {
+        Self { id: smelt_next_object_id(), groups: matches.into_iter().map(Some).collect(), named: ::std::collections::HashMap::new(), match_index: 0, input: input.to_owned() }
+    }
+    /// The match viewed as the JavaScript array it is (`[...match]`).
+    ///
+    /// Entry 0 is the whole match; a group that did not participate is
+    /// `None` (`undefined`). The list keeps the match's identity (`===`)
+    /// but copies its entries: array methods lowered against it only read
+    /// (writes to a match are not lowered through it).
+    pub fn to_array_view(&self) -> SmeltList<Option<String>> {
+        SmeltList::with_id(self.id, self.groups.clone())
     }
     /// Read a numbered capture group (`match[n]`).
     fn group(&self, index: usize) -> Option<&str> {
@@ -2848,17 +2897,17 @@ fn main() {
     let mut _smelt_tmp_50: bool;
     let mut _smelt_tmp_52: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> bool> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> bool> = ::std::rc::Rc::new(move |arg0: String, arg1: i64, arg2: &SmeltList<String>| -> bool { false }); smelt_default_callback };
     let mut _smelt_tmp_53: bool;
-    let _smelt_tmp_6: bool = regex::Regex::new(&"^[0-9a-f]{4}$".to_owned()).expect("regex compile failed").is_match(&"0a1b".to_owned());
+    let _smelt_tmp_6: bool = fancy_regex::Regex::new(&"^[0-9a-f]{4}$".to_owned()).expect("regex compile failed").is_match(&"0a1b".to_owned()).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_6); };
-    _smelt_tmp_8 = regex::Regex::new(&"^[0-9a-f]{4}$".to_owned()).expect("regex compile failed").is_match(&"zzzz".to_owned());
+    _smelt_tmp_8 = fancy_regex::Regex::new(&"^[0-9a-f]{4}$".to_owned()).expect("regex compile failed").is_match(&"zzzz".to_owned()).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_8); };
-    _smelt_tmp_10 = regex::Regex::new(&"(?i)ab".to_owned()).expect("regex compile failed").is_match(&"AB".to_owned());
+    _smelt_tmp_10 = fancy_regex::Regex::new(&"(?i)ab".to_owned()).expect("regex compile failed").is_match(&"AB".to_owned()).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_10); };
-    _smelt_tmp_12 = regex::Regex::new(&"(?s)^a.c$".to_owned()).expect("regex compile failed").is_match(&"a\nc".to_owned());
+    _smelt_tmp_12 = fancy_regex::Regex::new(&"(?s)^a.c$".to_owned()).expect("regex compile failed").is_match(&"a\nc".to_owned()).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_12); };
-    _smelt_tmp_14 = regex::Regex::new(&"^a+$".to_owned()).expect("regex compile failed").is_match(&"aaa".to_owned());
+    _smelt_tmp_14 = fancy_regex::Regex::new(&"^a+$".to_owned()).expect("regex compile failed").is_match(&"aaa".to_owned()).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_14); };
-    _smelt_tmp_16 = regex::Regex::new(&"b".to_owned()).expect("regex compile failed").is_match(&"abc".to_owned());
+    _smelt_tmp_16 = fancy_regex::Regex::new(&"b".to_owned()).expect("regex compile failed").is_match(&"abc".to_owned()).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_16); };
     _smelt_tmp_18 = SmeltRegExp::new("^a+$".to_owned(), "i".to_owned());
     _smelt_tmp_19 = _smelt_tmp_18.test(&"AAA".to_owned());
@@ -2888,45 +2937,48 @@ fn main() {
     loop {
     _smelt_tmp_38 = index < 3.0;
     if !(_smelt_tmp_38) { break; }
-    loop {
     _smelt_tmp_39 = SmeltRegExp::new("a".to_owned(), "g".to_owned());
     _smelt_tmp_40 = _smelt_tmp_39.test(&"aa".to_owned());
-    if !(_smelt_tmp_40) { break; }
+    if _smelt_tmp_40 {
     _smelt_tmp_41 = matched + 1.0;
     matched = _smelt_tmp_41;
-    break;
-    }
     _smelt_tmp_42 = index + 1.0;
     index = _smelt_tmp_42;
+    continue;
+    } else {
+    _smelt_tmp_42 = index + 1.0;
+    index = _smelt_tmp_42;
+    continue;
+    }
     }
     let _ = { println!("{}", smelt_console_number(matched)); };
     _smelt_tmp_44 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["alpha".to_owned(), "beta".to_owned(), "gamma".to_owned(), "delta".to_owned()]; smelt_list_items }));
     words = Into::<SmeltList<_>>::into(_smelt_tmp_44);
     _smelt_tmp_45 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = regex::Regex::new(&"^[ad]".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone());
+    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"^[ad]".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1
     });
     _smelt_tmp_46 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = regex::Regex::new(&"^[ad]".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone());
+    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"^[ad]".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1
     }); let smelt_array = words.clone(); smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
     _smelt_tmp_47 = _smelt_tmp_46.borrow().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_47); };
     _smelt_tmp_49 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = regex::Regex::new(&"a".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone());
+    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"a".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1
     });
     _smelt_tmp_50 = { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = regex::Regex::new(&"a".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone());
+    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"a".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1
     }); let smelt_array = words.clone(); smelt_array.borrow().iter().enumerate().all(|(index, item)| (smelt_callback)(item.clone(), index as i64, &smelt_array)) };
     let _ = { println!("{}", _smelt_tmp_50); };
     _smelt_tmp_52 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = regex::Regex::new(&"^z".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone());
+    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"^z".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1
     });
     _smelt_tmp_53 = { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = regex::Regex::new(&"^z".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone());
+    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"^z".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1
     }); let smelt_array = words; smelt_array.borrow().iter().enumerate().any(|(index, item)| (smelt_callback)(item.clone(), index as i64, &smelt_array)) };
     let _ = { println!("{}", _smelt_tmp_53); };

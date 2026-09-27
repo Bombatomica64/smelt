@@ -104,6 +104,9 @@ impl ModuleBuilder<'_> {
                     "a fixed-arity call reached `lower_call_arg` with an uninterpreted spread; \
                      collect its arguments through `expanded_call_arguments`"
                 );
+                // An erased parameter (`unknown`, `unknown[]`) is no shape to
+                // lower the argument INTO; see `hint_preserves_argument_shape`.
+                let hint = hint.filter(|hint| self.hint_preserves_argument_shape(*hint));
                 self.argument_with_hint(argument, body, hint)
             }
             CallArg::Lowered(expr) => Ok(expr),

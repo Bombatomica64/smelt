@@ -4,6 +4,7 @@ mod ambient_globals;
 mod arguments_forwarding;
 mod function_statics;
 mod hoisting;
+mod presence_tested_locals;
 mod specialization;
 pub(in crate::lowering) mod spread_arguments;
 mod state;
@@ -274,6 +275,17 @@ enum TableBindingValue<'a> {
     Element(&'a ArrayExpressionElement<'a>),
     /// A property expression extracted from an object-literal row.
     ObjectField(&'a Expression<'a>),
+}
+
+impl TableBindingValue<'_> {
+    /// Source span of the row value, used to order bindings against setup.
+    fn source_span(&self) -> oxc::span::Span {
+        use oxc::span::GetSpan as _;
+        match self {
+            Self::Element(value) => value.span(),
+            Self::ObjectField(value) => value.span(),
+        }
+    }
 }
 
 /// A default argument expression stored for a local callback.
@@ -761,6 +773,17 @@ struct ModuleBuilder<'ctx> {
     current_arguments_arities: Vec<usize>,
     /// HIR block that owns side-effect statements emitted while lowering an expression.
     current_statement_block: Option<smelt_hir::BlockId>,
+    /// AST receivers (by node address) of the array-method calls currently
+    /// being lowered.
+    ///
+    /// A regex match value is a JavaScript array, so `m.indexOf('', 1)` or
+    /// `m.slice(1)` is an array method on it. While such a call is lowered its
+    /// receiver node is listed here, and [`Self::expression`] lowers that node
+    /// to the match's array view (see [`Self::match_array_view`]) instead of
+    /// the bare match value, so every array-method rule sees an ordinary list.
+    /// Keyed by the node's address because the address identifies exactly the
+    /// one receiver node; nested calls push and pop their own entries.
+    array_view_receivers: Vec<usize>,
     /// Postfix updates waiting for the variable initializer that reads their original value.
     deferred_postfix_updates: Option<Vec<Stmt>>,
     /// Name a class EXPRESSION takes from the binding it initializes.
@@ -789,6 +812,11 @@ struct ModuleBuilder<'ctx> {
     /// one, or the earlier capture would observe a slot nothing ever writes.
     /// An entry is consumed by the declaration that fills it.
     forward_referenced_locals: HashSet<String>,
+    /// Binding span starts of locals widened to `T | undefined` because the
+    /// function assigns them a keyed read and tests their presence; see
+    /// `presence_tested_locals`. The value is the strongest presence test the
+    /// binding saw.
+    presence_widened_bindings: HashMap<u32, presence_tested_locals::PresenceTest>,
     /// Names of the local `function` declarations whose OWN body is currently
     /// being lowered, innermost last.
     ///

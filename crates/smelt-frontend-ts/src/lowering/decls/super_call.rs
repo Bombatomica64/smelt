@@ -334,7 +334,7 @@ impl ModuleBuilder<'_> {
         clippy::too_many_arguments,
         reason = "one emit site threading the resolved base, the receiver, and the call span"
     )]
-    fn lower_error_base_super_call(
+    pub(in crate::lowering) fn lower_error_base_super_call(
         &mut self,
         base_name: &str,
         arguments: &[smelt_hir::ExprId],

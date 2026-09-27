@@ -2823,8 +2823,26 @@ impl PartialEq for SmeltRegExp { fn eq(&self, other: &Self) -> bool { self.sourc
 
 impl SmeltRegExp {
     /// Construct a JavaScript-like RegExp value with shared lastIndex state.
+    ///
+    /// `source` is stored as the spec's `EscapeRegExpPattern` renders it:
+    /// an unescaped `/` outside a character class reads back as `\/`, so
+    /// `new RegExp('a/b').source` is `a\/b` exactly as for the literal
+    /// `/a\/b/`, and the two compare equal.
     pub fn new(source: String, flags: String) -> Self {
+        let source = Self::escape_pattern_source(source);
         Self { id: smelt_next_object_id(), source, flags, last_index: ::std::rc::Rc::new(::std::cell::RefCell::new(0)) }
+    }
+    /// Escape every unescaped `/` outside a character class (`EscapeRegExpPattern`).
+    fn escape_pattern_source(source: String) -> String {
+        if !source.contains('/') { return source; }
+        let mut escaped = String::with_capacity(source.len() + 2);
+        let (mut in_class, mut after_backslash) = (false, false);
+        for ch in source.chars() {
+            if after_backslash { escaped.push(ch); after_backslash = false; continue; }
+            match ch { '\\' => after_backslash = true, '[' => in_class = true, ']' => in_class = false, '/' if !in_class => escaped.push('\\'), _ => {} }
+            escaped.push(ch);
+        }
+        escaped
     }
     /// Return true when this RegExp has a flag.
     pub fn has_flag(&self, flag: char) -> bool {
@@ -2861,16 +2879,27 @@ impl SmeltRegExp {
         compiled
     }
     /// Match a string with JavaScript String.prototype.match semantics.
-    pub fn match_string(&self, haystack: &str) -> Option<Vec<String>> {
+    ///
+    /// A non-global regex answers exactly what `exec` answers (the spec's
+    /// `RegExp.prototype[@@match]` IS `RegExpBuiltinExec` then), so an
+    /// unmatched capture group is `None` (JavaScript `undefined`) and a
+    /// sticky regex reads and advances `lastIndex`. A global regex resets
+    /// `lastIndex` to 0 and answers every whole match, built by
+    /// `SmeltMatch::from_global_matches`; no match at all is `None` (`null`).
+    pub fn match_string(&self, haystack: &str) -> Option<SmeltMatch> {
+        if !self.has_flag('g') { return self.exec(haystack); }
+        self.match_all_strings(haystack).map(|matches| SmeltMatch::from_global_matches(matches, haystack))
+    }
+    /// Every whole match of a GLOBAL String.prototype.match, or `None` (`null`).
+    ///
+    /// The spec resets `lastIndex` to 0 first and leaves it there. Called
+    /// directly where the regex is statically known to be global, which is
+    /// where the frontend types the result `string[] | null`.
+    pub fn match_all_strings(&self, haystack: &str) -> Option<Vec<String>> {
+        *self.last_index.borrow_mut() = 0;
         let regex = self.compiled();
-        if self.has_flag('g') {
-            let matches = regex.find_iter(haystack).filter_map(Result::ok).map(|value| value.as_str().to_owned()).collect::<Vec<_>>();
-            if matches.is_empty() { None } else { Some(matches) }
-        }
-        else {
-            let captures = regex.captures(haystack).ok().flatten()?;
-            Some((0..captures.len()).map(|index| captures.get(index).map_or(String::new(), |value| value.as_str().to_owned())).collect::<Vec<_>>())
-        }
+        let matches = regex.find_iter(haystack).filter_map(Result::ok).map(|value| value.as_str().to_owned()).collect::<Vec<_>>();
+        if matches.is_empty() { None } else { Some(matches) }
     }
     /// Split a string with JavaScript RegExp separator semantics.
     pub fn split_string(&self, haystack: &str) -> Vec<String> {
@@ -3014,6 +3043,26 @@ impl SmeltMatch {
             named.insert(snake, value);
         }
         Self { id: smelt_next_object_id(), groups, named, match_index, input: input.to_owned() }
+    }
+    /// Build the array a GLOBAL `String.prototype.match` answers.
+    ///
+    /// JavaScript returns a plain array of every whole match there, with no
+    /// capture groups, `index`, `input` or `groups`. It is carried as a
+    /// match value so both spellings of `match` share one type: the numbered
+    /// entries are the whole matches (all present), there are no named
+    /// groups, and `index` is 0 with `input` the searched string, which a
+    /// global match's reader does not consult.
+    fn from_global_matches(matches: Vec<String>, input: &str) -> Self {
+        Self { id: smelt_next_object_id(), groups: matches.into_iter().map(Some).collect(), named: ::std::collections::HashMap::new(), match_index: 0, input: input.to_owned() }
+    }
+    /// The match viewed as the JavaScript array it is (`[...match]`).
+    ///
+    /// Entry 0 is the whole match; a group that did not participate is
+    /// `None` (`undefined`). The list keeps the match's identity (`===`)
+    /// but copies its entries: array methods lowered against it only read
+    /// (writes to a match are not lowered through it).
+    pub fn to_array_view(&self) -> SmeltList<Option<String>> {
+        SmeltList::with_id(self.id, self.groups.clone())
     }
     /// Read a numbered capture group (`match[n]`).
     fn group(&self, index: usize) -> Option<&str> {
@@ -4010,8 +4059,8 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_5: SmeltList<f64>;
     let _smelt_tmp_6: SmeltTypedArray;
     let _smelt_tmp_8: String;
-    let _smelt_tmp_10: SmeltRecord<String, String>;
-    let _smelt_tmp_11: SmeltRecord<String, String>;
+    let _smelt_tmp_10: Keyed;
+    let _smelt_tmp_11: Noted;
     let _smelt_tmp_2 = SmeltFuture::from_future(Box::pin(body_text(SmeltUnion5::M0("hello".to_owned()))));
     _smelt_tmp_3 = _smelt_tmp_2.await?;
     let _ = { println!("{}", _smelt_tmp_3); };
@@ -4020,10 +4069,10 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_7 = SmeltFuture::from_future(Box::pin(body_text(SmeltUnion5::M1(_smelt_tmp_6))));
     _smelt_tmp_8 = _smelt_tmp_7.await?;
     let _ = { println!("{}", _smelt_tmp_8); };
-    _smelt_tmp_10 = SmeltRecord::from([("tag".to_owned(), "first".to_owned()), ("kind".to_owned(), "k".to_owned())]);
-    counted = { let smelt_record_map = _smelt_tmp_10.clone(); Keyed { tag: smelt_record_map.get("tag").cloned().map_or(String::new(), |value| value), kind: smelt_record_map.get("kind").cloned().map_or(String::new(), |value| value) } };
-    _smelt_tmp_11 = SmeltRecord::from([("tag".to_owned(), "third".to_owned()), ("note".to_owned(), "n".to_owned())]);
-    noted = { let smelt_record_map = _smelt_tmp_11.clone(); Noted { tag: smelt_record_map.get("tag").cloned().map_or(String::new(), |value| value), note: smelt_record_map.get("note").cloned().map_or(String::new(), |value| value) } };
+    _smelt_tmp_10 = Keyed { tag: "first".to_owned(), kind: "k".to_owned() };
+    counted = _smelt_tmp_10;
+    _smelt_tmp_11 = Noted { tag: "third".to_owned(), note: "n".to_owned() };
+    noted = _smelt_tmp_11;
     let _smelt_tmp_12: String = retag(SmeltUnion2::M0(counted), "second".to_owned());
     let _ = { println!("{}", _smelt_tmp_12); };
     let _smelt_tmp_14: String = retag(SmeltUnion2::M1(noted), "fourth".to_owned());

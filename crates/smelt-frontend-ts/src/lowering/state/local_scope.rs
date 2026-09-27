@@ -153,6 +153,28 @@ impl LocalScope {
         self.bindings = saved;
     }
 
+    /// Close a lexical block: every name the block declared with `let`/`const`
+    /// that SHADOWED an outer binding gets the outer binding back.
+    ///
+    /// The binding map is flat (one frame per function body), so without this
+    /// an inner `for (let i ..)` overwrote the outer `i` for the rest of the
+    /// enclosing body — and the outer loop's own `i++`, lowered after its
+    /// body, incremented the INNER counter and never terminated (Hono's trie
+    /// router `#pushHandlerSets`). A name the block introduced fresh is left
+    /// bound: it cannot be read after the block in valid source, so removing
+    /// it would only risk a lookup some later lowering step still performs.
+    pub(in crate::lowering) fn close_lexical_block(
+        &mut self,
+        saved: &LocalBindings,
+        declared: &[String],
+    ) {
+        for name in declared {
+            if let Some(outer) = saved.lookup(name) {
+                self.bindings.0.insert(name.clone(), outer);
+            }
+        }
+    }
+
     /// Record that a local holds a value with JavaScript `Date` identity.
     pub(in crate::lowering) fn mark_date_value(&mut self, local: LocalId) {
         self.date_values.0.insert(local);

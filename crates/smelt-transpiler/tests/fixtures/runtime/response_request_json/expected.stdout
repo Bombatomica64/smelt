@@ -1,0 +1,4 @@
+200
+{"path":"http://localhost/a","n":[1,2]}
+{"x":true}
+SyntaxError

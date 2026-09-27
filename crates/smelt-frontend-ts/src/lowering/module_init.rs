@@ -167,6 +167,33 @@ impl MutatedNameCollector {
 }
 
 impl<'a> oxc::ast_visit::Visit<'a> for MutatedNameCollector {
+    /// A MUTATING builtin method called directly on a binding
+    /// (`seen.push(x)`, `cache.set(k, v)`) writes through it exactly like an
+    /// index assignment does, so the binding is module state.
+    fn visit_call_expression(&mut self, call: &oxc::ast::ast::CallExpression<'a>) {
+        if let Expression::StaticMemberExpression(member) = &call.callee
+            && matches!(
+                member.property.name.as_str(),
+                "push"
+                    | "pop"
+                    | "shift"
+                    | "unshift"
+                    | "splice"
+                    | "sort"
+                    | "reverse"
+                    | "fill"
+                    | "copyWithin"
+                    | "set"
+                    | "add"
+                    | "delete"
+                    | "clear"
+            )
+        {
+            self.record_write_through_base(&member.object, true);
+        }
+        oxc::ast_visit::walk::walk_call_expression(self, call);
+    }
+
     fn visit_simple_assignment_target(
         &mut self,
         target: &oxc::ast::ast::SimpleAssignmentTarget<'a>,
@@ -301,10 +328,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
             current_generator_yields: None,
             current_arguments_arities: Vec::new(),
             current_statement_block: None,
+            array_view_receivers: Vec::new(),
             deferred_postfix_updates: None,
             class_expression_binding_name: None,
             asymmetric_matchers_lowered: 0,
             forward_referenced_locals: HashSet::new(),
+            presence_widened_bindings: HashMap::new(),
             defining_local_functions: Vec::new(),
             allow_unknown_index_access,
             preserve_specialization_receiver: false,
@@ -407,6 +436,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let span = self.span(program.span.start, program.span.end);
         let mut body = Body::new(None, span);
         let mut errors = Vec::new();
+        self.presence_widened_bindings =
+            super::presence_tested_locals::presence_tested_keyed_bindings(program);
         // Top-level code is the program's ENTRY POINT, so it may await: the
         // module body becomes the emitted `main`, which is a
         // `#[tokio::main] async fn` whenever it needs to be. Awaiting here was
@@ -448,6 +479,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.collect_module_enums(program);
         self.collect_module_globals(program);
         self.collect_mutable_globals(program, &mut module, &mut errors);
+        self.forget_lifted_const_collections();
         self.collect_class_value_globals(program, &mut module);
         // A module top-level `function Foo(){ this.a = … }` used with `new Foo()`,
         // `x instanceof Foo`, or `Foo.prototype.m = …` is a JavaScript
@@ -740,6 +772,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         Ok(items) => module.items.extend(items),
                         Err(error) => errors.push(error),
                     }
+                    self.alias_exported_function_consts(variable);
                 }
             } else if let Statement::ExportNamedDeclaration(export) = statement {
                 self.reexport_named_declaration(export);
@@ -1220,7 +1253,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
                 && let Some(init) = &declarator.init
                 && let Some(object) = Self::object_const_initializer(init)
-                && let Ok(value) = self.object_const_from_expression(object, None)
+                && let Ok(value) = {
+                    // The declared annotation types the folded metadata, so a
+                    // body that recreates the const (`paths[p][1]`) reads the
+                    // declared tuple/list shapes rather than the literal's
+                    // erased inference.
+                    let type_hint = declarator
+                        .type_annotation
+                        .as_ref()
+                        .and_then(|annotation| self.ts_type_to_hir(&annotation.type_annotation).ok());
+                    self.object_const_from_expression(object, type_hint)
+                }
             {
                 if let Some(collection) = self.const_collection_from_object_const(&value) {
                     self.consts.set_object_value_collection(binding.name.as_str().to_owned(), collection.clone());
@@ -1315,8 +1358,60 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Ok(ty) = self.ts_type_to_hir(&annotation.type_annotation) {
                 self.module_globals
                     .insert(binding.name.as_str().to_owned(), ty);
+                if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
+                    && let Some(init) = &declarator.init
+                    && let Some(collection) = self.declared_const_collection(init, ty)
+                {
+                    self.consts.set_collection(binding.name.as_str().to_owned(), collection.clone());
+                    self.ctx
+                        .const_collections
+                        .insert(binding.name.as_str().to_owned(), collection);
+                }
             }
         }
+    }
+
+    /// Drop folded collection metadata for bindings lifted to mutable globals.
+    ///
+    /// `collect_module_globals` folds an annotated `const xs: T[] = [...]`
+    /// before it is known whether the module writes through `xs`. A written
+    /// binding lifts to a `MutableGlobal` slot, and every read must see that
+    /// slot: a folded copy of the initializer (which the compact callback IR
+    /// would inline) would silently read the stale initial elements.
+    fn forget_lifted_const_collections(&mut self) {
+        let lifted: Vec<String> = self.mutable_global_items.keys().cloned().collect();
+        for name in lifted {
+            if self.consts.forget_collection(&name) {
+                self.ctx.const_collections.remove(&name);
+            }
+        }
+    }
+
+    /// Fold an ANNOTATED module-level array/`Set` const into collection metadata.
+    ///
+    /// An unannotated `const xs = [1]` already records its literal elements so
+    /// function and closure bodies recreate the value; an annotated
+    /// `const xs: number[] = [1]` recorded only its type, and every body read
+    /// then fabricated the declared type's default (`[]`, or an erased `none`
+    /// inside a closure). This gives the annotated spelling the same metadata,
+    /// typed by the annotation, but only when each folded element's own type is
+    /// exactly the declared element type — an element that would need a
+    /// coercion (`(number | undefined)[]` holding `1`) is left unfolded.
+    fn declared_const_collection(
+        &mut self,
+        init: &Expression<'_>,
+        declared_ty: smelt_hir::TypeId,
+    ) -> Option<ConstCollection> {
+        let element_ty = match self.ctx.krate.types.get(declared_ty)? {
+            Type::List(element_ty) | Type::Set(element_ty) => *element_ty,
+            _ => return None,
+        };
+        let mut collection = self.const_collection_from_initializer(init, declared_ty)?;
+        collection.ty = declared_ty;
+        let set_ty = matches!(self.ctx.krate.types.get(declared_ty), Some(Type::Set(_)));
+        (collection.is_set == set_ty
+            && collection.items.iter().all(|item| item.ty == element_ty))
+        .then_some(collection)
     }
 
     /// Record every name an ambient declaration's binding pattern introduces.
@@ -1467,12 +1562,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if read_in_items.is_empty() {
             return;
         }
+        let called = Self::collect_called_identifiers(program);
         for statement in &program.body {
             match statement {
                 Statement::VariableDeclaration(variable) => {
                     self.register_class_value_global_decl(
                         variable,
                         &read_in_items,
+                        &called,
                         Visibility::Private,
                         module,
                     );
@@ -1482,6 +1579,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         self.register_class_value_global_decl(
                             variable,
                             &read_in_items,
+                            &called,
                             Visibility::Public,
                             module,
                         );
@@ -1502,6 +1600,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         decl: &oxc::ast::ast::VariableDeclaration<'_>,
         read_in_items: &HashSet<String>,
+        called: &HashSet<String>,
         visibility: Visibility,
         module: &mut Module,
     ) {
@@ -1579,7 +1678,69 @@ impl<'ctx> ModuleBuilder<'ctx> {
             // is left on the existing path rather than moved on an untested
             // assumption. It now fails with the named blocker in
             // `module_global_expression` instead of a wrong value.
-            if self.stdlib_class_of_type(ty).is_none() {
+            // A CONTAINER (record, array, map, set) whose initializer is not a
+            // literal the const folder owns (`const baseMimes: Record<string,
+            // M> = _baseMimes`, declared below the functions that read it, in
+            // Hono's `utils/mime`) has the same fabricated-default problem —
+            // every read saw an EMPTY record — and a slot holding its one value
+            // is the same fix: containers carry reference identity too.
+            // An object/array LITERAL initializer stays with the const folder
+            // (a function table, a record of constants); it is lifted only
+            // when mutated through, by `register_mutable_global_decl`.
+            let is_container = matches!(
+                self.ctx.krate.types.get(ty),
+                Some(Type::Dict(_, _) | Type::JsMap(_, _) | Type::List(_) | Type::Set(_))
+            ) && !matches!(
+                init.without_parentheses(),
+                Expression::ObjectExpression(_) | Expression::ArrayExpression(_)
+            );
+            // An ERASED binding (`const emptyParams = createNullObject()`, whose
+            // helper returns `any`) is the same problem once more: the read
+            // fabricated an empty erased record per use, so every function saw
+            // a fresh object and `node.#params === emptyParams` (Hono's
+            // trie-router, which tells "no params yet" apart by identity) was
+            // never true — a parent node's params were dropped. JavaScript
+            // evaluates the initializer ONCE, so the slot holds that one value.
+            // The binding's type is already the dynamic boundary the source
+            // declared (`any`/a union); the slot adds no erasure of its own.
+            //
+            // A binding the program CALLS (`const validate = wrap(fn)`, then
+            // `validate(x)`) is a callable value; it keeps the erased call path,
+            // which a module slot does not serve.
+            let is_erased_value = matches!(
+                self.ctx.krate.types.get(ty),
+                Some(Type::Unknown | Type::Union(_))
+            ) && !called.contains(name)
+                && !matches!(
+                init.without_parentheses(),
+                Expression::ObjectExpression(_)
+                    | Expression::ArrayExpression(_)
+                    | Expression::StringLiteral(_)
+                    | Expression::NumericLiteral(_)
+                    | Expression::BooleanLiteral(_)
+                    | Expression::NullLiteral(_)
+                    | Expression::TemplateLiteral(_)
+                    | Expression::ClassExpression(_)
+            );
+            // A USER class instance built by its constructor (`const s = new
+            // Stack()`) is one object too: a function reading `s` must see the
+            // module's instance and its state, not a fabricated empty record
+            // cast to the class. Restricted to a `new` of the binding's own
+            // class, so the slot's type and the constructed value agree.
+            let is_constructed_user_instance = matches!(
+                self.ctx.krate.types.get(ty),
+                Some(Type::Class { .. })
+            ) && matches!(
+                init.without_parentheses(),
+                Expression::NewExpression(new_expr)
+                    if matches!(&new_expr.callee, Expression::Identifier(callee)
+                        if self.source_contains_class(callee.name.as_str()))
+            );
+            if self.stdlib_class_of_type(ty).is_none()
+                && !is_container
+                && !is_erased_value
+                && !is_constructed_user_instance
+            {
                 continue;
             }
             let span = self.span(binding.span.start, binding.span.end);
@@ -1615,12 +1776,21 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if decl.declare {
             return;
         }
-        // `var` is treated like `let`; `const` bindings can never be reassigned
-        // and keep the existing inline/const-item path.
+        // `var` is treated like `let`. A `const` binding can never be
+        // REASSIGNED, but the value it names can still be written THROUGH
+        // (`const cache: Record<string, P> = {}; cache[key] = p`, Hono's
+        // `patternCache`): JavaScript `const` freezes the binding, not the
+        // object. Such a const is module state exactly like a mutated `let`,
+        // and the const-item path would have cloned its `{}` initializer into
+        // every use site — each write landed on a fresh empty record and every
+        // read missed. It is lifted here too; a const that is only read keeps
+        // the inline path.
+        let is_const = matches!(decl.kind, oxc::ast::ast::VariableDeclarationKind::Const);
         if !matches!(
             decl.kind,
             oxc::ast::ast::VariableDeclarationKind::Let
                 | oxc::ast::ast::VariableDeclarationKind::Var
+                | oxc::ast::ast::VariableDeclarationKind::Const
         ) {
             return;
         }
@@ -1630,6 +1800,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
             };
             let name = binding.name.as_str();
             if !mutated.contains(name) {
+                continue;
+            }
+            // Only a const holding a CONTAINER literal is lifted: a const whose
+            // initializer is a call or class construction keeps its existing
+            // path (`collect_class_value_globals` owns class instances).
+            if is_const
+                && !declarator.init.as_ref().is_some_and(|init| {
+                    matches!(
+                        init.without_parentheses(),
+                        Expression::ObjectExpression(_) | Expression::ArrayExpression(_)
+                    )
+                })
+            {
                 continue;
             }
             let span = self.span(binding.span.start, binding.span.end);
@@ -1893,6 +2076,27 @@ impl<'ctx> ModuleBuilder<'ctx> {
             collector.mutated_through,
             collector.mutated_through_nested,
         )
+    }
+
+    /// Every identifier the program uses as a call's callee (`name(..)`).
+    fn collect_called_identifiers(program: &Program<'_>) -> HashSet<String> {
+        use oxc::ast_visit::Visit;
+        /// AST visitor recording identifier callees.
+        struct CalledNames {
+            /// The collected callee names.
+            names: HashSet<String>,
+        }
+        impl<'a> Visit<'a> for CalledNames {
+            fn visit_call_expression(&mut self, call: &oxc::ast::ast::CallExpression<'a>) {
+                if let Expression::Identifier(callee) = call.callee.without_parentheses() {
+                    self.names.insert(callee.name.to_string());
+                }
+                oxc::ast_visit::walk::walk_call_expression(self, call);
+            }
+        }
+        let mut collector = CalledNames { names: HashSet::new() };
+        collector.visit_program(program);
+        collector.names
     }
 
     /// Collect every identifier name read inside a hoisted item body.
@@ -2886,6 +3090,58 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })
     }
 
+    /// Export `export const alias = fn` (optionally `fn as Sig`) as the item
+    /// `fn` itself, exactly like `export { fn as alias }`.
+    ///
+    /// The ordinary exported-const path makes an importer INLINE the const's
+    /// initializer, and that initializer names a binding private to this
+    /// module (`const _getQueryParam = (..) => ..; export const getQueryParam =
+    /// _getQueryParam as ..` in Hono's `utils/url`), which the importing module
+    /// cannot resolve — the call lowered to `undefined`. When the initializer
+    /// is (a type-level wrapper around) a bare name bound to a function item,
+    /// the const IS that function under a second name, so the alias is
+    /// published as the item.
+    fn alias_exported_function_consts(&mut self, variable: &oxc::ast::ast::VariableDeclaration<'_>) {
+        if !matches!(variable.kind, oxc::ast::ast::VariableDeclarationKind::Const) {
+            return;
+        }
+        for declarator in &variable.declarations {
+            let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                continue;
+            };
+            let Some(mut init) = declarator.init.as_ref() else {
+                continue;
+            };
+            loop {
+                init = match init {
+                    Expression::ParenthesizedExpression(inner) => &inner.expression,
+                    Expression::TSAsExpression(inner) => &inner.expression,
+                    Expression::TSSatisfiesExpression(inner) => &inner.expression,
+                    Expression::TSNonNullExpression(inner) => &inner.expression,
+                    _ => break,
+                };
+            }
+            let Expression::Identifier(target) = init else {
+                continue;
+            };
+            let Some(item) = self.items.get(target.name.as_str()).copied() else {
+                continue;
+            };
+            let is_function = self
+                .ctx
+                .krate
+                .items
+                .get(usize::try_from(item.0).unwrap_or(usize::MAX))
+                .is_some_and(|candidate| matches!(candidate, Item::Function(_)));
+            if !is_function {
+                continue;
+            }
+            let exported = binding.name.as_str().to_owned();
+            self.items.insert(exported.clone(), item);
+            self.ctx.export_aliases.insert(exported, item);
+        }
+    }
+
     /// Lower `export { name } from "module"` metadata and local aliases.
     /// Alias locally declared items re-exported by name: `export { a, b as c }`.
     ///
@@ -3473,6 +3729,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     "exported const declarations require an initializer",
                 )
             })?;
+            // An exported const lifted to a module slot (a container written
+            // through, or one read before its declaration) is its slot: its
+            // initializer runs once, as the slot's lazy initializer, and it
+            // emits no const item.
+            if self.is_lifted_global_declarator(binding.name.as_str(), binding.span) {
+                self.lower_pending_mutable_global_init(binding.name.as_str(), init)?;
+                continue;
+            }
             let type_hint = declarator
                 .type_annotation
                 .as_ref()
@@ -4163,8 +4427,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                             {
                                 arrow_consts
                                     .push((binding.name.as_str().to_owned(), binding.span.start));
-                                referrer_spans.push((declarator.span.start, declarator.span.end));
                             }
+                            // An arrow const's body refers to other arrows; any
+                            // other EXPORTED const is inlined into its importers,
+                            // so an arrow its initializer names (`export const
+                            // getQueryParam = _getQueryParam as ..`) must be a
+                            // module item they can call, not a body-local only
+                            // this module can see. Both are referrer spans.
+                            referrer_spans.push((declarator.span.start, declarator.span.end));
                         }
                     }
                     _ => {}
@@ -4660,7 +4930,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         object: &oxc::ast::ast::ObjectExpression<'_>,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<ObjectConst, SmeltError> {
-        let mut entries = Vec::new();
+        let mut entries: Vec<ObjectConstEntry> = Vec::new();
         for property in &object.properties {
             let ObjectPropertyKind::ObjectProperty(object_property) = property else {
                 return Err(SmeltError::unsupported(
@@ -4695,7 +4965,82 @@ impl<'ctx> ModuleBuilder<'ctx> {
             });
         }
         let ty = self.object_const_type(&entries, type_hint);
+        if let Some(Type::Dict(_, value_ty)) = self.ctx.krate.types.get(ty).cloned() {
+            for entry in &mut entries {
+                if let Some((value, value_ty)) =
+                    self.retarget_object_const_value(&entry.value, entry.value_ty, value_ty)
+                {
+                    entry.value = value;
+                    entry.value_ty = value_ty;
+                }
+            }
+        }
         Ok(ObjectConst { entries, ty })
+    }
+
+    /// Retype one folded object-const value to the type its declaration states.
+    ///
+    /// The folder infers each value from its literal alone, so `[0, [['id', 0]]]`
+    /// under `Record<string, [number, [string, number][]]>` would be stored as an
+    /// erased `List<Unknown>`. This walks the value against the declared
+    /// `target` type and returns it retyped when every part fits structurally:
+    ///
+    /// - a value whose inferred type already is `target` is kept;
+    /// - an array literal against a tuple of the same arity becomes that tuple
+    ///   (recreated as a `TupleLit`), each element retargeted to its slot;
+    /// - an array literal against `List<E>` retargets every element to `E`;
+    /// - an object literal against `Dict<K, V>` retargets every entry to `V`.
+    ///
+    /// Anything else (a literal needing a coercion, an arity mismatch) returns
+    /// `None`, and the caller keeps the inferred value and type unchanged.
+    fn retarget_object_const_value(
+        &mut self,
+        value: &ObjectConstValue,
+        inferred_ty: smelt_hir::TypeId,
+        target: smelt_hir::TypeId,
+    ) -> Option<(ObjectConstValue, smelt_hir::TypeId)> {
+        if inferred_ty == target {
+            return Some((value.clone(), target));
+        }
+        match (value, self.ctx.krate.types.get(target).cloned()?) {
+            (ObjectConstValue::List(items), Type::Tuple(slots)) if items.len() == slots.len() => {
+                let items = items
+                    .iter()
+                    .zip(slots)
+                    .map(|(item, slot)| {
+                        self.retarget_object_const_value(&item.value, item.ty, slot)
+                            .map(|(retyped, ty)| ObjectConstEntryValue { value: retyped, ty })
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                Some((ObjectConstValue::List(items), target))
+            }
+            (ObjectConstValue::List(items), Type::List(element_ty)) => {
+                let items = items
+                    .iter()
+                    .map(|item| {
+                        self.retarget_object_const_value(&item.value, item.ty, element_ty)
+                            .map(|(retyped, ty)| ObjectConstEntryValue { value: retyped, ty })
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                Some((ObjectConstValue::List(items), target))
+            }
+            (ObjectConstValue::Object(object), Type::Dict(_, entry_ty)) => {
+                let entries = object
+                    .entries
+                    .iter()
+                    .map(|entry| {
+                        self.retarget_object_const_value(&entry.value, entry.value_ty, entry_ty)
+                            .map(|(retyped, value_ty)| ObjectConstEntry {
+                                key: entry.key.clone(),
+                                value: retyped,
+                                value_ty,
+                            })
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                Some((ObjectConstValue::Object(ObjectConst { entries, ty: target }), target))
+            }
+            _ => None,
+        }
     }
 
     /// Lower one reusable static object-constant value.
@@ -4973,11 +5318,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         self.object_const_value_expression(&item.value, item.ty, span, body)
                     })
                     .collect();
-                body.push_expr(Expr {
-                    kind: ExprKind::ListLit(values),
-                    ty,
-                    span,
-                })
+                // An array literal the declaration types as a tuple (see
+                // `retarget_object_const_value`) recreates as that tuple.
+                let kind = if matches!(self.ctx.krate.types.get(ty), Some(Type::Tuple(_))) {
+                    ExprKind::TupleLit(values)
+                } else {
+                    ExprKind::ListLit(values)
+                };
+                body.push_expr(Expr { kind, ty, span })
             }
             ObjectConstValue::Object(object) => {
                 self.object_const_expression(object, span.start, span.end, body)

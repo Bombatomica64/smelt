@@ -347,6 +347,13 @@ impl FunctionEmitter<'_> {
                 self.operand_text(operand)?
             ));
         }
+        // A function stored into a callable-interface record fills its
+        // `__smelt_call` slot; it is asked before the no-adapter default below.
+        if let Some(wrapped) =
+            self.callable_interface_from_function_text(&operand_text, source_ty, target, scope)?
+        {
+            return Ok(wrapped);
+        }
         if matches!(
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::Function(_))
@@ -752,6 +759,161 @@ impl FunctionEmitter<'_> {
             && !value_text.starts_with(|ch: char| ch.is_ascii_digit())
     }
 
+    /// Wrap a function value into a callable-interface record.
+    ///
+    /// A callable interface (`interface Use { (h: H): App; (p: string, h: H):
+    /// App }`) is emitted as a record whose synthetic `__smelt_call` slot holds
+    /// the implementation; assigning a function to it (`this.use = (arg1,
+    /// ...handlers) => ..`, Hono's `HonoBase` constructor) stores that function
+    /// in the slot. Without this the coercion found no adapter and emitted the
+    /// record's `Default::default()`, so every later `app.use(..)` called an
+    /// inert default and did nothing.
+    ///
+    /// Declines (`None`) unless `source` is a function type and `target` is a
+    /// record carrying `__smelt_call` whose every OTHER field is optional (a
+    /// bare function has no value for a required data member; those records
+    /// keep the `Object.assign` construction path).
+    fn callable_interface_from_function_text(
+        &self,
+        value_text: &str,
+        source: TypeId,
+        target: TypeId,
+        scope: &RenderScope,
+    ) -> Result<Option<String>, EmitError> {
+        if !matches!(self.mir.types.get(source), Some(Type::Function(_))) {
+            return Ok(None);
+        }
+        let Some(Type::Class { name, args }) = self.mir.types.get(target) else {
+            return Ok(None);
+        };
+        let Some(fields) = self.structural_record_fields(target) else {
+            return Ok(None);
+        };
+        let mut call_slot = None;
+        for field in &fields {
+            if self.symbol_name(field.name)? == "__smelt_call" {
+                call_slot = Some(field.ty);
+            } else if !matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
+                return Ok(None);
+            }
+        }
+        let Some(call_slot_ty) = call_slot else {
+            return Ok(None);
+        };
+        let mut field_text = Vec::new();
+        for field in &fields {
+            let raw_name = self.symbol_name(field.name)?;
+            let value = if raw_name == "__smelt_call" {
+                self.callable_interface_slot_value_text(value_text, source, call_slot_ty, scope)?
+            } else {
+                self.default_value(field.ty)?
+            };
+            field_text.push(format!("{}: {value}", sanitize_ident(raw_name)));
+        }
+        if self
+            .context
+            .type_param_elision()
+            .emits_phantom(*name, args.len())
+        {
+            field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
+        }
+        let type_name = sanitize_ident(self.symbol_name(*name)?);
+        Ok(Some(format!("{type_name} {{ {} }}", field_text.join(", "))))
+    }
+
+    /// Render a function value at a callable interface's `__smelt_call` slot.
+    ///
+    /// An OVERLOADED interface stores its implementation in the erased
+    /// variadic slot (`SmeltErasedFunction`), because no single typed signature
+    /// covers every overload. The typed source is therefore first erased to a
+    /// runtime callable — whose adapter converts each positional runtime
+    /// argument to the source's own parameter, and gathers a trailing rest
+    /// parameter from the remaining ones — and that callable fills the slot.
+    /// Coercing typed-to-erased-variadic directly instead read the slot's own
+    /// `(...args: unknown[])` view and handed the whole argument vector to the
+    /// source's FIRST parameter (E0308). A typed slot takes the ordinary
+    /// function-to-function coercion.
+    fn callable_interface_slot_value_text(
+        &self,
+        value_text: &str,
+        source: TypeId,
+        slot_ty: TypeId,
+        scope: &RenderScope,
+    ) -> Result<String, EmitError> {
+        let slot_is_erased = matches!(
+            self.mir.types.get(slot_ty),
+            Some(Type::Function(slot)) if self.is_erased_unknown_rest_function(slot)
+        );
+        if slot_is_erased && let Ok(unknown_ty) = self.type_id(Type::Unknown) {
+            let erased = self.value_at_type_text(value_text, source, unknown_ty, scope)?;
+            return self.value_at_type_text(&erased, unknown_ty, slot_ty, scope);
+        }
+        self.value_at_type_text(value_text, source, slot_ty, scope)
+    }
+
+    /// Coerce a regex match value to a LIST: the match's array view.
+    ///
+    /// A JavaScript match result IS an array, so wherever one is used at an
+    /// array type — an array-method receiver, `for...of`, spread, a `string[]`
+    /// parameter — its value is the list of numbered groups. The frontend
+    /// types that view `(string | undefined)[]`; `SmeltMatch::to_array_view`
+    /// builds exactly it (an unmatched group is `None`), and any other list
+    /// target is reached from the view by the ordinary element-wise list
+    /// coercion. This replaces erasing the match to `SmeltUnknown` and walking
+    /// the erased array back into a list.
+    ///
+    /// When the view type is not in the program's type table the only target
+    /// reached is `string[]` (TypeScript's own `RegExpMatchArray` element
+    /// type): an unmatched group then reads `""`, the missing value an
+    /// `Option<String>` takes at a `String` slot everywhere else.
+    ///
+    /// Returns `None` when `source` is not the match class, `target` is not
+    /// a list, or the list's element slot is erased, leaving the caller's
+    /// other rules (the erasure adapter) in charge.
+    fn match_array_view_text(
+        &self,
+        value_text: &str,
+        source: TypeId,
+        target: TypeId,
+        scope: &RenderScope,
+    ) -> Result<Option<String>, EmitError> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(source) else {
+            return Ok(None);
+        };
+        if self.match_class_kind(*name)? != Some(smelt_stdlib::StdlibClass::Match) {
+            return Ok(None);
+        }
+        let Some(Type::List(target_item)) = self.mir.types.get(target) else {
+            return Ok(None);
+        };
+        // An ERASED element slot keeps the erasure adapter: it records
+        // `index`/`input`/`groups` against the array's identity, which a
+        // `T[]` reader that narrows with `Array.isArray` still consults.
+        if matches!(
+            self.mir.types.get(*target_item),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) {
+            return Ok(None);
+        }
+        let view = format!("({value_text}).to_array_view()");
+        let interned_view_ty = self
+            .find_type_id(&Type::String)
+            .and_then(|string_ty| self.find_type_id(&Type::Optional(string_ty)))
+            .and_then(|group_ty| self.find_type_id(&Type::List(group_ty)));
+        if let Some(view_ty) = interned_view_ty {
+            if view_ty == target {
+                return Ok(Some(view));
+            }
+            return self.value_at_type_text(&view, view_ty, target, scope).map(Some);
+        }
+        if self.mir.types.get(*target_item) == Some(&Type::String) {
+            return Ok(Some(format!(
+                "SmeltList::new({view}.into_iter().map(|group| group.unwrap_or_default()).collect::<Vec<_>>())"
+            )));
+        }
+        Ok(None)
+    }
+
     /// Coerces already-rendered Rust value text from a known source type to a destination type.
     ///
     /// `scope` is the render position's type-parameter environment
@@ -777,6 +939,11 @@ impl FunctionEmitter<'_> {
         }
         if let Some(projected) = self.project_union_value_text(value_text, source, target)? {
             return Ok(projected);
+        }
+        if let Some(wrapped) =
+            self.callable_interface_from_function_text(value_text, source, target, scope)?
+        {
+            return Ok(wrapped);
         }
         // A bare `Default::default()` is an ambiguous inference source for the
         // collection adapters below, which drive `.clone().into_iter().map(…)`
@@ -820,6 +987,9 @@ impl FunctionEmitter<'_> {
             )
         {
             return self.value_truthy_text(value_text, source);
+        }
+        if let Some(view) = self.match_array_view_text(value_text, source, target, scope)? {
+            return Ok(view);
         }
         // A concrete host value cast to a RECORD or a COLLECTION goes through
         // its erasure adapter first.
@@ -2354,8 +2524,20 @@ impl FunctionEmitter<'_> {
             }
             _ => String::new(),
         };
+        // A reference-class view forwards property writes to the instance
+        // (see `view_write_through`); the generated `into_smelt_unknown`
+        // installs the same hook.
+        let write_through = match self.mir.classes.iter().find(|class| class.name == *name) {
+            Some(class) if crate::field_setter_host(self.mir, self.context, class).is_some() => {
+                view_write_through::erased_view_entry_text(
+                    "smelt_struct_value",
+                    "smelt_object_entries",
+                )
+            }
+            _ => String::new(),
+        };
         Ok(format!(
-            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); {entries} {host_markers}{class_marker}{proto_entries}SmeltUnknown::Object({object_ctor}) }}"
+            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); {entries} {host_markers}{class_marker}{proto_entries}{write_through}SmeltUnknown::Object({object_ctor}) }}"
         ))
     }
 

@@ -78,6 +78,7 @@ mod part_4_tests;
 mod part_5_tests;
 mod part_6_tests;
 mod part_7_tests;
+mod keyed_presence_and_receiver_tests;
 mod generics_tests;
 mod static_call_arg_precedence_tests;
 mod reference_class_tests;

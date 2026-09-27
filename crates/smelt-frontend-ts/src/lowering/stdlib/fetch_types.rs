@@ -601,6 +601,7 @@ impl ModuleBuilder<'_> {
         // member spelling picks which value it answers.
         let op = match (rule, member_name) {
             (RuleId::TsResponseBodyRead, "formData") => ResponseOp::FormData,
+            (RuleId::TsResponseBodyRead, "json") => ResponseOp::Json,
             (RuleId::TsResponseBodyRead, "arrayBuffer") => ResponseOp::ArrayBuffer,
             (RuleId::TsResponseBodyRead, "bytes") => ResponseOp::Bytes,
             (RuleId::TsResponseBodyRead, _) => ResponseOp::Text,
@@ -779,6 +780,11 @@ impl ModuleBuilder<'_> {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 self.ctx.krate.types.intern(Type::Future(string_ty))
             }
+            // `json()` is `Promise<any>`: parsed JSON has no static shape.
+            ResponseOp::Json => {
+                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                self.ctx.krate.types.intern(Type::Future(unknown_ty))
+            }
             // `formData()` is `Promise<FormData>`: a future over the modeled
             // concrete form, so the awaited value needs no narrowing.
             ResponseOp::FormData => {
@@ -917,6 +923,7 @@ impl ModuleBuilder<'_> {
         }
         let op = match rule {
             RuleId::TsRequestBodyRead if member_name == "formData" => RequestOp::FormData,
+            RuleId::TsRequestBodyRead if member_name == "json" => RequestOp::Json,
             RuleId::TsRequestBodyRead if member_name == "arrayBuffer" => RequestOp::ArrayBuffer,
             RuleId::TsRequestBodyRead if member_name == "bytes" => RequestOp::Bytes,
             RuleId::TsRequestBodyRead => RequestOp::Text,
@@ -1036,6 +1043,11 @@ impl ModuleBuilder<'_> {
             RequestOp::Text => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 self.ctx.krate.types.intern(Type::Future(string_ty))
+            }
+            // `json()` is `Promise<any>`, as on `Response`.
+            RequestOp::Json => {
+                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                self.ctx.krate.types.intern(Type::Future(unknown_ty))
             }
             // `formData()` is `Promise<FormData>`, the same reader as `text()`
             // answering the modeled concrete form instead of a string.

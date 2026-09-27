@@ -147,6 +147,8 @@ pub const TYPESCRIPT_CALLS: &[CallRecognition] = &[
     static_call("Number", "isNaN", RuleId::TsNumberPredicate),
     static_call("Number", "parseFloat", RuleId::TsNumberParseFloat),
     static_call("Number", "parseInt", RuleId::TsNumberParseInt),
+    static_call("String", "fromCharCode", RuleId::TsStringFromCodes),
+    static_call("String", "fromCodePoint", RuleId::TsStringFromCodes),
     static_call("Promise", "resolve", RuleId::TsPromiseStatic),
     static_call("Promise", "reject", RuleId::TsPromiseStatic),
     static_call("Promise", "all", RuleId::TsPromiseStatic),
@@ -400,6 +402,11 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
     ),
     method(
         TypeScriptReceiverKind::Response,
+        "json",
+        RuleId::TsResponseBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Response,
         "formData",
         RuleId::TsResponseBodyRead,
     ),
@@ -424,6 +431,11 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
     method(
         TypeScriptReceiverKind::Request,
         "text",
+        RuleId::TsRequestBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Request,
+        "json",
         RuleId::TsRequestBodyRead,
     ),
     method(

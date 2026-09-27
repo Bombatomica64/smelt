@@ -3617,29 +3617,51 @@ fn emit_source_with_free_function_router(
         // read. `smelt_bind_this` installs a receiver for exactly one call and
         // the guard restores the previous binding on scope exit (including on
         // unwind), so the channel is always balanced.
+        // A receiver is either an erased value or a DEFERRED erasure of a
+        // concrete one: a call through a typed function-valued field
+        // (`router.match(..)`) installs a thunk, so the instance's erased view
+        // is built only if the callee actually reads `this`.
+        writer.line("/// What `this` is bound to: an erased receiver, or the erasure of a concrete one, run on first read.");
+        writer.line("#[derive(Clone)]");
+        writer.line("enum SmeltThisBinding { Value(SmeltUnknown), Deferred(::std::rc::Rc<dyn Fn() -> SmeltUnknown>) }");
+        writer.blank_line();
         writer.line("thread_local! {");
         writer.line("    /// Receiver installed by the innermost active call, `undefined` when none.");
-        writer.line("    static SMELT_THIS: ::std::cell::RefCell<SmeltUnknown> = ::std::cell::RefCell::new(SmeltUnknown::Undefined);");
+        writer.line("    static SMELT_THIS: ::std::cell::RefCell<SmeltThisBinding> = ::std::cell::RefCell::new(SmeltThisBinding::Value(SmeltUnknown::Undefined));");
         writer.line("}");
         writer.blank_line();
         writer.line("/// Restores the previously installed `this` binding when dropped.");
-        writer.line("struct SmeltThisGuard { previous: SmeltUnknown }");
+        writer.line("struct SmeltThisGuard { previous: SmeltThisBinding }");
         writer.blank_line();
         writer.line("impl Drop for SmeltThisGuard {");
         writer.line("    fn drop(&mut self) {");
-        writer.line("        let previous = ::std::mem::replace(&mut self.previous, SmeltUnknown::Undefined);");
+        writer.line("        let previous = ::std::mem::replace(&mut self.previous, SmeltThisBinding::Value(SmeltUnknown::Undefined));");
         writer.line("        SMELT_THIS.with(|slot| { *slot.borrow_mut() = previous; });");
         writer.line("    }");
         writer.line("}");
         writer.blank_line();
         writer.line("/// Install `receiver` as `this` until the returned guard is dropped.");
         writer.line("fn smelt_push_this(receiver: SmeltUnknown) -> SmeltThisGuard {");
-        writer.line("    SmeltThisGuard { previous: SMELT_THIS.with(|slot| slot.replace(receiver)) }");
+        writer.line("    SmeltThisGuard { previous: SMELT_THIS.with(|slot| slot.replace(SmeltThisBinding::Value(receiver))) }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Install a concrete receiver as `this`, erased by `erase` only when first read.");
+        writer.line("#[allow(dead_code)]");
+        writer.line("fn smelt_push_this_lazy(erase: ::std::rc::Rc<dyn Fn() -> SmeltUnknown>) -> SmeltThisGuard {");
+        writer.line("    SmeltThisGuard { previous: SMELT_THIS.with(|slot| slot.replace(SmeltThisBinding::Deferred(erase))) }");
         writer.line("}");
         writer.blank_line();
         writer.line("/// Read the `this` receiver installed by the innermost active call.");
         writer.line("fn smelt_this() -> SmeltUnknown {");
-        writer.line("    SMELT_THIS.with(|slot| slot.borrow().clone())");
+        writer.line("    let binding = SMELT_THIS.with(|slot| slot.borrow().clone());");
+        writer.line("    match binding {");
+        writer.line("        SmeltThisBinding::Value(receiver) => receiver,");
+        writer.line("        SmeltThisBinding::Deferred(erase) => {");
+        writer.line("            let receiver = erase();");
+        writer.line("            SMELT_THIS.with(|slot| { *slot.borrow_mut() = SmeltThisBinding::Value(receiver.clone()); });");
+        writer.line("            receiver");
+        writer.line("        }");
+        writer.line("    }");
         writer.line("}");
         writer.blank_line();
         writer.line("/// Bind a receiver to an erased callable, as `Function.prototype.bind` does.");
@@ -3663,6 +3685,12 @@ fn emit_source_with_free_function_router(
         writer.line("        other => other,");
         writer.line("    }");
         writer.line("}");
+        }
+        if context.erased_view_write_through() {
+            writer.blank_line();
+            for line in emitter::view_write_through::WRITE_THROUGH_PRELUDE.lines() {
+                writer.line(line);
+            }
         }
         if needs_vitest_mock {
             writer.blank_line();
@@ -5419,6 +5447,7 @@ fn emit_source_with_free_function_router(
                     declared_name: interface.name,
                     // An object shape has no method bodies to bind.
                     has_proto_entries: false,
+                    has_field_setter: false,
                 },
                 needs_unknown,
             )?;
@@ -5598,8 +5627,26 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.block("impl SmeltRegExp", |impl_writer| {
             impl_writer.line("/// Construct a JavaScript-like RegExp value with shared lastIndex state.");
+            impl_writer.line("///");
+            impl_writer.line("/// `source` is stored as the spec's `EscapeRegExpPattern` renders it:");
+            impl_writer.line("/// an unescaped `/` outside a character class reads back as `\\/`, so");
+            impl_writer.line("/// `new RegExp('a/b').source` is `a\\/b` exactly as for the literal");
+            impl_writer.line("/// `/a\\/b/`, and the two compare equal.");
             impl_writer.block("pub fn new(source: String, flags: String) -> Self", |fn_writer| {
+                fn_writer.line("let source = Self::escape_pattern_source(source);");
                 fn_writer.line("Self { id: smelt_next_object_id(), source, flags, last_index: ::std::rc::Rc::new(::std::cell::RefCell::new(0)) }");
+            });
+            impl_writer.line("/// Escape every unescaped `/` outside a character class (`EscapeRegExpPattern`).");
+            impl_writer.block("fn escape_pattern_source(source: String) -> String", |fn_writer| {
+                fn_writer.line("if !source.contains('/') { return source; }");
+                fn_writer.line("let mut escaped = String::with_capacity(source.len() + 2);");
+                fn_writer.line("let (mut in_class, mut after_backslash) = (false, false);");
+                fn_writer.block("for ch in source.chars()", |loop_writer| {
+                    loop_writer.line("if after_backslash { escaped.push(ch); after_backslash = false; continue; }");
+                    loop_writer.line("match ch { '\\\\' => after_backslash = true, '[' => in_class = true, ']' => in_class = false, '/' if !in_class => escaped.push('\\\\'), _ => {} }");
+                    loop_writer.line("escaped.push(ch);");
+                });
+                fn_writer.line("escaped");
             });
             impl_writer.line("/// Return true when this RegExp has a flag.");
             impl_writer.block("pub fn has_flag(&self, flag: char) -> bool", |fn_writer| {
@@ -5636,16 +5683,27 @@ fn emit_source_with_free_function_router(
                 fn_writer.line("compiled");
             });
             impl_writer.line("/// Match a string with JavaScript String.prototype.match semantics.");
-            impl_writer.block("pub fn match_string(&self, haystack: &str) -> Option<Vec<String>>", |fn_writer| {
+            impl_writer.line("///");
+            impl_writer.line("/// A non-global regex answers exactly what `exec` answers (the spec's");
+            impl_writer.line("/// `RegExp.prototype[@@match]` IS `RegExpBuiltinExec` then), so an");
+            impl_writer.line("/// unmatched capture group is `None` (JavaScript `undefined`) and a");
+            impl_writer.line("/// sticky regex reads and advances `lastIndex`. A global regex resets");
+            impl_writer.line("/// `lastIndex` to 0 and answers every whole match, built by");
+            impl_writer.line("/// `SmeltMatch::from_global_matches`; no match at all is `None` (`null`).");
+            impl_writer.block("pub fn match_string(&self, haystack: &str) -> Option<SmeltMatch>", |fn_writer| {
+                fn_writer.line("if !self.has_flag('g') { return self.exec(haystack); }");
+                fn_writer.line("self.match_all_strings(haystack).map(|matches| SmeltMatch::from_global_matches(matches, haystack))");
+            });
+            impl_writer.line("/// Every whole match of a GLOBAL String.prototype.match, or `None` (`null`).");
+            impl_writer.line("///");
+            impl_writer.line("/// The spec resets `lastIndex` to 0 first and leaves it there. Called");
+            impl_writer.line("/// directly where the regex is statically known to be global, which is");
+            impl_writer.line("/// where the frontend types the result `string[] | null`.");
+            impl_writer.block("pub fn match_all_strings(&self, haystack: &str) -> Option<Vec<String>>", |fn_writer| {
+                fn_writer.line("*self.last_index.borrow_mut() = 0;");
                 fn_writer.line("let regex = self.compiled();");
-                fn_writer.block("if self.has_flag('g')", |if_writer| {
-                    if_writer.line("let matches = regex.find_iter(haystack).filter_map(Result::ok).map(|value| value.as_str().to_owned()).collect::<Vec<_>>();");
-                    if_writer.line("if matches.is_empty() { None } else { Some(matches) }");
-                });
-                fn_writer.block("else", |else_writer| {
-                    else_writer.line("let captures = regex.captures(haystack).ok().flatten()?;");
-                    else_writer.line("Some((0..captures.len()).map(|index| captures.get(index).map_or(String::new(), |value| value.as_str().to_owned())).collect::<Vec<_>>())");
-                });
+                fn_writer.line("let matches = regex.find_iter(haystack).filter_map(Result::ok).map(|value| value.as_str().to_owned()).collect::<Vec<_>>();");
+                fn_writer.line("if matches.is_empty() { None } else { Some(matches) }");
             });
             impl_writer.line("/// Split a string with JavaScript RegExp separator semantics.");
             impl_writer.block("pub fn split_string(&self, haystack: &str) -> Vec<String>", |fn_writer| {
@@ -5767,7 +5825,7 @@ fn emit_source_with_free_function_router(
             });
         });
         writer.blank_line();
-        emit_smelt_match(&mut writer, needs_unknown);
+        emit_smelt_match(&mut writer, needs_unknown, needs_smelt_list);
     }
     if needs_headers {
         fetch_types_prelude::emit(&mut writer, needs_unknown);
@@ -6194,6 +6252,12 @@ fn emit_source_with_free_function_router(
                 class_proto::class_proto_entries_method(mir, &context, class)?
         {
             out.push_str(&proto_entries);
+        }
+        if needs_unknown && let Some(host) = field_setter_host(mir, &context, class) {
+            let emitter = FunctionEmitter::new(mir, &context, host)?;
+            out.push_str(
+                &emitter.reference_field_setter_method_text(&effective_class_fields(mir, class))?,
+            );
         }
         out.push_str("}\n");
         for protocol in &class.protocols {
@@ -6706,7 +6770,7 @@ fn emit_own_keys_projection(writer: &mut CodeWriter) {
     writer.line("fn smelt_own_js_map_keys<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for (key, _) in smelt_own_js_map_entries(map) { if matches!(key, SmeltUnknown::Symbol(_)) { symbols.push(key); } else { strings.push(key); } } strings.extend(symbols); strings }");
 }
 
-fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool) {
+fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool, needs_smelt_list: bool) {
     writer.line("/// A concrete JavaScript RegExp match result (numbered groups, named");
     writer.line("/// groups, `index`, and `input`).");
     writer.line("#[derive(Clone, Debug, Default)]");
@@ -6751,6 +6815,31 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool) {
                 fn_writer.line("Self { id: smelt_next_object_id(), groups, named, match_index, input: input.to_owned() }");
             },
         );
+        impl_writer.line("/// Build the array a GLOBAL `String.prototype.match` answers.");
+        impl_writer.line("///");
+        impl_writer.line("/// JavaScript returns a plain array of every whole match there, with no");
+        impl_writer.line("/// capture groups, `index`, `input` or `groups`. It is carried as a");
+        impl_writer.line("/// match value so both spellings of `match` share one type: the numbered");
+        impl_writer.line("/// entries are the whole matches (all present), there are no named");
+        impl_writer.line("/// groups, and `index` is 0 with `input` the searched string, which a");
+        impl_writer.line("/// global match's reader does not consult.");
+        impl_writer.block("fn from_global_matches(matches: Vec<String>, input: &str) -> Self", |fn_writer| {
+            fn_writer.line("Self { id: smelt_next_object_id(), groups: matches.into_iter().map(Some).collect(), named: ::std::collections::HashMap::new(), match_index: 0, input: input.to_owned() }");
+        });
+        // The array view names `SmeltList`, which only exists when the
+        // program uses lists; a program that only reads groups never asks for
+        // the view, so it is emitted under the same pay-for-use gate.
+        if needs_smelt_list {
+            impl_writer.line("/// The match viewed as the JavaScript array it is (`[...match]`).");
+            impl_writer.line("///");
+            impl_writer.line("/// Entry 0 is the whole match; a group that did not participate is");
+            impl_writer.line("/// `None` (`undefined`). The list keeps the match's identity (`===`)");
+            impl_writer.line("/// but copies its entries: array methods lowered against it only read");
+            impl_writer.line("/// (writes to a match are not lowered through it).");
+            impl_writer.block("pub fn to_array_view(&self) -> SmeltList<Option<String>>", |fn_writer| {
+                fn_writer.line("SmeltList::with_id(self.id, self.groups.clone())");
+            });
+        }
         impl_writer.line("/// Read a numbered capture group (`match[n]`).");
         impl_writer.block("fn group(&self, index: usize) -> Option<&str>", |fn_writer| {
             fn_writer.line("self.groups.get(index).and_then(|value| value.as_deref())");
@@ -7003,6 +7092,7 @@ fn emit_reference_class_storage(
             type_param_names: class.type_params.iter().map(|param| param.name).collect(),
             declared_name: class.name,
             has_proto_entries: class_proto::class_has_proto_entries(mir, context, class),
+            has_field_setter: field_setter_host(mir, context, class).is_some(),
         },
         needs_unknown,
     )
@@ -7044,6 +7134,9 @@ struct ReferenceRecordShape<'a> {
     /// Only a `class` has method bodies to bind; an object *shape* has none, so
     /// it is always `false` there.
     has_proto_entries: bool,
+    /// Whether the type emits the erased-view write-through setter (see
+    /// `emitter::view_write_through`); always `false` for a shape.
+    has_field_setter: bool,
 }
 
 /// Emit the handle newtype, inner record, and identity impls for one record type.
@@ -7064,6 +7157,7 @@ fn emit_reference_record_storage(
         type_param_names,
         declared_name,
         has_proto_entries,
+        has_field_setter,
     } = shape;
     let inner_name = format!("{name}Inner");
     let scoped_type_params = type_param_names.iter().copied().collect::<HashSet<_>>();
@@ -7263,10 +7357,35 @@ fn emit_reference_record_storage(
             type_args,
             fields,
             *has_proto_entries,
+            *has_field_setter,
         )?;
     }
     writer.blank_line();
     Ok(())
+}
+
+/// The function whose emitter renders a reference class's erased-view field
+/// setter (see `emitter::view_write_through`), when the class gets one.
+///
+/// Any function of the class works — the setter only needs the class's type
+/// parameters in its render scope — so the constructor is used, falling back
+/// to the first method. `None` when the program has no erased property write
+/// (the machinery is pay-for-use), when the class is not a reference class
+/// (a by-value instance has no identity for a view to stand for), or when the
+/// class has no function at all.
+pub(crate) fn field_setter_host<'mir>(
+    mir: &'mir Mir,
+    context: &EmitContext,
+    class: &smelt_mir::MirClass,
+) -> Option<&'mir MirFunction> {
+    if !context.erased_view_write_through() || !context.is_reference_class(class.name) {
+        return None;
+    }
+    class
+        .constructor
+        .into_iter()
+        .chain(effective_class_methods(mir, class))
+        .find_map(|function| mir.functions.get(usize::try_from(function.0).ok()?))
 }
 
 /// Emit the field lines of a reference class's inner record.
@@ -7308,6 +7427,7 @@ fn emit_reference_class_into_smelt_unknown_impl(
     type_args: &str,
     fields: &[smelt_mir::MirField],
     has_proto_entries: bool,
+    has_field_setter: bool,
 ) -> Result<(), EmitError> {
     writer.block(
         format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
@@ -7358,6 +7478,11 @@ fn emit_reference_class_into_smelt_unknown_impl(
                 fn_writer.line("]);");
                 if has_proto_entries {
                     fn_writer.line("__smelt_entries.extend(__smelt_proto);");
+                }
+                // A property write through this view reaches the instance
+                // (see `emitter::view_write_through`).
+                if has_field_setter {
+                    fn_writer.line(emitter::view_write_through::erased_view_entry_text("self", "__smelt_entries"));
                 }
                 fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))");
             });

@@ -69,7 +69,7 @@ module examples/typescript/end-to-end/50_union_arm_narrowing/input.ts (ModuleId(
     #53: String = "doc"
     #54: Optional<String | File> = form_data_get #52, #53
     #55: Optional<String | File> = %2
-    #56: Bool = instanceof #55, class13
+    #56: Bool = instanceof #55, class15
     #57: File = %2
     #58: String | File = %2
     #59: File = unknown_cast #58 as File
@@ -94,7 +94,7 @@ module examples/typescript/end-to-end/50_union_arm_narrowing/input.ts (ModuleId(
     #78: String = "text"
     #79: Optional<String | File> = form_data_get #77, #78
     #80: Optional<String | File> = %3
-    #81: Bool = instanceof #80, class13
+    #81: Bool = instanceof #80, class15
     #82: String = "unexpectedly a file"
     #83: None = @10(console_log)
     #84: None = call #83(#82)
@@ -108,7 +108,7 @@ module examples/typescript/end-to-end/50_union_arm_narrowing/input.ts (ModuleId(
     #92: String = "absent"
     #93: Optional<String | File> = form_data_get #91, #92
     #94: Optional<String | File> = %4
-    #95: Bool = instanceof #94, class13
+    #95: Bool = instanceof #94, class15
     #96: String = "unexpectedly a file"
     #97: None = @12(console_log)
     #98: None = call #97(#96)
@@ -121,7 +121,7 @@ module examples/typescript/end-to-end/50_union_arm_narrowing/input.ts (ModuleId(
     #105: FormData = %1
     #106: List<String | File> = form_data_values #105
     #107: String | File = %5
-    #108: Bool = instanceof #107, class13
+    #108: Bool = instanceof #107, class15
     #109: String = "file"
     #110: File = %5
     #111: File = unknown_cast #110 as File

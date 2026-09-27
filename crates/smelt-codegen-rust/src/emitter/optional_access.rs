@@ -374,6 +374,26 @@ impl FunctionEmitter<'_> {
             }
             return Ok(coalesced);
         }
+        // `rec[key] ?? fallback` / `arr[i] ?? fallback` over a NON-optional
+        // declared element type: TypeScript types the read as the element, but
+        // a missing key or index reads `undefined` and `??` takes the fallback.
+        // The read's own `Option` (`get(..)`) is what `??` tests; rendering the
+        // total read instead supplied the element type's default (`""`) and
+        // never reached the fallback, so Hono's trie-router
+        // `nodeParams[key] ?? params?.[key]` answered `""` for every
+        // regexp-matched path param.
+        if !matches!(
+            self.mir.types.get(optional_ty),
+            Some(Type::Optional(_) | Type::None)
+        ) && let Some(read) = self.optional_element_read_text(optional, optional_ty)?
+        {
+            let present_text =
+                self.value_at_type_text("value", optional_ty, dest_ty, &self.render_scope())?;
+            let fallback_text = self.value_at_type(fallback, dest_ty)?;
+            return Ok(format!(
+                "match {read} {{ Some(value) => {present_text}, None => {fallback_text} }}"
+            ));
+        }
         match self.mir.types.get(optional_ty) {
             Some(Type::Optional(inner)) => {
                 if matches!(

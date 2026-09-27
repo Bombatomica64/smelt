@@ -77,7 +77,7 @@ module examples/typescript/end-to-end/82_data_view_shared_buffer/input.ts (Modul
     #64: None = @6(console_log)
     #65: None = call #64(#57, #59, #63)
     #66: DataView = %5
-    #67: Bool = instanceof #66, class10
+    #67: Bool = instanceof #66, class11
     #68: DataView = %5
     #69: String = primitive_cast_string #68
     #70: DataView = %5
@@ -200,7 +200,7 @@ module examples/typescript/end-to-end/82_data_view_shared_buffer/input.ts (Modul
     #187: None = @19(console_log)
     #188: None = call #187(#184, #186)
     #189: DataView = %5
-    #190: Bool = instanceof #189, class10
+    #190: Bool = instanceof #189, class11
     #191: DataView = %5
     #192: Float = byte_array_byte_length #191
     #193: Float = 1.0

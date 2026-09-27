@@ -1,28 +1,26 @@
 module examples/typescript/end-to-end/42_module_arrow_shared_capture/input.ts (ModuleId(0))
-  body BodyId(3)
+  body BodyId(4)
   items
+    global mut rem: List<String>
     fn take owner Module
   locals
-    %0 const rem: List<String>
-    %1 const second: fn() -> None
-    %2 const outer: fn() -> None
+    %0 const second: fn() -> None
+    %1 const outer: fn() -> None
   exprs
-    #0: List<String> = []
-    #1: fn() -> None = closure BodyId(1) captures 1 -> None
-    #2: fn() -> None = closure BodyId(2) captures 2 -> None
-    #3: fn() -> None = %2
-    #4: None = closure_call #3()
-    #5: List<String> = %0
-    #6: String = ","
-    #7: String = string_join #5, #6
-    #8: None = @1(console_log)
-    #9: None = call #8(#7)
+    #0: fn() -> None = closure BodyId(2) captures 0 -> None
+    #1: fn() -> None = closure BodyId(3) captures 1 -> None
+    #2: fn() -> None = %1
+    #3: None = closure_call #2()
+    #4: List<String> = global_get @0(rem)
+    #5: String = ","
+    #6: String = string_join #4, #5
+    #7: None = @3(console_log)
+    #8: None = call #7(#6)
   stmts
-    s0: let %0: List<String> = #0
+    s0: let %0: fn() -> None = #0
     s1: let %1: fn() -> None = #1
-    s2: let %2: fn() -> None = #2
-    s3: #4
-    s4: #9
+    s2: #3
+    s3: #8
 
 interned types
   t0 = String
@@ -32,5 +30,4 @@ interned types
   t4 = fn(fn() -> None) -> None
   t5 = Float
   t6 = fn() -> None
-  t7 = Unknown
-  t8 = fn(fn() -> None) -> None
+  t7 = fn(fn() -> None) -> None

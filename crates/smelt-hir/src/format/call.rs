@@ -197,6 +197,8 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 crate::expr::PrimitiveCastOp::ToInt => "int",
                 crate::expr::PrimitiveCastOp::ToFloat => "float",
                 crate::expr::PrimitiveCastOp::ParseFloat => "parse_float",
+                crate::expr::PrimitiveCastOp::FromCharCodes => "from_char_codes",
+                crate::expr::PrimitiveCastOp::FromCodePoints => "from_code_points",
                 crate::expr::PrimitiveCastOp::ToJsNumber => "js_number",
                 crate::expr::PrimitiveCastOp::ToString => "string",
             };
@@ -266,6 +268,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             let op_name = match op {
                 crate::expr::StringSearchOp::Find => "find",
                 crate::expr::StringSearchOp::RFind => "rfind",
+                crate::expr::StringSearchOp::Regex => "search",
             };
             let base = format!(
                 "string_{op_name} {}, {}",
@@ -852,9 +855,11 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             list,
             initial,
             callback,
+            from_right,
         } => {
             format!(
-                "list_reduce {}, {}, {}",
+                "{} {}, {}, {}",
+                if *from_right { "list_reduce_right" } else { "list_reduce" },
                 expr_ref(*list),
                 initial.map_or_else(|| "_".to_owned(), expr_ref),
                 expr_ref(*callback)
@@ -1390,6 +1395,7 @@ const fn request_op_name(op: crate::expr::RequestOp) -> &'static str {
         crate::expr::RequestOp::BodyUsed => "body_used",
         crate::expr::RequestOp::Body => "body",
         crate::expr::RequestOp::Text => "text",
+        crate::expr::RequestOp::Json => "json",
         crate::expr::RequestOp::FormData => "form_data",
         crate::expr::RequestOp::ArrayBuffer => "array_buffer",
         crate::expr::RequestOp::Bytes => "bytes",
@@ -1409,6 +1415,7 @@ const fn response_op_name(op: crate::expr::ResponseOp) -> &'static str {
         crate::expr::ResponseOp::BodyUsed => "body_used",
         crate::expr::ResponseOp::Body => "body",
         crate::expr::ResponseOp::Text => "text",
+        crate::expr::ResponseOp::Json => "json",
         crate::expr::ResponseOp::FormData => "form_data",
         crate::expr::ResponseOp::ArrayBuffer => "array_buffer",
         crate::expr::ResponseOp::Bytes => "bytes",

@@ -179,6 +179,16 @@ impl FunctionEmitter<'_> {
         }
 
         let type_name = sanitize_ident(self.symbol_name(*name)?);
+        // A reference-class record is a handle newtype over its `Inner`
+        // struct (it is mutated through somewhere), so the literal builds the
+        // inner record inside a fresh shared cell, exactly as the structural
+        // adapter does; a bare `Name { .. }` against the newtype is E0560.
+        if self.is_reference_class_type(dest_ty) {
+            return Ok(Some(format!(
+                "{type_name}(::std::rc::Rc::new(::std::cell::RefCell::new({type_name}Inner {{ {} }})))",
+                field_text.join(", ")
+            )));
+        }
         Ok(Some(format!("{type_name} {{ {} }}", field_text.join(", "))))
     }
 
@@ -301,8 +311,54 @@ impl FunctionEmitter<'_> {
                         .map(|index| format!("smelt_bound_arg_{index}"))
                         .collect::<Vec<_>>()
                         .join(", ");
+                    // A receiver that is still a concrete value (a class
+                    // instance at an ordinary `obj.field(..)` call) is erased
+                    // only if the callee actually reads `this`: the wrapper
+                    // installs a THUNK, and `smelt_this()` forces it. Erasing
+                    // it eagerly would rebuild the instance's whole erased
+                    // view — every prototype member included — on every call
+                    // through a function-valued field.
+                    let receiver_ty = self.operand_ty(receiver)?;
+                    let (bind_receiver, install) =
+                        if matches!(self.mir.types.get(receiver_ty), Some(Type::Unknown)) {
+                            (
+                                format!("let smelt_bound_this = {receiver_text};"),
+                                "smelt_push_this(smelt_bound_this.clone())".to_owned(),
+                            )
+                        } else {
+                            let lazy_erase =
+                                self.erase_value_text("smelt_bound_receiver.clone()", receiver_ty)?;
+                            (
+                                format!(
+                                    "let smelt_bound_receiver = {}.clone();",
+                                    self.operand_text(receiver)?
+                                ),
+                                format!(
+                                    "smelt_push_this_lazy({{ let smelt_bound_receiver = smelt_bound_receiver.clone(); ::std::rc::Rc::new(move || {lazy_erase}) }})"
+                                ),
+                            )
+                        };
+                    // A generic class's function-valued field is STORED with
+                    // its erased declared return (a union mentioning `T` has no
+                    // concrete spelling at the declaration), while the read is
+                    // typed with the receiver's arguments substituted. The
+                    // wrapper has the read's type, so it converts the stored
+                    // callable's result the way a direct call through the field
+                    // does (see `declared_slot_return_is_erased`).
+                    let direct_call = format!("(smelt_bound_callee)({params})");
+                    let forwarded = if self.declared_slot_return_is_erased(callee, &function) {
+                        let unknown_ty = self.type_id(Type::Unknown)?;
+                        self.value_at_type_text(
+                            &direct_call,
+                            unknown_ty,
+                            function.return_ty,
+                            &self.render_scope(),
+                        )?
+                    } else {
+                        direct_call
+                    };
                     return Ok(format!(
-                        "{{ let smelt_bound_callee = {callee}.clone();                          let smelt_bound_this = {receiver_text};                          let smelt_bound: {ty} = ::std::rc::Rc::new(move |{params}| {{                          let _smelt_this_guard = smelt_push_this(smelt_bound_this.clone());                          (smelt_bound_callee)({params}) }}); smelt_bound }}",
+                        "{{ let smelt_bound_callee = {callee}.clone();                          {bind_receiver}                          let smelt_bound: {ty} = ::std::rc::Rc::new(move |{params}| {{                          let _smelt_this_guard = {install};                          {forwarded} }}); smelt_bound }}",
                         callee = self.operand_text(callee)?,
                         // `impl Trait` is illegal in a `let` annotation, and the
                         // annotation is precisely what drives parameter inference
@@ -1358,11 +1414,7 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::RegexSplit { pattern, haystack } => self.regex_split_text(pattern, haystack),
             Rvalue::RegexFind { pattern, haystack } => {
-                let text = self.regex_find_text(pattern, haystack)?;
-                let string_ty = self.type_id(Type::String)?;
-                let list_ty = self.type_id(Type::List(string_ty))?;
-                let source_ty = self.type_id(Type::Optional(list_ty))?;
-                self.value_at_type_text(&text, source_ty, dest_ty, &self.render_scope())
+                self.regex_find_text(pattern, haystack, dest_ty)
             }
             Rvalue::RegexExec { regex, haystack } => {
                 self.regex_exec_text(regex, haystack, dest_ty)
@@ -1485,7 +1537,18 @@ impl FunctionEmitter<'_> {
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                 ) || self.is_erased_class_type(callee_ty)
                 {
-                    let callee_text = self.operand_text(callee)?;
+                    // The dynamic dispatch below matches on the ERASED carrier.
+                    // A union with concrete members renders as its generated
+                    // enum, not as `SmeltUnknown`, so it crosses the boundary
+                    // adapter first (`match SmeltUnionN { SmeltUnknown::.. }`
+                    // was E0308).
+                    let callee_text = if matches!(self.mir.types.get(callee_ty), Some(Type::Union(_)))
+                        && self.concrete_union_members(callee_ty).is_some()
+                    {
+                        self.erase(callee)?
+                    } else {
+                        self.operand_text(callee)?
+                    };
                     let rendered_args =
                         args.iter()
                             .map(|arg| self.erase(arg))
@@ -1753,7 +1816,9 @@ impl FunctionEmitter<'_> {
                         // destination needs, so treat the erased-rest call's source
                         // type as `Unknown` and let `value_at_type_text` inject the
                         // correct `Some(..)`/extraction at the assignment seam.
-                        let source_ty = if callee_is_erased_rest {
+                        let source_ty = if callee_is_erased_rest
+                            || self.declared_slot_return_is_erased(callee, function)
+                        {
                             self.type_id(Type::Unknown)?
                         } else {
                             function.return_ty
@@ -1872,7 +1937,8 @@ impl FunctionEmitter<'_> {
                 list,
                 initial,
                 callback,
-            } => self.list_reduce_text(list, initial.as_ref(), callback, dest_ty),
+                from_right,
+            } => self.list_reduce_text(list, initial.as_ref(), callback, *from_right, dest_ty),
             Rvalue::ListSlice { list, start, end } => {
                 self.list_slice_text(list, start.as_ref(), end.as_ref(), dest_ty)
             }

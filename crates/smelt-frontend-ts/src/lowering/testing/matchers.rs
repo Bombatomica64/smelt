@@ -663,6 +663,24 @@ impl ModuleBuilder<'_> {
         let uses_asymmetric_matcher = (expected_has_matcher
             || self.asymmetric_matchers_lowered != matchers_before_operands)
             && matches!(matcher, TestMatcher::Equal | TestMatcher::StrictEqual);
+        // `expect(x)` and every equality matcher take `any`, so a test may
+        // compare values whose STATIC types are unrelated — a mocked KV store
+        // returns a string where the declaration says `ReadableStream | null`,
+        // and the test asserts `toBe('This is index')`. Neither side is
+        // assignable to the other, so there is no typed comparison to emit
+        // (`Option<SmeltBody> == Option<String>` was E0308). JavaScript compares
+        // the runtime VALUES, which is exactly the erased comparison: both
+        // operands cross the `unknown` boundary and the matcher's runtime
+        // equality decides.
+        let (actual, expected) = if matches!(
+            matcher,
+            TestMatcher::Be | TestMatcher::Equal | TestMatcher::StrictEqual
+        ) && !uses_asymmetric_matcher
+        {
+            self.erase_unrelated_matcher_operands(actual, expected, call.span, body)
+        } else {
+            (actual, expected)
+        };
         // Vitest compares primitive numbers with `Object.is` under every
         // equality matcher, not just `toBe`. Only `toBe` additionally treats
         // objects and arrays by reference, so the identity rule stays gated on
@@ -707,6 +725,77 @@ impl ModuleBuilder<'_> {
             body,
         );
         Ok(true)
+    }
+
+    /// Erase both operands of an equality matcher whose static types are
+    /// unrelated (neither assignable to the other), so the comparison runs on
+    /// the runtime values the way JavaScript's matcher does. Related operands
+    /// are returned unchanged and keep their typed comparison.
+    fn erase_unrelated_matcher_operands(
+        &mut self,
+        actual: smelt_hir::ExprId,
+        expected: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> (smelt_hir::ExprId, smelt_hir::ExprId) {
+        let actual_ty = Self::expr_ty(body, actual);
+        let expected_ty = Self::expr_ty(body, expected);
+        if self.type_assignable_to(expected_ty, actual_ty)
+            || self.type_assignable_to(actual_ty, expected_ty)
+            || !self.matcher_operand_is_scalar_or_instance(actual_ty)
+            || !self.matcher_operand_is_scalar_or_instance(expected_ty)
+            || (self.matcher_operand_is_number(actual_ty)
+                && self.matcher_operand_is_number(expected_ty))
+        {
+            return (actual, expected);
+        }
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let span = self.span(span.start, span.end);
+        let erased_actual = body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value: actual },
+            ty: unknown_ty,
+            span,
+        });
+        let erased_expected = body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value: expected },
+            ty: unknown_ty,
+            span,
+        });
+        (erased_actual, erased_expected)
+    }
+
+    /// Whether an equality-matcher operand is a JavaScript number (`Int` or
+    /// `Float`, optionally absent). Two such operands are one JS type even when
+    /// the lowering picked different widths, and compare numerically as-is.
+    fn matcher_operand_is_number(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Optional(inner)) => self.matcher_operand_is_number(*inner),
+            Some(Type::Int | Type::Float) => true,
+            _ => false,
+        }
+    }
+
+    /// Whether an equality-matcher operand is a scalar or a class instance
+    /// (optionally absent) with no erased component.
+    ///
+    /// Only such operands take the unrelated-types erasure above. Collections
+    /// already compare through the matcher's structural walk, which erases
+    /// element-wise where the two sides disagree, and an operand that already
+    /// carries `unknown` compares at runtime anyway; routing either through
+    /// extra erased temporaries would add boundary crossings for nothing.
+    fn matcher_operand_is_scalar_or_instance(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Optional(inner)) => self.matcher_operand_is_scalar_or_instance(*inner),
+            Some(Type::Bool | Type::Int | Type::Float | Type::String) => true,
+            // A class instance qualifies only when its type arguments do too:
+            // one whose arguments carry `unknown` (an unresolved helper alias
+            // such as `Awaited<unknown>`) is already compared at runtime.
+            Some(Type::Class { args, .. }) => args
+                .clone()
+                .into_iter()
+                .all(|arg| self.matcher_operand_is_scalar_or_instance(arg)),
+            _ => false,
+        }
     }
 
     /// Return whether Vitest `toBe` needs JavaScript `SameValue` semantics.
@@ -1981,16 +2070,37 @@ impl ModuleBuilder<'_> {
         let span = self.statement_span(statement);
         let block = body.push_block(span);
         if let Statement::BlockStatement(block_stmt) = statement {
+            let saved = self.scope.snapshot_bindings();
             // A nested `function` declaration is bound for its whole BLOCK, not
             // just from its textual position (`lowering::hoisting`).
             for nested_statement in crate::lowering::hoisting::hoisted_statements(&block_stmt.body)
             {
                 self.statement_in_block(nested_statement, body, block)?;
             }
+            self.scope
+                .close_lexical_block(&saved, &Self::lexically_declared_names(&block_stmt.body));
         } else {
             self.statement_in_block(statement, body, block)?;
         }
         Ok(block)
+    }
+
+    /// The names a statement list declares LEXICALLY at its own level:
+    /// `let`/`const` declarators (not `var`, which is function-scoped) and a
+    /// nested `for (let ..)` head's bindings are handled by the loop itself.
+    /// Used to close the block's scope ([`LocalScope::close_lexical_block`]).
+    pub(in crate::lowering) fn lexically_declared_names(statements: &[Statement<'_>]) -> Vec<String> {
+        let mut names = Vec::new();
+        for statement in statements {
+            if let Statement::VariableDeclaration(decl) = statement
+                && !matches!(decl.kind, oxc::ast::ast::VariableDeclarationKind::Var)
+            {
+                for declarator in &decl.declarations {
+                    Self::binding_pattern_names(&declarator.id, &mut names);
+                }
+            }
+        }
+        names
     }
 
     /// Create a HIR block from a JavaScript block statement.
@@ -2000,9 +2110,12 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::BlockId, SmeltError> {
         let block = body.push_block(self.span(block_stmt.span.start, block_stmt.span.end));
+        let saved = self.scope.snapshot_bindings();
         for statement in crate::lowering::hoisting::hoisted_statements(&block_stmt.body) {
             self.statement_in_block(statement, body, block)?;
         }
+        self.scope
+            .close_lexical_block(&saved, &Self::lexically_declared_names(&block_stmt.body));
         Ok(block)
     }
 
@@ -2865,10 +2978,23 @@ impl ModuleBuilder<'_> {
                 return true;
             };
             // A rest slot absorbs every argument from its index on, and its
-            // declared type is the *list*, not the element, so it is not a
+            // declared type is the *list*: each absorbed argument is checked
+            // against the list's ELEMENT type. Without that check a leading
+            // `(...handlers: Handler[])` overload claimed `use('/p', h)` ahead
+            // of the `(path: string, handler: Handler)` one the call really
+            // runs, and the string was packed into the handler list (E0308).
+            // A rest slot of any other shape (a tuple rest) is not a
             // per-argument constraint this probe can check.
-            if signature.rest.is_some_and(|rest| index >= rest) {
-                return true;
+            if let Some(rest) = signature.rest
+                && index >= rest
+            {
+                let Some(rest_ty) = signature.params.get(rest) else {
+                    return true;
+                };
+                return match self.ctx.krate.types.get(*rest_ty) {
+                    Some(Type::List(element)) => self.type_assignable_to(arg_ty, *element),
+                    _ => true,
+                };
             }
             let Some(param_ty) = signature.params.get(index) else {
                 return true;
@@ -3429,10 +3555,15 @@ impl ModuleBuilder<'_> {
         expression: &Expression<'_>,
         body: &Body,
     ) -> Option<(String, smelt_hir::TypeId)> {
-        let Expression::Identifier(identifier) = expression else {
-            return None;
+        let name = match expression {
+            Expression::Identifier(identifier) => identifier.name.as_str(),
+            // A TRUTHY optional chain rooted at a local (`x?.a`, `x?.a.b`,
+            // `x?.m()`) proves the root present: a nullish root makes the
+            // whole chain `undefined`, which is falsy. So `if (!x?.length)
+            // return` leaves `x` narrowed to its present type afterwards.
+            Expression::ChainExpression(chain) => Self::optional_chain_root_name(chain)?,
+            _ => return None,
         };
-        let name = identifier.name.as_str();
         let local = self.scope.lookup(name)?;
         let local_ty = match self.narrowed_type(name) {
             Some(ty) => ty,
@@ -3456,6 +3587,30 @@ impl ModuleBuilder<'_> {
                 }
             }
             _ => None,
+        }
+    }
+
+    /// Name of the local an optional chain is rooted at, when the root is a
+    /// plain identifier reached through member reads and calls.
+    fn optional_chain_root_name<'b>(
+        chain: &'b oxc::ast::ast::ChainExpression<'_>,
+    ) -> Option<&'b str> {
+        use oxc::ast::ast::ChainElement;
+        let mut current: &Expression<'_> = match &chain.expression {
+            ChainElement::StaticMemberExpression(member) => &member.object,
+            ChainElement::ComputedMemberExpression(member) => &member.object,
+            ChainElement::CallExpression(call) => &call.callee,
+            _ => return None,
+        };
+        loop {
+            current = match current {
+                Expression::Identifier(identifier) => return Some(identifier.name.as_str()),
+                Expression::StaticMemberExpression(member) => &member.object,
+                Expression::ComputedMemberExpression(member) => &member.object,
+                Expression::CallExpression(call) => &call.callee,
+                Expression::ParenthesizedExpression(inner) => &inner.expression,
+                _ => return None,
+            };
         }
     }
 
@@ -3974,6 +4129,8 @@ impl ModuleBuilder<'_> {
             let deferred_updates = self.deferred_postfix_updates.take().unwrap_or_default();
             self.deferred_postfix_updates = prior_deferred_updates;
             let value = value_result?;
+            let annotated_ty = self.presence_widened_binding_type(declarator, annotated_ty, value, body);
+            let value = value.map(|value| self.keyed_read_into_optional_slot(value, annotated_ty, body));
             if let BindingPattern::BindingIdentifier(binding) = &declarator.id
                 && value.is_none()
                 && let Some(previous) = predeclared_self
@@ -4027,6 +4184,51 @@ impl ModuleBuilder<'_> {
             }
         }
         Ok(())
+    }
+
+    /// The declared type of a local the program assigns a keyed read and
+    /// tests for presence: `T | undefined` in place of an always-truthy `T`.
+    ///
+    /// See `lowering::presence_tested_locals` for why such a local must be able
+    /// to hold the absent value. The widened type is taken from the annotation
+    /// when there is one and from the initializer otherwise; a type that is
+    /// already nullishable is left alone, and so is one with falsy inhabitants
+    /// (whose Rust defaults already read as falsy) unless the program compares
+    /// the local with `undefined`/`null` explicitly.
+    fn presence_widened_binding_type(
+        &mut self,
+        declarator: &oxc::ast::ast::VariableDeclarator<'_>,
+        annotated_ty: Option<smelt_hir::TypeId>,
+        value: Option<smelt_hir::ExprId>,
+        body: &Body,
+    ) -> Option<smelt_hir::TypeId> {
+        let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+            return annotated_ty;
+        };
+        let Some(test) = self.presence_widened_bindings.get(&binding.span.start).copied() else {
+            return annotated_ty;
+        };
+        let Some(declared) = annotated_ty.or_else(|| value.map(|value| Self::expr_ty(body, value)))
+        else {
+            return annotated_ty;
+        };
+        // A falsy-inhabited type answers a truthiness test through its Rust
+        // default, but not an explicit `=== undefined` comparison.
+        // The explicit comparison widens only a concrete scalar in addition:
+        // an erased or generic type (`unknown`, `T`) already represents
+        // `undefined` itself, and wrapping it in `Option` would only add a
+        // second encoding of absence.
+        let always_truthy = self.type_is_always_truthy_object_surface(declared);
+        let widened_by_comparison = test
+            == super::super::presence_tested_locals::PresenceTest::NullishComparison
+            && matches!(
+                self.ctx.krate.types.get(declared),
+                Some(Type::String | Type::Float | Type::Int | Type::Bool)
+            );
+        if self.is_nullishable_type(declared) || !(always_truthy || widened_by_comparison) {
+            return annotated_ty;
+        }
+        Some(self.ctx.krate.types.intern(Type::Optional(declared)))
     }
 
     /// Remember that a local was declared at a callable-interface type.

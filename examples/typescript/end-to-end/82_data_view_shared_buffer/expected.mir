@@ -134,7 +134,7 @@ fn main (FuncId(0)) -> None throws
     %35 = move %34 == copy %4
     %36 = call @console_log(move %32, move %33, move %35) -> bb7
   bb7:
-    %37 = instanceof copy %5, class10
+    %37 = instanceof copy %5, class11
     %38 = primitive_cast_string copy %5
     %39 = call @console_log(move %37, move %38, true) -> bb8
   bb8:
@@ -216,7 +216,7 @@ fn main (FuncId(0)) -> None throws
     %83 = object_to_string_tag move %0
     %84 = call @console_log(move %82, move %83) -> bb39
   bb39:
-    %85 = instanceof copy %5, class10
+    %85 = instanceof copy %5, class11
     switch move %85 ? bb40 : bb41
   bb40:
     %87 = byte_array_byte_length move %5

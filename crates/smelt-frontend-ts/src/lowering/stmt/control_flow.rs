@@ -16,6 +16,29 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
+        // The head's `let`/`const` bindings are scoped to the loop (init, test,
+        // body AND update); an outer same-named binding comes back after it.
+        let saved = self.scope.snapshot_bindings();
+        let mut head_names = Vec::new();
+        if let Some(ForStatementInit::VariableDeclaration(decl)) = &for_stmt.init
+            && !matches!(decl.kind, oxc::ast::ast::VariableDeclarationKind::Var)
+        {
+            for declarator in &decl.declarations {
+                Self::binding_pattern_names(&declarator.id, &mut head_names);
+            }
+        }
+        let lowered = self.c_for_statement_in_scope(for_stmt, body, block);
+        self.scope.close_lexical_block(&saved, &head_names);
+        lowered
+    }
+
+    /// [`Self::c_for_statement`] with the loop's lexical scope already open.
+    fn c_for_statement_in_scope(
+        &mut self,
+        for_stmt: &oxc::ast::ast::ForStatement<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
         if let Some(init) = &for_stmt.init {
             match init {
                 ForStatementInit::VariableDeclaration(decl) => {
@@ -452,6 +475,13 @@ impl ModuleBuilder<'_> {
             let span = self.expression_span(source);
             return self.typed_array_elements_expression(iter, span, body);
         }
+        // A regex match iterates its numbered groups, `undefined` for one that
+        // did not participate. Asked before the `Type::Class` arm below, which
+        // would erase the match into an `unknown` list.
+        let span = self.expression_span(source);
+        if let Some(view) = self.match_array_view(iter, span, body) {
+            return view;
+        }
         match self.ctx.krate.types.get(iter_ty).cloned() {
             Some(Type::Set(item_ty)) => {
                 let ty = self.ctx.krate.types.intern(Type::List(item_ty));
@@ -632,12 +662,26 @@ Type::Optional(_)) => {
     }
 
     /// Lower an expression without type hint.
+    ///
+    /// When the node is the receiver of an array-method call being lowered
+    /// (listed in `array_view_receivers`, see
+    /// [`Self::call_expression`]) and it lowers to a regex match
+    /// value, the result is the match's array view rather than the match itself.
     pub(in crate::lowering) fn expression(
         &mut self,
         expression: &Expression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        self.expression_with_hint(expression, body, None)
+        let lowered = self.expression_with_hint(expression, body, None)?;
+        if !self.array_view_receivers.is_empty()
+            && self
+                .array_view_receivers
+                .contains(&std::ptr::from_ref(expression).addr())
+        {
+            let span = self.expression_span(expression);
+            return Ok(self.match_array_view(lowered, span, body).unwrap_or(lowered));
+        }
+        Ok(lowered)
     }
 
     // Continued in the next split builder file.

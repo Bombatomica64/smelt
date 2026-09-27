@@ -152,6 +152,12 @@ impl ModuleBuilder<'_> {
                     }
                     lowered = vec![list_ty];
                 }
+                if let Some(dict_ty) = self.dict_union_type(&lowered) {
+                    if nullish.is_empty() {
+                        return Ok(dict_ty);
+                    }
+                    lowered = vec![dict_ty];
+                }
                 if lowered.len() == 1 && !nullish.is_empty() {
                     let single = lowered.remove(0);
                     Ok(self.ctx.krate.types.intern(Type::Optional(single)))
@@ -1549,6 +1555,12 @@ return_ty: function.return_ty,
                     }
                     lowered = vec![list_ty];
                 }
+                if let Some(dict_ty) = self.dict_union_type(&lowered) {
+                    if nullish.is_empty() {
+                        return Ok(dict_ty);
+                    }
+                    lowered = vec![dict_ty];
+                }
                 if lowered.len() == 1 && !nullish.is_empty() {
                     let single = lowered.remove(0);
                     Ok(self.ctx.krate.types.intern(Type::Optional(single)))
@@ -1590,6 +1602,42 @@ return_ty: function.return_ty,
                 )),
             },
         }
+    }
+
+    /// Collapse a union of dictionaries with one key type into ONE dictionary
+    /// whose value is the union of the arms' values: `Record<string, string> |
+    /// Record<string, string[]>` stores as `Record<string, string | string[]>`.
+    ///
+    /// The union of two record TYPES is a static claim `tsc` already checked;
+    /// at run time it is one object whose entries hold either value, which is
+    /// exactly the merged dictionary. Kept as a union of two dictionary arms,
+    /// every entry write had to pick ONE arm's storage, so Hono's
+    /// `getQueryParams` pushed into a `string[]` entry of a record built as the
+    /// `string` arm and read `"[object Object]"` back. Arms with different key
+    /// types do not merge.
+    pub(in crate::lowering) fn dict_union_type(&mut self, items: &[smelt_hir::TypeId]) -> Option<smelt_hir::TypeId> {
+        if items.len() < 2 {
+            return None;
+        }
+        let mut key_ty = None;
+        let mut value_tys = Vec::new();
+        for item in items {
+            let Some(Type::Dict(key, value)) = self.ctx.krate.types.get(*item).cloned() else {
+                return None;
+            };
+            if key_ty.is_some_and(|existing| existing != key) {
+                return None;
+            }
+            key_ty = Some(key);
+            for flat in self.flatten_union_member_types(value) {
+                if !value_tys.contains(&flat) {
+                    value_tys.push(flat);
+                }
+            }
+        }
+        let key_ty = key_ty?;
+        let value_ty = self.union_of_types_or_unknown(value_tys);
+        Some(self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty)))
     }
 
     /// Collapse unions that only differ by an empty tuple branch into a list type.

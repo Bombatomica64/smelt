@@ -56,11 +56,14 @@ pub(in crate::lower) fn propagate_throwing_functions(mir: &mut Mir) {
             if function.can_throw {
                 continue;
             }
+            let bound = projected_bind_locals(&function.blocks, &function.locals, &facts.types);
             let can_throw = function.blocks.iter().any(|block| {
                 block
                     .statements
                     .iter()
-                    .any(|statement| statement_can_throw(statement, &function.locals, &facts))
+                    .any(|statement| {
+                        statement_can_throw(statement, &function.locals, &bound, &facts)
+                    })
                     || block
                         .terminator
                         .as_ref()
@@ -78,11 +81,14 @@ pub(in crate::lower) fn propagate_throwing_functions(mir: &mut Mir) {
             if closure.can_throw {
                 continue;
             }
+            let bound = projected_bind_locals(&closure.blocks, &closure.locals, &facts.types);
             let can_throw = closure.blocks.iter().any(|block| {
                 block
                     .statements
                     .iter()
-                    .any(|statement| statement_can_throw(statement, &closure.locals, &facts))
+                    .any(|statement| {
+                        statement_can_throw(statement, &closure.locals, &bound, &facts)
+                    })
                     || block
                         .terminator
                         .as_ref()
@@ -102,10 +108,60 @@ pub(in crate::lower) fn propagate_throwing_functions(mir: &mut Mir) {
     }
 }
 
+/// Locals holding a receiver bind of a callee read through a projection
+/// (`%t = bind_this obj.field, obj`).
+///
+/// A call through such a local is the call `obj.field(..)`, and a call through
+/// a projected callee is conservatively throwing (see the `ClosureCall` rule in
+/// [`statement_can_throw`]): what the field holds is decided at run time. The
+/// bind only installs `this`, so it must not change that answer.
+///
+/// Only a TYPED callee (a concrete `Type::Function`, the shape the frontend
+/// binds at a call through a function-valued class field) is collected. An
+/// erased callee's bind — an `unknown` read or the variadic erased-function
+/// spelling — predates this rule and keeps the answer its local's type gives.
+fn projected_bind_locals(
+    blocks: &[crate::BasicBlock],
+    locals: &[LocalDecl],
+    types: &smelt_hir::TypeInterner,
+) -> std::collections::HashSet<crate::LocalId> {
+    let typed_callable = |local: crate::LocalId| {
+        let Some(Type::Function(function)) = local_index(local)
+            .and_then(|index| locals.get(index))
+            .and_then(|decl| types.get(decl.ty))
+        else {
+            return false;
+        };
+        let erased_rest = function.rest == Some(0)
+            && matches!(function.params.as_slice(), [param]
+                if matches!(types.get(*param), Some(Type::List(item))
+                    if matches!(types.get(*item), Some(Type::Unknown | Type::TypeParam { .. } | Type::Never))));
+        !erased_rest
+    };
+    blocks
+        .iter()
+        .flat_map(|block| &block.statements)
+        .filter_map(|statement| {
+            if let Statement::Assign {
+                dest,
+                value: Rvalue::BindThis { callee, .. },
+            } = statement
+                && operand_local(callee).is_none()
+                && typed_callable(*dest)
+            {
+                Some(*dest)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 /// Returns whether a MIR statement can throw through an expression-level call.
 fn statement_can_throw(
     statement: &Statement,
     locals: &[LocalDecl],
+    projected_binds: &std::collections::HashSet<crate::LocalId>,
     facts: &CrateThrowFacts,
 ) -> bool {
     let types = &facts.types;
@@ -152,6 +208,9 @@ fn statement_can_throw(
     let Some(local) = operand_local(callee) else {
         return true;
     };
+    if projected_binds.contains(&local) {
+        return true;
+    }
     local_index(local)
         .and_then(|index| locals.get(index))
         .and_then(|decl| types.get(decl.ty))

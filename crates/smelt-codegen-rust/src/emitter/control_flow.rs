@@ -22,6 +22,17 @@ thread_local! {
     /// never renders, so `block_eventually_terminates` alone under-reports it
     /// and a trailing `return` becomes `unreachable_code`.
     static LAST_EMIT_DIVERGED: Cell<bool> = const { Cell::new(false) };
+    /// Pending loop-body JOIN stops, innermost last: `(function identity, join
+    /// block, continue target of the loop the join belongs to)`. A branch
+    /// walker that enters a pending join ends its arm there; the caller emits
+    /// the join once after the `if` (see
+    /// [`FunctionEmitter::emit_loop_branch_at_join`]).
+    static LOOP_JOIN_STOPS: RefCell<Vec<(usize, smelt_mir::BlockId, smelt_mir::BlockId)>> =
+        const { RefCell::new(Vec::new()) };
+    /// Set when a walker reached a pending join from a DIFFERENT loop context
+    /// (from inside a nested generated loop, or a forward join region), where
+    /// ending the arm would be wrong; the join-based attempt is then discarded.
+    static LOOP_JOIN_VIOLATION: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Describes how the successor blocks of a terminator must be rendered.
@@ -623,6 +634,16 @@ impl FunctionEmitter<'_> {
                     // `Index` erased-object path below. Non-self-referential values
                     // keep the simpler inline form to avoid churn.
                     let base_name = self.local_name(*base)?.to_owned();
+                    // A write through an erased reference-class VIEW also lands
+                    // on the instance the view stands for; see
+                    // `view_write_through`. The value is bound once so the view
+                    // and the instance receive the same value.
+                    if self.context.erased_view_write_through() {
+                        out.push_str(&format!(
+                            "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value.clone()); smelt_object_write_through(map, {field_name:?}, &smelt_value); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(function) => {{ smelt_set_function_property(function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n"
+                        ));
+                        return Ok(());
+                    }
                     // A FUNCTION receiver keeps being a function: the write
                     // lands in its identity-keyed own-property bag (see
                     // `crate::function_object_prelude`), which every other
@@ -1703,6 +1724,43 @@ impl FunctionEmitter<'_> {
             return self.emit_block(self.block(else_target)?, out);
         }
 
+        // An `if` with no `else` whose arm is itself structured control flow
+        // (a loop, a nested branch) and then falls through to the `else`
+        // block: that block is the statement's JOIN, not an alternative arm.
+        // MIR allocates the join before lowering the arm, so the arm's exit
+        // edge to it points to a LOWER block id, and the rule below — which
+        // emits `if c { arm } else { join }` — dropped that edge as if it were
+        // a loop back-edge: every run through the arm silently skipped the
+        // rest of the function (Hono's reg-exp router `add` returned right
+        // after creating a new method's handler maps). Emit it as the `if`
+        // it is: the arm up to the join, then the join once.
+        if then_block.0 > current.0
+            && else_block.0 > current.0
+            && matches!(
+                then.terminator,
+                Some(Terminator::Goto(_) | Terminator::Call { .. } | Terminator::Switch { .. })
+            )
+            && self.block_reaches_within_region(
+                then_block,
+                else_block,
+                current,
+                &mut BlockIdSet::default(),
+            )
+            && !self.block_reaches_within_region(
+                else_block,
+                then_block,
+                current,
+                &mut BlockIdSet::default(),
+            )
+        {
+            let branch_declared = self.declared_locals_snapshot();
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            self.emit_block_until_goto(then, else_block, RegionExit::Join, out)?;
+            out.push_str("    }\n");
+            self.restore_declared_locals(branch_declared);
+            return self.emit_block(else_, out);
+        }
+
         if let Some(Terminator::Goto(then_target)) = then.terminator
             && then_target.0 > current.0
             && (self.block_eventually_terminates(then_target, &mut BlockIdSet::default())?
@@ -2097,6 +2155,9 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         if !self.block_reaches_target(*then_block, block.id, &mut BlockIdSet::default()) {
+            return Ok(None);
+        }
+        if !self.is_back_edge_target(*then_block, block.id) {
             return Ok(None);
         }
         if !self.block_exits_to_loop(
@@ -2538,6 +2599,23 @@ impl FunctionEmitter<'_> {
         Ok(None)
     }
 
+    /// Returns whether `from` returns to `header` along a genuine BACK EDGE —
+    /// a path that stays inside `header`'s own region, never passing through
+    /// one of `header`'s strict dominators.
+    ///
+    /// Plain reachability is not enough: every block inside an OUTER loop
+    /// reaches every other one by going around that loop. The `if` inside
+    /// `for (..) { if (c) { for (..) {..} } }` reaches itself through the outer
+    /// latch and header, so it was mistaken for a `while` header, the inner
+    /// loop's preheader was emitted inside a spurious `loop {}`, and the inner
+    /// loop's `continue` re-ran that preheader forever (Hono's trie-router
+    /// `#pushHandlerSets` hang). Returning through a strict dominator means
+    /// the path LEFT the region and came back in through its entry — no loop.
+    fn is_back_edge_target(&self, from: smelt_mir::BlockId, header: smelt_mir::BlockId) -> bool {
+        let dominators = self.strict_dominators(header);
+        self.block_reaches_target_avoiding(from, header, &dominators, &mut BlockIdSet::default())
+    }
+
     /// Returns the blocks that strictly dominate `header`.
     ///
     /// A block `d` strictly dominates `header` when `d != header` and every path
@@ -2755,6 +2833,12 @@ impl FunctionEmitter<'_> {
         visited: &mut BlockIdSet,
     ) -> Result<(), EmitError> {
         let break_target = exit.break_target();
+        // In a loop body the region's stop IS the loop header, which is the
+        // loop context a pending join was registered under.
+        let loop_context = matches!(exit, RegionExit::LoopBody { .. }).then_some(stop);
+        if self.loop_join_stop_hit(block.id, loop_context) {
+            return Ok(());
+        }
         if !visited.insert(block.id) {
             // Re-entering a block already on this path is a cycle. Inside a
             // generated loop that cycle is the loop's own back edge, so it
@@ -2889,6 +2973,9 @@ impl FunctionEmitter<'_> {
         out: &mut String,
         visited: &mut BlockIdSet,
     ) -> Result<(), EmitError> {
+        if self.loop_join_stop_hit(block.id, Some(continue_target)) {
+            return Ok(());
+        }
         if !visited.insert(block.id) {
             out.push_str("    continue;\n");
             return Ok(());
@@ -2993,6 +3080,24 @@ impl FunctionEmitter<'_> {
                 then_block,
                 else_block,
             }) => {
+                if self.emit_loop_branch_at_join(
+                    block.id,
+                    cond,
+                    *then_block,
+                    *else_block,
+                    continue_target,
+                    break_target,
+                    out,
+                    visited,
+                )? {
+                    return Ok(());
+                }
+                // Each arm is its own Rust scope: a local first declared
+                // (`let mut ..`) while emitting the then-arm — commonly a join
+                // block both arms duplicate — is NOT in scope in the else-arm,
+                // which must declare it again (E0425 `_smelt_tmp_N` when the
+                // else-arm assigned it bare).
+                let branch_declared = self.declared_locals_snapshot();
                 out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
                 // Each branch can legitimately converge on the same join block.
                 // Sharing the recursion guard across siblings makes the later
@@ -3006,6 +3111,7 @@ impl FunctionEmitter<'_> {
                     &mut then_visited,
                 )?;
                 out.push_str("    } else {\n");
+                self.restore_declared_locals(branch_declared.clone());
                 let mut else_visited = visited.clone();
                 self.emit_loop_branch_inner(
                     self.block(*else_block)?,
@@ -3015,6 +3121,7 @@ impl FunctionEmitter<'_> {
                     &mut else_visited,
                 )?;
                 out.push_str("    }\n");
+                self.restore_declared_locals(branch_declared);
                 Ok(())
             }
             Some(Terminator::Match {
@@ -3035,6 +3142,219 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Identity of the MIR function this emitter renders, used to key the
+    /// thread-local join stops (block ids are only unique per function, and a
+    /// closure body is rendered by its own emitter on the same thread).
+    fn function_identity(&self) -> usize {
+        std::ptr::from_ref(self.function).addr()
+    }
+
+    /// Returns whether `block` is a pending loop-body join of this function,
+    /// i.e. whether the current arm must END here instead of emitting it.
+    ///
+    /// `loop_context` is the continue target of the loop the walker is
+    /// currently emitting (`None` for a forward join region). Reaching a join
+    /// from any context other than the one it was registered in means control
+    /// leaves a nested construct straight into the join; ending the arm there
+    /// would be wrong, so the hit is recorded as a violation and the caller
+    /// discards its join-based attempt.
+    fn loop_join_stop_hit(
+        &self,
+        block: smelt_mir::BlockId,
+        loop_context: Option<smelt_mir::BlockId>,
+    ) -> bool {
+        let identity = self.function_identity();
+        let registered = LOOP_JOIN_STOPS.with(|stops| {
+            stops
+                .borrow()
+                .iter()
+                .rev()
+                .find(|(function, join, _)| *function == identity && *join == block)
+                .map(|(_, _, context)| *context)
+        });
+        let Some(context) = registered else {
+            return false;
+        };
+        if loop_context != Some(context) {
+            LOOP_JOIN_VIOLATION.with(|violation| violation.set(true));
+        }
+        true
+    }
+
+    /// The JOIN of a two-way branch inside a loop body: the branch block's
+    /// immediate post-dominator within the loop region, if it is a real block.
+    ///
+    /// The region is every block reachable from `switch` without passing the
+    /// loop's continue target, its break target, or an enclosing pending join;
+    /// those edges, and returns/throws, all lead to one virtual exit. A block
+    /// every path from the branch goes through before that exit is where both
+    /// arms reconverge, so the code after it belongs after the `if`, once.
+    fn loop_branch_join(
+        &self,
+        switch: smelt_mir::BlockId,
+        continue_target: smelt_mir::BlockId,
+        break_target: Option<smelt_mir::BlockId>,
+    ) -> Option<smelt_mir::BlockId> {
+        let identity = self.function_identity();
+        let pending = LOOP_JOIN_STOPS.with(|stops| {
+            stops
+                .borrow()
+                .iter()
+                .filter(|(function, _, _)| *function == identity)
+                .map(|(_, join, _)| *join)
+                .collect::<Vec<_>>()
+        });
+        let is_exit = |block: smelt_mir::BlockId| {
+            block == continue_target || Some(block) == break_target || pending.contains(&block)
+        };
+        let successors_of = |block_id: smelt_mir::BlockId| {
+            self.block(block_id)
+                .ok()
+                .and_then(|block| block.terminator.as_ref())
+                .map(control_flow_successors)
+                .unwrap_or_default()
+        };
+        let mut region = Vec::new();
+        let mut seen = BlockIdSet::default();
+        let mut stack = vec![switch];
+        while let Some(block_id) = stack.pop() {
+            if is_exit(block_id) || !seen.insert(block_id) {
+                continue;
+            }
+            region.push(block_id);
+            stack.extend(successors_of(block_id));
+        }
+        // Node `n` is `region[n]`; node `region.len()` is the virtual exit.
+        let exit = region.len();
+        let node_of = |block_id: smelt_mir::BlockId| {
+            if is_exit(block_id) {
+                exit
+            } else {
+                region.iter().position(|candidate| *candidate == block_id).unwrap_or(exit)
+            }
+        };
+        let region_successors = region
+            .iter()
+            .map(|block_id| {
+                let mut next = successors_of(*block_id).into_iter().map(node_of).collect::<Vec<_>>();
+                if next.is_empty() {
+                    next.push(exit);
+                }
+                next
+            })
+            .collect::<Vec<_>>();
+        // Iterative post-dominator sets over `region + exit`: a node's set is
+        // itself plus the intersection of its successors' sets.
+        let width = exit.saturating_add(1);
+        let mut post_dominators: Vec<Vec<bool>> = (0..width)
+            .map(|node| (0..width).map(|member| node != exit || member == exit).collect())
+            .collect();
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for (node, next_nodes) in region_successors.iter().enumerate().rev() {
+                let mut next = vec![true; width];
+                for successor in next_nodes {
+                    if let Some(successor_set) = post_dominators.get(*successor) {
+                        for (slot, member) in next.iter_mut().zip(successor_set) {
+                            *slot &= *member;
+                        }
+                    }
+                }
+                if let Some(own) = next.get_mut(node) {
+                    *own = true;
+                }
+                if let Some(current) = post_dominators.get_mut(node)
+                    && *current != next
+                {
+                    *current = next;
+                    changed = true;
+                }
+            }
+        }
+        let start = node_of(switch);
+        let start_set = post_dominators.get(start)?;
+        // The immediate post-dominator is the strict post-dominator that is
+        // itself post-dominated by all the others: the one with the most.
+        region
+            .iter()
+            .zip(&post_dominators)
+            .enumerate()
+            .filter(|(node, _)| *node != start && start_set.get(*node).copied().unwrap_or(false))
+            .max_by_key(|(_, (_, set))| set.iter().filter(|member| **member).count())
+            .map(|(_, (block_id, _))| *block_id)
+    }
+
+    /// Emits `if cond { then } else { else }` inside a loop body ending both
+    /// arms at their JOIN, then the join and everything after it ONCE.
+    ///
+    /// Without a join every arm is emitted through to the loop latch, so the
+    /// code after the `if` is duplicated into both arms; a run of sequential
+    /// branches doubles it at each step (es-toolkit's `mergeWith` loop body
+    /// grew to 100k+ lines). Returns `false`, having emitted nothing, when there
+    /// is no join or when an arm reached the join from a nested loop or forward
+    /// region (where ending the arm would skip code); the caller then uses the
+    /// arm-contained form.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the join emitter threads the branch operands and the loop's continue/break context"
+    )]
+    fn emit_loop_branch_at_join(
+        &self,
+        switch: smelt_mir::BlockId,
+        cond: &Operand,
+        then_block: smelt_mir::BlockId,
+        else_block: smelt_mir::BlockId,
+        continue_target: smelt_mir::BlockId,
+        break_target: Option<smelt_mir::BlockId>,
+        out: &mut String,
+        visited: &mut BlockIdSet,
+    ) -> Result<bool, EmitError> {
+        let Some(join) = self.loop_branch_join(switch, continue_target, break_target) else {
+            return Ok(false);
+        };
+        let branch_declared = self.declared_locals_snapshot();
+        let identity = self.function_identity();
+        LOOP_JOIN_STOPS.with(|stops| stops.borrow_mut().push((identity, join, continue_target)));
+        let previous_violation = LOOP_JOIN_VIOLATION.with(|violation| violation.replace(false));
+        let mut arms = String::new();
+        let emitted = (|| -> Result<(), EmitError> {
+            arms.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            let mut then_visited = visited.clone();
+            self.emit_loop_branch_inner(
+                self.block(then_block)?,
+                continue_target,
+                break_target,
+                &mut arms,
+                &mut then_visited,
+            )?;
+            arms.push_str("    } else {\n");
+            self.restore_declared_locals(branch_declared.clone());
+            let mut else_visited = visited.clone();
+            self.emit_loop_branch_inner(
+                self.block(else_block)?,
+                continue_target,
+                break_target,
+                &mut arms,
+                &mut else_visited,
+            )?;
+            arms.push_str("    }\n");
+            Ok(())
+        })();
+        LOOP_JOIN_STOPS.with(|stops| {
+            stops.borrow_mut().pop();
+        });
+        let violated = LOOP_JOIN_VIOLATION.with(|violation| violation.replace(previous_violation));
+        self.restore_declared_locals(branch_declared);
+        emitted?;
+        if violated {
+            return Ok(false);
+        }
+        out.push_str(&arms);
+        self.emit_loop_branch_inner(self.block(join)?, continue_target, break_target, out, visited)?;
+        Ok(true)
+    }
+
     /// Emits a structured loop discovered while emitting another control-flow region.
     ///
     /// Top-level block emission runs loop recognition before emitting a switch as
@@ -3049,10 +3369,14 @@ impl FunctionEmitter<'_> {
         visited: &mut BlockIdSet,
     ) -> Result<bool, EmitError> {
         let break_target = exit.break_target();
-        let already_emitting_nested_region = EMIT_UNTIL_DEPTH.with(|depth| depth.get() > 1);
-        if already_emitting_nested_region {
-            return Ok(false);
-        }
+        // No depth cut-off: a loop nested three deep (a `for..of` inside a
+        // `while` inside a `for`, Hono's trie-router `search`) is still a loop.
+        // Refusing to recognize it past depth 1 emitted its header as a plain
+        // `if` whose back edge became a `continue` of the ENCLOSING loop —
+        // skipping that loop's own update and hanging. `while_header` only
+        // claims a genuine back-edge target, so a nested region no longer
+        // misreads a branch as a header, which is what the cut-off guarded.
+        // `emit_block_until_goto` keeps its own recursion limit.
         // A compound short-circuit `while` header (e.g. `while (a && b)`) is
         // checked before the single-block recognizers: `while_header` also
         // matches such a header (it computes its own first-operand switch local)

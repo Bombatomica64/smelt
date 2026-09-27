@@ -1,0 +1,606 @@
+class Bag fields [Public items: List<Float>] constructor Some(FuncId(2)) methods [FuncId(3), FuncId(4), FuncId(5), FuncId(6), FuncId(7), FuncId(8), FuncId(9), FuncId(10), FuncId(11), FuncId(12)]
+class Stack fields [Public items: List<String>] constructor Some(FuncId(25)) methods [FuncId(13), FuncId(14), FuncId(15), FuncId(16), FuncId(17), FuncId(18), FuncId(19), FuncId(20), FuncId(21), FuncId(22), FuncId(23), FuncId(24)]
+class Holder fields [Public stack: Stack] constructor Some(FuncId(26)) methods []
+
+fn make (FuncId(0)) -> Stack
+  locals
+    %0 temp: Stack
+  bb0:
+    %0 = call fn25() -> bb1
+  bb1:
+    return move %0
+
+fn via_global (FuncId(1)) -> String
+  locals
+    %0 temp: Stack
+    %1 temp: String
+    %2 temp: Stack
+    %3 temp: String
+    %4 temp: String
+    %5 temp: Stack
+    %6 temp: Float
+    %7 temp: String
+  bb0:
+    %0 = global_get #0
+    %1 = call fn20(move %0, 24.0) -> bb1
+  bb1:
+    %2 = global_get #0
+    %3 = call fn19(move %2, 25.0) -> bb2
+  bb2:
+    %4 = move %1 + move %3
+    %5 = global_get #0
+    %6 = len copy %5.field6
+    %7 = move %4 + move %6
+    return move %7
+
+fn new (FuncId(2)) -> Bag
+  locals
+    %0 user this: Bag
+    %1 param items: List<Float>
+  bb0:
+    %0 = struct0 {}
+    %0.field6 = copy %1
+    return move %0
+
+fn reduce (FuncId(3)) -> Float
+  locals
+    %0 param this: Bag
+    %1 param cb: fn(Float, Float) -> Float
+    %2 param init: Float
+    %3 user acc: Float
+    %4 user x: Float
+    %5 temp: List<Float>
+    %6 temp: Float
+    %7 temp: Float
+    %8 temp: Bool
+    %9 temp: Float
+    %10 temp: Float
+  bb0:
+    %3 = copy %2
+    %5 = copy %0.field6
+    %6 = 0.0
+    goto bb1
+  bb1:
+    %7 = len copy %5
+    %8 = copy %6 < move %7
+    switch move %8 ? bb2 : bb4
+  bb2:
+    %4 = copy %5[copy %6]
+    %9 = closure_call copy %1(move %3, move %4)
+    %10 = move %9 + 1.0
+    %3 = move %10
+    goto bb3
+  bb3:
+    %6 = copy %6 + 1.0
+    goto bb1
+  bb4:
+    return move %3
+
+fn reduce_right (FuncId(4)) -> Float
+  locals
+    %0 param this: Bag
+    %1 param cb: fn(Float, Float) -> Float
+    %2 param init: Float
+    %3 temp: Float
+    %4 temp: Float
+  bb0:
+    %3 = copy %2 * 100.0
+    %4 = closure_call copy %1(move %3, 1.0)
+    return move %4
+
+fn map (FuncId(5)) -> String
+  locals
+    %0 param this: Bag
+    %1 param label: String
+    %2 temp: String
+    %3 temp: String
+    %4 temp: Float
+    %5 temp: String
+  bb0:
+    %2 = "" + copy %1
+    %3 = move %2 + ":"
+    %4 = len copy %0.field6
+    %5 = move %3 + move %4
+    return move %5
+
+fn filter (FuncId(6)) -> List<Float>
+  locals
+    %0 param this: Bag
+    %1 param n: Float
+    %2 temp: fn(Float, Int, List<Float>) -> Bool
+    %3 temp: List<Float>
+  bb0:
+    %2 = closure ClosureId(0) [copy %1]
+    %3 = list_filter copy %0.field6, move %2
+    return move %3
+
+fn find (FuncId(7)) -> String
+  locals
+    %0 param this: Bag
+    %1 param name: String
+    %2 temp: String
+  bb0:
+    %2 = "found " + copy %1
+    return move %2
+
+fn some (FuncId(8)) -> String
+  locals
+    %0 param this: Bag
+    %1 param flag: Bool
+    %2 temp: String
+  bb0:
+    switch copy %1 ? bb1 : bb2
+  bb1:
+    %2 = "some-yes"
+    goto bb3
+  bb2:
+    %2 = "some-no"
+    goto bb3
+  bb3:
+    return move %2
+
+fn every (FuncId(9)) -> Float
+  locals
+    %0 param this: Bag
+    %1 temp: Float
+    %2 temp: Float
+  bb0:
+    %1 = len copy %0.field6
+    %2 = move %1 * 2.0
+    return move %2
+
+fn for_each (FuncId(10)) -> String
+  locals
+    %0 param this: Bag
+    %1 param prefix: String
+    %2 temp: fn(Float, Int, List<Float>) -> String
+    %3 temp: List<String>
+    %4 temp: String
+  bb0:
+    %2 = closure ClosureId(1) [copy %1]
+    %3 = list_map copy %0.field6, move %2
+    %4 = string_join move %3, ","
+    return move %4
+
+fn find_index (FuncId(11)) -> Float
+  locals
+    %0 param this: Bag
+    %1 param x: Float
+    %2 temp: Float
+    %3 temp: Float
+  bb0:
+    %2 = list_find copy %0.field6, copy %1
+    %3 = move %2 + 10.0
+    return move %3
+
+fn total (FuncId(12)) -> Float
+  locals
+    %0 param this: Bag
+    %1 temp: fn(Float, Float) -> Float
+    %2 temp: Float
+  bb0:
+    %1 = closure ClosureId(2) []
+    %2 = call fn3(copy %0, move %1, 0.0) -> bb1
+  bb1:
+    return move %2
+
+fn push (FuncId(13)) -> Float
+  locals
+    %0 param this: Stack
+    %1 param x: String
+    %2 param y: String
+    %3 temp: List<String>
+    %4 temp: String
+    %5 temp: Float
+    %6 temp: Float
+    %7 temp: Float
+  bb0:
+    %3 = copy %0.field6
+    %4 = copy %1 + copy %2
+    %5 = list_push copy %3, move %4
+    %0.field6 = move %3
+    %6 = len copy %0.field6
+    %7 = 100.0 + move %6
+    return move %7
+
+fn pop (FuncId(14)) -> String
+  locals
+    %0 param this: Stack
+    %1 param n: Float
+    %2 temp: String
+  bb0:
+    %2 = "pop" + copy %1
+    return move %2
+
+fn shift (FuncId(15)) -> String
+  locals
+    %0 param this: Stack
+    %1 param n: Float
+    %2 temp: String
+  bb0:
+    %2 = "shift" + copy %1
+    return move %2
+
+fn index_of (FuncId(16)) -> String
+  locals
+    %0 param this: Stack
+    %1 param x: String
+    %2 temp: String
+  bb0:
+    %2 = "indexOf" + copy %1
+    return move %2
+
+fn includes (FuncId(17)) -> String
+  locals
+    %0 param this: Stack
+    %1 param x: String
+    %2 temp: String
+  bb0:
+    %2 = "includes" + copy %1
+    return move %2
+
+fn at (FuncId(18)) -> String
+  locals
+    %0 param this: Stack
+    %1 param i: Float
+    %2 temp: String
+  bb0:
+    %2 = "at" + copy %1
+    return move %2
+
+fn slice (FuncId(19)) -> String
+  locals
+    %0 param this: Stack
+    %1 param a: Float
+    %2 temp: String
+  bb0:
+    %2 = "slice" + copy %1
+    return move %2
+
+fn join (FuncId(20)) -> String
+  locals
+    %0 param this: Stack
+    %1 param a: Float
+    %2 temp: String
+  bb0:
+    %2 = "join" + copy %1
+    return move %2
+
+fn concat (FuncId(21)) -> String
+  locals
+    %0 param this: Stack
+    %1 param a: Float
+    %2 temp: String
+  bb0:
+    %2 = "concat" + copy %1
+    return move %2
+
+fn reverse (FuncId(22)) -> String
+  locals
+    %0 param this: Stack
+    %1 param a: Float
+    %2 temp: String
+  bb0:
+    %2 = "reverse" + copy %1
+    return move %2
+
+fn sort (FuncId(23)) -> String
+  locals
+    %0 param this: Stack
+    %1 param a: Float
+    %2 temp: String
+  bb0:
+    %2 = "sort" + copy %1
+    return move %2
+
+fn entries (FuncId(24)) -> String
+  locals
+    %0 param this: Stack
+    %1 param a: Float
+    %2 temp: String
+  bb0:
+    %2 = "entries" + copy %1
+    return move %2
+
+fn new (FuncId(25)) -> Stack
+  locals
+    %0 user this: Stack
+    %1 temp: List<String>
+  bb0:
+    %0 = struct1 {}
+    %1 = []
+    %0.field6 = move %1
+    return move %0
+
+fn new (FuncId(26)) -> Holder
+  locals
+    %0 user this: Holder
+    %1 temp: Stack
+  bb0:
+    %0 = struct2 {}
+    %1 = call fn25() -> bb1
+  bb1:
+    %0.field47 = move %1
+    return move %0
+
+fn smelt_global_init__s__0 (FuncId(27)) -> Stack
+  locals
+    %0 temp: Stack
+  bb0:
+    %0 = call fn25() -> bb1
+  bb1:
+    return move %0
+
+fn main (FuncId(28)) -> None
+  locals
+    %0 user b: Bag
+    %1 user h: Holder
+    %2 user arr: List<Float>
+    %3 temp: List<Float>
+    %4 temp: Bag
+    %5 temp: fn(Float, Float) -> Float
+    %6 temp: Float
+    %7 temp: None
+    %8 temp: fn(Float, Float) -> Float
+    %9 temp: Float
+    %10 temp: None
+    %11 temp: String
+    %12 temp: List<Float>
+    %13 temp: Float
+    %14 temp: String
+    %15 temp: String
+    %16 temp: None
+    %17 temp: Float
+    %18 temp: String
+    %19 temp: Float
+    %20 temp: Float
+    %21 temp: None
+    %22 temp: List<Float>
+    %23 temp: Bag
+    %24 temp: fn(Float, Float) -> Float
+    %25 temp: Float
+    %26 temp: None
+    %27 temp: Stack
+    %28 temp: Float
+    %29 temp: Stack
+    %30 temp: String
+    %31 temp: Stack
+    %32 temp: String
+    %33 temp: Stack
+    %34 temp: String
+    %35 temp: Stack
+    %36 temp: String
+    %37 temp: None
+    %38 temp: Stack
+    %39 temp: String
+    %40 temp: Stack
+    %41 temp: String
+    %42 temp: Stack
+    %43 temp: String
+    %44 temp: Stack
+    %45 temp: String
+    %46 temp: Stack
+    %47 temp: String
+    %48 temp: Stack
+    %49 temp: String
+    %50 temp: Stack
+    %51 temp: String
+    %52 temp: None
+    %53 temp: Holder
+    %54 temp: Stack
+    %55 temp: String
+    %56 temp: Stack
+    %57 temp: String
+    %58 temp: Stack
+    %59 temp: String
+    %60 temp: Stack
+    %61 temp: String
+    %62 temp: None
+    %63 temp: String
+    %64 temp: Stack
+    %65 temp: String
+    %66 temp: None
+    %67 temp: List<Float>
+    %68 temp: fn(Float, Float, Int, List<Float>) -> Float
+    %69 temp: Float
+    %70 temp: fn(Float, Int, List<Float>) -> Float
+    %71 temp: List<Float>
+    %72 temp: String
+    %73 temp: None
+  bb0:
+    %3 = [1.0, 2.0, 3.0]
+    %4 = call fn2(move %3) -> bb1
+  bb1:
+    %0 = move %4
+    %5 = closure ClosureId(3) []
+    %6 = call fn3(copy %0, move %5, 0.0) -> bb2
+  bb2:
+    %7 = call @console_log(move %6) -> bb3
+  bb3:
+    %8 = closure ClosureId(4) []
+    %9 = call fn4(copy %0, move %8, 5.0) -> bb4
+  bb4:
+    %10 = call @console_log(move %9) -> bb5
+  bb5:
+    %11 = call fn5(copy %0, "m") -> bb6
+  bb6:
+    %12 = call fn6(copy %0, 1.0) -> bb7
+  bb7:
+    %13 = len move %12
+    %14 = call fn7(copy %0, "get") -> bb8
+  bb8:
+    %15 = call fn8(copy %0, true) -> bb9
+  bb9:
+    %16 = call @console_log(move %11, move %13, move %14, move %15) -> bb10
+  bb10:
+    %17 = call fn9(copy %0) -> bb11
+  bb11:
+    %18 = call fn10(copy %0, "p") -> bb12
+  bb12:
+    %19 = call fn11(copy %0, 2.0) -> bb13
+  bb13:
+    %20 = call fn12(move %0) -> bb14
+  bb14:
+    %21 = call @console_log(move %17, move %18, move %19, move %20) -> bb15
+  bb15:
+    %22 = [4.0, 5.0]
+    %23 = call fn2(move %22) -> bb16
+  bb16:
+    %24 = closure ClosureId(5) []
+    %25 = call fn3(move %23, move %24, 1.0) -> bb17
+  bb17:
+    %26 = call @console_log(move %25) -> bb18
+  bb18:
+    %27 = global_get #0
+    %28 = call fn13(move %27, "a", "b") -> bb19
+  bb19:
+    %29 = global_get #0
+    %30 = call fn14(move %29, 1.0) -> bb20
+  bb20:
+    %31 = global_get #0
+    %32 = call fn15(move %31, 2.0) -> bb21
+  bb21:
+    %33 = global_get #0
+    %34 = call fn16(move %33, "i") -> bb22
+  bb22:
+    %35 = global_get #0
+    %36 = call fn17(move %35, "c") -> bb23
+  bb23:
+    %37 = call @console_log(move %28, move %30, move %32, move %34, move %36) -> bb24
+  bb24:
+    %38 = global_get #0
+    %39 = call fn18(move %38, 3.0) -> bb25
+  bb25:
+    %40 = global_get #0
+    %41 = call fn19(move %40, 4.0) -> bb26
+  bb26:
+    %42 = global_get #0
+    %43 = call fn20(move %42, 5.0) -> bb27
+  bb27:
+    %44 = global_get #0
+    %45 = call fn21(move %44, 6.0) -> bb28
+  bb28:
+    %46 = global_get #0
+    %47 = call fn22(move %46, 7.0) -> bb29
+  bb29:
+    %48 = global_get #0
+    %49 = call fn23(move %48, 8.0) -> bb30
+  bb30:
+    %50 = global_get #0
+    %51 = call fn24(move %50, 9.0) -> bb31
+  bb31:
+    %52 = call @console_log(move %39, move %41, move %43, move %45, move %47, move %49, move %51) -> bb32
+  bb32:
+    %53 = call fn26() -> bb33
+  bb33:
+    %1 = move %53
+    %54 = copy %1.field47
+    %55 = call fn20(copy %1.field47, 20.0) -> bb34
+  bb34:
+    %56 = copy %1.field47
+    %57 = call fn22(copy %1.field47, 21.0) -> bb35
+  bb35:
+    %58 = call fn0() -> bb36
+  bb36:
+    %59 = call fn14(move %58, 22.0) -> bb37
+  bb37:
+    %60 = call fn0() -> bb38
+  bb38:
+    %61 = call fn18(move %60, 23.0) -> bb39
+  bb39:
+    %62 = call @console_log(move %55, move %57, move %59, move %61) -> bb40
+  bb40:
+    %63 = call fn1() -> bb41
+  bb41:
+    %64 = global_get #0
+    %65 = string_join copy %64.field6, "|"
+    %66 = call @console_log(move %63, move %65) -> bb42
+  bb42:
+    %67 = [1.0, 2.0, 3.0]
+    %2 = move %67
+    %68 = closure ClosureId(6) []
+    %69 = list_reduce copy %2, 0.0, move %68
+    %70 = closure ClosureId(7) []
+    %71 = list_map move %2, move %70
+    %72 = string_join move %71, "-"
+    %73 = call @console_log(move %69, move %72) -> bb43
+  bb43:
+    return none
+
+closure ClosureId(0) -> Bool
+  locals
+    %0 param __callback_param_0: Float
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<Float>
+    %3 user n: Float
+    %4 temp: Bool
+  bb0:
+    %4 = copy %0 > copy %3
+    return copy %4
+
+closure ClosureId(1) -> String
+  locals
+    %0 param __callback_param_0: Float
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<Float>
+    %3 user prefix: String
+    %4 temp: String
+  bb0:
+    %4 = copy %3 + copy %0
+    return copy %4
+
+closure ClosureId(2) -> Float
+  locals
+    %0 param __callback_param_0: Float
+    %1 param __callback_param_1: Float
+    %2 temp: Float
+  bb0:
+    %2 = copy %0 + copy %1
+    return copy %2
+
+closure ClosureId(3) -> Float
+  locals
+    %0 param __callback_param_0: Float
+    %1 param __callback_param_1: Float
+    %2 temp: Float
+  bb0:
+    %2 = copy %0 + copy %1
+    return copy %2
+
+closure ClosureId(4) -> Float
+  locals
+    %0 param __callback_param_0: Float
+    %1 param __callback_param_1: Float
+    %2 temp: Float
+  bb0:
+    %2 = copy %0 + copy %1
+    return copy %2
+
+closure ClosureId(5) -> Float
+  locals
+    %0 param __callback_param_0: Float
+    %1 param __callback_param_1: Float
+    %2 temp: Float
+  bb0:
+    %2 = copy %0 * copy %1
+    return copy %2
+
+closure ClosureId(6) -> Float
+  locals
+    %0 param a: Float
+    %1 param x: Float
+    %2 temp: Float
+  bb0:
+    %2 = copy %0 + copy %1
+    return copy %2
+
+closure ClosureId(7) -> Float
+  locals
+    %0 param __callback_param_0: Float
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<Float>
+    %3 temp: Float
+  bb0:
+    %3 = copy %0 * 2.0
+    return copy %3
+

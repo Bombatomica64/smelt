@@ -2815,6 +2815,46 @@ impl ModuleBuilder<'_> {
                 &mut body,
             );
             (params, forwarded.required_params)
+        } else if let Some(base_name) = self.error_like_base_name(class_text).filter(|_| has_base) {
+            // `class E extends Error {}`: the implicit constructor forwards to
+            // the builtin `Error(message?: string)`, whose signature IS known,
+            // so the forwarded message is a typed optional string and runs the
+            // same slot initialization an explicit `super(message)` does.
+            // Ignoring it (the erased fallback below) left every such error with
+            // an empty `message` and `name`.
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            let message_ty = self.ctx.krate.types.intern(Type::Optional(string_ty));
+            let message_symbol = self.ctx.krate.symbols.intern("message");
+            let message_local = body.push_local(LocalDecl {
+                name: Some(message_symbol),
+                ty: message_ty,
+                mutable: false,
+                span,
+            });
+            body.params.push(message_local);
+            let message = body.push_expr(Expr {
+                kind: ExprKind::Local(message_local),
+                ty: message_ty,
+                span,
+            });
+            self.lower_error_base_super_call(
+                &base_name,
+                &[message],
+                this_local,
+                class_ty,
+                class_text,
+                span,
+                &mut body,
+            );
+            (
+                vec![Param {
+                    name: message_symbol,
+                    local: message_local,
+                    ty: message_ty,
+                    span,
+                }],
+                Some(0),
+            )
         } else if has_base {
             // A base this lowering cannot reproduce: see the doc comment for why
             // the forwarded argument is a genuine dynamic boundary here.
@@ -2859,6 +2899,17 @@ impl ModuleBuilder<'_> {
             body: Some(body_id),
             owner: FunctionOwner::Constructor { class: class_name },
         })))
+    }
+
+    /// The builtin error class a class DIRECTLY extends, when it extends one.
+    ///
+    /// Only the immediate base is consulted: a class extending a source class
+    /// that itself extends `Error` forwards to that source constructor through
+    /// [`Self::reproducible_base_constructor_signature`] instead.
+    fn error_like_base_name(&self, class_text: &str) -> Option<String> {
+        let (base, _) = self.classes.base(class_text).cloned()?;
+        let base_name = self.ctx.krate.symbols.get(base)?;
+        super_call::is_error_like_base(base_name).then(|| base_name.to_owned())
     }
 
     /// Resolve the base constructor an implicit derived constructor forwards to.

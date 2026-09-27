@@ -1,0 +1,117 @@
+class Tally fields [Public label: String, Public builds: Float, Public describe: fn(String) -> String] constructor Some(FuncId(1)) methods []
+interface Counter
+
+fn describe (FuncId(0)) -> String
+  locals
+    %0 param prefix: String
+    %1 user fast: fn(String) -> String
+    %2 user label: Unknown
+    %3 temp: Unknown
+    %4 temp: Unknown
+    %5 temp: Float
+    %6 temp: Unknown
+    %7 temp: fn(String) -> String
+    %8 temp: Unknown
+    %9 temp: String
+    %10 temp: String
+    %11 temp: String
+  bb0:
+    %3 = this
+    %4 = this
+    %5 = copy %4.field5 + 1.0
+    %3.field5 = move %5
+    %6 = this
+    %2 = copy %6.field4
+    %7 = closure ClosureId(0) [copy %2]
+    %1 = move %7
+    %8 = this
+    %8.field1 = move %1
+    %9 = copy %0 + " "
+    %10 = move %9 + copy %2
+    %11 = move %10 + " (built)"
+    return move %11
+
+fn new (FuncId(1)) -> Tally
+  locals
+    %0 user this: Tally
+    %1 param label: String
+    %2 temp: fn(String) -> String
+  bb0:
+    %0 = struct0 {}
+    %0.field5 = 0.0
+    %2 = closure ClosureId(1) []
+    %0.field1 = move %2
+    %0.field4 = copy %1
+    return move %0
+
+fn main (FuncId(2)) -> None throws
+  locals
+    %0 user tally: Tally
+    %1 user other: Tally
+    %2 temp: Tally
+    %3 temp: fn(String) -> String
+    %4 temp: String
+    %5 temp: None
+    %6 temp: fn(String) -> String
+    %7 temp: String
+    %8 temp: None
+    %9 temp: fn(String) -> String
+    %10 temp: String
+    %11 temp: None
+    %12 temp: None
+    %13 temp: Tally
+    %14 temp: fn(String) -> String
+    %15 temp: String
+    %16 temp: None
+    %17 temp: None
+  bb0:
+    %2 = call fn1("apples") -> bb1
+  bb1:
+    %0 = move %2
+    %3 = bind_this copy %0.field1, copy %0
+    %4 = closure_call move %3("first")
+    %5 = call @console_log(move %4) -> bb2
+  bb2:
+    %6 = bind_this copy %0.field1, copy %0
+    %7 = closure_call move %6("second")
+    %8 = call @console_log(move %7) -> bb3
+  bb3:
+    %9 = bind_this copy %0.field1, copy %0
+    %10 = closure_call move %9("third")
+    %11 = call @console_log(move %10) -> bb4
+  bb4:
+    %12 = call @console_log(copy %0.field5) -> bb5
+  bb5:
+    %13 = call fn1("pears") -> bb6
+  bb6:
+    %1 = move %13
+    %14 = bind_this copy %1.field1, copy %1
+    %15 = closure_call move %14("solo")
+    %16 = call @console_log(move %15) -> bb7
+  bb7:
+    %17 = call @console_log(copy %1.field5, copy %0.field5) -> bb8
+  bb8:
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 param __callback_param_0: String
+    %1 user label: Unknown
+    %2 temp: String
+    %3 temp: String
+    %4 temp: String
+  bb0:
+    %2 = copy %0 + " "
+    %3 = copy %2 + copy %1
+    %4 = copy %3 + " (cached)"
+    return copy %4
+
+closure ClosureId(1) -> String
+  locals
+    %0 param prefix: String
+    %1 temp: String
+  bb0:
+    %1 = call fn0(copy %0) -> bb1
+  bb1:
+    return copy %1
+

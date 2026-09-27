@@ -56,17 +56,19 @@ fn main (FuncId(4)) -> None throws
     %5 temp: None
     %6 temp: String
     %7 temp: None
-    %8 temp: Chain<Float>
-    %9 temp: None
-    %10 temp: Chain<String>
-    %11 temp: Track<String>
-    %12 temp: Chain<String>
+    %8 temp: fn() -> Chain<Float>
+    %9 temp: Chain<Float>
+    %10 temp: None
+    %11 temp: Chain<String>
+    %12 temp: Track<String>
     %13 temp: Chain<String>
-    %14 temp: String
-    %15 temp: None
-    %16 temp: Chain<String>
+    %14 temp: Chain<String>
+    %15 temp: String
+    %16 temp: None
     %17 temp: Chain<String>
-    %18 temp: None
+    %18 temp: fn() -> Chain<String>
+    %19 temp: Chain<String>
+    %20 temp: None
   bb0:
     %2 = call fn0(1.0) -> bb1
   bb1:
@@ -80,24 +82,24 @@ fn main (FuncId(4)) -> None throws
     %6 = string_join copy %0.field4, ","
     %7 = call @console_log(move %6) -> bb5
   bb5:
-    %8 = closure_call copy %0.field5()
-    %9 = call @console_log(copy %8.field3) -> bb6
+    %9 = closure_call copy %0.field5()
+    %10 = call @console_log(copy %9.field3) -> bb6
   bb6:
-    %10 = call fn0("a") -> bb7
+    %11 = call fn0("a") -> bb7
   bb7:
-    %11 = call fn2(move %10) -> bb8
+    %12 = call fn2(move %11) -> bb8
   bb8:
-    %1 = move %11
-    %12 = copy %1.field10
-    %13 = call fn1(copy %1.field10, "b") -> bb9
+    %1 = move %12
+    %13 = copy %1.field10
+    %14 = call fn1(copy %1.field10, "b") -> bb9
   bb9:
-    %14 = call fn3(copy %1) -> bb10
+    %15 = call fn3(copy %1) -> bb10
   bb10:
-    %15 = call @console_log(move %14) -> bb11
+    %16 = call @console_log(move %15) -> bb11
   bb11:
-    %16 = copy %1.field10
-    %17 = closure_call copy %16.field5()
-    %18 = call @console_log(copy %17.field3) -> bb12
+    %17 = copy %1.field10
+    %19 = closure_call copy %17.field5()
+    %20 = call @console_log(copy %19.field3) -> bb12
   bb12:
     return none
 

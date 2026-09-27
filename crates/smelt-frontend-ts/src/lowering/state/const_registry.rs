@@ -165,6 +165,14 @@ impl ConstRegistry {
         self.collections.insert(name, value);
     }
 
+    /// Drop the folded array/set value of `name`, returning whether one existed.
+    ///
+    /// A binding the module mutates is not a constant: once it is lifted to a
+    /// module slot its folded elements would describe only its initial value.
+    pub(in crate::lowering) fn forget_collection(&mut self, name: &str) -> bool {
+        self.collections.remove(name).is_some()
+    }
+
     /// Return the `Object.values` projection of the object constant `name`.
     pub(in crate::lowering) fn object_value_collection(
         &self,

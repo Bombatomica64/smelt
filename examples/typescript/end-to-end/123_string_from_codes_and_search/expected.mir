@@ -1,0 +1,82 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user codes: List<Float>
+    %1 user text: String
+    %2 user i: Float
+    %3 user escape_re: RegExp
+    %4 temp: List<Float>
+    %5 temp: Float
+    %6 temp: Bool
+    %7 temp: List<Float>
+    %8 temp: String
+    %9 temp: String
+    %10 temp: Float
+    %11 temp: None
+    %12 temp: Float
+    %13 temp: List<Float>
+    %14 temp: String
+    %15 temp: None
+    %16 temp: List<Float>
+    %17 temp: String
+    %18 temp: None
+    %19 temp: List<Float>
+    %20 temp: String
+    %21 temp: Float
+    %22 temp: None
+    %23 temp: RegExp
+    %24 temp: Float
+    %25 temp: Float
+    %26 temp: RegExp
+    %27 temp: Float
+    %28 temp: RegExp
+    %29 temp: Float
+    %30 temp: None
+  bb0:
+    %4 = [72.0, 101.0, 108.0, 108.0, 111.0]
+    %0 = move %4
+    %1 = ""
+    %2 = 0.0
+    goto bb1
+  bb1:
+    %5 = len copy %0
+    %6 = copy %2 < move %5
+    switch move %6 ? bb2 : bb4
+  bb2:
+    %7 = [copy %0[copy %2]]
+    %8 = primitive_cast_from_char_codes move %7
+    %9 = move %1 + move %8
+    %1 = move %9
+    goto bb3
+  bb3:
+    %10 = move %2 + 1.0
+    %2 = move %10
+    goto bb1
+  bb4:
+    %11 = call @console_log(move %1) -> bb5
+  bb5:
+    %12 = 65536.0 + 65.0
+    %13 = [19990.0, 30028.0, move %12]
+    %14 = primitive_cast_from_char_codes move %13
+    %15 = call @console_log(move %14) -> bb6
+  bb6:
+    %16 = [128293.0, 65.0]
+    %17 = primitive_cast_from_code_points move %16
+    %18 = call @console_log(move %17) -> bb7
+  bb7:
+    %19 = []
+    %20 = primitive_cast_from_char_codes move %19
+    %21 = len move %20
+    %22 = call @console_log(move %21) -> bb8
+  bb8:
+    %23 = external_new0("[\&<>'"]", "")
+    %3 = move %23
+    %24 = string_search "I <b>", move %3
+    %25 = string_search "ab", "b"
+    %26 = external_new0("<", "")
+    %27 = string_search "héllo<", move %26
+    %28 = external_new0("y", "")
+    %29 = string_search "x", move %28
+    %30 = call @console_log(move %24, move %25, move %27, move %29) -> bb9
+  bb9:
+    return none
+

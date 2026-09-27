@@ -1,0 +1,95 @@
+module examples/typescript/end-to-end/128_match_array_groups/input.ts (ModuleId(0))
+  body BodyId(7)
+  items
+    fn pick owner Module
+    fn describe owner Module
+    fn digits owner Module
+    fn first_two owner Module
+  locals
+    %0 const routes: RegExp
+  exprs
+    #0: String = "^\/a(?:\/b()|\/c())$"
+    #1: String = ""
+    #2: RegExp = new RegExp(#0, #1)
+    #3: String = "/a/b"
+    #4: fn(String) -> String = @0(pick)
+    #5: String = call #4(#3)
+    #6: String = "/a/c"
+    #7: fn(String) -> String = @0(pick)
+    #8: String = call #7(#6)
+    #9: String = "/x"
+    #10: fn(String) -> String = @0(pick)
+    #11: String = call #10(#9)
+    #12: None = @8(console_log)
+    #13: None = call #12(#5, #8, #11)
+    #14: String = "12-"
+    #15: fn(String) -> None = @1(describe)
+    #16: None = call #15(#14)
+    #17: String = "3-4"
+    #18: fn(String) -> None = @1(describe)
+    #19: None = call #18(#17)
+    #20: String = "x"
+    #21: fn(String) -> None = @1(describe)
+    #22: None = call #21(#20)
+    #23: String = "a1b22"
+    #24: fn(String) -> String = @2(digits)
+    #25: String = call #24(#23)
+    #26: String = "ab"
+    #27: fn(String) -> String = @2(digits)
+    #28: String = call #27(#26)
+    #29: None = @9(console_log)
+    #30: None = call #29(#25, #28)
+    #31: String = "a1"
+    #32: String = "([a-z])(\d)?"
+    #33: String = ""
+    #34: RegExp = new RegExp(#32, #33)
+    #35: fn(String, RegExp) -> String = @3(first_two)
+    #36: String = call #35(#31, #34)
+    #37: String = "b"
+    #38: String = "([a-z])(\d)?"
+    #39: String = ""
+    #40: RegExp = new RegExp(#38, #39)
+    #41: fn(String, RegExp) -> String = @3(first_two)
+    #42: String = call #41(#37, #40)
+    #43: String = "b"
+    #44: String = "z"
+    #45: String = ""
+    #46: RegExp = new RegExp(#44, #45)
+    #47: fn(String, RegExp) -> String = @3(first_two)
+    #48: String = call #47(#43, #46)
+    #49: None = @10(console_log)
+    #50: None = call #49(#36, #42, #48)
+  stmts
+    s0: let %0: RegExp = #2
+    s1: #13
+    s2: #16
+    s3: #19
+    s4: #22
+    s5: #30
+    s6: #50
+
+interned types
+  t0 = RegExp
+  t1 = String
+  t2 = fn(String) -> String
+  t3 = None
+  t4 = fn(String) -> None
+  t5 = fn(String, RegExp) -> String
+  t6 = __SmeltMatch
+  t7 = Optional<__SmeltMatch>
+  t8 = Bool
+  t9 = Optional<String>
+  t10 = List<Optional<String>>
+  t11 = Float
+  t12 = Int
+  t13 = Unknown
+  t14 = fn(Optional<String>, Int, List<Optional<String>>) -> Optional<String>
+  t15 = Optional<Optional<String>>
+  t16 = List<String>
+  t17 = Optional<List<String>>
+  t18 = fn(String, Int, List<String>) -> String
+  t19 = Optional<Float>
+  t20 = Optional<List<Optional<String>>>
+  t21 = fn(String) -> String
+  t22 = fn(String) -> None
+  t23 = fn(String, RegExp) -> String

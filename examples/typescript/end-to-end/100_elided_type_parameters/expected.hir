@@ -41,34 +41,30 @@ module examples/typescript/end-to-end/100_elided_type_parameters/input.ts (Modul
     #27: String = "held"
     #28: Cell<String> = new Cell(#27)
     #29: Cell<String> = %2
-    #30: Cell<String> = %2
+    #30: fn() -> T = #29.get
     #31: Cell<String> = %2
-    #32: Cell<String> = %2
-    #33: Cell<String> = %2
-    #34: fn() -> T = #33.get
-    #35: Cell<String> = %2
-    #36: String = #35.get()
-    #37: None = @15(console_log)
-    #38: None = call #37(#36)
-    #39: Float = 41.0
-    #40: String = "/posts"
-    #41: Pair<Float, String> = new Pair(#39, #40)
-    #42: Pair<Float, String> = %3
-    #43: fn() -> Carried = #42.carried
-    #44: Pair<Float, String> = %3
-    #45: Float = #44.carried()
-    #46: Float = 1.0
-    #47: Float = Add #45, #46
-    #48: None = @16(console_log)
-    #49: None = call #48(#47)
-    #50: Pair<Float, String> = %3
-    #51: Route<String> = #50.right
-    #52: fn() -> String = #51.describe
-    #53: Pair<Float, String> = %3
-    #54: Route<String> = #53.right
-    #55: String = #54.describe()
-    #56: None = @17(console_log)
-    #57: None = call #56(#55)
+    #32: String = #31.get()
+    #33: None = @15(console_log)
+    #34: None = call #33(#32)
+    #35: Float = 41.0
+    #36: String = "/posts"
+    #37: Pair<Float, String> = new Pair(#35, #36)
+    #38: Pair<Float, String> = %3
+    #39: fn() -> Carried = #38.carried
+    #40: Pair<Float, String> = %3
+    #41: Float = #40.carried()
+    #42: Float = 1.0
+    #43: Float = Add #41, #42
+    #44: None = @16(console_log)
+    #45: None = call #44(#43)
+    #46: Pair<Float, String> = %3
+    #47: Route<String> = #46.right
+    #48: fn() -> String = #47.describe
+    #49: Pair<Float, String> = %3
+    #50: Route<String> = #49.right
+    #51: String = #50.describe()
+    #52: None = @17(console_log)
+    #53: None = call #52(#51)
   stmts
     s0: let %0: Route<String> = #1
     s1: #7
@@ -77,10 +73,10 @@ module examples/typescript/end-to-end/100_elided_type_parameters/input.ts (Modul
     s4: #18
     s5: #26
     s6: let %2: Cell<String> = #28
-    s7: #38
-    s8: let %3: Pair<Float, String> = #41
-    s9: #49
-    s10: #57
+    s7: #34
+    s8: let %3: Pair<Float, String> = #37
+    s9: #45
+    s10: #53
 
 interned types
   t0 = String

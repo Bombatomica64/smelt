@@ -146,6 +146,8 @@ mod tuple;
 mod typeof_str_locals;
 mod types;
 mod union;
+/// Property writes through an erased view of a reference-class instance.
+pub(crate) mod view_write_through;
 
 pub(crate) use literals::method_mutates_this;
 use literals::{assigned_locals, constant_text};
@@ -219,6 +221,9 @@ pub(crate) struct EmitContext {
     /// read by BOTH the declaration and the reference side or the two disagree
     /// on arity.
     type_param_elision: crate::generic_elision::TypeParamElision,
+    /// Whether property writes through an erased reference-class view are
+    /// forwarded to the instance (see [`view_write_through`]).
+    erased_view_write_through: bool,
 }
 
 impl EmitContext {
@@ -318,7 +323,14 @@ impl EmitContext {
             generic_functions: RefCell::new(HashSet::new()),
             reference_classes: crate::classify::reference_classes(mir),
             type_param_elision: crate::generic_elision::compute(mir),
+            erased_view_write_through: view_write_through::program_writes_erased_fields(mir),
         })
+    }
+
+    /// Return whether property writes through an erased view reach the
+    /// reference-class instance it stands for (see [`view_write_through`]).
+    pub(crate) fn erased_view_write_through(&self) -> bool {
+        self.erased_view_write_through && !self.reference_classes.is_empty()
     }
 
     /// Return whether the class named `symbol` is emitted as a reference class.

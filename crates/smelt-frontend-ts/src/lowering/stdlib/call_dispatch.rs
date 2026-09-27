@@ -128,7 +128,88 @@ impl<'builder> ModuleBuilder<'builder> {
         self.call_expression(call, body)
     }
 
+    /// Lower `local?.method(..)` on an absent-able STRING or ARRAY local.
+    ///
+    /// The builtin method handlers are keyed on the receiver's static type, and
+    /// `string | undefined` is not `string`, so `base?.at(-1)` fell through to
+    /// a field read of `at` and called a default callback (`null`), and
+    /// `s?.indexOf('x')` was rejected outright (Hono's `mergePath`). The call
+    /// is instead lowered once with the local narrowed to its present type —
+    /// the handler sees an ordinary `string` receiver — and wrapped as
+    /// `local present ? call : undefined`, which is exactly what `?.` means.
+    fn optional_builtin_receiver_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if !member.optional {
+            return Ok(None);
+        }
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        let name = object.name.as_str();
+        let Some(local) = self.scope.lookup(name) else {
+            return Ok(None);
+        };
+        // Decided from the local's (narrowed) type WITHOUT lowering the
+        // receiver, so a call this rule declines lowers exactly as before.
+        let local_ty = self
+            .scope
+            .narrowed_type(name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        let Some(Type::Optional(inner)) = self.ctx.krate.types.get(local_ty).cloned() else {
+            return Ok(None);
+        };
+        if !matches!(
+            self.ctx.krate.types.get(inner),
+            Some(Type::String | Type::List(_) | Type::Tuple(_))
+        ) {
+            return Ok(None);
+        }
+        let receiver = self.expression(&member.object, body)?;
+        self.scope.push_narrowing_fact(name.to_owned(), inner);
+        let lowered = self.call_expression(call, body);
+        self.scope.pop_narrowing_scope();
+        let op = lowered?;
+        Ok(Some(self.wrap_optional_receiver_method(receiver, op, call.span, body)))
+    }
+
+    /// Lower a call expression.
+    ///
+    /// An `Array.prototype` read method (`indexOf`, `slice`, `map`, ...)
+    /// registers its receiver node in `array_view_receivers` for the duration
+    /// of the call, so a regex-match receiver lowers to its array view and the
+    /// ordinary list rules apply to it (see [`Self::match_array_view`]). Every
+    /// other receiver lowers exactly as before: the view only replaces a value
+    /// whose type is the match class.
     pub(in crate::lowering) fn call_expression(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let receiver_key = match &call.callee {
+            Expression::StaticMemberExpression(member)
+                if smelt_stdlib::is_array_non_mutating_method(member.property.name.as_str()) =>
+            {
+                Some(std::ptr::from_ref(&member.object).addr())
+            }
+            _ => None,
+        };
+        let Some(receiver_key) = receiver_key else {
+            return self.call_expression_lowering(call, body);
+        };
+        self.array_view_receivers.push(receiver_key);
+        let lowered = self.call_expression_lowering(call, body);
+        self.array_view_receivers.pop();
+        lowered
+    }
+
+    /// Lower a call expression once its receiver view (if any) is registered.
+    fn call_expression_lowering(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -149,6 +230,9 @@ impl<'builder> ModuleBuilder<'builder> {
         // than in each rule: it is one place, and it keeps the blocker's
         // wording tied to the import that caused it.
         if let Some(expr) = self.blocked_import_member_call(call)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.optional_builtin_receiver_call(call, body)? {
             return Ok(expr);
         }
         if let Expression::ComputedMemberExpression(member) = &call.callee
@@ -1126,8 +1210,9 @@ impl<'builder> ModuleBuilder<'builder> {
         // bound the whole tuple to the first parameter and let the emitter default
         // the rest. See `lowering::spread_arguments`.
         let expanded = self.expanded_call_arguments(&call.arguments, body)?;
+        let callback_param_hints = self.class_method_callback_param_hints(access_receiver_ty, method);
         let mut args = Vec::with_capacity(expanded.len());
-        for arg in expanded {
+        for (index, arg) in expanded.into_iter().enumerate() {
             if let CallArg::Source(source) = arg
                 && (property_name == "test"
                     || self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown))
@@ -1143,10 +1228,14 @@ impl<'builder> ModuleBuilder<'builder> {
                     span: self.span(source.span().start, source.span().end),
                 }));
             } else {
-                args.push(self.lower_call_arg(arg, None, body)?);
+                let hint = callback_param_hints.get(index).copied().flatten();
+                args.push(self.lower_call_arg(arg, hint, body)?);
             }
         }
-        if method_item.0 == u32::MAX && self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown) {
+        if method_item.0 == u32::MAX
+            && self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown)
+            && !self.receiver_declares_in_progress_method(access_receiver_ty, method, member_span)?
+        {
             let ty = self.ctx.krate.types.intern(Type::Unknown);
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::None),
@@ -1182,6 +1271,189 @@ impl<'builder> ModuleBuilder<'builder> {
         }))
     }
 
+    /// Contextual types for function-valued parameters of a class method.
+    ///
+    /// A function literal passed to a method is contextually typed by the
+    /// method's declared parameter, exactly as it is for a free-function call:
+    /// `bag.fold((acc, x) => acc + x, 0)` against
+    /// `fold(cb: (acc: number, x: number) => number, init: number)` gives the
+    /// arrow `(f64, f64) -> f64`. Without the hint the arrow's parameters were
+    /// `Unknown`, and the call adapted an erased closure into the typed
+    /// parameter (and did not even type-check against a `&dyn Fn` parameter).
+    ///
+    /// Entry `i` is `Some(param_ty)` only when the receiver is a class, the
+    /// method's type is a function, and parameter `i` is itself a function type
+    /// with no unresolved type parameter (a method-generic `(x: U) => V` still
+    /// needs the instantiation the free-function path infers from the sibling
+    /// arguments, so it keeps the old unhinted lowering). Every other position
+    /// is `None`: only function types are offered, so non-callback arguments
+    /// lower exactly as before.
+    fn class_method_callback_param_hints(
+        &mut self,
+        receiver_ty: smelt_hir::TypeId,
+        method: smelt_hir::Symbol,
+    ) -> Vec<Option<smelt_hir::TypeId>> {
+        if !matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Class { .. })) {
+            return Vec::new();
+        }
+        let Ok(method_ty) = self.class_field_type(receiver_ty, method) else {
+            return Vec::new();
+        };
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(method_ty).cloned() else {
+            return Vec::new();
+        };
+        let fixed = function.rest.unwrap_or(function.params.len());
+        function
+            .params
+            .iter()
+            .take(fixed)
+            .map(|param| {
+                (matches!(self.ctx.krate.types.get(*param), Some(Type::Function(_)))
+                    && !self.overload_constraint_contains_unresolved_type_param(*param))
+                .then_some(*param)
+            })
+            .collect()
+    }
+
+    /// Return whether a member call through a TYPED function-valued field
+    /// supplies its class-instance receiver as `this`.
+    ///
+    /// JavaScript binds `this` from the call: `router.match(m, p)` runs the
+    /// stored function with `this === router` even when the field holds a
+    /// plain function (Hono's `match: typeof match<..> = match`, whose body
+    /// reads `this.buildAllMatchers()` and assigns `this.match`). The erased
+    /// call ABI already installs that receiver; a callee that kept its
+    /// concrete `Type::Function` did not, so the function observed
+    /// `undefined` and every erased read through it came back empty.
+    ///
+    /// Binding wraps the callable in a closure of the SAME Rust type that
+    /// installs the receiver (lazily erased, see the `BindThis` emission) and
+    /// forwards its arguments. That forwarding is exact only when every
+    /// argument travels by value, so the rule is gated to signatures whose
+    /// parameters are scalars, strings, erased values, optionals of those or
+    /// callables: a structural parameter can be passed by `&mut` reference
+    /// through the call site itself, and a synchronous function only, since
+    /// the receiver is installed for the duration of the call and an `async`
+    /// body reads it after the call has returned its future. Other signatures
+    /// keep the receiver-less call they had.
+    ///
+    /// The receiver must be a class instance: that is the value whose erased
+    /// view keeps the instance's identity and prototype members, which is what
+    /// the callee's `this` reads resolve against. The whole-program
+    /// `UnobservedReceiverBind` MIR pass removes the bind again from programs
+    /// that never read `this`.
+    fn typed_field_callee_takes_class_receiver(
+        &self,
+        dispatch_ty: smelt_hir::TypeId,
+        receiver: smelt_hir::ExprId,
+        property: &str,
+        body: &Body,
+    ) -> bool {
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(dispatch_ty) else {
+            return false;
+        };
+        if function.is_async || !function.mutable_params.is_empty() {
+            return false;
+        }
+        if !function
+            .params
+            .iter()
+            .all(|param| self.type_is_by_value_call_argument(*param))
+        {
+            return false;
+        }
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(Self::expr_ty(body, receiver))
+        else {
+            return false;
+        };
+        self.class_declares_data_field(*name, property)
+    }
+
+    /// Return whether `property` names a DATA field (not a method) of the
+    /// generated class `class` or of a class it extends.
+    ///
+    /// A method is emitted as a Rust method whose receiver is `self`, so a call
+    /// to it never needs the dynamic `this` channel — even where the class
+    /// also carries a slot of that name for virtual dispatch. Only a field that
+    /// STORES a function value (`match: typeof match<..> = match`) runs code
+    /// that can only find its receiver through the channel.
+    fn class_declares_data_field(&self, class: smelt_hir::Symbol, property: &str) -> bool {
+        let mut current = Some(class);
+        for _ in 0_u32..64_u32 {
+            let Some(class_symbol) = current else {
+                return false;
+            };
+            let Some(item) = self.class_by_symbol(class_symbol) else {
+                return false;
+            };
+            let names_property = |symbol: smelt_hir::Symbol| {
+                self.ctx.krate.symbols.get(symbol) == Some(property)
+                    || self.ctx.krate.names.get(symbol) == Some(property)
+            };
+            if item.methods.iter().any(|method| {
+                matches!(self.item_ref(*method), Item::Function(function) if names_property(function.name))
+            }) || item
+                .abstract_methods
+                .iter()
+                .any(|method| names_property(method.name))
+            {
+                return false;
+            }
+            if item.fields.iter().any(|field| names_property(field.name)) {
+                return true;
+            }
+            current = item.base;
+        }
+        false
+    }
+
+    /// Return whether a typed closure parameter of `ty` is always passed by
+    /// value, so a forwarding wrapper passes exactly what the call site did.
+    fn type_is_by_value_call_argument(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(
+                Type::Bool
+                | Type::Int
+                | Type::Float
+                | Type::String
+                | Type::Unknown
+                | Type::TypeParam { .. }
+                | Type::Function(_),
+            ) => true,
+            Some(Type::Optional(inner)) => self.type_is_by_value_call_argument(*inner),
+            _ => false,
+        }
+    }
+
+    /// Return whether `receiver_ty` is a class still being lowered that
+    /// DECLARES `method` itself.
+    ///
+    /// `resolve_method` answers such a call with the declared return type and
+    /// no item (`ItemId(u32::MAX)`), because the class's item is registered
+    /// only once all its members are lowered; MIR resolves the call by name
+    /// later. When the method has no return annotation that type is still
+    /// `Unknown`, which made the pair look exactly like a genuinely dynamic
+    /// member call, and `member_call` replaced the whole call with `undefined`:
+    /// `add() { this.#insertPath(m, p) }` inside the same class dropped the
+    /// call — and every side effect and throw in it (Hono's reg-exp router
+    /// `add` never inserted a path or raised `UnsupportedPathError`).
+    fn receiver_declares_in_progress_method(
+        &self,
+        receiver_ty: smelt_hir::TypeId,
+        method: smelt_hir::Symbol,
+        span: oxc::span::Span,
+    ) -> Result<bool, SmeltError> {
+        let Some(Type::Class { name, args }) = self.ctx.krate.types.get(receiver_ty).cloned()
+        else {
+            return Ok(false);
+        };
+        if self.class_by_symbol(name).is_some() {
+            return Ok(false);
+        }
+        Ok(self
+            .in_progress_class_method_return(name, &args, method, span)?
+            .is_some())
+    }
 
     /// Lower `receiver[key]()` over a receiver whose member set is known.
     ///
@@ -1627,6 +1899,20 @@ impl<'builder> ModuleBuilder<'builder> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        // Every handler below claims a callee by its member NAME. A receiver
+        // whose static type declares that member as a method owns the call —
+        // `bag.reduce(..)`, `stack.push(..)`, `this.join(..)` on a user class
+        // are that class's methods, not `Array.prototype`'s — so the whole
+        // registry yields to ordinary method dispatch.
+        if let Expression::StaticMemberExpression(member) = &call.callee
+            && self.receiver_statically_declares_method(
+                &member.object,
+                member.property.name.as_str(),
+                body,
+            )
+        {
+            return Ok(None);
+        }
         for handler in Self::builtin_call_handlers() {
             if let Some(expr) = handler(self, call, body)? {
                 return Ok(Some(expr));
@@ -2628,13 +2914,29 @@ impl<'builder> ModuleBuilder<'builder> {
         // hono's smart router), and treating the spread as one argument put the
         // whole tuple in parameter 0 and let the emitter pad the rest with
         // defaults.
+        //
+        // An overloaded callable-interface field (`app.use('/p', handler)`
+        // against `use: MiddlewareHandlerInterface`) selects the overload from
+        // the call's argument count and probed argument types, exactly as a
+        // callable-interface VALUE callee does; the first declared signature
+        // is only the answer when there is no call site to select against.
+        let probed_arg_tys = self.probe_argument_types(&call.arguments, body);
         let expanded = self.expanded_call_arguments(&call.arguments, body)?;
+        let arg_count = expanded.len();
+        // A spread expanded into several positions no longer lines up with the
+        // per-source-argument probes, so selection falls back to arity alone.
+        let probed_arg_tys = if arg_count == call.arguments.len() {
+            probed_arg_tys
+        } else {
+            Vec::new()
+        };
         let mut args = Vec::with_capacity(expanded.len());
         for argument in expanded {
             args.push(self.lower_call_arg(argument, None, body)?);
         }
-        let (function_ty, function) =
-            if let Some(function_ty) = self.function_member_type(callee_ty) {
+        let (function_ty, function) = if let Some(function_ty) =
+            self.function_member_type_for_args(callee_ty, Some(arg_count), &probed_arg_tys)
+        {
                 let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty).cloned()
                 else {
                     return Ok(None);
@@ -2950,6 +3252,14 @@ impl<'builder> ModuleBuilder<'builder> {
             _ => false,
         };
         if !callee_uses_erased_call_abi {
+            if self.typed_field_callee_takes_class_receiver(
+                dispatch_ty,
+                receiver,
+                member.property.name.as_str(),
+                body,
+            ) {
+                return self.bind_this_receiver(callee, receiver, body, span);
+            }
             return callee;
         }
         // A read whose DECLARED type is a function but whose receiver erases to
@@ -4124,6 +4434,7 @@ impl<'builder> ModuleBuilder<'builder> {
             RuleId::TsNumberPredicate => self.number_predicate_call(call, body),
             RuleId::TsNumberParseFloat => self.number_parse_float_call(call, body),
             RuleId::TsNumberParseInt => self.number_parse_int_call(call, body),
+            RuleId::TsStringFromCodes => self.string_from_codes_call(call, body),
             RuleId::TsObjectStatic => self.exact_object_static_call(call, body),
             RuleId::TsArrayStatic => self.exact_array_static_call(call, body),
             RuleId::TsBufferStatic => self.exact_buffer_static_call(call, body),
@@ -5251,11 +5562,18 @@ impl<'builder> ModuleBuilder<'builder> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
+        // An OPTIONAL parameter (`b?: string`, `required_params` on the
+        // function type) is omittable exactly like a defaulted one; it is
+        // padded with `undefined` below. Counting it as required sent
+        // `f('p')` against `(a: string, b?: string)` down the shortfall branch,
+        // which dropped EVERY argument (`f()`), so `getPattern(':id')` in Hono
+        // ran with an empty label.
         let required_arg_count = defaults
             .iter()
             .take(fixed_param_count)
             .position(Option::is_some)
-            .unwrap_or(fixed_param_count);
+            .unwrap_or(fixed_param_count)
+            .min(function.required_params.unwrap_or(fixed_param_count));
         if supplied_arg_count < required_arg_count
             || (rest.is_none() && supplied_arg_count > function.params.len())
         {
@@ -5302,6 +5620,17 @@ impl<'builder> ModuleBuilder<'builder> {
             .collect::<Result<Vec<_>, _>>()?;
         for index in supplied_arg_count..fixed_param_count {
             let Some(default) = defaults.get(index).and_then(|default| default.as_ref()) else {
+                // An optional parameter with no default receives `undefined`.
+                if index >= function.required_params.unwrap_or(fixed_param_count)
+                    && let Some(param_ty) = function.params.get(index).copied()
+                {
+                    args.push(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty: param_ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
+                    continue;
+                }
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),
                     "closure call argument count does not match closure parameters",
@@ -5354,7 +5683,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// not a shape to lower into. Peels `Optional` first, because
     /// `Optional<Opts>` is a real hint (fixture 66 covers it) while
     /// `Optional<unknown>` is not.
-    fn hint_preserves_argument_shape(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn hint_preserves_argument_shape(&self, ty: smelt_hir::TypeId) -> bool {
         let peeled = match self.ctx.krate.types.get(ty) {
             Some(Type::Optional(inner)) => *inner,
             _ => ty,

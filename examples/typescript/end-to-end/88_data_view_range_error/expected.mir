@@ -16,15 +16,15 @@ fn read_at (FuncId(0)) -> String
   bb2:
     return none
   bb3:
-    %5 = instanceof copy %2, class13
+    %5 = instanceof copy %2, class14
     switch move %5 ? bb5 : bb6
   bb4:
     %4 = "ok:" + move %3
     return move %4
   bb5:
-    %6 = "E:" + copy %2.field14
+    %6 = "E:" + copy %2.field15
     %7 = move %6 + ":"
-    %8 = move %7 + copy %2.field15
+    %8 = move %7 + copy %2.field16
     return move %8
   bb6:
     return "E:unexpected"
@@ -44,12 +44,12 @@ fn write_at (FuncId(1)) -> String
   bb2:
     return none
   bb3:
-    %4 = instanceof copy %2, class13
+    %4 = instanceof copy %2, class14
     switch move %4 ? bb5 : bb6
   bb4:
     return "wrote"
   bb5:
-    %5 = "E:" + copy %2.field14
+    %5 = "E:" + copy %2.field15
     return move %5
   bb6:
     return "E:unexpected"
@@ -77,7 +77,7 @@ fn read_wide (FuncId(2)) -> String
   bb2:
     return none
   bb3:
-    %11 = instanceof copy %2, class13
+    %11 = instanceof copy %2, class14
     switch move %11 ? bb11 : bb12
   bb4:
     %4 = call @data_view_getUint16(copy %0, 0.0) -> bb6 unwind bb3
@@ -98,7 +98,7 @@ fn read_wide (FuncId(2)) -> String
     %10 = "ok:" + move %9
     return move %10
   bb11:
-    %12 = "E:" + copy %2.field14
+    %12 = "E:" + copy %2.field15
     return move %12
   bb12:
     return "E:unexpected"
@@ -119,13 +119,13 @@ fn read_byte (FuncId(3)) -> String
   bb2:
     return none
   bb3:
-    %5 = instanceof copy %2, class13
+    %5 = instanceof copy %2, class14
     switch move %5 ? bb5 : bb6
   bb4:
     %4 = "ok:" + move %3
     return move %4
   bb5:
-    %6 = "E:" + copy %2.field14
+    %6 = "E:" + copy %2.field15
     return move %6
   bb6:
     return "E:unexpected"
@@ -147,10 +147,10 @@ fn brand_of (FuncId(4)) -> String
   bb2:
     return none
   bb3:
-    %3 = instanceof copy %1, class13
+    %3 = instanceof copy %1, class14
     %4 = "" + move %3
     %5 = move %4 + " "
-    %6 = instanceof move %1, class16
+    %6 = instanceof move %1, class22
     %7 = move %5 + move %6
     return move %7
   bb4:
@@ -180,13 +180,13 @@ fn propagated (FuncId(6)) -> String
   bb2:
     return none
   bb3:
-    %4 = instanceof copy %1, class13
+    %4 = instanceof copy %1, class14
     switch move %4 ? bb5 : bb6
   bb4:
     %3 = "ok:" + move %2
     return move %3
   bb5:
-    %5 = "E:" + copy %1.field14
+    %5 = "E:" + copy %1.field15
     return move %5
   bb6:
     return "E:unexpected"

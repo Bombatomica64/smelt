@@ -91,7 +91,7 @@ fn main (FuncId(1)) -> None
     %15 = move %14 ?? "none"
     %16 = call @console_log(move %15) -> bb3
   bb3:
-    %17 = closure_call move %0()
+    %17 = closure_call move %0(none, none)
     %2 = move %17
     %18 = response_status copy %2
     %19 = call @console_log(move %18) -> bb4

@@ -1,0 +1,124 @@
+module examples/typescript/end-to-end/131_reduce_right_and_declared_const_shapes/input.ts (ModuleId(0))
+  body BodyId(10)
+  items
+    type ParamAssocArray = List<(String, Float)>
+    fn param_index_map owner Module
+    fn visit_order owner Module
+    fn forward_order owner Module
+    fn last_minus_rest owner Module
+    fn handler_index owner Module
+  locals
+    %0 const paths: Dict<String, (Float, List<(String, Float)>)>
+    %1 const replacement: List<Float>
+  exprs
+    #0: String = "/users/:id/posts/:post"
+    #1: Float = 0.0
+    #2: String = "id"
+    #3: Float = 0.0
+    #4: (String, Float) = (#2, #3)
+    #5: String = "post"
+    #6: Float = 1.0
+    #7: (String, Float) = (#5, #6)
+    #8: List<(String, Float)> = [#4, #7]
+    #9: (Float, List<(String, Float)>) = (#1, #8)
+    #10: String = "/tags/:tag"
+    #11: Float = 1.0
+    #12: String = "tag"
+    #13: Float = 2.0
+    #14: (String, Float) = (#12, #13)
+    #15: List<(String, Float)> = [#14]
+    #16: (Float, List<(String, Float)>) = (#11, #15)
+    #17: Dict<String, (Float, List<(String, Float)>)> = {#0: #9, #10: #16}
+    #18: Float = 3.0
+    #19: Float = 1.0
+    #20: Float = 2.0
+    #21: List<Float> = [#18, #19, #20]
+    #22: String = "/users/:id/posts/:post"
+    #23: fn(String) -> Dict<String, Float> = @2(param_index_map)
+    #24: Dict<String, Float> = call #23(#22)
+    #25: String = json_stringify #24
+    #26: None = @8(console_log)
+    #27: None = call #26(#25)
+    #28: String = "/tags/:tag"
+    #29: fn(String) -> Dict<String, Float> = @2(param_index_map)
+    #30: Dict<String, Float> = call #29(#28)
+    #31: String = json_stringify #30
+    #32: None = @9(console_log)
+    #33: None = call #32(#31)
+    #34: String = "a"
+    #35: String = "b"
+    #36: String = "c"
+    #37: List<String> = [#34, #35, #36]
+    #38: fn(List<String>) -> String = @3(visit_order)
+    #39: String = call #38(#37)
+    #40: None = @10(console_log)
+    #41: None = call #40(#39)
+    #42: String = "a"
+    #43: String = "b"
+    #44: String = "c"
+    #45: List<String> = [#42, #43, #44]
+    #46: fn(List<String>) -> String = @4(forward_order)
+    #47: String = call #46(#45)
+    #48: None = @11(console_log)
+    #49: None = call #48(#47)
+    #50: Float = 1.0
+    #51: Float = 2.0
+    #52: Float = 10.0
+    #53: List<Float> = [#50, #51, #52]
+    #54: fn(List<Float>) -> Float = @5(last_minus_rest)
+    #55: Float = call #54(#53)
+    #56: None = @12(console_log)
+    #57: None = call #56(#55)
+    #58: String = "/tags/:tag"
+    #59: fn(String) -> Float = @6(handler_index)
+    #60: Float = call #59(#58)
+    #61: None = @13(console_log)
+    #62: None = call #61(#60)
+    #63: List<Float> = %1
+    #64: fn(Float, Int, List<Float>) -> Float = closure BodyId(9) captures 0 -> Float
+    #65: List<Float> = list_map #63, #64
+    #66: String = ","
+    #67: String = string_join #65, #66
+    #68: None = @14(console_log)
+    #69: None = call #68(#67)
+  stmts
+    s0: let %0: Dict<String, (Float, List<(String, Float)>)> = #17
+    s1: let %1: List<Float> = #21
+    s2: #27
+    s3: #33
+    s4: #41
+    s5: #49
+    s6: #57
+    s7: #62
+    s8: #69
+
+interned types
+  t0 = String
+  t1 = Float
+  t2 = (String, Float)
+  t3 = List<(String, Float)>
+  t4 = (Float, List<(String, Float)>)
+  t5 = Dict<String, (Float, List<(String, Float)>)>
+  t6 = Unknown
+  t7 = List<Unknown>
+  t8 = List<List<Unknown>>
+  t9 = List<(Float, List<(String, Float)>)>
+  t10 = List<Float>
+  t11 = Dict<String, Float>
+  t12 = fn(String) -> Dict<String, Float>
+  t13 = List<String>
+  t14 = fn(List<String>) -> String
+  t15 = fn(List<Float>) -> Float
+  t16 = fn(String) -> Float
+  t17 = Optional<(Float, List<(String, Float)>)>
+  t18 = Int
+  t19 = fn(Dict<String, Float>, (String, Float), Int, List<(String, Float)>) -> Dict<String, Float>
+  t20 = fn(String, String, Int, List<String>) -> String
+  t21 = fn(Float, Float, Int, List<Float>) -> Float
+  t22 = fn(String) -> Dict<String, Float>
+  t23 = None
+  t24 = fn(List<String>) -> String
+  t25 = fn(List<Float>) -> Float
+  t26 = fn(String) -> Float
+  t27 = Bool
+  t28 = fn(Float, Int, List<Float>) -> Float

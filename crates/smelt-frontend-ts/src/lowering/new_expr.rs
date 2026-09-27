@@ -2546,6 +2546,16 @@ impl ModuleBuilder<'_> {
                 if unary.operator == UnaryOperator::Delete {
                     return self.unary_expression(unary, body);
                 }
+                // `!(a && b)` tests truthiness only; `unary_expression` lowers
+                // the logical operand as a condition.
+                if unary.operator == UnaryOperator::LogicalNot
+                    && matches!(
+                        Self::unparenthesized_expression(&unary.argument),
+                        Expression::LogicalExpression(_)
+                    )
+                {
+                    return self.unary_expression(unary, body);
+                }
                 if unary.operator == UnaryOperator::Void {
                     let ty = self.ctx.krate.types.intern(Type::None);
                     return Ok(body.push_expr(Expr {
@@ -2590,12 +2600,10 @@ impl ModuleBuilder<'_> {
                 };
                 let operand = self.expression(&unary.argument, body)?;
                 let operand = if matches!(op, UnaryOp::Not) {
-                    self.optional_known_date_presence_condition(
-                        operand,
-                        self.expression_span(&unary.argument),
-                        body,
-                    )
-                    .unwrap_or(operand)
+                    let span = self.expression_span(&unary.argument);
+                    self.optional_known_date_presence_condition(operand, span, body)
+                        .or_else(|| self.keyed_read_presence_condition(operand, span, body))
+                        .unwrap_or(operand)
                 } else {
                     operand
                 };
@@ -2626,7 +2634,8 @@ impl ModuleBuilder<'_> {
                 {
                     return Ok(expr);
                 }
-                self.computed_member(member, body)
+                let read = self.computed_member(member, body)?;
+                Ok(self.keyed_read_into_optional_slot(read, type_hint, body))
             }
             Expression::CallExpression(call) => {
                 let value = self.call_expression_with_hint(call, body, type_hint)?;
@@ -3391,6 +3400,9 @@ impl ModuleBuilder<'_> {
         if let Some(condition) = self.optional_known_date_presence_condition(cond, span, body) {
             return Ok(condition);
         }
+        if let Some(condition) = self.keyed_read_presence_condition(cond, span, body) {
+            return Ok(condition);
+        }
         // A type that cannot hold a nullish value AND whose every inhabitant is
         // an object is truthy for every value it can take, so the guard is the
         // constant `true` and needs no runtime test at all. Comparing against
@@ -3399,10 +3411,30 @@ impl ModuleBuilder<'_> {
         // generated union enum cannot answer (`matches!(v, SmeltUnknown::Null)`
         // over a `SmeltUnion3`). Saying `true` is both the precise answer and
         // the one no representation has to support.
+        //
+        // A UNION of object arms is the exception: the type says every value is
+        // truthy, but a union whose arms have no concrete Rust spelling is
+        // stored as an erased `SmeltUnknown`, and an erased value can be
+        // `undefined` at run time even where TypeScript's type cannot — a
+        // `Record<string, Result<T>>` read of a missing key is exactly that
+        // (Hono's `const staticMatch = matcher[2][path]; if (staticMatch)`,
+        // which folded to `if true` and returned `undefined` for every dynamic
+        // route). Which representation the union gets is the emitter's
+        // decision, so the union keeps a `ToBool` and the emitter folds it to
+        // `true` only for a concrete generated union enum, which cannot hold an
+        // absent value (see `union_to_bool_text`).
         if !self.is_nullishable_type(cond_ty) && self.type_is_constantly_truthy(cond_ty) {
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            let kind = if matches!(self.ctx.krate.types.get(cond_ty), Some(Type::Union(_))) {
+                ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToBool,
+                    operand: cond,
+                }
+            } else {
+                ExprKind::Literal(Literal::Bool(true))
+            };
             return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Bool(true)),
+                kind,
                 ty: bool_ty,
                 span,
             }));
@@ -3446,6 +3478,115 @@ impl ModuleBuilder<'_> {
                 self.ctx.krate.types.get(cond_ty)
             ),
         ))
+    }
+
+    /// Lower the truthiness of a keyed record read as a presence test.
+    ///
+    /// Without `noUncheckedIndexedAccess`, TypeScript types `record[key]` as
+    /// the record's value type even though a missing key reads `undefined`,
+    /// and the source's own guard is how a program asks which it got:
+    /// `if (!routes[m][path]) { routes[m][path] = [] }` (Hono's reg-exp router
+    /// `add`). The Rust read defaults a missing entry to the value type's
+    /// default, and when that type is an object surface (list, record, class,
+    /// tuple, ...) the constant-truthiness fold below answers `true` — the
+    /// guard never fired and no route was ever inserted.
+    ///
+    /// Every value of such a type is truthy, so the read is truthy exactly
+    /// when the key is present, and the honest condition is the containment
+    /// check itself. Primitive value types need nothing: their Rust defaults
+    /// (`0`, `""`, `false`) are already falsy, like the `undefined` they stand
+    /// in for.
+    pub(in crate::lowering) fn keyed_read_presence_condition(
+        &mut self,
+        cond: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let cond_ty = Self::expr_ty(body, cond);
+        if self.is_nullishable_type(cond_ty) || !self.type_is_constantly_truthy(cond_ty) {
+            return None;
+        }
+        let mut read = cond;
+        while let Some(ExprKind::TypeAssert { value }) = usize::try_from(read.0)
+            .ok()
+            .and_then(|index| body.exprs.get(index))
+            .map(|expr| expr.kind.clone())
+        {
+            read = value;
+        }
+        let Some(ExprKind::Index { receiver, index }) = usize::try_from(read.0)
+            .ok()
+            .and_then(|position| body.exprs.get(position))
+            .map(|expr| expr.kind.clone())
+        else {
+            return None;
+        };
+        let Some(Type::Dict(key_ty, _)) = self.ctx.krate.types.get(Self::expr_ty(body, receiver))
+        else {
+            return None;
+        };
+        if *key_ty != Self::expr_ty(body, index) {
+            return None;
+        }
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        Some(body.push_expr(Expr {
+            kind: ExprKind::DictContainsKey {
+                dict: receiver,
+                key: index,
+                lookup: smelt_hir::PropertyLookup::Own,
+            },
+            ty: bool_ty,
+            span,
+        }))
+    }
+
+    /// Keep a keyed record read's absence when it flows into an optional slot.
+    ///
+    /// `record[key]` is typed as the record's value type (TypeScript without
+    /// `noUncheckedIndexedAccess`), and read at that type a missing key yields
+    /// the value type's Rust default. Written into a slot typed
+    /// `V | undefined` — an annotated optional local, a local widened by
+    /// `presence_tested_locals`, an optional field or parameter — that default
+    /// was then wrapped as PRESENT (`Some(default)`), so the slot could never
+    /// hold the `undefined` a missing key reads in JavaScript. Retyping the
+    /// read to `Optional<V>` makes it the lookup it is (`get(key)`), and the
+    /// slot receives exactly what JavaScript stores.
+    pub(in crate::lowering) fn keyed_read_into_optional_slot(
+        &self,
+        read: smelt_hir::ExprId,
+        type_hint: Option<smelt_hir::TypeId>,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let Some(hint) = type_hint else {
+            return read;
+        };
+        let Some(Type::Optional(slot_value)) = self.ctx.krate.types.get(hint).cloned() else {
+            return read;
+        };
+        let read_ty = Self::expr_ty(body, read);
+        if read_ty != slot_value || self.is_nullishable_type(read_ty) {
+            return read;
+        }
+        let Some(ExprKind::Index { receiver, .. }) = usize::try_from(read.0)
+            .ok()
+            .and_then(|index| body.exprs.get(index))
+            .map(|expr| expr.kind.clone())
+        else {
+            return read;
+        };
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, receiver)),
+            Some(Type::Dict(_, _))
+        ) {
+            return read;
+        }
+        if let Some(expr) = usize::try_from(read.0)
+            .ok()
+            .and_then(|index| body.exprs.get_mut(index))
+        {
+            expr.ty = hint;
+        }
+        read
     }
 
     /// Lower truthiness for optional Date values as object presence.

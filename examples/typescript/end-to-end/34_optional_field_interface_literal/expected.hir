@@ -61,19 +61,19 @@ module examples/typescript/end-to-end/34_optional_field_interface_literal/input.
     s8: #36
 
 interned types
-  t0 = String
-  t1 = Unknown
-  t2 = Dict<String, Unknown>
-  t3 = List<Unknown>
-  t4 = Config
+  t0 = Config
+  t1 = String
+  t2 = Unknown
+  t3 = Dict<String, Unknown>
+  t4 = List<Unknown>
   t5 = Dict<String, String>
   t6 = List<String>
   t7 = Float
   t8 = Dict<String, Float>
   t9 = List<Float>
-  t10 = Dict<String, Dict<String, Float>>
-  t11 = List<Dict<String, Float>>
-  t12 = Outer
+  t10 = Outer
+  t11 = Dict<String, Dict<String, Float>>
+  t12 = List<Dict<String, Float>>
   t13 = fn(Config) -> String
   t14 = fn(Config) -> Float
   t15 = fn(Outer) -> Float

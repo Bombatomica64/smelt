@@ -53,6 +53,12 @@ enum MutListArgKind {
     /// erased `SmeltUnknown` monomorphization). `&mut` invariance rules out a
     /// direct reborrow, so each element is converted on the way in and back out.
     Erased,
+    /// The callee's element is a concrete generated UNION the caller's element
+    /// injects into (`&mut SmeltList<SmeltUnion>` — `(string | Promise<string>)[]`
+    /// — receiving a `string[]`, Hono's `escapeToBuffer(str, buf)`). Each element
+    /// is injected on the way in and projected back to the caller's element on
+    /// the way out, so the callee's writes reach the caller's list.
+    UnionInjected,
 }
 
 /// How a mutable-list argument's caller-side place is spelled in Rust.
@@ -999,6 +1005,33 @@ impl FunctionEmitter<'_> {
                                     Some(&class_type_params),
                                 );
                             }
+                            // A callback parameter the method does not retain is
+                            // emitted `&dyn Fn(..)` (`param_type_text`), the same
+                            // borrowed-callback ABI a free function gets, so the
+                            // argument is the same reborrow the free-function
+                            // ladders render. Passing the owned `Rc<dyn Fn>` was
+                            // `expected &dyn Fn(f64, f64) -> f64, found Rc<..>` at
+                            // every call of a method taking a callback it only
+                            // invokes (`bag.fold((a, x) => a + x, 0)`).
+                            if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
+                                && !self
+                                    .function_parameter_requires_owned_in(function, param)
+                                    .unwrap_or(true)
+                            {
+                                let callback_ty = self.method_argument_substituted_target(
+                                    arg,
+                                    target_ty,
+                                    &class_type_params,
+                                )?;
+                                return self.borrowed_function_argument_text(arg, callback_ty, None);
+                            }
+                            if let Some(bound_text) = self
+                                .receiver_bound_class_param_argument_text(
+                                    function, receiver, arg, target_ty,
+                                )?
+                            {
+                                return Ok(bound_text);
+                            }
                             self.callee_generic_argument_text(
                                 arg,
                                 function,
@@ -1748,6 +1781,70 @@ impl FunctionEmitter<'_> {
             .unwrap_or_default()
     }
 
+    /// Render a bare class-type-parameter method argument at the type the
+    /// RECEIVER's class arguments pin it to.
+    ///
+    /// `node.insert(m, p, "x")` against `class Node<T> { insert(.., handler: T) }`
+    /// declares `handler: T`, and the default method-argument path renders a
+    /// concrete argument at its own type so Rust infers `T` from it. That
+    /// inference is only free when nothing else has fixed `T` — but the
+    /// receiver already has: its Rust type is `Node<Arg>`, so the method's `T`
+    /// IS `Arg` and an argument of any other type is `E0308` (`expected
+    /// SmeltUnknown, found String` at every `insert` of a `new Node()` whose `T`
+    /// TypeScript infers as `unknown`, 238 errors in Hono's trie-router tests).
+    ///
+    /// Coerces to the receiver's argument for that parameter; a type parameter
+    /// the caller cannot spell (the class's own uninstantiated `T`, which the
+    /// receiver's local renders as `SmeltUnknown`) is a source-`unknown`
+    /// instantiation, so the argument crosses the existing `SmeltUnknown`
+    /// boundary adapter (`erase`). Returns `None` — keep the existing pass-through — when the
+    /// target is not a bare class type parameter, when the receiver is not an
+    /// instantiation of the callee's class, or when the receiver's argument is
+    /// a type parameter the caller itself spells (a generic caller forwarding
+    /// its own `T`, which Rust already unifies).
+    fn receiver_bound_class_param_argument_text(
+        &self,
+        function: &MirFunction,
+        receiver: &Operand,
+        arg: &Operand,
+        target_ty: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        let HirOrigin::ClassMethod { class, .. } = function.origin else {
+            return Ok(None);
+        };
+        let Some(Type::TypeParam { name }) = self.mir.types.get(target_ty) else {
+            return Ok(None);
+        };
+        let ordered = self.callee_class_type_param_names(function);
+        let Some(position) = ordered.iter().position(|param| param == name) else {
+            return Ok(None);
+        };
+        let Some(Type::Class {
+            name: receiver_class,
+            args,
+        }) = self.mir.types.get(self.operand_ty(receiver)?)
+        else {
+            return Ok(None);
+        };
+        if *receiver_class != class || args.len() != ordered.len() {
+            return Ok(None);
+        }
+        let Some(bound) = args.get(position).copied() else {
+            return Ok(None);
+        };
+        match self.mir.types.get(bound) {
+            Some(Type::TypeParam { name: bound_name }) => {
+                if self.current_function_type_params().contains(bound_name) {
+                    Ok(None)
+                } else {
+                    self.erase(arg).map(Some)
+                }
+            }
+            Some(_) => self.value_at_type(arg, bound).map(Some),
+            None => Ok(None),
+        }
+    }
+
     /// Return whether `ty` mentions any of `names`.
     fn type_mentions_any(&self, ty: TypeId, names: &HashSet<Symbol>) -> bool {
         names
@@ -1940,6 +2037,35 @@ impl FunctionEmitter<'_> {
             }
         }
         self.value_at_type(arg, target_ty)
+    }
+
+    /// Resolve a method parameter type against the argument's own type when it
+    /// mentions the callee class's type parameters.
+    ///
+    /// The declared parameter of `class Bag<T> { each(cb: (x: T) => void) }` is
+    /// spelled with the class's `T`, which the calling function has no binding
+    /// for. The argument's type is the evidence Rust's inference uses, so the
+    /// class parameters are bound from the declared/actual pair (the same rule
+    /// as [`Self::callee_generic_argument_text`]) and the substituted type is
+    /// returned. With no class type parameters, nothing bound, or no interned
+    /// substitution, the declared type is returned unchanged.
+    fn method_argument_substituted_target(
+        &self,
+        arg: &Operand,
+        target_ty: TypeId,
+        class_type_params: &HashSet<Symbol>,
+    ) -> Result<TypeId, EmitError> {
+        if class_type_params.is_empty() {
+            return Ok(target_ty);
+        }
+        let declared_names = class_type_params.iter().copied().collect::<Vec<_>>();
+        let bindings = collect_bindings_from_types(
+            self.mir,
+            &declared_names,
+            &[target_ty],
+            &[Some(self.operand_ty(arg)?)],
+        );
+        Ok(substituted_type_id(self.mir, target_ty, &bindings).unwrap_or(target_ty))
     }
 
     /// Emits an optional first-class function call as an optional return value.
@@ -2144,6 +2270,34 @@ impl FunctionEmitter<'_> {
                             access.assign_target
                         ));
                     }
+                    MutListArgKind::UnionInjected => {
+                        let arg_item = self.list_element_ty(place_ty)?;
+                        let target_item = self.list_element_ty(target_ty)?;
+                        let scope = TypeSubstitution::lexical(&caller_scope);
+                        let temp_ty = self.rust_type(target_ty, false, &scope)?;
+                        let render_scope = self.render_scope();
+                        let inject = self.value_at_type_text(
+                            "smelt_element",
+                            arg_item,
+                            target_item,
+                            &render_scope,
+                        )?;
+                        let project = self.value_at_type_text(
+                            "smelt_element",
+                            target_item,
+                            arg_item,
+                            &render_scope,
+                        )?;
+                        prelude.push_str(&format!(
+                            "let mut {temp}: {temp_ty} = {}.into_iter().map(|smelt_element| {inject}).collect::<{temp_ty}>(); ",
+                            access.read
+                        ));
+                        rendered_args.push(format!("&mut {temp}"));
+                        writebacks.push_str(&format!(
+                            "{} = {temp}.into_iter().map(|smelt_element| {project}).collect::<SmeltList<_>>(); ",
+                            access.assign_target
+                        ));
+                    }
                 }
             } else if matches!(self.mir.types.get(target_ty), Some(Type::Function(_))) {
                 // No call-site bindings on this path: the mutable-list adapter
@@ -2323,10 +2477,16 @@ impl FunctionEmitter<'_> {
         // type, such as `SmeltErasedFunction`) has no such element bridge; leave
         // those on the ordinary call path rather than emit conversions that cannot
         // type-check.
-        if param_element_text != "SmeltUnknown" {
-            return Ok(None);
+        if param_element_text == "SmeltUnknown" {
+            return Ok(Some((place, MutListArgKind::Erased)));
         }
-        Ok(Some((place, MutListArgKind::Erased)))
+        if self
+            .concrete_union_members(*target_item)
+            .is_some_and(|members| members.contains(arg_item))
+        {
+            return Ok(Some((place, MutListArgKind::UnionInjected)));
+        }
+        Ok(None)
     }
 
     /// Returns how a mutable-list argument's local place is stored in Rust.
@@ -2835,10 +2995,37 @@ impl FunctionEmitter<'_> {
                 let Some(Type::Function(function)) = self.mir.types.get(callee_ty) else {
                     return Err(EmitError::new("indirect call target is not a function"));
                 };
+                if self.declared_slot_return_is_erased(indirect_callee, function) {
+                    return self.type_id(Type::Unknown);
+                }
                 function.return_ty
             }
         };
         Ok(source_ty)
+    }
+
+    /// Returns whether a class/interface callable slot's DECLARED return renders
+    /// as the erased carrier while MIR types this call at a concrete return.
+    ///
+    /// A slot keeps the ABI its declaration gave it. A declared return that is a
+    /// union over the class's type parameters (`match: .. => Result<T>`, a union
+    /// of tuples of `T`) has no generated enum and renders `SmeltUnknown` in the
+    /// slot, even though MIR hands the call the receiver-substituted union
+    /// (`Result<string>`, a concrete generated enum). The call really produces
+    /// the erased carrier, so callers treat its source type as `Unknown` and the
+    /// destination extracts from it instead of receiving it unconverted (E0308
+    /// `expected SmeltUnionN, found SmeltUnknown`, Hono's router `match`).
+    pub(super) fn declared_slot_return_is_erased(
+        &self,
+        callee: &Operand,
+        function: &FunctionType,
+    ) -> bool {
+        self.class_field_declared_function_type(callee)
+            .is_some_and(|declared| {
+                declared.return_ty != function.return_ty
+                    && matches!(self.mir.types.get(declared.return_ty), Some(Type::Union(_)))
+                    && self.concrete_union_members(declared.return_ty).is_none()
+            })
     }
 
     /// Returns the Rust suffix needed when calling a throwing function.
@@ -3274,7 +3461,63 @@ impl FunctionEmitter<'_> {
                  registry marker and an `IntoSmeltUnknown` that stamps it."
             )));
         }
+        if let Some(check) = self.erased_user_class_instance_of_text(value, value_ty, class)? {
+            return Ok(check);
+        }
         Ok("false".to_owned())
+    }
+
+    /// Answer `value instanceof C` for an ERASED operand and a source class `C`.
+    ///
+    /// A class instance that crosses an erasure seam keeps its provenance in
+    /// the hidden `__smelt_class` marker (stamped with the class's source name
+    /// by the struct erasure), so the check is a runtime probe of that marker
+    /// against every generated class that is `C` or extends it. Folding it to
+    /// `false` instead silently deleted the branch: a caught
+    /// `class UnsupportedPathError extends Error {}` value — a `catch` binding is
+    /// always erased — never answered `instanceof UnsupportedPathError`.
+    ///
+    /// Answers `None` for a target that is not a generated class, and for an
+    /// operand whose Rust value is not a `SmeltUnknown` (or an optional one),
+    /// so the caller keeps its existing answer.
+    fn erased_user_class_instance_of_text(
+        &self,
+        value: &Operand,
+        value_ty: TypeId,
+        class: Symbol,
+    ) -> Result<Option<String>, EmitError> {
+        if !self.mir.classes.iter().any(|item| item.name == class) {
+            return Ok(None);
+        }
+        let optional = match self.mir.types.get(value_ty) {
+            Some(Type::Unknown | Type::TypeParam { .. }) => false,
+            Some(Type::Union(_)) if self.concrete_union_members(value_ty).is_none() => false,
+            Some(Type::Optional(inner))
+                if matches!(self.mir.types.get(*inner), Some(Type::Unknown)) =>
+            {
+                true
+            }
+            _ => return Ok(None),
+        };
+        let mut names = Vec::new();
+        for item in &self.mir.classes {
+            if self.class_extends_or_equals(item.name, class) {
+                let name = format!("{:?}", self.symbol_source_name(item.name)?);
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+        let probe = format!(
+            "matches!(value.get(\"__smelt_class\"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, {}))",
+            names.join(" | ")
+        );
+        let value_text = self.operand_text(value)?;
+        Ok(Some(if optional {
+            format!("matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if {probe})")
+        } else {
+            format!("matches!({value_text}.clone(), SmeltUnknown::Object(value) if {probe})")
+        }))
     }
 
     /// Render a method call through a stored callable field when the receiver's
