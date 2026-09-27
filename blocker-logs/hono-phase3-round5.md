@@ -74,3 +74,57 @@ a receiver that is neither statically knowable nor a class is unchanged; builtin
 * runtime tiers: all pass (`projected_receiver_place_runtime` failed on the first run and passes
   after F2d').
 * hono: 219/61 → **256/24**, no previously passing test lost.
+
+# Round 6 — absence, assertions and host-shaped values
+
+Same checkout/overlay. Baseline at the start of the round: **256 passed / 24 failed**. End of
+round: **265 passed / 15 failed** (280). Previously passing now failing: **0** (names compared
+modulo the numeric `_NNN` de-dup suffix; 9 gained, 0 lost).
+
+## Per-family outcome
+
+| family | tests | outcome | root cause / rule |
+| --- | ---: | --- | --- |
+| crypto | 4 | **3 fixed**, 1 open | (a) `sourceBuffer as ArrayBuffer` over `ArrayBufferView \| ArrayBuffer` projected the union onto its `ArrayBuffer` arm → `unreachable!` for a view. Rule: a TS assertion never changes the runtime arm; `crypto.subtle.digest` looks through a `TypeAssert` whose operand union is all byte-backed and the emitter reads `to_bytes()` of whichever arm is live (`match` over every arm). (b) the hex encode `Array.prototype.map.call(view, (x) => x.toString(16))` answered `[]`: generic read-only `Array.prototype.<m>.call(x, ..)` (registry `ARRAY_NON_MUTATING_METHODS`) now lowers as `Array.from(x).<m>(..)`; and `toString(radix)` inside a callback body dropped the radix (callback-body method lowering), now `NumericToStringRadix`; an erased receiver dispatches at run time. Open: `should create hash for Buffer` compares against `createHash` from `node:crypto`, which is not a modeled host export (our `sha256(new Uint8Array(1))` matches Node, verified in a fixture). |
+| trie-router | 2 | **fixed** | `expect(params['id']).toBe(undefined)` on a `Record<string, string>` folded to a constant `false` (the read is typed `string`). Rule: `rec[k] === undefined` / `xs[i] === undefined` / loose `== null` with a non-nullable element is a PRESENCE test through the read's own `Option` (`get(k).is_none()`), the Rust a hand port writes; no widening of the record's value type is needed. |
+| utils (joinPath / ensureWithinOutDir) | 2 | **fixed** | `paths[0][0]` on `''` panicked (`expect("index out of bounds")`). Rule: a string index read is total like the list read (`unwrap_or_default()`); miss-sensitive reads go through the optional read. |
+| body | 2 | **fixed** | (a) `FormDataEntryValue` was an opaque erased class, so pushing an entry into `(string \| File)[]` chose the `File` arm for a string. Rule: the lib alias is its union `File \| string` (like `ArrayBufferView`/`BodyInit`), source declarations win. (b) `Object.getOwnPropertyDescriptor(obj, '__proto__')?.value` read the member off an empty record. Rule: in Smelt's object model every own record entry is a data property, so the descriptor is `hasOwn(obj,k) ? { value: obj[k], writable/enumerable/configurable: true } : undefined` (receiver and key must be effect-free re-reads). Also: `r?.value` / `r?.done` on an optional receiver was always lowered as an ITERATOR result; the syntactic `?.` now rules that out (TS types iterator results as non-optional). |
+| timeout | 4 | rule fixed, tests blocked on (3) | `Promise.race([next(), timeoutPromise])`: a racer's `sleep(1100)` fired every timer due in its own window, including the `setTimeout(reject, 1000)` of the other racer, and the earlier-listed racer won. Rule: under a race driver a positive sleep arms a no-op wake-up timer at its deadline and suspends until virtual time reaches it (a sleep IS a timer). The tests still fail on the error/text response built by `createResponseInstance` (bug 3). |
+| url | 3 | 1 sub-assertion fixed, tests blocked on (3) | `getQueryParams(url, 'absent')` answered `''`: the erased twin of the optional element read gained the record arm (a missing key erases to `undefined`). Remaining failures: `decodeURIComponent_ = decodeURIComponent` and the recursive `mergePath` const are default-returning stubs (bug 3). |
+| powered-by | 3 | blocked on (3) | `set res` rebuilds the response through `createResponseInstance`, which is the default stub. |
+| nextjs handler | 1 | blocked on (3) | `c.json` → `createResponseInstance` stub → empty body → JSON EOF. |
+| serve-static path | 1 | open | the oracle is `join` from `node:path/posix`, which Smelt does not model (`defaultJoin` itself matches Node on all 22 cases in a fixture). Needs a modeled `node:path` host module. |
+| pattern-router dup param | 1 | open | `new RegExp('^/(?<id>..)/(?<id>..)')` must throw `SyntaxError`; a non-literal `RegExp` construction is an infallible `external_new` with no unwind edge. Design: a fallible `BuiltinFn::RegExpCompile` (like `JsonParse`/`UriDecode`) for non-literal patterns, compiled through `SmeltRegExp::try_compiled`. Not done this round. |
+| cloudflare KV | 1 | open | `Object.assign(global, { __STATIC_CONTENT_MANIFEST })` + ambient `declare const` read: needs a global-object property store. |
+
+Also fixed (found while reducing): a program that only constructs a `RegExp` and reads
+`source`/`flags` emitted `SmeltRegExp` without its prelude (the type table now demands it); a
+ternary in ARGUMENT position (`console.log(first ? first.join(',') : ..)`) lowered its arms
+without the test's narrowing — now the same guard/inverse-guard facts as every other ternary.
+
+## Open, next queue (15)
+
+| blocker | tests |
+| --- | ---: |
+| bug (3) `module_global_function_expression` default stub (`createResponseInstance`, `decodeURIComponent_`, recursive `mergePath`) | 11 (timeout 4, powered-by 3, url 3, nextjs 1) |
+| `node:crypto` `createHash` oracle | 1 |
+| `node:path/posix` `join` oracle | 1 |
+| throwing `new RegExp(dynamic)` | 1 |
+| global-object property store (`Object.assign(global, ..)`) | 1 |
+
+Known limitations seen but not fixed: a recursive typed record (`type Tree = { [k: string]:
+string \| Tree }`) walked by `nested = nested[k] as Tree; nested[k] = v` writes into a copy
+(value semantics of a union-held record); `JSON.stringify(undefined)` prints `null`; an async
+function expression without a return annotation returned from an untyped arrow fails to compile
+(E0271); a user `function main` collides with the generated `fn main`; mutable module `let`
+globals are not flow-narrowed inside functions; an `Array.prototype.map.call` callback's return
+type is inferred `unknown` (erased `List<SmeltUnknown>`), although its body is a string.
+
+## Gates on this change (local)
+
+* `cargo build --bin smelt`; `cargo test --lib -p smelt-codegen-rust -p smelt-frontend-ts -p smelt-stdlib -p smelt-hir -p smelt-mir`: 1109 + 1112 + 9 + 55 + 59 pass (14 new unit tests in `keyed_presence_and_receiver_tests.rs`; one snapshot, `string_index_and_for_of_emission`, re-snapshotted for `unwrap_or_default()`).
+* New e2e `134_absence_and_host_boundaries` (0 avoidable SmeltUnknown). Golden suite 20/20. The Rust goldens change in three ways: 13 async examples gain the race-sleep branch in `smelt_sleep_ms`; the argument-position ternary narrowing gives `126`/`128`/`38`/`39`-style arms their present type (`Option<String>` → `String`); string index reads use `unwrap_or_default()`.
+* examples invariant: avoidable **0 → 0**.
+* clippy `--lib`: no warnings on added lines.
+* hono: 256/24 → **265/15**, 0 lost.
+* es-toolkit and the other corpora were not run locally (CI). The descriptor lowering builds an erased `Record<string, unknown>` (`PropertyDescriptor.value` is `any`), and `Array.prototype.<m>.call` now takes the typed `Array.from` path, so es-toolkit's SmeltUnknown count may move in either direction.

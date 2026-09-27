@@ -1,0 +1,242 @@
+module examples/typescript/end-to-end/134_absence_and_host_boundaries/input.ts (ModuleId(0))
+  body BodyId(7)
+  items
+    fn make_record owner Module
+    fn starts_with_slash owner Module
+    fn digest_length owner Module
+    fn collect owner Module
+    fn slow owner Module
+    fn run owner Module
+  locals
+    %0 const rec: Dict<String, String>
+    %1 const pairs: List<(String, Dict<String, String>)>
+    %2 const xs: List<String>
+    %3 const entries: List<String | File>
+    %4 const digestBytes: Uint8Array
+    %5 const queue: List<List<String>>
+    %6 const head: Optional<List<String>>
+  exprs
+    #0: String = "a"
+    #1: List<String> = [#0]
+    #2: fn(List<String>) -> Dict<String, String> = @0(make_record)
+    #3: Dict<String, String> = call #2(#1)
+    #4: Dict<String, String> = %0
+    #5: String = "id"
+    #6: String = #4[#5]
+    #7: None = undefined
+    #8: Bool = JsStrictEq #6, #7
+    #9: Dict<String, String> = %0
+    #10: String = "a"
+    #11: String = #9[#10]
+    #12: None = undefined
+    #13: Bool = JsStrictEq #11, #12
+    #14: Dict<String, String> = %0
+    #15: String = "a"
+    #16: String = #14[#15]
+    #17: None = undefined
+    #18: Bool = JsStrictNotEq #16, #17
+    #19: None = @10(console_log)
+    #20: None = call #19(#8, #13, #18)
+    #21: String = "x"
+    #22: List<String> = []
+    #23: fn(List<String>) -> Dict<String, String> = @0(make_record)
+    #24: Dict<String, String> = call #23(#22)
+    #25: (String, Dict<String, String>) = (#21, #24)
+    #26: String = "y"
+    #27: String = "id"
+    #28: List<String> = [#27]
+    #29: fn(List<String>) -> Dict<String, String> = @0(make_record)
+    #30: Dict<String, String> = call #29(#28)
+    #31: (String, Dict<String, String>) = (#26, #30)
+    #32: List<(String, Dict<String, String>)> = [#25, #31]
+    #33: List<(String, Dict<String, String>)> = %1
+    #34: Float = 0.0
+    #35: (String, Dict<String, String>) = #33[#34]
+    #36: Float = 1.0
+    #37: Dict<String, String> = tuple_index #35, 1
+    #38: String = "id"
+    #39: String = #37[#38]
+    #40: None = undefined
+    #41: Bool = JsStrictEq #39, #40
+    #42: List<(String, Dict<String, String>)> = %1
+    #43: Float = 1.0
+    #44: (String, Dict<String, String>) = #42[#43]
+    #45: Float = 1.0
+    #46: Dict<String, String> = tuple_index #44, 1
+    #47: String = "id"
+    #48: String = #46[#47]
+    #49: None = none
+    #50: Bool = Eq #48, #49
+    #51: None = @11(console_log)
+    #52: None = call #51(#41, #50)
+    #53: String = "q"
+    #54: List<String> = [#53]
+    #55: List<String> = %2
+    #56: Float = 3.0
+    #57: String = #55[#56]
+    #58: None = undefined
+    #59: Bool = JsStrictEq #57, #58
+    #60: List<String> = %2
+    #61: Float = 0.0
+    #62: String = #60[#61]
+    #63: None = undefined
+    #64: Bool = JsStrictEq #62, #63
+    #65: None = @12(console_log)
+    #66: None = call #65(#59, #64)
+    #67: String = ""
+    #68: List<String> = [#67]
+    #69: fn(List<String>) -> Bool = @1(starts_with_slash)
+    #70: Bool = call #69(#68)
+    #71: String = "/a"
+    #72: List<String> = [#71]
+    #73: fn(List<String>) -> Bool = @1(starts_with_slash)
+    #74: Bool = call #73(#72)
+    #75: None = @13(console_log)
+    #76: None = call #75(#70, #74)
+    #77: String = "a"
+    #78: List<String | File> = [#77]
+    #79: List<String | File> = %3
+    #80: String = "b"
+    #81: fn(List<String | File>, String | File) -> Float = @3(collect)
+    #82: Float = call #81(#79, #80)
+    #83: List<String | File> = %3
+    #84: Float = len #83
+    #85: List<String | File> = %3
+    #86: Float = 1.0
+    #87: String | File = #85[#86]
+    #88: String = typeof #87
+    #89: List<String | File> = %3
+    #90: Float = 1.0
+    #91: String | File = #89[#90]
+    #92: None = @14(console_log)
+    #93: None = call #92(#84, #88, #91)
+    #94: String = "a/b"
+    #95: String = ""
+    #96: RegExp = new RegExp(#94, #95)
+    #97: String = #96.source
+    #98: None = @15(console_log)
+    #99: None = call #98(#97)
+    #100: async fn() -> Future<None> = @5(run)
+    #101: Future<None> = call #100()
+    #102: None = async_spawn_local(#101)
+    #103: Float = 1.0
+    #104: Float = 171.0
+    #105: Float = 255.0
+    #106: List<Float> = [#103, #104, #105]
+    #107: Uint8Array = typed_array_new Uint8Array #106
+    #108: Uint8Array = %4
+    #109: List<Float> = byte_array_elements #108
+    #110: String = "-"
+    #111: String = string_join #109, #110
+    #112: Uint8Array = %4
+    #113: List<Float> = byte_array_elements #112
+    #114: Float = 171.0
+    #115: Float = list_find #113, #114
+    #116: None = @16(console_log)
+    #117: None = call #116(#111, #115)
+    #118: Float = 10.0
+    #119: Float = 255.0
+    #120: List<Float> = [#118, #119]
+    #121: fn(Float, Int, List<Float>) -> String = closure BodyId(6) captures 0 -> String
+    #122: List<String> = list_map #120, #121
+    #123: String = ","
+    #124: String = string_join #122, #123
+    #125: None = @17(console_log)
+    #126: None = call #125(#124)
+    #127: String = "a"
+    #128: String = "b"
+    #129: List<String> = [#127, #128]
+    #130: String = "c"
+    #131: List<String> = [#130]
+    #132: List<List<String>> = [#129, #131]
+    #133: List<List<String>> = %5
+    #134: Optional<List<String>> = list_shift #133
+    #135: Optional<List<String>> = %6
+    #136: None = none
+    #137: Bool = NotEq #135, #136
+    #138: List<String> = %6
+    #139: String = ","
+    #140: String = string_join #138, #139
+    #141: String = "none"
+    #142: String = if #137 then #140 else #141
+    #143: None = @18(console_log)
+    #144: None = call #143(#142)
+    #145: Future<None> = async_exit_drain()
+    #146: None = await #145
+  stmts
+    s0: let %0: Dict<String, String> = #3
+    s1: #20
+    s2: let %1: List<(String, Dict<String, String>)> = #32
+    s3: #52
+    s4: let %2: List<String> = #54
+    s5: #66
+    s6: #76
+    s7: let %3: List<String | File> = #78
+    s8: #82
+    s9: #93
+    s10: #99
+    s11: #102
+    s12: let %4: Uint8Array = #107
+    s13: #117
+    s14: #126
+    s15: let %5: List<List<String>> = #132
+    s16: let %6: Optional<List<String>> = #134
+    s17: #144
+    s18: #146
+  async state machine
+    states [state0, state1]
+    suspend #146 on #145 -> state147
+
+interned types
+  t0 = Unknown
+  t1 = String
+  t2 = Dict<String, Unknown>
+  t3 = List<String>
+  t4 = Dict<String, String>
+  t5 = (String, Dict<String, String>)
+  t6 = List<(String, Dict<String, String>)>
+  t7 = File
+  t8 = String | File
+  t9 = List<String | File>
+  t10 = Float
+  t11 = List<Float>
+  t12 = Uint8Array
+  t13 = List<List<String>>
+  t14 = Optional<List<String>>
+  t15 = fn(List<String>) -> Dict<String, String>
+  t16 = Bool
+  t17 = fn(List<String>) -> Bool
+  t18 = Int8Array
+  t19 = Uint8ClampedArray
+  t20 = Int16Array
+  t21 = Uint16Array
+  t22 = Int32Array
+  t23 = Uint32Array
+  t24 = Float32Array
+  t25 = Float64Array
+  t26 = BigInt64Array
+  t27 = BigUint64Array
+  t28 = DataView
+  t29 = Uint8Array | Int8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array | DataView
+  t30 = ArrayBuffer
+  t31 = String | Uint8Array | Int8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array | DataView | ArrayBuffer
+  t32 = Future<Float>
+  t33 = async fn(String | Uint8Array | Int8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array | DataView | ArrayBuffer) -> Future<Float>
+  t34 = fn(List<String | File>, String | File) -> Float
+  t35 = Future<String>
+  t36 = async fn(Float, String) -> Future<String>
+  t37 = None
+  t38 = Future<None>
+  t39 = async fn() -> Future<None>
+  t40 = Uint8Array | Int8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array | DataView | ArrayBuffer
+  t41 = TextEncoder
+  t42 = Future<ArrayBuffer>
+  t43 = async fn(String | Uint8Array | Int8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array | DataView | ArrayBuffer) -> Future<Float>
+  t44 = async fn(Float, String) -> Future<String>
+  t45 = fn(List<String>) -> Dict<String, String>
+  t46 = fn(List<String>) -> Bool
+  t47 = fn(List<String | File>, String | File) -> Float
+  t48 = RegExp
+  t49 = async fn() -> Future<None>
+  t50 = Int
+  t51 = fn(Float, Int, List<Float>) -> String

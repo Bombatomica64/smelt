@@ -2211,6 +2211,14 @@ async fn smelt_sleep_ms(delay_ms: f64) {
     smelt_drain_promise_tasks().await;
     let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };
     let target_ms = smelt_mono_ms().saturating_add(delay_ms);
+    if delay_ms > 0 && SMELT_RACE_DEPTH.with(::std::cell::Cell::get) > 0 {
+        let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });
+        let callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(|| Ok(())));
+        SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms: target_ms, callback, period_ms: None }));
+        while smelt_mono_ms() < target_ms { tokio::task::yield_now().await; }
+        smelt_drain_promise_tasks().await;
+        return;
+    }
     let id_barrier = if delay_ms == 0 { SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get) } else { u64::MAX };
     let mut fired_any = false;
     loop {
@@ -3624,9 +3632,9 @@ smelt_local.block_on(&smelt_runtime, async move {
     let id: String = _smelt_tmp_4;
     let _smelt_tmp_5: f64 = id.chars().count() as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_5)); };
-    let _ = { println!("{} {} {} {}", id.chars().nth({ let smelt_normalized = 8.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds"), id.chars().nth({ let smelt_normalized = 13.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds"), id.chars().nth({ let smelt_normalized = 18.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds"), id.chars().nth({ let smelt_normalized = 23.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds")); };
-    let _ = { println!("{}", id.chars().nth({ let smelt_normalized = 14.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds")); };
-    _smelt_tmp_9 = "89ab".to_owned().contains(&id.chars().nth({ let smelt_normalized = 19.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds"));
+    let _ = { println!("{} {} {} {}", id.chars().nth({ let smelt_normalized = 8.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default(), id.chars().nth({ let smelt_normalized = 13.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default(), id.chars().nth({ let smelt_normalized = 18.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default(), id.chars().nth({ let smelt_normalized = 23.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default()); };
+    let _ = { println!("{}", id.chars().nth({ let smelt_normalized = 14.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default()); };
+    _smelt_tmp_9 = "89ab".to_owned().contains(&id.chars().nth({ let smelt_normalized = 19.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default());
     let _ = { println!("{}", _smelt_tmp_9); };
     _smelt_tmp_11 = uuid::Uuid::new_v4().to_string();
     _smelt_tmp_12 = id.clone() == _smelt_tmp_11;

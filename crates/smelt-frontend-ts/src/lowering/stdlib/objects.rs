@@ -955,6 +955,185 @@ return_ty,
         }
     }
 
+    /// Lower `Object.getOwnPropertyDescriptor(obj, key)` in Smelt's object model.
+    ///
+    /// Every own property a source program can give a record is a DATA
+    /// property that is writable, enumerable and configurable
+    /// (`Object.defineProperty` stores the value; accessors live on classes,
+    /// not as own entries of a record). So the descriptor is
+    /// `Object.hasOwn(obj, key) ? { value: obj[key], writable: true,
+    /// enumerable: true, configurable: true } : undefined`, built from the
+    /// ownership test and keyed read that already exist. An own key is found
+    /// even when it is spelled `__proto__` on a null-prototype record, which is
+    /// what Hono's `parseBody` test asks.
+    ///
+    /// The receiver is read as the string-keyed erased record
+    /// `getOwnPropertySymbols` reads, because the spec's `PropertyDescriptor`
+    /// types `value` as `any`: the descriptor is a genuine dynamic boundary,
+    /// whatever the receiver's own value type.
+    ///
+    /// The receiver and key are each evaluated twice (the test and the read),
+    /// so the rule applies only when both are re-readable without effects
+    /// ([`Self::is_effect_free_reread`]); any other shape declines to the
+    /// ordinary call path.
+    pub(in crate::lowering) fn object_get_own_property_descriptor_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Object"
+            || member.property.name != "getOwnPropertyDescriptor"
+            || self.classes.contains("Object")
+        {
+            return Ok(None);
+        }
+        let [receiver_argument, key_argument] = call.arguments.as_slice() else {
+            return Ok(None);
+        };
+        let (Some(receiver_expr), Some(key_expr)) =
+            (receiver_argument.as_expression(), key_argument.as_expression())
+        else {
+            return Ok(None);
+        };
+        if !Self::is_effect_free_reread(receiver_expr) || !Self::is_effect_free_reread(key_expr) {
+            return Ok(None);
+        }
+        let span = self.span(call.span.start, call.span.end);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let record_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let read_pair = |this: &mut Self, target: &mut Body| -> Result<Option<(smelt_hir::ExprId, smelt_hir::ExprId)>, SmeltError> {
+            let value = this.expression(receiver_expr, target)?;
+            let record = target.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value,
+                    target: record_ty,
+                },
+                ty: record_ty,
+                span,
+            });
+            let key = this.expression(key_expr, target)?;
+            let key_ty = Self::expr_ty(target, key);
+            let key = if key_ty == string_ty {
+                key
+            } else if this.is_string_compatible_type(key_ty) {
+                target.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: key },
+                    ty: string_ty,
+                    span,
+                })
+            } else {
+                return Ok(None);
+            };
+            Ok(Some((record, key)))
+        };
+        let Some((tested_record, tested_key)) = read_pair(self, body)? else {
+            return Ok(None);
+        };
+        let Some((read_record, read_key)) = read_pair(self, body)? else {
+            return Ok(None);
+        };
+        let is_own = body.push_expr(Expr {
+            kind: ExprKind::DictContainsKey {
+                dict: tested_record,
+                key: tested_key,
+                lookup: PropertyLookup::Own,
+            },
+            ty: bool_ty,
+            span,
+        });
+        let value = body.push_expr(Expr {
+            kind: ExprKind::Index {
+                receiver: read_record,
+                index: read_key,
+            },
+            ty: unknown_ty,
+            span,
+        });
+        let mut entries = Vec::from([(
+            body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("value".to_owned())),
+                ty: string_ty,
+                span,
+            }),
+            value,
+        )]);
+        for flag in ["writable", "enumerable", "configurable"] {
+            let key = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(flag.to_owned())),
+                ty: string_ty,
+                span,
+            });
+            let truth = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(true)),
+                ty: bool_ty,
+                span,
+            });
+            let erased = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: truth },
+                ty: unknown_ty,
+                span,
+            });
+            entries.push((key, erased));
+        }
+        let descriptor = body.push_expr(Expr {
+            kind: ExprKind::DictLit(entries),
+            ty: record_ty,
+            span,
+        });
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let absent = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Undefined),
+            ty: none_ty,
+            span,
+        });
+        let ty = self.ctx.krate.types.intern(Type::Optional(record_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond: is_own,
+                then_expr: descriptor,
+                else_expr: absent,
+            },
+            ty,
+            span,
+        })))
+    }
+
+    /// Return whether evaluating an expression twice is the same as once.
+    ///
+    /// Identifiers, `this`, literals and non-optional static member chains
+    /// over those, looked through parentheses and type assertions. A getter on
+    /// a chain could in principle observe the second read, but a source
+    /// getter with a side effect is not something a descriptor probe is
+    /// written against, and computed members, calls and optional chains are
+    /// refused outright.
+    fn is_effect_free_reread(expression: &Expression<'_>) -> bool {
+        match expression {
+            Expression::Identifier(_)
+            | Expression::ThisExpression(_)
+            | Expression::StringLiteral(_)
+            | Expression::NumericLiteral(_) => true,
+            Expression::StaticMemberExpression(member) => {
+                !member.optional && Self::is_effect_free_reread(&member.object)
+            }
+            Expression::ParenthesizedExpression(inner) => {
+                Self::is_effect_free_reread(&inner.expression)
+            }
+            Expression::TSAsExpression(inner) => Self::is_effect_free_reread(&inner.expression),
+            Expression::TSNonNullExpression(inner) => {
+                Self::is_effect_free_reread(&inner.expression)
+            }
+            _ => false,
+        }
+    }
+
     /// Lower direct TypeScript object key ownership checks.
     pub(in crate::lowering) fn object_has_own_call(
         &mut self,

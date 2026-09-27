@@ -4702,6 +4702,26 @@ fn emit_source_with_free_function_router(
             ));
             writer.line("    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };");
             writer.line("    let target_ms = smelt_mono_ms().saturating_add(delay_ms);");
+            // Under a `Promise.race` driver a positive sleep must not move the
+            // clock itself: firing every timer due within its own window would
+            // also fire the OTHER racers' timers (a `setTimeout(reject, 50)`
+            // timeout loses to the `sleep(110)` racer it should beat, because
+            // both settle in one poll and the earlier-listed racer is read
+            // first). Instead the sleep arms a no-op wake-up timer at its
+            // deadline, so the driver sees it among the pending timers and steps
+            // the clock to it in order, and suspends until virtual time has
+            // reached the deadline. This is Node's model: a sleep IS a timer.
+            writer.line("    if delay_ms > 0 && SMELT_RACE_DEPTH.with(::std::cell::Cell::get) > 0 {");
+            writer.line("        let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });");
+            writer.line("        let callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(|| Ok(())));");
+            writer.line("        SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms: target_ms, callback, period_ms: None }));");
+            writer.line("        while smelt_mono_ms() < target_ms { tokio::task::yield_now().await; }");
+            writer.line(format!(
+                "        {drain_promise_tasks}().await;",
+                drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
+            ));
+            writer.line("        return;");
+            writer.line("    }");
             // For a zero-delay sleep (one event-loop tick), only timers that
             // already exist when it begins may fire; anything (re)scheduled while
             // draining is deferred to a later tick, exactly as Node runs a timer

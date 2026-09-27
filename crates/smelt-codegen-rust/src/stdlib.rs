@@ -19,7 +19,18 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if any_rvalue_needs(mir, rvalue_needs_serde_json) || needs_json_parse_runtime(mir) {
         deps.push(BackendDependency::SerdeJson);
     }
-    if any_rvalue_needs(mir, |rvalue| rvalue_needs_regex(rvalue, mir)) || needs_unknown_type(mir) {
+    // A program that only CONSTRUCTS a `RegExp` and reads its `source`/`flags`
+    // performs no regex rvalue at all, yet every such local is typed
+    // `SmeltRegExp`; the type table is consulted for the same pay-for-use
+    // reason `needs_headers_runtime` does.
+    if any_rvalue_needs(mir, |rvalue| rvalue_needs_regex(rvalue, mir))
+        || needs_unknown_type(mir)
+        || mir
+            .types
+            .all()
+            .iter()
+            .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::RegExp))
+    {
         deps.push(BackendDependency::Regex);
     }
     if any_rvalue_needs(mir, rvalue_needs_rand) {

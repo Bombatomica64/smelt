@@ -115,15 +115,15 @@ fn main (FuncId(3)) -> None
     %22 temp: Optional<HandlerSet>
     %23 temp: Optional<HandlerSet>
     %24 temp: Bool
-    %25 temp: Optional<String>
-    %26 temp: Optional<String>
+    %25 temp: String
+    %26 temp: HandlerSet
     %27 temp: None
     %28 temp: Optional<HandlerSet>
     %29 temp: Optional<HandlerSet>
     %30 temp: Optional<HandlerSet>
     %31 temp: Bool
-    %32 temp: Optional<String>
-    %33 temp: Optional<String>
+    %32 temp: String
+    %33 temp: HandlerSet
     %34 temp: None
     %35 temp: HandlerSet
     %36 temp: HandlerParamsSet
@@ -166,8 +166,8 @@ fn main (FuncId(3)) -> None
     %24 = copy %2 != none
     switch move %24 ? bb11 : bb12
   bb11:
-    %26 = move %2?.field3
-    %25 = move %26
+    %26 = move %2
+    %25 = copy %26.field3
     goto bb13
   bb12:
     %25 = "none"
@@ -182,8 +182,8 @@ fn main (FuncId(3)) -> None
     %31 = copy %3 != none
     switch move %31 ? bb15 : bb16
   bb15:
-    %33 = move %3?.field3
-    %32 = move %33
+    %33 = move %3
+    %32 = copy %33.field3
     goto bb17
   bb16:
     %32 = "none"

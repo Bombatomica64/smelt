@@ -2937,7 +2937,7 @@ impl Registry {
     fn has(&self, key: String) -> String {
     let mut _smelt_tmp_4: String;
     let _smelt_tmp_2: SmeltRecord<String, bool> = self.0.borrow()._seen.clone();
-    let _smelt_tmp_3: bool = false;
+    let _smelt_tmp_3: bool = (_smelt_tmp_2.get(&key)).is_none();
     let _smelt_tmp_4: String = if _smelt_tmp_3 { "absent".to_owned() } else { "present".to_owned() };
     return _smelt_tmp_4;
     }

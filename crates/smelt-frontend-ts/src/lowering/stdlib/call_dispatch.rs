@@ -246,6 +246,9 @@ impl<'builder> ModuleBuilder<'builder> {
         if let Some(expr) = self.global_alias_namespace_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.array_prototype_method_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.dispatch_builtin_call(call, body)? {
             return Ok(expr);
         }
@@ -2005,6 +2008,108 @@ impl<'builder> ModuleBuilder<'builder> {
         self.call_expression(&synthetic, body).map(Some)
     }
 
+    /// Lower `Array.prototype.<m>.call(receiver, ...args)` for a read-only `m`.
+    ///
+    /// The generic `Array.prototype` methods work on any array-like receiver
+    /// (a typed-array view, `arguments`, a string, a `{ length }` record) by
+    /// reading its `length` and indexed elements. For a method that never
+    /// writes its receiver ([`smelt_stdlib::is_array_non_mutating_method`]),
+    /// running it over `Array.from(receiver)` reads exactly the same elements
+    /// and answers the same value, so the call is rewritten to
+    /// `Array.from(receiver).<m>(...args)` and lowered through the ordinary
+    /// array-method path. Hono's `utils/crypto.ts` hex-encodes a digest with
+    /// `Array.prototype.map.call(new Uint8Array(buffer), (x) => ..)`, which
+    /// used to go through an erased `prototype` read and a dynamic `call`
+    /// that answered an empty list.
+    ///
+    /// A mutating method is left alone: its writes would land on the copy.
+    /// So is a spread first argument, and any receiver of `.call` other than
+    /// the unshadowed `Array.prototype.<m>` spelling. Like
+    /// [`Self::global_alias_namespace_call`], the synthetic call lives in a
+    /// local arena and the original program is not mutated.
+    pub(in crate::lowering) fn array_prototype_method_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        use oxc::allocator::{Allocator, Box as ArenaBox, CloneIn};
+        use oxc::ast::ast::{
+            CallExpression, IdentifierName, StaticMemberExpression, TSTypeParameterInstantiation,
+        };
+        use oxc::ast::builder::AstBuilder;
+
+        if call.optional {
+            return Ok(None);
+        }
+        let Expression::StaticMemberExpression(call_member) = &call.callee else {
+            return Ok(None);
+        };
+        if call_member.optional || call_member.property.name != "call" {
+            return Ok(None);
+        }
+        let Expression::StaticMemberExpression(method_member) = &call_member.object else {
+            return Ok(None);
+        };
+        let method = method_member.property.name.as_str();
+        if method_member.optional || !smelt_stdlib::is_array_non_mutating_method(method) {
+            return Ok(None);
+        }
+        let Expression::StaticMemberExpression(prototype_member) = &method_member.object else {
+            return Ok(None);
+        };
+        if prototype_member.optional || prototype_member.property.name != "prototype" {
+            return Ok(None);
+        }
+        if !matches!(&prototype_member.object, Expression::Identifier(array) if array.name == "Array")
+            || self.classes.contains("Array")
+        {
+            return Ok(None);
+        }
+        let Some((receiver, rest)) = call.arguments.split_first() else {
+            return Ok(None);
+        };
+        let Some(receiver) = receiver.as_expression() else {
+            return Ok(None);
+        };
+
+        let arena = Allocator::default();
+        let builder = AstBuilder::new(&arena);
+        let span = call.span;
+        let from_callee = Expression::StaticMemberExpression(StaticMemberExpression::boxed(
+            prototype_member.span,
+            Expression::new_identifier(prototype_member.object.span(), "Array", &builder),
+            IdentifierName::new(prototype_member.property.span, "from", &builder),
+            false,
+            &builder,
+        ));
+        let mut from_arguments = oxc::allocator::Vec::new_in(&&arena);
+        from_arguments.push(receiver.clone_in(&arena).into());
+        let no_type_args: Option<ArenaBox<'_, TSTypeParameterInstantiation<'_>>> = None;
+        let copied = Expression::CallExpression(CallExpression::boxed(
+            receiver.span(),
+            from_callee,
+            no_type_args,
+            from_arguments,
+            false,
+            &builder,
+        ));
+        let method_callee = Expression::StaticMemberExpression(StaticMemberExpression::boxed(
+            method_member.span,
+            copied,
+            IdentifierName::new(method_member.property.span, method, &builder),
+            false,
+            &builder,
+        ));
+        let mut arguments = oxc::allocator::Vec::new_in(&&arena);
+        for argument in rest {
+            arguments.push(argument.clone_in(&arena));
+        }
+        let method_type_args: Option<ArenaBox<'_, TSTypeParameterInstantiation<'_>>> = None;
+        let synthetic =
+            CallExpression::new(span, method_callee, method_type_args, arguments, false, &builder);
+        self.call_expression(&synthetic, body).map(Some)
+    }
+
     /// Adapter so an infallible `Option`-returning handler fits the registry shape.
     ///
     /// Preserves the original guard `if let Some(expr) = self.typed_test_value_call(...)`
@@ -2094,6 +2199,7 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::object_get_own_property_symbols_call,
         Self::object_projection_call,
         Self::object_has_own_call,
+        Self::object_get_own_property_descriptor_call,
         // Before the collection and list dispatches: `slice`, `set` and `fill`
         // are names those own for other receivers, and the family's receiver
         // type is what separates them.

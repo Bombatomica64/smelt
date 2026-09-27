@@ -433,6 +433,31 @@ impl FunctionEmitter<'_> {
         operand: &Operand,
         radix: &Operand,
     ) -> Result<String, EmitError> {
+        // An ERASED receiver decides at run time, as JavaScript does:
+        // `Number.prototype.toString(radix)` for a number, and the receiver's
+        // own `toString` (which ignores the argument) for anything else.
+        // `Array.prototype.map.call(bytes, (x) => x.toString(16))` hands the
+        // callback an erased element, which used to be refused here.
+        if matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::Unknown)
+        ) && matches!(
+            self.mir.types.get(self.operand_ty(radix)?),
+            Some(Type::Int | Type::Float)
+        ) {
+            let string_ty = self.type_id(Type::String)?;
+            let fallback = self.primitive_cast_text(
+                smelt_hir::PrimitiveCastOp::ToString,
+                operand,
+                string_ty,
+            )?;
+            let radix_text = self.operand_text(radix)?;
+            let number_text = self.radix_digits_text("smelt_radix_value", &radix_text);
+            return Ok(format!(
+                "match {}.clone() {{ SmeltUnknown::Number(smelt_radix_value) => {number_text}, _ => {fallback} }}",
+                self.operand_text(operand)?
+            ));
+        }
         if !matches!(
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::Int | Type::Float)
@@ -446,11 +471,20 @@ impl FunctionEmitter<'_> {
         }
         let operand_text = self.operand_text(operand)?;
         let radix_text = self.operand_text(radix)?;
-        let value_trunc_text = self.numeric_trunc_f64_text(&operand_text);
-        let radix_trunc_text = self.numeric_trunc_f64_text(&radix_text);
-        Ok(format!(
+        Ok(self.radix_digits_text(&operand_text, &radix_text))
+    }
+
+    /// Render `Number.prototype.toString(radix)` over numeric Rust texts.
+    ///
+    /// Both texts are `f64`/integer expressions; the value and radix are
+    /// truncated the way `ToIntegerOrInfinity` does, the radix is clamped to
+    /// `2..=36`, and the digits are produced most-significant first.
+    fn radix_digits_text(&self, operand_text: &str, radix_text: &str) -> String {
+        let value_trunc_text = self.numeric_trunc_f64_text(operand_text);
+        let radix_trunc_text = self.numeric_trunc_f64_text(radix_text);
+        format!(
             "{{ let value = {value_trunc_text} as i128; let radix = ({radix_trunc_text} as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 {{ digits.push('0'); }} while n > 0 {{ let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 {{ (b'0' + digit) as char }} else {{ (b'a' + digit - 10) as char }}); n /= u128::from(radix); }} if negative {{ digits.push('-'); }} digits.iter().rev().collect::<String>() }}"
-        ))
+        )
     }
 
     /// Formats a numeric value as a fixed-point decimal string.

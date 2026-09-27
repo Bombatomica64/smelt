@@ -2006,6 +2006,22 @@ return_ty: function.return_ty,
                 }
                 Ok(self.ctx.krate.types.intern(Type::Union(members)))
             }
+            // `FormDataEntryValue` is the spec's `File | string` alias, the
+            // type of every `FormData` value. Left opaque it was an erased
+            // nominal class, and injecting one into a `(string | File)[]`
+            // picked the `File` arm for what is a `string` on most paths
+            // (Hono's `handleParsingAllValues` pushed `'bbb'` as a `File`).
+            // Same rule as `ArrayBufferView` above: a lib alias is its union,
+            // and a source declaration of the name wins.
+            ("FormDataEntryValue", []) if !self.source_declares_type("FormDataEntryValue") => {
+                let file_name = self.intern_type_name("File");
+                let file_ty = self.ctx.krate.types.intern(Type::Class {
+                    name: file_name,
+                    args: Vec::new(),
+                });
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                Ok(self.ctx.krate.types.intern(Type::Union(vec![file_ty, string_ty])))
+            }
             ("BodyInit", []) => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 let none_ty = self.ctx.krate.types.intern(Type::None);
