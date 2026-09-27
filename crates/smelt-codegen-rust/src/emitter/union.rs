@@ -890,7 +890,7 @@ impl FunctionEmitter<'_> {
         let patterns = members
             .iter()
             .enumerate()
-            .filter(|(_, member)| self.union_member_has_field(**member, field))
+            .filter(|(_, member)| self.type_has_property_statically(**member, field))
             .map(|(index, _)| format!("{union_enum_name}::M{index}(_)"))
             .collect::<Vec<_>>();
         Some(if patterns.is_empty() {
@@ -1042,28 +1042,108 @@ impl FunctionEmitter<'_> {
             .map(|candidate| candidate.ty)
     }
 
-    /// Return whether a concrete union member type statically carries a field.
+    /// Return whether a union member's erased runtime OBJECT carries `field` as
+    /// a data key.
     ///
-    /// Mirrors the frontend field-presence rule so the emitted discriminant
-    /// check keeps exactly the arms whose declared shape exposes `field`.
+    /// The erased-arm recognizer tests `SmeltUnknown::Object` maps, which hold
+    /// only data fields, so this is deliberately narrower than
+    /// [`Self::type_has_property_statically`] (no methods, accessors or
+    /// prototype members).
     fn union_member_has_field(&self, ty: TypeId, field: &str) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::String | Type::List(_) | Type::Tuple(_)) => field == "length",
             Some(Type::Dict(_, _)) => true,
-            Some(Type::Class { name, .. }) => self.mir_class_has_field(*name, field),
+            Some(Type::Class { name, .. }) => self.mir.classes.iter().any(|class| {
+                class.name == *name
+                    && class
+                        .fields
+                        .iter()
+                        .any(|candidate| self.symbol_name(candidate.name) == Ok(field))
+            }),
             _ => false,
         }
     }
 
-    /// Return whether a named MIR class declares a field.
-    fn mir_class_has_field(&self, name: Symbol, field: &str) -> bool {
-        self.mir.classes.iter().any(|class| {
-            class.name == name
-                && class
-                    .fields
+    /// Return whether `'field' in value` holds for a concrete union member type
+    /// (or a single concrete class instance).
+    ///
+    /// The emitted discriminant check keeps exactly the arms whose type answers
+    /// `true`. JavaScript's `in` walks the prototype chain, so a class arm
+    /// answers for its whole instance surface, not only its data fields:
+    ///
+    /// * a modeled HOST class (`Request`, `Response`, `Headers`, ...) answers
+    ///   from the shared stdlib registry of its spec surface
+    ///   (`stdlib_class_instance_has_property`) — it has no MIR class entry,
+    ///   so before this every host arm answered `false` and Hono's
+    ///   `'headers' in request` over `HonoRequest | Request` was constant
+    ///   `false`;
+    /// * a user class answers for its fields, methods and accessors,
+    ///   including inherited ones ([`Self::mir_class_has_member`]), and an
+    ///   interface-shaped arm for its declared fields;
+    /// * every object arm also has the `Object.prototype` members.
+    pub(super) fn type_has_property_statically(&self, ty: TypeId, field: &str) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::String | Type::List(_) | Type::Tuple(_)) => field == "length",
+            Some(Type::Dict(_, _)) => true,
+            Some(Type::Class { name, .. }) => {
+                if let Ok(Some(host)) = self.stdlib_class_of_symbol(*name)
+                    && let Some(answer) =
+                        smelt_stdlib::stdlib_class_instance_has_property(host, field)
+                {
+                    return answer;
+                }
+                self.mir_class_has_member(*name, field, 0)
+                    || self.mir_interface_has_field(*name, field)
+                    || smelt_stdlib::is_object_prototype_member(field)
+            }
+            _ => false,
+        }
+    }
+
+    /// Return whether a named MIR class declares `member` as an instance field,
+    /// method or accessor, itself or through its base-class chain.
+    ///
+    /// `depth` bounds the base walk so a malformed (cyclic) chain terminates.
+    fn mir_class_has_member(&self, name: Symbol, member: &str, depth: usize) -> bool {
+        if depth > 64 {
+            return false;
+        }
+        let Some(class) = self.mir.classes.iter().find(|class| class.name == name) else {
+            return false;
+        };
+        let named = |symbol: Symbol| self.symbol_name(symbol) == Ok(member);
+        let has_field = class.fields.iter().any(|candidate| named(candidate.name));
+        let has_accessor = class
+            .descriptors
+            .iter()
+            .any(|descriptor| !descriptor.is_static && named(descriptor.name));
+        let has_method = class.methods.iter().any(|func| {
+            usize::try_from(func.0)
+                .ok()
+                .and_then(|index| self.mir.functions.get(index))
+                .is_some_and(|function| {
+                    matches!(function.origin, HirOrigin::ClassMethod { method: method_name, .. } if named(method_name))
+                })
+        });
+        has_field
+            || has_accessor
+            || has_method
+            || class
+                .base
+                .is_some_and(|base| self.mir_class_has_member(base, member, depth.saturating_add(1)))
+    }
+
+    /// Return whether a named MIR interface declares a field (own or inherited).
+    fn mir_interface_has_field(&self, name: Symbol, field: &str) -> bool {
+        self.mir
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == name)
+            .is_some_and(|interface| {
+                crate::classes::effective_interface_fields(self.mir, interface)
                     .iter()
                     .any(|candidate| self.symbol_name(candidate.name) == Ok(field))
-        })
+            })
     }
 
     /// Map a concrete HIR type to the JavaScript runtime category used by guards.

@@ -1529,7 +1529,23 @@ impl ModuleBuilder<'_> {
             })));
         }
         let receiver = self.expression(&member.object, body)?;
-        if matches!(self.ctx.krate.types.get(Self::expr_ty(body, receiver)), Some(Type::Class { name, .. }) if self.ctx.krate.symbols.get(*name).is_some_and(|name| name == "RegExp"))
+        // A receiver typed as a union WITH a `RegExp` arm (`matcher: RegExp |
+        // true` read after `matcher === true ||`, Hono's trie-router) or as the
+        // erased boundary holds a RegExp OBJECT whenever `.test` is reached, so
+        // it takes the same runtime `test` as a concrete receiver: the emitter
+        // recovers the `SmeltRegExp` from the value (`SmeltFromUnknown`). The
+        // string-pattern path below stringified the object instead (`/^x$/`)
+        // and compiled THAT text as the pattern, so the test never matched.
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let receiver_may_hold_regexp = match self.ctx.krate.types.get(receiver_ty) {
+            Some(Type::Unknown) => true,
+            Some(Type::Union(items)) => items.iter().any(|item| {
+                matches!(self.ctx.krate.types.get(*item), Some(Type::Class { name, .. }) if self.ctx.krate.symbols.get(*name).is_some_and(|name| name == "RegExp"))
+            }),
+            _ => false,
+        };
+        if receiver_may_hold_regexp
+            || matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Class { name, .. }) if self.ctx.krate.symbols.get(*name).is_some_and(|name| name == "RegExp"))
         {
             // A concrete receiver whose flags are NOT readable here — a regex
             // held in a variable, or built with a computed flags string. Its

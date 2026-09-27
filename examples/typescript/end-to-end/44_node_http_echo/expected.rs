@@ -2832,8 +2832,26 @@ impl PartialEq for SmeltRegExp { fn eq(&self, other: &Self) -> bool { self.sourc
 
 impl SmeltRegExp {
     /// Construct a JavaScript-like RegExp value with shared lastIndex state.
+    ///
+    /// `source` is stored as the spec's `EscapeRegExpPattern` renders it:
+    /// an unescaped `/` outside a character class reads back as `\/`, so
+    /// `new RegExp('a/b').source` is `a\/b` exactly as for the literal
+    /// `/a\/b/`, and the two compare equal.
     pub fn new(source: String, flags: String) -> Self {
+        let source = Self::escape_pattern_source(source);
         Self { id: smelt_next_object_id(), source, flags, last_index: ::std::rc::Rc::new(::std::cell::RefCell::new(0)) }
+    }
+    /// Escape every unescaped `/` outside a character class (`EscapeRegExpPattern`).
+    fn escape_pattern_source(source: String) -> String {
+        if !source.contains('/') { return source; }
+        let mut escaped = String::with_capacity(source.len() + 2);
+        let (mut in_class, mut after_backslash) = (false, false);
+        for ch in source.chars() {
+            if after_backslash { escaped.push(ch); after_backslash = false; continue; }
+            match ch { '\\' => after_backslash = true, '[' => in_class = true, ']' => in_class = false, '/' if !in_class => escaped.push('\\'), _ => {} }
+            escaped.push(ch);
+        }
+        escaped
     }
     /// Return true when this RegExp has a flag.
     pub fn has_flag(&self, flag: char) -> bool {
@@ -3574,6 +3592,7 @@ pub struct SmeltRequest {
 
 impl PartialEq for SmeltRequest { fn eq(&self, other: &Self) -> bool { self.url == other.url && self.method == other.method && self.headers == other.headers && self.body == other.body && self.init == other.init } }
 impl ::std::fmt::Debug for SmeltRequest { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltRequest").field("method", &self.method).field("url", &self.url).field("headers", &self.headers).field("body", &self.body).finish() } }
+impl Default for SmeltRequest { fn default() -> Self { Self::from_parts("", "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty()) } }
 
 #[allow(dead_code)]
 impl SmeltRequest {

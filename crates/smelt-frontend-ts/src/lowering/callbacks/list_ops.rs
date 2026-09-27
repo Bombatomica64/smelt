@@ -372,6 +372,138 @@ impl ModuleBuilder<'_> {
         Ok((right, None))
     }
 
+    /// The static type of a receiver expression, read off bindings and declared
+    /// class members WITHOUT lowering anything.
+    ///
+    /// Answers for the receiver shapes whose type is knowable from declarations
+    /// alone: an identifier or `this` (its narrowed type, else its local's or
+    /// module global's declared type), a static member chain over such a receiver
+    /// (`this.store.bag`, each step the declared field type of a class), a call
+    /// of a module function item (its declared return type), and the
+    /// transparent wrappers `(x)` and `x!`. An optional step answers the inner
+    /// type. Everything else (calls, indexing, module globals not yet in scope)
+    /// answers `None`: "not knowable here", never "not a class".
+    pub(in crate::lowering) fn static_receiver_type(
+        &mut self,
+        object: &Expression<'_>,
+        body: &Body,
+    ) -> Option<smelt_hir::TypeId> {
+        let ty = match object {
+            Expression::Identifier(identifier) => self.binding_static_type(identifier.name.as_str(), body)?,
+            Expression::ThisExpression(_) => self.binding_static_type("this", body)?,
+            Expression::ParenthesizedExpression(paren) => {
+                self.static_receiver_type(&paren.expression, body)?
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                self.static_receiver_type(&non_null.expression, body)?
+            }
+            Expression::StaticMemberExpression(member) => {
+                let owner = self.static_receiver_type(&member.object, body)?;
+                // Only a USER class's declared fields are read here: a host
+                // class's members are modeled operations, not fields, and
+                // asking for one would intern types the crate never uses.
+                if !matches!(self.ctx.krate.types.get(owner), Some(Type::Class { .. }))
+                    || self.stdlib_class_of_type(owner).is_some()
+                {
+                    return None;
+                }
+                let field = self.intern_source_name(member.property.name.as_str());
+                self.class_field_type(owner, field).ok()?
+            }
+            // `make().m()` where `make` names a module function (not shadowed by
+            // a local): the call's type is the function item's declared return.
+            Expression::CallExpression(inner) => {
+                let Expression::Identifier(callee) = &inner.callee else {
+                    return None;
+                };
+                let name = callee.name.as_str();
+                if self.scope.lookup(name).is_some() {
+                    return None;
+                }
+                let item = self.items.get(name).copied()?;
+                let smelt_hir::Item::Function(function) = self.item_ref(item) else {
+                    return None;
+                };
+                function.return_ty
+            }
+            _ => return None,
+        };
+        Some(self.optional_receiver_inner_type(ty))
+    }
+
+    /// The narrowed-or-declared type of a binding: an in-scope local, else a
+    /// module global's declared type (a module `const` read inside a function
+    /// is not in the function's scope).
+    fn binding_static_type(&self, name: &str, body: &Body) -> Option<smelt_hir::TypeId> {
+        if let Some(local) = self.scope.lookup(name) {
+            return Some(
+                self.narrowed_type(name)
+                    .unwrap_or_else(|| Self::local_ty(body, local)),
+            );
+        }
+        self.module_globals.get(name).copied()
+    }
+
+    /// Whether a receiver's STATIC type ([`Self::static_receiver_type`])
+    /// declares `method` as a method, decided without lowering the receiver.
+    ///
+    /// JavaScript resolves `receiver.method(..)` on the receiver's own type:
+    /// a user class declaring `reduce`, `push` or `join` is called, and
+    /// `Array.prototype`/`String.prototype` is never consulted. The builtin
+    /// call registry keys its handlers on member NAMES, so this is the question
+    /// every one of them must ask first; [`Self::dispatch_builtin_call`] asks
+    /// it once for the whole registry. Receivers whose type is not statically
+    /// knowable answer `false` and are checked after lowering by the handlers
+    /// that would otherwise coerce them (see [`Self::list_method_receiver`]).
+    pub(in crate::lowering) fn receiver_statically_declares_method(
+        &mut self,
+        object: &Expression<'_>,
+        method: &str,
+        body: &Body,
+    ) -> bool {
+        let Some(ty) = self.static_receiver_type(object, body) else {
+            return false;
+        };
+        let method_symbol = self.intern_source_name(method);
+        self.receiver_declares_method(ty, method_symbol)
+    }
+
+    /// Lower the receiver of a builtin `Array.prototype` method interception,
+    /// or answer `None` when the receiver's own type declares that method.
+    ///
+    /// The list-method handlers run before ordinary method resolution, keyed
+    /// only on the member NAME. A user class (or interface/union of classes)
+    /// may declare `reduce`, `map`, `find`, ... with any signature, and its
+    /// method is what JavaScript calls: `Array.prototype` is only consulted
+    /// for an array receiver. So the interception asks the receiver's type
+    /// first, by the same rule for every method name: when that type declares
+    /// the member as a method (`receiver_declares_method`), the handler
+    /// declines and the call falls through to class-method dispatch.
+    ///
+    /// A receiver whose type is knowable from declarations is decided without
+    /// lowering anything ([`Self::receiver_statically_declares_method`]), so
+    /// the declining path leaves no duplicate receiver expression behind. Any other receiver shape is lowered and its
+    /// type checked; when that lowered receiver declines, the lowered
+    /// expression is left unreferenced (as the other lower-and-check builtin
+    /// handlers do) and method dispatch lowers the receiver again.
+    pub(in crate::lowering) fn list_method_receiver(
+        &mut self,
+        object: &Expression<'_>,
+        method: &str,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if self.receiver_statically_declares_method(object, method, body) {
+            return Ok(None);
+        }
+        let method_symbol = self.intern_source_name(method);
+        let receiver = self.expression(object, body)?;
+        let receiver_ty = self.optional_receiver_inner_type(Self::expr_ty(body, receiver));
+        if self.receiver_declares_method(receiver_ty, method_symbol) {
+            return Ok(None);
+        }
+        Ok(Some(receiver))
+    }
+
     /// Lower callback-heavy TypeScript array methods.
     pub(in crate::lowering) fn list_callback_call(
         &mut self,
@@ -448,13 +580,19 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
+        // A receiver whose own type declares this method is a user method
+        // call, not `Array.prototype`; decide that before the array arity check.
+        let Some(mut list) =
+            self.list_method_receiver(&member.object, member.property.name.as_str(), body)?
+        else {
+            return Ok(None);
+        };
         let [callback_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "array callback methods require exactly one callback argument",
             ));
         };
-        let mut list = self.expression(&member.object, body)?;
         let list_ty = Self::expr_ty(body, list);
         let list_ty = match self.ctx.krate.types.get(list_ty).cloned() {
             Some(Type::List(_)) => list_ty,
@@ -788,16 +926,24 @@ impl ModuleBuilder<'_> {
         ) {
             return Ok(None);
         }
+        if self.receiver_statically_declares_method(&member.object, member.property.name.as_str(), body) {
+            return Ok(None);
+        }
         if Self::is_static_reduce_utility_call(call) {
             return self.static_reduce_utility_call(call, body, member, from_right);
         }
+        // A user class declaring its own `reduce`/`reduceRight` owns the call.
+        let Some(list) =
+            self.list_method_receiver(&member.object, member.property.name.as_str(), body)?
+        else {
+            return Ok(None);
+        };
         let ([callback_argument] | [callback_argument, _]) = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "array reduce requires callback and at most one initial value",
             ));
         };
-        let list = self.expression(&member.object, body)?;
         let list_span = member.object.span();
         self.lower_list_reduce(
             call,

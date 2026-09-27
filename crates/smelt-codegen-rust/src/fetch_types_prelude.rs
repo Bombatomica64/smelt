@@ -904,6 +904,12 @@ fn emit_request_struct(writer: &mut CodeWriter) {
     writer.line(
         "impl ::std::fmt::Debug for SmeltRequest { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct(\"SmeltRequest\").field(\"method\", &self.method).field(\"url\", &self.url).field(\"headers\", &self.headers).field(\"body\", &self.body).finish() } }",
     );
+    // A class holding a `Request` field derives `Default` for its storage
+    // struct, like every other modeled fetch value (`SmeltResponse`,
+    // `SmeltHeaders`); the constructor always assigns the real request.
+    writer.line(
+        "impl Default for SmeltRequest { fn default() -> Self { Self::from_parts(\"\", \"GET\".to_owned(), SmeltHeaders::new(), SmeltBody::empty()) } }",
+    );
     writer.blank_line();
 }
 

@@ -1005,6 +1005,26 @@ impl FunctionEmitter<'_> {
                                     Some(&class_type_params),
                                 );
                             }
+                            // A callback parameter the method does not retain is
+                            // emitted `&dyn Fn(..)` (`param_type_text`), the same
+                            // borrowed-callback ABI a free function gets, so the
+                            // argument is the same reborrow the free-function
+                            // ladders render. Passing the owned `Rc<dyn Fn>` was
+                            // `expected &dyn Fn(f64, f64) -> f64, found Rc<..>` at
+                            // every call of a method taking a callback it only
+                            // invokes (`bag.fold((a, x) => a + x, 0)`).
+                            if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
+                                && !self
+                                    .function_parameter_requires_owned_in(function, param)
+                                    .unwrap_or(true)
+                            {
+                                let callback_ty = self.method_argument_substituted_target(
+                                    arg,
+                                    target_ty,
+                                    &class_type_params,
+                                )?;
+                                return self.borrowed_function_argument_text(arg, callback_ty, None);
+                            }
                             if let Some(bound_text) = self
                                 .receiver_bound_class_param_argument_text(
                                     function, receiver, arg, target_ty,
@@ -2017,6 +2037,35 @@ impl FunctionEmitter<'_> {
             }
         }
         self.value_at_type(arg, target_ty)
+    }
+
+    /// Resolve a method parameter type against the argument's own type when it
+    /// mentions the callee class's type parameters.
+    ///
+    /// The declared parameter of `class Bag<T> { each(cb: (x: T) => void) }` is
+    /// spelled with the class's `T`, which the calling function has no binding
+    /// for. The argument's type is the evidence Rust's inference uses, so the
+    /// class parameters are bound from the declared/actual pair (the same rule
+    /// as [`Self::callee_generic_argument_text`]) and the substituted type is
+    /// returned. With no class type parameters, nothing bound, or no interned
+    /// substitution, the declared type is returned unchanged.
+    fn method_argument_substituted_target(
+        &self,
+        arg: &Operand,
+        target_ty: TypeId,
+        class_type_params: &HashSet<Symbol>,
+    ) -> Result<TypeId, EmitError> {
+        if class_type_params.is_empty() {
+            return Ok(target_ty);
+        }
+        let declared_names = class_type_params.iter().copied().collect::<Vec<_>>();
+        let bindings = collect_bindings_from_types(
+            self.mir,
+            &declared_names,
+            &[target_ty],
+            &[Some(self.operand_ty(arg)?)],
+        );
+        Ok(substituted_type_id(self.mir, target_ty, &bindings).unwrap_or(target_ty))
     }
 
     /// Emits an optional first-class function call as an optional return value.

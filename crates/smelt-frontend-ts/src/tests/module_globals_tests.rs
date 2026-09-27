@@ -630,3 +630,55 @@ export function shift(xs: string[]): number[] {
     );
     Ok(())
 }
+
+#[test]
+fn erased_and_constructed_module_consts_read_from_functions_are_module_slots() -> Result<(), String> {
+    // `const emptyParams = createNullObject()` (an `any`-returning helper) and
+    // `const shared = new Counter()` are each ONE object that functions read
+    // and compare by identity. A read used to fabricate a fresh empty record
+    // per use, so `x === emptyParams` was never true and a function saw an
+    // empty instance instead of the module's. Both lift to module slots.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+function createNullObject(): any { return Object.create(null); }
+const emptyParams = createNullObject();
+class Counter { n = 1; }
+const shared = new Counter();
+export function isEmpty(value: Record<string, string>): boolean {
+  return value === emptyParams;
+}
+export function count(): number {
+  return shared.n;
+}
+"),
+        &mut ctx,
+    )?;
+    let slots = ctx
+        .krate
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::MutableGlobal(global) => ctx.krate.symbols.get(global.name).map(str::to_owned),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    ensure!(
+        slots.iter().any(|name| name == "empty_params") && slots.iter().any(|name| name == "shared"),
+        "expected module slots for `emptyParams` and `shared`, got {slots:?}",
+    );
+    // The fabricated read was `UnknownCast` of an EMPTY record literal.
+    let fabricates = ctx.krate.bodies.iter().any(|body| {
+        body.exprs.iter().any(|expr| {
+            let ExprKind::UnknownCast { value, .. } = expr.kind else {
+                return false;
+            };
+            usize::try_from(value.0)
+                .ok()
+                .and_then(|index| body.exprs.get(index))
+                .is_some_and(|value| matches!(&value.kind, ExprKind::DictLit(entries) if entries.is_empty()))
+        })
+    });
+    ensure!(!fabricates, "a module-const read must not fabricate an erased record");
+    Ok(())
+}

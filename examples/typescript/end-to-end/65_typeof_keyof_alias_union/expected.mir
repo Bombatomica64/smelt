@@ -39,7 +39,7 @@ fn main (FuncId(1)) -> None
   bb0:
     %2 = {"json": "application/json", "text": "text/plain"}
     %0 = move %2
-    %1 = copy %0.field9
+    %1 = copy %0.field10
     %3 = {"Content-Type": move %1}
     %4 = call fn0(move %3, "content-type") -> bb1
   bb1:
@@ -63,7 +63,7 @@ fn main (FuncId(1)) -> None
   bb7:
     %17 = call @console_log(move %16) -> bb8
   bb8:
-    %18 = {"Content-Type": copy %0.field14}
+    %18 = {"Content-Type": copy %0.field15}
     %19 = call fn0(move %18, "x-missing") -> bb9
   bb9:
     %20 = call @console_log(move %19) -> bb10

@@ -8,84 +8,80 @@ module examples/typescript/end-to-end/94_throwing_getter_in_callback/input.ts (M
   exprs
     #0: Registry = new Registry()
     #1: Registry = %0
-    #2: Registry = %0
-    #3: fn(String) -> None = #2.add
-    #4: Registry = %0
-    #5: String = "alpha"
-    #6: None = #4.add(#5)
-    #7: Registry = %0
+    #2: fn(String) -> None = #1.add
+    #3: Registry = %0
+    #4: String = "alpha"
+    #5: None = #3.add(#4)
+    #6: Registry = %0
+    #7: fn(String) -> None = #6.add
     #8: Registry = %0
-    #9: fn(String) -> None = #8.add
-    #10: Registry = %0
-    #11: String = "beta"
-    #12: None = #10.add(#11)
-    #13: Registry = %0
-    #14: Unknown = #13.first
-    #15: None = @7(console_log)
-    #16: None = call #15(#14)
+    #9: String = "beta"
+    #10: None = #8.add(#9)
+    #11: Registry = %0
+    #12: Unknown = #11.first
+    #13: None = @7(console_log)
+    #14: None = call #13(#12)
+    #15: Registry = %0
+    #16: fn() -> String = #15.describe
     #17: Registry = %0
-    #18: fn() -> String = #17.describe
-    #19: Registry = %0
-    #20: String = #19.describe()
-    #21: None = @8(console_log)
-    #22: None = call #21(#20)
+    #18: String = #17.describe()
+    #19: None = @8(console_log)
+    #20: None = call #19(#18)
+    #21: Registry = %0
+    #22: fn() -> String = #21.label
     #23: Registry = %0
-    #24: fn() -> String = #23.label
-    #25: Registry = %0
-    #26: String = #25.label()
-    #27: None = @9(console_log)
-    #28: None = call #27(#26)
+    #24: String = #23.label()
+    #25: None = @9(console_log)
+    #26: None = call #25(#24)
+    #27: Registry = %0
+    #28: fn(List<String>) -> List<String> = #27.tagged
     #29: Registry = %0
-    #30: fn(List<String>) -> List<String> = #29.tagged
-    #31: Registry = %0
-    #32: String = "a"
-    #33: String = "b"
-    #34: List<String> = [#32, #33]
-    #35: List<String> = #31.tagged(#34)
-    #36: String = ","
-    #37: String = string_join #35, #36
-    #38: None = @10(console_log)
-    #39: None = call #38(#37)
+    #30: String = "a"
+    #31: String = "b"
+    #32: List<String> = [#30, #31]
+    #33: List<String> = #29.tagged(#32)
+    #34: String = ","
+    #35: String = string_join #33, #34
+    #36: None = @10(console_log)
+    #37: None = call #36(#35)
+    #38: Registry = %0
+    #39: fn(String) -> None = #38.add
     #40: Registry = %0
-    #41: Registry = %0
-    #42: fn(String) -> None = #41.add
+    #41: String = "gamma"
+    #42: None = #40.add(#41)
     #43: Registry = %0
-    #44: String = "gamma"
-    #45: None = #43.add(#44)
-    #46: Registry = %0
-    #47: Registry = %0
-    #48: fn(String) -> None = #47.add
+    #44: fn(String) -> None = #43.add
+    #45: Registry = %0
+    #46: String = "delta"
+    #47: None = #45.add(#46)
+    #48: String = "none"
     #49: Registry = %0
-    #50: String = "delta"
-    #51: None = #49.add(#50)
-    #52: String = "none"
-    #53: Registry = %0
-    #54: fn() -> String = #53.describe
-    #55: Registry = %0
-    #56: String = #55.describe()
+    #50: fn() -> String = #49.describe
+    #51: Registry = %0
+    #52: String = #51.describe()
+    #53: String = %1
+    #54: String = "no throw"
+    #55: String = %1
+    #56: String = "threw"
     #57: String = %1
-    #58: String = "no throw"
-    #59: String = %1
-    #60: String = "threw"
-    #61: String = %1
-    #62: None = @11(console_log)
-    #63: None = call #62(#61)
+    #58: None = @11(console_log)
+    #59: None = call #58(#57)
   stmts
     s0: let %0: Registry = #0
-    s1: #6
-    s2: #12
-    s3: #16
-    s4: #22
-    s5: #28
-    s6: #39
-    s7: #45
-    s8: #51
-    s9: let %1: String = #52
-    s10: #56
-    s11: #57 = #58
-    s12: #59 = #60
+    s1: #5
+    s2: #10
+    s3: #14
+    s4: #20
+    s5: #26
+    s6: #37
+    s7: #42
+    s8: #47
+    s9: let %1: String = #48
+    s10: #52
+    s11: #53 = #54
+    s12: #55 = #56
     s13: try BlockId(1) catch BlockId(2)
-    s14: #63
+    s14: #59
 
 interned types
   t0 = Registry

@@ -47,48 +47,47 @@ module examples/typescript/end-to-end/83_class_expression_binding/input.ts (Modu
     #36: Boxed<Float> = new Boxed()
     #37: String = "generic: "
     #38: Boxed<Float> = %2
-    #39: Boxed<Float> = %2
-    #40: fn(T) -> Float = #39.push
-    #41: Boxed<Float> = %2
-    #42: Float = 7.0
-    #43: Float = #41.push(#42)
-    #44: String = primitive_cast_string #43
-    #45: String = Add #37, #44
-    #46: String = " "
-    #47: String = Add #45, #46
-    #48: Boxed<Float> = %2
-    #49: List<Float> = #48.items
-    #50: Float = 0.0
-    #51: Float = #49[#50]
-    #52: String = primitive_cast_string #51
-    #53: String = Add #47, #52
-    #54: None = @18(console_log)
-    #55: None = call #54(#53)
-    #56: String = "instanceof: "
-    #57: Boxed<Float> = %2
-    #58: Bool = instanceof #57, class12
-    #59: String = "yes"
-    #60: String = "no"
-    #61: String = if #58 then #59 else #60
-    #62: String = Add #56, #61
-    #63: None = @19(console_log)
-    #64: None = call #63(#62)
-    #65: String = "typeof expression class: "
-    #66: String = "function"
-    #67: String = Add #65, #66
-    #68: None = @20(console_log)
-    #69: None = call #68(#67)
-    #70: String = "typeof declared class: "
-    #71: String = "function"
-    #72: String = Add #70, #71
-    #73: None = @21(console_log)
-    #74: None = call #73(#72)
-    #75: String = "typeof instance: "
-    #76: Boxed<Float> = %2
-    #77: String = "object"
-    #78: String = Add #75, #77
-    #79: None = @22(console_log)
-    #80: None = call #79(#78)
+    #39: fn(T) -> Float = #38.push
+    #40: Boxed<Float> = %2
+    #41: Float = 7.0
+    #42: Float = #40.push(#41)
+    #43: String = primitive_cast_string #42
+    #44: String = Add #37, #43
+    #45: String = " "
+    #46: String = Add #44, #45
+    #47: Boxed<Float> = %2
+    #48: List<Float> = #47.items
+    #49: Float = 0.0
+    #50: Float = #48[#49]
+    #51: String = primitive_cast_string #50
+    #52: String = Add #46, #51
+    #53: None = @18(console_log)
+    #54: None = call #53(#52)
+    #55: String = "instanceof: "
+    #56: Boxed<Float> = %2
+    #57: Bool = instanceof #56, class12
+    #58: String = "yes"
+    #59: String = "no"
+    #60: String = if #57 then #58 else #59
+    #61: String = Add #55, #60
+    #62: None = @19(console_log)
+    #63: None = call #62(#61)
+    #64: String = "typeof expression class: "
+    #65: String = "function"
+    #66: String = Add #64, #65
+    #67: None = @20(console_log)
+    #68: None = call #67(#66)
+    #69: String = "typeof declared class: "
+    #70: String = "function"
+    #71: String = Add #69, #70
+    #72: None = @21(console_log)
+    #73: None = call #72(#71)
+    #74: String = "typeof instance: "
+    #75: Boxed<Float> = %2
+    #76: String = "object"
+    #77: String = Add #74, #76
+    #78: None = @22(console_log)
+    #79: None = call #78(#77)
   stmts
     s0: let %0: Reporting = #0
     s1: #6
@@ -98,11 +97,11 @@ module examples/typescript/end-to-end/83_class_expression_binding/input.ts (Modu
     s5: #27
     s6: #35
     s7: let %2: Boxed<Float> = #36
-    s8: #55
-    s9: #64
-    s10: #69
-    s11: #74
-    s12: #80
+    s8: #54
+    s9: #63
+    s10: #68
+    s11: #73
+    s12: #79
 
 interned types
   t0 = __smelt_anon_class_733

@@ -237,7 +237,7 @@ fn main (FuncId(0)) -> None
     %66 = call @console_log(copy %9[1.0], copy %9[2.0], copy %9[3.0]) -> bb12
   bb12:
     %67 = instanceof copy %0, class0
-    %68 = instanceof copy %0, class8
+    %68 = instanceof copy %0, class10
     %69 = call @console_log(move %67, move %68) -> bb13
   bb13:
     %70 = instanceof copy %2, class1

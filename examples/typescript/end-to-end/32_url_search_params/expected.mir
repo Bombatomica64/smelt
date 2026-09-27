@@ -59,7 +59,7 @@ fn main (FuncId(0)) -> None
     %17 = url_search_params_has copy %0, "missing"
     %18 = call @console_log(move %16, move %17) -> bb4
   bb4:
-    %19 = call @console_log(copy %0.field3) -> bb5
+    %19 = call @console_log(copy %0.field8) -> bb5
   bb5:
     %20 = url_search_params_to_text copy %0
     %21 = call @console_log(move %20) -> bb6

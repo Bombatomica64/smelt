@@ -78,6 +78,7 @@ interned types
   t16 = Int
   t17 = fn(String, Int, List<String>) -> Bool
   t18 = Optional<None>
-  t19 = Float
-  t20 = fn(String, String, String) -> None
-  t21 = fn(Router, String, String) -> None
+  t19 = fn(String, String) -> None
+  t20 = Float
+  t21 = fn(String, String, String) -> None
+  t22 = fn(Router, String, String) -> None

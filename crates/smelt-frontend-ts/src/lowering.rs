@@ -814,8 +814,9 @@ struct ModuleBuilder<'ctx> {
     forward_referenced_locals: HashSet<String>,
     /// Binding span starts of locals widened to `T | undefined` because the
     /// function assigns them a keyed read and tests their presence; see
-    /// `presence_tested_locals`.
-    presence_widened_bindings: HashSet<u32>,
+    /// `presence_tested_locals`. The value is the strongest presence test the
+    /// binding saw.
+    presence_widened_bindings: HashMap<u32, presence_tested_locals::PresenceTest>,
     /// Names of the local `function` declarations whose OWN body is currently
     /// being lowered, innermost last.
     ///

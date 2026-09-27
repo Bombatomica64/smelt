@@ -32,6 +32,16 @@ impl FunctionEmitter<'_> {
         {
             return Ok(check);
         }
+        // The one-arm case: a concrete (non-erased) class instance answers a
+        // literal key from its declared instance surface, the same rule a
+        // union arm uses. An erased class is a runtime object and keeps the
+        // live lookup below.
+        if matches!(self.mir.types.get(dict_ty), Some(Type::Class { .. }))
+            && !self.is_erased_class_type(dict_ty)
+            && let Some(field) = self.operand_string_literal(key)
+        {
+            return Ok(self.type_has_property_statically(dict_ty, &field).to_string());
+        }
         let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) = self.mir.types.get(dict_ty)
         else {
             if self.dict_contains_key_uses_erased_object(dict_ty) {
@@ -429,7 +439,7 @@ impl FunctionEmitter<'_> {
     /// other key shape — an optional unwrapped after narrowing, a property key
     /// coerced to `String` — genuinely builds a value, and a borrow of that
     /// temporary lives to the end of the statement.
-    fn dict_key_reference_text(&self, key: &Operand, key_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn dict_key_reference_text(&self, key: &Operand, key_ty: TypeId) -> Result<String, EmitError> {
         if self.operand_ty(key)? == key_ty {
             return self.shared_reference_argument_text(key, key_ty);
         }

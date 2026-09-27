@@ -4192,8 +4192,9 @@ impl ModuleBuilder<'_> {
     /// See `lowering::presence_tested_locals` for why such a local must be able
     /// to hold the absent value. The widened type is taken from the annotation
     /// when there is one and from the initializer otherwise; a type that is
-    /// already nullishable, or that has falsy inhabitants (whose Rust defaults
-    /// already read as falsy), is left alone.
+    /// already nullishable is left alone, and so is one with falsy inhabitants
+    /// (whose Rust defaults already read as falsy) unless the program compares
+    /// the local with `undefined`/`null` explicitly.
     fn presence_widened_binding_type(
         &mut self,
         declarator: &oxc::ast::ast::VariableDeclarator<'_>,
@@ -4204,15 +4205,27 @@ impl ModuleBuilder<'_> {
         let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
             return annotated_ty;
         };
-        if !self.presence_widened_bindings.contains(&binding.span.start) {
+        let Some(test) = self.presence_widened_bindings.get(&binding.span.start).copied() else {
             return annotated_ty;
-        }
+        };
         let Some(declared) = annotated_ty.or_else(|| value.map(|value| Self::expr_ty(body, value)))
         else {
             return annotated_ty;
         };
-        if self.is_nullishable_type(declared) || !self.type_is_always_truthy_object_surface(declared)
-        {
+        // A falsy-inhabited type answers a truthiness test through its Rust
+        // default, but not an explicit `=== undefined` comparison.
+        // The explicit comparison widens only a concrete scalar in addition:
+        // an erased or generic type (`unknown`, `T`) already represents
+        // `undefined` itself, and wrapping it in `Option` would only add a
+        // second encoding of absence.
+        let always_truthy = self.type_is_always_truthy_object_surface(declared);
+        let widened_by_comparison = test
+            == super::super::presence_tested_locals::PresenceTest::NullishComparison
+            && matches!(
+                self.ctx.krate.types.get(declared),
+                Some(Type::String | Type::Float | Type::Int | Type::Bool)
+            );
+        if self.is_nullishable_type(declared) || !(always_truthy || widened_by_comparison) {
             return annotated_ty;
         }
         Some(self.ctx.krate.types.intern(Type::Optional(declared)))

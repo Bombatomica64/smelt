@@ -333,7 +333,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             class_expression_binding_name: None,
             asymmetric_matchers_lowered: 0,
             forward_referenced_locals: HashSet::new(),
-            presence_widened_bindings: HashSet::new(),
+            presence_widened_bindings: HashMap::new(),
             defining_local_functions: Vec::new(),
             allow_unknown_index_access,
             preserve_specialization_receiver: false,
@@ -1562,12 +1562,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if read_in_items.is_empty() {
             return;
         }
+        let called = Self::collect_called_identifiers(program);
         for statement in &program.body {
             match statement {
                 Statement::VariableDeclaration(variable) => {
                     self.register_class_value_global_decl(
                         variable,
                         &read_in_items,
+                        &called,
                         Visibility::Private,
                         module,
                     );
@@ -1577,6 +1579,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         self.register_class_value_global_decl(
                             variable,
                             &read_in_items,
+                            &called,
                             Visibility::Public,
                             module,
                         );
@@ -1597,6 +1600,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         decl: &oxc::ast::ast::VariableDeclaration<'_>,
         read_in_items: &HashSet<String>,
+        called: &HashSet<String>,
         visibility: Visibility,
         module: &mut Module,
     ) {
@@ -1690,7 +1694,53 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 init.without_parentheses(),
                 Expression::ObjectExpression(_) | Expression::ArrayExpression(_)
             );
-            if self.stdlib_class_of_type(ty).is_none() && !is_container {
+            // An ERASED binding (`const emptyParams = createNullObject()`, whose
+            // helper returns `any`) is the same problem once more: the read
+            // fabricated an empty erased record per use, so every function saw
+            // a fresh object and `node.#params === emptyParams` (Hono's
+            // trie-router, which tells "no params yet" apart by identity) was
+            // never true — a parent node's params were dropped. JavaScript
+            // evaluates the initializer ONCE, so the slot holds that one value.
+            // The binding's type is already the dynamic boundary the source
+            // declared (`any`/a union); the slot adds no erasure of its own.
+            //
+            // A binding the program CALLS (`const validate = wrap(fn)`, then
+            // `validate(x)`) is a callable value; it keeps the erased call path,
+            // which a module slot does not serve.
+            let is_erased_value = matches!(
+                self.ctx.krate.types.get(ty),
+                Some(Type::Unknown | Type::Union(_))
+            ) && !called.contains(name)
+                && !matches!(
+                init.without_parentheses(),
+                Expression::ObjectExpression(_)
+                    | Expression::ArrayExpression(_)
+                    | Expression::StringLiteral(_)
+                    | Expression::NumericLiteral(_)
+                    | Expression::BooleanLiteral(_)
+                    | Expression::NullLiteral(_)
+                    | Expression::TemplateLiteral(_)
+                    | Expression::ClassExpression(_)
+            );
+            // A USER class instance built by its constructor (`const s = new
+            // Stack()`) is one object too: a function reading `s` must see the
+            // module's instance and its state, not a fabricated empty record
+            // cast to the class. Restricted to a `new` of the binding's own
+            // class, so the slot's type and the constructed value agree.
+            let is_constructed_user_instance = matches!(
+                self.ctx.krate.types.get(ty),
+                Some(Type::Class { .. })
+            ) && matches!(
+                init.without_parentheses(),
+                Expression::NewExpression(new_expr)
+                    if matches!(&new_expr.callee, Expression::Identifier(callee)
+                        if self.source_contains_class(callee.name.as_str()))
+            );
+            if self.stdlib_class_of_type(ty).is_none()
+                && !is_container
+                && !is_erased_value
+                && !is_constructed_user_instance
+            {
                 continue;
             }
             let span = self.span(binding.span.start, binding.span.end);
@@ -2026,6 +2076,27 @@ impl<'ctx> ModuleBuilder<'ctx> {
             collector.mutated_through,
             collector.mutated_through_nested,
         )
+    }
+
+    /// Every identifier the program uses as a call's callee (`name(..)`).
+    fn collect_called_identifiers(program: &Program<'_>) -> HashSet<String> {
+        use oxc::ast_visit::Visit;
+        /// AST visitor recording identifier callees.
+        struct CalledNames {
+            /// The collected callee names.
+            names: HashSet<String>,
+        }
+        impl<'a> Visit<'a> for CalledNames {
+            fn visit_call_expression(&mut self, call: &oxc::ast::ast::CallExpression<'a>) {
+                if let Expression::Identifier(callee) = call.callee.without_parentheses() {
+                    self.names.insert(callee.name.to_string());
+                }
+                oxc::ast_visit::walk::walk_call_expression(self, call);
+            }
+        }
+        let mut collector = CalledNames { names: HashSet::new() };
+        collector.visit_program(program);
+        collector.names
     }
 
     /// Collect every identifier name read inside a hoisted item body.

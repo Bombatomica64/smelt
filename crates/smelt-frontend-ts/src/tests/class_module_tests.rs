@@ -1719,3 +1719,88 @@ export class Holder {
     ensure!(matches!(ctx.krate.types.get(args[2]), Some(Type::Float)));
     Ok(())
 }
+
+#[test]
+fn user_class_methods_named_like_array_methods_are_not_array_builtins() -> Result<(), String> {
+    // The builtin call registry claims callees by member NAME (`reduce`,
+    // `map`, `push`, `join`, ...). A receiver whose own type declares that
+    // method owns the call: `bag.reduce(cb, 0)` on a user class is the class's
+    // method, and used to lower as `Array.prototype.reduce` over a
+    // `List<Unknown>` assertion of the instance. The arrow argument is also
+    // contextually typed by the method's declared callback parameter.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+class Bag {
+  items: number[] = [1, 2];
+  reduce(cb: (acc: number, x: number) => number, init: number): number {
+    return cb(init, this.items.length);
+  }
+  map(label: string): string { return label; }
+  push(a: string, b: string): number { return 1; }
+  join(n: number): string { return 'j' + n; }
+  total(): number { return this.reduce((a, b) => a + b, 0); }
+}
+class Holder { bag: Bag = new Bag(); }
+function make(): Bag { return new Bag(); }
+const bag = new Bag();
+const holder = new Holder();
+function viaGlobal(): string { return bag.join(3); }
+console.log(bag.reduce((a, x) => a + x, 0), bag.map('m'), bag.push('a', 'b'));
+console.log(holder.bag.join(1), make().join(2), viaGlobal());
+"),
+        &mut ctx,
+    )?;
+    let output = smelt_hir::format_compact(&ctx.krate, &[("sample.ts".to_owned(), module_id)]);
+    ensure!(
+        !output.contains("List<Unknown>"),
+        "a user-class receiver was asserted to a list:\n{output}"
+    );
+    for call in [".reduce(", ".map(", ".push(", ".join("] {
+        ensure!(
+            output.contains(call),
+            "expected a `{call}` method call in:\n{output}"
+        );
+    }
+    ensure!(
+        !output.contains("fn(Unknown, Unknown) -> Float"),
+        "the reduce callback lost its contextual type:\n{output}"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn typed_record_spread_into_an_erased_record_keeps_its_source() -> Result<(), String> {
+    // `flag ? {} : { ...rec }` gives the spread an erased record type. The
+    // `Record<string, string>` source used to be rejected there and REPLACED
+    // by an empty record, silently dropping every copied property (Hono's
+    // trie-router lost a parent node's path params). An erased record holds
+    // any value, so the source itself is merged.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export function copy(flag: boolean, rec: Record<string, string>): number {
+  const params = flag ? {} : { ...rec };
+  params['k'] = 'v';
+  return Object.keys(params).length;
+}
+"),
+        &mut ctx,
+    )?;
+    let merges_the_parameter = ctx.krate.bodies.iter().any(|body| {
+        body.exprs.iter().any(|expr| {
+            let ExprKind::DictAssign { sources, .. } = &expr.kind else {
+                return false;
+            };
+            sources.iter().any(|source| {
+                usize::try_from(source.0)
+                    .ok()
+                    .and_then(|index| body.exprs.get(index))
+                    .is_some_and(|source| matches!(source.kind, ExprKind::Local(_)))
+            })
+        })
+    });
+    ensure!(merges_the_parameter, "the spread must merge `rec` itself, not an empty record");
+    Ok(())
+}

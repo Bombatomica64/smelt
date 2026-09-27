@@ -1210,8 +1210,9 @@ impl<'builder> ModuleBuilder<'builder> {
         // bound the whole tuple to the first parameter and let the emitter default
         // the rest. See `lowering::spread_arguments`.
         let expanded = self.expanded_call_arguments(&call.arguments, body)?;
+        let callback_param_hints = self.class_method_callback_param_hints(access_receiver_ty, method);
         let mut args = Vec::with_capacity(expanded.len());
-        for arg in expanded {
+        for (index, arg) in expanded.into_iter().enumerate() {
             if let CallArg::Source(source) = arg
                 && (property_name == "test"
                     || self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown))
@@ -1227,7 +1228,8 @@ impl<'builder> ModuleBuilder<'builder> {
                     span: self.span(source.span().start, source.span().end),
                 }));
             } else {
-                args.push(self.lower_call_arg(arg, None, body)?);
+                let hint = callback_param_hints.get(index).copied().flatten();
+                args.push(self.lower_call_arg(arg, hint, body)?);
             }
         }
         if method_item.0 == u32::MAX
@@ -1267,6 +1269,50 @@ impl<'builder> ModuleBuilder<'builder> {
             ty: return_ty,
             span: self.span(call.span.start, call.span.end),
         }))
+    }
+
+    /// Contextual types for function-valued parameters of a class method.
+    ///
+    /// A function literal passed to a method is contextually typed by the
+    /// method's declared parameter, exactly as it is for a free-function call:
+    /// `bag.fold((acc, x) => acc + x, 0)` against
+    /// `fold(cb: (acc: number, x: number) => number, init: number)` gives the
+    /// arrow `(f64, f64) -> f64`. Without the hint the arrow's parameters were
+    /// `Unknown`, and the call adapted an erased closure into the typed
+    /// parameter (and did not even type-check against a `&dyn Fn` parameter).
+    ///
+    /// Entry `i` is `Some(param_ty)` only when the receiver is a class, the
+    /// method's type is a function, and parameter `i` is itself a function type
+    /// with no unresolved type parameter (a method-generic `(x: U) => V` still
+    /// needs the instantiation the free-function path infers from the sibling
+    /// arguments, so it keeps the old unhinted lowering). Every other position
+    /// is `None`: only function types are offered, so non-callback arguments
+    /// lower exactly as before.
+    fn class_method_callback_param_hints(
+        &mut self,
+        receiver_ty: smelt_hir::TypeId,
+        method: smelt_hir::Symbol,
+    ) -> Vec<Option<smelt_hir::TypeId>> {
+        if !matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Class { .. })) {
+            return Vec::new();
+        }
+        let Ok(method_ty) = self.class_field_type(receiver_ty, method) else {
+            return Vec::new();
+        };
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(method_ty).cloned() else {
+            return Vec::new();
+        };
+        let fixed = function.rest.unwrap_or(function.params.len());
+        function
+            .params
+            .iter()
+            .take(fixed)
+            .map(|param| {
+                (matches!(self.ctx.krate.types.get(*param), Some(Type::Function(_)))
+                    && !self.overload_constraint_contains_unresolved_type_param(*param))
+                .then_some(*param)
+            })
+            .collect()
     }
 
     /// Return whether a member call through a TYPED function-valued field
@@ -1853,6 +1899,20 @@ impl<'builder> ModuleBuilder<'builder> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        // Every handler below claims a callee by its member NAME. A receiver
+        // whose static type declares that member as a method owns the call —
+        // `bag.reduce(..)`, `stack.push(..)`, `this.join(..)` on a user class
+        // are that class's methods, not `Array.prototype`'s — so the whole
+        // registry yields to ordinary method dispatch.
+        if let Expression::StaticMemberExpression(member) = &call.callee
+            && self.receiver_statically_declares_method(
+                &member.object,
+                member.property.name.as_str(),
+                body,
+            )
+        {
+            return Ok(None);
+        }
         for handler in Self::builtin_call_handlers() {
             if let Some(expr) = handler(self, call, body)? {
                 return Ok(Some(expr));

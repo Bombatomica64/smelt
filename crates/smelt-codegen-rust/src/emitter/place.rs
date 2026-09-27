@@ -1192,6 +1192,27 @@ impl FunctionEmitter<'_> {
                     "{base_text}.chars().nth({index_text}).map(|ch| ch.to_string())"
                 )))
             }
+            // A keyed RECORD read (`rec[key]`) misses exactly like an element
+            // read: a missing key is `undefined`, which the record's own
+            // `get` already answers as `None` (an owned `Option<V>` for the
+            // `SmeltRecord` a string-keyed record is; other key types render
+            // other maps and keep the caller's ordinary coercion).
+            Some(Type::Dict(key_ty, value_ty)) if self.dict_uses_smelt_record(key_ty) => {
+                let base_text = self.local_value_text(*base)?;
+                let key_text = self.dict_key_reference_text(index, key_ty)?;
+                let read = format!("{base_text}.get({key_text})");
+                if value_ty == inner {
+                    return Ok(Some(read));
+                }
+                if self.mir.types.get(value_ty) == Some(&Type::Optional(inner)) {
+                    return Ok(Some(format!("{read}.flatten()")));
+                }
+                let Ok(mapped) = self.value_at_type_text("value", value_ty, inner, &self.render_scope())
+                else {
+                    return Ok(None);
+                };
+                Ok(Some(format!("{read}.map(|value| {mapped})")))
+            }
             _ => Ok(None),
         }
     }

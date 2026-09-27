@@ -2687,8 +2687,16 @@ impl ModuleBuilder<'_> {
         // key; dynamic keys stay on the erased path below. Nullish/dynamic
         // boundaries are untouched because concrete-union eligibility (checked in
         // codegen) excludes `Optional`/`unknown` members.
-        if matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Union(_)))
-            && matches!(&binary.left, Expression::StringLiteral(_))
+        //
+        // A single CLASS receiver is the one-arm case of the same rule: its
+        // declared instance surface (fields, methods, accessors, inherited
+        // members, or a host class's spec surface) answers the test
+        // statically. Erasing it first lost everything but the data fields,
+        // so `'method' in instance` answered `false`.
+        if matches!(
+            self.ctx.krate.types.get(receiver_ty),
+            Some(Type::Union(_) | Type::Class { .. })
+        ) && matches!(&binary.left, Expression::StringLiteral(_))
         {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::DictContainsKey {
@@ -4497,8 +4505,19 @@ impl ModuleBuilder<'_> {
                 else {
                     return Ok(());
                 };
+                // A record whose values are the dynamic boundary holds any
+                // source value: `{ ...params }` of a `Record<string, string>`
+                // into an erased record copies the strings. Rejecting it made
+                // the caller replace the source with an EMPTY record, which
+                // silently dropped every copied property (Hono's trie-router
+                // lost a parent node's path params this way).
+                let record_holds_any = matches!(
+                    self.ctx.krate.types.get(record_value),
+                    Some(Type::Unknown)
+                );
                 if self.map_key_type_compatible(record_key, *source_key)
                     && (record_value == *source_value
+                        || record_holds_any
                         || self.numeric_type_compatible(record_value, *source_value)
                         || self
                             .non_nullish_type(*source_value)

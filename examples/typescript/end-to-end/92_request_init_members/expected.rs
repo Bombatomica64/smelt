@@ -373,6 +373,7 @@ pub struct SmeltRequest {
 
 impl PartialEq for SmeltRequest { fn eq(&self, other: &Self) -> bool { self.url == other.url && self.method == other.method && self.headers == other.headers && self.body == other.body && self.init == other.init } }
 impl ::std::fmt::Debug for SmeltRequest { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltRequest").field("method", &self.method).field("url", &self.url).field("headers", &self.headers).field("body", &self.body).finish() } }
+impl Default for SmeltRequest { fn default() -> Self { Self::from_parts("", "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty()) } }
 
 #[allow(dead_code)]
 impl SmeltRequest {

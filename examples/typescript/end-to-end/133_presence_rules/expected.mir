@@ -1,0 +1,339 @@
+class Wrapper fields [Public raw: Request, Public count: Float] constructor Some(FuncId(5)) methods [FuncId(6)]
+
+fn segments (FuncId(0)) -> List<String>
+  locals
+    %0 param path: String
+    %1 user parts: List<String>
+    %2 user out: List<String>
+    %3 user i: Float
+    %4 user p: String
+    %5 user __smelt_update_tmp: Float
+    %6 user next: Optional<String>
+    %7 temp: List<String>
+    %8 temp: List<String>
+    %9 temp: Float
+    %10 temp: Float
+    %11 temp: Bool
+    %12 temp: Float
+    %13 temp: Bool
+    %14 temp: String
+    %15 temp: String
+    %16 temp: String
+    %17 temp: Float
+  bb0:
+    %7 = string_split copy %0, "/", _
+    %1 = move %7
+    %8 = []
+    %2 = move %8
+    %3 = 0.0
+    %9 = 0.0
+    goto bb1
+  bb1:
+    %10 = len copy %1
+    %11 = copy %9 < move %10
+    switch move %11 ? bb2 : bb4
+  bb2:
+    %4 = copy %1[copy %9]
+    %12 = move %3 + 1.0
+    %5 = move %12
+    %3 = copy %5
+    %6 = copy %1[copy %5]
+    %13 = move %6 == undefined
+    switch move %13 ? bb5 : bb6
+  bb3:
+    %9 = copy %9 + 1.0
+    goto bb1
+  bb4:
+    return move %2
+  bb5:
+    %15 = "" + move %4
+    %16 = move %15 + "<last>"
+    %14 = move %16
+    goto bb7
+  bb6:
+    %14 = move %4
+    goto bb7
+  bb7:
+    %17 = list_push copy %2, move %14
+    goto bb3
+
+fn pick (FuncId(1)) -> String
+  locals
+    %0 param node_params: Dict<String, String>
+    %1 param params: Optional<Dict<String, String>>
+    %2 param key: String
+    %3 temp: Optional<String>
+    %4 temp: Optional<String>
+  bb0:
+    %3 = copy %1?.[copy %2]
+    %4 = copy %0[copy %2] ?? move %3
+    return move %4
+
+fn pick_or (FuncId(2)) -> String
+  locals
+    %0 param node_params: Dict<String, String>
+    %1 param key: String
+    %2 temp: String
+  bb0:
+    %2 = copy %0[copy %1] ?? "fallback"
+    return move %2
+
+fn buckets (FuncId(3)) -> String
+  locals
+    %0 user queue: List<List<String>>
+    %1 user __smelt_for_item: (Float, String)
+    %2 user count: Float
+    %3 user item: String
+    %4 user __smelt_logical_4: List<String>
+    %5 user __smelt_logical_value_5: List<String>
+    %6 user target: List<String>
+    %7 temp: List<List<String>>
+    %8 temp: (Float, String)
+    %9 temp: (Float, String)
+    %10 temp: (Float, String)
+    %11 temp: List<(Float, String)>
+    %12 temp: Float
+    %13 temp: Float
+    %14 temp: Bool
+    %15 temp: Float
+    %16 temp: String
+    %17 temp: Optional<List<String>>
+    %18 temp: Bool
+    %19 temp: Bool
+    %20 temp: List<String>
+    %21 temp: Float
+    %22 temp: String
+  bb0:
+    %7 = []
+    %0 = move %7
+    %8 = (1.0, "a")
+    %9 = (1.0, "b")
+    %10 = (0.0, "c")
+    %11 = [move %8, move %9, move %10]
+    %12 = 0.0
+    goto bb1
+  bb1:
+    %13 = len copy %11
+    %14 = copy %12 < move %13
+    switch move %14 ? bb2 : bb4
+  bb2:
+    %1 = copy %11[copy %12]
+    %15 = tuple_index copy %1, 0
+    %2 = move %15
+    %16 = tuple_index move %1, 1
+    %3 = move %16
+    %4 = undefined
+    %17 = copy %0?.[copy %2]
+    %18 = move %17 != none
+    %19 = !move %18
+    switch move %19 ? bb5 : bb6
+  bb3:
+    %12 = copy %12 + 1.0
+    goto bb1
+  bb4:
+    %22 = json_stringify move %0
+    return move %22
+  bb5:
+    %20 = []
+    %5 = move %20
+    %0[copy %2] = copy %5
+    %4 = move %5
+    goto bb7
+  bb6:
+    %4 = copy %0[copy %2]
+    goto bb7
+  bb7:
+    %6 = move %4
+    %21 = list_push move %6, move %3
+    goto bb3
+
+fn matches (FuncId(4)) -> Bool
+  locals
+    %0 param matcher: Bool | RegExp
+    %1 param part: String
+    %2 temp: Bool
+    %3 temp: Bool
+    %4 temp: Bool
+  bb0:
+    %2 = copy %0 == true
+    switch move %2 ? bb1 : bb2
+  bb1:
+    %3 = true
+    goto bb3
+  bb2:
+    %4 = regex_test copy %0 copy %1
+    %3 = move %4
+    goto bb3
+  bb3:
+    return move %3
+
+fn new (FuncId(5)) -> Wrapper
+  locals
+    %0 user this: Wrapper
+    %1 param raw: Request
+  bb0:
+    %0 = struct0 {}
+    %0.field15 = 0.0
+    %0.field14 = copy %1
+    return move %0
+
+fn header (FuncId(6)) -> String
+  locals
+    %0 param this: Wrapper
+    %1 temp: Float
+  bb0:
+    %1 = copy %0.field15 + 1.0
+    %0.field15 = move %1
+    return "x"
+
+fn main (FuncId(7)) -> None
+  locals
+    %0 user is_raw: fn(Wrapper | Request) -> Bool
+    %1 user req: Request
+    %2 temp: Dict<String, String>
+    %3 temp: Request
+    %4 temp: fn(Wrapper | Request) -> Bool
+    %5 temp: Bool
+    %6 temp: fn(Wrapper | Request) -> Bool
+    %7 temp: Wrapper
+    %8 temp: Bool
+    %9 temp: None
+    %10 temp: fn(Wrapper | Request) -> Bool
+    %11 temp: Wrapper
+    %12 temp: Bool
+    %13 temp: Wrapper
+    %14 temp: String
+    %15 temp: None
+    %16 temp: Wrapper
+    %17 temp: Bool
+    %18 temp: Wrapper
+    %19 temp: Bool
+    %20 temp: Wrapper
+    %21 temp: Bool
+    %22 temp: None
+    %23 temp: List<String>
+    %24 temp: String
+    %25 temp: None
+    %26 temp: Dict<String, String>
+    %27 temp: Dict<String, String>
+    %28 temp: String
+    %29 temp: Dict<String, String>
+    %30 temp: String
+    %31 temp: None
+    %32 temp: Dict<String, String>
+    %33 temp: String
+    %34 temp: Dict<String, String>
+    %35 temp: String
+    %36 temp: None
+    %37 temp: String
+    %38 temp: None
+    %39 temp: RegExp
+    %40 temp: Bool
+    %41 temp: RegExp
+    %42 temp: Bool
+    %43 temp: Bool
+    %44 temp: None
+    %45 temp: RegExp
+    %46 temp: RegExp
+    %47 temp: String
+    %48 temp: None
+  bb0:
+    %2 = {"Content-Type": "text/plain"}
+    %3 = request_new input="https://x/" method="POST" headers=move %2 body="a"
+    %1 = move %3
+    %4 = closure ClosureId(0) []
+    %5 = closure_call move %4(copy %1)
+    %6 = closure ClosureId(1) []
+    %7 = call fn5(copy %1) -> bb1
+  bb1:
+    %8 = closure_call move %6(move %7)
+    %9 = call @console_log(move %5, move %8) -> bb2
+  bb2:
+    %10 = closure ClosureId(2) []
+    %11 = call fn5(copy %1) -> bb3
+  bb3:
+    %12 = closure_call move %10(copy %11.field14)
+    %13 = call fn5(copy %1) -> bb4
+  bb4:
+    %14 = call fn6(move %13) -> bb5
+  bb5:
+    %15 = call @console_log(move %12, move %14) -> bb6
+  bb6:
+    %16 = call fn5(copy %1) -> bb7
+  bb7:
+    %17 = dict_contains_key move %16, "raw", chain
+    %18 = call fn5(copy %1) -> bb8
+  bb8:
+    %19 = dict_contains_key move %18, "header", chain
+    %20 = call fn5(move %1) -> bb9
+  bb9:
+    %21 = dict_contains_key move %20, "nope", chain
+    %22 = call @console_log(move %17, move %19, move %21) -> bb10
+  bb10:
+    %23 = call fn0("a/b/c") -> bb11
+  bb11:
+    %24 = string_join move %23, ","
+    %25 = call @console_log(move %24) -> bb12
+  bb12:
+    %26 = {"id": "1"}
+    %27 = {"action": "create"}
+    %28 = call fn1(move %26, move %27, "action") -> bb13
+  bb13:
+    %29 = {"id": "1"}
+    %30 = call fn1(move %29, undefined, "id") -> bb14
+  bb14:
+    %31 = call @console_log(move %28, move %30) -> bb15
+  bb15:
+    %32 = {}
+    %33 = call fn2(move %32, "x") -> bb16
+  bb16:
+    %34 = {"x": "y"}
+    %35 = call fn2(move %34, "x") -> bb17
+  bb17:
+    %36 = call @console_log(move %33, move %35) -> bb18
+  bb18:
+    %37 = call fn3() -> bb19
+  bb19:
+    %38 = call @console_log(move %37) -> bb20
+  bb20:
+    %39 = external_new7("^[0-9]+$", "")
+    %40 = call fn4(move %39, "123") -> bb21
+  bb21:
+    %41 = external_new7("^[0-9]+$", "")
+    %42 = call fn4(move %41, "abc") -> bb22
+  bb22:
+    %43 = call fn4(true, "x") -> bb23
+  bb23:
+    %44 = call @console_log(move %40, move %42, move %43) -> bb24
+  bb24:
+    %45 = external_new7("^a(?=/next)", "")
+    %46 = external_new7("x/y", "")
+    %47 = primitive_cast_string move %46
+    %48 = call @console_log(copy %45.field41, move %47) -> bb25
+  bb25:
+    return none
+
+closure ClosureId(0) -> Bool
+  locals
+    %0 param __callback_param_0: Wrapper | Request
+    %1 temp: Bool
+  bb0:
+    %1 = dict_contains_key copy %0, "headers", chain
+    return copy %1
+
+closure ClosureId(1) -> Bool
+  locals
+    %0 param __callback_param_0: Wrapper | Request
+    %1 temp: Bool
+  bb0:
+    %1 = dict_contains_key copy %0, "headers", chain
+    return copy %1
+
+closure ClosureId(2) -> Bool
+  locals
+    %0 param __callback_param_0: Wrapper | Request
+    %1 temp: Bool
+  bb0:
+    %1 = dict_contains_key copy %0, "headers", chain
+    return copy %1
+

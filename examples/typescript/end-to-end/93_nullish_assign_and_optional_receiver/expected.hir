@@ -26,166 +26,164 @@ module examples/typescript/end-to-end/93_nullish_assign_and_optional_receiver/in
     #6: None = @7(console_log)
     #7: None = call #6(#5)
     #8: Bag = %0
-    #9: Bag = %0
-    #10: fn(String, String) -> None = #9.write
-    #11: Bag = %0
-    #12: String = "x"
-    #13: String = "1"
-    #14: None = #11.write(#12, #13)
-    #15: Bag = %0
-    #16: fn(String) -> String = #15.peek
-    #17: Bag = %0
-    #18: String = "x"
-    #19: String = #17.peek(#18)
-    #20: Bag = %0
-    #21: fn(String) -> String = #20.read
-    #22: Bag = %0
-    #23: String = "x"
-    #24: String = #22.read(#23)
-    #25: None = @8(console_log)
-    #26: None = call #25(#19, #24)
-    #27: Bag = %0
-    #28: fn(String, String) -> None = #27.append_to
-    #29: Bag = %0
-    #30: String = "x"
-    #31: String = "2"
-    #32: None = #29.append_to(#30, #31)
-    #33: Bag = %0
-    #34: fn(String) -> String = #33.read
-    #35: Bag = %0
-    #36: String = "x"
-    #37: String = #35.read(#36)
-    #38: None = @9(console_log)
-    #39: None = call #38(#37)
-    #40: Optional<Headers> = %1
-    #41: Optional<Headers> = none
-    #42: Bool = Eq #40, #41
-    #43: Headers = headers_new
-    #44: Headers = %3
-    #45: Optional<Headers> = %2
-    #46: Headers = %3
-    #47: Optional<Headers> = %2
-    #48: Headers = %2
+    #9: fn(String, String) -> None = #8.write
+    #10: Bag = %0
+    #11: String = "x"
+    #12: String = "1"
+    #13: None = #10.write(#11, #12)
+    #14: Bag = %0
+    #15: fn(String) -> String = #14.peek
+    #16: Bag = %0
+    #17: String = "x"
+    #18: String = #16.peek(#17)
+    #19: Bag = %0
+    #20: fn(String) -> String = #19.read
+    #21: Bag = %0
+    #22: String = "x"
+    #23: String = #21.read(#22)
+    #24: None = @8(console_log)
+    #25: None = call #24(#18, #23)
+    #26: Bag = %0
+    #27: fn(String, String) -> None = #26.append_to
+    #28: Bag = %0
+    #29: String = "x"
+    #30: String = "2"
+    #31: None = #28.append_to(#29, #30)
+    #32: Bag = %0
+    #33: fn(String) -> String = #32.read
+    #34: Bag = %0
+    #35: String = "x"
+    #36: String = #34.read(#35)
+    #37: None = @9(console_log)
+    #38: None = call #37(#36)
+    #39: Optional<Headers> = %1
+    #40: Optional<Headers> = none
+    #41: Bool = Eq #39, #40
+    #42: Headers = headers_new
+    #43: Headers = %3
+    #44: Optional<Headers> = %2
+    #45: Headers = %3
+    #46: Optional<Headers> = %2
+    #47: Headers = %2
+    #48: Headers = %4
     #49: Headers = %4
-    #50: Headers = %4
-    #51: String = "y"
-    #52: String = "3"
-    #53: None = headers_set #50, #51, #52
+    #50: String = "y"
+    #51: String = "3"
+    #52: None = headers_set #49, #50, #51
+    #53: Headers = %4
     #54: Headers = %4
-    #55: Headers = %4
-    #56: String = "y"
-    #57: Optional<String> = headers_get #55, #56
-    #58: String = "absent"
-    #59: String = #57 ?? #58
+    #55: String = "y"
+    #56: Optional<String> = headers_get #54, #55
+    #57: String = "absent"
+    #58: String = #56 ?? #57
+    #59: Optional<Headers> = %1
     #60: Optional<Headers> = %1
-    #61: Optional<Headers> = %1
-    #62: Headers = assert_type #61
-    #63: String = "y"
-    #64: Optional<String> = headers_get #62, #63
-    #65: String = "absent"
-    #66: String = #64 ?? #65
-    #67: None = @10(console_log)
-    #68: None = call #67(#59, #66)
-    #69: Optional<Headers> = %1
-    #70: Optional<Headers> = none
-    #71: Bool = Eq #69, #70
-    #72: Headers = headers_new
-    #73: Headers = %6
-    #74: Optional<Headers> = %5
-    #75: Headers = %6
-    #76: Optional<Headers> = %5
-    #77: Headers = %5
+    #61: Headers = assert_type #60
+    #62: String = "y"
+    #63: Optional<String> = headers_get #61, #62
+    #64: String = "absent"
+    #65: String = #63 ?? #64
+    #66: None = @10(console_log)
+    #67: None = call #66(#58, #65)
+    #68: Optional<Headers> = %1
+    #69: Optional<Headers> = none
+    #70: Bool = Eq #68, #69
+    #71: Headers = headers_new
+    #72: Headers = %6
+    #73: Optional<Headers> = %5
+    #74: Headers = %6
+    #75: Optional<Headers> = %5
+    #76: Headers = %5
+    #77: Headers = %7
     #78: Headers = %7
-    #79: Headers = %7
-    #80: String = "y"
-    #81: Optional<String> = headers_get #79, #80
-    #82: String = "absent"
-    #83: String = #81 ?? #82
-    #84: None = @11(console_log)
-    #85: None = call #84(#83)
-    #86: String = ""
-    #87: String = %8
-    #88: String = ""
-    #89: Bool = NotEq #87, #88
-    #90: Bool = Not #89
-    #91: String = "fallback"
-    #92: String = %10
-    #93: String = %9
-    #94: String = %10
+    #79: String = "y"
+    #80: Optional<String> = headers_get #78, #79
+    #81: String = "absent"
+    #82: String = #80 ?? #81
+    #83: None = @11(console_log)
+    #84: None = call #83(#82)
+    #85: String = ""
+    #86: String = %8
+    #87: String = ""
+    #88: Bool = NotEq #86, #87
+    #89: Bool = Not #88
+    #90: String = "fallback"
+    #91: String = %10
+    #92: String = %9
+    #93: String = %10
+    #94: String = %9
     #95: String = %9
-    #96: String = %9
-    #97: String = %11
-    #98: String = %8
-    #99: None = @12(console_log)
-    #100: None = call #99(#97, #98)
-    #101: String = "body"
-    #102: String = "x-from"
-    #103: String = "response"
-    #104: Dict<String, String> = {#102: #103}
-    #105: Response = response_new body=#101 headers=#104
-    #106: Bag = %0
-    #107: fn(Headers) -> None = #106.adopt
-    #108: Bag = %0
-    #109: Response = %12
-    #110: Headers = response_headers #109
-    #111: None = #108.adopt(#110)
-    #112: Bag = %0
+    #96: String = %11
+    #97: String = %8
+    #98: None = @12(console_log)
+    #99: None = call #98(#96, #97)
+    #100: String = "body"
+    #101: String = "x-from"
+    #102: String = "response"
+    #103: Dict<String, String> = {#101: #102}
+    #104: Response = response_new body=#100 headers=#103
+    #105: Bag = %0
+    #106: fn(Headers) -> None = #105.adopt
+    #107: Bag = %0
+    #108: Response = %12
+    #109: Headers = response_headers #108
+    #110: None = #107.adopt(#109)
+    #111: Bag = %0
+    #112: fn(String, String) -> None = #111.write
     #113: Bag = %0
-    #114: fn(String, String) -> None = #113.write
-    #115: Bag = %0
-    #116: String = "x-added"
-    #117: String = "4"
-    #118: None = #115.write(#116, #117)
+    #114: String = "x-added"
+    #115: String = "4"
+    #116: None = #113.write(#114, #115)
+    #117: Bag = %0
+    #118: fn(String) -> String = #117.peek
     #119: Bag = %0
-    #120: fn(String) -> String = #119.peek
-    #121: Bag = %0
-    #122: String = "x-from"
-    #123: String = #121.peek(#122)
+    #120: String = "x-from"
+    #121: String = #119.peek(#120)
+    #122: Bag = %0
+    #123: fn(String) -> String = #122.peek
     #124: Bag = %0
-    #125: fn(String) -> String = #124.peek
-    #126: Bag = %0
-    #127: String = "x-added"
-    #128: String = #126.peek(#127)
-    #129: None = @13(console_log)
-    #130: None = call #129(#123, #128)
+    #125: String = "x-added"
+    #126: String = #124.peek(#125)
+    #127: None = @13(console_log)
+    #128: None = call #127(#121, #126)
   stmts
     s0: let %0: Bag = #0
     s1: #7
-    s2: #14
-    s3: #26
-    s4: #32
-    s5: #39
+    s2: #13
+    s3: #25
+    s4: #31
+    s5: #38
     s6: let %1: Optional<Headers>
-    s7: let %3: Headers = #43
-    s8: #40 = #44
-    s9: #45 = #46
-    s10: #47 = #40
+    s7: let %3: Headers = #42
+    s8: #39 = #43
+    s9: #44 = #45
+    s10: #46 = #39
     s11: let %2: Optional<Headers>
-    s12: if #42 then BlockId(1) else BlockId(2)
-    s13: let %4: Headers = #48
-    s14: #53
-    s15: #68
-    s16: let %6: Headers = #72
-    s17: #69 = #73
-    s18: #74 = #75
-    s19: #76 = #69
+    s12: if #41 then BlockId(1) else BlockId(2)
+    s13: let %4: Headers = #47
+    s14: #52
+    s15: #67
+    s16: let %6: Headers = #71
+    s17: #68 = #72
+    s18: #73 = #74
+    s19: #75 = #68
     s20: let %5: Optional<Headers>
-    s21: if #71 then BlockId(3) else BlockId(4)
-    s22: let %7: Headers = #77
-    s23: #85
-    s24: let %8: String = #86
-    s25: let %10: String = #91
-    s26: #87 = #92
-    s27: #93 = #94
-    s28: #95 = #87
+    s21: if #70 then BlockId(3) else BlockId(4)
+    s22: let %7: Headers = #76
+    s23: #84
+    s24: let %8: String = #85
+    s25: let %10: String = #90
+    s26: #86 = #91
+    s27: #92 = #93
+    s28: #94 = #86
     s29: let %9: String
-    s30: if #90 then BlockId(5) else BlockId(6)
-    s31: let %11: String = #96
-    s32: #100
-    s33: let %12: Response = #105
-    s34: #111
-    s35: #118
-    s36: #130
+    s30: if #89 then BlockId(5) else BlockId(6)
+    s31: let %11: String = #95
+    s32: #99
+    s33: let %12: Response = #104
+    s34: #110
+    s35: #116
+    s36: #128
 
 interned types
   t0 = Bag

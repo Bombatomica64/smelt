@@ -3035,7 +3035,15 @@ impl ModuleBuilder<'_> {
             return target;
         };
         let receiver_ty = Self::expr_ty(body, receiver);
-        let Some(&Type::Dict(_, value_ty)) = self.ctx.krate.types.get(receiver_ty) else {
+        // A record key and an array index both read `undefined` when absent
+        // (`queue[n] ||= []` on a sparse `T[][]`, Hono's trie-router
+        // `curNodesQueue`), so the current value is the element read's
+        // OPTIONAL form for either receiver. At the declared element type an
+        // always-truthy element (`T[]`) folded the test to "keep" and the
+        // store never ran.
+        let Some(&Type::Dict(_, value_ty) | &Type::List(value_ty)) =
+            self.ctx.krate.types.get(receiver_ty)
+        else {
             return target;
         };
         let optional_ty = self.ctx.krate.types.intern(Type::Optional(value_ty));

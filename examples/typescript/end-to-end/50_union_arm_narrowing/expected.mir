@@ -48,7 +48,7 @@ fn label (FuncId(2)) -> String
     return move %3
   bb2:
     %4 = unknown_cast copy %0 as t1
-    %5 = "doc:" + copy %4.field7
+    %5 = "doc:" + copy %4.field8
     return move %5
 
 fn new (FuncId(3)) -> Doc
@@ -57,7 +57,7 @@ fn new (FuncId(3)) -> Doc
     %1 param name: String
   bb0:
     %0 = struct0 {}
-    %0.field7 = copy %1
+    %0.field8 = copy %1
     return move %0
 
 fn main (FuncId(4)) -> None
@@ -152,7 +152,7 @@ fn main (FuncId(4)) -> None
     %23 = form_data_append copy %1, "text", "plain"
     %24 = form_data_get copy %1, "doc"
     %2 = move %24
-    %25 = instanceof copy %2, class13
+    %25 = instanceof copy %2, class15
     switch move %25 ? bb14 : bb15
   bb14:
     %26 = copy %2
@@ -172,7 +172,7 @@ fn main (FuncId(4)) -> None
   bb17:
     %37 = form_data_get copy %1, "text"
     %3 = move %37
-    %38 = instanceof move %3, class13
+    %38 = instanceof move %3, class15
     switch move %38 ? bb19 : bb20
   bb18:
     goto bb17
@@ -185,7 +185,7 @@ fn main (FuncId(4)) -> None
   bb22:
     %41 = form_data_get copy %1, "absent"
     %4 = move %41
-    %42 = instanceof move %4, class13
+    %42 = instanceof move %4, class15
     switch move %42 ? bb24 : bb25
   bb23:
     goto bb22
@@ -207,7 +207,7 @@ fn main (FuncId(4)) -> None
     switch move %48 ? bb30 : bb32
   bb30:
     %5 = copy %45[copy %46]
-    %49 = instanceof copy %5, class13
+    %49 = instanceof copy %5, class15
     switch move %49 ? bb33 : bb34
   bb31:
     %46 = copy %46 + 1.0

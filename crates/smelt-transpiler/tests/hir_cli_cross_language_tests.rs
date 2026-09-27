@@ -1030,6 +1030,8 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "129_keyed_presence_and_throw_sentinel",
     "130_this_bound_field_write_through",
     "131_reduce_right_and_declared_const_shapes",
+    "132_user_methods_named_like_array_builtins",
+    "133_presence_rules",
     "11_console_log_expressions",
     "12_while_sum",
     "13_for_of_sum",

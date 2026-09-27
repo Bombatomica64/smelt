@@ -193,7 +193,7 @@ fn main (FuncId(1)) -> None
     switch move %28 ? bb16 : bb17
   bb16:
     %30 = copy %2
-    %31 = move %30?.method9()
+    %31 = move %30?.method11()
     %29 = move %31
     goto bb18
   bb17:

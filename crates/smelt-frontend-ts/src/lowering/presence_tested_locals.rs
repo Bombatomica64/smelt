@@ -23,6 +23,17 @@
 //! ordinary optional-to-required coercion, exactly as for a source-spelled
 //! `let nextNode: Node | undefined`.
 //!
+//! A local whose type has FALSY inhabitants (`string`, `number`, `boolean`)
+//! needs the widening only when the program compares it with `undefined` or
+//! `null` explicitly: a truthiness test already reads the missing read's Rust
+//! default (`""`, `0`, `false`) as falsy, but `nextP === undefined` cannot be
+//! answered by a default. Hono's trie-router `insert` reads
+//! `const nextP = parts[++i]` and tests `nextP === undefined` to detect the
+//! last path segment; lowered at `string` the test folded to `false` and a
+//! suffix wildcard (`/assets*`) was never registered as a pattern. So every
+//! widened binding also records which kind of test it saw
+//! ([`PresenceTest`]).
+//!
 //! The scan is purely syntactic and conservative: it attributes a use to the
 //! innermost enclosing function, so a guard inside a nested closure does not
 //! widen the outer binding (that binding keeps its declared type, as before).
@@ -36,12 +47,23 @@ use oxc::ast::ast::{
 };
 use oxc::ast_visit::Visit;
 
+/// The strongest presence test a widened local is subjected to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(in crate::lowering) enum PresenceTest {
+    /// Only truthiness tests (`!x`, `if (x)`, `x && ..`): a type whose Rust
+    /// default is already falsy answers these without widening.
+    Truthiness,
+    /// An explicit nullish comparison (`x === undefined`, `x == null`): only
+    /// an optional type can answer it, whatever the declared type.
+    NullishComparison,
+}
+
 /// Binding-identifier span starts of every local that should be widened to an
-/// optional type (see the module docs).
-pub(super) fn presence_tested_keyed_bindings(program: &Program<'_>) -> HashSet<u32> {
+/// optional type (see the module docs), with the strongest test it saw.
+pub(super) fn presence_tested_keyed_bindings(program: &Program<'_>) -> HashMap<u32, PresenceTest> {
     let mut collector = PresenceTestedLocalCollector {
         frames: vec![Frame::default()],
-        widened: HashSet::new(),
+        widened: HashMap::new(),
     };
     collector.visit_program(program);
     collector.pop_frame();
@@ -55,8 +77,8 @@ struct Frame {
     declarations: HashMap<String, Vec<u32>>,
     /// Names assigned (or initialized) from a keyed read in this function.
     keyed: HashSet<String>,
-    /// Names whose truthiness this function tests.
-    tested: HashSet<String>,
+    /// Names whose presence this function tests, with the strongest test.
+    tested: HashMap<String, PresenceTest>,
 }
 
 /// AST visitor collecting [`presence_tested_keyed_bindings`].
@@ -64,7 +86,7 @@ struct PresenceTestedLocalCollector {
     /// Innermost function last; the program body is the bottom frame.
     frames: Vec<Frame>,
     /// Accumulated result.
-    widened: HashSet<u32>,
+    widened: HashMap<u32, PresenceTest>,
 }
 
 impl PresenceTestedLocalCollector {
@@ -73,9 +95,15 @@ impl PresenceTestedLocalCollector {
         let Some(frame) = self.frames.pop() else {
             return;
         };
-        for name in frame.keyed.intersection(&frame.tested) {
+        for name in &frame.keyed {
+            let Some(test) = frame.tested.get(name).copied() else {
+                continue;
+            };
             if let Some(spans) = frame.declarations.get(name) {
-                self.widened.extend(spans.iter().copied());
+                for span in spans {
+                    let entry = self.widened.entry(*span).or_insert(test);
+                    *entry = (*entry).max(test);
+                }
             }
         }
     }
@@ -86,11 +114,16 @@ impl PresenceTestedLocalCollector {
         self.frames.last_mut()
     }
 
-    /// Record `expression` as a truthiness test when it is a bare identifier.
-    fn record_test(&mut self, expression: &Expression<'_>) {
+    /// Record `expression` as a presence test of kind `test` when it is a
+    /// bare identifier, keeping the strongest kind seen for the name.
+    fn record_test(&mut self, expression: &Expression<'_>, test: PresenceTest) {
         if let Expression::Identifier(identifier) = expression.without_parentheses() {
             if let Some(frame) = self.frame() {
-                frame.tested.insert(identifier.name.to_string());
+                let entry = frame
+                    .tested
+                    .entry(identifier.name.to_string())
+                    .or_insert(test);
+                *entry = (*entry).max(test);
             }
         }
     }
@@ -164,28 +197,28 @@ impl<'a> Visit<'a> for PresenceTestedLocalCollector {
 
     fn visit_unary_expression(&mut self, unary: &UnaryExpression<'a>) {
         if unary.operator == UnaryOperator::LogicalNot {
-            self.record_test(&unary.argument);
+            self.record_test(&unary.argument, PresenceTest::Truthiness);
         }
         oxc::ast_visit::walk::walk_unary_expression(self, unary);
     }
 
     fn visit_if_statement(&mut self, statement: &IfStatement<'a>) {
-        self.record_test(&statement.test);
+        self.record_test(&statement.test, PresenceTest::Truthiness);
         oxc::ast_visit::walk::walk_if_statement(self, statement);
     }
 
     fn visit_while_statement(&mut self, statement: &WhileStatement<'a>) {
-        self.record_test(&statement.test);
+        self.record_test(&statement.test, PresenceTest::Truthiness);
         oxc::ast_visit::walk::walk_while_statement(self, statement);
     }
 
     fn visit_conditional_expression(&mut self, conditional: &ConditionalExpression<'a>) {
-        self.record_test(&conditional.test);
+        self.record_test(&conditional.test, PresenceTest::Truthiness);
         oxc::ast_visit::walk::walk_conditional_expression(self, conditional);
     }
 
     fn visit_logical_expression(&mut self, logical: &LogicalExpression<'a>) {
-        self.record_test(&logical.left);
+        self.record_test(&logical.left, PresenceTest::Truthiness);
         oxc::ast_visit::walk::walk_logical_expression(self, logical);
     }
 
@@ -194,9 +227,9 @@ impl<'a> Visit<'a> for PresenceTestedLocalCollector {
         // just as `!x` does.
         if binary.operator.is_equality() {
             if is_nullish_literal(&binary.right) {
-                self.record_test(&binary.left);
+                self.record_test(&binary.left, PresenceTest::NullishComparison);
             } else if is_nullish_literal(&binary.left) {
-                self.record_test(&binary.right);
+                self.record_test(&binary.right, PresenceTest::NullishComparison);
             }
         }
         oxc::ast_visit::walk::walk_binary_expression(self, binary);

@@ -5627,8 +5627,26 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.block("impl SmeltRegExp", |impl_writer| {
             impl_writer.line("/// Construct a JavaScript-like RegExp value with shared lastIndex state.");
+            impl_writer.line("///");
+            impl_writer.line("/// `source` is stored as the spec's `EscapeRegExpPattern` renders it:");
+            impl_writer.line("/// an unescaped `/` outside a character class reads back as `\\/`, so");
+            impl_writer.line("/// `new RegExp('a/b').source` is `a\\/b` exactly as for the literal");
+            impl_writer.line("/// `/a\\/b/`, and the two compare equal.");
             impl_writer.block("pub fn new(source: String, flags: String) -> Self", |fn_writer| {
+                fn_writer.line("let source = Self::escape_pattern_source(source);");
                 fn_writer.line("Self { id: smelt_next_object_id(), source, flags, last_index: ::std::rc::Rc::new(::std::cell::RefCell::new(0)) }");
+            });
+            impl_writer.line("/// Escape every unescaped `/` outside a character class (`EscapeRegExpPattern`).");
+            impl_writer.block("fn escape_pattern_source(source: String) -> String", |fn_writer| {
+                fn_writer.line("if !source.contains('/') { return source; }");
+                fn_writer.line("let mut escaped = String::with_capacity(source.len() + 2);");
+                fn_writer.line("let (mut in_class, mut after_backslash) = (false, false);");
+                fn_writer.block("for ch in source.chars()", |loop_writer| {
+                    loop_writer.line("if after_backslash { escaped.push(ch); after_backslash = false; continue; }");
+                    loop_writer.line("match ch { '\\\\' => after_backslash = true, '[' => in_class = true, ']' => in_class = false, '/' if !in_class => escaped.push('\\\\'), _ => {} }");
+                    loop_writer.line("escaped.push(ch);");
+                });
+                fn_writer.line("escaped");
             });
             impl_writer.line("/// Return true when this RegExp has a flag.");
             impl_writer.block("pub fn has_flag(&self, flag: char) -> bool", |fn_writer| {
