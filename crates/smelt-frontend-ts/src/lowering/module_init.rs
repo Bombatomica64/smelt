@@ -511,6 +511,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.collect_overload_signatures(program, &implemented_functions);
         self.collect_forward_function_types(program, &implemented_functions);
         self.predeclare_function_items(program, &implemented_functions, &mut errors);
+        // Type predicates carried by arrows, predicate-typed variables and class
+        // methods are recorded before any body is lowered, like the function
+        // declarations' own (`predeclare_function_item`), so a hoisted body
+        // calling one declared further down still narrows through it.
+        self.collect_type_predicate_signatures(program);
         // Static properties on function declarations (`partial.placeholder = …`)
         // are collected as a PREPASS, right after the function items they hang off
         // are predeclared and before any body is lowered. A function's own body

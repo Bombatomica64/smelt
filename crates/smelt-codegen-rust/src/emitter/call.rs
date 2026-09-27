@@ -492,20 +492,7 @@ impl FunctionEmitter<'_> {
                 let Some(Type::Future(output_ty)) = self.mir.types.get(dest_ty) else {
                     return Err(EmitError::new("Promise.then result must be a future"));
                 };
-                let callback_return_ty = match self.mir.types.get(self.operand_ty(callback)?) {
-                    Some(Type::Function(function)) => function.return_ty,
-                    _ => self.type_id(Type::Unknown)?,
-                };
-                let (settle, settled_ty) = match self.mir.types.get(callback_return_ty) {
-                    Some(Type::Future(item)) => (
-                        format!("let smelt_callback_value = {invocation}.await?;"),
-                        *item,
-                    ),
-                    _ => (
-                        format!("let smelt_callback_value = {invocation};"),
-                        callback_return_ty,
-                    ),
-                };
+                let (settle, settled_ty) = self.promise_callback_settle(callback, &invocation)?;
                 let output =
                     self.value_at_type_text("smelt_callback_value", settled_ty, *output_ty, &self.render_scope())?;
                 Ok(format!(
@@ -543,20 +530,7 @@ impl FunctionEmitter<'_> {
                 // A handler that returns a promise is flattened, so `catch`
                 // never answers `Promise<Promise<T>>`; this is the same
                 // settle/flatten pair the `Then` arm above uses.
-                let callback_return_ty = match self.mir.types.get(self.operand_ty(callback)?) {
-                    Some(Type::Function(function)) => function.return_ty,
-                    _ => self.type_id(Type::Unknown)?,
-                };
-                let (settle, settled_ty) = match self.mir.types.get(callback_return_ty) {
-                    Some(Type::Future(item)) => (
-                        format!("let smelt_callback_value = {invocation}.await?;"),
-                        *item,
-                    ),
-                    _ => (
-                        format!("let smelt_callback_value = {invocation};"),
-                        callback_return_ty,
-                    ),
-                };
+                let (settle, settled_ty) = self.promise_callback_settle(callback, &invocation)?;
                 let recovered =
                     self.value_at_type_text("smelt_callback_value", settled_ty, *output_ty, &self.render_scope())?;
                 Ok(format!(
@@ -1444,6 +1418,47 @@ impl FunctionEmitter<'_> {
             }
         }
         Ok(format!("({callback_text})({arg_expr})"))
+    }
+
+    /// Bind a `.then`/`.catch` continuation's settled value as
+    /// `smelt_callback_value`, returning that statement and the value's type.
+    ///
+    /// The statement runs inside the `async move` block the continuation's
+    /// promise is built from, whose error channel IS that promise's rejection.
+    /// Two continuation shapes need unwrapping there:
+    ///
+    /// * A handler returning a promise is flattened (`.await?`), so neither
+    ///   method answers `Promise<Promise<T>>`.
+    /// * A THROWING handler (`may_throw`, emitted as a function returning
+    ///   `Result<T, Box<dyn Error>>`) propagates its error with `?`: in
+    ///   JavaScript a `then`/`catch` handler that throws rejects the promise the
+    ///   call returns (`p.catch(e => { if (!ok(e)) throw e; ... })` rethrows).
+    ///   Binding the bare `Result` instead settled the promise with a
+    ///   `Result<Result<T, _>, _>`, which does not type-check.
+    fn promise_callback_settle(
+        &self,
+        callback: &Operand,
+        invocation: &str,
+    ) -> Result<(String, TypeId), EmitError> {
+        let (callback_return_ty, may_throw) = match self.mir.types.get(self.operand_ty(callback)?)
+        {
+            Some(Type::Function(function)) => (function.return_ty, function.may_throw),
+            _ => (self.type_id(Type::Unknown)?, false),
+        };
+        Ok(match self.mir.types.get(callback_return_ty) {
+            Some(Type::Future(item)) => (
+                format!("let smelt_callback_value = {invocation}.await?;"),
+                *item,
+            ),
+            _ if may_throw => (
+                format!("let smelt_callback_value = {invocation}?;"),
+                callback_return_ty,
+            ),
+            _ => (
+                format!("let smelt_callback_value = {invocation};"),
+                callback_return_ty,
+            ),
+        })
     }
 
     /// Hoist a `.then`/`.catch` callback out of the `Box::pin(async move { .. })`
