@@ -394,28 +394,84 @@ export function last(v: any): unknown {
 
 #[test]
 fn a_shared_array_string_method_on_an_erased_receiver_is_resolved_at_run_time() {
-    // `slice` is on both prototypes, so an `any` receiver cannot be lowered to a
-    // list slice (which made `anyString.slice(1)` an array of characters). A
-    // typed receiver keeps its typed operation and never reads dynamically.
+    // `includes` is on both prototypes, so an `any` receiver cannot be lowered
+    // to either one statically (string containment rejected
+    // `anyArray.includes(2)` outright). A typed receiver keeps its typed
+    // operation and never reads dynamically.
     let source = source_for(
         r"
-export function rest(v: any): unknown {
-  return v.slice(1);
+export function hasTwo(v: any): unknown {
+  return v.includes(2);
 }
 
-export function tail(xs: number[]): number[] {
-  return xs.slice(1);
+export function hasTwoTyped(xs: number[]): boolean {
+  return xs.includes(2);
 }
 ",
     );
-    let erased = emitted_function_body(&source, "fn rest(");
+    let erased = emitted_function_body(&source, "fn has_two(");
     assert!(
-        erased.contains("smelt_get_unknown_field(") && erased.contains("\"slice\""),
-        "an erased receiver resolves `slice` on its runtime value:\n{erased}"
+        erased.contains("smelt_get_unknown_field(") && erased.contains("\"includes\""),
+        "an erased receiver resolves `includes` on its runtime value:\n{erased}"
     );
-    let typed = emitted_function_body(&source, "fn tail(");
+    let typed = emitted_function_body(&source, "fn has_two_typed(");
     assert!(
         !typed.contains("smelt_get_unknown_field(") && !typed.contains("SmeltUnknown"),
-        "a typed list keeps its typed slice:\n{typed}"
+        "a typed list keeps its typed includes:\n{typed}"
+    );
+}
+
+#[test]
+fn an_overloaded_call_receiver_is_not_taken_as_erased() {
+    // An overloaded function's implementation signature is often
+    // `(...args: unknown[]): unknown` while the overload a call selects returns
+    // a concrete array. The erased-receiver rule must not read the
+    // implementation's `unknown` as "this receiver is `any`": remeda's
+    // `sortBy(data, ...rules).map(f)` lost its concrete list map that way.
+    let source = source_for(
+        r"
+export function pick(xs: number[]): number[];
+export function pick(...args: unknown[]): unknown {
+  return args[0];
+}
+
+export function doubled(): number[] {
+  return pick([1, 2]).map((x) => x * 2);
+}
+",
+    );
+    let body = emitted_function_body(&source, "fn doubled(");
+    assert!(
+        !body.contains("\"map\""),
+        "an overloaded call's concrete result keeps its typed map:\n{body}"
+    );
+}
+
+/// A function stored in an erased value and called through it keeps the
+/// erased call ABI's `null` fallback when the callee is NOT a prototype-method
+/// read; only a table method read throws `TypeError` (see
+/// `prototype_method_not_callable`).
+#[test]
+fn only_a_prototype_method_read_throws_when_not_callable() {
+    let source = source_for(
+        r"
+export function viaField(o: any): unknown {
+  return o.handler(1);
+}
+
+export function viaMethod(o: any): unknown {
+  return o.at(1);
+}
+",
+    );
+    let field = emitted_function_body(&source, "fn via_field(");
+    assert!(
+        !field.contains("smelt_throw_not_callable("),
+        "a non-table callee keeps the erased call fallback:\n{field}"
+    );
+    let method = emitted_function_body(&source, "fn via_method(");
+    assert!(
+        method.contains("smelt_throw_not_callable(\"o.at\")"),
+        "a table method read throws JavaScript's TypeError:\n{method}"
     );
 }

@@ -2000,7 +2000,7 @@ fn smelt_erased_callable(value: &SmeltUnknown) -> Option<SmeltDynCallable> {
 
 /// The callback argument of an iteration method, or JavaScript's `TypeError` when it is not callable.
 fn smelt_erased_callback(value: Option<&SmeltUnknown>) -> SmeltDynCallable {
-    let value = value.cloned().unwrap_or(SmeltUnknown::Undefined);
+    let value = value.map_or(SmeltUnknown::Undefined, SmeltUnknown::clone);
     match smelt_erased_callable(&value) {
         Some(function) => function,
         None => smelt_throw_not_callable(&match &value { SmeltUnknown::Object(_) => "#<Object>".to_owned(), other => smelt_erased_to_js_string(other) }),
@@ -2063,7 +2063,7 @@ fn smelt_erased_flatten_into(items: Vec<SmeltUnknown>, depth: f64, out: &mut Vec
 /// mutates the array observes the same values it would in JavaScript. Callbacks
 /// receive `(element, index, array)`.
 fn smelt_array_prototype_apply(receiver: &SmeltArray, name: &str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
-    let arg = |index: usize| args.get(index).cloned().unwrap_or(SmeltUnknown::Undefined);
+    let arg = |index: usize| args.get(index).map_or(SmeltUnknown::Undefined, SmeltUnknown::clone);
     let array = || SmeltUnknown::Array(receiver.clone());
     let len = receiver.len();
     let item = |index: usize| receiver.get(index).unwrap_or(SmeltUnknown::Undefined);
@@ -2110,7 +2110,7 @@ fn smelt_array_prototype_apply(receiver: &SmeltArray, name: &str, args: Vec<Smel
         "unshift" => { let storage = receiver.storage(); storage.borrow_mut().splice(0..0, args).for_each(drop); SmeltUnknown::Number(receiver.len() as f64) }
         "splice" => {
             let start = smelt_erased_relative_position(args.first(), len, 0);
-            let delete_count = match args.len() { 0 => 0, 1 => len - start, _ => (smelt_erased_integer(&arg(1)).max(0.0) as usize).min(len - start) };
+            let delete_count = match args.len() { 0 => 0, 1 => len - start, _ => { let count = smelt_erased_integer(&arg(1)); if count > 0.0 { (count as usize).min(len - start) } else { 0 } } };
             let storage = receiver.storage();
             let removed = storage.borrow_mut().splice(start..start + delete_count, args.into_iter().skip(2)).collect::<Vec<_>>();
             SmeltUnknown::Array(removed.into())
@@ -2181,7 +2181,7 @@ fn smelt_erased_padding(len: usize, target: f64, fill: &str) -> String {
 /// Positions count Unicode scalar values, the unit every other erased string
 /// operation in this runtime (`length`, indexing) uses.
 fn smelt_string_prototype_apply(text: &str, name: &str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
-    let arg = |index: usize| args.get(index).cloned().unwrap_or(SmeltUnknown::Undefined);
+    let arg = |index: usize| args.get(index).map_or(SmeltUnknown::Undefined, SmeltUnknown::clone);
     let arg_text = |index: usize| smelt_erased_to_js_string(&arg(index));
     let chars: Vec<char> = text.chars().collect();
     let len = chars.len();

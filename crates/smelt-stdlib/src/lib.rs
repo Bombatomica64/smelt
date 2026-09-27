@@ -34,7 +34,8 @@ pub use deps::BackendDependency;
 pub use diagnostics::{StdlibDiagnostic, UnsupportedForm};
 pub use erased_prototype_methods::{
     ERASED_ARRAY_PROTOTYPE_METHODS, ERASED_STRING_PROTOTYPE_METHODS,
-    erased_array_prototype_method, erased_string_prototype_method, is_erased_prototype_method,
+    erased_array_prototype_method, erased_string_prototype_method, is_erased_prototype_call, is_erased_prototype_method,
+    prototype_method_max_arguments,
 };
 pub use fields::{FieldRule, typescript_field_rule};
 pub use globals::{

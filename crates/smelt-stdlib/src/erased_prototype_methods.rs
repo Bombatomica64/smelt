@@ -87,6 +87,45 @@ pub const ERASED_STRING_PROTOTYPE_METHODS: &[&str] = &[
     "toString",
 ];
 
+/// The most arguments a call of the prototype method `name` can take.
+///
+/// The limits come from the ECMAScript parameter lists (optional parameters
+/// included); `None` for a variadic method (`push`, `concat`, ...) or a name
+/// neither table models.
+///
+/// Where a name is on both prototypes the larger limit applies. A call that
+/// passes MORE than this is not a call of the prototype method at all: it is
+/// the utility-function spelling of the same name (`utils.reduce(xs, f, 0)`,
+/// `utils.keys(record)`), whose first argument is the collection, and it keeps
+/// its dedicated lowering (see [`is_erased_prototype_call`]).
+#[must_use]
+pub fn prototype_method_max_arguments(name: &str) -> Option<usize> {
+    match name {
+        "pop" | "shift" | "reverse" | "keys" | "values" | "entries" | "toString" | "toLowerCase"
+        | "toUpperCase" | "trim" | "trimEnd" | "trimStart" => Some(0),
+        "join" | "at" | "flat" | "sort" | "charAt" | "charCodeAt" | "codePointAt" | "repeat" => {
+            Some(1)
+        }
+        "map" | "filter" | "forEach" | "reduce" | "reduceRight" | "some" | "every" | "find"
+        | "findIndex" | "findLast" | "findLastIndex" | "flatMap" | "includes" | "indexOf"
+        | "lastIndexOf" | "slice" | "endsWith" | "startsWith" | "padEnd" | "padStart"
+        | "substring" => Some(2),
+        "fill" => Some(3),
+        _ => None,
+    }
+}
+
+/// Whether a call `receiver.name(..)` on an ERASED receiver resolves at run time.
+///
+/// It does when `name` is an erased prototype method (see
+/// [`is_erased_prototype_method`]) and the call's `argument_count` fits that
+/// method's parameter list ([`prototype_method_max_arguments`]).
+#[must_use]
+pub fn is_erased_prototype_call(name: &str, argument_count: usize) -> bool {
+    is_erased_prototype_method(name)
+        && prototype_method_max_arguments(name).is_none_or(|max| argument_count <= max)
+}
+
 /// Look an erased `Array.prototype` method up by name.
 #[must_use]
 pub fn erased_array_prototype_method(name: &str) -> Option<&'static str> {
@@ -119,11 +158,21 @@ pub fn erased_string_prototype_method(name: &str) -> Option<&'static str> {
 /// receiver calling one of these names to the erased member call, which
 /// resolves it on the value it meets through these tables.
 ///
-/// `toString` is excluded: every value answers it (`Object.prototype`), so it
-/// is not a prototype question, and it keeps its dedicated lowering.
+/// Two names are excluded because their lowering is not a guess:
+/// - `toString`: every value answers it (`Object.prototype`), so it is not a
+///   prototype question, and it keeps its dedicated lowering.
+/// - `slice`: its erased lowering already dispatches on the runtime tag
+///   (codegen's tag-preserving erased slice). It covers arrays, strings AND
+///   byte-backed host objects (`ArrayBuffer`/`Buffer`/typed arrays, which must
+///   slice to a fresh record of the same host identity). That is a superset of
+///   what these tables model for the name, so rerouting it would lose the
+///   host-buffer arm.
+///
+/// These names still resolve through the tables when the method is READ as a
+/// value (`const f = anyValue.slice`).
 #[must_use]
 pub fn is_erased_prototype_method(name: &str) -> bool {
-    name != "toString"
+    !matches!(name, "toString" | "slice")
         && (erased_array_prototype_method(name).is_some()
             || erased_string_prototype_method(name).is_some())
 }
@@ -131,8 +180,8 @@ pub fn is_erased_prototype_method(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        ERASED_ARRAY_PROTOTYPE_METHODS, ERASED_STRING_PROTOTYPE_METHODS,
-        erased_array_prototype_method, is_erased_prototype_method,
+        ERASED_ARRAY_PROTOTYPE_METHODS, ERASED_STRING_PROTOTYPE_METHODS, erased_array_prototype_method,
+        is_erased_prototype_call, is_erased_prototype_method, prototype_method_max_arguments,
     };
 
     /// No table lists a method twice, so a lookup has one answer.
@@ -156,14 +205,36 @@ mod tests {
     }
 
     /// Every modeled method of either prototype resolves at run time, except
-    /// the `Object.prototype`-wide `toString` and names neither table models.
+    /// `toString`, `slice` (already tag-dispatched by its own lowering) and
+    /// names neither table models.
     #[test]
-    fn runtime_resolution_covers_both_tables_but_not_to_string() {
-        for name in ["slice", "includes", "map", "reduceRight", "unshift", "toUpperCase"] {
+    fn runtime_resolution_covers_both_tables_except_non_guessing_lowerings() {
+        for name in ["includes", "at", "map", "reduceRight", "unshift", "toUpperCase"] {
             assert!(is_erased_prototype_method(name), "{name}");
         }
-        for name in ["toString", "split", "replace", "then"] {
+        for name in ["toString", "slice", "split", "replace", "then"] {
             assert!(!is_erased_prototype_method(name), "{name}");
         }
+    }
+
+    /// Every modeled method has an argument limit or is known variadic, and a
+    /// call with more arguments than the prototype accepts is the utility
+    /// spelling (`utils.reduce(xs, f, 0)`), not a prototype call.
+    #[test]
+    fn over_long_argument_lists_are_not_prototype_calls() {
+        let variadic = ["concat", "push", "unshift", "splice"];
+        for table in [ERASED_ARRAY_PROTOTYPE_METHODS, ERASED_STRING_PROTOTYPE_METHODS] {
+            for &name in table {
+                assert!(
+                    prototype_method_max_arguments(name).is_some() || variadic.contains(&name),
+                    "`{name}` has no argument limit"
+                );
+            }
+        }
+        assert!(is_erased_prototype_call("reduce", 2));
+        assert!(!is_erased_prototype_call("reduce", 3));
+        assert!(is_erased_prototype_call("keys", 0));
+        assert!(!is_erased_prototype_call("keys", 1));
+        assert!(is_erased_prototype_call("push", 7));
     }
 }
