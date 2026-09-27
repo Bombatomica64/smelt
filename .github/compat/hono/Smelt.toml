@@ -166,24 +166,19 @@ exclude = [
   # pulling library modules into the crate with generated-Rust errors
   # (measured on the 99-module build: 125 errors, table in hono-current.md).
   #
-  # Hono's `Context` class collides with `router/reg-exp-router/node.ts`'s
-  # `Context` interface (renamed `Context_1`); once a test constructs
-  # `new Context(req, ..)` the class carries its `E` type argument and the
-  # type-position spelling in `compose.rs`/`hono_base.rs` is emitted as the
-  # UNRENAMED `Context<SmeltUnknown>` (E0107 + E0308 `Context` vs
-  # `Context_1`; cross-kind name collision with type arguments).
+  # The `Context` class / `reg-exp-router` `Context` interface collision that
+  # used to exclude the other conninfo tests is fixed (early consumers now
+  # resolve the renamed `Context_1`); these still fail for other reasons:
+  # `aws-lambda/types.ts` records derive `serde::Deserialize` over
+  # `SmeltRecord` (8 E0277); `helper/route` compares
+  # `SmeltList<RouterRoute>` with `!=` (E0369, no `PartialEq`).
   # phase 3 pending.
   "src/adapter/aws-lambda/conninfo.test.ts",
-  "src/adapter/bun/conninfo.test.ts",
-  "src/adapter/bun/server.test.ts",
-  "src/adapter/cloudflare-pages/conninfo.test.ts",
-  "src/adapter/cloudflare-workers/conninfo.test.ts",
-  "src/adapter/deno/conninfo.test.ts",
-  "src/adapter/netlify/conninfo.test.ts",
-  "src/adapter/vercel/conninfo.test.ts",
   "src/helper/route/index.test.ts",
-  # Same collision, plus 28 E0308s in `middleware/serve-static/index.ts`
-  # (`Option<f64>` vs `SmeltResponse`). phase 3 pending.
+  # `middleware/serve-static/index.ts` emits a 37 MB `serve_static_index.rs`
+  # (34k lines of repeated async-closure bodies) that rustc does not finish
+  # checking in 40 min; the 28 E0308s (`Option<f64>` vs `SmeltResponse`)
+  # reported earlier are behind it. phase 3 pending.
   "src/adapter/cloudflare-workers/serve-static.test.ts",
   # Reach library modules with generated-Rust errors: `utils/accept.ts`
   # (E0308 tuple `Option<Accept>`), `utils/basic-auth.ts` (E0308

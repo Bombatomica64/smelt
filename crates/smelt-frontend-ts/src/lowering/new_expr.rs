@@ -399,7 +399,16 @@ impl ModuleBuilder<'_> {
                 || self.module_globals.contains_key(callee.name.as_str())
                 || self.source_contains_class(callee.name.as_str())
             {
-                let class_name = self.intern_type_name(callee.name.as_str());
+                // The class item is not registered yet (its module lowers
+                // later in an import cycle), but its RUST NAME is already
+                // known: resolve the spelling exactly as a type annotation
+                // would, so an ambiguous imported class names the exporting
+                // module's rendering (`Context_1`) rather than the bare
+                // spelling another module's type owns. Interning the bare
+                // spelling here made Hono's `hono-base.ts` construct the
+                // router's `interface Context` whenever it lowered before
+                // `context.ts`.
+                let class_name = self.resolve_type_reference_symbol(callee.name.as_str());
                 let args = new_expr
                     .arguments
                     .iter()

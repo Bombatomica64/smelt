@@ -516,6 +516,10 @@ pub fn predeclare_type_declarations_with_path(
         None,
         Vec::new(),
     );
+    // Import provenance first: every surface below may name an imported
+    // ambiguous type, and only provenance lets it ask the rename map for the
+    // exporting module's rendering (see `predeclare_import_provenance`).
+    builder.predeclare_import_provenance(&parsed.program);
     builder.predeclare_class_method_fields(&parsed.program);
     builder.predeclare_type_alias_items(&parsed.program);
     // Class type-parameter DEFAULTS have to be readable crate-wide before any
