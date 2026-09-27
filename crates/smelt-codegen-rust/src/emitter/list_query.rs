@@ -689,11 +689,17 @@ impl FunctionEmitter<'_> {
     /// still folds into a value the next step accepts (issue #113). The frontend
     /// (`lower_list_reduce`) picks `dest_ty` so this reconciliation is statically
     /// valid; here we only render the arity- and type-matched call.
+    ///
+    /// `from_right` renders `Array.prototype.reduceRight`: the same fold over the
+    /// `enumerate()`d elements reversed with `.rev()`, so elements are visited
+    /// from the last index down while each callback still receives its original
+    /// index, and a seedless fold starts from the LAST element.
     pub(super) fn list_reduce_text(
         &self,
         list: &Operand,
         initial: Option<&Operand>,
         callback: &Operand,
+        from_right: bool,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         // Index of the JS fourth callback argument (the receiver array) inside
@@ -806,14 +812,15 @@ impl FunctionEmitter<'_> {
         // callback iteration path above: a reducer that writes the array it is
         // reducing panics rather than failing to compile.
         let list_read = list_read_text(&borrowed_list_text);
+        let direction = if from_right { ".rev()" } else { "" };
         if let Some(initial_operand) = initial {
             let initial_text = self.operand_text(initial_operand)?;
             Ok(format!(
-                "{list_read}.iter().enumerate().fold({initial_text}, |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {callback_array_text}; {callback_text} }})"
+                "{list_read}.iter().enumerate(){direction}.fold({initial_text}, |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {callback_array_text}; {callback_text} }})"
             ))
         } else if dest_ty == element_ty {
             Ok(format!(
-                "{{ let smelt_reduce_items = {list_read}; let mut reduce_items = smelt_reduce_items.iter().enumerate(); let (_, first) = reduce_items.next().expect(\"reduce of empty array with no initial value\"); reduce_items.fold(first.clone(), |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {callback_array_text}; {callback_text} }}) }}"
+                "{{ let smelt_reduce_items = {list_read}; let mut reduce_items = smelt_reduce_items.iter().enumerate(){direction}; let (_, first) = reduce_items.next().expect(\"reduce of empty array with no initial value\"); reduce_items.fold(first.clone(), |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {callback_array_text}; {callback_text} }}) }}"
             ))
         } else {
             Err(EmitError::new(

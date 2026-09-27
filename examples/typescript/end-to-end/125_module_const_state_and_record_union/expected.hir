@@ -53,11 +53,11 @@ interned types
   t0 = String
   t1 = Bool
   t2 = (String, String, Bool)
-  t3 = Unknown
-  t4 = Dict<String, Unknown>
-  t5 = List<Unknown>
-  t6 = Dict<String, (String, String, Bool)>
-  t7 = List<String>
+  t3 = Dict<String, (String, String, Bool)>
+  t4 = List<(String, String, Bool)>
+  t5 = List<String>
+  t6 = Unknown
+  t7 = Dict<String, Unknown>
   t8 = Dict<String, String>
   t9 = Dict<String, List<String>>
   t10 = String | List<String>

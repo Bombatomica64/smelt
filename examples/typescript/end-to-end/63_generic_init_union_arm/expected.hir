@@ -63,10 +63,10 @@ interned types
   t8 = InitLike<T>
   t9 = Response
   t10 = InitLike<T> | Response
-  t11 = Unknown
-  t12 = Dict<String, Unknown>
-  t13 = List<Unknown>
-  t14 = InitLike
+  t11 = InitLike
+  t12 = Unknown
+  t13 = Dict<String, Unknown>
+  t14 = List<Unknown>
   t15 = InitLike<Float>
   t16 = Response | InitLike<Float>
   t17 = Float | Response | InitLike<Float>

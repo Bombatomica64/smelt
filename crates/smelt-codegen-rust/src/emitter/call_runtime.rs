@@ -1937,7 +1937,8 @@ impl FunctionEmitter<'_> {
                 list,
                 initial,
                 callback,
-            } => self.list_reduce_text(list, initial.as_ref(), callback, dest_ty),
+                from_right,
+            } => self.list_reduce_text(list, initial.as_ref(), callback, *from_right, dest_ty),
             Rvalue::ListSlice { list, start, end } => {
                 self.list_slice_text(list, start.as_ref(), end.as_ref(), dest_ty)
             }

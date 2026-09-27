@@ -778,10 +778,14 @@ pub enum ExprKind {
         length: ExprId,
         callback: ExprId,
     },
+    /// `Array.prototype.reduce` / `reduceRight`: fold `list` through `callback`.
     ListReduce {
         list: ExprId,
         initial: Option<ExprId>,
         callback: ExprId,
+        /// `true` for `reduceRight`: visit elements from the last index down to
+        /// zero (the callback still receives each element's original index).
+        from_right: bool,
     },
     ListSlice {
         list: ExprId,

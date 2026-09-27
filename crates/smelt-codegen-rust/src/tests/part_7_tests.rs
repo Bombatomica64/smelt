@@ -8114,6 +8114,30 @@ export function sum(values: number[]): number {
     assert!(!source.contains("let array = reversed.clone();"), "{source}");
 }
 
+/// `reduceRight` renders the same typed `fold` as `reduce`, over the
+/// `enumerate()`d elements reversed: the callback sees the last element first
+/// with its original index, and a seedless fold starts from the last element.
+#[test]
+fn reduce_right_folds_the_reversed_enumeration() {
+    let source = source_for(
+        r"
+export function order(values: string[]): string {
+  return values.reduceRight((acc, value, index) => acc + value + index, '');
+}
+export function lastMinusRest(values: number[]): number {
+  return values.reduceRight((acc, value) => acc - value);
+}
+",
+    );
+
+    assert!(source.contains(".iter().enumerate().rev().fold("), "{source}");
+    assert!(
+        source.contains("let mut reduce_items = smelt_reduce_items.iter().enumerate().rev();"),
+        "{source}"
+    );
+    assert!(!source.contains("SmeltUnknown"), "{source}");
+}
+
 /// A module const whose initializer is an array spread (es-toolkit's
 /// `arrayViews = [...typedArrays, 'DataView']` shape) inlines into a function
 /// body as a concrete `SmeltList<String>` concat chain. The homogeneous

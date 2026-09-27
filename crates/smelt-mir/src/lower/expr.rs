@@ -1618,6 +1618,7 @@ impl LoweringCtx<'_> {
                 list,
                 initial,
                 callback,
+                from_right,
             } => {
                 let list_operand = self.lower_expr(*list)?;
                 let initial_operand = initial
@@ -1631,6 +1632,7 @@ impl LoweringCtx<'_> {
                         list: list_operand,
                         initial: initial_operand,
                         callback: callback_operand,
+                        from_right: *from_right,
                     },
                 )?
             }

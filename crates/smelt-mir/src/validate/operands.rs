@@ -434,6 +434,7 @@ impl Rvalue {
                 list,
                 initial,
                 callback,
+                ..
             } => {
                 visit(list);
                 if let Some(operand) = initial.as_ref() {
@@ -1366,6 +1367,7 @@ impl Rvalue {
                 list,
                 initial,
                 callback,
+                ..
             } => {
                 visit(list);
                 if let Some(operand) = initial.as_mut() {

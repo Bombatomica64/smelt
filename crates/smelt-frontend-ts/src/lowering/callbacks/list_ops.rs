@@ -757,7 +757,12 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower `Array.prototype.reduce`, including element-typed calls without an initial value.
+    /// Lower `Array.prototype.reduce` and `reduceRight`, including element-typed
+    /// calls without an initial value.
+    ///
+    /// Both share one lowering: `reduceRight` is the same typed fold with the
+    /// iteration direction reversed (`ExprKind::ListReduce::from_right`), so the
+    /// accumulator, element and index parameters keep their concrete types.
     pub(in crate::lowering) fn list_reduce_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -766,9 +771,11 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
-        if member.property.name != "reduce" {
-            return Ok(None);
-        }
+        let from_right = match member.property.name.as_str() {
+            "reduce" => false,
+            "reduceRight" => true,
+            _ => return Ok(None),
+        };
         // A star-imported namespace owns its exported `reduce` function. Its
         // callback contract may differ from `Array.prototype.reduce` (for
         // example, an async reducer returning `Promise<T>`), so leave opaque
@@ -782,7 +789,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         if Self::is_static_reduce_utility_call(call) {
-            return self.static_reduce_utility_call(call, body, member);
+            return self.static_reduce_utility_call(call, body, member, from_right);
         }
         let ([callback_argument] | [callback_argument, _]) = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
@@ -800,6 +807,7 @@ impl ModuleBuilder<'_> {
             list_span.end,
             callback_argument,
             call.arguments.get(1),
+            from_right,
         )
     }
 
@@ -858,11 +866,15 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower utility-style `reduce(collection, callback, initial?)` calls.
+    ///
+    /// `from_right` is set for the `reduceRight(collection, callback, initial?)`
+    /// spelling and carries the reversed fold direction into a list collection.
     pub(in crate::lowering) fn static_reduce_utility_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        from_right: bool,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let [collection_arg, callback_arg, rest @ ..] = call.arguments.as_slice() else {
             return Ok(None);
@@ -887,6 +899,7 @@ impl ModuleBuilder<'_> {
                 collection_arg.span().end,
                 callback_arg,
                 rest.first(),
+                from_right,
             );
         }
         let initial = if let Some(initial_arg) = rest.first() {
@@ -905,6 +918,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a normalized array-reduce receiver and callback pair.
+    ///
+    /// `from_right` selects `reduceRight`'s last-to-first iteration; the typing
+    /// of the accumulator, element, index and array callback parameters is the
+    /// same in both directions.
     pub(in crate::lowering) fn lower_list_reduce(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -914,6 +931,7 @@ impl ModuleBuilder<'_> {
         list_span_end: u32,
         callback_argument: &Argument<'_>,
         initial_argument: Option<&Argument<'_>>,
+        from_right: bool,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let mut list_ty = Self::expr_ty(body, list);
         let element_ty =
@@ -1006,6 +1024,7 @@ impl ModuleBuilder<'_> {
                 list,
                 initial,
                 callback: callback_expr,
+                from_right,
             },
             ty: accumulator_ty,
             span: self.span(call.span.start, call.span.end),

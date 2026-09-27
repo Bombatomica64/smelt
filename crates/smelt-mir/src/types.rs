@@ -1614,6 +1614,8 @@ pub enum Rvalue {
         initial: Option<Operand>,
         /// Closure or callable value.
         callback: Operand,
+        /// `true` for `reduceRight`: fold from the last index down to zero.
+        from_right: bool,
     },
     /// Take a shallow slice from a list.
     ListSlice {

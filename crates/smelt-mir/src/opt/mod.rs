@@ -710,6 +710,7 @@ fn rewrite_rvalue(
             list,
             initial,
             callback,
+            ..
         } => {
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_optional_operand_except(initial, aliases, dest)

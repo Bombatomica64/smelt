@@ -55,6 +55,13 @@ impl ModuleBuilder<'_> {
                 kind: CallbackExprKind::Literal(literal.clone()),
                 ty,
             }),
+            // A tuple-typed array (a declared `[A, B]` slot) has no callback-IR
+            // tuple form.
+            ObjectConstValue::List(_)
+                if matches!(self.ctx.krate.types.get(ty), Some(Type::Tuple(_))) =>
+            {
+                None
+            }
             ObjectConstValue::List(items) => {
                 let items = items
                     .iter()

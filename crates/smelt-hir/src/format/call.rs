@@ -855,9 +855,11 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             list,
             initial,
             callback,
+            from_right,
         } => {
             format!(
-                "list_reduce {}, {}, {}",
+                "{} {}, {}, {}",
+                if *from_right { "list_reduce_right" } else { "list_reduce" },
                 expr_ref(*list),
                 initial.map_or_else(|| "_".to_owned(), expr_ref),
                 expr_ref(*callback)

@@ -1,0 +1,247 @@
+fn param_index_map (FuncId(0)) -> Dict<String, Float>
+  locals
+    %0 param path: String
+    %1 user path_data: Optional<(Float, List<(String, Float)>)>
+    %2 user seed: Dict<String, Float>
+    %3 temp: (String, Float)
+    %4 temp: (String, Float)
+    %5 temp: List<(String, Float)>
+    %6 temp: (Float, List<(String, Float)>)
+    %7 temp: (String, Float)
+    %8 temp: List<(String, Float)>
+    %9 temp: (Float, List<(String, Float)>)
+    %10 temp: Dict<String, (Float, List<(String, Float)>)>
+    %11 temp: Optional<(Float, List<(String, Float)>)>
+    %12 temp: Dict<String, Float>
+    %13 temp: (Float, List<(String, Float)>)
+    %14 temp: List<(String, Float)>
+    %15 temp: fn(Dict<String, Float>, (String, Float), Int, List<(String, Float)>) -> Dict<String, Float>
+    %16 temp: Dict<String, Float>
+  bb0:
+    %3 = ("id", 0.0)
+    %4 = ("post", 1.0)
+    %5 = [move %3, move %4]
+    %6 = (0.0, move %5)
+    %7 = ("tag", 2.0)
+    %8 = [move %7]
+    %9 = (1.0, move %8)
+    %10 = {"/users/:id/posts/:post": move %6, "/tags/:tag": move %9}
+    %11 = move %10?.[copy %0]
+    %1 = move %11
+    %12 = {}
+    %2 = move %12
+    %13 = copy %1
+    %14 = tuple_index move %13, 1
+    %15 = closure ClosureId(0) [copy %1]
+    %16 = list_reduce_right move %14, move %2, move %15
+    return move %16
+
+fn visit_order (FuncId(1)) -> String
+  locals
+    %0 param items: List<String>
+    %1 temp: fn(String, String, Int, List<String>) -> String
+    %2 temp: String
+  bb0:
+    %1 = closure ClosureId(1) []
+    %2 = list_reduce_right copy %0, "", move %1
+    return move %2
+
+fn forward_order (FuncId(2)) -> String
+  locals
+    %0 param items: List<String>
+    %1 temp: fn(String, String, Int, List<String>) -> String
+    %2 temp: String
+  bb0:
+    %1 = closure ClosureId(2) []
+    %2 = list_reduce copy %0, "", move %1
+    return move %2
+
+fn last_minus_rest (FuncId(3)) -> Float
+  locals
+    %0 param values: List<Float>
+    %1 temp: fn(Float, Float, Int, List<Float>) -> Float
+    %2 temp: Float
+  bb0:
+    %1 = closure ClosureId(3) []
+    %2 = list_reduce_right copy %0, _, move %1
+    return move %2
+
+fn handler_index (FuncId(4)) -> Float
+  locals
+    %0 param path: String
+    %1 temp: (String, Float)
+    %2 temp: (String, Float)
+    %3 temp: List<(String, Float)>
+    %4 temp: (Float, List<(String, Float)>)
+    %5 temp: (String, Float)
+    %6 temp: List<(String, Float)>
+    %7 temp: (Float, List<(String, Float)>)
+    %8 temp: Dict<String, (Float, List<(String, Float)>)>
+    %9 temp: Optional<(Float, List<(String, Float)>)>
+    %10 temp: (Float, List<(String, Float)>)
+    %11 temp: Float
+  bb0:
+    %1 = ("id", 0.0)
+    %2 = ("post", 1.0)
+    %3 = [move %1, move %2]
+    %4 = (0.0, move %3)
+    %5 = ("tag", 2.0)
+    %6 = [move %5]
+    %7 = (1.0, move %6)
+    %8 = {"/users/:id/posts/:post": move %4, "/tags/:tag": move %7}
+    %9 = move %8?.[copy %0]
+    %10 = move %9
+    %11 = tuple_index move %10, 0
+    return move %11
+
+fn main (FuncId(5)) -> None
+  locals
+    %0 user paths: Dict<String, (Float, List<(String, Float)>)>
+    %1 user replacement: List<Float>
+    %2 temp: (String, Float)
+    %3 temp: (String, Float)
+    %4 temp: List<(String, Float)>
+    %5 temp: (Float, List<(String, Float)>)
+    %6 temp: (String, Float)
+    %7 temp: List<(String, Float)>
+    %8 temp: (Float, List<(String, Float)>)
+    %9 temp: Dict<String, (Float, List<(String, Float)>)>
+    %10 temp: List<Float>
+    %11 temp: Dict<String, Float>
+    %12 temp: String
+    %13 temp: None
+    %14 temp: Dict<String, Float>
+    %15 temp: String
+    %16 temp: None
+    %17 temp: List<String>
+    %18 temp: String
+    %19 temp: None
+    %20 temp: List<String>
+    %21 temp: String
+    %22 temp: None
+    %23 temp: List<Float>
+    %24 temp: Float
+    %25 temp: None
+    %26 temp: Float
+    %27 temp: None
+    %28 temp: fn(Float, Int, List<Float>) -> Float
+    %29 temp: List<Float>
+    %30 temp: String
+    %31 temp: None
+  bb0:
+    %2 = ("id", 0.0)
+    %3 = ("post", 1.0)
+    %4 = [move %2, move %3]
+    %5 = (0.0, move %4)
+    %6 = ("tag", 2.0)
+    %7 = [move %6]
+    %8 = (1.0, move %7)
+    %9 = {"/users/:id/posts/:post": move %5, "/tags/:tag": move %8}
+    %0 = move %9
+    %10 = [3.0, 1.0, 2.0]
+    %1 = move %10
+    %11 = call fn0("/users/:id/posts/:post") -> bb1
+  bb1:
+    %12 = json_stringify move %11
+    %13 = call @console_log(move %12) -> bb2
+  bb2:
+    %14 = call fn0("/tags/:tag") -> bb3
+  bb3:
+    %15 = json_stringify move %14
+    %16 = call @console_log(move %15) -> bb4
+  bb4:
+    %17 = ["a", "b", "c"]
+    %18 = call fn1(move %17) -> bb5
+  bb5:
+    %19 = call @console_log(move %18) -> bb6
+  bb6:
+    %20 = ["a", "b", "c"]
+    %21 = call fn2(move %20) -> bb7
+  bb7:
+    %22 = call @console_log(move %21) -> bb8
+  bb8:
+    %23 = [1.0, 2.0, 10.0]
+    %24 = call fn3(move %23) -> bb9
+  bb9:
+    %25 = call @console_log(move %24) -> bb10
+  bb10:
+    %26 = call fn4("/tags/:tag") -> bb11
+  bb11:
+    %27 = call @console_log(move %26) -> bb12
+  bb12:
+    %28 = closure ClosureId(4) []
+    %29 = list_map move %1, move %28
+    %30 = string_join move %29, ","
+    %31 = call @console_log(move %30) -> bb13
+  bb13:
+    return none
+
+closure ClosureId(0) -> Dict<String, Float>
+  locals
+    %0 param map: Dict<String, Float>
+    %1 param __param1: (String, Float)
+    %2 user key: String
+    %3 param i: Int
+    %4 user path_data: Optional<(Float, List<(String, Float)>)>
+    %5 temp: String
+    %6 temp: List<Float>
+    %7 temp: (Float, List<(String, Float)>)
+    %8 temp: List<(String, Float)>
+    %9 temp: Float
+    %10 temp: Float
+    %11 temp: Float
+  bb0:
+    %5 = tuple_index copy %1, 0
+    %2 = copy %5
+    %6 = [3.0, 1.0, 2.0]
+    %7 = copy %4
+    %8 = tuple_index copy %7, 1
+    %9 = tuple_index copy %8[copy %3], 1
+    %10 = copy %6[copy %9] * 10.0
+    %11 = copy %10 + copy %3
+    %0[copy %2] = copy %11
+    return copy %0
+
+closure ClosureId(1) -> String
+  locals
+    %0 param acc: String
+    %1 param item: String
+    %2 param i: Int
+    %3 temp: String
+    %4 temp: String
+  bb0:
+    %3 = copy %0 + copy %1
+    %4 = copy %3 + copy %2
+    return copy %4
+
+closure ClosureId(2) -> String
+  locals
+    %0 param acc: String
+    %1 param item: String
+    %2 param i: Int
+    %3 temp: String
+    %4 temp: String
+  bb0:
+    %3 = copy %0 + copy %1
+    %4 = copy %3 + copy %2
+    return copy %4
+
+closure ClosureId(3) -> Float
+  locals
+    %0 param acc: Float
+    %1 param value: Float
+    %2 temp: Float
+  bb0:
+    %2 = copy %0 - copy %1
+    return copy %2
+
+closure ClosureId(4) -> Float
+  locals
+    %0 param __callback_param_0: Float
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<Float>
+    %3 temp: Float
+  bb0:
+    %3 = copy %0 + copy %1
+    return copy %3
+

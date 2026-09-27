@@ -120,3 +120,32 @@ over a `[number, ParamAssocArray]` tuple stored in a `Record` lowers as an erase
 inside the class's own methods, for interface/record receivers, or for async field functions; a
 class `implements` an interface whose method is satisfied by a function-typed field reports a
 missing method.
+
+## Round 4, part 3 — H26 (reg-exp router parameter maps)
+
+Hono **216 → 219 passed** (64 → 61 failed); `router_test_2` 3 → 0 failures, no other test changed
+state. The tuple read `trie.paths[p][1]` was already precisely typed; the real gap was that
+`Array.prototype.reduceRight` was not modeled, so an unmodeled list method fell to dynamic dispatch
+and became a `none` stub. General rules:
+* `reduceRight` shares `reduce`'s path (`ListReduce { from_right }`): the same typed `fold` over
+  `.iter().enumerate().rev()`, so callbacks see original indices and a fold without an initial
+  value starts from the last element (also the `ns.reduceRight(coll, cb, init)` spelling);
+* folded module object-const metadata is retargeted to the declared `Dict<_, V>` (array → tuple of
+  the same arity, array → `List<E>`, object → `Dict`) instead of the literal-inferred shape;
+* annotated array/`Set` consts fold their elements when every element has exactly the declared
+  element type; bindings lifted to mutable globals drop the folded copy.
+
+Example `131_reduce_right_and_declared_const_shapes`; 3 frontend + 1 codegen unit tests. Golden
+changes: only interned-type tables in 7 `expected.hir` files (several `Unknown`/`List<Unknown>`
+entries become precise tuples). Gates: goldens 20/20, examples avoidable 0, es-toolkit avoidable
+27109 (unchanged), radash 384/3, remeda 1787/2, all 78 runtime tiers pass.
+
+Open (pre-existing, next queue):
+* an uninstantiated callee type parameter (`createNullObject<T = any>()` inside `class Router<T>`)
+  leaks the callee's `T` into the caller instead of its default/contextual type;
+* `module_global_expression` fabricates a declared-type default when neither a slot nor folded
+  metadata exists (a non-foldable module const reads `{}`; a mutated annotated array read only
+  from a module-body closure reads `[]`);
+* `list_reduce_call` runs before class-method resolution, so a user class method named
+  `reduce`/`reduceRight` is hijacked;
+* array methods on erased receivers still go through `smelt_get_unknown_field`.

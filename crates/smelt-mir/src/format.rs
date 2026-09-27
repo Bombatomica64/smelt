@@ -1316,8 +1316,10 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             list,
             initial,
             callback,
+            from_right,
         } => format!(
-            "list_reduce {}, {}, {}",
+            "{} {}, {}, {}",
+            if *from_right { "list_reduce_right" } else { "list_reduce" },
             operand_text(list),
             optional_operand_text(initial.as_ref()),
             operand_text(callback)

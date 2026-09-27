@@ -479,6 +479,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.collect_module_enums(program);
         self.collect_module_globals(program);
         self.collect_mutable_globals(program, &mut module, &mut errors);
+        self.forget_lifted_const_collections();
         self.collect_class_value_globals(program, &mut module);
         // A module top-level `function Foo(){ this.a = … }` used with `new Foo()`,
         // `x instanceof Foo`, or `Foo.prototype.m = …` is a JavaScript
@@ -1252,7 +1253,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
                 && let Some(init) = &declarator.init
                 && let Some(object) = Self::object_const_initializer(init)
-                && let Ok(value) = self.object_const_from_expression(object, None)
+                && let Ok(value) = {
+                    // The declared annotation types the folded metadata, so a
+                    // body that recreates the const (`paths[p][1]`) reads the
+                    // declared tuple/list shapes rather than the literal's
+                    // erased inference.
+                    let type_hint = declarator
+                        .type_annotation
+                        .as_ref()
+                        .and_then(|annotation| self.ts_type_to_hir(&annotation.type_annotation).ok());
+                    self.object_const_from_expression(object, type_hint)
+                }
             {
                 if let Some(collection) = self.const_collection_from_object_const(&value) {
                     self.consts.set_object_value_collection(binding.name.as_str().to_owned(), collection.clone());
@@ -1347,8 +1358,60 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Ok(ty) = self.ts_type_to_hir(&annotation.type_annotation) {
                 self.module_globals
                     .insert(binding.name.as_str().to_owned(), ty);
+                if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
+                    && let Some(init) = &declarator.init
+                    && let Some(collection) = self.declared_const_collection(init, ty)
+                {
+                    self.consts.set_collection(binding.name.as_str().to_owned(), collection.clone());
+                    self.ctx
+                        .const_collections
+                        .insert(binding.name.as_str().to_owned(), collection);
+                }
             }
         }
+    }
+
+    /// Drop folded collection metadata for bindings lifted to mutable globals.
+    ///
+    /// `collect_module_globals` folds an annotated `const xs: T[] = [...]`
+    /// before it is known whether the module writes through `xs`. A written
+    /// binding lifts to a `MutableGlobal` slot, and every read must see that
+    /// slot: a folded copy of the initializer (which the compact callback IR
+    /// would inline) would silently read the stale initial elements.
+    fn forget_lifted_const_collections(&mut self) {
+        let lifted: Vec<String> = self.mutable_global_items.keys().cloned().collect();
+        for name in lifted {
+            if self.consts.forget_collection(&name) {
+                self.ctx.const_collections.remove(&name);
+            }
+        }
+    }
+
+    /// Fold an ANNOTATED module-level array/`Set` const into collection metadata.
+    ///
+    /// An unannotated `const xs = [1]` already records its literal elements so
+    /// function and closure bodies recreate the value; an annotated
+    /// `const xs: number[] = [1]` recorded only its type, and every body read
+    /// then fabricated the declared type's default (`[]`, or an erased `none`
+    /// inside a closure). This gives the annotated spelling the same metadata,
+    /// typed by the annotation, but only when each folded element's own type is
+    /// exactly the declared element type — an element that would need a
+    /// coercion (`(number | undefined)[]` holding `1`) is left unfolded.
+    fn declared_const_collection(
+        &mut self,
+        init: &Expression<'_>,
+        declared_ty: smelt_hir::TypeId,
+    ) -> Option<ConstCollection> {
+        let element_ty = match self.ctx.krate.types.get(declared_ty)? {
+            Type::List(element_ty) | Type::Set(element_ty) => *element_ty,
+            _ => return None,
+        };
+        let mut collection = self.const_collection_from_initializer(init, declared_ty)?;
+        collection.ty = declared_ty;
+        let set_ty = matches!(self.ctx.krate.types.get(declared_ty), Some(Type::Set(_)));
+        (collection.is_set == set_ty
+            && collection.items.iter().all(|item| item.ty == element_ty))
+        .then_some(collection)
     }
 
     /// Record every name an ambient declaration's binding pattern introduces.
@@ -4796,7 +4859,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         object: &oxc::ast::ast::ObjectExpression<'_>,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<ObjectConst, SmeltError> {
-        let mut entries = Vec::new();
+        let mut entries: Vec<ObjectConstEntry> = Vec::new();
         for property in &object.properties {
             let ObjectPropertyKind::ObjectProperty(object_property) = property else {
                 return Err(SmeltError::unsupported(
@@ -4831,7 +4894,82 @@ impl<'ctx> ModuleBuilder<'ctx> {
             });
         }
         let ty = self.object_const_type(&entries, type_hint);
+        if let Some(Type::Dict(_, value_ty)) = self.ctx.krate.types.get(ty).cloned() {
+            for entry in &mut entries {
+                if let Some((value, value_ty)) =
+                    self.retarget_object_const_value(&entry.value, entry.value_ty, value_ty)
+                {
+                    entry.value = value;
+                    entry.value_ty = value_ty;
+                }
+            }
+        }
         Ok(ObjectConst { entries, ty })
+    }
+
+    /// Retype one folded object-const value to the type its declaration states.
+    ///
+    /// The folder infers each value from its literal alone, so `[0, [['id', 0]]]`
+    /// under `Record<string, [number, [string, number][]]>` would be stored as an
+    /// erased `List<Unknown>`. This walks the value against the declared
+    /// `target` type and returns it retyped when every part fits structurally:
+    ///
+    /// - a value whose inferred type already is `target` is kept;
+    /// - an array literal against a tuple of the same arity becomes that tuple
+    ///   (recreated as a `TupleLit`), each element retargeted to its slot;
+    /// - an array literal against `List<E>` retargets every element to `E`;
+    /// - an object literal against `Dict<K, V>` retargets every entry to `V`.
+    ///
+    /// Anything else (a literal needing a coercion, an arity mismatch) returns
+    /// `None`, and the caller keeps the inferred value and type unchanged.
+    fn retarget_object_const_value(
+        &mut self,
+        value: &ObjectConstValue,
+        inferred_ty: smelt_hir::TypeId,
+        target: smelt_hir::TypeId,
+    ) -> Option<(ObjectConstValue, smelt_hir::TypeId)> {
+        if inferred_ty == target {
+            return Some((value.clone(), target));
+        }
+        match (value, self.ctx.krate.types.get(target).cloned()?) {
+            (ObjectConstValue::List(items), Type::Tuple(slots)) if items.len() == slots.len() => {
+                let items = items
+                    .iter()
+                    .zip(slots)
+                    .map(|(item, slot)| {
+                        self.retarget_object_const_value(&item.value, item.ty, slot)
+                            .map(|(retyped, ty)| ObjectConstEntryValue { value: retyped, ty })
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                Some((ObjectConstValue::List(items), target))
+            }
+            (ObjectConstValue::List(items), Type::List(element_ty)) => {
+                let items = items
+                    .iter()
+                    .map(|item| {
+                        self.retarget_object_const_value(&item.value, item.ty, element_ty)
+                            .map(|(retyped, ty)| ObjectConstEntryValue { value: retyped, ty })
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                Some((ObjectConstValue::List(items), target))
+            }
+            (ObjectConstValue::Object(object), Type::Dict(_, entry_ty)) => {
+                let entries = object
+                    .entries
+                    .iter()
+                    .map(|entry| {
+                        self.retarget_object_const_value(&entry.value, entry.value_ty, entry_ty)
+                            .map(|(retyped, value_ty)| ObjectConstEntry {
+                                key: entry.key.clone(),
+                                value: retyped,
+                                value_ty,
+                            })
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                Some((ObjectConstValue::Object(ObjectConst { entries, ty: target }), target))
+            }
+            _ => None,
+        }
     }
 
     /// Lower one reusable static object-constant value.
@@ -5109,11 +5247,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         self.object_const_value_expression(&item.value, item.ty, span, body)
                     })
                     .collect();
-                body.push_expr(Expr {
-                    kind: ExprKind::ListLit(values),
-                    ty,
-                    span,
-                })
+                // An array literal the declaration types as a tuple (see
+                // `retarget_object_const_value`) recreates as that tuple.
+                let kind = if matches!(self.ctx.krate.types.get(ty), Some(Type::Tuple(_))) {
+                    ExprKind::TupleLit(values)
+                } else {
+                    ExprKind::ListLit(values)
+                };
+                body.push_expr(Expr { kind, ty, span })
             }
             ObjectConstValue::Object(object) => {
                 self.object_const_expression(object, span.start, span.end, body)
