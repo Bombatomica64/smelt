@@ -128,3 +128,110 @@ type is inferred `unknown` (erased `List<SmeltUnknown>`), although its body is a
 * clippy `--lib`: no warnings on added lines.
 * hono: 256/24 → **265/15**, 0 lost.
 * es-toolkit and the other corpora were not run locally (CI). The descriptor lowering builds an erased `Record<string, unknown>` (`PropertyDescriptor.value` is `any`), and `Array.prototype.<m>.call` now takes the typed `Array.from` path, so es-toolkit's SmeltUnknown count may move in either direction.
+
+# Round 7 — the "module-global function expression default stub" family, re-triaged
+
+Same checkout/overlay. Baseline at the start of the round: **266 passed / 14 failed** (280).
+End of round: **268 passed / 12 failed**. Previously passing now failing: **0** (names
+compared modulo the numeric `_NNN` suffix; 2 gained, 0 lost).
+
+Round 6 filed 10 tests under one family — module-level arrow consts read from class
+methods lowering to `module_global_function_expression`'s default-returning stub. Checking
+each test against its panic and the generated code showed **three** different root causes;
+the stub was real and is fixed, but it only owned `mergePath`.
+
+## Per-test root cause
+
+| tests | root cause | outcome |
+| --- | --- | --- |
+| url `mergepath` | `export const mergePath: (...paths: string[]) => string = (base, sub, ...rest) => { .. mergePath(sub, ...rest) .. }`: the arrow's item was pushed only AFTER its body was lowered, so the self-call found no item and bound the default-returning stub (`""`). | **fixed** (rule A) |
+| url `getqueryparam` | not the stub. `decodeURIComponent_` already read through its module slot. The real defect was in the Rust control-flow structurizer: in `_getQueryParam` the optimized `if (..) { ..; if (!encoded) return undefined }` arm falls through to the slow path, but a `Switch` inside a forward join region was handed to `emit_terminator`, which lost the region's stop and rendered the fall-through as the function's default return (`return SmeltUnknown::Null`) — `getQueryParam(url, 'Hono is')` answered `undefined`. | **fixed** (rule C) |
+| powered-by ×3, timeout ×4, nextjs ×1 | not the stub. `createResponseInstance` IS now an item called from the `Context` accessors, but none of these tests reach it with a real app: `Hono extends HonoBase<E, S, BasePath>` and `HonoBase` is **generic**, so `super(options)` is dropped (`class_is_reproducible_base` refuses generic bases). `Hono::new` never runs the base constructor: `use`/`get`/`request`/`fetch` stay `Default::default()` closures, `app.request(..)` returns an empty `200` response without dispatching (so status assertions pass and header/body ones fail; `c.json` → empty body → JSON `EOF`). | **open** — needs the architectural change below |
+
+## Rules
+
+* **A. A module arrow const called from any item body is an item, and a self-recursive
+  one is predeclared.** `forward_arrow_const_names` scanned function declarations, slot
+  initializers, exported consts and other arrows as referrers, but not CLASS declarations
+  (plain, exported, `export default`), so `const add = ..; class C { m() { return add(1) } }`
+  kept `add` as a module-body closure and the method called the stub (`0`). Classes and
+  default exports are now referrers, and an arrow that names itself in its own body is its
+  own referrer. `arrow_function_const_declaration_inner` predeclares a self-recursive
+  arrow's item (final params, rest, required count, declared return type) before lowering
+  its body and fills the same slot afterwards — the same shape as a function
+  declaration's predeclaration. Only an arrow with a return type known up front is
+  predeclared (TS itself rejects the unannotated form under `noImplicitAny`, TS7023).
+* **B. A modeled host class intersected with object shapes is that class.**
+  Lifting the Hono `errorHandler` arrow (now read from a class field) exposed
+  `Response & TypedResponse<T, U, 'text'>` lowering to `Dict<String, Unknown>`: a real
+  `SmeltResponse` retyped as an empty record, which did not even compile when returned as
+  `Response | Promise<Response>` (E0308). A value of a stdlib-modeled class carries exactly
+  its modeled members, so the other members of such an intersection are type-level brands
+  no value of that representation can hold; the class is the precise type (no new
+  `SmeltUnknown`). Exactly one modeled class + records/classes only; everything else keeps
+  the existing record/erased merge.
+* **C. A branch inside a forward join region is emitted up to its own inner join.** In
+  `emit_block_until_goto_inner`, a `Switch` in a `RegionExit::Join` region now finds the
+  branch's immediate post-dominator within the region (`join_region_branch_join`: the
+  nearest block every non-diverging path of each arm reaches before `stop`; an arm that
+  diverges before `stop` places no constraint; `stop` itself is always a candidate), emits
+  `if c { then..J } else { else..J }` (an arm that diverges is emitted whole), then
+  continues from `J` still bounded by `stop`. Arms that cycle back to the switch, or a
+  branch whose arms both diverge, keep the previous emission.
+
+## Open, next queue (12)
+
+| blocker | tests |
+| --- | ---: |
+| **derived-constructor semantics** (below) | 8 (timeout 4, powered-by 3, nextjs 1) |
+| `node:crypto` `createHash` oracle | 1 |
+| `node:path/posix` `join` oracle | 1 |
+| throwing `new RegExp(dynamic)` | 1 |
+| global-object property store (`Object.assign(global, ..)`) | 1 |
+
+**Derived-constructor semantics** is an architectural item, not a lowering rule, and was
+deliberately not attempted this round. Two defects, both needed for the Hono app tests:
+
+1. `super(..)` to a GENERIC base is dropped (`class_is_reproducible_base`): the base's
+   constructor body never runs. Minimal: `class Base<E = string> { greet; constructor() {
+   this.greet = (x) => .. } } class D<E> extends Base<E> { constructor() { super() } }` —
+   `new D().greet('hi')` returns `""` and the base's `console.log` never prints.
+2. Even for a NON-generic base, `super(..)` constructs a separate base object and copies
+   its fields into the derived struct. A closure the base constructor stores captures the
+   BASE object as `this`, so later derived-constructor writes are invisible to it
+   (`this.router = ..` in `Hono`'s constructor, read by `HonoBase`'s `fetch`/`#dispatch`
+   closures): `base::hi` where Node prints `base:smart:hi`.
+
+The hand-port shape is "the base constructor initializes the DERIVED instance": either the
+base constructor body lowered against the derived receiver (an `init(&this)` per base over
+the flattened layout), or a base-fields trait the derived struct implements. Both change how
+every derived class is constructed and belong in their own design round.
+
+Also seen, not fixed: `Object.assign(this, rest)` in a constructor does not write declared
+fields; a generic exported alias parameter type (`Options<E>`) used as a constructor
+parameter erases to `SmeltUnknown`; a module-body (non-lifted) closure copy of
+`_getQueryParam` makes the structurizer emit ~600k lines (rustc OOM) — the lifted `fn`
+path is fine; `{ status?: number }` passed as `ResponseInit` reads `init.status` as
+`Optional<Optional<Float>>` (codegen type-table error).
+
+## Gates on this change (local)
+
+* `cargo check --lib`, `cargo clippy --lib`: no diagnostics on added lines.
+* `cargo test --lib -p smelt-frontend-ts -p smelt-codegen-rust`: 1138 + 1115 pass (3 new
+  tests in `module_arrow_item_tests.rs`: class-method call targets the lifted arrow item;
+  `fact`/`join` self-calls target their own items; `Response & Brand<T>` lowers to
+  `Response`).
+* New e2e `143_module_arrows_are_items` (stdout from Node): class members calling module
+  arrows, private + annotation-mismatched exported recursion, a `Response & Brand` arrow
+  returned as `Response | Promise<Response>`, and the join-region branch shape (prints
+  `undefined` instead of `a=1;b;` without rule C). Golden suite passes.
+* Golden changes: only `56_union_member_read/expected.rs` — `status_header_of`'s nested
+  `if (x) return ..` inside an outer `if` now falls through to the function's shared
+  `return "not-an-object"` instead of duplicating it in an `else`, and the ternary result
+  local is no longer pre-declared with a default (both arms assign it). Same behaviour,
+  structured form. No HIR/MIR golden other than 143's changed.
+* examples SmeltUnknown invariant: avoidable **0 → 0**.
+* hono: 266/14 → **268/12**, 0 lost (gained `url getqueryparam`, `url mergepath`).
+* es-toolkit / other corpora not run locally (CI). Rule A lifts more arrows (every arrow a
+  class body reads), rule B replaces a `Dict<String, Unknown>` spelling with the host class,
+  rule C changes structured emission of branches inside forward join regions.

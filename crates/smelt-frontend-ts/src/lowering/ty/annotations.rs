@@ -1242,12 +1242,42 @@ return_ty: function.return_ty,
     /// contributes the erased value type -- keeping the record spelling this
     /// arm has always produced for a class intersection.
     ///
+    /// A MODELED host class (`Response`, `Request`, `Headers`, ... -- one the
+    /// stdlib registry gives its own Rust representation) intersected with
+    /// other object shapes (records, or aliases of them such as a generic
+    /// `TypedResponse<T>`) is that class. Its values are never records, so spelling
+    /// `Response & TypedResponse<T>` as a record retyped a real response as an
+    /// empty `SmeltRecord` (which then could not even be returned where a
+    /// `Response` is expected). And the record half cannot live on the value
+    /// either way: a host `Response` carries exactly its modeled members, so
+    /// the extra keys of such an intersection are type-level brands
+    /// (`TypedResponse`'s `_data`/`_status`/`_format`) no runtime value of this
+    /// representation can hold. The class is the precise type a hand port
+    /// writes; a read of a brand member is then a loud lowering blocker rather
+    /// than an erased `undefined`.
+    ///
     /// Anything else makes the merged shape genuinely unknown, and there the
     /// honest answer is the erased boundary type. In particular an intersection
     /// of *type parameters* (`merge<T, S>(..): T & S`) must not be claimed as a
     /// record: `merge` is called on arrays too and returns one, so asserting a
     /// record would force the value into a record and lose the array.
     fn intersection_object_type(&mut self, members: &[smelt_hir::TypeId]) -> smelt_hir::TypeId {
+        let modeled = members
+            .iter()
+            .copied()
+            .filter(|member| self.stdlib_class_of_type(*member).is_some())
+            .collect::<Vec<_>>();
+        if let [host_class] = modeled.as_slice()
+            && members.iter().all(|member| {
+                member == host_class
+                    || matches!(
+                        self.ctx.krate.types.get(*member),
+                        Some(Type::Dict(..) | Type::Class { .. })
+                    )
+            })
+        {
+            return *host_class;
+        }
         let mut value_ty: Option<smelt_hir::TypeId> = None;
         for member in members {
             let member_value = match self.ctx.krate.types.get(*member) {
