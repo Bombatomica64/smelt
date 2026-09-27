@@ -94,7 +94,7 @@ module examples/typescript/end-to-end/132_user_methods_named_like_array_builtins
     #79: Float = #76.reduce(#77, #78)
     #80: None = @35(console_log)
     #81: None = call #80(#79)
-    #82: Stack = global_get @0(s)
+    #82: None = global_get @0(s)
     #83: Stack = global_get @0(s)
     #84: fn(String, String) -> Float = #83.push
     #85: Stack = global_get @0(s)

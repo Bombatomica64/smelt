@@ -13,10 +13,10 @@ module examples/typescript/end-to-end/47_module_const_host_value/input.ts (Modul
     fn param_a owner Module
     fn append_param owner Module
   exprs
-    #0: TextEncoder = global_get @0(encoder)
-    #1: TextDecoder = global_get @1(decoder)
-    #2: Headers = global_get @2(headers)
-    #3: URLSearchParams = global_get @3(params)
+    #0: None = global_get @0(encoder)
+    #1: None = global_get @1(decoder)
+    #2: None = global_get @2(headers)
+    #3: None = global_get @3(params)
     #4: String = "hello"
     #5: fn(String) -> Float = @4(encoded_length)
     #6: Float = call #5(#4)

@@ -25,7 +25,7 @@ fn smelt_global_init__rem__0 (FuncId(2)) -> List<String>
 fn main (FuncId(3)) -> None
   locals
     %0 user outer: fn() -> None
-    %1 temp: List<String>
+    %1 temp: None
     %2 temp: fn() -> None
     %3 temp: None
     %4 temp: List<String>

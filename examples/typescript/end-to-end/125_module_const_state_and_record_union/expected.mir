@@ -46,8 +46,8 @@ fn main (FuncId(3)) -> None
     %0 user a: (String, String, Bool)
     %1 user b: (String, String, Bool)
     %2 user collect: fn(Bool) -> Dict<String, String | List<String>>
-    %3 temp: Dict<String, (String, String, Bool)>
-    %4 temp: List<String>
+    %3 temp: None
+    %4 temp: None
     %5 temp: (String, String, Bool)
     %6 temp: (String, String, Bool)
     %7 temp: (String, String, Bool)

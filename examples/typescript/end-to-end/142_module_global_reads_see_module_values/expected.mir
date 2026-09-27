@@ -104,13 +104,13 @@ fn main (FuncId(10)) -> None
   locals
     %0 user cnt: fn() -> Float
     %1 user greeting: String
-    %2 temp: Dict<String, (Float, String)>
-    %3 temp: List<Float>
+    %2 temp: None
+    %3 temp: None
     %4 temp: List<Float>
     %5 temp: Float
     %6 temp: fn() -> Float
-    %7 temp: Dict<String, Float>
-    %8 temp: Dict<String, Float>
+    %7 temp: None
+    %8 temp: None
     %9 temp: Float
     %10 temp: String
     %11 temp: None

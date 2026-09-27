@@ -2987,7 +2987,7 @@ fn main() {
     let _smelt_tmp_13: f64;
     let _smelt_tmp_22: SmeltList<f64>;
     let mut _smelt_tmp_24: ::std::rc::Rc<dyn Fn(f64, f64) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, f64) -> f64> = ::std::rc::Rc::new(move |arg0: f64, arg1: f64| -> f64 { 0.0 }); smelt_default_callback };
-    let _smelt_tmp_27: Stack;
+    let _smelt_tmp_27: ();
     let _smelt_tmp_28: Stack;
     let _smelt_tmp_30: Stack;
     let _smelt_tmp_32: Stack;
@@ -3044,7 +3044,7 @@ fn main() {
     });
     let _smelt_tmp_25: f64 = _smelt_tmp_23.reduce(&*_smelt_tmp_24, 1.0);
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_25)); };
-    _smelt_tmp_27 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
+    SMELT_GLOBAL_S_0.with(|_| ());
     _smelt_tmp_28 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
     let _smelt_tmp_29: f64 = _smelt_tmp_28.push("a".to_owned(), "b".to_owned());
     _smelt_tmp_30 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());

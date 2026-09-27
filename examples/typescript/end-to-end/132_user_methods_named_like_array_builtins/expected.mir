@@ -360,7 +360,7 @@ fn main (FuncId(28)) -> None
     %24 temp: fn(Float, Float) -> Float
     %25 temp: Float
     %26 temp: None
-    %27 temp: Stack
+    %27 temp: None
     %28 temp: Stack
     %29 temp: Float
     %30 temp: Stack

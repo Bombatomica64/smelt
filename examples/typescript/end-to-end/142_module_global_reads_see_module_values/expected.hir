@@ -16,15 +16,15 @@ module examples/typescript/end-to-end/142_module_global_reads_see_module_values/
     %0 const cnt: fn() -> Float
     %1 let greeting: String
   exprs
-    #0: Dict<String, (Float, String)> = global_get @2(p)
-    #1: List<Float> = global_get @0(zs)
+    #0: None = global_get @2(p)
+    #1: None = global_get @0(zs)
     #2: List<Float> = global_get @0(zs)
     #3: Float = 1.0
     #4: Float = list_push #2, #3
     #5: fn() -> Float = closure BodyId(8) captures 0 -> Float
     #6: String = "hello"
-    #7: Dict<String, Float> = global_get @3(table)
-    #8: Dict<String, Float> = global_get @4(snapshot)
+    #7: None = global_get @3(table)
+    #8: None = global_get @4(snapshot)
     #9: Float = global_get @1(seed)
     #10: Float = 10.0
     #11: Float = global_set @1(seed) = #10
@@ -82,7 +82,7 @@ interned types
   t13 = fn() -> String
   t14 = fn(String) -> Float
   t15 = Optional<(Float, String)>
-  t16 = fn(String) -> String
-  t17 = None
+  t16 = None
+  t17 = fn(String) -> String
   t18 = fn() -> String
   t19 = fn(String) -> Float

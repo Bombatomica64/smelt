@@ -2979,8 +2979,8 @@ fn main() {
     let _smelt_tmp_15: String;
     let _smelt_tmp_16: SmeltRecord<String, SmeltUnion10>;
     let _smelt_tmp_17: String;
-    let _smelt_tmp_3: SmeltRecord<String, (String, String, bool)> = SMELT_GLOBAL_CACHE_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_4: SmeltList<String> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_SEEN_1.with(|value| value.borrow().clone()));
+    SMELT_GLOBAL_CACHE_0.with(|_| ());
+    SMELT_GLOBAL_SEEN_1.with(|_| ());
     let _smelt_tmp_5: (String, String, bool) = get_pattern(":id".to_owned());
     a = _smelt_tmp_5;
     let _smelt_tmp_6: (String, String, bool) = get_pattern(":id".to_owned());

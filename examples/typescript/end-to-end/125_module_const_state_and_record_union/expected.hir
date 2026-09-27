@@ -10,8 +10,8 @@ module examples/typescript/end-to-end/125_module_const_state_and_record_union/in
     %1 const b: (String, String, Bool)
     %2 const collect: fn(Bool) -> Dict<String, String | List<String>>
   exprs
-    #0: Dict<String, (String, String, Bool)> = global_get @2(cache)
-    #1: List<String> = global_get @3(seen)
+    #0: None = global_get @2(cache)
+    #1: None = global_get @3(seen)
     #2: String = ":id"
     #3: fn(String) -> (String, String, Bool) = @4(get_pattern)
     #4: (String, String, Bool) = call #3(#2)
@@ -70,8 +70,8 @@ interned types
   t13 = fn(String) -> (String, String, Bool)
   t14 = Optional<(String, String, Bool)>
   t15 = Float
-  t16 = fn(String) -> (String, String, Bool)
-  t17 = None
+  t16 = None
+  t17 = fn(String) -> (String, String, Bool)
   t18 = List<List<String>>
   t19 = Optional<String>
   t20 = Optional<String | List<String>>

@@ -122,7 +122,7 @@ fn smelt_global_init__rem__0() -> SmeltList<String> {
 }
 
 fn main() {
-    let _smelt_tmp_1: SmeltList<String> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_REM_0.with(|value| value.borrow().clone()));
+    SMELT_GLOBAL_REM_0.with(|_| ());
     let _smelt_tmp_2 = ::std::rc::Rc::new(|| {
     let mut _smelt_tmp_0: SmeltList<String> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_REM_0.with(|value| value.borrow().clone()));
     let _smelt_tmp_1: f64 = { let smelt_push_item = "first".to_owned(); _smelt_tmp_0.borrow_mut().push(smelt_push_item); _smelt_tmp_0.len() as f64 };

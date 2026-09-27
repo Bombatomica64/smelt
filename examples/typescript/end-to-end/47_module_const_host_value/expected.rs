@@ -637,10 +637,10 @@ fn main() {
     let _smelt_tmp_23: SmeltHeaders;
     let _smelt_tmp_24: Option<String>;
     let _smelt_tmp_25: String;
-    let _smelt_tmp_0: SmeltTextEncoder = SMELT_GLOBAL_ENCODER_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_1: SmeltTextDecoder = SMELT_GLOBAL_DECODER_1.with(|value| value.borrow().clone());
-    let _smelt_tmp_2: SmeltHeaders = SMELT_GLOBAL_HEADERS_2.with(|value| value.borrow().clone());
-    let _smelt_tmp_3: SmeltUrlSearchParams = SMELT_GLOBAL_PARAMS_3.with(|value| value.borrow().clone());
+    SMELT_GLOBAL_ENCODER_0.with(|_| ());
+    SMELT_GLOBAL_DECODER_1.with(|_| ());
+    SMELT_GLOBAL_HEADERS_2.with(|_| ());
+    SMELT_GLOBAL_PARAMS_3.with(|_| ());
     let _smelt_tmp_4: f64 = encoded_length("hello".to_owned());
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_4)); };
     let _smelt_tmp_6: f64 = encoded_length("héllo".to_owned());

@@ -7,7 +7,7 @@ module examples/typescript/end-to-end/42_module_arrow_shared_capture/input.ts (M
   locals
     %0 const outer: fn() -> None
   exprs
-    #0: List<String> = global_get @0(rem)
+    #0: None = global_get @0(rem)
     #1: fn() -> None = closure BodyId(4) captures 0 -> None
     #2: fn() -> None = %0
     #3: None = closure_call #2()

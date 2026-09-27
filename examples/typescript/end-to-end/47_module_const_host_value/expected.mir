@@ -107,10 +107,10 @@ fn smelt_global_init__params__3 (FuncId(10)) -> URLSearchParams
 
 fn main (FuncId(11)) -> None
   locals
-    %0 temp: TextEncoder
-    %1 temp: TextDecoder
-    %2 temp: Headers
-    %3 temp: URLSearchParams
+    %0 temp: None
+    %1 temp: None
+    %2 temp: None
+    %3 temp: None
     %4 temp: Float
     %5 temp: None
     %6 temp: Float

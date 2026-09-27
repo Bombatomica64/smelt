@@ -2901,8 +2901,8 @@ fn smelt_global_init__snapshot__4() -> SmeltRecord<String, f64> {
 
 fn main() {
     let _smelt_tmp_12: f64;
-    let _smelt_tmp_2: SmeltRecord<String, (f64, String)> = SMELT_GLOBAL_P_2.with(|value| value.borrow().clone());
-    let _smelt_tmp_3: SmeltList<f64> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_ZS_0.with(|value| value.borrow().clone()));
+    SMELT_GLOBAL_P_2.with(|_| ());
+    SMELT_GLOBAL_ZS_0.with(|_| ());
     let mut _smelt_tmp_4: SmeltList<f64> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_ZS_0.with(|value| value.borrow().clone()));
     let _smelt_tmp_5: f64 = { let smelt_push_item = 1.0; _smelt_tmp_4.borrow_mut().push(smelt_push_item); _smelt_tmp_4.len() as f64 };
     let _smelt_tmp_6 = ::std::rc::Rc::new(|| {
@@ -2912,8 +2912,8 @@ fn main() {
     });
     let cnt = _smelt_tmp_6.clone();
     let greeting: String = "hello".to_owned();
-    let _smelt_tmp_7: SmeltRecord<String, f64> = SMELT_GLOBAL_TABLE_3.with(|value| value.borrow().clone());
-    let _smelt_tmp_8: SmeltRecord<String, f64> = SMELT_GLOBAL_SNAPSHOT_4.with(|value| value.borrow().clone());
+    SMELT_GLOBAL_TABLE_3.with(|_| ());
+    SMELT_GLOBAL_SNAPSHOT_4.with(|_| ());
     let _smelt_tmp_9: f64 = { let smelt_global_value = 10.0; SMELT_GLOBAL_SEED_1.with(|value| value.set(smelt_global_value)); smelt_global_value };
     let _smelt_tmp_10: String = read_p("k".to_owned());
     let _ = { println!("{}", _smelt_tmp_10); };

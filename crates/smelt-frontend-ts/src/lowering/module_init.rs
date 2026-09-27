@@ -2015,7 +2015,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// Only the module body's own declaration reaches here (the declarator is
     /// recognized by its binding span).
     pub(in crate::lowering) fn force_module_slot_init(
-        &self,
+        &mut self,
         name: &str,
         binding_span: oxc::span::Span,
         body: &mut Body,
@@ -2033,7 +2033,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if !matches!(global.init, smelt_hir::MutableGlobalInit::Initializer(_)) {
             return;
         }
-        let (ty, span) = (global.ty, global.span);
+        // The read is typed UNIT: nothing consumes it, and a unit-typed
+        // `GlobalGet` is how Rust codegen knows to emit a bare touch of the
+        // lazy cell (`NAME.with(|_| ())`) instead of cloning the slot's value
+        // into a typed temporary.
+        let span = global.span;
+        let ty = self.ctx.krate.types.intern(Type::None);
         let read = body.push_expr(Expr {
             kind: ExprKind::GlobalGet { item },
             ty,

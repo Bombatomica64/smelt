@@ -956,15 +956,20 @@ export function contentType(): string {
         "{source}"
     );
     assert!(!source.contains("__module_"), "{source}");
-    // `contentType` reads THROUGH the slot, so it sees the one object; the
-    // second read is the module body touching the slot at the binding's own
-    // declaration, so the lazy cell's single evaluation happens in source
-    // order (`force_module_slot_init`).
+    // `contentType` reads THROUGH the slot, so it sees the one object.
     assert_eq!(
         source
             .matches("SMELT_GLOBAL_HEADERS_1.with(|value| value.borrow().clone())")
             .count(),
-        2,
+        1,
+        "{source}"
+    );
+    // The module body touches the slot at the binding's own declaration, so
+    // the lazy cell's single evaluation happens in source order
+    // (`force_module_slot_init`); the unconsumed read neither clones nor binds
+    // the value.
+    assert!(
+        source.contains("    SMELT_GLOBAL_HEADERS_1.with(|_| ());\n"),
         "{source}"
     );
 }

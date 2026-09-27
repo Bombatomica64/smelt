@@ -383,6 +383,24 @@ impl FunctionEmitter<'_> {
                 if matches!(value, Rvalue::Closure { .. }) && !self.local_has_uses(*dest) {
                     return Ok(());
                 }
+                // A UNIT-typed slot read is a touch: it only forces the slot's
+                // lazy initializer (the module body touching a lifted binding at
+                // its declaration so the initializer runs in source order; see
+                // the frontend's `force_module_slot_init`). Touch the cell
+                // without cloning or binding its value.
+                // (A slot that itself holds a unit value keeps the ordinary
+                // read.)
+                if let Rvalue::GlobalGet { global } = value
+                    && matches!(self.mir.types.get(local.ty), Some(Type::None))
+                    && !matches!(
+                        self.mir.types.get(self.global_ty(*global)?),
+                        Some(Type::None)
+                    )
+                {
+                    out.push_str(&format!("    {};\n", self.global_touch_text(*global)));
+                    self.mark_local_declared(*dest);
+                    return Ok(());
+                }
                 // A `Function`-typed `ClosureCall` result whose only consumer
                 // erases it back to `SmeltUnknown` is re-rendered at the erase
                 // site; the typed-callback binding would be a dead store that
