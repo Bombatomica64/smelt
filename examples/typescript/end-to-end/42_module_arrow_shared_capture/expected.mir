@@ -6,32 +6,39 @@ fn take (FuncId(0)) -> None
     %1 = closure_call copy %0()
     return none
 
-fn smelt_global_init__rem__0 (FuncId(1)) -> List<String>
+fn second__module_examples/typescript/end-to-end/42_module_arrow_shared_capture/input.ts (FuncId(1)) -> None
+  locals
+    %0 temp: List<String>
+    %1 temp: Float
+  bb0:
+    %0 = global_get #0
+    %1 = list_push move %0, "second"
+    return none
+
+fn smelt_global_init__rem__0 (FuncId(2)) -> List<String>
   locals
     %0 temp: List<String>
   bb0:
     %0 = []
     return move %0
 
-fn main (FuncId(2)) -> None
+fn main (FuncId(3)) -> None
   locals
-    %0 user second: fn() -> None
-    %1 user outer: fn() -> None
+    %0 user outer: fn() -> None
+    %1 temp: List<String>
     %2 temp: fn() -> None
-    %3 temp: fn() -> None
-    %4 temp: None
-    %5 temp: List<String>
-    %6 temp: String
-    %7 temp: None
+    %3 temp: None
+    %4 temp: List<String>
+    %5 temp: String
+    %6 temp: None
   bb0:
+    %1 = global_get #0
     %2 = closure ClosureId(0) []
     %0 = move %2
-    %3 = closure ClosureId(1) [copy %0]
-    %1 = move %3
-    %4 = closure_call move %1()
-    %5 = global_get #0
-    %6 = string_join move %5, ","
-    %7 = call @console_log(move %6) -> bb1
+    %3 = closure_call move %0()
+    %4 = global_get #0
+    %5 = string_join move %4, ","
+    %6 = call @console_log(move %5) -> bb1
   bb1:
     return none
 
@@ -39,21 +46,21 @@ closure ClosureId(0) -> None
   locals
     %0 temp: List<String>
     %1 temp: Float
+    %2 temp: fn() -> None
+    %3 temp: None
   bb0:
     %0 = global_get #0
-    %1 = list_push copy %0, "second"
+    %1 = list_push copy %0, "first"
+    %2 = closure ClosureId(1) []
+    %3 = call fn0(copy %2) -> bb1
+  bb1:
     return none
 
 closure ClosureId(1) -> None
   locals
-    %0 user second: fn() -> None
-    %1 temp: List<String>
-    %2 temp: Float
-    %3 temp: None
+    %0 temp: None
   bb0:
-    %1 = global_get #0
-    %2 = list_push copy %1, "first"
-    %3 = call fn0(copy %0) -> bb1
+    %0 = call fn1() -> bb1
   bb1:
-    return none
+    return copy %0
 

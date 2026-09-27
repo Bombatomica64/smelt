@@ -107,70 +107,78 @@ fn smelt_global_init__params__3 (FuncId(10)) -> URLSearchParams
 
 fn main (FuncId(11)) -> None
   locals
-    %0 temp: Float
-    %1 temp: None
-    %2 temp: Float
-    %3 temp: None
-    %4 temp: String
+    %0 temp: TextEncoder
+    %1 temp: TextDecoder
+    %2 temp: Headers
+    %3 temp: URLSearchParams
+    %4 temp: Float
     %5 temp: None
-    %6 temp: String
+    %6 temp: Float
     %7 temp: None
     %8 temp: String
     %9 temp: None
-    %10 temp: None
-    %11 temp: String
-    %12 temp: None
-    %13 temp: String
+    %10 temp: String
+    %11 temp: None
+    %12 temp: String
+    %13 temp: None
     %14 temp: None
-    %15 temp: None
-    %16 temp: URLSearchParams
+    %15 temp: String
+    %16 temp: None
     %17 temp: String
     %18 temp: None
-    %19 temp: Headers
-    %20 temp: Optional<String>
+    %19 temp: None
+    %20 temp: URLSearchParams
     %21 temp: String
     %22 temp: None
+    %23 temp: Headers
+    %24 temp: Optional<String>
+    %25 temp: String
+    %26 temp: None
   bb0:
-    %0 = call fn0("hello") -> bb1
+    %0 = global_get #0
+    %1 = global_get #1
+    %2 = global_get #2
+    %3 = global_get #3
+    %4 = call fn0("hello") -> bb1
   bb1:
-    %1 = call @console_log(move %0) -> bb2
+    %5 = call @console_log(move %4) -> bb2
   bb2:
-    %2 = call fn0("héllo") -> bb3
+    %6 = call fn0("héllo") -> bb3
   bb3:
-    %3 = call @console_log(move %2) -> bb4
+    %7 = call @console_log(move %6) -> bb4
   bb4:
-    %4 = call fn1("round trip") -> bb5
+    %8 = call fn1("round trip") -> bb5
   bb5:
-    %5 = call @console_log(move %4) -> bb6
+    %9 = call @console_log(move %8) -> bb6
   bb6:
-    %6 = call fn2() -> bb7
+    %10 = call fn2() -> bb7
   bb7:
-    %7 = call @console_log(move %6) -> bb8
+    %11 = call @console_log(move %10) -> bb8
   bb8:
-    %8 = call fn4() -> bb9
+    %12 = call fn4() -> bb9
   bb9:
-    %9 = call @console_log(move %8) -> bb10
+    %13 = call @console_log(move %12) -> bb10
   bb10:
-    %10 = call fn3() -> bb11
+    %14 = call fn3() -> bb11
   bb11:
-    %11 = call fn4() -> bb12
+    %15 = call fn4() -> bb12
   bb12:
-    %12 = call @console_log(move %11) -> bb13
+    %16 = call @console_log(move %15) -> bb13
   bb13:
-    %13 = call fn5() -> bb14
+    %17 = call fn5() -> bb14
   bb14:
-    %14 = call @console_log(move %13) -> bb15
+    %18 = call @console_log(move %17) -> bb15
   bb15:
-    %15 = call fn6() -> bb16
+    %19 = call fn6() -> bb16
   bb16:
-    %16 = global_get #3
-    %17 = url_search_params_to_text move %16
-    %18 = call @console_log(move %17) -> bb17
+    %20 = global_get #3
+    %21 = url_search_params_to_text move %20
+    %22 = call @console_log(move %21) -> bb17
   bb17:
-    %19 = global_get #2
-    %20 = headers_get move %19, "content-type"
-    %21 = move %20 ?? "none"
-    %22 = call @console_log(move %21) -> bb18
+    %23 = global_get #2
+    %24 = headers_get move %23, "content-type"
+    %25 = move %24 ?? "none"
+    %26 = call @console_log(move %25) -> bb18
   bb18:
     return none
 

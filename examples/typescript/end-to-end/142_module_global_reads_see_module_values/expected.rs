@@ -538,16 +538,6 @@ impl<K, V> Clone for SmeltRecord<K, V> {
     fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } }
 }
 
-impl<K, V> serde::Serialize for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash + Clone + serde::Serialize, V: serde::Serialize {
-    /// Serialize record entries in JavaScript insertion order.
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let store = self.store.borrow();
-        let mut map = serde::Serializer::serialize_map(serializer, Some(store.len()))?;
-        for entry in store.entries() { serde::ser::SerializeMap::serialize_entry(&mut map, &entry.key, &entry.value)?; }
-        serde::ser::SerializeMap::end(map)
-    }
-}
-
 trait SmeltOwnedOptionCloned<T> {
     /// Return owned optional values unchanged when generated shared lookup code calls `.cloned()`.
     fn cloned(self) -> Option<T>;
@@ -1387,8 +1377,6 @@ impl<'smelt_array> IntoIterator for &'smelt_array SmeltArray { type Item = Smelt
 impl From<SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_storage(list.id(), list.storage()) } }
 impl From<&SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: &SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_storage(list.id(), list.storage()) } }
 impl<T: Clone> From<&SmeltList<T>> for Vec<T> { fn from(list: &SmeltList<T>) -> Self { list.to_vec() } }
-impl<T: serde::Serialize> serde::Serialize for SmeltList<T> { fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> { serde::Serialize::serialize(&*self.borrow(), serializer) } }
-impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for SmeltList<T> { fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> { <Vec<T> as serde::Deserialize>::deserialize(deserializer).map(SmeltList::new) } }
 type SmeltPromiseFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<SmeltUnknown, Box<dyn std::error::Error>>>>>;
 
 fn smelt_eager_poll_waker() -> ::std::task::Waker {
@@ -2457,41 +2445,6 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-impl serde::Serialize for SmeltUnknown {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
-        match self {
-            Self::Null => serializer.serialize_none(),
-            Self::Undefined => serializer.serialize_none(),
-            Self::Bool(value) => serializer.serialize_bool(*value),
-            Self::Number(value) => if !value.is_finite() { serializer.serialize_none() } else if *value == value.trunc() && value.abs() < 1e21 { serializer.serialize_i64(*value as i64) } else { serializer.serialize_f64(*value) },
-            Self::String(value) => serializer.serialize_str(value),
-            Self::Symbol(_) => serializer.serialize_none(),
-            Self::Array(values) => serde::Serialize::serialize(&*values.values.borrow(), serializer),
-            Self::Object(values) => { use serde::ser::SerializeMap as _; if let Some(elements) = smelt_host_buffer_own_elements(self) { let mut map = serializer.serialize_map(Some(elements.len()))?; for (index, element) in elements.iter().enumerate() { map.serialize_entry(&index.to_string(), element)?; } return map.end(); } let entries = values.iter().filter(|(key, value)| !matches!(value, Self::Undefined | Self::Function(_) | Self::Symbol(_)) && smelt_is_for_in_object_key(values, key)).collect::<Vec<_>>(); let mut map = serializer.serialize_map(Some(entries.len()))?; for (key, value) in &entries { map.serialize_entry(key, value)?; } map.end() },
-            Self::Function(_) => serializer.serialize_none(),
-            Self::Promise(_) => serializer.serialize_str("[object Promise]"),
-        }
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for SmeltUnknown {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: serde::Deserializer<'de> {
-        let value = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;
-        Ok(smelt_unknown_from_json_value(value))
-    }
-}
-
-fn smelt_unknown_from_json_value(value: serde_json::Value) -> SmeltUnknown {
-    match value {
-        serde_json::Value::Null => SmeltUnknown::Null,
-        serde_json::Value::Bool(value) => SmeltUnknown::Bool(value),
-        serde_json::Value::Number(value) => SmeltUnknown::Number(value.as_f64().unwrap_or_default()),
-        serde_json::Value::String(value) => SmeltUnknown::String(value.into()),
-        serde_json::Value::Array(values) => SmeltUnknown::Array(values.into_iter().map(smelt_unknown_from_json_value).collect()),
-        serde_json::Value::Object(values) => SmeltUnknown::Object(SmeltObject::new(values.into_iter().map(|(key, value)| (key, smelt_unknown_from_json_value(value))).collect())),
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -2908,182 +2861,70 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
-#[derive(Clone)]
-pub enum SmeltUnion10 {
-    M0(String),
-    M1(SmeltList<String>),
-}
-impl IntoSmeltUnknown for SmeltUnion10 {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        match self {
-            Self::M0(value) => SmeltUnknown::String(value.into()),
-            Self::M1(value) => { let smelt_l = value; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>())) },
-        }
-    }
-}
-impl SmeltUnion10 {
-    fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::String(_)) { return Self::M0(match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }); }
-        Self::M1({ let smelt_src = value.clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(values) => SmeltList::with_id(values.id, values.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()), SmeltUnknown::String(value) => SmeltList::new(value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&value) { SmeltList::new(smelt_args.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = value.get("__smelt_map") { SmeltList::new(pairs.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = value.get("__smelt_set") { SmeltList::new(members.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else { match value.get("__smelt_symbol_iterator") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()), _ => panic!("unknown is not iterable") } }, _ => panic!("unknown is not iterable") } })
-    }
-}
-impl PartialEq for SmeltUnion10 {
-    fn eq(&self, other: &Self) -> bool {
-        self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
-    }
-}
-impl SmeltFromUnknown for SmeltUnion10 {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
-}
-impl SmeltJsKeyEq for SmeltUnion10 {
-    fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
-    fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
-}
-impl ::std::fmt::Debug for SmeltUnion10 {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
-    }
-}
-impl Default for SmeltUnion10 {
-    fn default() -> Self {
-        Self::M0(String::new())
-    }
-}
-
 // @smelt:prelude-end — generated program below
 
 thread_local! {
-    static SMELT_GLOBAL_CACHE_0: ::std::cell::RefCell<SmeltRecord<String, (String, String, bool)>> = ::std::cell::RefCell::new(smelt_global_init__cache__4());
-    static SMELT_GLOBAL_SEEN_1: ::std::cell::RefCell<SmeltList<String>> = ::std::cell::RefCell::new(smelt_global_init__seen__5());
+    static SMELT_GLOBAL_ZS_0: ::std::cell::RefCell<SmeltList<f64>> = ::std::cell::RefCell::new(smelt_global_init__zs__0());
+    static SMELT_GLOBAL_SEED_1: ::std::cell::Cell<f64> = const { ::std::cell::Cell::new(1.0) };
+    static SMELT_GLOBAL_P_2: ::std::cell::RefCell<SmeltRecord<String, (f64, String)>> = ::std::cell::RefCell::new(smelt_global_init__p__2());
+    static SMELT_GLOBAL_TABLE_3: ::std::cell::RefCell<SmeltRecord<String, f64>> = ::std::cell::RefCell::new(smelt_global_init__table__3());
+    static SMELT_GLOBAL_SNAPSHOT_4: ::std::cell::RefCell<SmeltRecord<String, f64>> = ::std::cell::RefCell::new(smelt_global_init__snapshot__4());
 }
-fn smelt_global_init__cache__4() -> SmeltRecord<String, (String, String, bool)> {
-    let _smelt_tmp_0: SmeltRecord<String, (String, String, bool)> = SmeltRecord::from([]);
+fn smelt_global_init__p__2() -> SmeltRecord<String, (f64, String)> {
+    let _smelt_tmp_1: (f64, String);
+    let _smelt_tmp_2: SmeltRecord<String, (f64, String)>;
+    let _smelt_tmp_0: f64 = zero();
+    _smelt_tmp_1 = (_smelt_tmp_0, "a".to_owned());
+    _smelt_tmp_2 = SmeltRecord::from([("k".to_owned(), _smelt_tmp_1)]);
+    return _smelt_tmp_2;
+}
+
+fn smelt_global_init__zs__0() -> SmeltList<f64> {
+    let _smelt_tmp_0: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![]; smelt_list_items }));
     return _smelt_tmp_0;
 }
 
-fn smelt_global_init__seen__5() -> SmeltList<String> {
-    let _smelt_tmp_0: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    return _smelt_tmp_0;
+fn smelt_global_init__table__3() -> SmeltRecord<String, f64> {
+    let _smelt_tmp_1: SmeltRecord<String, f64>;
+    let _smelt_tmp_0: f64 = double__module_main(2.0);
+    _smelt_tmp_1 = SmeltRecord::from([("four".to_owned(), _smelt_tmp_0)]);
+    return _smelt_tmp_1;
+}
+
+fn smelt_global_init__snapshot__4() -> SmeltRecord<String, f64> {
+    let _smelt_tmp_2: SmeltRecord<String, f64>;
+    let _smelt_tmp_0: f64 = SMELT_GLOBAL_SEED_1.with(::std::cell::Cell::get);
+    let _smelt_tmp_1: f64 = double__module_main(_smelt_tmp_0);
+    _smelt_tmp_2 = SmeltRecord::from([("seed".to_owned(), _smelt_tmp_1)]);
+    return _smelt_tmp_2;
 }
 
 fn main() {
-    let a: (String, String, bool);
-    let b: (String, String, bool);
-    let collect: ::std::rc::Rc<dyn Fn(bool) -> SmeltRecord<String, SmeltUnion10>>;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_9: String;
-    let _smelt_tmp_10: SmeltList<String>;
-    let _smelt_tmp_11: String;
-    let mut _smelt_tmp_13: ::std::rc::Rc<dyn Fn(bool) -> SmeltRecord<String, SmeltUnion10>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(bool) -> SmeltRecord<String, SmeltUnion10>> = ::std::rc::Rc::new(move |arg0: bool| -> SmeltRecord<String, SmeltUnion10> { SmeltRecord::new() }); smelt_default_callback };
-    let _smelt_tmp_14: SmeltRecord<String, SmeltUnion10>;
-    let _smelt_tmp_15: String;
-    let _smelt_tmp_16: SmeltRecord<String, SmeltUnion10>;
-    let _smelt_tmp_17: String;
-    let _smelt_tmp_3: SmeltRecord<String, (String, String, bool)> = SMELT_GLOBAL_CACHE_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_4: SmeltList<String> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_SEEN_1.with(|value| value.borrow().clone()));
-    let _smelt_tmp_5: (String, String, bool) = get_pattern(":id".to_owned());
-    a = _smelt_tmp_5;
-    let _smelt_tmp_6: (String, String, bool) = get_pattern(":id".to_owned());
-    b = _smelt_tmp_6;
-    let _smelt_tmp_7: (String, String, bool) = get_pattern(":name".to_owned());
-    _smelt_tmp_8 = a.1.clone();
-    _smelt_tmp_9 = b.0.clone();
-    _smelt_tmp_10 = Into::<SmeltList<_>>::into(SMELT_GLOBAL_SEEN_1.with(|value| value.borrow().clone()));
-    _smelt_tmp_11 = _smelt_tmp_10.borrow().join(&"|".to_owned());
-    let _ = { println!("{} {} {}", _smelt_tmp_8, _smelt_tmp_9, _smelt_tmp_11); };
-    _smelt_tmp_13 = ::std::rc::Rc::new(|closure_arg_0: bool| {
-    let mut __smelt_for_item: SmeltList<String>;
-    let mut name: Option<String>;
-    let mut value: Option<String>;
-    let mut __smelt_logical_value_6: Option<String>;
-    let mut _smelt_tmp_13: f64;
-    let mut _smelt_tmp_14: bool;
-    let mut _smelt_tmp_15: Option<String>;
-    let mut _smelt_tmp_16: Option<String>;
-    let mut _smelt_tmp_17: bool;
-    let mut _smelt_tmp_18: bool;
-    let mut _smelt_tmp_19: bool;
-    let mut _smelt_tmp_20: bool;
-    let mut _smelt_tmp_21: SmeltList<String>;
-    let mut _smelt_tmp_22: SmeltList<String>;
-    let mut _smelt_tmp_23: f64;
-    let mut _smelt_tmp_24: Option<SmeltUnion10>;
-    let mut _smelt_tmp_25: bool;
-    let _smelt_tmp_7: SmeltRecord<String, SmeltUnion10> = SmeltRecord::from([]);
-    let mut results: SmeltRecord<String, SmeltUnion10> = _smelt_tmp_7.clone();
-    let _smelt_tmp_8: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["name".to_owned(), "hey".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_9: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["name".to_owned(), "ho".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_10: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x".to_owned(), "1".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_11: SmeltList<SmeltList<String>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_8.clone(), _smelt_tmp_9.clone(), _smelt_tmp_10.clone()]; smelt_list_items }));
-    let pairs: SmeltList<SmeltList<String>> = Into::<SmeltList<_>>::into(_smelt_tmp_11.clone());
-    let mut _smelt_tmp_12: f64 = 0.0;
-    loop {
-    _smelt_tmp_13 = pairs.len() as f64;
-    _smelt_tmp_14 = _smelt_tmp_12 < _smelt_tmp_13;
-    if _smelt_tmp_14 {
-    __smelt_for_item = Into::<SmeltList<_>>::into(pairs.borrow().get({ let smelt_normalized = _smelt_tmp_12 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltList::new(Vec::<String>::new())));
-    _smelt_tmp_15 = ({ let smelt_len = __smelt_for_item.clone().len() as i64; let smelt_index = 0.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| __smelt_for_item.clone().borrow().get(index).cloned());
-    name = _smelt_tmp_15.clone();
-    _smelt_tmp_16 = ({ let smelt_len = __smelt_for_item.clone().len() as i64; let smelt_index = 1.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| __smelt_for_item.clone().borrow().get(index).cloned());
-    value = _smelt_tmp_16.clone();
-    if closure_arg_0 {
-    _smelt_tmp_17 = match results.get(&name.clone().map_or(String::new(), |value| value.clone())).unwrap_or(SmeltUnion10::M0(String::new())).clone().into_smelt_unknown() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };
-    if _smelt_tmp_17 {
-    _smelt_tmp_19 = matches!(results.get(&name.clone().map_or(String::new(), |value| value.clone())).unwrap_or(SmeltUnion10::M0(String::new())), SmeltUnion10::M1(_));
-    _smelt_tmp_18 = _smelt_tmp_19;
-    _smelt_tmp_20 = !(_smelt_tmp_18);
-    if _smelt_tmp_20 {
-    _smelt_tmp_21 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    results.insert(name.clone().map_or(String::new(), |value| value.clone()), SmeltUnion10::M1(_smelt_tmp_21.clone()));
-    _smelt_tmp_22 = Into::<SmeltList<_>>::into(match results.get(&name.clone().map_or(String::new(), |value| value.clone())).unwrap_or(SmeltUnion10::M0(String::new())) { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") });
-    _smelt_tmp_23 = { let smelt_push_item = value.clone().clone().unwrap_or(String::new()); _smelt_tmp_22.borrow_mut().push(smelt_push_item); _smelt_tmp_22.len() as f64 };
-    results.insert(name.clone().map_or(String::new(), |value| value.clone()), SmeltUnion10::M1(_smelt_tmp_22.clone()));
-    _smelt_tmp_12 = _smelt_tmp_12 + 1.0;
-    } else {
-    _smelt_tmp_22 = Into::<SmeltList<_>>::into(match results.get(&name.clone().map_or(String::new(), |value| value.clone())).unwrap_or(SmeltUnion10::M0(String::new())) { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") });
-    _smelt_tmp_23 = { let smelt_push_item = value.clone().clone().unwrap_or(String::new()); _smelt_tmp_22.borrow_mut().push(smelt_push_item); _smelt_tmp_22.len() as f64 };
-    results.insert(name.clone().map_or(String::new(), |value| value.clone()), SmeltUnion10::M1(_smelt_tmp_22.clone()));
-    _smelt_tmp_12 = _smelt_tmp_12 + 1.0;
-    }
-    } else {
-    _smelt_tmp_18 = false;
-    _smelt_tmp_20 = !(_smelt_tmp_18);
-    if _smelt_tmp_20 {
-    _smelt_tmp_21 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    results.insert(name.clone().map_or(String::new(), |value| value.clone()), SmeltUnion10::M1(_smelt_tmp_21.clone()));
-    _smelt_tmp_22 = Into::<SmeltList<_>>::into(match results.get(&name.clone().map_or(String::new(), |value| value.clone())).unwrap_or(SmeltUnion10::M0(String::new())) { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") });
-    _smelt_tmp_23 = { let smelt_push_item = value.clone().clone().unwrap_or(String::new()); _smelt_tmp_22.borrow_mut().push(smelt_push_item); _smelt_tmp_22.len() as f64 };
-    results.insert(name.clone().map_or(String::new(), |value| value.clone()), SmeltUnion10::M1(_smelt_tmp_22.clone()));
-    _smelt_tmp_12 = _smelt_tmp_12 + 1.0;
-    } else {
-    _smelt_tmp_22 = Into::<SmeltList<_>>::into(match results.get(&name.clone().map_or(String::new(), |value| value.clone())).unwrap_or(SmeltUnion10::M0(String::new())) { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") });
-    _smelt_tmp_23 = { let smelt_push_item = value.clone().clone().unwrap_or(String::new()); _smelt_tmp_22.borrow_mut().push(smelt_push_item); _smelt_tmp_22.len() as f64 };
-    results.insert(name.clone().map_or(String::new(), |value| value.clone()), SmeltUnion10::M1(_smelt_tmp_22.clone()));
-    _smelt_tmp_12 = _smelt_tmp_12 + 1.0;
-    }
-    }
-    } else {
-    _smelt_tmp_24 = results.clone().get(&name.clone().map_or(String::new(), |value| value.clone()));
-    _smelt_tmp_25 = _smelt_tmp_24.clone().is_none();
-    if _smelt_tmp_25 {
-    __smelt_logical_value_6 = value.clone();
-    results.insert(name.clone().map_or(String::new(), |value| value.clone()), __smelt_logical_value_6.clone().clone().map_or(SmeltUnion10::M0(String::new()), |value| SmeltUnion10::M0(value)));
-    _smelt_tmp_12 = _smelt_tmp_12 + 1.0;
-    } else {
-    _smelt_tmp_12 = _smelt_tmp_12 + 1.0;
-    }
-    }
-    } else {
-    return results.clone();
-    }
-    }
+    let _smelt_tmp_12: f64;
+    let _smelt_tmp_2: SmeltRecord<String, (f64, String)> = SMELT_GLOBAL_P_2.with(|value| value.borrow().clone());
+    let _smelt_tmp_3: SmeltList<f64> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_ZS_0.with(|value| value.borrow().clone()));
+    let mut _smelt_tmp_4: SmeltList<f64> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_ZS_0.with(|value| value.borrow().clone()));
+    let _smelt_tmp_5: f64 = { let smelt_push_item = 1.0; _smelt_tmp_4.borrow_mut().push(smelt_push_item); _smelt_tmp_4.len() as f64 };
+    let _smelt_tmp_6 = ::std::rc::Rc::new(|| {
+    let _smelt_tmp_0: SmeltList<f64> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_ZS_0.with(|value| value.borrow().clone()));
+    let _smelt_tmp_1: f64 = _smelt_tmp_0.len() as f64;
+    _smelt_tmp_1
     });
-    collect = _smelt_tmp_13.clone();
-    _smelt_tmp_14 = (collect)(true);
-    _smelt_tmp_15 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_14.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, value.into_smelt_unknown())).collect())) }).expect("JSON serialization failed");
-    _smelt_tmp_16 = (collect)(false);
-    _smelt_tmp_17 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_16.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, value.into_smelt_unknown())).collect())) }).expect("JSON serialization failed");
-    let _ = { println!("{} {}", _smelt_tmp_15, _smelt_tmp_17); };
+    let cnt = _smelt_tmp_6.clone();
+    let greeting: String = "hello".to_owned();
+    let _smelt_tmp_7: SmeltRecord<String, f64> = SMELT_GLOBAL_TABLE_3.with(|value| value.borrow().clone());
+    let _smelt_tmp_8: SmeltRecord<String, f64> = SMELT_GLOBAL_SNAPSHOT_4.with(|value| value.borrow().clone());
+    let _smelt_tmp_9: f64 = { let smelt_global_value = 10.0; SMELT_GLOBAL_SEED_1.with(|value| value.set(smelt_global_value)); smelt_global_value };
+    let _smelt_tmp_10: String = read_p("k".to_owned());
+    let _ = { println!("{}", _smelt_tmp_10); };
+    _smelt_tmp_12 = (cnt)();
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_12)); };
+    let _smelt_tmp_14: String = greet();
+    let _ = { println!("{}", _smelt_tmp_14); };
+    let _smelt_tmp_16: f64 = lookup("four".to_owned());
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_16)); };
+    let _smelt_tmp_18: f64 = snapshot_seed();
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_18)); };
     return;
 }
 
@@ -3094,24 +2935,41 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn get_pattern(label: String) -> (String, String, bool) {
-    let _smelt_tmp_4: String;
-    let _smelt_tmp_5: Option<(String, String, bool)>;
-    let mut _smelt_tmp_6: SmeltList<String>;
-    let _smelt_tmp_7: f64;
-    let _smelt_tmp_8: SmeltRecord<String, (String, String, bool)>;
-    let _smelt_tmp_9: Option<(String, String, bool)>;
-    let _smelt_tmp_1: SmeltRecord<String, (String, String, bool)> = SMELT_GLOBAL_CACHE_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_2: Option<(String, String, bool)> = _smelt_tmp_1.get(&label.clone());
-    let _smelt_tmp_3: bool = !(_smelt_tmp_2.is_some());
-    if _smelt_tmp_3 {
-    _smelt_tmp_4 = label.clone().chars().skip({ let smelt_len = label.clone().chars().count() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take(label.clone().chars().count().saturating_sub({ let smelt_len = label.clone().chars().count() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
-    _smelt_tmp_5 = Some((label.clone(), _smelt_tmp_4.clone(), true));
-    SMELT_GLOBAL_CACHE_0.with(|smelt_global_cell| {              let smelt_global_key = label.clone();              let smelt_global_value = _smelt_tmp_5.clone().expect("optional value was absent after narrowing");              smelt_global_cell.borrow_mut().insert(smelt_global_key, smelt_global_value); });
-    _smelt_tmp_6 = Into::<SmeltList<_>>::into(SMELT_GLOBAL_SEEN_1.with(|value| value.borrow().clone()));
-    _smelt_tmp_7 = { let smelt_push_item = label.clone(); _smelt_tmp_6.borrow_mut().push(smelt_push_item); _smelt_tmp_6.len() as f64 };
-    }
-    _smelt_tmp_8 = SMELT_GLOBAL_CACHE_0.with(|value| value.borrow().clone());
-    _smelt_tmp_9 = _smelt_tmp_8.get(&label.clone());
-    return _smelt_tmp_9.clone().unwrap_or((String::new(), String::new(), false));
+pub(crate) fn zero() -> f64 {
+    return 0.0;
+}
+
+pub(crate) fn read_p(key: String) -> String {
+    let _smelt_tmp_2: SmeltRecord<String, (f64, String)> = SMELT_GLOBAL_P_2.with(|value| value.borrow().clone());
+    let _smelt_tmp_3: Option<(f64, String)> = _smelt_tmp_2.get(&key.clone());
+    let entry: Option<(f64, String)> = _smelt_tmp_3;
+    let _smelt_tmp_4: (f64, String) = entry.clone().clone().expect("optional value was absent after narrowing");
+    let _smelt_tmp_5: f64 = _smelt_tmp_4.0.clone();
+    let _smelt_tmp_6: String = "".to_owned() + &smelt_number_to_string(_smelt_tmp_5);
+    let _smelt_tmp_7: String = _smelt_tmp_6 + &":".to_owned();
+    let _smelt_tmp_8: (f64, String) = entry.clone().expect("optional value was absent after narrowing");
+    let _smelt_tmp_9: String = _smelt_tmp_8.1.clone();
+    let _smelt_tmp_10: String = _smelt_tmp_7 + &_smelt_tmp_9;
+    return _smelt_tmp_10;
+}
+
+pub(crate) fn greet() -> String {
+    return "hello".to_owned();
+}
+
+pub(crate) fn lookup(key: String) -> f64 {
+    let _smelt_tmp_1: SmeltRecord<String, f64> = SMELT_GLOBAL_TABLE_3.with(|value| value.borrow().clone());
+    return _smelt_tmp_1.get(&key.clone()).unwrap_or(0.0);
+}
+
+pub(crate) fn snapshot_seed() -> f64 {
+    let _smelt_tmp_0: SmeltRecord<String, f64> = SMELT_GLOBAL_SNAPSHOT_4.with(|value| value.borrow().clone());
+    let _smelt_tmp_1: f64 = SMELT_GLOBAL_SEED_1.with(::std::cell::Cell::get);
+    let _smelt_tmp_2: f64 = _smelt_tmp_0.get(&"seed".to_owned().clone()).unwrap_or(0.0) + _smelt_tmp_1;
+    return _smelt_tmp_2;
+}
+
+pub(crate) fn double__module_main(n: f64) -> f64 {
+    let _smelt_tmp_1: f64 = n * 2.0;
+    return _smelt_tmp_1;
 }

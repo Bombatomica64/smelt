@@ -1,0 +1,165 @@
+fn zero (FuncId(0)) -> Float
+  bb0:
+    return 0.0
+
+fn read_p (FuncId(1)) -> String
+  locals
+    %0 param key: String
+    %1 user entry: Optional<(Float, String)>
+    %2 temp: Dict<String, (Float, String)>
+    %3 temp: Optional<(Float, String)>
+    %4 temp: (Float, String)
+    %5 temp: Float
+    %6 temp: String
+    %7 temp: String
+    %8 temp: (Float, String)
+    %9 temp: String
+    %10 temp: String
+  bb0:
+    %2 = global_get #2
+    %3 = move %2?.[copy %0]
+    %1 = move %3
+    %4 = copy %1
+    %5 = tuple_index move %4, 0
+    %6 = "" + move %5
+    %7 = move %6 + ":"
+    %8 = move %1
+    %9 = tuple_index move %8, 1
+    %10 = move %7 + move %9
+    return move %10
+
+fn greet (FuncId(2)) -> String
+  bb0:
+    return "hello"
+
+fn lookup (FuncId(3)) -> Float
+  locals
+    %0 param key: String
+    %1 temp: Dict<String, Float>
+  bb0:
+    %1 = global_get #3
+    return copy %1[copy %0]
+
+fn snapshot_seed (FuncId(4)) -> Float
+  locals
+    %0 temp: Dict<String, Float>
+    %1 temp: Float
+    %2 temp: Float
+  bb0:
+    %0 = global_get #4
+    %1 = global_get #1
+    %2 = copy %0["seed"] + move %1
+    return move %2
+
+fn double__module_examples/typescript/end-to-end/142_module_global_reads_see_module_values/input.ts (FuncId(5)) -> Float
+  locals
+    %0 param n: Float
+    %1 temp: Float
+  bb0:
+    %1 = copy %0 * 2.0
+    return move %1
+
+fn smelt_global_init__p__2 (FuncId(6)) -> Dict<String, (Float, String)>
+  locals
+    %0 temp: Float
+    %1 temp: (Float, String)
+    %2 temp: Dict<String, (Float, String)>
+  bb0:
+    %0 = call fn0() -> bb1
+  bb1:
+    %1 = (move %0, "a")
+    %2 = {"k": move %1}
+    return move %2
+
+fn smelt_global_init__zs__0 (FuncId(7)) -> List<Float>
+  locals
+    %0 temp: List<Float>
+  bb0:
+    %0 = []
+    return move %0
+
+fn smelt_global_init__table__3 (FuncId(8)) -> Dict<String, Float>
+  locals
+    %0 temp: Float
+    %1 temp: Dict<String, Float>
+  bb0:
+    %0 = call fn5(2.0) -> bb1
+  bb1:
+    %1 = {"four": move %0}
+    return move %1
+
+fn smelt_global_init__snapshot__4 (FuncId(9)) -> Dict<String, Float>
+  locals
+    %0 temp: Float
+    %1 temp: Float
+    %2 temp: Dict<String, Float>
+  bb0:
+    %0 = global_get #1
+    %1 = call fn5(move %0) -> bb1
+  bb1:
+    %2 = {"seed": move %1}
+    return move %2
+
+fn main (FuncId(10)) -> None
+  locals
+    %0 user cnt: fn() -> Float
+    %1 user greeting: String
+    %2 temp: Dict<String, (Float, String)>
+    %3 temp: List<Float>
+    %4 temp: List<Float>
+    %5 temp: Float
+    %6 temp: fn() -> Float
+    %7 temp: Dict<String, Float>
+    %8 temp: Dict<String, Float>
+    %9 temp: Float
+    %10 temp: String
+    %11 temp: None
+    %12 temp: Float
+    %13 temp: None
+    %14 temp: String
+    %15 temp: None
+    %16 temp: Float
+    %17 temp: None
+    %18 temp: Float
+    %19 temp: None
+  bb0:
+    %2 = global_get #2
+    %3 = global_get #0
+    %4 = global_get #0
+    %5 = list_push move %4, 1.0
+    %6 = closure ClosureId(0) []
+    %0 = move %6
+    %1 = "hello"
+    %7 = global_get #3
+    %8 = global_get #4
+    %9 = global_set #1 = 10.0
+    %10 = call fn1("k") -> bb1
+  bb1:
+    %11 = call @console_log(move %10) -> bb2
+  bb2:
+    %12 = closure_call move %0()
+    %13 = call @console_log(move %12) -> bb3
+  bb3:
+    %14 = call fn2() -> bb4
+  bb4:
+    %15 = call @console_log(move %14) -> bb5
+  bb5:
+    %16 = call fn3("four") -> bb6
+  bb6:
+    %17 = call @console_log(move %16) -> bb7
+  bb7:
+    %18 = call fn4() -> bb8
+  bb8:
+    %19 = call @console_log(move %18) -> bb9
+  bb9:
+    return none
+
+closure ClosureId(0) -> Float
+  locals
+    %0 temp: List<Float>
+    %1 temp: Float
+  bb0:
+    %0 = global_get #0
+    %1 = len copy %0
+    return copy %1
+

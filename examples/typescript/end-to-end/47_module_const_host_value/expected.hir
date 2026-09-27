@@ -13,66 +13,74 @@ module examples/typescript/end-to-end/47_module_const_host_value/input.ts (Modul
     fn param_a owner Module
     fn append_param owner Module
   exprs
-    #0: String = "hello"
-    #1: fn(String) -> Float = @4(encoded_length)
-    #2: Float = call #1(#0)
-    #3: None = @15(console_log)
-    #4: None = call #3(#2)
-    #5: String = "héllo"
-    #6: fn(String) -> Float = @4(encoded_length)
-    #7: Float = call #6(#5)
-    #8: None = @16(console_log)
-    #9: None = call #8(#7)
-    #10: String = "round trip"
-    #11: fn(String) -> String = @5(round_trip)
-    #12: String = call #11(#10)
-    #13: None = @17(console_log)
-    #14: None = call #13(#12)
-    #15: fn() -> String = @6(content_type)
-    #16: String = call #15()
-    #17: None = @18(console_log)
+    #0: TextEncoder = global_get @0(encoder)
+    #1: TextDecoder = global_get @1(decoder)
+    #2: Headers = global_get @2(headers)
+    #3: URLSearchParams = global_get @3(params)
+    #4: String = "hello"
+    #5: fn(String) -> Float = @4(encoded_length)
+    #6: Float = call #5(#4)
+    #7: None = @15(console_log)
+    #8: None = call #7(#6)
+    #9: String = "héllo"
+    #10: fn(String) -> Float = @4(encoded_length)
+    #11: Float = call #10(#9)
+    #12: None = @16(console_log)
+    #13: None = call #12(#11)
+    #14: String = "round trip"
+    #15: fn(String) -> String = @5(round_trip)
+    #16: String = call #15(#14)
+    #17: None = @17(console_log)
     #18: None = call #17(#16)
-    #19: fn() -> String = @8(extra)
+    #19: fn() -> String = @6(content_type)
     #20: String = call #19()
-    #21: None = @19(console_log)
+    #21: None = @18(console_log)
     #22: None = call #21(#20)
-    #23: fn() -> None = @7(add_header)
-    #24: None = call #23()
-    #25: fn() -> String = @8(extra)
-    #26: String = call #25()
-    #27: None = @20(console_log)
-    #28: None = call #27(#26)
-    #29: fn() -> String = @9(param_a)
+    #23: fn() -> String = @8(extra)
+    #24: String = call #23()
+    #25: None = @19(console_log)
+    #26: None = call #25(#24)
+    #27: fn() -> None = @7(add_header)
+    #28: None = call #27()
+    #29: fn() -> String = @8(extra)
     #30: String = call #29()
-    #31: None = @21(console_log)
+    #31: None = @20(console_log)
     #32: None = call #31(#30)
-    #33: fn() -> None = @10(append_param)
-    #34: None = call #33()
-    #35: URLSearchParams = global_get @3(params)
-    #36: URLSearchParams = global_get @3(params)
-    #37: String = url_search_params_to_text #36
-    #38: None = @22(console_log)
-    #39: None = call #38(#37)
-    #40: Headers = global_get @2(headers)
-    #41: Headers = global_get @2(headers)
-    #42: String = "content-type"
-    #43: Optional<String> = headers_get #41, #42
-    #44: String = "none"
-    #45: String = #43 ?? #44
-    #46: None = @23(console_log)
-    #47: None = call #46(#45)
+    #33: fn() -> String = @9(param_a)
+    #34: String = call #33()
+    #35: None = @21(console_log)
+    #36: None = call #35(#34)
+    #37: fn() -> None = @10(append_param)
+    #38: None = call #37()
+    #39: URLSearchParams = global_get @3(params)
+    #40: URLSearchParams = global_get @3(params)
+    #41: String = url_search_params_to_text #40
+    #42: None = @22(console_log)
+    #43: None = call #42(#41)
+    #44: Headers = global_get @2(headers)
+    #45: Headers = global_get @2(headers)
+    #46: String = "content-type"
+    #47: Optional<String> = headers_get #45, #46
+    #48: String = "none"
+    #49: String = #47 ?? #48
+    #50: None = @23(console_log)
+    #51: None = call #50(#49)
   stmts
-    s0: #4
-    s1: #9
-    s2: #14
-    s3: #18
-    s4: #22
-    s5: #24
-    s6: #28
-    s7: #32
-    s8: #34
-    s9: #39
-    s10: #47
+    s0: #0
+    s1: #1
+    s2: #2
+    s3: #3
+    s4: #8
+    s5: #13
+    s6: #18
+    s7: #22
+    s8: #26
+    s9: #28
+    s10: #32
+    s11: #36
+    s12: #38
+    s13: #43
+    s14: #51
 
 interned types
   t0 = TextEncoder

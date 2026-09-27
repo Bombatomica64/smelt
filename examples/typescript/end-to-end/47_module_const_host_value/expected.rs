@@ -632,34 +632,38 @@ fn smelt_global_init__params__3() -> SmeltUrlSearchParams {
 }
 
 fn main() {
-    let _smelt_tmp_16: SmeltUrlSearchParams;
-    let _smelt_tmp_17: String;
-    let _smelt_tmp_19: SmeltHeaders;
-    let _smelt_tmp_20: Option<String>;
+    let _smelt_tmp_20: SmeltUrlSearchParams;
     let _smelt_tmp_21: String;
-    let _smelt_tmp_0: f64 = encoded_length("hello".to_owned());
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_0)); };
-    let _smelt_tmp_2: f64 = encoded_length("héllo".to_owned());
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_2)); };
-    let _smelt_tmp_4: String = round_trip("round trip".to_owned());
-    let _ = { println!("{}", _smelt_tmp_4); };
-    let _smelt_tmp_6: String = content_type();
-    let _ = { println!("{}", _smelt_tmp_6); };
-    let _smelt_tmp_8: String = extra();
+    let _smelt_tmp_23: SmeltHeaders;
+    let _smelt_tmp_24: Option<String>;
+    let _smelt_tmp_25: String;
+    let _smelt_tmp_0: SmeltTextEncoder = SMELT_GLOBAL_ENCODER_0.with(|value| value.borrow().clone());
+    let _smelt_tmp_1: SmeltTextDecoder = SMELT_GLOBAL_DECODER_1.with(|value| value.borrow().clone());
+    let _smelt_tmp_2: SmeltHeaders = SMELT_GLOBAL_HEADERS_2.with(|value| value.borrow().clone());
+    let _smelt_tmp_3: SmeltUrlSearchParams = SMELT_GLOBAL_PARAMS_3.with(|value| value.borrow().clone());
+    let _smelt_tmp_4: f64 = encoded_length("hello".to_owned());
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_4)); };
+    let _smelt_tmp_6: f64 = encoded_length("héllo".to_owned());
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_6)); };
+    let _smelt_tmp_8: String = round_trip("round trip".to_owned());
     let _ = { println!("{}", _smelt_tmp_8); };
+    let _smelt_tmp_10: String = content_type();
+    let _ = { println!("{}", _smelt_tmp_10); };
+    let _smelt_tmp_12: String = extra();
+    let _ = { println!("{}", _smelt_tmp_12); };
     let _ = add_header();
-    let _smelt_tmp_11: String = extra();
-    let _ = { println!("{}", _smelt_tmp_11); };
-    let _smelt_tmp_13: String = param_a();
-    let _ = { println!("{}", _smelt_tmp_13); };
-    let _ = append_param();
-    _smelt_tmp_16 = SMELT_GLOBAL_PARAMS_3.with(|value| value.borrow().clone());
-    _smelt_tmp_17 = _smelt_tmp_16.to_text();
+    let _smelt_tmp_15: String = extra();
+    let _ = { println!("{}", _smelt_tmp_15); };
+    let _smelt_tmp_17: String = param_a();
     let _ = { println!("{}", _smelt_tmp_17); };
-    _smelt_tmp_19 = SMELT_GLOBAL_HEADERS_2.with(|value| value.borrow().clone());
-    _smelt_tmp_20 = _smelt_tmp_19.get(&"content-type".to_owned());
-    _smelt_tmp_21 = _smelt_tmp_20.clone().unwrap_or("none".to_owned());
+    let _ = append_param();
+    _smelt_tmp_20 = SMELT_GLOBAL_PARAMS_3.with(|value| value.borrow().clone());
+    _smelt_tmp_21 = _smelt_tmp_20.to_text();
     let _ = { println!("{}", _smelt_tmp_21); };
+    _smelt_tmp_23 = SMELT_GLOBAL_HEADERS_2.with(|value| value.borrow().clone());
+    _smelt_tmp_24 = _smelt_tmp_23.get(&"content-type".to_owned());
+    _smelt_tmp_25 = _smelt_tmp_24.clone().unwrap_or("none".to_owned());
+    let _ = { println!("{}", _smelt_tmp_25); };
     return;
 }
 

@@ -1,24 +1,24 @@
 module examples/typescript/end-to-end/42_module_arrow_shared_capture/input.ts (ModuleId(0))
-  body BodyId(4)
+  body BodyId(5)
   items
     global mut rem: List<String>
+    fn second__module_examples/typescript/end-to-end/42_module_arrow_shared_capture/input.ts owner Module
     fn take owner Module
   locals
-    %0 const second: fn() -> None
-    %1 const outer: fn() -> None
+    %0 const outer: fn() -> None
   exprs
-    #0: fn() -> None = closure BodyId(2) captures 0 -> None
-    #1: fn() -> None = closure BodyId(3) captures 1 -> None
-    #2: fn() -> None = %1
+    #0: List<String> = global_get @0(rem)
+    #1: fn() -> None = closure BodyId(4) captures 0 -> None
+    #2: fn() -> None = %0
     #3: None = closure_call #2()
     #4: List<String> = global_get @0(rem)
     #5: String = ","
     #6: String = string_join #4, #5
-    #7: None = @3(console_log)
+    #7: None = @4(console_log)
     #8: None = call #7(#6)
   stmts
-    s0: let %0: fn() -> None = #0
-    s1: let %1: fn() -> None = #1
+    s0: #0
+    s1: let %0: fn() -> None = #1
     s2: #3
     s3: #8
 
@@ -29,5 +29,5 @@ interned types
   t3 = fn() -> None
   t4 = fn(fn() -> None) -> None
   t5 = Float
-  t6 = fn() -> None
-  t7 = fn(fn() -> None) -> None
+  t6 = fn(fn() -> None) -> None
+  t7 = fn() -> None

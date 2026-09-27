@@ -361,52 +361,53 @@ fn main (FuncId(28)) -> None
     %25 temp: Float
     %26 temp: None
     %27 temp: Stack
-    %28 temp: Float
-    %29 temp: Stack
-    %30 temp: String
-    %31 temp: Stack
-    %32 temp: String
-    %33 temp: Stack
-    %34 temp: String
-    %35 temp: Stack
-    %36 temp: String
-    %37 temp: None
-    %38 temp: Stack
-    %39 temp: String
-    %40 temp: Stack
-    %41 temp: String
-    %42 temp: Stack
-    %43 temp: String
-    %44 temp: Stack
-    %45 temp: String
-    %46 temp: Stack
-    %47 temp: String
-    %48 temp: Stack
-    %49 temp: String
-    %50 temp: Stack
-    %51 temp: String
-    %52 temp: None
-    %53 temp: Holder
-    %54 temp: Stack
-    %55 temp: String
-    %56 temp: Stack
-    %57 temp: String
-    %58 temp: Stack
-    %59 temp: String
-    %60 temp: Stack
-    %61 temp: String
-    %62 temp: None
-    %63 temp: String
-    %64 temp: Stack
-    %65 temp: String
-    %66 temp: None
-    %67 temp: List<Float>
-    %68 temp: fn(Float, Float, Int, List<Float>) -> Float
-    %69 temp: Float
-    %70 temp: fn(Float, Int, List<Float>) -> Float
-    %71 temp: List<Float>
-    %72 temp: String
-    %73 temp: None
+    %28 temp: Stack
+    %29 temp: Float
+    %30 temp: Stack
+    %31 temp: String
+    %32 temp: Stack
+    %33 temp: String
+    %34 temp: Stack
+    %35 temp: String
+    %36 temp: Stack
+    %37 temp: String
+    %38 temp: None
+    %39 temp: Stack
+    %40 temp: String
+    %41 temp: Stack
+    %42 temp: String
+    %43 temp: Stack
+    %44 temp: String
+    %45 temp: Stack
+    %46 temp: String
+    %47 temp: Stack
+    %48 temp: String
+    %49 temp: Stack
+    %50 temp: String
+    %51 temp: Stack
+    %52 temp: String
+    %53 temp: None
+    %54 temp: Holder
+    %55 temp: Stack
+    %56 temp: String
+    %57 temp: Stack
+    %58 temp: String
+    %59 temp: Stack
+    %60 temp: String
+    %61 temp: Stack
+    %62 temp: String
+    %63 temp: None
+    %64 temp: String
+    %65 temp: Stack
+    %66 temp: String
+    %67 temp: None
+    %68 temp: List<Float>
+    %69 temp: fn(Float, Float, Int, List<Float>) -> Float
+    %70 temp: Float
+    %71 temp: fn(Float, Int, List<Float>) -> Float
+    %72 temp: List<Float>
+    %73 temp: String
+    %74 temp: None
   bb0:
     %3 = [1.0, 2.0, 3.0]
     %4 = call fn2(move %3) -> bb1
@@ -452,78 +453,79 @@ fn main (FuncId(28)) -> None
     %26 = call @console_log(move %25) -> bb18
   bb18:
     %27 = global_get #0
-    %28 = call fn13(move %27, "a", "b") -> bb19
+    %28 = global_get #0
+    %29 = call fn13(move %28, "a", "b") -> bb19
   bb19:
-    %29 = global_get #0
-    %30 = call fn14(move %29, 1.0) -> bb20
+    %30 = global_get #0
+    %31 = call fn14(move %30, 1.0) -> bb20
   bb20:
-    %31 = global_get #0
-    %32 = call fn15(move %31, 2.0) -> bb21
+    %32 = global_get #0
+    %33 = call fn15(move %32, 2.0) -> bb21
   bb21:
-    %33 = global_get #0
-    %34 = call fn16(move %33, "i") -> bb22
+    %34 = global_get #0
+    %35 = call fn16(move %34, "i") -> bb22
   bb22:
-    %35 = global_get #0
-    %36 = call fn17(move %35, "c") -> bb23
+    %36 = global_get #0
+    %37 = call fn17(move %36, "c") -> bb23
   bb23:
-    %37 = call @console_log(move %28, move %30, move %32, move %34, move %36) -> bb24
+    %38 = call @console_log(move %29, move %31, move %33, move %35, move %37) -> bb24
   bb24:
-    %38 = global_get #0
-    %39 = call fn18(move %38, 3.0) -> bb25
+    %39 = global_get #0
+    %40 = call fn18(move %39, 3.0) -> bb25
   bb25:
-    %40 = global_get #0
-    %41 = call fn19(move %40, 4.0) -> bb26
+    %41 = global_get #0
+    %42 = call fn19(move %41, 4.0) -> bb26
   bb26:
-    %42 = global_get #0
-    %43 = call fn20(move %42, 5.0) -> bb27
+    %43 = global_get #0
+    %44 = call fn20(move %43, 5.0) -> bb27
   bb27:
-    %44 = global_get #0
-    %45 = call fn21(move %44, 6.0) -> bb28
+    %45 = global_get #0
+    %46 = call fn21(move %45, 6.0) -> bb28
   bb28:
-    %46 = global_get #0
-    %47 = call fn22(move %46, 7.0) -> bb29
+    %47 = global_get #0
+    %48 = call fn22(move %47, 7.0) -> bb29
   bb29:
-    %48 = global_get #0
-    %49 = call fn23(move %48, 8.0) -> bb30
+    %49 = global_get #0
+    %50 = call fn23(move %49, 8.0) -> bb30
   bb30:
-    %50 = global_get #0
-    %51 = call fn24(move %50, 9.0) -> bb31
+    %51 = global_get #0
+    %52 = call fn24(move %51, 9.0) -> bb31
   bb31:
-    %52 = call @console_log(move %39, move %41, move %43, move %45, move %47, move %49, move %51) -> bb32
+    %53 = call @console_log(move %40, move %42, move %44, move %46, move %48, move %50, move %52) -> bb32
   bb32:
-    %53 = call fn26() -> bb33
+    %54 = call fn26() -> bb33
   bb33:
-    %1 = move %53
-    %54 = copy %1.field47
-    %55 = call fn20(copy %1.field47, 20.0) -> bb34
+    %1 = move %54
+    %55 = copy %1.field47
+    %56 = call fn20(copy %1.field47, 20.0) -> bb34
   bb34:
-    %56 = copy %1.field47
-    %57 = call fn22(copy %1.field47, 21.0) -> bb35
+    %57 = copy %1.field47
+    %58 = call fn22(copy %1.field47, 21.0) -> bb35
   bb35:
-    %58 = call fn0() -> bb36
+    %59 = call fn0() -> bb36
   bb36:
-    %59 = call fn14(move %58, 22.0) -> bb37
+    %60 = call fn14(move %59, 22.0) -> bb37
   bb37:
-    %60 = call fn0() -> bb38
+    %61 = call fn0() -> bb38
   bb38:
-    %61 = call fn18(move %60, 23.0) -> bb39
+    %62 = call fn18(move %61, 23.0) -> bb39
   bb39:
-    %62 = call @console_log(move %55, move %57, move %59, move %61) -> bb40
+    %63 = call @console_log(move %56, move %58, move %60, move %62) -> bb40
   bb40:
-    %63 = call fn1() -> bb41
+    %64 = call fn1() -> bb41
   bb41:
-    %64 = global_get #0
-    %65 = string_join copy %64.field6, "|"
-    %66 = call @console_log(move %63, move %65) -> bb42
+    %65 = global_get #0
+    %66 = string_join copy %65.field6, "|"
+    %67 = call @console_log(move %64, move %66) -> bb42
   bb42:
-    %67 = [1.0, 2.0, 3.0]
-    %2 = move %67
-    %68 = closure ClosureId(6) []
-    %69 = list_reduce copy %2, 0.0, move %68
-    %70 = closure ClosureId(7) []
-    %71 = list_map move %2, move %70
-    %72 = string_join move %71, "-"
-    %73 = call @console_log(move %69, move %72) -> bb43
+    %68 = [1.0, 2.0, 3.0]
+    %2 = move %68
+    %69 = closure ClosureId(6) []
+    %70 = list_reduce copy %2, 0.0, move %69
+    %71 = closure ClosureId(7) []
+    %72 = list_map move %2, move %71
+    %73 = string_join move %72, "-"
+    %74 = call @console_log(move %70, move %73) -> bb43
   bb43:
     return none
 
