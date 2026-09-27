@@ -956,12 +956,15 @@ export function contentType(): string {
         "{source}"
     );
     assert!(!source.contains("__module_"), "{source}");
-    // Both functions read THROUGH the slot, so they see one object.
+    // `contentType` reads THROUGH the slot, so it sees the one object; the
+    // second read is the module body touching the slot at the binding's own
+    // declaration, so the lazy cell's single evaluation happens in source
+    // order (`force_module_slot_init`).
     assert_eq!(
         source
             .matches("SMELT_GLOBAL_HEADERS_1.with(|value| value.borrow().clone())")
             .count(),
-        1,
+        2,
         "{source}"
     );
 }

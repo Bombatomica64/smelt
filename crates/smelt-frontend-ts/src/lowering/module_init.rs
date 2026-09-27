@@ -523,16 +523,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         forward_arrow_consts.extend(Self::object_namespace_arrow_const_names(program));
         // An arrow that reads a module binding with REFERENCE IDENTITY cannot be
         // lifted: see `identity_bearing_module_binding_names`.
-        let arrow_candidates = forward_arrow_consts.clone();
         self.retain_capturable_arrow_consts(program, &mut forward_arrow_consts);
-        // An arrow an item body needs to call, refused the lift, is still ONE
-        // closure value: it becomes a module slot rather than reading as a
-        // default-returning stub.
-        let refused_arrows = arrow_candidates
-            .difference(&forward_arrow_consts)
-            .cloned()
-            .collect::<HashSet<_>>();
-        self.collect_arrow_value_globals(program, &refused_arrows, &mut module);
         // Forward-referenced arrow consts are lowered BEFORE any body that may
         // call them, in dependency order. An EXPORTED arrow const is the same
         // lexical binding as a private one (`export` changes visibility, not
@@ -1506,9 +1497,21 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .chain(body_through)
             .chain(body_nested.iter().cloned())
             .collect();
-        mutated.extend(body_mutated.intersection(item_reads).cloned());
-        mutated_through_nested.extend(body_nested.intersection(item_reads).cloned());
-        self.fold_unmutated_module_let_literals(program, &body_mutated);
+        //
+        // Only a binding WITH an initializer: `let cached: string[];` starts
+        // as `undefined`, which the declared type cannot hold, so a slot of
+        // that type would have no honest initial value, and lifting it would
+        // turn a lowering that works today into the no-initializer blocker.
+        // Such a binding keeps its existing path.
+        let initialized = Self::initialized_module_binding_names(program);
+        let lifted_by_body_write = body_mutated
+            .intersection(item_reads)
+            .filter(|name| initialized.contains(*name))
+            .cloned()
+            .collect::<HashSet<_>>();
+        mutated_through_nested.extend(body_nested.intersection(&lifted_by_body_write).cloned());
+        mutated.extend(lifted_by_body_write);
+        self.fold_unmutated_module_let_literals(program, &body_mutated, item_reads);
         if mutated.is_empty() {
             return;
         }
@@ -1630,71 +1633,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
-    /// Lift each refused forward arrow const to a module slot holding its
-    /// closure.
-    ///
-    /// [`Self::retain_capturable_arrow_consts`] refuses to lift an arrow that
-    /// reads a module binding with reference identity, because a lifted
-    /// function would read a private re-materialized copy. The refusal kept the
-    /// arrow a module-body closure — correct for module-body callers, but an
-    /// item body that calls it has no module-body local to call through, and
-    /// its read fell to `module_global_function_expression`, a stub returning
-    /// the declared return type's default. A slot holds the one closure the
-    /// module body evaluates, with its captures, and every reader calls that.
-    /// The slot takes the arrow's recorded function type, so no erasure is
-    /// added.
-    fn collect_arrow_value_globals(
-        &mut self,
-        program: &Program<'_>,
-        refused: &HashSet<String>,
-        module: &mut Module,
-    ) {
-        if refused.is_empty() {
-            return;
-        }
-        for statement in &program.body {
-            let Statement::VariableDeclaration(variable) = statement else {
-                continue;
-            };
-            if variable.declare || variable.kind != oxc::ast::ast::VariableDeclarationKind::Const {
-                continue;
-            }
-            for declarator in &variable.declarations {
-                let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
-                    continue;
-                };
-                let name = binding.name.as_str();
-                if !refused.contains(name)
-                    || self.items.contains_key(name)
-                    || !matches!(declarator.init, Some(Expression::ArrowFunctionExpression(_)))
-                {
-                    continue;
-                }
-                let Some(ty) = self.module_globals.get(name).copied() else {
-                    continue;
-                };
-                if !matches!(self.ctx.krate.types.get(ty), Some(Type::Function(_))) {
-                    continue;
-                }
-                let span = self.span(binding.span.start, binding.span.end);
-                let symbol = self.intern_source_name(name);
-                let item = self
-                    .ctx
-                    .krate
-                    .push_item(Item::MutableGlobal(smelt_hir::MutableGlobalItem {
-                        name: symbol,
-                        ty,
-                        init: smelt_hir::MutableGlobalInit::Pending,
-                        visibility: Visibility::Private,
-                        span,
-                    }));
-                module.items.push(item);
-                self.items.insert(name.to_owned(), item);
-                self.mutable_global_items.insert(name.to_owned(), item);
-            }
-        }
-    }
-
     /// Lift each item-read, unfolded binding in one declaration to a module global.
     ///
     /// Registers the item with a [`smelt_hir::MutableGlobalInit::Pending`]
@@ -1800,6 +1738,20 @@ impl<'ctx> ModuleBuilder<'ctx> {
             );
             if matches!(init.without_parentheses(), Expression::ClassExpression(_))
                 || (is_erased && called.contains(name))
+            {
+                continue;
+            }
+            // An EXPORTED object/array literal never reaches the fabricating
+            // read: the export pass (`const_item_declarations`) lowers it to an
+            // item of its own — a function-table namespace whose members are
+            // callable items, or a const item — and every read resolves to that
+            // item. A written one was already lifted by
+            // `register_mutable_global_decl`.
+            if matches!(visibility, Visibility::Public)
+                && matches!(
+                    init.without_parentheses(),
+                    Expression::ObjectExpression(_) | Expression::ArrayExpression(_)
+                )
             {
                 continue;
             }
@@ -2285,6 +2237,35 @@ impl<'ctx> ModuleBuilder<'ctx> {
         reads
     }
 
+    /// Names of the module-level identifier bindings declared WITH an
+    /// initializer (ambient declarations excluded).
+    fn initialized_module_binding_names(program: &Program<'_>) -> HashSet<String> {
+        let mut names = HashSet::new();
+        for statement in &program.body {
+            let variable = match statement {
+                Statement::VariableDeclaration(variable) => variable,
+                Statement::ExportDeclaration(export) => {
+                    let Declaration::VariableDeclaration(variable) = &export.declaration else {
+                        continue;
+                    };
+                    variable
+                }
+                _ => continue,
+            };
+            if variable.declare {
+                continue;
+            }
+            for declarator in &variable.declarations {
+                if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+                    && declarator.init.is_some()
+                {
+                    names.insert(binding.name.as_str().to_owned());
+                }
+            }
+        }
+        names
+    }
+
     /// Fold each never-mutated module `let`/`var` with a literal initializer
     /// exactly like a `const`.
     ///
@@ -2296,6 +2277,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         program: &Program<'_>,
         mutated_anywhere: &HashSet<String>,
+        item_reads: &HashSet<String>,
     ) {
         for statement in &program.body {
             let variable = match statement {
@@ -2316,7 +2298,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     continue;
                 };
                 let name = binding.name.as_str();
-                if mutated_anywhere.contains(name) || self.consts.literal(name).is_some() {
+                // Only an item-read binding needs the fold: a module-body read
+                // already reads the binding's own local.
+                if !item_reads.contains(name)
+                    || mutated_anywhere.contains(name)
+                    || self.consts.literal(name).is_some()
+                {
                     continue;
                 }
                 let Some(init) = &declarator.init else {
@@ -4772,11 +4759,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
         program: &Program<'_>,
         candidates: &mut HashSet<String>,
     ) {
-        // A binding that is a module SLOT is read by a lifted function through
-        // the slot itself — the one shared value, not a re-materialized copy —
-        // so it cannot cause the private-copy divergence this refusal guards.
+        // The divergence this refusal guards needs a WRITE: a re-materialized
+        // copy of a binding nothing mutates is indistinguishable from reading
+        // the binding. And a mutated binding an arrow body reads is a module
+        // SLOT (a hoisted-body read plus a write anywhere lifts it, see
+        // `collect_mutable_globals`), which a lifted function reads through the
+        // slot itself — the one shared value. So only a written binding that
+        // did NOT become a slot (a shape the slot passes decline) still refuses.
+        let (reassigned, through, nested) = Self::collect_all_mutated_names(program);
         let mut identity_bindings = Self::identity_bearing_module_binding_names(program);
-        identity_bindings.retain(|name| !self.mutable_global_items.contains_key(name));
+        identity_bindings.retain(|name| {
+            !self.mutable_global_items.contains_key(name)
+                && (reassigned.contains(name) || through.contains(name) || nested.contains(name))
+        });
         if identity_bindings.is_empty() {
             return;
         }

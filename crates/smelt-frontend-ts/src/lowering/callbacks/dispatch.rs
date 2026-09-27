@@ -801,6 +801,10 @@ impl ModuleBuilder<'_> {
             // general expression path, which models every entry form, so retry
             // there instead of reading the constant as a placeholder value.
             || error.message == "callback object constant needs closure-body lowering"
+            // A module SLOT (`Item::MutableGlobal`) read from a callback. The
+            // compact IR has no slot read; full closure-body lowering resolves
+            // the name to `GlobalGet`, the module's one value.
+            || error.message == "callback reads a module slot; needs closure-body lowering"
             // A destructured callback parameter whose field type the compact IR
             // cannot resolve. Full closure-body lowering types the field
             // through the general member-access path, so retry there rather
@@ -895,6 +899,12 @@ impl ModuleBuilder<'_> {
                     && let Some(item) = self.items.get(identifier.name.as_str()).copied()
                 {
                     let span = self.span(identifier.span.start, identifier.span.end);
+                    if matches!(self.item_ref(item), Item::MutableGlobal(_)) {
+                        return Err(SmeltError::unsupported(
+                            span,
+                            "callback reads a module slot; needs closure-body lowering",
+                        ));
+                    }
                     let ty = self.item_expr_type(item, span)?;
                     let function_name = if let Item::Function(function) = self.item_ref(item) {
                         Some(function.name)
