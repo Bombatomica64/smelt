@@ -221,12 +221,12 @@ impl ModuleBuilder<'_> {
     }
 
     /// Bind every one of a callee's own type parameters that argument
-    /// inference left unbound, so an instantiated call result never carries a
-    /// raw callee `TypeParam`.
+    /// inference left unbound to `unknown`, so an instantiated call result
+    /// never carries a raw callee `TypeParam`.
     ///
     /// A call without explicit type arguments instantiates the callee's
     /// signature from whatever `substitutions` inference produced from the
-    /// arguments. A parameter no argument mentions (`createNullObject<T =
+    /// arguments. A parameter no argument binds (`createNullObject<T =
     /// any>(): Record<string, T>` called with no arguments) used to stay as the
     /// raw `TypeParam { name: T }` in the call's result type. Because HIR type
     /// parameters are identified by NAME, that leaked callee `T` was then
@@ -234,46 +234,31 @@ impl ModuleBuilder<'_> {
     /// createNullObject() }` typed `m` as `Record<string, Router::T>`) or was
     /// simply unbound in the caller.
     ///
-    /// Each unbound parameter takes, in TypeScript's own priority order:
+    /// Why `unknown` and not TypeScript's default / constraint / contextual
+    /// type: the call's HIR type must agree with what the EMITTED callee
+    /// returns, and Rust codegen binds a callee's type parameters from the
+    /// call's ARGUMENTS only (`static_call_monomorphization` in
+    /// `smelt-codegen-rust`). A parameter no argument binds is therefore
+    /// erased at every such call site — either the definition erases it
+    /// outright (`liftable_type_params` finds no inference source, e.g. a
+    /// return-only `T` or one reachable only through `T | ((i) => T)`), or the
+    /// site demotes because the binding is not concrete. Typing the result
+    /// from the default instead (`range<T = number>(..): Generator<T>` as
+    /// `Generator<number>`) described a value the definition never returns,
+    /// and not every container can be converted after the fact (radash's
+    /// `range` generator, E0308). That liftability decision is whole-program
+    /// (it depends on every call site in the MIR), so the frontend cannot
+    /// reproduce it; it instead mirrors the rule the decision is built on.
     ///
-    /// 1. the binding implied by the call's contextual (expected) result type
-    ///    `result_hint`, matched against the declared `return_ty` — `const d:
-    ///    Record<string, number> = makeBag()` binds `T := number`. A hint
-    ///    binding that is itself `unknown` carries no evidence and is skipped;
-    /// 2. the declared default (`= string`), instantiated through the bindings
-    ///    chosen so far (a default may name an earlier parameter);
-    /// 3. the declared `extends` constraint, instantiated the same way (what
-    ///    `tsc` infers for a parameter with no inference candidate);
-    /// 4. `unknown`.
-    ///
-    /// Defaults and constraints are instantiated in a SINGLE substitution pass
-    /// over a map in which every still-unbound callee parameter is `unknown`,
-    /// so a caller-scope parameter that happens to share a callee parameter's
-    /// name is never re-substituted: every value in the finished map is already
-    /// expressed purely in caller-scope types.
-    ///
-    /// `materialized` says whether the callee's definition really is generic
-    /// over these parameters in the emitted Rust (a free function's
-    /// `Function::type_params`). A method or lifted arrow whose generics are
-    /// recorded only in `HirCtx::erased_item_type_params` is emitted with each
-    /// parameter as `SmeltUnknown`, so there steps 1-3 would promise a concrete
-    /// type the definition does not return: every unbound parameter goes
-    /// straight to step 4.
-    ///
-    /// DYNAMIC BOUNDARY: steps 2 (for an `= any` default, which lowers to
-    /// [`Type::Unknown`]) and 4 produce `unknown`. That is exactly the source's
-    /// meaning — the declaration says "whatever, unchecked", supplies no
-    /// information at all, or (not `materialized`) the definition itself is
-    /// erased — and it is what codegen already rendered a leaked, out-of-scope
-    /// type parameter as; the difference is that the erasure is now explicit
-    /// instead of aliasing an unrelated caller parameter.
+    /// DYNAMIC BOUNDARY: this `unknown` is the erased callee generic itself;
+    /// it is what codegen rendered the leaked, out-of-scope parameter as
+    /// before, so it adds no new erasure — it only stops aliasing an
+    /// unrelated caller parameter. Recovering the concrete type needs codegen
+    /// to materialize return-only generics (a turbofish at the call site).
     pub(in crate::lowering) fn complete_callee_type_substitution(
         &mut self,
         type_params: &[TypeParamDef],
-        materialized: bool,
         substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
-        return_ty: smelt_hir::TypeId,
-        result_hint: Option<smelt_hir::TypeId>,
     ) {
         if type_params
             .iter()
@@ -282,97 +267,9 @@ impl ModuleBuilder<'_> {
             return;
         }
         let unknown = self.ctx.krate.types.intern(Type::Unknown);
-        if !materialized {
-            for param in type_params {
-                substitutions.entry(param.name).or_insert(unknown);
-            }
-            return;
-        }
-        let mut hinted = HashMap::new();
-        if let Some(hint) = result_hint {
-            let mut candidate = substitutions.clone();
-            if self.infer_callee_type_bindings(type_params, return_ty, hint, &mut candidate) {
-                hinted = candidate;
-            }
-        }
         for param in type_params {
-            if substitutions.contains_key(&param.name) {
-                continue;
-            }
-            let from_hint = hinted.get(&param.name).copied().filter(|ty| {
-                !matches!(self.ctx.krate.types.get(*ty), Some(Type::Unknown))
-                    && self.type_params_all_in_active_scope(*ty)
-            });
-            let chosen = match (from_hint, param.default.or(param.constraint)) {
-                (Some(ty), _) => ty,
-                (None, Some(declared)) => {
-                    let mut scope = substitutions.clone();
-                    for other in type_params {
-                        scope.entry(other.name).or_insert(unknown);
-                    }
-                    self.substitute_type_params(declared, &scope)
-                }
-                (None, None) => unknown,
-            };
-            substitutions.insert(param.name, chosen);
+            substitutions.entry(param.name).or_insert(unknown);
         }
-    }
-
-    /// Whether every type parameter `ty` mentions is one the code being lowered
-    /// can name — i.e. is declared by an ACTIVE type-parameter scope.
-    ///
-    /// A call's contextual result type is not always a caller-scope type: in
-    /// argument position it is the OUTER callee's declared parameter type
-    /// (`outer<U>(bag: Record<string, U>)` hints `outer(makeBag())` with the
-    /// outer callee's raw `U`). Binding the inner callee from such a hint would
-    /// move one callee's parameter into the caller — the very leak
-    /// [`Self::complete_callee_type_substitution`] exists to prevent — so such
-    /// a binding is rejected and the default chain decides instead.
-    fn type_params_all_in_active_scope(&self, ty: smelt_hir::TypeId) -> bool {
-        let Some(value) = self.ctx.krate.types.get(ty).cloned() else {
-            return true;
-        };
-        let children = match value {
-            Type::TypeParam { name } => {
-                return self
-                    .ctx
-                    .krate
-                    .symbols
-                    .get(name)
-                    .is_some_and(|text| self.type_parameter_type(text) == Some(ty));
-            }
-            Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item) => {
-                vec![item]
-            }
-            Type::Dict(key, value) | Type::JsMap(key, value) => vec![key, value],
-            Type::Tuple(items) | Type::Union(items) => items,
-            Type::Class { args, .. } => args,
-            Type::Function(function) => {
-                let mut children = function.params;
-                children.push(function.return_ty);
-                children
-            }
-            Type::Generator {
-                yield_ty,
-                return_ty,
-                next_ty,
-                ..
-            } => vec![yield_ty, return_ty, next_ty],
-            Type::GeneratorResult {
-                yield_ty,
-                return_ty,
-            } => vec![yield_ty, return_ty],
-            Type::Bool
-            | Type::Int
-            | Type::Float
-            | Type::String
-            | Type::Unknown
-            | Type::Never
-            | Type::None => Vec::new(),
-        };
-        children
-            .into_iter()
-            .all(|child| self.type_params_all_in_active_scope(child))
     }
 
     /// Infer callee type-parameter bindings from one `expected` (declared) /
@@ -487,26 +384,26 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// The type parameters a callable item declares, and whether its emitted
-    /// definition is actually generic over them.
+    /// The type parameters a callable item declares.
     ///
-    /// A free function carries them on `Function::type_params` (materialized as
-    /// Rust generics). Methods and lifted arrows keep them only in
-    /// `HirCtx::erased_item_type_params` (emitted as `SmeltUnknown`). Anything
+    /// A free function carries them on `Function::type_params`. Methods and
+    /// lifted arrows keep them only in `HirCtx::erased_item_type_params`
+    /// (their emitted definitions render them as `SmeltUnknown`). Anything
     /// else declares none.
     pub(in crate::lowering) fn callee_own_type_params(
         &self,
         item: smelt_hir::ItemId,
-    ) -> (Vec<TypeParamDef>, bool) {
+    ) -> Vec<TypeParamDef> {
         if let smelt_hir::Item::Function(function) = self.item_ref(item)
             && !function.type_params.is_empty()
         {
-            return (function.type_params.clone(), true);
+            return function.type_params.clone();
         }
         self.ctx
             .erased_item_type_params
             .get(&item)
-            .map_or_else(|| (Vec::new(), true), |params| (params.clone(), false))
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Substitute generic type parameters within a previously lowered HIR type.

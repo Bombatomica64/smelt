@@ -5,11 +5,13 @@
 //! `TypeParam` — indistinguishable from the caller's own same-named parameter
 //! (`class Router<T> { m = createNullObject() }` typed `m` with `Router`'s `T`)
 //! or simply unbound. The rule these tests pin
-//! (`ModuleBuilder::complete_callee_type_substitution`): an unbound callee
-//! parameter takes the contextual result type, else its declared default, else
-//! its constraint, else `unknown`. Callees whose generics the definition erases
-//! (methods, static methods, lifted arrows) take `unknown`, the type their
-//! emitted definition actually returns.
+//! (`ModuleBuilder::complete_callee_type_substitution`): a callee parameter no
+//! argument binds instantiates to `unknown` — the type the emitted Rust
+//! definition returns for it, since codegen binds callee generics from
+//! arguments only — even when the source declares a default, a constraint or
+//! the call has a contextual type. Methods', static methods' and lifted
+//! arrows' own parameters are erased in their definitions outright, so they
+//! always take `unknown`.
 
 use super::*;
 
@@ -46,6 +48,17 @@ fn value_type(ctx: &HirCtx, name: &str) -> Result<String, String> {
         .ok_or_else(|| format!("no local or const named `{name}`"))
 }
 
+/// The rendered type of every call expression in the crate.
+fn call_types(ctx: &HirCtx) -> Vec<String> {
+    ctx.krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| matches!(expr.kind, ExprKind::Call { .. }))
+        .map(|expr| type_text(ctx, expr.ty))
+        .collect()
+}
+
 /// The rendered type of field `field` on the class named `class`.
 fn field_type(ctx: &HirCtx, class: &str, field: &str) -> Result<String, String> {
     ctx.krate
@@ -63,7 +76,7 @@ fn field_type(ctx: &HirCtx, class: &str, field: &str) -> Result<String, String> 
 }
 
 #[test]
-fn an_unbound_callee_parameter_in_a_generic_class_field_takes_its_default()
+fn an_unbound_callee_parameter_in_a_generic_class_field_is_not_the_class_parameter()
 -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
@@ -81,8 +94,10 @@ export const router = new Router<number>();
         &mut ctx,
     )?;
     // Before the fix this was `Dict<String, T>` — the CLASS's `T`, which the
-    // receiver `Router<number>` then rewrote to `Dict<String, Float>`.
-    ensure_eq!(field_type(&ctx, "Router", "m")?, "Dict<String, String>");
+    // receiver `Router<number>` then rewrote to `Dict<String, Float>`. The
+    // default `string` is not adopted: `makeBag`'s emitted definition erases
+    // its return-only `T`, and the call must type as what it returns.
+    ensure_eq!(field_type(&ctx, "Router", "m")?, "Dict<String, Unknown>");
     ensure_eq!(field_type(&ctx, "Router", "items")?, "List<T>");
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -110,7 +125,7 @@ class Router<T> {
 }
 
 #[test]
-fn the_contextual_type_wins_over_the_default() -> Result<(), String> {
+fn a_contextual_type_does_not_instantiate_the_call() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
@@ -129,30 +144,14 @@ class Router<T> {
 "),
         &mut ctx,
     )?;
-    let call_tys = ctx
-        .krate
-        .bodies
-        .iter()
-        .flat_map(|body| body.exprs.iter())
-        .filter(|expr| matches!(expr.kind, ExprKind::Call { .. }))
-        .map(|expr| type_text(&ctx, expr.ty))
-        .collect::<Vec<_>>();
-    // The CALLS themselves are typed from their context, not merely converted
-    // to it: the local's annotation, and the field's declared type in the
-    // constructor's initializer.
+    let call_tys = call_types(&ctx);
+    // The annotation types the LOCAL / FIELD (converted from the call); the
+    // call itself is what the erased definition returns.
     ensure!(
-        call_tys.iter().any(|ty| ty == "Dict<String, Float>"),
-        "annotated local call should be `Dict<String, Float>`, got {call_tys:?}"
+        !call_tys.is_empty() && call_tys.iter().all(|ty| ty == "Dict<String, Unknown>"),
+        "every `makeBag()` call should be `Dict<String, Unknown>`, got {call_tys:?}"
     );
-    ensure!(
-        call_tys.iter().any(|ty| ty == "Dict<String, T>"),
-        "field initializer call should be `Dict<String, T>`, got {call_tys:?}"
-    );
-    ensure!(
-        !call_tys.iter().any(|ty| ty == "Dict<String, String>"),
-        "no call here should fall back to the default, got {call_tys:?}"
-    );
-    // The caller's own `T` is the contextual type here, so it is the right answer.
+    ensure_eq!(value_type(&ctx, "counts")?, "Dict<String, Float>");
     ensure_eq!(field_type(&ctx, "Router", "handlers")?, "Dict<String, T>");
     Ok(())
 }
@@ -174,7 +173,8 @@ export function tally<T>(first: T): T {
 "),
         &mut ctx,
     )?;
-    ensure_eq!(value_type(&ctx, "seen")?, "Dict<String, String>");
+    // Never `Dict<String, T>` with `tally`'s `T`.
+    ensure_eq!(value_type(&ctx, "seen")?, "Dict<String, Unknown>");
     Ok(())
 }
 
@@ -207,47 +207,7 @@ export function tally<T>(first: T): T[] {
 }
 
 #[test]
-fn an_outer_callees_parameter_in_the_hint_is_not_adopted() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    lower_ok(
-        ts!(r"
-function makeBag<T = string>(): Record<string, T> {
-  const r: Record<string, T> = {};
-  return r;
-}
-function count<U>(bag: Record<string, U>): number {
-  return Object.keys(bag).length;
-}
-export function run(): number {
-  return count(makeBag());
-}
-"),
-        &mut ctx,
-    )?;
-    // In argument position the contextual type is `count`'s declared
-    // `Record<string, U>` — `U` is `count`'s own raw parameter, not a type
-    // `run` can name, so it must not become `makeBag`'s instantiation.
-    let call_tys = ctx
-        .krate
-        .bodies
-        .iter()
-        .flat_map(|body| body.exprs.iter())
-        .filter(|expr| matches!(expr.kind, ExprKind::Call { .. }))
-        .map(|expr| type_text(&ctx, expr.ty))
-        .collect::<Vec<_>>();
-    ensure!(
-        call_tys.iter().any(|ty| ty == "Dict<String, String>"),
-        "the inner call should take the default, got {call_tys:?}"
-    );
-    ensure!(
-        !call_tys.iter().any(|ty| ty == "Dict<String, U>"),
-        "no call may carry `count`'s `U`, got {call_tys:?}"
-    );
-    Ok(())
-}
-
-#[test]
-fn defaults_and_constraints_instantiate_left_to_right() -> Result<(), String> {
+fn defaults_and_constraints_do_not_instantiate_an_unbound_parameter() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
@@ -266,12 +226,52 @@ export const nothing = blank();
 "),
         &mut ctx,
     )?;
-    // `B`'s default names the earlier `A`, which the argument bound.
-    ensure_eq!(value_type(&ctx, "pair")?, "(String, List<String>)");
-    // No default: the `extends` constraint is what `tsc` infers.
-    ensure_eq!(value_type(&ctx, "scores")?, "List<Float>");
-    // Neither: `unknown`, never the raw callee `T`.
+    // `A` is argument-bound and kept; `B` has only a default, which the
+    // emitted definition does not honour.
+    ensure_eq!(value_type(&ctx, "pair")?, "(String, Unknown)");
+    ensure_eq!(value_type(&ctx, "scores")?, "List<Unknown>");
+    // Never the raw callee `T`.
     ensure_eq!(value_type(&ctx, "nothing")?, "List<Unknown>");
+    Ok(())
+}
+
+#[test]
+fn a_parameter_only_reachable_through_an_omitted_argument_is_unknown() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export function* range<T = number>(
+  length: number,
+  valueOrMapper?: T | ((i: number) => T),
+): Generator<T> {
+  for (let i = 0; i < length; i++) {
+    yield valueOrMapper as T;
+  }
+}
+export function firstThree(): number {
+  let total = 0;
+  for (const value of range(3)) {
+    total += 1;
+  }
+  return total;
+}
+"),
+        &mut ctx,
+    )?;
+    // radash's `range`: codegen erases `T` (its only inference source is the
+    // optional function-union argument), so its generator yields
+    // `SmeltUnknown`. Typing `range(3)` from the default `number` produced a
+    // `Generator<number>` local that the returned generator cannot fill
+    // (E0308); the call must carry the erased element type instead.
+    let call_tys = call_types(&ctx);
+    ensure!(
+        call_tys.iter().any(|ty| ty.contains("Unknown")),
+        "`range(3)` should yield `Unknown`, got {call_tys:?}"
+    );
+    ensure!(
+        !call_tys.iter().any(|ty| ty.contains("Generator<Float")),
+        "`range(3)` must not be instantiated from the default, got {call_tys:?}"
+    );
     Ok(())
 }
 
