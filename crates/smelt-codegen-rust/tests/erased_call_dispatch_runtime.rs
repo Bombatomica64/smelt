@@ -20,6 +20,13 @@
 //! es-toolkit's `partial`/`partialRight` are the real-world instance: their docs
 //! say outright that a partially applied function has `length === 0`.
 //!
+//! **A prototype method on an erased receiver is the value's own method.**
+//! `anyValue.reduceRight(f, 0)` reads `reduceRight` off the runtime value and
+//! calls it: an erased array answers `Array.prototype`, an erased string
+//! `String.prototype`, and anything else throws `TypeError: x.m is not a
+//! function` (see `erased_method_prelude`). The read used to answer
+//! `undefined` and the call a `null` stub.
+//!
 //! The tier is `#[ignore]`d because it compiles and executes real crates:
 //!
 //! ```sh
@@ -242,4 +249,119 @@ test('jest.fn counts its calls', () => {
 });
 ";
     run_fixture(source, "smelt_jest_global_mock");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn array_methods_on_an_erased_array_run_the_list_operation() {
+    // An `any` receiver has no static shape, so `value.reduceRight(..)` is a
+    // property read through `smelt_get_unknown_field` followed by the erased
+    // call ABI. The read used to answer `undefined` for every
+    // `Array.prototype` method and the call returned a `null` stub. The
+    // runtime now binds the method to the array it meets; callbacks see
+    // `(element, index, array)` exactly as in JavaScript.
+    let source = r"
+import { test, expect } from 'vitest';
+
+function box(value: any): any {
+  return { items: value };
+}
+
+test('iteration methods pass element, index and array', () => {
+  const o = box([1, 2, 3]);
+  expect(o.items.reduceRight((acc: number, x: number) => acc * 10 + x, 0)).toBe(321);
+  expect(o.items.findLast((x: number) => x < 3)).toBe(2);
+  expect(o.items.findLastIndex((x: number) => x < 3)).toBe(1);
+  expect(o.items.at(-1)).toBe(3);
+  expect(o.items.flatMap((x: number, i: number) => [x, i])).toEqual([1, 0, 2, 1, 3, 2]);
+  expect(o.items.includes(2)).toBe(true);
+  expect(o.items.indexOf(3)).toBe(2);
+  expect(o.items.slice(1)).toEqual([2, 3]);
+});
+test('mutating methods mutate the caller array', () => {
+  const o = box([3, 1, 2]);
+  expect(o.items.push(9)).toBe(4);
+  expect(o.items.length).toBe(4);
+  o.items.sort((a: number, b: number) => a - b);
+  expect(o.items[0]).toBe(1);
+  expect(o.items.splice(1, 2)).toEqual([2, 3]);
+  expect(o.items.length).toBe(2);
+  expect(o.items.pop()).toBe(9);
+  expect(o.items.length).toBe(1);
+});
+test('an empty reduce without an initial value throws its TypeError', () => {
+  const o = box([]);
+  let message = '';
+  try {
+    o.items.reduceRight((acc: number, x: number) => acc + x);
+  } catch (error) {
+    message = (error as Error).message;
+  }
+  expect(message).toBe('Reduce of empty array with no initial value');
+});
+";
+    run_fixture(source, "smelt_erased_array_methods");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn shared_array_and_string_method_names_resolve_on_the_runtime_value() {
+    // `slice`/`includes`/`indexOf`/`at` exist on BOTH prototypes, so on an
+    // erased receiver the name cannot choose the operation statically: a list
+    // slice turned an `any` string into an array of characters and string
+    // containment rejected an `any` array. The runtime value decides.
+    let source = r"
+import { test, expect } from 'vitest';
+
+function box(value: any): any {
+  return { value };
+}
+
+test('a string receiver takes String.prototype', () => {
+  const s = box('abcab').value;
+  expect(s.slice(1, 3)).toBe('bc');
+  expect(s.includes('ca')).toBe(true);
+  expect(s.indexOf('b', 2)).toBe(4);
+  expect(s.lastIndexOf('a')).toBe(3);
+  expect(s.at(-1)).toBe('b');
+  expect(s.padStart(7, '-')).toBe('--abcab');
+});
+test('an array receiver takes Array.prototype', () => {
+  const xs = box([1, 2, 3]).value;
+  expect(xs.slice(-2)).toEqual([2, 3]);
+  expect(xs.includes(3)).toBe(true);
+  expect(xs.indexOf(4)).toBe(-1);
+  expect(xs.concat([4], 5)).toEqual([1, 2, 3, 4, 5]);
+});
+";
+    run_fixture(source, "smelt_erased_shared_method_names");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_missing_method_on_an_erased_value_is_a_type_error() {
+    // JavaScript calls the value it read; a value with no such method throws
+    // `TypeError: x.at is not a function` rather than returning a stub.
+    let source = r"
+import { test, expect } from 'vitest';
+
+function box(value: any): any {
+  return { value };
+}
+
+test('calling an absent method throws TypeError naming the callee', () => {
+  const x = box(5).value;
+  let isTypeError = false;
+  let message = '';
+  try {
+    x.at(0);
+  } catch (error) {
+    isTypeError = error instanceof TypeError;
+    message = (error as Error).message;
+  }
+  expect(isTypeError).toBe(true);
+  expect(message).toBe('x.at is not a function');
+});
+";
+    run_fixture(source, "smelt_erased_missing_method_type_error");
 }

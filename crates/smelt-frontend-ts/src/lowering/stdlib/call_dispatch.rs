@@ -1952,12 +1952,79 @@ impl<'builder> ModuleBuilder<'builder> {
         {
             return Ok(None);
         }
+        // On an ERASED receiver (`any`) a prototype-method name does not say
+        // which operation runs — the receiver's runtime tag does. Every handler
+        // below would have to guess a prototype, and each guess is wrong for
+        // some values (string containment rejected `anyArray.includes(2)`; a
+        // list map over `anyNumber` panicked where JavaScript throws
+        // `TypeError`), while TypeScript types the result `any` anyway. So the
+        // call is left to the erased member call, whose runtime resolves the
+        // method on the value it meets (`smelt_get_unknown_field`, tables in
+        // `smelt_stdlib::erased_prototype_methods`). A handler that already
+        // dispatches on the runtime tag (the erased `slice`, which also covers
+        // host byte buffers) is not a guess, and `is_erased_prototype_call`
+        // leaves it alone. A utility namespace (`_.includes(xs, v)`) is an
+        // import, not an erased value, and keeps its handler; so does a call
+        // passing more arguments than the prototype method accepts
+        // (`utils.reduce(xs, f, 0)`, `utils.keys(record)`), which is the
+        // utility-function spelling of the name, not a prototype call.
+        if let Expression::StaticMemberExpression(member) = &call.callee
+            && smelt_stdlib::is_erased_prototype_call(member.property.name.as_str(), call.arguments.len())
+            && !self.imported_utility_object(&member.object)
+            && self.receiver_is_statically_erased(&member.object, body)
+        {
+            return Ok(None);
+        }
         for handler in Self::builtin_call_handlers() {
             if let Some(expr) = handler(self, call, body)? {
                 return Ok(Some(expr));
             }
         }
         Ok(None)
+    }
+
+    /// Whether a receiver expression is statically ERASED (`any`), decided
+    /// without lowering it.
+    ///
+    /// A binding (or a declared user-class field chain) answers through
+    /// [`Self::static_receiver_type`]; a property read — static or computed —
+    /// off an erased value is itself erased, exactly as TypeScript types
+    /// `anyValue.items` as `any`. Anything whose type is not knowable here
+    /// answers `false`, so the caller keeps its ordinary lowering.
+    fn receiver_is_statically_erased(&mut self, object: &Expression<'_>, body: &Body) -> bool {
+        // A call's result type is decided by overload resolution, which
+        // `static_receiver_type` does not perform: it answers the function
+        // item's IMPLEMENTATION signature, and an overloaded function's
+        // implementation is routinely `(...args: unknown[]): unknown` while the
+        // overload the call selects returns a concrete array (remeda's
+        // `sortBy(data, ...rules).map(f)`). Treating that as erased would drop
+        // the concrete type the overload gives, so a call receiver is never
+        // taken as erased here.
+        if matches!(object, Expression::CallExpression(_)) {
+            return false;
+        }
+        if let Some(ty) = self.static_receiver_type(object, body) {
+            return self.ctx.krate.types.get(ty) == Some(&Type::Unknown);
+        }
+        match object {
+            Expression::StaticMemberExpression(member) => {
+                self.receiver_is_statically_erased(&member.object, body)
+            }
+            Expression::ComputedMemberExpression(member) => {
+                self.receiver_is_statically_erased(&member.object, body)
+            }
+            Expression::ParenthesizedExpression(paren) => {
+                self.receiver_is_statically_erased(&paren.expression, body)
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                self.receiver_is_statically_erased(&non_null.expression, body)
+            }
+            // `(value as any)` erases whatever `value` was.
+            Expression::TSAsExpression(cast) => {
+                matches!(cast.type_annotation, oxc::ast::ast::TSType::TSAnyKeyword(_))
+            }
+            _ => false,
+        }
     }
 
     /// Normalize a global-alias namespace call and re-dispatch it stripped.
@@ -2977,6 +3044,27 @@ impl<'builder> ModuleBuilder<'builder> {
         let mut args = Vec::with_capacity(expanded.len());
         for argument in expanded {
             args.push(self.lower_call_arg(argument, None, body)?);
+        }
+        // A prototype method read off an ERASED value (`anyValue.at(-1)`) is
+        // resolved by the runtime on the value it meets (see
+        // `dispatch_builtin_call`), and a value with no such method must throw
+        // JavaScript's `TypeError: x.at is not a function` when CALLED.
+        // Synthesizing a typed function signature from the arguments would
+        // adapt the read into a typed callback, whose adapter has no callee to
+        // call for a non-callable value and answers a default instead. The
+        // callee therefore stays erased, and the call takes the erased call ABI,
+        // which invokes whatever callable the read produced or throws.
+        if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown)
+            && smelt_stdlib::is_erased_prototype_call(member.property.name.as_str(), call.arguments.len())
+            && self.receiver_is_statically_erased(&member.object, body)
+        {
+            let span = self.span(call.span.start, call.span.end);
+            let callee = self.bind_member_call_receiver(callee, member, body, span);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::ClosureCall { callee, args },
+                ty: callee_ty,
+                span,
+            })));
         }
         let (function_ty, function) = if let Some(function_ty) =
             self.function_member_type_for_args(callee_ty, Some(arg_count), &probed_arg_tys)

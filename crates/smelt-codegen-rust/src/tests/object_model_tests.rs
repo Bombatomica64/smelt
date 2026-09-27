@@ -327,3 +327,151 @@ export function selfReferential(): number {
         );
     }
 }
+
+#[test]
+fn an_erased_array_read_falls_back_to_bound_prototype_methods() {
+    // `arr.map` on an erased array is a property read: after `length`, the
+    // indices and the named side table, the read resolves `Array.prototype`'s
+    // methods, bound to that array. A string answers `String.prototype`'s the
+    // same way, and the prototype sentinels stay off the text arm.
+    let source = source_for(
+        r"
+export function readTag(value: unknown): unknown {
+  return (value as any).tag;
+}
+",
+    );
+    assert!(
+        source.contains(
+            "values.named_property(field).or_else(|| smelt_array_prototype_member(values, field))"
+        ),
+        "an own named property must shadow the prototype method"
+    );
+    assert!(
+        source.contains(
+            "SmeltUnknown::String(text) if !text.starts_with(\"__smelt_proto:\") => smelt_get_string_field(text, field)"
+        ),
+        "an erased string must answer its String.prototype members"
+    );
+    for helper in [
+        "fn smelt_array_prototype_apply(",
+        "fn smelt_string_prototype_apply(",
+        "fn smelt_throw_not_callable(",
+    ] {
+        assert!(source.contains(helper), "the erased-method runtime must emit `{helper}`");
+    }
+    assert!(
+        !source.contains("fn smelt_array_sort_method("),
+        "`sort` resolves through the shared table, not a dedicated copying helper"
+    );
+}
+
+#[test]
+fn an_erased_method_call_names_its_callee_in_the_type_error() {
+    // A non-callable member throws `TypeError: v.at is not a function`, as V8
+    // words it, instead of answering a `null` stub.
+    let source = source_for(
+        r"
+export function last(v: any): unknown {
+  return v.at(-1);
+}
+",
+    );
+    let body = emitted_function_body(&source, "fn last(");
+    assert!(
+        body.contains("smelt_get_unknown_field("),
+        "the member is read dynamically:\n{body}"
+    );
+    assert!(
+        body.contains("smelt_throw_not_callable(\"v.at\")"),
+        "the dynamic call must throw a TypeError naming the callee:\n{body}"
+    );
+    assert!(
+        !body.contains("else { SmeltUnknown::Null }"),
+        "no null stub for a non-callable:\n{body}"
+    );
+}
+
+#[test]
+fn a_shared_array_string_method_on_an_erased_receiver_is_resolved_at_run_time() {
+    // `includes` is on both prototypes, so an `any` receiver cannot be lowered
+    // to either one statically (string containment rejected
+    // `anyArray.includes(2)` outright). A typed receiver keeps its typed
+    // operation and never reads dynamically.
+    let source = source_for(
+        r"
+export function hasTwo(v: any): unknown {
+  return v.includes(2);
+}
+
+export function hasTwoTyped(xs: number[]): boolean {
+  return xs.includes(2);
+}
+",
+    );
+    let erased = emitted_function_body(&source, "fn has_two(");
+    assert!(
+        erased.contains("smelt_get_unknown_field(") && erased.contains("\"includes\""),
+        "an erased receiver resolves `includes` on its runtime value:\n{erased}"
+    );
+    let typed = emitted_function_body(&source, "fn has_two_typed(");
+    assert!(
+        !typed.contains("smelt_get_unknown_field(") && !typed.contains("SmeltUnknown"),
+        "a typed list keeps its typed includes:\n{typed}"
+    );
+}
+
+#[test]
+fn an_overloaded_call_receiver_is_not_taken_as_erased() {
+    // An overloaded function's implementation signature is often
+    // `(...args: unknown[]): unknown` while the overload a call selects returns
+    // a concrete array. The erased-receiver rule must not read the
+    // implementation's `unknown` as "this receiver is `any`": remeda's
+    // `sortBy(data, ...rules).map(f)` lost its concrete list map that way.
+    let source = source_for(
+        r"
+export function pick(xs: number[]): number[];
+export function pick(...args: unknown[]): unknown {
+  return args[0];
+}
+
+export function doubled(): number[] {
+  return pick([1, 2]).map((x) => x * 2);
+}
+",
+    );
+    let body = emitted_function_body(&source, "fn doubled(");
+    assert!(
+        !body.contains("\"map\""),
+        "an overloaded call's concrete result keeps its typed map:\n{body}"
+    );
+}
+
+/// A function stored in an erased value and called through it keeps the
+/// erased call ABI's `null` fallback when the callee is NOT a prototype-method
+/// read; only a table method read throws `TypeError` (see
+/// `prototype_method_not_callable`).
+#[test]
+fn only_a_prototype_method_read_throws_when_not_callable() {
+    let source = source_for(
+        r"
+export function viaField(o: any): unknown {
+  return o.handler(1);
+}
+
+export function viaMethod(o: any): unknown {
+  return o.at(1);
+}
+",
+    );
+    let field = emitted_function_body(&source, "fn via_field(");
+    assert!(
+        !field.contains("smelt_throw_not_callable("),
+        "a non-table callee keeps the erased call fallback:\n{field}"
+    );
+    let method = emitted_function_body(&source, "fn via_method(");
+    assert!(
+        method.contains("smelt_throw_not_callable(\"o.at\")"),
+        "a table method read throws JavaScript's TypeError:\n{method}"
+    );
+}

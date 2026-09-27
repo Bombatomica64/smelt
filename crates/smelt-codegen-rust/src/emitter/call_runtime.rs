@@ -93,23 +93,150 @@ impl FunctionEmitter<'_> {
     /// `__smelt_call` function member (a callable object). This snippet clones the
     /// callee value, coerces the argument expression into a `Vec<SmeltUnknown>`,
     /// extracts whichever callable form is present, invokes it (propagating a
-    /// thrown error via `panic!`), and falls back to `SmeltUnknown::Null` when the
-    /// value is not callable.
+    /// thrown error via `panic!`), and throws JavaScript's
+    /// `TypeError: <callee> is not a function` when the value is not callable —
+    /// which is what an erased method call on a receiver whose runtime value has
+    /// no such method (`(5 as any).map(f)`) must do.
     ///
     /// `callee_text` is the expression producing the callee value. `args_expr` is
     /// the expression fed to `Into::into` to build the argument vector; callers
     /// differ only in how they materialize that expression (an explicit
     /// `vec![...]` for `ClosureCall`, a pre-flattened list for
     /// `ClosureCallSpread`), so it is the single parameterized hole in the shared
-    /// snippet.
-    pub(super) fn dynamic_callable_dispatch_text(&self, callee_text: &str, args_expr: &str) -> String {
+    /// snippet. `not_callable` decides what a non-callable callee does (see
+    /// [`Self::prototype_method_not_callable`]): `Some(spelling)` throws
+    /// `TypeError: <spelling> is not a function`, `None` keeps the erased call
+    /// ABI's historical `SmeltUnknown::Null` answer.
+    pub(super) fn dynamic_callable_dispatch_text(
+        &self,
+        callee_text: &str,
+        args_expr: &str,
+        not_callable: Option<&str>,
+    ) -> String {
         // `callee_text` is usually already an owned temporary (an operand render
         // clones the local it reads), so take an owned copy rather than
         // deep-copying it a second time.
         let callee_text = &cloned_value_text(callee_text);
         format!(
-            "{{ let smelt_function_value = {callee_text}; let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_expr}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| smelt_panic_throw(error)) }} else {{ SmeltUnknown::Null }} }}"
+            "{{ let smelt_function_value = {callee_text}; let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_expr}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| smelt_panic_throw(error)) }} else {{ {fallback} }} }}",
+            fallback = not_callable.map_or_else(
+                || "SmeltUnknown::Null".to_owned(),
+                |description| format!("smelt_throw_not_callable({description:?})")
+            ),
         )
+    }
+
+    /// The `TypeError` spelling for a non-callable callee, when it must throw.
+    ///
+    /// A callee that is a prototype method READ off an erased value
+    /// (`anyValue.at`, resolved at run time by the erased method tables — see
+    /// `smelt_stdlib::erased_prototype_methods`) throws JavaScript's
+    /// `TypeError: x.at is not a function` when the value has no such method:
+    /// that is the behaviour the runtime resolution exists to provide, and the
+    /// read answers a callable whenever JavaScript would.
+    ///
+    /// Every other erased callee keeps the erased call ABI's `SmeltUnknown::Null`
+    /// fallback (`None`). That fallback is wrong in JavaScript terms, but it
+    /// currently masks callee shapes the lowering does not yet reproduce
+    /// faithfully (a captured callback resolved to the wrong local, a function
+    /// stored in an erased record that is not re-registered as callable), and
+    /// making those throw fails working programs until each is fixed at its
+    /// source. The rule is by callee SHAPE, not by name alone: the chain must end
+    /// in a field read of a table method.
+    ///
+    /// JavaScript names the callee the way the source wrote it. MIR keeps no
+    /// expression text, but the callee of an erased method call is a compiler
+    /// temporary assigned once from a field read (`%t = copy %x.map`, possibly
+    /// through a receiver bind and a forwarding copy), so the spelling is
+    /// recovered by following those single assignments back to named locals and
+    /// field symbols; an unrecoverable base answers the generic `"expression"`.
+    pub(super) fn prototype_method_not_callable(&self, callee: &Operand) -> Option<String> {
+        let (Operand::Copy(place) | Operand::Move(place)) = callee else {
+            return None;
+        };
+        let field = self.terminal_field_name(place, 0)?;
+        if !smelt_stdlib::is_erased_prototype_method(field) {
+            return None;
+        }
+        Some(self.place_description(place, 0).unwrap_or_else(|| "expression".to_owned()))
+    }
+
+    /// The field name a callee's single-assignment chain ends in, if any.
+    fn terminal_field_name(&self, place: &Place, depth: usize) -> Option<&str> {
+        match place {
+            Place::Field { field, .. } => self.symbol_source_name(*field).ok(),
+            Place::Local(local) => {
+                let source = self.single_assigned_source(*local, depth)?;
+                self.terminal_field_name(source, depth.saturating_add(1))
+            }
+            Place::Index { .. } | Place::Global { .. } => None,
+        }
+    }
+
+    /// Recover `name` / `base.field` for a place, following single assignments.
+    ///
+    /// `depth` bounds the walk so a malformed (cyclic) assignment chain cannot
+    /// loop; real chains are a handful of steps.
+    fn place_description(&self, place: &Place, depth: usize) -> Option<String> {
+        match place {
+            Place::Local(local) => self.local_description(*local, depth),
+            Place::Field { base, field } => {
+                let field_name = self.symbol_source_name(*field).ok()?;
+                // A `__smelt_`-prefixed field is a storage key Smelt minted (a
+                // symbol-keyed member, say), not a name the source wrote, so
+                // spelling it would put an internal key in a user-visible
+                // message.
+                if field_name.starts_with("__smelt_") {
+                    return None;
+                }
+                Some(format!("{}.{field_name}", self.local_description(*base, depth)?))
+            }
+            Place::Index { .. } | Place::Global { .. } => None,
+        }
+    }
+
+    /// Recover the source spelling of one local: its binding name, or what the
+    /// single assignment to a compiler temporary read.
+    fn local_description(&self, local: LocalId, depth: usize) -> Option<String> {
+        match self.local_decl(local).ok()?.kind {
+            LocalKind::UserBinding(symbol) | LocalKind::Param { symbol: Some(symbol) } => {
+                return self.symbol_source_name(symbol).ok().map(str::to_owned);
+            }
+            LocalKind::Param { symbol: None } => return None,
+            LocalKind::Temp => {}
+        }
+        let source = self.single_assigned_source(local, depth)?;
+        self.place_description(source, depth.saturating_add(1))
+    }
+
+    /// The place a compiler temporary copies from, when it is assigned exactly
+    /// once by a forwarding copy or a receiver bind.
+    ///
+    /// `depth` bounds the walks built on this so a malformed (cyclic) assignment
+    /// chain cannot loop; real chains are a handful of steps.
+    fn single_assigned_source(&self, local: LocalId, depth: usize) -> Option<&Place> {
+        const MAX_DEPTH: usize = 8;
+        if depth >= MAX_DEPTH || !matches!(self.local_decl(local).ok()?.kind, LocalKind::Temp) {
+            return None;
+        }
+        let mut assigned = self.function.blocks.iter().flat_map(|block| &block.statements).filter_map(
+            |statement| match statement {
+                Statement::Assign { dest, value } if *dest == local => Some(value),
+                _ => None,
+            },
+        );
+        let value = assigned.next()?;
+        if assigned.next().is_some() {
+            return None;
+        }
+        match value {
+            Rvalue::Use(Operand::Copy(place) | Operand::Move(place))
+            | Rvalue::BindThis {
+                callee: Operand::Copy(place) | Operand::Move(place),
+                ..
+            } => Some(place),
+            _ => None,
+        }
     }
 
     /// Render a dictionary literal as a generated record when the destination
@@ -1560,7 +1687,7 @@ impl FunctionEmitter<'_> {
                     // being mistaken for a spread and flattened into its elements.
                     let smelt_call_args = format!("vec![{}]", rendered_args.join(", "));
                     let call_text =
-                        self.dynamic_callable_dispatch_text(&callee_text, &smelt_call_args);
+                        self.dynamic_callable_dispatch_text(&callee_text, &smelt_call_args, self.prototype_method_not_callable(callee).as_deref());
                     let unknown_ty = self.type_id(Type::Unknown)?;
                     if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
                         return Ok(call_text);
@@ -1916,7 +2043,7 @@ impl FunctionEmitter<'_> {
                 // (E0308). An already-`Unknown` callee coerces to itself.
                 let erased_callee =
                     self.value_at_type_text(&callee_text, self.operand_ty(callee)?, unknown_ty, &self.render_scope())?;
-                let call_text = self.dynamic_callable_dispatch_text(&erased_callee, &args_text);
+                let call_text = self.dynamic_callable_dispatch_text(&erased_callee, &args_text, self.prototype_method_not_callable(callee).as_deref());
                 if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
                     return Ok(call_text);
                 }

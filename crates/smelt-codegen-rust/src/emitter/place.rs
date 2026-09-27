@@ -121,11 +121,6 @@ impl FunctionEmitter<'_> {
                                 smelt_stdlib::runtime_symbols::function_length::READ,
                         ));
                     }
-                    if field_rule == Some(smelt_stdlib::FieldRule::TsSort) {
-                        return Ok(format!(
-                            "match {scrutinee} {{ SmeltUnknown::Array(value) => smelt_array_sort_method(value), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"sort\"), _ => SmeltUnknown::Null }}"
-                        ));
-                    }
                     // `AbortController`/`AbortSignal` methods are surfaced as
                     // runtime-helper-bound closures that mutate the shared abort
                     // record (see `smelt_abort_method`). Plain data fields

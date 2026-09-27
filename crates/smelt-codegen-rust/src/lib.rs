@@ -83,6 +83,7 @@ use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, MirGlobalInit, Rv
 
 mod asymmetric_matcher_prelude;
 mod builtin_member_prelude;
+mod erased_method_prelude;
 mod byte_buffer_prelude;
 mod event_emitter_prelude;
 mod host_value_erasure;
@@ -3226,9 +3227,6 @@ fn emit_source_with_free_function_router(
         writer.line("/// Collect an erased `[Symbol.iterator]()` result into its item values.");
         writer.line("fn smelt_unknown_iterator_items(source: SmeltUnknown) -> Vec<SmeltUnknown> { match source { SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string().into())).collect::<Vec<_>>(), SmeltUnknown::Object(object) => { let Some(SmeltUnknown::Function(next)) = object.get(\"next\") else { panic!(\"unknown iterator did not return an iterable\") }; let mut items = Vec::new(); loop { let step = next(vec![]).unwrap_or(SmeltUnknown::Undefined); let SmeltUnknown::Object(step) = step else { break }; if matches!(step.get(\"done\"), Some(SmeltUnknown::Bool(true))) { break; } items.push(step.get(\"value\").unwrap_or(SmeltUnknown::Undefined)); } items } _ => panic!(\"unknown iterator did not return an iterable\") } }");
         writer.blank_line();
-        writer.line("/// Return an erased JavaScript `Array.prototype.sort` method bound to an erased array.");
-        writer.line("fn smelt_array_sort_method(values: SmeltArray) -> SmeltUnknown { SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let mut sorted = values.clone().into_vec(); if let Some(SmeltUnknown::Function(compare)) = args.get(0).cloned() { sorted.sort_by(|left, right| { let result = compare(vec![left.clone(), right.clone()]).unwrap_or(SmeltUnknown::Number(0.0)); let ordering = match result { SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(0.0), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, _ => 0.0 }; if ordering < 0.0 { ::std::cmp::Ordering::Less } else if ordering > 0.0 { ::std::cmp::Ordering::Greater } else { ::std::cmp::Ordering::Equal } }); } else { sorted.sort_by(|left, right| left.to_string().cmp(&right.to_string())); } Ok(SmeltUnknown::Array(sorted.into())) })) }");
-        writer.blank_line();
         // `Function.prototype.apply`/`call` on an erased receiver. A
         // `SmeltUnknown::Function` receiver is not an object, so the plain
         // erased-object field read (`smelt_get_object_field`) finds nothing and
@@ -4259,15 +4257,20 @@ fn emit_source_with_free_function_router(
         // `Array.isArray`) read as values through the shared registry, the same
         // way `Object.prototype`'s members do just above.
         builtin_member_prelude::emit(&mut writer);
+        // `Array.prototype` / `String.prototype` methods on an ERASED receiver,
+        // bound to it at the property read (see `erased_method_prelude` for the
+        // dynamic-boundary argument). Typed lists and strings never read
+        // through here: their methods lower statically.
+        erased_method_prelude::emit(&mut writer);
         // Property reads on an erased ARRAY. A JS array answers `length`, its
-        // element indices, and the named properties written through its side
-        // table; `Array.prototype`'s own methods are lowered statically, so a miss
-        // here is `undefined` rather than a prototype walk.
+        // element indices, the named properties written through its side table
+        // (own properties, so they shadow the prototype), and then
+        // `Array.prototype`'s methods; anything else is `undefined`.
         writer.line("/// Read a property off an erased JavaScript array (`arr.k` / `arr[k]`).");
         writer.line("fn smelt_get_array_field(values: &SmeltArray, field: &str) -> SmeltUnknown {");
         writer.line("    if field == \"length\" { return SmeltUnknown::Number(values.len() as f64); }");
         writer.line("    if let Ok(index) = field.parse::<usize>() { return values.get(index).unwrap_or(SmeltUnknown::Undefined); }");
-        writer.line("    values.named_property(field).unwrap_or(SmeltUnknown::Undefined)");
+        writer.line("    values.named_property(field).or_else(|| smelt_array_prototype_member(values, field)).unwrap_or(SmeltUnknown::Undefined)");
         writer.line("}");
         writer.blank_line();
         // One erased property read for every receiver shape, so `v.k` and `v[k]`
@@ -4308,6 +4311,11 @@ fn emit_source_with_free_function_router(
         writer.line("        SmeltUnknown::Object(map) => match smelt_host_method(map, field).unwrap_or_else(|| smelt_get_object_field(map, field)) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },");
         writer.line("        SmeltUnknown::Array(values) => smelt_get_array_field(values, field),");
         writer.line("        SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:object\" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),");
+        // An erased STRING answers `length`, its character indices and the
+        // `String.prototype` methods (`erased_method_prelude`). The other
+        // `__smelt_proto:` strings are prototype SENTINELS rather than source
+        // text, so they keep answering `undefined` as before.
+        writer.line("        SmeltUnknown::String(text) if !text.starts_with(\"__smelt_proto:\") => smelt_get_string_field(text, field),");
         writer.line("        SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },");
         // A PROMISE reached dynamically still has its continuation members: the
         // typed `p.catch(f)` lowers to an `AsyncOp`, and this is the same
