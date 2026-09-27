@@ -3972,6 +3972,7 @@ impl ModuleBuilder<'_> {
                 // item and this is a no-op.
                 if let Some(init) = &declarator.init {
                     self.lower_pending_mutable_global_init(binding.name.as_str(), init)?;
+                    self.force_module_slot_init(binding.name.as_str(), binding.span, body, block);
                 }
                 continue;
             }

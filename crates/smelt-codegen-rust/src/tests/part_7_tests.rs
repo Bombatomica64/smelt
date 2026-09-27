@@ -3297,6 +3297,41 @@ const selected: unknown = value ? value : fallback;
 
 #[test]
 fn wraps_concrete_records_when_casting_to_erased_intersection_aliases() {
+    // An AMBIENT binding has no initializer, so its read is the erased record
+    // cast to the intersection alias; that cast must wrap the concrete record.
+    // (A binding WITH an initializer, `let defaultOptions: DefaultOptions =
+    // {}`, is a module slot holding its one evaluated value instead — see
+    // `module_bound_intersection_alias_reads_its_slot`.)
+    let source = source_for(
+        r"
+type A = { locale?: unknown };
+type B = { weekStartsOn?: number };
+type DefaultOptions = A & B;
+
+declare const defaultOptions: DefaultOptions;
+
+export function getDefaultOptions(): DefaultOptions {
+  return defaultOptions;
+}
+",
+    );
+
+    assert!(
+        source.contains("let _smelt_tmp_1: SmeltUnknown = SmeltUnknown::Object"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("let _smelt_tmp_1: SmeltUnknown = _smelt_tmp_0.clone();"),
+        "{source}"
+    );
+}
+
+/// A module binding with an initializer, read from a function, reads the
+/// module's ONE value through its slot: `getDefaultOptions() ===
+/// getDefaultOptions()` holds in JavaScript. The read used to fabricate a fresh
+/// empty record per call; the slot's initializer is the source's own `{}`.
+#[test]
+fn module_bound_intersection_alias_reads_its_slot() {
     let source = source_for(
         r"
 type A = { locale?: unknown };
@@ -3312,11 +3347,14 @@ export function getDefaultOptions(): DefaultOptions {
     );
 
     assert!(
-        source.contains("let _smelt_tmp_1: SmeltUnknown = SmeltUnknown::Object"),
+        source.contains("static SMELT_GLOBAL_DEFAULT_OPTIONS_0: ::std::cell::RefCell<SmeltUnknown>"),
         "{source}"
     );
     assert!(
-        !source.contains("let _smelt_tmp_1: SmeltUnknown = _smelt_tmp_0.clone();"),
+        source.contains(
+            "fn get_default_options() -> SmeltUnknown {\n    let _smelt_tmp_0: SmeltUnknown = \
+             SMELT_GLOBAL_DEFAULT_OPTIONS_0.with(|value| value.borrow().clone());"
+        ),
         "{source}"
     );
 }

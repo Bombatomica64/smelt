@@ -1,0 +1,88 @@
+module examples/typescript/end-to-end/142_module_global_reads_see_module_values/input.ts (ModuleId(0))
+  body BodyId(11)
+  items
+    global mut zs: List<Float>
+    global mut seed: Float
+    global mut p: Dict<String, (Float, String)>
+    global mut table: Dict<String, Float>
+    global mut snapshot: Dict<String, Float>
+    fn double__module_examples/typescript/end-to-end/142_module_global_reads_see_module_values/input.ts owner Module
+    fn zero owner Module
+    fn read_p owner Module
+    fn greet owner Module
+    fn lookup owner Module
+    fn snapshot_seed owner Module
+  locals
+    %0 const cnt: fn() -> Float
+    %1 let greeting: String
+  exprs
+    #0: None = global_get @2(p)
+    #1: None = global_get @0(zs)
+    #2: List<Float> = global_get @0(zs)
+    #3: Float = 1.0
+    #4: Float = list_push #2, #3
+    #5: fn() -> Float = closure BodyId(8) captures 0 -> Float
+    #6: String = "hello"
+    #7: None = global_get @3(table)
+    #8: None = global_get @4(snapshot)
+    #9: Float = global_get @1(seed)
+    #10: Float = 10.0
+    #11: Float = global_set @1(seed) = #10
+    #12: String = "k"
+    #13: fn(String) -> String = @6(read_p)
+    #14: String = call #13(#12)
+    #15: None = @15(console_log)
+    #16: None = call #15(#14)
+    #17: fn() -> Float = %0
+    #18: Float = closure_call #17()
+    #19: None = @16(console_log)
+    #20: None = call #19(#18)
+    #21: fn() -> String = @7(greet)
+    #22: String = call #21()
+    #23: None = @17(console_log)
+    #24: None = call #23(#22)
+    #25: String = "four"
+    #26: fn(String) -> Float = @8(lookup)
+    #27: Float = call #26(#25)
+    #28: None = @18(console_log)
+    #29: None = call #28(#27)
+    #30: fn() -> Float = @9(snapshot_seed)
+    #31: Float = call #30()
+    #32: None = @19(console_log)
+    #33: None = call #32(#31)
+  stmts
+    s0: #0
+    s1: #1
+    s2: #4
+    s3: let %0: fn() -> Float = #5
+    s4: let %1: String = #6
+    s5: #7
+    s6: #8
+    s7: #11
+    s8: #16
+    s9: #20
+    s10: #24
+    s11: #29
+    s12: #33
+
+interned types
+  t0 = Float
+  t1 = String
+  t2 = (Float, String)
+  t3 = Dict<String, (Float, String)>
+  t4 = Unknown
+  t5 = Optional<Unknown>
+  t6 = List<Optional<Unknown>>
+  t7 = List<Float>
+  t8 = fn() -> Float
+  t9 = fn(Float) -> Float
+  t10 = Dict<String, Float>
+  t11 = fn() -> Float
+  t12 = fn(String) -> String
+  t13 = fn() -> String
+  t14 = fn(String) -> Float
+  t15 = Optional<(Float, String)>
+  t16 = None
+  t17 = fn(String) -> String
+  t18 = fn() -> String
+  t19 = fn(String) -> Float
