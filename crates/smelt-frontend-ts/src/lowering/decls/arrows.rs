@@ -296,6 +296,21 @@ impl ModuleBuilder<'_> {
             None
         };
 
+        let required_params = Self::arrow_required_params(arrow);
+        // A self-recursive arrow calls its own item from its own body, so the
+        // item has to exist (with its callable signature) before that body is
+        // lowered — exactly as a function declaration is predeclared.
+        let predeclared = self.predeclare_self_recursive_arrow_item(
+            name_text,
+            arrow,
+            &params,
+            rest,
+            required_params,
+            declared_return_ty,
+            preserve_source_name,
+            qualify_private_name,
+        );
+
         let mut errors = Vec::new();
         if let Err(error) = self.apply_parameter_defaults(defaulted_params, &mut body) {
             errors.push(error);
@@ -349,6 +364,7 @@ impl ModuleBuilder<'_> {
         self.current_return_ty = saved_return_ty;
         if let Some(error) = errors.into_iter().next() {
             self.pop_type_parameter_scope();
+            self.unregister_predeclared_arrow_item(name_text, predeclared);
             return Err(error);
         }
         let inferred_return_ty = inferred_return_ty.or_else(|| {
@@ -364,6 +380,7 @@ impl ModuleBuilder<'_> {
         }
             .ok_or_else(|| {
                 self.pop_type_parameter_scope();
+                self.unregister_predeclared_arrow_item(name_text, predeclared);
                 SmeltError::unsupported(
                     self.span(arrow.span.start, arrow.span.end),
                     "block-bodied arrow function constants must have an explicit return type",
@@ -372,7 +389,60 @@ impl ModuleBuilder<'_> {
         self.pop_type_parameter_scope();
 
         let body_id = self.ctx.krate.push_body(body);
-        let name = if preserve_source_name {
+        let name = self.arrow_item_symbol(name_text, preserve_source_name, qualify_private_name);
+        let function_item = Item::Function(Function {
+            name,
+            span: self.span(arrow.span.start, arrow.span.end),
+            // Generic arrow functions are deferred; a lifted arrow item declares
+            // no free-function type params in this increment.
+            type_params: Vec::new(),
+            params,
+            rest: rest.map(|rest| rest.index),
+            required_params: Some(required_params),
+            return_ty,
+            is_async: arrow.r#async,
+            is_test: false,
+            body: Some(body_id),
+            owner: FunctionOwner::Module,
+        });
+        // A predeclared (self-recursive) item is filled in place, so the calls
+        // its own body already lowered keep naming it.
+        let item = if let Some((item, _)) = predeclared {
+            let index = usize::try_from(item.0).unwrap_or(usize::MAX);
+            if let Some(slot) = self.ctx.krate.items.get_mut(index) {
+                *slot = function_item;
+            }
+            item
+        } else {
+            self.ctx.krate.push_item(function_item)
+        };
+        // The arrow's own generics are not materialized on the item (see the
+        // comment above); record them so a call can instantiate them instead
+        // of leaking the raw parameters into its caller.
+        if !arrow_type_params.is_empty() {
+            self.ctx.erased_item_type_params.insert(item, arrow_type_params);
+        }
+        self.items.insert(name_text.to_owned(), item);
+        if let Some(rest) = rest {
+            self.functions.set_rest(name_text.to_owned(), rest);
+            self.ctx.function_rests.insert(name_text.to_owned(), rest);
+        }
+        Ok(item)
+    }
+
+    /// The Rust-facing symbol of a lifted arrow-const item.
+    ///
+    /// `preserve_source_name` keeps an object-table key's exact spelling;
+    /// `qualify_private_name` suffixes a module-private arrow with the module's
+    /// crate-unique identity so same-named helpers in different modules stay
+    /// distinct items; otherwise the source name is interned as-is.
+    fn arrow_item_symbol(
+        &mut self,
+        name_text: &str,
+        preserve_source_name: bool,
+        qualify_private_name: bool,
+    ) -> smelt_hir::Symbol {
+        if preserve_source_name {
             self.intern_exact_source_name(name_text)
         } else if qualify_private_name {
             // The module's crate-unique IDENTITY, not the path it was compiled
@@ -388,43 +458,104 @@ impl ModuleBuilder<'_> {
             self.intern_source_name(&format!("{name_text}__module_{qualifier}"))
         } else {
             self.intern_source_name(name_text)
-        };
+        }
+    }
+
+    /// Number of leading arrow parameters a caller must pass: everything before
+    /// the first optional (`x?`) or defaulted (`x = 1`) parameter.
+    fn arrow_required_params(arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>) -> usize {
+        arrow
+            .params
+            .items
+            .iter()
+            .position(|param| param.optional || Self::formal_parameter_has_default(param))
+            .unwrap_or(arrow.params.items.len())
+    }
+
+    /// Reserve the function item of a SELF-RECURSIVE arrow const before its
+    /// body is lowered, returning the item and the `items` entry it displaced.
+    ///
+    /// `const fact = (n: number): number => n <= 1 ? 1 : n * fact(n - 1)` names
+    /// itself inside its own body. The item used to be pushed only after the
+    /// body was lowered, so the inner `fact(..)` found no item and bound
+    /// `module_global_function_expression`'s default-returning stub: the
+    /// recursion silently answered `0` one level down. A hand-written port is
+    /// a `fn` that calls itself, which is what a body-less item with the final
+    /// callable signature gives the body to call; the caller fills the same
+    /// slot once the body exists.
+    ///
+    /// Only an arrow whose return type is known before its body (an explicit
+    /// annotation, or a contextual function type) is predeclared: the call's
+    /// type is the item's return type. TypeScript itself rejects an
+    /// unannotated self-recursive arrow under `noImplicitAny` (TS7023).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "threads the already-lowered signature pieces the final item reuses"
+    )]
+    fn predeclare_self_recursive_arrow_item(
+        &mut self,
+        name_text: &str,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        params: &[Param],
+        rest: Option<RestParam>,
+        required_params: usize,
+        declared_return_ty: Option<smelt_hir::TypeId>,
+        preserve_source_name: bool,
+        qualify_private_name: bool,
+    ) -> Option<(smelt_hir::ItemId, Option<smelt_hir::ItemId>)> {
+        let return_ty = declared_return_ty?;
+        let body_span = arrow.body.span();
+        let body_text = self
+            .source
+            .get(
+                usize::try_from(body_span.start).unwrap_or(usize::MAX)
+                    ..usize::try_from(body_span.end).unwrap_or(usize::MAX),
+            )
+            .unwrap_or_default();
+        if !Self::mentions_identifier(body_text, name_text) {
+            return None;
+        }
+        let name = self.arrow_item_symbol(name_text, preserve_source_name, qualify_private_name);
         let item = self.ctx.krate.push_item(Item::Function(Function {
             name,
             span: self.span(arrow.span.start, arrow.span.end),
-            // Generic arrow functions are deferred; a lifted arrow item declares
-            // no free-function type params in this increment.
             type_params: Vec::new(),
-            params,
+            params: params.to_vec(),
             rest: rest.map(|rest| rest.index),
-            required_params: Some(
-                arrow
-                    .params
-                    .items
-                    .iter()
-                    .position(|param| {
-                        param.optional || Self::formal_parameter_has_default(param)
-                    })
-                    .unwrap_or(arrow.params.items.len()),
-            ),
-return_ty,
+            required_params: Some(required_params),
+            return_ty,
             is_async: arrow.r#async,
             is_test: false,
-            body: Some(body_id),
+            body: None,
             owner: FunctionOwner::Module,
         }));
-        // The arrow's own generics are not materialized on the item (see the
-        // comment above); record them so a call can instantiate them instead
-        // of leaking the raw parameters into its caller.
-        if !arrow_type_params.is_empty() {
-            self.ctx.erased_item_type_params.insert(item, arrow_type_params);
-        }
-        self.items.insert(name_text.to_owned(), item);
+        let displaced = self.items.insert(name_text.to_owned(), item);
         if let Some(rest) = rest {
             self.functions.set_rest(name_text.to_owned(), rest);
             self.ctx.function_rests.insert(name_text.to_owned(), rest);
         }
-        Ok(item)
+        Some((item, displaced))
+    }
+
+    /// Undo `predeclare_self_recursive_arrow_item`'s `items` registration when
+    /// the arrow's body failed to lower, so later reads do not call a body-less
+    /// item.
+    fn unregister_predeclared_arrow_item(
+        &mut self,
+        name_text: &str,
+        predeclared: Option<(smelt_hir::ItemId, Option<smelt_hir::ItemId>)>,
+    ) {
+        let Some((_, displaced)) = predeclared else {
+            return;
+        };
+        match displaced {
+            Some(previous) => {
+                self.items.insert(name_text.to_owned(), previous);
+            }
+            None => {
+                self.items.remove(name_text);
+            }
+        }
     }
 
     /// Pick the public return type for a lowered arrow-const function item.

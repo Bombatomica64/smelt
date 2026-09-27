@@ -57,6 +57,33 @@ fn smelt_panic_message(panic: &(dyn ::std::any::Any + Send)) -> String { if let 
 /// Recover the error class a `catch` observes from a caught panic.
 fn smelt_panic_class(panic: &(dyn ::std::any::Any + Send)) -> String { panic.downcast_ref::<SmeltPanic>().map_or_else(|| "Error".to_owned(), |payload| payload.class.clone()) }
 thread_local! {
+    static SMELT_VIRTUAL_MS: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(0) };
+    static SMELT_TIMER_EPOCH: ::std::cell::Cell<Option<::std::time::Instant>> = const { ::std::cell::Cell::new(None) };
+}
+
+/// Monotonic virtual + wall clock (ms) shared by JS timers and `Date.now()`.
+///
+/// Returns real elapsed wall time since a fixed epoch plus the virtual
+/// fast-forward accumulated by `sleep`/timer draining, so `setTimeout`
+/// deadlines and `Date.now()` measurements share one timeline.
+fn smelt_mono_ms() -> u64 {
+    let epoch = SMELT_TIMER_EPOCH.with(|epoch| match epoch.get() {
+        Some(instant) => instant,
+        None => { let instant = ::std::time::Instant::now(); epoch.set(Some(instant)); instant }
+    });
+    let real_ms = ::std::time::Instant::now().saturating_duration_since(epoch).as_millis() as u64;
+    real_ms.saturating_add(SMELT_VIRTUAL_MS.with(::std::cell::Cell::get))
+}
+
+/// Fast-forward the virtual clock so `smelt_mono_ms()` reaches `target_ms`.
+fn smelt_virtual_advance_to(target_ms: u64) {
+    let now = smelt_mono_ms();
+    if target_ms > now {
+        SMELT_VIRTUAL_MS.with(|virtual_ms| virtual_ms.set(virtual_ms.get().saturating_add(target_ms - now)));
+    }
+}
+
+thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
 
@@ -1456,6 +1483,7 @@ impl SmeltPromise {
             if let Some(result) = self.state.borrow().clone() {
                 return result.map_err(smelt_throw);
             }
+            smelt_sleep_ms(0.0).await;
             tokio::task::yield_now().await;
         }
     }
@@ -2366,6 +2394,209 @@ impl Default for SmeltUnknown {
     }
 }
 
+struct SmeltTimer {
+    id: u64,
+    due_ms: u64,
+    callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>,
+    // `Some(period)` marks a repeating `setInterval` timer that re-arms
+    // itself `period` ms after each fire; `None` is a one-shot `setTimeout`.
+    period_ms: Option<u64>,
+}
+
+thread_local! {
+    static SMELT_NEXT_TIMER_ID: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(1) };
+    static SMELT_TIMERS: ::std::cell::RefCell<Vec<SmeltTimer>> = const { ::std::cell::RefCell::new(Vec::new()) };
+    static SMELT_PROMISE_TASKS: ::std::cell::RefCell<Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>>> = const { ::std::cell::RefCell::new(Vec::new()) };
+    // Non-zero while a `Promise.race` driver owns the event loop; see
+    // `smelt_promise_race`.
+    static SMELT_RACE_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
+}
+
+fn smelt_reset_timers() {
+    SMELT_NEXT_TIMER_ID.with(|next| next.set(1));
+    SMELT_VIRTUAL_MS.with(|virtual_ms| virtual_ms.set(0));
+    SMELT_TIMER_EPOCH.with(|epoch| epoch.set(None));
+    SMELT_TIMERS.with(|timers| timers.borrow_mut().clear());
+    SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().clear());
+    SMELT_RACE_DEPTH.with(|depth| depth.set(0));
+    SMELT_PRIME_DEPTH.with(|depth| depth.set(0));
+}
+
+fn smelt_noop_waker() -> ::std::task::Waker {
+    unsafe fn clone(_: *const ()) -> ::std::task::RawWaker { smelt_raw_waker() }
+    unsafe fn wake(_: *const ()) {}
+    unsafe fn wake_by_ref(_: *const ()) {}
+    unsafe fn drop(_: *const ()) {}
+    fn smelt_raw_waker() -> ::std::task::RawWaker { ::std::task::RawWaker::new(::std::ptr::null(), &::std::task::RawWakerVTable::new(clone, wake, wake_by_ref, drop)) }
+    unsafe { ::std::task::Waker::from_raw(smelt_raw_waker()) }
+}
+
+fn smelt_spawn_promise_task(task: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>) {
+    SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().push(task));
+}
+
+async fn smelt_drain_promise_tasks() {
+    for _ in 0..64 {
+        let mut tasks = SMELT_PROMISE_TASKS.with(|tasks| ::std::mem::take(&mut *tasks.borrow_mut()));
+        if tasks.is_empty() { break; }
+        let waker = smelt_noop_waker();
+        let mut cx = ::std::task::Context::from_waker(&waker);
+        let mut pending = Vec::new();
+        for mut task in tasks.drain(..) {
+            if task.as_mut().poll(&mut cx).is_pending() { pending.push(task); }
+        }
+        let had_pending = !pending.is_empty();
+        SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().extend(pending));
+        if !had_pending { break; }
+        tokio::task::yield_now().await;
+    }
+}
+
+fn smelt_set_timeout(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, delay_ms: f64) -> SmeltUnknown {
+    let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });
+    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };
+    let due_ms = smelt_mono_ms().saturating_add(delay_ms);
+    SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback, period_ms: None }));
+    SmeltUnknown::Number(id as f64)
+}
+
+fn smelt_set_interval(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, period_ms: f64) -> SmeltUnknown {
+    let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });
+    // Clamp non-positive periods to 1 ms so an interval still advances virtual
+    // time and cannot busy-loop the drain at the current instant.
+    let period_ms = if period_ms.is_finite() && period_ms > 0.0 { period_ms as u64 } else { 1 };
+    let due_ms = smelt_mono_ms().saturating_add(period_ms);
+    SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback, period_ms: Some(period_ms) }));
+    SmeltUnknown::Number(id as f64)
+}
+
+fn smelt_clear_timeout<T: IntoSmeltUnknown>(handle: T) {
+    let SmeltUnknown::Number(id) = handle.into_smelt_unknown() else { return; };
+    let id = id as u64;
+    SMELT_TIMERS.with(|timers| timers.borrow_mut().retain(|timer| timer.id != id));
+}
+
+fn smelt_clear_interval<T: IntoSmeltUnknown>(handle: T) { smelt_clear_timeout(handle) }
+
+fn smelt_drain_due_timers(id_barrier: u64) {
+    loop {
+        let now = smelt_mono_ms();
+        let due = SMELT_TIMERS.with(|timers| {
+            let mut timers = timers.borrow_mut();
+            let mut due = Vec::new();
+            let mut pending = Vec::new();
+            for timer in timers.drain(..) {
+                if timer.due_ms <= now && timer.id < id_barrier { due.push(timer); } else { pending.push(timer); }
+            }
+            *timers = pending;
+            due
+        });
+        if due.is_empty() { break; }
+        for timer in due {
+            (&mut *timer.callback.borrow_mut())().unwrap_or_else(|error| smelt_panic_throw(error));
+            // Re-arm repeating `setInterval` timers for their next period. The
+            // next fire is scheduled `period` ms from the current virtual time, so
+            // it is strictly in the future and cannot re-fire within this drain pass.
+            if let Some(period_ms) = timer.period_ms {
+                let next_due = now.saturating_add(period_ms);
+                SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id: timer.id, due_ms: next_due, callback: timer.callback.clone(), period_ms: Some(period_ms) }));
+            }
+        }
+    }
+}
+
+async fn smelt_sleep_ms(delay_ms: f64) {
+    if SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; }
+    smelt_drain_promise_tasks().await;
+    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };
+    let target_ms = smelt_mono_ms().saturating_add(delay_ms);
+    if delay_ms > 0 && SMELT_RACE_DEPTH.with(::std::cell::Cell::get) > 0 {
+        let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });
+        let callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(|| Ok(())));
+        SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms: target_ms, callback, period_ms: None }));
+        while smelt_mono_ms() < target_ms { tokio::task::yield_now().await; }
+        smelt_drain_promise_tasks().await;
+        return;
+    }
+    let id_barrier = if delay_ms == 0 { SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get) } else { u64::MAX };
+    let mut fired_any = false;
+    loop {
+        let next_due = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.due_ms <= target_ms && timer.id < id_barrier).map(|timer| timer.due_ms).min());
+        let Some(next_due) = next_due else { break; };
+        fired_any = true;
+        smelt_virtual_advance_to(next_due);
+        smelt_drain_due_timers(id_barrier);
+        smelt_drain_promise_tasks().await;
+    }
+    smelt_virtual_advance_to(target_ms);
+    'idle: {
+        // A `Promise.race` driver owns the clock while it is running: if a
+        // racer advanced time here, polling one racer could fire ANOTHER
+        // racer's timer, so both settle in the same round and the winner
+        // stops being the one that finished first. Yield instead and let
+        // `smelt_promise_race` take exactly one timer step per round.
+        if delay_ms != 0 || fired_any || SMELT_RACE_DEPTH.with(::std::cell::Cell::get) > 0 { break 'idle; }
+        let tasks_pending = SMELT_PROMISE_TASKS.with(|tasks| !tasks.borrow().is_empty());
+        if tasks_pending { break 'idle; }
+        let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());
+        let Some(earliest) = earliest else { break 'idle; };
+        smelt_virtual_advance_to(earliest);
+        smelt_drain_due_timers(id_barrier);
+        smelt_drain_promise_tasks().await;
+    }
+    smelt_drain_promise_tasks().await;
+    if SMELT_RACE_DEPTH.with(::std::cell::Cell::get) == 0 { tokio::task::yield_now().await; }
+}
+
+thread_local! {
+    /// Open handles that keep the program alive, in Node's sense.
+    static SMELT_LIVE_HANDLES: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
+}
+/// Register a handle that must keep the program from exiting.
+#[allow(dead_code)]
+fn smelt_retain_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handles.get().saturating_add(1))); }
+/// Release a handle registered by `smelt_retain_handle`.
+#[allow(dead_code)]
+fn smelt_release_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handles.get().saturating_sub(1))); }
+/// Run the event loop until the program is allowed to exit.
+///
+/// First the ordinary run-until-idle drain, then Node's ref'd-handle
+/// rule: stay alive while any handle is open. Polling (rather than a
+/// notification) is deliberate -- this loop runs once, at the very end of
+/// the program, and only while a handle really is open, so its cost is a
+/// wakeup every few milliseconds in a process that is otherwise just
+/// serving.
+#[allow(dead_code)]
+async fn smelt_run_until_exit() {
+    smelt_sleep_ms(0.0).await;
+    while SMELT_LIVE_HANDLES.with(::std::cell::Cell::get) > 0 {
+        tokio::time::sleep(::std::time::Duration::from_millis(5)).await;
+    }
+}
+
+async fn smelt_promise_race<T>(mut racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>>) -> Result<T, Box<dyn std::error::Error>> {
+    struct SmeltRaceGuard;
+    impl Drop for SmeltRaceGuard { fn drop(&mut self) { SMELT_RACE_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1))); } }
+    SMELT_RACE_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
+    let _smelt_race_guard = SmeltRaceGuard;
+    loop {
+        let waker = smelt_noop_waker();
+        let mut cx = ::std::task::Context::from_waker(&waker);
+        for racer in racers.iter_mut() {
+            if let ::std::task::Poll::Ready(result) = ::std::future::Future::poll(racer.as_mut(), &mut cx) { return result; }
+        }
+        smelt_drain_promise_tasks().await;
+        let id_barrier = SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get);
+        let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());
+        if let Some(earliest) = earliest {
+            smelt_virtual_advance_to(earliest);
+            smelt_drain_due_timers(id_barrier);
+            smelt_drain_promise_tasks().await;
+        }
+        tokio::task::yield_now().await;
+    }
+}
+
 impl SmeltUnknown {
     /// Returns the JavaScript-style length for unknown string, array, and object values.
     pub fn len(&self) -> usize {
@@ -2772,31 +3003,6 @@ impl<K, T> IntoSmeltUnknown for ::std::collections::HashMap<K, T> where K: IntoS
 impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, T: IntoSmeltUnknown + Clone {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-struct InitLike {
-    headers: Option<SmeltHeaders>,
-    status: Option<f64>,
-}
-impl IntoSmeltUnknown for InitLike {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("headers".to_owned(), self.headers.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
-        ("status".to_owned(), self.status.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
-        ])))
-    }
-}
-impl SmeltFromUnknown for InitLike {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("status") {
-                result.status = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
     }
 }
 
@@ -3562,26 +3768,63 @@ impl SmeltFromUnknown for SmeltResponse {
     }
 }
 
+#[allow(dead_code)]
+struct Counter(::std::rc::Rc<::std::cell::RefCell<CounterInner>>);
+#[derive(Debug, Default)]
+#[allow(dead_code)]
+struct CounterInner {
+    total: f64,
+}
+impl Clone for Counter {
+    fn clone(&self) -> Self {
+        Counter(::std::rc::Rc::clone(&self.0))
+    }
+}
+impl PartialEq for Counter {
+    fn eq(&self, other: &Self) -> bool {
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Default for Counter {
+    fn default() -> Self {
+        Counter(::std::rc::Rc::new(::std::cell::RefCell::new(CounterInner::default())))
+    }
+}
+impl ::std::fmt::Debug for Counter {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
+    }
+}
+impl IntoSmeltUnknown for Counter {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let __smelt_id = smelt_reference_object_identity(::std::rc::Rc::as_ptr(&self.0) as usize);
+        let __smelt_proto = self.__smelt_proto_entries();
+        let __smelt_inner = self.0.borrow();
+        let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
+        ("total".to_owned(), SmeltUnknown::Number(__smelt_inner.total.clone() as f64)),
+        ]);
+        __smelt_entries.extend(__smelt_proto);
+        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))
+    }
+}
+
 #[derive(Clone)]
 pub enum SmeltUnion3 {
-    M0(f64),
-    M1(InitLike),
-    M2(SmeltResponse),
+    M0(SmeltResponse),
+    M1(SmeltFuture<SmeltResponse>),
 }
 impl IntoSmeltUnknown for SmeltUnion3 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
-            Self::M0(value) => SmeltUnknown::Number(value as f64),
-            Self::M1(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); if let Some(value) = smelt_object_value.headers.clone() { smelt_object_entries.push(("headers".to_owned(), value.clone().into_smelt_unknown())); } if let Some(value) = smelt_object_value.status.clone() { smelt_object_entries.push(("status".to_owned(), SmeltUnknown::Number(value as f64))); } SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },
-            Self::M2(value) => value.clone().into_smelt_unknown(),
+            Self::M0(value) => value.clone().into_smelt_unknown(),
+            Self::M1(value) => { let smelt_future = value; SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { let smelt_value = smelt_future.await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_value.clone().into_smelt_unknown()) }))) },
         }
     }
 }
 impl SmeltUnion3 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Number(_)) { return Self::M0(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }); }
-        if matches!(value, SmeltUnknown::Object(_)) { return Self::M1(match (value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); InitLike { headers: smelt_record_map.get("headers").or_else(|| smelt_record_map.get("__smelt_proto:headers")).or_else(|| smelt_record_map.get("__smelt_method:headers")).cloned().map(|value| <SmeltHeaders as SmeltFromUnknown>::smelt_from_unknown(value.clone())), status: smelt_record_map.get("status").or_else(|| smelt_record_map.get("__smelt_proto:status")).or_else(|| smelt_record_map.get("__smelt_method:status")).cloned().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } } }, _ => Default::default() }); }
-        Self::M2(<SmeltResponse as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(<SmeltResponse as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        Self::M1({ let smelt_erased_future = (value).into_smelt_unknown(); SmeltFuture::from_future(Box::pin(async move { let smelt_awaited = smelt_await_flatten(smelt_erased_future).await?; Ok::<_, Box<dyn std::error::Error>>(<SmeltResponse as SmeltFromUnknown>::smelt_from_unknown(smelt_awaited.clone())) })) })
     }
 }
 impl PartialEq for SmeltUnion3 {
@@ -3603,104 +3846,65 @@ impl ::std::fmt::Debug for SmeltUnion3 {
 }
 impl Default for SmeltUnion3 {
     fn default() -> Self {
-        Self::M0(0.0)
-    }
-}
-
-#[derive(Clone)]
-pub enum SmeltUnion7 {
-    M0(InitLike),
-    M1(SmeltResponse),
-}
-impl IntoSmeltUnknown for SmeltUnion7 {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        match self {
-            Self::M0(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); if let Some(value) = smelt_object_value.headers.clone() { smelt_object_entries.push(("headers".to_owned(), value.clone().into_smelt_unknown())); } if let Some(value) = smelt_object_value.status.clone() { smelt_object_entries.push(("status".to_owned(), SmeltUnknown::Number(value as f64))); } SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },
-            Self::M1(value) => value.clone().into_smelt_unknown(),
-        }
-    }
-}
-impl SmeltUnion7 {
-    fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(match (value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); InitLike { headers: smelt_record_map.get("headers").or_else(|| smelt_record_map.get("__smelt_proto:headers")).or_else(|| smelt_record_map.get("__smelt_method:headers")).cloned().map(|value| <SmeltHeaders as SmeltFromUnknown>::smelt_from_unknown(value.clone())), status: smelt_record_map.get("status").or_else(|| smelt_record_map.get("__smelt_proto:status")).or_else(|| smelt_record_map.get("__smelt_method:status")).cloned().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } } }, _ => Default::default() }); }
-        Self::M1(<SmeltResponse as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
-    }
-}
-impl PartialEq for SmeltUnion7 {
-    fn eq(&self, other: &Self) -> bool {
-        self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
-    }
-}
-impl SmeltFromUnknown for SmeltUnion7 {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
-}
-impl SmeltJsKeyEq for SmeltUnion7 {
-    fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
-    fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
-}
-impl ::std::fmt::Debug for SmeltUnion7 {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
-    }
-}
-impl Default for SmeltUnion7 {
-    fn default() -> Self {
-        Self::M0(Default::default())
+        Self::M0(SmeltResponse::new())
     }
 }
 
 // @smelt:prelude-end — generated program below
-fn main() {
-    let _smelt_tmp_7: SmeltRecord<String, String>;
-    let _smelt_tmp_8: SmeltResponse;
-    let _smelt_tmp_11: SmeltRecord<String, f64>;
-    let _smelt_tmp_14: SmeltList<String>;
-    let _smelt_tmp_15: SmeltList<SmeltList<String>>;
-    let _smelt_tmp_16: SmeltHeaders;
-    let _smelt_tmp_17: SmeltRecord<String, SmeltHeaders>;
-    let _smelt_tmp_20: SmeltRecord<String, String>;
-    let _smelt_tmp_21: SmeltResponse;
-    let _smelt_tmp_24: SmeltRecord<String, f64>;
-    let _smelt_tmp_29: SmeltRecord<String, f64>;
-    let _smelt_tmp_32: SmeltResponse;
-    let _smelt_tmp_1: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x-a".to_owned(), "from-init".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_2: SmeltList<SmeltList<String>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_1.clone()]; smelt_list_items }));
-    let _smelt_tmp_3: SmeltHeaders = SmeltHeaders::from_pairs(_smelt_tmp_2.to_vec().into_iter().filter_map(|smelt_pair| { let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }).collect::<Vec<(String, String)>>());
-    let _smelt_tmp_4: InitLike = InitLike { headers: Some(_smelt_tmp_3), status: None::<f64> };
-    let init: InitLike = _smelt_tmp_4;
-    let _smelt_tmp_5: String = header_of(SmeltUnion7::M0(init), "x-a".to_owned());
-    let _ = { println!("{}", _smelt_tmp_5); };
-    _smelt_tmp_7 = SmeltRecord::from([("x-a".to_owned(), "from-response".to_owned())]);
-    _smelt_tmp_8 = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_7.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"body".to_owned()));
-    let _smelt_tmp_9: String = header_of(SmeltUnion7::M1(_smelt_tmp_8), "x-a".to_owned());
-    let _ = { println!("{}", _smelt_tmp_9); };
-    _smelt_tmp_11 = SmeltRecord::from([("status".to_owned(), 204.0)]);
-    let _smelt_tmp_12: String = header_of(SmeltUnion7::M0({ let smelt_record_map = _smelt_tmp_11.clone(); InitLike { headers: None, status: smelt_record_map.get("status").cloned().map(|value| value) } }), "x-a".to_owned());
-    let _ = { println!("{}", _smelt_tmp_12); };
-    _smelt_tmp_14 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x-b".to_owned(), "init".to_owned()]; smelt_list_items }));
-    _smelt_tmp_15 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_14.clone()]; smelt_list_items }));
-    _smelt_tmp_16 = SmeltHeaders::from_pairs(_smelt_tmp_15.to_vec().into_iter().filter_map(|smelt_pair| { let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }).collect::<Vec<(String, String)>>());
-    _smelt_tmp_17 = SmeltRecord::from([("headers".to_owned(), _smelt_tmp_16)]);
-    let _smelt_tmp_18: String = status_header_of(SmeltUnion3::M1({ let smelt_record_map = _smelt_tmp_17.clone(); InitLike { headers: smelt_record_map.get("headers").cloned().map(|value| value), status: None } }));
-    let _ = { println!("{}", _smelt_tmp_18); };
-    _smelt_tmp_20 = SmeltRecord::from([("x-b".to_owned(), "response".to_owned())]);
-    _smelt_tmp_21 = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_20.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"body".to_owned()));
-    let _smelt_tmp_22: String = status_header_of(SmeltUnion3::M2(_smelt_tmp_21));
-    let _ = { println!("{}", _smelt_tmp_22); };
-    _smelt_tmp_24 = SmeltRecord::from([("status".to_owned(), 201.0)]);
-    let _smelt_tmp_25: String = status_header_of(SmeltUnion3::M1({ let smelt_record_map = _smelt_tmp_24.clone(); InitLike { headers: None, status: smelt_record_map.get("status").cloned().map(|value| value) } }));
-    let _ = { println!("{}", _smelt_tmp_25); };
-    let _smelt_tmp_27: String = status_header_of(SmeltUnion3::M0(204.0));
-    let _ = { println!("{}", _smelt_tmp_27); };
-    _smelt_tmp_29 = SmeltRecord::from([("status".to_owned(), 201.0)]);
-    let _smelt_tmp_30: f64 = status_of(SmeltUnion3::M1({ let smelt_record_map = _smelt_tmp_29.clone(); InitLike { headers: None, status: smelt_record_map.get("status").cloned().map(|value| value) } }));
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_30)); };
-    _smelt_tmp_32 = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::new(), SmeltBody::from_text(&"body".to_owned()));
-    let _smelt_tmp_33: f64 = status_of(SmeltUnion3::M2(_smelt_tmp_32));
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_33)); };
-    let _smelt_tmp_35: f64 = status_of(SmeltUnion3::M0(418.0));
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_35)); };
-    return;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+let smelt_local = tokio::task::LocalSet::new();
+smelt_local.block_on(&smelt_runtime, async move {
+    let _smelt_tmp_1: ();
+    let _smelt_tmp_3: ();
+    let _smelt_tmp_0 = SmeltFuture::from_future(Box::pin(run()));
+    _smelt_tmp_1 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_0.await; })); () };
+    let _smelt_tmp_2: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
+    _smelt_tmp_3 = _smelt_tmp_2.await?;
+    return Ok(());
+})
+}
+
+impl Counter {
+    fn new() -> Self {
+    let mut this: Self = Counter(::std::rc::Rc::new(::std::cell::RefCell::new(CounterInner { total: 0.0 })));
+    this.0.borrow_mut().total = 0.0;
+    return this;
+    }
+    fn bump(&self) -> f64 {
+    let _smelt_tmp_1: f64 = add__module_main(self.0.borrow().total.clone(), Some(2.0));
+    self.0.borrow_mut().total = _smelt_tmp_1;
+    let _smelt_tmp_2: f64 = add__module_main(self.0.borrow().total.clone(), None::<f64>);
+    return _smelt_tmp_2;
+    }
+    fn __smelt_get_label(&self) -> String {
+    let _smelt_tmp_3: String;
+    let _smelt_tmp_4: SmeltList<String>;
+    let _smelt_tmp_1: String = smelt_number_to_string(self.0.borrow().total.clone());
+    let _smelt_tmp_2: f64 = fact__module_main(4.0);
+    _smelt_tmp_3 = smelt_number_to_string(_smelt_tmp_2);
+    _smelt_tmp_4 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![_smelt_tmp_1.clone(), _smelt_tmp_3.clone()]; smelt_list_items }));
+    let _smelt_tmp_5: String = join("c".to_owned(), _smelt_tmp_4);
+    return _smelt_tmp_5;
+    }
+    fn reply(&self) -> SmeltUnion3 {
+    let _smelt_tmp_1: String = "ok:".to_owned() + &smelt_number_to_string(self.0.borrow().total.clone());
+    let _smelt_tmp_2: SmeltResponse = respond__module_main(_smelt_tmp_1, Some(201.0));
+    return SmeltUnion3::M0(_smelt_tmp_2);
+    }
+    /// Prototype-carried members of this class, as receiver-bound erased functions.
+    ///
+    /// Keyed under the runtime's `__smelt_method:` prefix, which `smelt_get_object_field`
+    /// resolves after the own property misses, and which key enumeration, structural
+    /// equality, hashing and JSON all skip -- a class's methods are non-enumerable.
+    #[allow(dead_code)]
+    fn __smelt_proto_entries(&self) -> Vec<(String, SmeltUnknown)> {
+        let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();
+        smelt_proto_entries.push(("__smelt_method:bump".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.bump(); Ok(SmeltUnknown::Number(smelt_result as f64)) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Counter::bump")); SmeltUnknown::Function(smelt_method) }));
+        smelt_proto_entries.push(("__smelt_method:reply".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.reply(); Ok((smelt_result).into_smelt_unknown()) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Counter::reply")); SmeltUnknown::Function(smelt_method) }));
+        smelt_proto_entries
+    }
 }
 
 // ==== source_main.rs
@@ -3710,108 +3914,251 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn header_of(arg: SmeltUnion7, name: String) -> String {
-    let headers: Option<SmeltHeaders>;
-    let mut _smelt_tmp_4: Option<SmeltHeaders>;
-    let _smelt_tmp_5: SmeltResponse;
-    let _smelt_tmp_6: SmeltHeaders;
-    let _smelt_tmp_7: InitLike;
-    let _smelt_tmp_8: Option<SmeltHeaders>;
-    let _smelt_tmp_9: bool;
-    let _smelt_tmp_10: SmeltHeaders;
-    let _smelt_tmp_11: Option<String>;
-    let _smelt_tmp_12: String;
-    let _smelt_tmp_3: bool = matches!(arg.clone(), SmeltUnion7::M1(_));
-    let mut _smelt_tmp_4: Option<SmeltHeaders> = None::<SmeltHeaders>;
-    if _smelt_tmp_3 {
-    _smelt_tmp_5 = match arg.clone() { SmeltUnion7::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_6 = _smelt_tmp_5.headers();
-    _smelt_tmp_4 = Some(_smelt_tmp_6);
-    } else {
-    _smelt_tmp_7 = match arg.clone() { SmeltUnion7::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_4 = _smelt_tmp_7.headers.clone();
-    }
-    _smelt_tmp_8 = _smelt_tmp_4;
-    headers = _smelt_tmp_8;
-    _smelt_tmp_9 = headers.clone().is_none();
-    if _smelt_tmp_9 {
-    return "none".to_owned();
-    } else {
-    _smelt_tmp_10 = headers.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_11 = _smelt_tmp_10.get(&name.clone());
-    _smelt_tmp_12 = _smelt_tmp_11.clone().unwrap_or("none".to_owned());
-    return _smelt_tmp_12;
-    }
-}
-
-pub(crate) fn status_header_of(arg: SmeltUnion3) -> String {
-    let headers: Option<SmeltHeaders>;
-    let _smelt_tmp_3: SmeltUnion7;
-    let _smelt_tmp_4: bool;
-    let mut _smelt_tmp_5: Option<SmeltHeaders>;
-    let _smelt_tmp_6: SmeltResponse;
-    let _smelt_tmp_7: SmeltHeaders;
-    let _smelt_tmp_8: InitLike;
-    let _smelt_tmp_9: Option<SmeltHeaders>;
-    let _smelt_tmp_10: bool;
-    let _smelt_tmp_11: SmeltHeaders;
-    let _smelt_tmp_12: Option<String>;
-    let _smelt_tmp_13: String;
-    let _smelt_tmp_2: bool = matches!(arg.clone(), SmeltUnion3::M1(_) | SmeltUnion3::M2(_));
-    if _smelt_tmp_2 {
-    _smelt_tmp_3 = match arg.clone() { SmeltUnion3::M1(value) => SmeltUnion7::M0(value), SmeltUnion3::M2(value) => SmeltUnion7::M1(value), _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_4 = matches!(_smelt_tmp_3.clone(), SmeltUnion7::M1(_));
-    if _smelt_tmp_4 {
-    _smelt_tmp_6 = match _smelt_tmp_3 { SmeltUnion7::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_7 = _smelt_tmp_6.headers();
-    _smelt_tmp_5 = Some(_smelt_tmp_7);
-    } else {
-    _smelt_tmp_8 = match _smelt_tmp_3 { SmeltUnion7::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_5 = _smelt_tmp_8.headers.clone();
-    }
-    _smelt_tmp_9 = _smelt_tmp_5;
-    headers = _smelt_tmp_9;
-    _smelt_tmp_10 = !(headers.clone().is_none());
-    if _smelt_tmp_10 {
-    _smelt_tmp_11 = headers.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_12 = _smelt_tmp_11.get(&"x-b".to_owned());
-    _smelt_tmp_13 = _smelt_tmp_12.clone().unwrap_or("none".to_owned());
-    return _smelt_tmp_13;
-    }
-    }
-    return "not-an-object".to_owned();
-}
-
-pub(crate) fn status_of(arg: SmeltUnion3) -> f64 {
-    let _smelt_tmp_2: SmeltUnion7;
-    let _smelt_tmp_3: bool;
-    let mut _smelt_tmp_4: Option<f64>;
-    let _smelt_tmp_5: SmeltResponse;
-    let _smelt_tmp_6: f64;
-    let _smelt_tmp_7: InitLike;
-    let _smelt_tmp_8: Option<f64>;
-    let _smelt_tmp_9: f64;
+pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let counter: Counter;
+    let reply: SmeltResponse;
+    let _smelt_tmp_9: SmeltResponse;
     let _smelt_tmp_10: f64;
-    let _smelt_tmp_11: f64;
-    let _smelt_tmp_1: bool = matches!(arg.clone(), SmeltUnion3::M1(_) | SmeltUnion3::M2(_));
+    let _smelt_tmp_12: String;
+    let _smelt_tmp_15: SmeltList<String>;
+    let _smelt_tmp_2: Counter = Counter::new();
+    counter = _smelt_tmp_2;
+    let _smelt_tmp_3: f64 = counter.bump();
+    let _smelt_tmp_4: f64 = counter.bump();
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_3), smelt_console_number(_smelt_tmp_4)); };
+    let _ = { println!("{}", counter.__smelt_get_label().clone()); };
+    let _smelt_tmp_7: SmeltUnion3 = counter.reply();
+    let _smelt_tmp_8: SmeltFuture<SmeltResponse> = match _smelt_tmp_7 { SmeltUnion3::M0(value) => SmeltFuture::<SmeltResponse>::resolved(value), SmeltUnion3::M1(value) => value };
+    _smelt_tmp_9 = _smelt_tmp_8.await?;
+    reply = _smelt_tmp_9;
+    _smelt_tmp_10 = reply.clone().status();
+    let _smelt_tmp_11: SmeltFuture<String> = { let smelt_response = reply.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
+    _smelt_tmp_12 = _smelt_tmp_11.await?;
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_10), _smelt_tmp_12); };
+    let _smelt_tmp_14: f64 = fact__module_main(5.0);
+    _smelt_tmp_15 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["b".to_owned(), "c".to_owned()]; smelt_list_items }));
+    let _smelt_tmp_16: String = join("a".to_owned(), _smelt_tmp_15);
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_14), _smelt_tmp_16); };
+    let _smelt_tmp_18: Option<String> = scan__module_main("http://x/?a=1&b".to_owned(), Some("a".to_owned()), None::<bool>);
+    let _ = { println!("{}", match &_smelt_tmp_18 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _smelt_tmp_20: Option<String> = scan__module_main("http://x/".to_owned(), Some("a".to_owned()), None::<bool>);
+    let _ = { println!("{}", match &_smelt_tmp_20 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _smelt_tmp_22: Option<String> = scan__module_main("http://x/?z=1&y".to_owned(), None::<String>, Some(true));
+    let _ = { println!("{}", match &_smelt_tmp_22 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    return Ok(());
+}
+
+pub(crate) fn respond__module_main(text: String, status: Option<f64>) -> SmeltResponse {
+    let _smelt_tmp_2: f64 = status.clone().clone().unwrap_or(200.0);
+    let _smelt_tmp_3: SmeltResponse = SmeltResponse::from_parts(_smelt_tmp_2, String::new(), SmeltHeaders::new(), SmeltBody::from_text(&text.clone()));
+    return _smelt_tmp_3;
+}
+
+pub(crate) fn add__module_main(a: f64, b: Option<f64>) -> f64 {
+    let _smelt_tmp_2: f64 = b.clone().clone().unwrap_or(1.0);
+    let _smelt_tmp_3: f64 = a + _smelt_tmp_2;
+    return _smelt_tmp_3;
+}
+
+pub(crate) fn fact__module_main(n: f64) -> f64 {
+    let mut _smelt_tmp_2: f64;
+    let _smelt_tmp_3: f64;
+    let _smelt_tmp_5: f64;
+    let _smelt_tmp_1: bool = n <= 1.0;
     if _smelt_tmp_1 {
-    _smelt_tmp_2 = match arg.clone() { SmeltUnion3::M1(value) => SmeltUnion7::M0(value), SmeltUnion3::M2(value) => SmeltUnion7::M1(value), _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_3 = matches!(_smelt_tmp_2.clone(), SmeltUnion7::M1(_));
-    let mut _smelt_tmp_4: Option<f64> = None::<f64>;
+    _smelt_tmp_2 = 1.0;
+    } else {
+    _smelt_tmp_3 = n - 1.0;
+    let _smelt_tmp_4: f64 = fact__module_main(_smelt_tmp_3);
+    _smelt_tmp_5 = n * _smelt_tmp_4;
+    _smelt_tmp_2 = _smelt_tmp_5;
+    }
+    return _smelt_tmp_2;
+}
+
+pub(crate) fn join(head: String, rest: SmeltList<String>) -> String {
+    let mut _smelt_tmp_4: String;
+    let _smelt_tmp_5: String;
+    let _smelt_tmp_6: String;
+    let _smelt_tmp_7: SmeltList<String>;
+    let _smelt_tmp_9: String;
+    let _smelt_tmp_2: f64 = rest.len() as f64;
+    let _smelt_tmp_3: bool = _smelt_tmp_2 != 0.0;
     if _smelt_tmp_3 {
-    _smelt_tmp_5 = match _smelt_tmp_2 { SmeltUnion7::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_6 = _smelt_tmp_5.status();
-    _smelt_tmp_4 = Some(_smelt_tmp_6);
+    _smelt_tmp_5 = "".to_owned() + &head.clone();
+    _smelt_tmp_6 = _smelt_tmp_5 + &"/".to_owned();
+    _smelt_tmp_7 = Into::<SmeltList<_>>::into(rest.borrow().iter().skip({ let smelt_len = rest.len() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take(rest.len().saturating_sub({ let smelt_len = rest.len() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).cloned().collect::<Vec<_>>());
+    let _smelt_tmp_8: String = join(rest.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()), _smelt_tmp_7);
+    _smelt_tmp_9 = _smelt_tmp_6 + &_smelt_tmp_8;
+    _smelt_tmp_4 = _smelt_tmp_9;
     } else {
-    _smelt_tmp_7 = match _smelt_tmp_2 { SmeltUnion7::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_4 = _smelt_tmp_7.status.clone();
+    _smelt_tmp_4 = head.clone();
     }
-    _smelt_tmp_8 = _smelt_tmp_4;
-    _smelt_tmp_9 = -1.0;
-    _smelt_tmp_10 = _smelt_tmp_8.clone().unwrap_or(_smelt_tmp_9);
-    return _smelt_tmp_10;
+    return _smelt_tmp_4;
+}
+
+pub(crate) fn scan__module_main(url: String, key: Option<String>, multiple: Option<bool>) -> Option<String> {
+    let mut index: f64;
+    let mut out: String;
+    let mut next: f64;
+    let mut eq: f64;
+    let mut _smelt_tmp_12: bool;
+    let mut _smelt_tmp_13: bool;
+    let _smelt_tmp_14: String;
+    let _smelt_tmp_15: f64;
+    let _smelt_tmp_16: f64;
+    let _smelt_tmp_17: bool;
+    let _smelt_tmp_18: f64;
+    let _smelt_tmp_19: f64;
+    let _smelt_tmp_20: bool;
+    let _smelt_tmp_21: f64;
+    let mut _smelt_tmp_22: f64;
+    let mut _smelt_tmp_23: bool;
+    let mut _smelt_tmp_24: f64;
+    let mut _smelt_tmp_25: f64;
+    let mut _smelt_tmp_26: f64;
+    let mut _smelt_tmp_27: bool;
+    let mut _smelt_tmp_28: bool;
+    let mut _smelt_tmp_29: f64;
+    let mut _smelt_tmp_30: bool;
+    let mut _smelt_tmp_31: f64;
+    let mut _smelt_tmp_32: String;
+    let mut _smelt_tmp_33: f64;
+    let mut _smelt_tmp_34: bool;
+    let mut _smelt_tmp_35: String;
+    let mut _smelt_tmp_36: bool;
+    let mut _smelt_tmp_37: String;
+    let mut _smelt_tmp_38: f64;
+    let mut _smelt_tmp_39: f64;
+    let mut _smelt_tmp_40: bool;
+    let mut _smelt_tmp_41: Option<f64>;
+    let mut _smelt_tmp_42: String;
+    let mut _smelt_tmp_43: String;
+    let mut _smelt_tmp_44: String;
+    let _smelt_tmp_8: f64 = url.clone().find(&"%".to_owned()).map_or(-1.0, |idx| idx as f64);
+    let _smelt_tmp_9: f64 = -1.0;
+    let _smelt_tmp_10: bool = _smelt_tmp_8 != _smelt_tmp_9;
+    let encoded: bool = _smelt_tmp_10;
+    let _smelt_tmp_11: bool = !(multiple.clone().clone().unwrap_or(false));
+    let _smelt_tmp_12: bool = if _smelt_tmp_11 { key.clone().clone().map_or(false, |value| !(value).is_empty()) } else { false };
+    let mut _smelt_tmp_13: bool = false;
+    if _smelt_tmp_12 {
+    _smelt_tmp_14 = key.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_15 = _smelt_tmp_14.find(&"%".to_owned()).map_or(-1.0, |idx| idx as f64);
+    _smelt_tmp_16 = -1.0;
+    _smelt_tmp_17 = _smelt_tmp_15 == _smelt_tmp_16;
+    _smelt_tmp_13 = _smelt_tmp_17;
     } else {
-    _smelt_tmp_11 = match arg.clone() { SmeltUnion3::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    return _smelt_tmp_11;
+    _smelt_tmp_13 = false;
     }
+    if _smelt_tmp_13 {
+    _smelt_tmp_18 = url.clone().find(&"?".to_owned()).map_or(-1.0, |idx| idx as f64);
+    _smelt_tmp_19 = -1.0;
+    _smelt_tmp_20 = _smelt_tmp_18 == _smelt_tmp_19;
+    if _smelt_tmp_20 {
+    return None::<String>;
+    }
+    }
+    _smelt_tmp_21 = url.clone().find(&"?".to_owned()).map_or(-1.0, |idx| idx as f64);
+    index = _smelt_tmp_21;
+    out = "".to_owned();
+    loop {
+    _smelt_tmp_22 = -1.0;
+    _smelt_tmp_23 = index != _smelt_tmp_22;
+    if !(_smelt_tmp_23) { break; }
+    _smelt_tmp_24 = index + 1.0;
+    _smelt_tmp_25 = { let smelt_haystack = url.clone(); let smelt_needle = "&".to_owned(); let smelt_from = (_smelt_tmp_24 as i64).max(0) as usize; let smelt_prefix_bytes = smelt_haystack.char_indices().nth(smelt_from).map_or(smelt_haystack.len(), |(byte, _)| byte); smelt_haystack.get(smelt_prefix_bytes..).and_then(|suffix| suffix.find(&smelt_needle).map(|index| (smelt_prefix_bytes + index) as f64)).unwrap_or(-1.0) };
+    next = _smelt_tmp_25;
+    _smelt_tmp_26 = { let smelt_haystack = url.clone(); let smelt_needle = "=".to_owned(); let smelt_from = (index as i64).max(0) as usize; let smelt_prefix_bytes = smelt_haystack.char_indices().nth(smelt_from).map_or(smelt_haystack.len(), |(byte, _)| byte); smelt_haystack.get(smelt_prefix_bytes..).and_then(|suffix| suffix.find(&smelt_needle).map(|index| (smelt_prefix_bytes + index) as f64)).unwrap_or(-1.0) };
+    eq = _smelt_tmp_26;
+    _smelt_tmp_27 = eq > next;
+    if _smelt_tmp_27 {
+    _smelt_tmp_29 = -1.0;
+    _smelt_tmp_30 = next != _smelt_tmp_29;
+    _smelt_tmp_28 = _smelt_tmp_30;
+    if _smelt_tmp_28 {
+    _smelt_tmp_31 = -1.0;
+    eq = _smelt_tmp_31;
+    } else {
+    }
+    if encoded {
+    _smelt_tmp_32 = out + &"%".to_owned();
+    out = _smelt_tmp_32;
+    } else {
+    }
+    _smelt_tmp_33 = -1.0;
+    _smelt_tmp_34 = eq == _smelt_tmp_33;
+    if _smelt_tmp_34 {
+    if encoded {
+    _smelt_tmp_35 = out + &"?".to_owned();
+    out = _smelt_tmp_35;
+    } else {
+    }
+    } else {
+    }
+    _smelt_tmp_36 = multiple.clone().clone().unwrap_or(false);
+    if _smelt_tmp_36 {
+    _smelt_tmp_37 = out + &"m".to_owned();
+    out = _smelt_tmp_37;
+    } else {
+    }
+    _smelt_tmp_38 = index + 1.0;
+    _smelt_tmp_39 = -1.0;
+    _smelt_tmp_40 = next == _smelt_tmp_39;
+    if _smelt_tmp_40 {
+    _smelt_tmp_41 = None::<f64>;
+    } else {
+    _smelt_tmp_41 = Some(next);
+    }
+    _smelt_tmp_42 = url.clone().chars().skip({ let smelt_len = url.clone().chars().count() as i64; let smelt_index = _smelt_tmp_38 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = url.clone().chars().count() as i64; let smelt_index = _smelt_tmp_41.unwrap_or(url.clone().chars().count() as f64) as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = url.clone().chars().count() as i64; let smelt_index = _smelt_tmp_38 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
+    _smelt_tmp_43 = _smelt_tmp_42 + &";".to_owned();
+    _smelt_tmp_44 = out + &_smelt_tmp_43;
+    out = _smelt_tmp_44;
+    index = next;
+    continue;
+    } else {
+    _smelt_tmp_28 = false;
+    if _smelt_tmp_28 {
+    _smelt_tmp_31 = -1.0;
+    eq = _smelt_tmp_31;
+    } else {
+    }
+    if encoded {
+    _smelt_tmp_32 = out + &"%".to_owned();
+    out = _smelt_tmp_32;
+    } else {
+    }
+    _smelt_tmp_33 = -1.0;
+    _smelt_tmp_34 = eq == _smelt_tmp_33;
+    if _smelt_tmp_34 {
+    if encoded {
+    _smelt_tmp_35 = out + &"?".to_owned();
+    out = _smelt_tmp_35;
+    } else {
+    }
+    } else {
+    }
+    _smelt_tmp_36 = multiple.clone().clone().unwrap_or(false);
+    if _smelt_tmp_36 {
+    _smelt_tmp_37 = out + &"m".to_owned();
+    out = _smelt_tmp_37;
+    } else {
+    }
+    _smelt_tmp_38 = index + 1.0;
+    _smelt_tmp_39 = -1.0;
+    _smelt_tmp_40 = next == _smelt_tmp_39;
+    if _smelt_tmp_40 {
+    _smelt_tmp_41 = None::<f64>;
+    } else {
+    _smelt_tmp_41 = Some(next);
+    }
+    _smelt_tmp_42 = url.clone().chars().skip({ let smelt_len = url.clone().chars().count() as i64; let smelt_index = _smelt_tmp_38 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = url.clone().chars().count() as i64; let smelt_index = _smelt_tmp_41.unwrap_or(url.clone().chars().count() as f64) as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = url.clone().chars().count() as i64; let smelt_index = _smelt_tmp_38 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
+    _smelt_tmp_43 = _smelt_tmp_42 + &";".to_owned();
+    _smelt_tmp_44 = out + &_smelt_tmp_43;
+    out = _smelt_tmp_44;
+    index = next;
+    continue;
+    }
+    }
+    return Some(out);
 }
