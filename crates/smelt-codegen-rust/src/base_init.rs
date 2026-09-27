@@ -57,6 +57,29 @@ pub(crate) fn base_initializer_name(mir: &Mir, base: smelt_hir::Symbol) -> Resul
     Ok(format!("__smelt_init_{}", sanitize_ident(name)))
 }
 
+/// The type a class's constructor builds, `Class { name, args }` as interned.
+///
+/// Read off the constructor's declared return so it is exactly the TypeId MIR
+/// already interned (codegen cannot intern new types). `None` for a class
+/// without a constructor.
+pub(crate) fn constructed_class_ty(
+    mir: &Mir,
+    class: smelt_hir::Symbol,
+) -> Result<Option<smelt_hir::TypeId>, EmitError> {
+    let Some(constructor) = mir
+        .classes
+        .iter()
+        .find(|candidate| candidate.name == class)
+        .and_then(|candidate| candidate.constructor)
+    else {
+        return Ok(None);
+    };
+    Ok(mir
+        .functions
+        .get(id_index(constructor.0, "constructor index does not fit usize")?)
+        .map(|function| function.return_ty))
+}
+
 /// The class whose constructor `function` is, if it is a constructor at all.
 pub(crate) const fn constructor_class(function: &MirFunction) -> Option<smelt_hir::Symbol> {
     match function.origin {

@@ -10337,6 +10337,71 @@ console.log(new App<number>().handle('/x'));
     assert!(source.contains("fn __smelt_init_AppBase(smelt_receiver: Self, label: String)"), "{source}");
 }
 
+/// A base-constructor slot answering `this` at the BASE type is upcast.
+///
+/// Hono's `onError = (h): Hono<..> => { ..; return this }` stored by the base
+/// constructor: in the initializer copy the receiver is `Self` (the derived
+/// struct), a different Rust type from the declared base return, so the value
+/// is rebuilt at the base type through the member-wise structural adapter
+/// (was E0271, "expected `Hono_1`, found `Hono`").
+#[test]
+fn a_base_initializer_slot_returning_this_upcasts_the_derived_receiver() {
+    let source = source_for(
+        r"
+class Router<E = string> {
+  handler: string = 'default';
+  onError = (handler: string): Router<E> => {
+    this.handler = handler;
+    return this;
+  };
+}
+class App<E = string> extends Router<E> {
+  constructor() {
+    super();
+  }
+}
+console.log(new App<number>().onError('x').handler);
+",
+    );
+
+    let init = source
+        .split("fn __smelt_init_Router(smelt_receiver: Self) -> Self {")
+        .nth(1)
+        .and_then(|rest| rest.split("\n    fn ").next())
+        .unwrap_or_default();
+    assert!(
+        init.contains("Router(::std::rc::Rc::new(::std::cell::RefCell::new(RouterInner {"),
+        "the returned receiver is rebuilt at the base type: {source}"
+    );
+}
+
+/// An argument read through a reference class's cell is bound before a call
+/// on a reference receiver, so its `Ref` guard cannot outlive into a callee
+/// that writes the same cell ("RefCell already borrowed").
+#[test]
+fn a_ref_cell_argument_is_bound_before_a_reference_method_call() {
+    let source = source_for(
+        r"
+class Tally {
+  total: number = 1;
+  bump(by: number): void {
+    this.total = this.total + by;
+  }
+  twice(): number {
+    this.bump(this.total);
+    return this.total;
+  }
+}
+console.log(new Tally().twice());
+",
+    );
+
+    assert!(
+        source.contains("let smelt_call_arg_0 = self.0.borrow().total.clone(); self.bump(smelt_call_arg_0)"),
+        "{source}"
+    );
+}
+
 /// A base of a reference class is a reference class too.
 ///
 /// The base constructor body runs re-emitted over the derived receiver, and

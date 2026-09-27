@@ -1248,6 +1248,10 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// named (derived) class's `impl` block; see `crate::base_init` and
     /// [`FunctionEmitter::mark_base_initializer_copy`].
     base_initializer_owner: Option<Symbol>,
+    /// The locals holding the base-initializer receiver in this emitter: the
+    /// copy's own `this`, or a closure's capture of it. See
+    /// [`FunctionEmitter::inherit_base_initializer_receiver`].
+    base_initializer_receivers: HashSet<LocalId>,
 }
 
 /// Wraps a list-valued expression so it reads as its backing `Vec`.

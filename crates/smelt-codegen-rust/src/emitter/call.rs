@@ -1041,18 +1041,27 @@ impl FunctionEmitter<'_> {
                         let _ = index;
                         rendered_args.push(self.default_value(target_ty)?);
                     }
-                    let arg_values = rendered_args.join(", ");
-                    return if arg_values.is_empty() {
-                        Ok(format!(
-                            "{receiver_text}.{method_name}(){}",
-                            self.throwing_call_suffix(function)
-                        ))
+                    // An argument read through a reference class's cell
+                    // (`this.0.borrow()._path.clone()`) holds its `Ref` guard to
+                    // the end of the statement, so a method on a reference
+                    // receiver that writes its own cell panicked "already
+                    // borrowed" — `this.#addRoute(m, this.#path, h)` in Hono's
+                    // base constructor. Such arguments are bound first, which
+                    // drops each guard before the call runs (JavaScript
+                    // evaluates arguments before the call anyway).
+                    let prebound = if self.is_reference_class_type(self.operand_ty(receiver)?) {
+                        self.prebind_ref_cell_arguments(rest, &mut rendered_args)?
                     } else {
-                        Ok(format!(
-                            "{receiver_text}.{method_name}({arg_values}){}",
-                            self.throwing_call_suffix(function)
-                        ))
+                        Vec::new()
                     };
+                    let arg_values = rendered_args.join(", ");
+                    let call = format!("{receiver_text}.{method_name}({arg_values})");
+                    let call = if prebound.is_empty() {
+                        call
+                    } else {
+                        format!("{{ {} {call} }}", prebound.join(" "))
+                    };
+                    return Ok(format!("{call}{}", self.throwing_call_suffix(function)));
                 }
                 if let HirOrigin::ClassStaticMethod { class, method, .. } = function.origin {
                     // `Class.staticMethod(args)` lowers to the receiver-free
@@ -2967,6 +2976,32 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(callee_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) || self.is_erased_class_type(callee_ty)
+    }
+
+    /// Bind every argument that reads through a `RefCell` borrow to a local.
+    ///
+    /// `args` are the call's argument operands, positionally paired with
+    /// `rendered_args` (their rendered text, rewritten in place to the bound
+    /// name). Returns the `let` bindings to emit before the call, in argument
+    /// order, so evaluation order is unchanged. See
+    /// [`Self::operand_reads_through_ref_cell`] for which reads hold a guard.
+    fn prebind_ref_cell_arguments(
+        &self,
+        args: &[Operand],
+        rendered_args: &mut [String],
+    ) -> Result<Vec<String>, EmitError> {
+        let mut bindings = Vec::new();
+        for (index, (arg, rendered)) in args.iter().zip(rendered_args.iter_mut()).enumerate() {
+            // A by-reference argument (`&mut` in-place ABI, borrowed callback)
+            // borrows INTO the read; binding it would outlive its temporary.
+            if !self.operand_reads_through_ref_cell(arg) || rendered.starts_with('&') {
+                continue;
+            }
+            let name = format!("smelt_call_arg_{index}");
+            bindings.push(format!("let {name} = {rendered};"));
+            *rendered = name;
+        }
+        Ok(bindings)
     }
 
     /// Render a derived `super(..)`: `Self::__smelt_init_Base(this, args..)`.

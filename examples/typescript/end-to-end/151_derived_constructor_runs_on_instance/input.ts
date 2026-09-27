@@ -103,8 +103,9 @@ class DoubleTally extends Tally {
   doubled: boolean = true;
   constructor() {
     super(5);
-    const seeded = this.total;
-    this.bump(seeded);
+    // An argument read off `this` must not hold its borrow across a call that
+    // writes `this` (was "RefCell already borrowed").
+    this.bump(this.total);
   }
 }
 
@@ -169,3 +170,31 @@ class Labelled<T> {
 class Named extends Labelled<number> {}
 
 console.log(new Named('forwarded').label);
+
+// 7. A callable slot the base constructor stores that answers `this` at the
+// BASE type (Hono's `onError = (h): Hono<..> => { ..; return this }`). On the
+// derived instance it writes the derived instance, and the value it returns is
+// the base-typed view of it.
+class Router<E = string> {
+  label: string = 'r';
+  handler: string = 'default';
+  onError = (handler: string): Router<E> => {
+    this.handler = handler;
+    return this;
+  };
+  describe(): string {
+    return this.label + ':' + this.handler;
+  }
+}
+
+class RoutedApp<E = string> extends Router<E> {
+  constructor() {
+    super();
+    this.label = 'app';
+  }
+}
+
+const routed = new RoutedApp<number>();
+routed.onError('custom');
+console.log(routed.describe());
+console.log(routed.onError('again').describe(), routed.describe());

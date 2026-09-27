@@ -82,6 +82,7 @@ impl<'mir> FunctionEmitter<'mir> {
             hoisted_module_item: std::cell::Cell::new(false),
             emitting_inherited_copy: false,
             base_initializer_owner: None,
+            base_initializer_receivers: HashSet::new(),
         })
     }
 
@@ -2116,6 +2117,75 @@ impl<'mir> FunctionEmitter<'mir> {
     /// every field this body writes, is rendered in.
     pub(crate) fn mark_base_initializer_copy(&mut self, owner: Symbol) {
         self.base_initializer_owner = Some(owner);
+        // The constructor's instance is local 0 (`HirOrigin::ClassConstructor`
+        // lowering allocates it there); in the copy it is the receiver.
+        self.base_initializer_receivers.insert(LocalId(0));
+    }
+
+    /// Carry the base-initializer receiver into a closure emitted inside it.
+    ///
+    /// A closure the base constructor creates captures the receiver, and its
+    /// captured local IS the derived instance too (`Self`, not the declaring
+    /// base). `captures` pairs each enclosing source local with the closure
+    /// local receiving it.
+    pub(super) fn inherit_base_initializer_receiver(
+        &self,
+        closure_emitter: &mut Self,
+        captures: &[smelt_mir::MirClosureCapture],
+    ) {
+        if self.base_initializer_owner.is_none() {
+            return;
+        }
+        closure_emitter.base_initializer_owner = self.base_initializer_owner;
+        for capture in captures {
+            if let Some(target) = capture.target_local
+                && self.base_initializer_receivers.contains(&capture.source_local)
+            {
+                closure_emitter.base_initializer_receivers.insert(target);
+            }
+        }
+    }
+
+    /// Upcast the base-initializer receiver where its DECLARING base type is
+    /// asked for, e.g. `onError = (h): Base => { ..; return this }` stored by
+    /// the base constructor.
+    ///
+    /// In the copy the receiver's Rust value is `Self` (the derived class)
+    /// while MIR still types it at the declaring base, and the flattened
+    /// structs are distinct Rust types with no subtyping between them. The
+    /// value is rebuilt at the base type through the same member-wise
+    /// structural adapter a base-typed value handed to a derived-typed slot
+    /// already uses (Hono's `basePath`): a reference class's callable members
+    /// are shared `Rc`s capturing the original instance, so calls through the
+    /// upcast value still reach it. `None` when `operand` is not the receiver
+    /// or the target is the owner class itself.
+    pub(super) fn base_initializer_receiver_upcast_text(
+        &self,
+        operand: &Operand,
+        target: TypeId,
+        scope: &RenderScope,
+    ) -> Result<Option<String>, EmitError> {
+        let Some(owner) = self.base_initializer_owner else {
+            return Ok(None);
+        };
+        let local = match operand {
+            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
+            _ => return Ok(None),
+        };
+        if !self.base_initializer_receivers.contains(&local) {
+            return Ok(None);
+        }
+        let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
+            return Ok(None);
+        };
+        if *name == owner {
+            return Ok(None);
+        }
+        let Some(owner_ty) = crate::base_init::constructed_class_ty(self.mir, owner)? else {
+            return Ok(None);
+        };
+        let value_text = self.operand_text(operand)?;
+        self.structural_record_adapter_text(&value_text, owner_ty, target, scope)
     }
 
     /// Whether this emitter renders a base initializer copy.
@@ -2129,7 +2199,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Its Rust type is `Self` (the impl's class), never the declaring base's
     /// name, which is a different struct under flattening.
     pub(super) fn is_base_initializer_receiver(&self, local: LocalId) -> bool {
-        self.is_base_initializer_copy() && local == LocalId(0)
+        self.base_initializer_receivers.contains(&local)
     }
 
     /// The Rust type text of a local's shared capture cell contents.
@@ -2507,6 +2577,7 @@ impl<'mir> FunctionEmitter<'mir> {
             hoisted_module_item: std::cell::Cell::new(false),
             emitting_inherited_copy: false,
             base_initializer_owner: None,
+            base_initializer_receivers: HashSet::new(),
         }
         // TODO(plan-197): this synthetic emitter's `function` is
         // `mir.functions.first()`, so the lexical scope it renders under is an
@@ -2566,6 +2637,7 @@ impl<'mir> FunctionEmitter<'mir> {
             hoisted_module_item: std::cell::Cell::new(false),
             emitting_inherited_copy: false,
             base_initializer_owner: None,
+            base_initializer_receivers: HashSet::new(),
         }
         .rust_type(ty, false, substitution)
         .map(RustType::into_string)
@@ -2615,6 +2687,7 @@ impl<'mir> FunctionEmitter<'mir> {
             hoisted_module_item: std::cell::Cell::new(false),
             emitting_inherited_copy: false,
             base_initializer_owner: None,
+            base_initializer_receivers: HashSet::new(),
         }
         .default_value(ty)
     }
@@ -2660,6 +2733,7 @@ impl<'mir> FunctionEmitter<'mir> {
             hoisted_module_item: std::cell::Cell::new(false),
             emitting_inherited_copy: false,
             base_initializer_owner: None,
+            base_initializer_receivers: HashSet::new(),
         }
         .default_value_with_scoped_type_params(ty, substitution)
     }
