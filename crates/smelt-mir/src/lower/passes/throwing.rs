@@ -262,7 +262,7 @@ fn terminator_can_throw(terminator: &Terminator, throwing: &[bool]) -> bool {
     match terminator {
         Terminator::Throw(_) => true,
         Terminator::Call {
-            callee: Callee::Static(func),
+            callee: Callee::Static(func) | Callee::BaseInit(func),
             unwind: None,
             ..
         } => usize_from_u32(func.0, "MIR function index does not fit in usize")

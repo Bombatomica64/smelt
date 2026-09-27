@@ -1948,7 +1948,7 @@ pub(super) fn validate_callee_exists(
     errors: &mut Vec<ValidationError>,
 ) {
     match callee {
-        Callee::Static(func) => {
+        Callee::Static(func) | Callee::BaseInit(func) => {
             if mir.functions.get(function_index(*func)).is_none() {
                 errors.push(error(format!("call references unknown function {func:?}")));
             }

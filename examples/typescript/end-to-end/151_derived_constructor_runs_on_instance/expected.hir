@@ -1,0 +1,193 @@
+module examples/typescript/end-to-end/151_derived_constructor_runs_on_instance/input.ts (ModuleId(0))
+  body BodyId(19)
+  items
+    class Greeter fields [Public name: String, Public msg: String, Public greet: fn() -> String] constructor Some(ItemId(0)) methods [] implements []
+    class SmartGreeter fields [Public msg: String] constructor Some(ItemId(2)) methods [] implements []
+    class AppBase fields [Public routes: List<String>, Public prefix: String, Public add: fn(String) -> Float, Public handle: fn(String) -> String] constructor Some(ItemId(5)) methods [] implements []
+    class App fields [] constructor Some(ItemId(7)) methods [] implements []
+    class PlainApp fields [] constructor Some(ItemId(9)) methods [] implements []
+    class Tally fields [Public total: Float, Public history: String] constructor Some(ItemId(11)) methods [ItemId(12)] implements []
+    class DoubleTally fields [Public doubled: Bool] constructor Some(ItemId(14)) methods [] implements []
+    class Point fields [Public x: Float, Public y: Float] constructor Some(ItemId(16)) methods [] implements []
+    class Point3 fields [Public z: Float] constructor Some(ItemId(18)) methods [] implements []
+    class Point4 fields [Public w: Float, Public tag: String] constructor Some(ItemId(20)) methods [] implements []
+    class Counter fields [Public count: Float] constructor Some(ItemId(22)) methods [ItemId(23)] implements []
+    class FromThree fields [] constructor Some(ItemId(25)) methods [] implements []
+    class Labelled fields [Public label: String] constructor Some(ItemId(27)) methods [] implements []
+    class Named fields [] constructor Some(ItemId(29)) methods [] implements []
+  locals
+    %0 const smart: SmartGreeter
+    %1 const app: App<Float>
+    %2 const plain: PlainApp
+    %3 const tally: DoubleTally
+    %4 const p4: Point4
+    %5 const counter: FromThree
+  exprs
+    #0: SmartGreeter = new SmartGreeter()
+    #1: SmartGreeter = %0
+    #2: fn() -> String = #1.greet
+    #3: SmartGreeter = %0
+    #4: fn() -> String = bind_this #2, #1
+    #5: String = closure_call #4()
+    #6: None = @31(console_log)
+    #7: None = call #6(#5)
+    #8: SmartGreeter = %0
+    #9: String = #8.name
+    #10: String = "later"
+    #11: SmartGreeter = %0
+    #12: fn() -> String = #11.greet
+    #13: SmartGreeter = %0
+    #14: fn() -> String = bind_this #12, #11
+    #15: String = closure_call #14()
+    #16: None = @32(console_log)
+    #17: None = call #16(#15)
+    #18: String = "/api"
+    #19: App<Float> = new App(#18)
+    #20: App<Float> = %1
+    #21: App<Float> = %1
+    #22: fn(String) -> Float = #21.add
+    #23: App<Float> = %1
+    #24: String = "/users"
+    #25: fn(String) -> Float = bind_this #22, #21
+    #26: Float = closure_call #25(#24)
+    #27: App<Float> = %1
+    #28: App<Float> = %1
+    #29: fn(String) -> Float = #28.add
+    #30: App<Float> = %1
+    #31: String = "/posts"
+    #32: fn(String) -> Float = bind_this #29, #28
+    #33: Float = closure_call #32(#31)
+    #34: None = @33(console_log)
+    #35: None = call #34(#26, #33)
+    #36: App<Float> = %1
+    #37: fn(String) -> String = #36.handle
+    #38: App<Float> = %1
+    #39: String = "/users"
+    #40: fn(String) -> String = bind_this #37, #36
+    #41: String = closure_call #40(#39)
+    #42: App<Float> = %1
+    #43: fn(String) -> String = #42.handle
+    #44: App<Float> = %1
+    #45: String = "/nope"
+    #46: fn(String) -> String = bind_this #43, #42
+    #47: String = closure_call #46(#45)
+    #48: None = @34(console_log)
+    #49: None = call #48(#41, #47)
+    #50: PlainApp = new PlainApp()
+    #51: PlainApp = %2
+    #52: PlainApp = %2
+    #53: fn(String) -> Float = #52.add
+    #54: PlainApp = %2
+    #55: String = "a"
+    #56: fn(String) -> Float = bind_this #53, #52
+    #57: Float = closure_call #56(#55)
+    #58: PlainApp = %2
+    #59: fn(String) -> String = #58.handle
+    #60: PlainApp = %2
+    #61: String = "a"
+    #62: fn(String) -> String = bind_this #59, #58
+    #63: String = closure_call #62(#61)
+    #64: PlainApp = %2
+    #65: List<String> = #64.routes
+    #66: Float = len #65
+    #67: None = @35(console_log)
+    #68: None = call #67(#63, #66)
+    #69: DoubleTally = new DoubleTally()
+    #70: DoubleTally = %3
+    #71: Float = #70.total
+    #72: DoubleTally = %3
+    #73: String = #72.history
+    #74: DoubleTally = %3
+    #75: Bool = #74.doubled
+    #76: None = @36(console_log)
+    #77: None = call #76(#71, #73, #75)
+    #78: String = "p"
+    #79: Point4 = new Point4(#78)
+    #80: Point4 = %4
+    #81: Float = #80.x
+    #82: Point4 = %4
+    #83: Float = #82.y
+    #84: Point4 = %4
+    #85: Float = #84.z
+    #86: Point4 = %4
+    #87: Float = #86.w
+    #88: Point4 = %4
+    #89: String = #88.tag
+    #90: None = @37(console_log)
+    #91: None = call #90(#81, #83, #85, #87, #89)
+    #92: FromThree = new FromThree()
+    #93: FromThree = %5
+    #94: FromThree = %5
+    #95: FromThree = %5
+    #96: fn() -> Float = #95.next
+    #97: FromThree = %5
+    #98: FromThree = %5
+    #99: Float = #98.next()
+    #100: FromThree = %5
+    #101: FromThree = %5
+    #102: FromThree = %5
+    #103: fn() -> Float = #102.next
+    #104: FromThree = %5
+    #105: FromThree = %5
+    #106: Float = #105.next()
+    #107: None = @38(console_log)
+    #108: None = call #107(#99, #106)
+    #109: String = "forwarded"
+    #110: Named = new Named(#109)
+    #111: String = #110.label
+    #112: None = @39(console_log)
+    #113: None = call #112(#111)
+  stmts
+    s0: let %0: SmartGreeter = #0
+    s1: #7
+    s2: #9 = #10
+    s3: #17
+    s4: let %1: App<Float> = #19
+    s5: #35
+    s6: #49
+    s7: let %2: PlainApp = #50
+    s8: #57
+    s9: #68
+    s10: let %3: DoubleTally = #69
+    s11: #77
+    s12: let %4: Point4 = #79
+    s13: #91
+    s14: let %5: FromThree = #92
+    s15: #108
+    s16: #113
+
+interned types
+  t0 = SmartGreeter
+  t1 = String
+  t2 = App
+  t3 = PlainApp
+  t4 = DoubleTally
+  t5 = Point4
+  t6 = FromThree
+  t7 = E
+  t8 = T
+  t9 = Greeter
+  t10 = fn() -> String
+  t11 = fn() -> String
+  t12 = None
+  t13 = AppBase<E>
+  t14 = List<String>
+  t15 = Float
+  t16 = fn(String) -> Float
+  t17 = fn(String) -> String
+  t18 = fn(String) -> Float
+  t19 = Bool
+  t20 = fn(String) -> String
+  t21 = App<E>
+  t22 = AppBase<Bool>
+  t23 = Tally
+  t24 = fn(Float) -> None
+  t25 = Point
+  t26 = Point3
+  t27 = Counter
+  t28 = Labelled<T>
+  t29 = Named
+  t30 = App<Float>
+  t31 = AppBase<Float>
+  t32 = fn() -> Float
+  t33 = Labelled<Float>

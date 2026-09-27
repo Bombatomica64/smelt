@@ -2759,6 +2759,32 @@ impl LoweringCtx<'_> {
                 self.current_block = target;
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::BaseConstructorInit {
+                base,
+                receiver,
+                args,
+            } => {
+                // The receiver leads the argument list, then the base
+                // constructor's own arguments; the call answers the
+                // (initialised) receiver, which the derived constructor's
+                // `this = super-init(this, ..)` then stores.
+                let mut lowered_args = vec![self.lower_expr(*receiver)?];
+                for arg in args {
+                    lowered_args.push(self.lower_expr(*arg)?);
+                }
+                let callee_id = self.resolve_base_initializer(*base, expr.span)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                let target = self.function.push_block(expr.span);
+                self.set_terminator(Terminator::Call {
+                    callee: Callee::BaseInit(callee_id),
+                    args: lowered_args,
+                    dest,
+                    target,
+                    unwind: self.current_exception_handler(),
+                })?;
+                self.current_block = target;
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::Await(future) => {
                 let lowered_future = self.lower_expr(*future)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -2996,6 +3022,35 @@ impl LoweringCtx<'_> {
             format!("class `{name}` has no resolvable constructor"),
             Some(span),
         ))
+    }
+
+    /// Resolves the constructor a derived `super(..)` runs as an initializer.
+    ///
+    /// Unlike [`Self::resolve_constructor`], an ABSTRACT base is accepted: it is
+    /// never constructed on its own here, only its initialization runs over a
+    /// concrete derived instance — exactly what `super(..)` to an abstract base
+    /// does in TypeScript.
+    pub(super) fn resolve_base_initializer(
+        &self,
+        base: Symbol,
+        span: Span,
+    ) -> Result<FuncId, LowerError> {
+        self.krate
+            .items
+            .iter()
+            .find_map(|item| match item {
+                smelt_hir::Item::Class(class_item) if class_item.name == base => class_item
+                    .constructor
+                    .and_then(|constructor| self.item_functions.get(&constructor).copied()),
+                _ => None,
+            })
+            .ok_or_else(|| {
+                let name = self.krate.symbols.get(base).unwrap_or("<unknown>");
+                self.error(
+                    format!("base class `{name}` has no constructor to run for `super(..)`"),
+                    Some(span),
+                )
+            })
     }
 
     /// Resolves a method call to its function ID based on the receiver type.

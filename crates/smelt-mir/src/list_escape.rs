@@ -810,7 +810,9 @@ impl<'a> BodyWalk<'a> {
                 self.escape_operand(operand, EscapeReason::CallArgument);
                 None
             }
-            Callee::Builtin(_) => None,
+            // The receiver flows through the base initializer and back out, and
+            // no summary models that, so every argument conservatively escapes.
+            Callee::Builtin(_) | Callee::BaseInit(_) => None,
         };
         let Some(summary) = resolved else {
             for arg in args {

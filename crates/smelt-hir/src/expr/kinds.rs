@@ -1378,6 +1378,27 @@ pub enum ExprKind {
         class: Symbol,
         args: Vec<ExprId>,
     },
+    /// Run a source-declared base class's constructor as an INITIALIZER over an
+    /// existing derived instance, evaluating to that (now initialised) instance.
+    ///
+    /// This is a derived constructor's `super(args)`. JavaScript has one object:
+    /// the base constructor initialises the instance the derived constructor is
+    /// building, so a closure it stores captures the derived instance as `this`
+    /// and a later write by the derived constructor is visible through it.
+    /// Constructing a separate base value and copying its fields (`New` + field
+    /// moves) cannot reproduce that, and cannot run a generic base whose
+    /// constructed value does not fit the derived class's flattened layout.
+    ///
+    /// Codegen re-emits the base constructor body over the derived `Self`, the
+    /// way inherited methods are re-emitted (see `effective_class_methods`).
+    BaseConstructorInit {
+        /// The base class whose constructor runs.
+        base: Symbol,
+        /// The derived instance under construction (the constructor's `this`).
+        receiver: ExprId,
+        /// The `super(..)` arguments, as written.
+        args: Vec<ExprId>,
+    },
     Await(ExprId),
     AsyncOp {
         op: AsyncOp,

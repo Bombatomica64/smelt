@@ -81,6 +81,7 @@ impl<'mir> FunctionEmitter<'mir> {
             enclosing_type_params: HashSet::new(),
             hoisted_module_item: std::cell::Cell::new(false),
             emitting_inherited_copy: false,
+            base_initializer_owner: None,
         })
     }
 
@@ -504,8 +505,12 @@ impl<'mir> FunctionEmitter<'mir> {
             if self.local_uses_shared_capture_storage(local) {
                 out.push_str(&format!(
                     "    let smelt_capture_{name}: ::std::rc::Rc<::std::cell::RefCell<{}>> = ::std::rc::Rc::new(::std::cell::RefCell::new({}));\n",
-                    self.type_text_with_impl_trait(decl.ty, false)?,
-                    self.default_value(decl.ty)?
+                    self.capture_cell_type_text(local, decl.ty)?,
+                    if self.is_base_initializer_receiver(local) {
+                        "Default::default()".to_owned()
+                    } else {
+                        self.default_value(decl.ty)?
+                    }
                 ));
             } else if self.predeclared_local_needs_default(local)?
                 || self.local_may_be_used_before_assignment(local)?
@@ -2102,6 +2107,43 @@ impl<'mir> FunctionEmitter<'mir> {
         self.emitting_inherited_copy = true;
     }
 
+    /// Mark this CONSTRUCTOR emitter as rendering the base initializer copy that
+    /// runs inside `owner`'s `impl` (see `crate::base_init`).
+    ///
+    /// The copy receives the instance instead of allocating it, types `this` as
+    /// `Self` (the derived class), and renders type parameters in `owner`'s
+    /// scope — the scope the derived class's flattened layout, and therefore
+    /// every field this body writes, is rendered in.
+    pub(crate) fn mark_base_initializer_copy(&mut self, owner: Symbol) {
+        self.base_initializer_owner = Some(owner);
+    }
+
+    /// Whether this emitter renders a base initializer copy.
+    pub(super) const fn is_base_initializer_copy(&self) -> bool {
+        self.base_initializer_owner.is_some()
+    }
+
+    /// Whether `local` is the constructor instance of a base initializer copy,
+    /// i.e. the receiver the copy was handed.
+    ///
+    /// Its Rust type is `Self` (the impl's class), never the declaring base's
+    /// name, which is a different struct under flattening.
+    pub(super) fn is_base_initializer_receiver(&self, local: LocalId) -> bool {
+        self.is_base_initializer_copy() && local == LocalId(0)
+    }
+
+    /// The Rust type text of a local's shared capture cell contents.
+    ///
+    /// Every capture-cell declaration spells the local's type; for the receiver
+    /// of a base initializer copy that is `Self` (see
+    /// [`Self::is_base_initializer_receiver`]).
+    pub(super) fn capture_cell_type_text(&self, local: LocalId, ty: TypeId) -> Result<String, EmitError> {
+        if self.is_base_initializer_receiver(local) {
+            return Ok("Self".to_owned());
+        }
+        self.type_text_with_impl_trait(ty, false)
+    }
+
     /// Whether this method's declared return type is its own declaring class and
     /// every `return` in it answers the receiver.
     ///
@@ -2160,14 +2202,27 @@ impl<'mir> FunctionEmitter<'mir> {
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
-                out.push_str(&format!(
-                    "    fn new({method_params}) -> {} {{\n",
-                    if self.function.can_throw {
-                        "Result<Self, Box<dyn std::error::Error>>"
+                let return_text = if self.function.can_throw {
+                    "Result<Self, Box<dyn std::error::Error>>"
+                } else {
+                    "Self"
+                };
+                if self.is_base_initializer_copy() {
+                    // `fn __smelt_init_Base(smelt_receiver: Self, ..) -> Self`:
+                    // the same body, handed the instance instead of building it.
+                    let class = crate::base_init::constructor_class(self.function)
+                        .ok_or_else(|| EmitError::new("base initializer copy is not a constructor"))?;
+                    let name = crate::base_init::base_initializer_name(self.mir, class)?;
+                    let receiver = crate::base_init::BASE_INIT_RECEIVER;
+                    let params = if method_params.is_empty() {
+                        format!("{receiver}: Self")
                     } else {
-                        "Self"
-                    }
-                ));
+                        format!("{receiver}: Self, {method_params}")
+                    };
+                    out.push_str(&format!("    fn {name}({params}) -> {return_text} {{\n"));
+                } else {
+                    out.push_str(&format!("    fn new({method_params}) -> {return_text} {{\n"));
+                }
             }
             HirOrigin::ClassMethod { method, .. } => {
                 let name = sanitize_ident(self.symbol_name(method)?);
@@ -2451,6 +2506,7 @@ impl<'mir> FunctionEmitter<'mir> {
             enclosing_type_params: HashSet::new(),
             hoisted_module_item: std::cell::Cell::new(false),
             emitting_inherited_copy: false,
+            base_initializer_owner: None,
         }
         // TODO(plan-197): this synthetic emitter's `function` is
         // `mir.functions.first()`, so the lexical scope it renders under is an
@@ -2509,6 +2565,7 @@ impl<'mir> FunctionEmitter<'mir> {
             enclosing_type_params: HashSet::new(),
             hoisted_module_item: std::cell::Cell::new(false),
             emitting_inherited_copy: false,
+            base_initializer_owner: None,
         }
         .rust_type(ty, false, substitution)
         .map(RustType::into_string)
@@ -2557,6 +2614,7 @@ impl<'mir> FunctionEmitter<'mir> {
             enclosing_type_params: HashSet::new(),
             hoisted_module_item: std::cell::Cell::new(false),
             emitting_inherited_copy: false,
+            base_initializer_owner: None,
         }
         .default_value(ty)
     }
@@ -2601,6 +2659,7 @@ impl<'mir> FunctionEmitter<'mir> {
             enclosing_type_params: HashSet::new(),
             hoisted_module_item: std::cell::Cell::new(false),
             emitting_inherited_copy: false,
+            base_initializer_owner: None,
         }
         .default_value_with_scoped_type_params(ty, substitution)
     }

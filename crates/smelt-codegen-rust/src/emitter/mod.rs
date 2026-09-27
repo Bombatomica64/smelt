@@ -1244,6 +1244,10 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// the subclass. With flattened structs the declaring class is a different
     /// Rust type, so the copy has to return `Self` (was E0308).
     emitting_inherited_copy: bool,
+    /// Set while this CONSTRUCTOR is emitted as a base initializer copy into the
+    /// named (derived) class's `impl` block; see `crate::base_init` and
+    /// [`FunctionEmitter::mark_base_initializer_copy`].
+    base_initializer_owner: Option<Symbol>,
 }
 
 /// Wraps a list-valued expression so it reads as its backing `Vec`.

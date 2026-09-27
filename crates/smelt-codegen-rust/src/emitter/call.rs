@@ -874,6 +874,7 @@ impl FunctionEmitter<'_> {
                 let value_text = self.string_like_operand_text(value, "URI decoder input")?;
                 Ok(format!("{adapter}({value_text}.as_str())?"))
             }
+            Callee::BaseInit(func) => self.base_initializer_call_text(*func, args),
             Callee::Static(func) => {
                 let function = self
                     .mir
@@ -2777,6 +2778,9 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<TypeId, EmitError> {
         let source_ty = match callee {
+            // The initializer answers the receiver it was handed, which is the
+            // derived instance the destination holds.
+            Callee::BaseInit(_) => dest_ty,
             Callee::Static(func) => {
                 let function = self
                     .mir
@@ -2965,6 +2969,53 @@ impl FunctionEmitter<'_> {
         ) || self.is_erased_class_type(callee_ty)
     }
 
+    /// Render a derived `super(..)`: `Self::__smelt_init_Base(this, args..)`.
+    ///
+    /// The first argument is the receiver (the derived `this`), handed to the
+    /// base constructor body re-emitted into this impl as an initializer (see
+    /// `crate::base_init`); the rest are the base constructor's own arguments,
+    /// each coerced to its parameter's type, and an omitted trailing argument
+    /// takes that type's default, as a `Base::new(..)` call does. A throwing
+    /// base constructor makes the initializer fallible, so the call carries the
+    /// same `?` suffix a throwing `new` does.
+    fn base_initializer_call_text(&self, func: FuncId, args: &[Operand]) -> Result<String, EmitError> {
+        let function = self
+            .mir
+            .functions
+            .get(id_index(func.0, "function index does not fit usize")?)
+            .ok_or_else(|| EmitError::new("base initializer references an unknown function"))?;
+        let class = crate::base_init::constructor_class(function)
+            .ok_or_else(|| EmitError::new("base initializer callee is not a constructor"))?;
+        let Some((receiver, rest)) = args.split_first() else {
+            return Err(EmitError::new("base initializer call is missing its receiver"));
+        };
+        // The initializer is emitted into THIS impl, so its parameters are
+        // rendered in the same type-parameter scope as this call: coercing each
+        // argument to the declared parameter type here is exactly what the
+        // initializer's signature spells (a base type parameter the derived
+        // layout erases is erased on both sides). No callee-generic binding
+        // applies, unlike a `Base::new(..)` call into the base's own impl.
+        let mut rendered_args = vec![self.operand_text(receiver)?];
+        for (index, arg) in rest.iter().enumerate() {
+            let Some(param) = function.params.get(index).copied() else {
+                rendered_args.push(self.operand_text(arg)?);
+                continue;
+            };
+            let target_ty = self.function_local_decl(function, param)?.ty;
+            rendered_args.push(self.value_at_type(arg, target_ty)?);
+        }
+        for param in function.params.iter().skip(rest.len()) {
+            let target_ty = self.function_local_decl(function, *param)?.ty;
+            rendered_args.push(self.default_value(target_ty)?);
+        }
+        Ok(format!(
+            "Self::{}({}){}",
+            crate::base_init::base_initializer_name(self.mir, class)?,
+            rendered_args.join(", "),
+            self.throwing_call_suffix(function)
+        ))
+    }
+
     /// Returns the static return type of a call expression.
     pub(super) fn call_source_ty(&self, callee: &Callee) -> Result<TypeId, EmitError> {
         let source_ty = match callee {
@@ -2991,7 +3042,7 @@ impl FunctionEmitter<'_> {
                     return self.type_id(Type::Float);
                 }
             }
-            Callee::Static(func) => {
+            Callee::Static(func) | Callee::BaseInit(func) => {
                 let function = self
                     .mir
                     .functions

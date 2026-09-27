@@ -23,18 +23,12 @@ fn new (FuncId(1)) -> GatewayError
   locals
     %0 user this: GatewayError
     %1 param options: Optional<HTTPExceptionOptions>
-    %2 user __smelt_super: HTTPException
-    %3 temp: HTTPException
+    %2 temp: GatewayError
   bb0:
     %0 = struct1 {}
-    %3 = call fn0(502.0, copy %1) -> bb1
+    %2 = call init fn0(move %0, 502.0, copy %1) -> bb1
   bb1:
-    %2 = move %3
-    %0.field9 = copy %2.field9
-    %0.field3 = copy %2.field3
-    %0.field10 = copy %2.field10
-    %0.field11 = copy %2.field11
-    %0.field5 = copy %2.field5
+    %0 = move %2
     return move %0
 
 fn main (FuncId(2)) -> None

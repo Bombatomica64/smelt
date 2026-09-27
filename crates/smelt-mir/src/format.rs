@@ -1914,6 +1914,7 @@ fn terminator_text(terminator: &Terminator) -> String {
 fn callee_text(callee: &Callee) -> String {
     match callee {
         Callee::Static(func) => format!("fn{}", func.0),
+        Callee::BaseInit(func) => format!("init fn{}", func.0),
         Callee::Indirect(operand) => operand_text(operand),
         // The absent spelling is part of the callee but not part of the MIR
         // dump: it is a property of the site's language, and printing it would

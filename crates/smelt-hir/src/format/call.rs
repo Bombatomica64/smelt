@@ -73,7 +73,8 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::Construct { .. }
         | ExprKind::ClosureCallSpread { .. }
         | ExprKind::Method { .. }
-        | ExprKind::New { .. } => call_like_expr_text(krate, expr),
+        | ExprKind::New { .. }
+        | ExprKind::BaseConstructorInit { .. } => call_like_expr_text(krate, expr),
         ExprKind::Field { receiver, field } => {
             let field_name = krate.symbols.get(*field).unwrap_or("<unknown>");
             format!("{}.{}", expr_ref(*receiver), field_name)
@@ -1493,6 +1494,15 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
             let class_name = krate.symbols.get(*class).unwrap_or("<unknown>");
             let arg_text = expr_list_text(args);
             format!("new {class_name}({arg_text})")
+        }
+        ExprKind::BaseConstructorInit {
+            base,
+            receiver,
+            args,
+        } => {
+            let base_name = krate.symbols.get(*base).unwrap_or("<unknown>");
+            let arg_text = expr_list_text(args);
+            format!("{base_name}.init({}; {arg_text})", expr_ref(*receiver))
         }
         _ => "invalid call".to_owned(),
     }

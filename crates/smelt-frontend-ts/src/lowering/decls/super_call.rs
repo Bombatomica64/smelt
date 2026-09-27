@@ -9,11 +9,19 @@
 //! Two base kinds are handled, keyed on the *resolved base type* rather than on
 //! anything about the derived class:
 //!
-//! * A source-declared base class constructs normally and its fields move into
-//!   `this` ([`ModuleBuilder::lower_declared_base_super_call`]). Because the base
-//!   is built through its own constructor, the base's parameter defaults, field
-//!   initializers, side effects, and its own `super(...)` all run — which is what
-//!   makes the lowering compose with multi-level inheritance for free.
+//! * A source-declared base class (plain, generic, or abstract) runs its
+//!   constructor as an INITIALIZER over the derived `this`
+//!   ([`ModuleBuilder::lower_base_constructor_init`]). JavaScript has one object:
+//!   the base constructor's field initializers, parameter properties and body
+//!   all run on the instance the derived constructor is building, so closures it
+//!   stores capture the derived instance and virtual calls reach the derived
+//!   overrides. Codegen re-emits the base constructor body over the derived
+//!   `Self` (the way inherited methods are re-emitted), and the base's own
+//!   `super(...)` is in turn an initializer call — which is what makes the
+//!   lowering compose with multi-level inheritance. The previous lowering
+//!   constructed a SEPARATE base value and copied its fields into `this`, which
+//!   left base-created closures bound to the discarded base object and could not
+//!   run a generic base at all (`blocker-logs/hono-phase3-round5.md`, round 8).
 //! * An `Error`-like host base has no Smelt class body to run, so its documented
 //!   instance slots are assigned directly
 //!   ([`ModuleBuilder::lower_error_base_super_call`]). The slot list is shared
@@ -24,7 +32,7 @@ use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::{Argument, Expression, Statement};
 use smelt_hir::{
-    Body, Expr, ExprKind, Field, Item, Literal, LocalDecl, Pattern, Span, Stmt, Type,
+    Body, Expr, ExprKind, Field, Literal, Span, Stmt, Type,
 };
 
 /// The instance slots every JavaScript `Error` subclass inherits from its base,
@@ -176,7 +184,7 @@ impl ModuleBuilder<'_> {
         {
             return Ok(());
         }
-        let Some((base, base_args)) = self.classes.base(class_text).cloned() else {
+        let Some((base, _)) = self.classes.base(class_text).cloned() else {
             return Ok(());
         };
         let Some(base_name) = self
@@ -192,11 +200,11 @@ impl ModuleBuilder<'_> {
         // argument expression must not turn a previously-dropped `super(...)` into
         // a build failure.
         //
-        // Bases this lowering cannot reproduce (abstract, generic) keep the
-        // historical drop; see `class_is_reproducible_base` for why each is
-        // excluded and what running their initialization would need instead.
+        // A base that is neither an `Error`-like host constructor nor a
+        // source-declared class (an unmodeled host constructor) keeps the
+        // historical drop: there is no body to run.
         let error_base = is_error_like_base(&base_name);
-        if !error_base && !self.class_is_reproducible_base(base) {
+        if !error_base && !self.class_is_initializable_base(base) {
             return Ok(());
         }
         let span = self.span(call.span.start, call.span.end);
@@ -218,101 +226,53 @@ impl ModuleBuilder<'_> {
                 body,
             );
         } else {
-            self.lower_declared_base_super_call(
-                base,
-                base_args,
-                &arguments,
-                this_local,
-                class_ty,
-                span,
-                body,
-            );
+            Self::lower_base_constructor_init(base, &arguments, this_local, class_ty, span, body);
         }
         Ok(())
     }
 
-    /// Run a source-declared base constructor and move its fields into `this`.
+    /// Run a source-declared base constructor over `this`: `this = Base.init(this, args)`.
     ///
-    /// The base is constructed through its own `ExprKind::New`, so every part of
-    /// its initialization runs exactly once and in source order: parameter
-    /// defaults, field initializers, parameter properties, statement side
-    /// effects, and — for a base that itself extends something — its own
-    /// `super(...)`. Multi-level inheritance therefore needs no special handling
-    /// here: each level only ever reproduces its *immediate* base, and the
-    /// flattened layouts agree because a base struct's fields are a prefix of the
-    /// derived struct's.
-    ///
-    /// Callable slots synthesized for overridden base methods are skipped: those
-    /// hold the *derived* class's method value, so copying the base's would
-    /// re-bind virtual dispatch back to the base.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "one emit site threading the resolved base, the receiver, and the call span"
-    )]
-    pub(in crate::lowering) fn lower_declared_base_super_call(
-        &mut self,
+    /// Emits [`ExprKind::BaseConstructorInit`] and assigns its result back to the
+    /// constructor's `this`, so the receiver passes through the base's
+    /// initialization and every later statement of the derived constructor sees
+    /// the initialised instance. Nothing about the base's fields is decided here:
+    /// the base constructor body itself (parameter defaults, field initializers,
+    /// parameter properties, statements, and its own `super(...)`) is what runs,
+    /// re-emitted by codegen over the derived receiver. That is also why a
+    /// generic base needs no special handling — no base VALUE is ever built, so
+    /// its type arguments never have to fit the derived class's flattened layout.
+    pub(in crate::lowering) fn lower_base_constructor_init(
         base: smelt_hir::Symbol,
-        base_args: Vec<smelt_hir::TypeId>,
         arguments: &[smelt_hir::ExprId],
         this_local: smelt_hir::LocalId,
         class_ty: smelt_hir::TypeId,
         span: Span,
         body: &mut Body,
     ) {
-        let base_ty = self.ctx.krate.types.intern(Type::Class {
-            name: base,
-            args: base_args,
+        let receiver = body.push_expr(Expr {
+            kind: ExprKind::Local(this_local),
+            ty: class_ty,
+            span,
         });
-        let constructed = body.push_expr(Expr {
-            kind: ExprKind::New {
-                class: base,
+        let initialised = body.push_expr(Expr {
+            kind: ExprKind::BaseConstructorInit {
+                base,
+                receiver,
                 args: arguments.to_vec(),
             },
-            ty: base_ty,
+            ty: class_ty,
             span,
         });
-        let base_local_name = self.intern_source_name("__smelt_super");
-        let base_local = body.push_local(LocalDecl {
-            name: Some(base_local_name),
-            ty: base_ty,
-            mutable: false,
+        let target = body.push_expr(Expr {
+            kind: ExprKind::Local(this_local),
+            ty: class_ty,
             span,
         });
-        let pat = body.push_pattern(Pattern::Binding(base_local));
-        body.push_stmt(Stmt::Let {
-            pat,
-            ty: base_ty,
-            value: Some(constructed),
+        body.push_stmt(Stmt::Assign {
+            target,
+            value: initialised,
         });
-        for field in self.inherited_base_fields(base) {
-            let receiver = body.push_expr(Expr {
-                kind: ExprKind::Local(this_local),
-                ty: class_ty,
-                span,
-            });
-            let target = body.push_expr(Expr {
-                kind: ExprKind::Field {
-                    receiver,
-                    field: field.name,
-                },
-                ty: field.ty,
-                span,
-            });
-            let source = body.push_expr(Expr {
-                kind: ExprKind::Local(base_local),
-                ty: base_ty,
-                span,
-            });
-            let value = body.push_expr(Expr {
-                kind: ExprKind::Field {
-                    receiver: source,
-                    field: field.name,
-                },
-                ty: field.ty,
-                span,
-            });
-            body.push_stmt(Stmt::Assign { target, value });
-        }
     }
 
     /// Assign the `Error` base constructor's instance slots on `this`.
@@ -500,80 +460,15 @@ impl ModuleBuilder<'_> {
             .map(|declared| declared.ty)
     }
 
-    /// Collect the flattened field layout a base class contributes to `this`.
+    /// Return whether a base symbol resolves to a source-declared class whose
+    /// constructor `super(...)` can run over the derived instance.
     ///
-    /// The walk mirrors codegen's `effective_class_fields`: base-most fields
-    /// first, then each level's own fields, and the `Error` marker slots for a
-    /// level whose own base is an `Error`-like host constructor (that injection
-    /// happens after the per-class field map is published, so it is reproduced
-    /// here rather than read back).
-    ///
-    /// Fields that name a method somewhere in the chain are omitted: those are
-    /// the callable slots synthesized for virtual dispatch, and the derived
-    /// class's own initialization owns them.
-    ///
-    /// The chain is walked by SYMBOL, never by source spelling: a class renamed
-    /// apart from a cross-module collision keeps its source name, so a by-name
-    /// walk of an import-aliased base either found the wrong class or none at
-    /// all — and a cycle in that mis-keyed chain does not terminate.
-    fn inherited_base_fields(&mut self, base: smelt_hir::Symbol) -> Vec<Field> {
-        let mut chain: Vec<(smelt_hir::Symbol, Vec<Field>, Vec<smelt_hir::Symbol>)> = Vec::new();
-        let mut cursor = Some(base);
-        while let Some(name) = cursor {
-            if chain.iter().any(|(visited, _, _)| *visited == name) {
-                break;
-            }
-            let Some(item) = self.class_item_by_symbol(name) else {
-                break;
-            };
-            let Some((fields, method_items, abstract_methods, base, class_span)) =
-                self.class_layout_parts(item)
-            else {
-                break;
-            };
-            let next = base;
-            let mut method_names = method_items
-                .iter()
-                .filter_map(|method| {
-                    let index = usize::try_from(method.0).unwrap_or(usize::MAX);
-                    match self.ctx.krate.items.get(index) {
-                        Some(Item::Function(function)) => Some(function.name),
-                        _ => None,
-                    }
-                })
-                .collect::<Vec<_>>();
-            method_names.extend(abstract_methods);
-            let next_name = next.and_then(|next| self.ctx.krate.symbols.get(next).map(ToOwned::to_owned));
-            let fields = if next_name.as_deref().is_some_and(is_error_like_base) {
-                self.with_error_marker_fields(fields, class_span)
-            } else {
-                fields
-            };
-            chain.push((name, fields, method_names));
-            cursor = next;
-        }
-        let methods = chain
-            .iter()
-            .flat_map(|(_, _, methods)| methods.iter().copied())
-            .collect::<Vec<_>>();
-        chain
-            .into_iter()
-            .rev()
-            .flat_map(|(_, fields, _)| fields)
-            .filter(|field| !methods.contains(&field.name))
-            .collect()
-    }
-
-    /// Return whether a base symbol resolves to a class this lowering can reproduce.
-    ///
-    /// Two kinds are excluded:
-    ///
-    /// * Abstract classes, which MIR refuses to construct — matching
-    ///   TypeScript's own `new AbstractClass()` error.
-    /// * Generic classes, because a derived class's flattened layout erases the
-    ///   base's type parameters: a constructed `Box<string>` carries a `String`
-    ///   slot where the derived struct declares the erased one, so the field
-    ///   moves would not type-check.
+    /// Plain, generic and abstract classes all qualify: the constructor runs as an
+    /// initializer over the derived receiver
+    /// ([`Self::lower_base_constructor_init`]), so neither "MIR cannot construct
+    /// an abstract class" nor "a constructed `Base<string>` does not fit the
+    /// derived layout" — the two reasons the old construct-and-copy lowering
+    /// excluded them — applies.
     ///
     /// Keyed on the base's resolved SYMBOL rather than its source spelling: a
     /// class renamed for a cross-module collision (`Store_1`) is registered by
@@ -581,42 +476,8 @@ impl ModuleBuilder<'_> {
     /// it, so a by-name lookup of an import-aliased base answered with the
     /// importing module's own subclass (or with nothing at all, which silently
     /// dropped the `super(...)` call).
-    pub(in crate::lowering) fn class_is_reproducible_base(&self, base: smelt_hir::Symbol) -> bool {
-        self.class_by_symbol(base).is_some_and(|class| {
-            class.kind != smelt_hir::ClassKind::Abstract && class.type_params.is_empty()
-        })
-    }
-
-    /// Read the layout-relevant parts of a lowered class item.
-    ///
-    /// Returns the class's own fields, its method items, its abstract method
-    /// names, its declared base, and its span, all owned so the caller can keep
-    /// mutating the crate while walking the base chain.
-    fn class_layout_parts(
-        &self,
-        item: smelt_hir::ItemId,
-    ) -> Option<(
-        Vec<Field>,
-        Vec<smelt_hir::ItemId>,
-        Vec<smelt_hir::Symbol>,
-        Option<smelt_hir::Symbol>,
-        Span,
-    )> {
-        let index = usize::try_from(item.0).unwrap_or(usize::MAX);
-        let Some(Item::Class(class)) = self.ctx.krate.items.get(index) else {
-            return None;
-        };
-        Some((
-            class.fields.clone(),
-            class.methods.clone(),
-            class
-                .abstract_methods
-                .iter()
-                .map(|method| method.name)
-                .collect(),
-            class.base,
-            class.span,
-        ))
+    pub(in crate::lowering) fn class_is_initializable_base(&self, base: smelt_hir::Symbol) -> bool {
+        self.class_by_symbol(base).is_some()
     }
 
     /// Prepend the `Error` marker slots a class is missing to its field layout.

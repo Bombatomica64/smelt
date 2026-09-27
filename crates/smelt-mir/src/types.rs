@@ -2437,6 +2437,15 @@ pub enum Callee {
     Indirect(Operand),
     /// A builtin function.
     Builtin(BuiltinFn),
+    /// A base class's constructor run as an initializer over a derived instance
+    /// (a derived constructor's `super(..)`; see
+    /// `smelt_hir::ExprKind::BaseConstructorInit`).
+    ///
+    /// The call's first argument is the receiver (the derived `this`), the rest
+    /// are the base constructor's arguments; the call evaluates to the
+    /// initialised receiver. The `FuncId` names the BASE constructor, whose
+    /// body codegen re-emits over the derived `Self`.
+    BaseInit(FuncId),
 }
 
 /// Builtin functions recognized by MIR.

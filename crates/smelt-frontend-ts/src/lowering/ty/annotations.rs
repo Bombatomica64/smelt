@@ -3287,25 +3287,6 @@ return_ty: function.return_ty,
         saw_return
     }
 
-    /// Look up the ITEM id of a class by its symbol.
-    ///
-    /// The symbol is the class's declared identity, so this answers correctly
-    /// for a class renamed apart from a cross-module collision, where the
-    /// by-name class registry is keyed by the shared source spelling.
-    pub(in crate::lowering) fn class_item_by_symbol(
-        &self,
-        name: smelt_hir::Symbol,
-    ) -> Option<smelt_hir::ItemId> {
-        self.ctx.krate.items.iter().enumerate().find_map(|(index, item)| {
-            if let Item::Class(class) = item
-                && class.name == name
-            {
-                return u32::try_from(index).ok().map(smelt_hir::ItemId);
-            }
-            None
-        })
-    }
-
     /// Look up a class by its symbol.
     pub(in crate::lowering) fn class_by_symbol(&self, name: smelt_hir::Symbol) -> Option<&Class> {
         self.ctx.krate.items.iter().find_map(|item| {

@@ -1091,6 +1091,15 @@ impl ExprKind {
                 class,
                 args: map_vec(args, f)?,
             },
+            Self::BaseConstructorInit {
+                base,
+                receiver,
+                args,
+            } => Self::BaseConstructorInit {
+                base,
+                receiver: f(receiver)?,
+                args: map_vec(args, f)?,
+            },
             Self::Await(value) => Self::Await(f(value)?),
             Self::AsyncOp { op, args } => Self::AsyncOp {
                 op,

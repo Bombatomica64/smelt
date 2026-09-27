@@ -405,7 +405,7 @@ fn validate_callee(
     errors: &mut Vec<ValidationError>,
 ) {
     match callee {
-        Callee::Static(_) | Callee::Builtin(_) => {}
+        Callee::Static(_) | Callee::Builtin(_) | Callee::BaseInit(_) => {}
         Callee::Indirect(operand) => {
             validate_operand(mir, function, definitions, operand, errors);
         }

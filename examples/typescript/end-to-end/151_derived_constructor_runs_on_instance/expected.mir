@@ -1,0 +1,380 @@
+class Greeter fields [Public name: String, Public msg: String, Public greet: fn() -> String] constructor Some(FuncId(0)) methods []
+class SmartGreeter fields [Public msg: String] constructor Some(FuncId(1)) methods []
+class AppBase fields [Public routes: List<String>, Public prefix: String, Public add: fn(String) -> Float, Public handle: fn(String) -> String] constructor Some(FuncId(2)) methods []
+class App fields [] constructor Some(FuncId(3)) methods []
+class PlainApp fields [] constructor Some(FuncId(4)) methods []
+class Tally fields [Public total: Float, Public history: String] constructor Some(FuncId(5)) methods [FuncId(6)]
+class DoubleTally fields [Public doubled: Bool] constructor Some(FuncId(7)) methods []
+class Point fields [Public x: Float, Public y: Float] constructor Some(FuncId(8)) methods []
+class Point3 fields [Public z: Float] constructor Some(FuncId(9)) methods []
+class Point4 fields [Public w: Float, Public tag: String] constructor Some(FuncId(10)) methods []
+class Counter fields [Public count: Float] constructor Some(FuncId(11)) methods [FuncId(12)]
+class FromThree fields [] constructor Some(FuncId(13)) methods []
+class Labelled fields [Public label: String] constructor Some(FuncId(14)) methods []
+class Named fields [] constructor Some(FuncId(15)) methods []
+
+fn new (FuncId(0)) -> Greeter
+  locals
+    %0 user this: Greeter
+    %1 temp: fn() -> String
+  bb0:
+    %0 = struct10 {}
+    %0.field11 = ""
+    %0.field12 = "x"
+    %1 = closure ClosureId(0) [copy %0]
+    %0.field13 = move %1
+    return move %0
+
+fn new (FuncId(1)) -> SmartGreeter
+  locals
+    %0 user this: SmartGreeter
+    %1 temp: SmartGreeter
+  bb0:
+    %0 = struct0 {}
+    %1 = call init fn0(move %0) -> bb1
+  bb1:
+    %0 = move %1
+    %0.field12 = "hi"
+    %0.field11 = "smart"
+    return move %0
+
+fn new (FuncId(2)) -> AppBase<E>
+  locals
+    %0 user this: AppBase<E>
+    %1 param label: String
+    %2 temp: List<String>
+    %3 temp: String
+    %4 temp: None
+    %5 temp: fn(String) -> Float
+    %6 temp: fn(String) -> String
+  bb0:
+    %0 = struct7 {}
+    %2 = []
+    %0.field16 = move %2
+    %0.field17 = ""
+    %3 = "base constructor for " + copy %1
+    %4 = call @console_log(move %3) -> bb1
+  bb1:
+    %5 = closure ClosureId(1) [copy %0]
+    %0.field18 = move %5
+    %6 = closure ClosureId(2) [copy %0]
+    %0.field19 = move %6
+    return move %0
+
+fn new (FuncId(3)) -> App<E>
+  locals
+    %0 user this: App<E>
+    %1 param prefix: String
+    %2 temp: App<E>
+  bb0:
+    %0 = struct1 {}
+    %2 = call init fn2(move %0, "app") -> bb1
+  bb1:
+    %0 = move %2
+    %0.field17 = copy %1
+    return move %0
+
+fn new (FuncId(4)) -> PlainApp
+  locals
+    %0 user this: PlainApp
+    %1 temp: PlainApp
+  bb0:
+    %0 = struct2 {}
+    %1 = call init fn2(move %0, "plain") -> bb1
+  bb1:
+    %0 = move %1
+    %0.field17 = "#"
+    return move %0
+
+fn new (FuncId(5)) -> Tally
+  locals
+    %0 user this: Tally
+    %1 param seed: Float
+    %2 temp: None
+    %3 temp: String
+  bb0:
+    %0 = struct27 {}
+    %0.field28 = 0.0
+    %2 = call fn6(copy %0, copy %1) -> bb1
+  bb1:
+    %3 = "seeded " + copy %0.field28
+    %0.field29 = move %3
+    return move %0
+
+fn bump (FuncId(6)) -> None
+  locals
+    %0 param this: Tally
+    %1 param by: Float
+    %2 temp: Float
+  bb0:
+    %2 = copy %0.field28 + copy %1
+    %0.field28 = move %2
+    return none
+
+fn new (FuncId(7)) -> DoubleTally
+  locals
+    %0 user this: DoubleTally
+    %1 user seeded: Float
+    %2 temp: DoubleTally
+    %3 temp: None
+  bb0:
+    %0 = struct3 {}
+    %2 = call init fn5(move %0, 5.0) -> bb1
+  bb1:
+    %0 = move %2
+    %0.field33 = true
+    %1 = copy %0.field28
+    %3 = call fn6(copy %0, move %1) -> bb2
+  bb2:
+    return move %0
+
+fn new (FuncId(8)) -> Point
+  locals
+    %0 user this: Point
+    %1 param x: Float
+    %2 param y: Float
+  bb0:
+    %0 = struct35 {}
+    %0.field36 = copy %1
+    %0.field37 = copy %2
+    return move %0
+
+fn new (FuncId(9)) -> Point3
+  locals
+    %0 user this: Point3
+    %1 param x: Float
+    %2 param y: Float
+    %3 param z: Float
+    %4 temp: Point3
+    %5 temp: Float
+  bb0:
+    %0 = struct38 {}
+    %4 = call init fn8(move %0, copy %1, copy %2) -> bb1
+  bb1:
+    %0 = move %4
+    %0.field39 = 0.0
+    %5 = copy %3 + copy %0.field36
+    %0.field39 = move %5
+    return move %0
+
+fn new (FuncId(10)) -> Point4
+  locals
+    %0 user this: Point4
+    %1 param tag: String
+    %2 temp: Point4
+    %3 temp: Float
+  bb0:
+    %0 = struct4 {}
+    %2 = call init fn9(move %0, 1.0, 2.0, 3.0) -> bb1
+  bb1:
+    %0 = move %2
+    %0.field40 = 9.0
+    %0.field41 = copy %1
+    %3 = copy %0.field40 + copy %0.field39
+    %0.field40 = move %3
+    return move %0
+
+fn new (FuncId(11)) -> Counter
+  locals
+    %0 user this: Counter
+    %1 param start: Float
+    %2 temp: Float
+  bb0:
+    %0 = struct42 {}
+    %2 = copy %1 * 10.0
+    %0.field43 = move %2
+    return move %0
+
+fn next (FuncId(12)) -> Float
+  locals
+    %0 param this: Counter
+    %1 temp: Float
+  bb0:
+    %1 = copy %0.field43 + 2.0
+    %0.field43 = move %1
+    return copy %0.field43
+
+fn new (FuncId(13)) -> FromThree
+  locals
+    %0 user this: FromThree
+    %1 temp: FromThree
+  bb0:
+    %0 = struct5 {}
+    %1 = call init fn11(move %0, 3.0) -> bb1
+  bb1:
+    %0 = move %1
+    return move %0
+
+fn new (FuncId(14)) -> Labelled<T>
+  locals
+    %0 user this: Labelled<T>
+    %1 param label: String
+  bb0:
+    %0 = struct9 {}
+    %0.field20 = copy %1
+    return move %0
+
+fn new (FuncId(15)) -> Named
+  locals
+    %0 user this: Named
+    %1 param label: String
+    %2 temp: Named
+  bb0:
+    %0 = struct46 {}
+    %2 = call init fn14(move %0, copy %1) -> bb1
+  bb1:
+    %0 = move %2
+    return move %0
+
+fn main (FuncId(16)) -> None throws
+  locals
+    %0 user smart: SmartGreeter
+    %1 user app: App<Float>
+    %2 user plain: PlainApp
+    %3 user tally: DoubleTally
+    %4 user p4: Point4
+    %5 user counter: FromThree
+    %6 temp: SmartGreeter
+    %7 temp: fn() -> String
+    %8 temp: String
+    %9 temp: None
+    %10 temp: fn() -> String
+    %11 temp: String
+    %12 temp: None
+    %13 temp: App<Float>
+    %14 temp: fn(String) -> Float
+    %15 temp: Float
+    %16 temp: fn(String) -> Float
+    %17 temp: Float
+    %18 temp: None
+    %19 temp: fn(String) -> String
+    %20 temp: String
+    %21 temp: fn(String) -> String
+    %22 temp: String
+    %23 temp: None
+    %24 temp: PlainApp
+    %25 temp: fn(String) -> Float
+    %26 temp: Float
+    %27 temp: fn(String) -> String
+    %28 temp: String
+    %29 temp: Float
+    %30 temp: None
+    %31 temp: DoubleTally
+    %32 temp: None
+    %33 temp: Point4
+    %34 temp: None
+    %35 temp: FromThree
+    %36 temp: Float
+    %37 temp: Float
+    %38 temp: None
+    %39 temp: Named
+    %40 temp: None
+  bb0:
+    %6 = call fn1() -> bb1
+  bb1:
+    %0 = move %6
+    %8 = closure_call copy %0.field13()
+    %9 = call @console_log(move %8) -> bb2
+  bb2:
+    %0.field11 = "later"
+    %11 = closure_call copy %0.field13()
+    %12 = call @console_log(move %11) -> bb3
+  bb3:
+    %13 = call fn3("/api") -> bb4
+  bb4:
+    %1 = move %13
+    %15 = closure_call copy %1.field18("/users")
+    %17 = closure_call copy %1.field18("/posts")
+    %18 = call @console_log(move %15, move %17) -> bb5
+  bb5:
+    %20 = closure_call copy %1.field19("/users")
+    %22 = closure_call copy %1.field19("/nope")
+    %23 = call @console_log(move %20, move %22) -> bb6
+  bb6:
+    %24 = call fn4() -> bb7
+  bb7:
+    %2 = move %24
+    %26 = closure_call copy %2.field18("a")
+    %28 = closure_call copy %2.field19("a")
+    %29 = len copy %2.field16
+    %30 = call @console_log(move %28, move %29) -> bb8
+  bb8:
+    %31 = call fn7() -> bb9
+  bb9:
+    %3 = move %31
+    %32 = call @console_log(copy %3.field28, copy %3.field29, copy %3.field33) -> bb10
+  bb10:
+    %33 = call fn10("p") -> bb11
+  bb11:
+    %4 = move %33
+    %34 = call @console_log(copy %4.field36, copy %4.field37, copy %4.field39, copy %4.field40, copy %4.field41) -> bb12
+  bb12:
+    %35 = call fn13() -> bb13
+  bb13:
+    %5 = move %35
+    %36 = call fn12(copy %5) -> bb14
+  bb14:
+    %37 = call fn12(move %5) -> bb15
+  bb15:
+    %38 = call @console_log(move %36, move %37) -> bb16
+  bb16:
+    %39 = call fn15("forwarded") -> bb17
+  bb17:
+    %40 = call @console_log(copy %39.field20) -> bb18
+  bb18:
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 user this: Greeter
+    %1 temp: String
+    %2 temp: String
+    %3 temp: String
+  bb0:
+    %1 = "base:" + copy %0.field11
+    %2 = copy %1 + ":"
+    %3 = copy %2 + copy %0.field12
+    return copy %3
+
+closure ClosureId(1) -> Float
+  locals
+    %0 param path: String
+    %1 user this: AppBase<E>
+    %2 temp: List<String>
+    %3 temp: String
+    %4 temp: Float
+    %5 temp: Float
+  bb0:
+    %2 = copy %1.field16
+    %3 = copy %1.field17 + copy %0
+    %4 = list_push copy %2, copy %3
+    %1.field16 = copy %2
+    %5 = len copy %1.field16
+    return copy %5
+
+closure ClosureId(2) -> String
+  locals
+    %0 param path: String
+    %1 user this: AppBase<E>
+    %2 user full: String
+    %3 temp: String
+    %4 temp: Bool
+    %5 temp: String
+    %6 temp: String
+    %7 temp: String
+  bb0:
+    %3 = copy %1.field17 + copy %0
+    %2 = copy %3
+    %4 = list_contains copy %1.field16, copy %2
+    switch copy %4 ? bb1 : bb2
+  bb1:
+    %6 = "hit " + copy %2
+    %5 = copy %6
+    goto bb3
+  bb2:
+    %7 = "miss " + copy %2
+    %5 = copy %7
+    goto bb3
+  bb3:
+    return copy %5
+

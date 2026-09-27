@@ -27,14 +27,12 @@ fn new (FuncId(1)) -> Base
 fn new (FuncId(2)) -> Derived
   locals
     %0 user this: Derived
-    %1 user __smelt_super: Base
-    %2 temp: Base
+    %1 temp: Derived
   bb0:
     %0 = struct0 {}
-    %2 = call fn1() -> bb1
+    %1 = call init fn1(move %0) -> bb1
   bb1:
-    %1 = move %2
-    %0.field4 = copy %1.field4
+    %0 = move %1
     %0.field8 = 7.0
     return move %0
 
@@ -44,9 +42,9 @@ fn new (FuncId(3)) -> Point
     %1 param x: Float
     %2 param y: Float
   bb0:
-    %0 = struct10 {}
-    %0.field11 = copy %1
-    %0.field12 = copy %2
+    %0 = struct9 {}
+    %0.field10 = copy %1
+    %0.field11 = copy %2
     return move %0
 
 fn sum (FuncId(4)) -> Float
@@ -54,7 +52,7 @@ fn sum (FuncId(4)) -> Float
     %0 param this: Point
     %1 temp: Float
   bb0:
-    %1 = copy %0.field11 + copy %0.field12
+    %1 = copy %0.field10 + copy %0.field11
     return move %1
 
 fn new (FuncId(5)) -> Point3
@@ -62,16 +60,13 @@ fn new (FuncId(5)) -> Point3
     %0 user this: Point3
     %1 param x: Float
     %2 param y: Float
-    %3 user __smelt_super: Point
-    %4 temp: Point
+    %3 temp: Point3
   bb0:
     %0 = struct1 {}
-    %4 = call fn3(copy %1, copy %2) -> bb1
+    %3 = call init fn3(move %0, copy %1, copy %2) -> bb1
   bb1:
-    %3 = move %4
-    %0.field11 = copy %3.field11
-    %0.field12 = copy %3.field12
-    %0.field14 = 3.0
+    %0 = move %3
+    %0.field13 = 3.0
     return move %0
 
 fn new (FuncId(6)) -> Tagged
@@ -81,25 +76,23 @@ fn new (FuncId(6)) -> Tagged
     %2 user tag: String
     %3 temp: String
   bb0:
-    %0 = struct15 {}
+    %0 = struct14 {}
     %3 = copy %1 ?? "none"
     %2 = move %3
-    %0.field16 = move %2
+    %0.field15 = move %2
     return move %0
 
 fn new (FuncId(7)) -> Labelled
   locals
     %0 user this: Labelled
     %1 param tag: Optional<String>
-    %2 user __smelt_super: Tagged
-    %3 temp: Tagged
+    %2 temp: Labelled
   bb0:
-    %0 = struct17 {}
-    %3 = call fn6(copy %1) -> bb1
+    %0 = struct16 {}
+    %2 = call init fn6(move %0, copy %1) -> bb1
   bb1:
-    %2 = move %3
-    %0.field16 = copy %2.field16
-    %0.field18 = true
+    %0 = move %2
+    %0.field17 = true
     return move %0
 
 fn new (FuncId(8)) -> Deeper
@@ -107,17 +100,13 @@ fn new (FuncId(8)) -> Deeper
     %0 user this: Deeper
     %1 param x: Float
     %2 param y: Float
-    %3 user __smelt_super: Point3
-    %4 temp: Point3
+    %3 temp: Deeper
   bb0:
     %0 = struct2 {}
-    %4 = call fn5(copy %1, copy %2) -> bb1
+    %3 = call init fn5(move %0, copy %1, copy %2) -> bb1
   bb1:
-    %3 = move %4
-    %0.field11 = copy %3.field11
-    %0.field12 = copy %3.field12
-    %0.field14 = copy %3.field14
-    %0.field19 = 4.0
+    %0 = move %3
+    %0.field18 = 4.0
     return move %0
 
 fn main (FuncId(9)) -> None
@@ -151,7 +140,7 @@ fn main (FuncId(9)) -> None
     %1 = move %6
     %7 = call fn4(copy %1) -> bb5
   bb5:
-    %8 = call @console_log(move %7, copy %1.field11, copy %1.field12, copy %1.field14) -> bb6
+    %8 = call @console_log(move %7, copy %1.field10, copy %1.field11, copy %1.field13) -> bb6
   bb6:
     %9 = call fn7() -> bb7
   bb7:
@@ -159,14 +148,14 @@ fn main (FuncId(9)) -> None
   bb8:
     %11 = call fn7() -> bb9
   bb9:
-    %12 = call @console_log(copy %9.field16, copy %10.field16, copy %11.field18) -> bb10
+    %12 = call @console_log(copy %9.field15, copy %10.field15, copy %11.field17) -> bb10
   bb10:
     %13 = call fn8(5.0, 6.0) -> bb11
   bb11:
     %2 = move %13
     %14 = call fn4(copy %2) -> bb12
   bb12:
-    %15 = call @console_log(copy %2.field11, copy %2.field12, copy %2.field14, copy %2.field19, move %14) -> bb13
+    %15 = call @console_log(copy %2.field10, copy %2.field11, copy %2.field13, copy %2.field18, move %14) -> bb13
   bb13:
     return none
 
