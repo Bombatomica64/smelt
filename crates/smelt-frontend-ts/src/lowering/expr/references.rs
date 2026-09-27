@@ -1667,6 +1667,16 @@ impl ModuleBuilder<'_> {
     }
 
     /// Synthesize a read value for a known module-level variable.
+    ///
+    /// This is the LAST resort for a module binding with no local, no slot and
+    /// no folded value. A binding read from an item context (a function or
+    /// class body, a lifted arrow, a replayed const initializer, a slot's own
+    /// initializer) is lifted to a module slot or folded before any body is
+    /// lowered — see `ModuleBuilder::collect_item_context_reads` and
+    /// `collect_class_value_globals` — so a real read no longer reaches the
+    /// default-value arms below. What still arrives is a binding those passes
+    /// cannot lift (a destructured or uninitialized binding, an erased binding
+    /// the program calls) and an erased host/import name.
     pub(in crate::lowering) fn module_global_expression(
         &mut self,
         name: &str,

@@ -1,0 +1,171 @@
+module examples/typescript/end-to-end/140_user_type_guard_narrowing/input.ts (ModuleId(0))
+  body BodyId(15)
+  items
+    fn is_req__module_examples/typescript/end-to-end/140_user_type_guard_narrowing/input.ts owner Module
+    interface Req fields [Public kind: String, Public url: String] methods []
+    interface RawReq fields [Public kind: String, Public raw: Float] methods []
+    fn is_raw owner Module
+    fn describe owner Module
+    fn describe_arrow owner Module
+    fn early_return owner Module
+    fn is_string owner Module
+    fn length_or owner Module
+    class Checker fields [] constructor Some(ItemId(15)) methods [ItemId(13), ItemId(14)] implements []
+    fn describe_method owner Module
+    fn describe_local owner Module
+    fn assert_raw owner Module
+    fn asserted owner Module
+  locals
+    %0 const plainRequest: Req
+    %1 const rawRequest: RawReq
+    %2 const checker: Checker
+  exprs
+    #0: String = "kind"
+    #1: String = "req"
+    #2: String = "url"
+    #3: String = "/home"
+    #4: Req = {#0: #1, #2: #3}
+    #5: String = "kind"
+    #6: String = "raw"
+    #7: String = "raw"
+    #8: Float = 7.0
+    #9: RawReq = {#5: #6, #7: #8}
+    #10: Req = %0
+    #11: fn(Req | RawReq) -> String = @1(describe)
+    #12: String = call #11(#10)
+    #13: None = @17(console_log)
+    #14: None = call #13(#12)
+    #15: RawReq = %1
+    #16: fn(Req | RawReq) -> String = @1(describe)
+    #17: String = call #16(#15)
+    #18: None = @18(console_log)
+    #19: None = call #18(#17)
+    #20: Req = %0
+    #21: fn(Req | RawReq) -> String = @2(describe_arrow)
+    #22: String = call #21(#20)
+    #23: None = @19(console_log)
+    #24: None = call #23(#22)
+    #25: RawReq = %1
+    #26: fn(Req | RawReq) -> String = @2(describe_arrow)
+    #27: String = call #26(#25)
+    #28: None = @20(console_log)
+    #29: None = call #28(#27)
+    #30: Req = %0
+    #31: fn(Req | RawReq) -> String = @3(early_return)
+    #32: String = call #31(#30)
+    #33: None = @21(console_log)
+    #34: None = call #33(#32)
+    #35: RawReq = %1
+    #36: fn(Req | RawReq) -> String = @3(early_return)
+    #37: String = call #36(#35)
+    #38: None = @22(console_log)
+    #39: None = call #38(#37)
+    #40: String = "hello"
+    #41: Bool = true
+    #42: fn(String | Float, Bool) -> Float = @5(length_or)
+    #43: Float = call #42(#40, #41)
+    #44: None = @23(console_log)
+    #45: None = call #44(#43)
+    #46: String = "hi"
+    #47: Bool = true
+    #48: fn(String | Float, Bool) -> Float = @5(length_or)
+    #49: Float = call #48(#46, #47)
+    #50: None = @24(console_log)
+    #51: None = call #50(#49)
+    #52: Float = 5.0
+    #53: Bool = true
+    #54: fn(String | Float, Bool) -> Float = @5(length_or)
+    #55: Float = call #54(#52, #53)
+    #56: None = @25(console_log)
+    #57: None = call #56(#55)
+    #58: Checker = new Checker()
+    #59: Checker = %2
+    #60: Req = %0
+    #61: fn(Checker, Req | RawReq) -> String = @6(describe_method)
+    #62: String = call #61(#59, #60)
+    #63: None = @26(console_log)
+    #64: None = call #63(#62)
+    #65: Checker = %2
+    #66: RawReq = %1
+    #67: fn(Checker, Req | RawReq) -> String = @6(describe_method)
+    #68: String = call #67(#65, #66)
+    #69: None = @27(console_log)
+    #70: None = call #69(#68)
+    #71: Checker = %2
+    #72: fn(Req | RawReq) -> String = #71.label
+    #73: Checker = %2
+    #74: Req = %0
+    #75: String = #73.label(#74)
+    #76: None = @28(console_log)
+    #77: None = call #76(#75)
+    #78: Checker = %2
+    #79: fn(Req | RawReq) -> String = #78.label
+    #80: Checker = %2
+    #81: RawReq = %1
+    #82: String = #80.label(#81)
+    #83: None = @29(console_log)
+    #84: None = call #83(#82)
+    #85: Req = %0
+    #86: fn(Req | RawReq) -> String = @7(describe_local)
+    #87: String = call #86(#85)
+    #88: None = @30(console_log)
+    #89: None = call #88(#87)
+    #90: RawReq = %1
+    #91: fn(Req | RawReq) -> String = @7(describe_local)
+    #92: String = call #91(#90)
+    #93: None = @31(console_log)
+    #94: None = call #93(#92)
+    #95: RawReq = %1
+    #96: fn(Req | RawReq) -> Float = @9(asserted)
+    #97: Float = call #96(#95)
+    #98: None = @32(console_log)
+    #99: None = call #98(#97)
+  stmts
+    s0: let %0: Req = #4
+    s1: let %1: RawReq = #9
+    s2: #14
+    s3: #19
+    s4: #24
+    s5: #29
+    s6: #34
+    s7: #39
+    s8: #45
+    s9: #51
+    s10: #57
+    s11: let %2: Checker = #58
+    s12: #64
+    s13: #70
+    s14: #77
+    s15: #84
+    s16: #89
+    s17: #94
+    s18: #99
+
+interned types
+  t0 = Req
+  t1 = RawReq
+  t2 = Req | RawReq
+  t3 = Bool
+  t4 = fn(Req | RawReq) -> Bool
+  t5 = String
+  t6 = Dict<String, String>
+  t7 = List<String>
+  t8 = Float
+  t9 = Unknown
+  t10 = Dict<String, Unknown>
+  t11 = List<Unknown>
+  t12 = Checker
+  t13 = fn(Req | RawReq) -> Bool
+  t14 = fn(Req | RawReq) -> String
+  t15 = String | Float
+  t16 = fn(String | Float) -> Bool
+  t17 = fn(String | Float, Bool) -> Float
+  t18 = fn(Checker, Req | RawReq) -> String
+  t19 = fn(Req | RawReq) -> Float
+  t20 = None
+  t21 = fn(String | Float) -> Bool
+  t22 = fn(Req | RawReq) -> None
+  t23 = fn(Req | RawReq) -> String
+  t24 = fn(String | Float, Bool) -> Float
+  t25 = fn(Checker, Req | RawReq) -> String
+  t26 = fn(Req | RawReq) -> Float

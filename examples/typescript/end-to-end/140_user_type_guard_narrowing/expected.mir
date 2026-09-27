@@ -1,0 +1,387 @@
+class Checker fields [] constructor Some(FuncId(13)) methods [FuncId(11), FuncId(12)]
+interface Req
+interface RawReq
+
+fn is_raw (FuncId(0)) -> Bool
+  locals
+    %0 param r: Req | RawReq
+    %1 temp: Bool
+  bb0:
+    %1 = copy %0.field18 == "raw"
+    return move %1
+
+fn describe (FuncId(1)) -> String
+  locals
+    %0 param request: Req | RawReq
+    %1 temp: Bool
+    %2 temp: RawReq
+    %3 temp: String
+    %4 temp: Req
+    %5 temp: String
+  bb0:
+    %1 = call fn0(copy %0) -> bb1
+  bb1:
+    switch move %1 ? bb2 : bb3
+  bb2:
+    %2 = unknown_cast copy %0 as t1
+    %3 = "raw " + copy %2.field21
+    return move %3
+  bb3:
+    %4 = unknown_cast copy %0 as t0
+    %5 = "req " + copy %4.field20
+    return move %5
+  bb4:
+    return none
+
+fn describe_arrow (FuncId(2)) -> String
+  locals
+    %0 param request: Req | RawReq
+    %1 temp: Bool
+    %2 temp: Req
+    %3 temp: String
+    %4 temp: RawReq
+    %5 temp: String
+  bb0:
+    %1 = call fn10(copy %0) -> bb1
+  bb1:
+    switch move %1 ? bb2 : bb3
+  bb2:
+    %2 = unknown_cast copy %0 as t0
+    %3 = "req " + copy %2.field20
+    return move %3
+  bb3:
+    %4 = unknown_cast copy %0 as t1
+    %5 = "raw " + copy %4.field21
+    return move %5
+
+fn early_return (FuncId(3)) -> String
+  locals
+    %0 param request: Req | RawReq
+    %1 temp: Bool
+    %2 temp: Bool
+    %3 temp: Req
+    %4 temp: String
+    %5 temp: RawReq
+    %6 temp: Float
+    %7 temp: String
+  bb0:
+    %1 = call fn0(copy %0) -> bb1
+  bb1:
+    %2 = !move %1
+    switch move %2 ? bb2 : bb3
+  bb2:
+    %3 = unknown_cast copy %0 as t0
+    %4 = "req " + copy %3.field20
+    return move %4
+  bb3:
+    %5 = unknown_cast copy %0 as t1
+    %6 = copy %5.field21 + 1.0
+    %7 = "raw " + move %6
+    return move %7
+
+fn is_string (FuncId(4)) -> Bool
+  locals
+    %0 param value: String | Float
+    %1 temp: Bool
+  bb0:
+    %1 = unknown_is String copy %0
+    return move %1
+
+fn length_or (FuncId(5)) -> Float
+  locals
+    %0 param value: String | Float
+    %1 param big: Bool
+    %2 temp: Bool
+    %3 temp: Bool
+    %4 temp: Bool
+    %5 temp: String
+    %6 temp: Float
+    %7 temp: Bool
+    %8 temp: String
+    %9 temp: Float
+    %10 temp: Bool
+    %11 temp: Bool
+    %12 temp: Float
+    %13 temp: Float
+  bb0:
+    %2 = call fn4(copy %0) -> bb1
+  bb1:
+    switch move %2 ? bb2 : bb3
+  bb2:
+    %3 = copy %1
+    goto bb4
+  bb3:
+    %3 = false
+    goto bb4
+  bb4:
+    switch move %3 ? bb5 : bb6
+  bb5:
+    %5 = unknown_cast copy %0 as t5
+    %6 = len move %5
+    %7 = move %6 > 2.0
+    %4 = move %7
+    goto bb7
+  bb6:
+    %4 = false
+    goto bb7
+  bb7:
+    switch move %4 ? bb8 : bb9
+  bb8:
+    %8 = unknown_cast copy %0 as t5
+    %9 = len move %8
+    return move %9
+  bb9:
+    %10 = call fn4(copy %0) -> bb10
+  bb10:
+    %11 = !move %10
+    switch move %11 ? bb11 : bb12
+  bb11:
+    %12 = unknown_cast copy %0 as t8
+    %13 = move %12 * 10.0
+    return move %13
+  bb12:
+    return 0.0
+
+fn describe_method (FuncId(6)) -> String
+  locals
+    %0 param checker: Checker
+    %1 param request: Req | RawReq
+    %2 temp: Bool
+    %3 temp: RawReq
+    %4 temp: String
+    %5 temp: Req
+    %6 temp: String
+  bb0:
+    %2 = call fn11(copy %0, copy %1) -> bb1
+  bb1:
+    switch move %2 ? bb2 : bb3
+  bb2:
+    %3 = unknown_cast copy %1 as t1
+    %4 = "m-raw " + copy %3.field21
+    return move %4
+  bb3:
+    %5 = unknown_cast copy %1 as t0
+    %6 = "m-req " + copy %5.field20
+    return move %6
+
+fn describe_local (FuncId(7)) -> String
+  locals
+    %0 param request: Req | RawReq
+    %1 user local_is_raw: fn(Req | RawReq) -> Bool
+    %2 temp: fn(Req | RawReq) -> Bool
+    %3 temp: Bool
+    %4 temp: RawReq
+    %5 temp: String
+    %6 temp: Req
+    %7 temp: String
+  bb0:
+    %2 = closure ClosureId(0) []
+    %1 = move %2
+    %3 = closure_call move %1(copy %0)
+    switch move %3 ? bb1 : bb2
+  bb1:
+    %4 = unknown_cast copy %0 as t1
+    %5 = "l-raw " + copy %4.field21
+    return move %5
+  bb2:
+    %6 = unknown_cast copy %0 as t0
+    %7 = "l-req " + copy %6.field20
+    return move %7
+
+fn assert_raw (FuncId(8)) -> None throws
+  locals
+    %0 param r: Req | RawReq
+    %1 temp: Bool
+    %2 temp: Dict<String, Unknown>
+    %3 temp: Unknown
+  bb0:
+    %1 = copy %0.field18 != "raw"
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = {"__smelt_error": "Error", "message": "not raw", "stack": undefined, "cause": undefined}
+    %3 = unknown_cast move %2 as t9
+    throw move %3
+  bb2:
+    return none
+
+fn asserted (FuncId(9)) -> Float throws
+  locals
+    %0 param request: Req | RawReq
+    %1 temp: None
+    %2 temp: RawReq
+    %3 temp: Float
+  bb0:
+    %1 = call fn8(copy %0) -> bb1
+  bb1:
+    %2 = unknown_cast copy %0 as t1
+    %3 = copy %2.field21 * 2.0
+    return move %3
+
+fn is_req__module_examples/typescript/end-to-end/140_user_type_guard_narrowing/input.ts (FuncId(10)) -> Bool
+  locals
+    %0 param r: Req | RawReq
+    %1 temp: Bool
+  bb0:
+    %1 = copy %0.field18 == "req"
+    return move %1
+
+fn is_raw (FuncId(11)) -> Bool
+  locals
+    %0 param this: Checker
+    %1 param r: Req | RawReq
+    %2 temp: Bool
+  bb0:
+    %2 = copy %1.field18 == "raw"
+    return move %2
+
+fn label (FuncId(12)) -> String
+  locals
+    %0 param this: Checker
+    %1 param request: Req | RawReq
+    %2 temp: Bool
+    %3 temp: RawReq
+    %4 temp: String
+    %5 temp: Req
+    %6 temp: String
+  bb0:
+    %2 = call fn11(copy %0, copy %1) -> bb1
+  bb1:
+    switch move %2 ? bb2 : bb3
+  bb2:
+    %3 = unknown_cast copy %1 as t1
+    %4 = "this-raw " + copy %3.field21
+    return move %4
+  bb3:
+    %5 = unknown_cast copy %1 as t0
+    %6 = "this-req " + copy %5.field20
+    return move %6
+
+fn new (FuncId(13)) -> Checker
+  locals
+    %0 user this: Checker
+  bb0:
+    %0 = struct2 {}
+    return move %0
+
+fn main (FuncId(14)) -> None throws
+  locals
+    %0 user plain_request: Req
+    %1 user raw_request: RawReq
+    %2 user checker: Checker
+    %3 temp: Req
+    %4 temp: RawReq
+    %5 temp: String
+    %6 temp: None
+    %7 temp: String
+    %8 temp: None
+    %9 temp: String
+    %10 temp: None
+    %11 temp: String
+    %12 temp: None
+    %13 temp: String
+    %14 temp: None
+    %15 temp: String
+    %16 temp: None
+    %17 temp: Float
+    %18 temp: None
+    %19 temp: Float
+    %20 temp: None
+    %21 temp: Float
+    %22 temp: None
+    %23 temp: Checker
+    %24 temp: String
+    %25 temp: None
+    %26 temp: String
+    %27 temp: None
+    %28 temp: String
+    %29 temp: None
+    %30 temp: String
+    %31 temp: None
+    %32 temp: String
+    %33 temp: None
+    %34 temp: String
+    %35 temp: None
+    %36 temp: Float
+    %37 temp: None
+  bb0:
+    %3 = {"kind": "req", "url": "/home"}
+    %0 = move %3
+    %4 = {"kind": "raw", "raw": 7.0}
+    %1 = move %4
+    %5 = call fn1(copy %0) -> bb1
+  bb1:
+    %6 = call @console_log(move %5) -> bb2
+  bb2:
+    %7 = call fn1(copy %1) -> bb3
+  bb3:
+    %8 = call @console_log(move %7) -> bb4
+  bb4:
+    %9 = call fn2(copy %0) -> bb5
+  bb5:
+    %10 = call @console_log(move %9) -> bb6
+  bb6:
+    %11 = call fn2(copy %1) -> bb7
+  bb7:
+    %12 = call @console_log(move %11) -> bb8
+  bb8:
+    %13 = call fn3(copy %0) -> bb9
+  bb9:
+    %14 = call @console_log(move %13) -> bb10
+  bb10:
+    %15 = call fn3(copy %1) -> bb11
+  bb11:
+    %16 = call @console_log(move %15) -> bb12
+  bb12:
+    %17 = call fn5("hello", true) -> bb13
+  bb13:
+    %18 = call @console_log(move %17) -> bb14
+  bb14:
+    %19 = call fn5("hi", true) -> bb15
+  bb15:
+    %20 = call @console_log(move %19) -> bb16
+  bb16:
+    %21 = call fn5(5.0, true) -> bb17
+  bb17:
+    %22 = call @console_log(move %21) -> bb18
+  bb18:
+    %23 = call fn13() -> bb19
+  bb19:
+    %2 = move %23
+    %24 = call fn6(copy %2, copy %0) -> bb20
+  bb20:
+    %25 = call @console_log(move %24) -> bb21
+  bb21:
+    %26 = call fn6(copy %2, copy %1) -> bb22
+  bb22:
+    %27 = call @console_log(move %26) -> bb23
+  bb23:
+    %28 = call fn12(copy %2, copy %0) -> bb24
+  bb24:
+    %29 = call @console_log(move %28) -> bb25
+  bb25:
+    %30 = call fn12(move %2, copy %1) -> bb26
+  bb26:
+    %31 = call @console_log(move %30) -> bb27
+  bb27:
+    %32 = call fn7(move %0) -> bb28
+  bb28:
+    %33 = call @console_log(move %32) -> bb29
+  bb29:
+    %34 = call fn7(copy %1) -> bb30
+  bb30:
+    %35 = call @console_log(move %34) -> bb31
+  bb31:
+    %36 = call fn9(move %1) -> bb32
+  bb32:
+    %37 = call @console_log(move %36) -> bb33
+  bb33:
+    return none
+
+closure ClosureId(0) -> Bool
+  locals
+    %0 param __callback_param_0: Req | RawReq
+    %1 temp: Bool
+  bb0:
+    %1 = copy %0.field18 == "raw"
+    return copy %1
+

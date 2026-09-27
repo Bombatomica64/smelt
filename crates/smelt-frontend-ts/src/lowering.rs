@@ -11,6 +11,7 @@ mod state;
 mod stdlib;
 mod stdlib_dispatch;
 mod support;
+mod type_predicates;
 mod union_member_read;
 mod ty;
 use std::{

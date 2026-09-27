@@ -44,29 +44,6 @@ fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
 fn smelt_console_number<N: ::std::borrow::Borrow<f64>>(value: N) -> String { let value = *value.borrow(); if value == 0.0 && value.is_sign_negative() { return "-0".to_owned(); } smelt_number_to_string(value) }
 
 thread_local! {
-    static SMELT_NEXT_CAPTURE_SCOPE: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
-    static SMELT_SHARED_CAPTURES: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), ::std::rc::Weak<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
-}
-
-fn smelt_next_capture_scope() -> usize {
-    SMELT_NEXT_CAPTURE_SCOPE.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id })
-}
-
-fn smelt_shared_capture<T: Clone + 'static>(scope: usize, slot: *mut T, initial: T) -> ::std::rc::Rc<::std::cell::RefCell<T>> {
-    let key = (scope, slot as usize);
-    SMELT_SHARED_CAPTURES.with(|captures| {
-        let mut captures = captures.borrow_mut();
-        if let Some(existing) = captures.get(&key).and_then(::std::rc::Weak::upgrade) {
-            return existing.downcast::<::std::cell::RefCell<T>>().expect("shared capture type mismatch");
-        }
-        let value: ::std::rc::Rc<::std::cell::RefCell<T>> = ::std::rc::Rc::new(::std::cell::RefCell::new(initial));
-        let erased: ::std::rc::Rc<dyn ::std::any::Any> = value.clone();
-        captures.insert(key, ::std::rc::Rc::downgrade(&erased));
-        value
-    })
-}
-
-thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
 
@@ -145,26 +122,22 @@ fn smelt_global_init__rem__0() -> SmeltList<String> {
 }
 
 fn main() {
+    SMELT_GLOBAL_REM_0.with(|_| ());
     let _smelt_tmp_2 = ::std::rc::Rc::new(|| {
     let mut _smelt_tmp_0: SmeltList<String> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_REM_0.with(|value| value.borrow().clone()));
-    let _smelt_tmp_1: f64 = { let smelt_push_item = "second".to_owned(); _smelt_tmp_0.borrow_mut().push(smelt_push_item); _smelt_tmp_0.len() as f64 };
+    let _smelt_tmp_1: f64 = { let smelt_push_item = "first".to_owned(); _smelt_tmp_0.borrow_mut().push(smelt_push_item); _smelt_tmp_0.len() as f64 };
+    let _smelt_tmp_2 = ::std::rc::Rc::new(|| {
+    let _smelt_tmp_0: () = second__module_main();
     ()
     });
-    let second = _smelt_tmp_2.clone();
-    let _smelt_tmp_3 = ::std::rc::Rc::new({
-    let second = second.clone();
-    move || {
-    let mut _smelt_tmp_1: SmeltList<String> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_REM_0.with(|value| value.borrow().clone()));
-    let _smelt_tmp_2: f64 = { let smelt_push_item = "first".to_owned(); _smelt_tmp_1.borrow_mut().push(smelt_push_item); _smelt_tmp_1.len() as f64 };
-    let _smelt_tmp_3: () = take(&*second);
+    let _smelt_tmp_3: () = take(&*_smelt_tmp_2);
     ()
-    }
-});
-    let outer = _smelt_tmp_3.clone();
-    let _smelt_tmp_4: () = (outer)();
-    let _smelt_tmp_5: SmeltList<String> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_REM_0.with(|value| value.borrow().clone()));
-    let _smelt_tmp_6: String = _smelt_tmp_5.borrow().join(&",".to_owned());
-    let _ = { println!("{}", _smelt_tmp_6); };
+    });
+    let outer = _smelt_tmp_2.clone();
+    let _smelt_tmp_3: () = (outer)();
+    let _smelt_tmp_4: SmeltList<String> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_REM_0.with(|value| value.borrow().clone()));
+    let _smelt_tmp_5: String = _smelt_tmp_4.borrow().join(&",".to_owned());
+    let _ = { println!("{}", _smelt_tmp_5); };
     return;
 }
 
@@ -177,5 +150,11 @@ use super::*;
 
 pub(crate) fn take(f: &dyn Fn() -> ()) -> () {
     let _smelt_tmp_1: () = f();
+    return;
+}
+
+pub(crate) fn second__module_main() -> () {
+    let mut _smelt_tmp_0: SmeltList<String> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_REM_0.with(|value| value.borrow().clone()));
+    let _smelt_tmp_1: f64 = { let smelt_push_item = "second".to_owned(); _smelt_tmp_0.borrow_mut().push(smelt_push_item); _smelt_tmp_0.len() as f64 };
     return;
 }

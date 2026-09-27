@@ -478,9 +478,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.predeclare_type_alias_items(program);
         self.collect_module_enums(program);
         self.collect_module_globals(program);
-        self.collect_mutable_globals(program, &mut module, &mut errors);
+        // Every module binding a separately lowered body reads — a hoisted
+        // item, a replayed const initializer, or a module slot's own
+        // initializer function — has no module-body local to read through.
+        // Each one must resolve to a provably identical folded value or to a
+        // module slot; see `collect_item_context_reads`.
+        let item_reads = Self::collect_item_context_reads(program);
+        self.collect_mutable_globals(program, &item_reads, &mut module, &mut errors);
         self.forget_lifted_const_collections();
-        self.collect_class_value_globals(program, &mut module);
+        self.collect_class_value_globals(program, &item_reads, &mut module);
         // A module top-level `function Foo(){ this.a = … }` used with `new Foo()`,
         // `x instanceof Foo`, or `Foo.prototype.m = …` is a JavaScript
         // constructor function, not a plain function. Both name sets are handed
@@ -505,6 +511,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.collect_overload_signatures(program, &implemented_functions);
         self.collect_forward_function_types(program, &implemented_functions);
         self.predeclare_function_items(program, &implemented_functions, &mut errors);
+        // Type predicates carried by arrows, predicate-typed variables and class
+        // methods are recorded before any body is lowered, like the function
+        // declarations' own (`predeclare_function_item`), so a hoisted body
+        // calling one declared further down still narrows through it.
+        self.collect_type_predicate_signatures(program);
         // Static properties on function declarations (`partial.placeholder = …`)
         // are collected as a PREPASS, right after the function items they hang off
         // are predeclared and before any body is lowered. A function's own body
@@ -1460,10 +1471,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
     pub(super) fn collect_mutable_globals(
         &mut self,
         program: &Program<'_>,
+        item_reads: &HashSet<String>,
         module: &mut Module,
         errors: &mut Vec<SmeltError>,
     ) {
-        let (reassigned, mutated_through, mutated_through_nested) =
+        let (reassigned, mutated_through, mut mutated_through_nested) =
             Self::collect_mutated_names(program);
         // A binding is module state if it is mutated AT ALL, and a write
         // *through* it counts: `let cache: Record<string, number> = {}` that is
@@ -1472,11 +1484,39 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // requiring a whole-binding reassignment to lift it was harmless; now
         // it would silently leave the write on a module-local copy, which is
         // exactly the class of defect this family exists to prevent.
-        let mutated: HashSet<String> = reassigned
+        let mut mutated: HashSet<String> = reassigned
             .into_iter()
             .chain(mutated_through.iter().cloned())
             .chain(mutated_through_nested.iter().cloned())
             .collect();
+        // A write in the MODULE BODY is module state too once any item body
+        // reads the binding: the reader has no module-body local to see the
+        // write through, so a folded initializer (or a fabricated default)
+        // would answer the value from before the write. `const zs: number[] =
+        // []; zs.push(1); const cnt = () => zs.length` printed 0. A binding
+        // written and read only by module-body statements keeps its ordinary
+        // local, byte-identical to before.
+        let (body_reassigned, body_through, body_nested) = Self::collect_all_mutated_names(program);
+        let body_mutated: HashSet<String> = body_reassigned
+            .into_iter()
+            .chain(body_through)
+            .chain(body_nested.iter().cloned())
+            .collect();
+        //
+        // Only a binding WITH an initializer: `let cached: string[];` starts
+        // as `undefined`, which the declared type cannot hold, so a slot of
+        // that type would have no honest initial value, and lifting it would
+        // turn a lowering that works today into the no-initializer blocker.
+        // Such a binding keeps its existing path.
+        let initialized = Self::initialized_module_binding_names(program);
+        let lifted_by_body_write = body_mutated
+            .intersection(item_reads)
+            .filter(|name| initialized.contains(*name))
+            .cloned()
+            .collect::<HashSet<_>>();
+        mutated_through_nested.extend(body_nested.intersection(&lifted_by_body_write).cloned());
+        mutated.extend(lifted_by_body_write);
+        self.fold_unmutated_module_let_literals(program, &body_mutated, item_reads);
         if mutated.is_empty() {
             return;
         }
@@ -1509,15 +1549,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
-    /// Lift each module-level binding whose value is a CLASS INSTANCE to the
-    /// same module-global slot the mutable-global family uses.
+    /// Lift each module-level binding READ FROM AN ITEM CONTEXT that has no
+    /// provably identical folded value to the same module-global slot the
+    /// mutable-global family uses.
     ///
-    /// The rule is stated over the binding's TYPE, not over any class list or
-    /// any library spelling: a module-level binding typed `Type::Class` is
-    /// lifted when it is not already a mutable global and its initializer is a
-    /// real expression. That covers every modeled host class (`Headers`,
-    /// `URLSearchParams`, `Request`, `Response`, `TextEncoder`,
-    /// `TextDecoder`, `Blob`/`File`, …) and every user class alike.
+    /// The rule is stated over where the binding is read, not over any type
+    /// family, class list or library spelling: a binding in `read_in_items`
+    /// (see [`Self::collect_item_context_reads`]) that is not already a slot,
+    /// an item, or a folded literal/object/collection/regexp is lifted when its
+    /// initializer is a real expression. Class instances (every modeled host
+    /// class — `Headers`, `URLSearchParams`, `Request`, … — and every user
+    /// class), containers, strings built by calls and erased values all take
+    /// this one path; the alternative was `module_global_expression`
+    /// fabricating the declared type's default.
     ///
     /// # Why a slot, and not the const-inlining path
     ///
@@ -1557,8 +1601,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// [`Self::collect_mutable_globals`]; one that is not is a `const` in all
     /// but spelling and lifts here, so the rule does not depend on which
     /// keyword the source used.
-    fn collect_class_value_globals(&mut self, program: &Program<'_>, module: &mut Module) {
-        let read_in_items = Self::collect_hoisted_body_reads(program);
+    fn collect_class_value_globals(
+        &mut self,
+        program: &Program<'_>,
+        read_in_items: &HashSet<String>,
+        module: &mut Module,
+    ) {
         if read_in_items.is_empty() {
             return;
         }
@@ -1568,7 +1616,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 Statement::VariableDeclaration(variable) => {
                     self.register_class_value_global_decl(
                         variable,
-                        &read_in_items,
+                        read_in_items,
                         &called,
                         Visibility::Private,
                         module,
@@ -1578,7 +1626,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     if let Declaration::VariableDeclaration(variable) = &export.declaration {
                         self.register_class_value_global_decl(
                             variable,
-                            &read_in_items,
+                            read_in_items,
                             &called,
                             Visibility::Public,
                             module,
@@ -1590,7 +1638,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
-    /// Lift each class-instance binding in one declaration to a module global.
+    /// Lift each item-read, unfolded binding in one declaration to a module global.
     ///
     /// Registers the item with a [`smelt_hir::MutableGlobalInit::Pending`]
     /// initializer; the expression is lowered into its own nullary function
@@ -1666,80 +1714,49 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let Some(ty) = self.module_globals.get(name).copied() else {
                 continue;
             };
-            // A MODELED class: one whose values have a concrete generated Rust
-            // representation carrying a JavaScript reference identity, which the
-            // stdlib registry answers. That is exactly the set whose reads
-            // fabricated an empty erased record, and exactly the set for which
-            // per-use re-creation loses a shared object.
+            // Every binding that reaches here is read from an item context and
+            // has neither a folded value nor a slot yet, so the read would have
+            // FABRICATED the declared type's default: `{}` for a record whose
+            // literal initializer the folder could not fold (`{ k: [zero(),
+            // 'a'] }`), `""` for a string built by a call, an empty erased
+            // record for a class instance. JavaScript evaluates the initializer
+            // ONCE and every reader sees that value, so the rule is stated over
+            // nothing but that: the binding becomes a module slot holding its
+            // one evaluated value, whatever its type. That subsumes the earlier
+            // per-shape lifts (modeled host classes, non-literal containers,
+            // erased values, constructed user instances), which were each this
+            // rule for one type family.
             //
-            // A USER class instance at module scope has the same fabricated
-            // default and plausibly the same fix, but its representation and its
-            // identity rules are the class emitter's, not the registry's, so it
-            // is left on the existing path rather than moved on an untested
-            // assumption. It now fails with the named blocker in
-            // `module_global_expression` instead of a wrong value.
-            // A CONTAINER (record, array, map, set) whose initializer is not a
-            // literal the const folder owns (`const baseMimes: Record<string,
-            // M> = _baseMimes`, declared below the functions that read it, in
-            // Hono's `utils/mime`) has the same fabricated-default problem —
-            // every read saw an EMPTY record — and a slot holding its one value
-            // is the same fix: containers carry reference identity too.
-            // An object/array LITERAL initializer stays with the const folder
-            // (a function table, a record of constants); it is lifted only
-            // when mutated through, by `register_mutable_global_decl`.
-            let is_container = matches!(
-                self.ctx.krate.types.get(ty),
-                Some(Type::Dict(_, _) | Type::JsMap(_, _) | Type::List(_) | Type::Set(_))
-            ) && !matches!(
-                init.without_parentheses(),
-                Expression::ObjectExpression(_) | Expression::ArrayExpression(_)
-            );
-            // An ERASED binding (`const emptyParams = createNullObject()`, whose
-            // helper returns `any`) is the same problem once more: the read
-            // fabricated an empty erased record per use, so every function saw
-            // a fresh object and `node.#params === emptyParams` (Hono's
-            // trie-router, which tells "no params yet" apart by identity) was
-            // never true — a parent node's params were dropped. JavaScript
-            // evaluates the initializer ONCE, so the slot holds that one value.
-            // The binding's type is already the dynamic boundary the source
-            // declared (`any`/a union); the slot adds no erasure of its own.
+            // The slot takes the type `collect_module_globals` recorded, so the
+            // slot and the old fabricated default agree on the type and only
+            // the VALUE changes; an erased (`any`/union) binding's type is the
+            // dynamic boundary the source declared, and the slot adds no
+            // erasure of its own.
             //
-            // A binding the program CALLS (`const validate = wrap(fn)`, then
-            // `validate(x)`) is a callable value; it keeps the erased call path,
-            // which a module slot does not serve.
-            let is_erased_value = matches!(
+            // Two shapes keep their existing paths. A `class` expression names a
+            // class, not an instance. And an ERASED binding the program CALLS
+            // (`const validate = wrap(fn)`, then `validate(x)`) keeps the erased
+            // call path, which a module slot does not serve yet.
+            let is_erased = matches!(
                 self.ctx.krate.types.get(ty),
                 Some(Type::Unknown | Type::Union(_))
-            ) && !called.contains(name)
-                && !matches!(
-                init.without_parentheses(),
-                Expression::ObjectExpression(_)
-                    | Expression::ArrayExpression(_)
-                    | Expression::StringLiteral(_)
-                    | Expression::NumericLiteral(_)
-                    | Expression::BooleanLiteral(_)
-                    | Expression::NullLiteral(_)
-                    | Expression::TemplateLiteral(_)
-                    | Expression::ClassExpression(_)
             );
-            // A USER class instance built by its constructor (`const s = new
-            // Stack()`) is one object too: a function reading `s` must see the
-            // module's instance and its state, not a fabricated empty record
-            // cast to the class. Restricted to a `new` of the binding's own
-            // class, so the slot's type and the constructed value agree.
-            let is_constructed_user_instance = matches!(
-                self.ctx.krate.types.get(ty),
-                Some(Type::Class { .. })
-            ) && matches!(
-                init.without_parentheses(),
-                Expression::NewExpression(new_expr)
-                    if matches!(&new_expr.callee, Expression::Identifier(callee)
-                        if self.source_contains_class(callee.name.as_str()))
-            );
-            if self.stdlib_class_of_type(ty).is_none()
-                && !is_container
-                && !is_erased_value
-                && !is_constructed_user_instance
+            if matches!(init.without_parentheses(), Expression::ClassExpression(_))
+                || (is_erased && called.contains(name))
+            {
+                continue;
+            }
+            // An EXPORTED object/array literal never reaches the fabricating
+            // read: the export pass (`const_item_declarations`) lowers it to an
+            // item of its own — a function-table namespace whose members are
+            // callable items, or a const item — and every read resolves to that
+            // item. A written one was already lifted by
+            // `register_mutable_global_decl`.
+            if matches!(visibility, Visibility::Public)
+                && matches!(
+                    init.without_parentheses(),
+                    Expression::ObjectExpression(_) | Expression::ArrayExpression(_)
+                )
             {
                 continue;
             }
@@ -1986,6 +2003,55 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(())
     }
 
+    /// Evaluate a module slot's expression initializer at its own declaration.
+    ///
+    /// A slot's cell initializes lazily, on first access. That is the module's
+    /// one evaluation, but not necessarily at the source position: a first read
+    /// from a function called later would run the initializer then, observing
+    /// module state written in between (`let n = 1; const t = { v: f(n) }; n =
+    /// 2;` would see `n = 2`) and moving any side effect it has. JavaScript
+    /// evaluates the initializer exactly when the declaration executes, and a
+    /// correct program cannot read the binding earlier (a `const`/`let` read
+    /// before its declaration throws), so touching the slot here makes the lazy
+    /// cell's single evaluation happen in source order. The read's value is
+    /// discarded.
+    ///
+    /// A literal-initialized slot has nothing to evaluate and gets no statement.
+    /// Only the module body's own declaration reaches here (the declarator is
+    /// recognized by its binding span).
+    pub(in crate::lowering) fn force_module_slot_init(
+        &mut self,
+        name: &str,
+        binding_span: oxc::span::Span,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) {
+        if !self.is_lifted_global_declarator(name, binding_span) {
+            return;
+        }
+        let Some(item) = self.mutable_global_items.get(name).copied() else {
+            return;
+        };
+        let Item::MutableGlobal(global) = self.item_ref(item) else {
+            return;
+        };
+        if !matches!(global.init, smelt_hir::MutableGlobalInit::Initializer(_)) {
+            return;
+        }
+        // The read is typed UNIT: nothing consumes it, and a unit-typed
+        // `GlobalGet` is how Rust codegen knows to emit a bare touch of the
+        // lazy cell (`NAME.with(|_| ())`) instead of cloning the slot's value
+        // into a typed temporary.
+        let span = global.span;
+        let ty = self.ctx.krate.types.intern(Type::None);
+        let read = body.push_expr(Expr {
+            kind: ExprKind::GlobalGet { item },
+            ty,
+            span,
+        });
+        body.push_stmt_to_block(block, smelt_hir::Stmt::Expr(read));
+    }
+
     /// Accept only a direct number/string/bool literal initializer (through
     /// transparent parenthesis/cast wrappers) for a mutable global.
     fn mutable_global_literal_init(&mut self, expression: &Expression<'_>) -> Option<ConstLiteral> {
@@ -2076,6 +2142,195 @@ impl<'ctx> ModuleBuilder<'ctx> {
             collector.mutated_through,
             collector.mutated_through_nested,
         )
+    }
+
+    /// Collect every name assigned, updated, or written through ANYWHERE in the
+    /// program — module-body statements included.
+    ///
+    /// [`Self::collect_mutated_names`] deliberately scans only hoisted item
+    /// bodies, because a binding mutated only by module-body statements keeps an
+    /// ordinary module-body local. That is right exactly until an item body
+    /// READS the binding: then the write and the read have to meet in one
+    /// storage location, which only a module slot provides. The caller
+    /// intersects this set with the item-context reads to find those bindings.
+    /// The scan ignores shadowing, so it over-approximates — a spurious entry
+    /// costs a slot, which still holds the binding's one value.
+    fn collect_all_mutated_names(
+        program: &Program<'_>,
+    ) -> (HashSet<String>, HashSet<String>, HashSet<String>) {
+        use oxc::ast_visit::Visit;
+        let mut collector = MutatedNameCollector {
+            names: HashSet::new(),
+            mutated_through: HashSet::new(),
+            mutated_through_nested: HashSet::new(),
+        };
+        collector.visit_program(program);
+        (
+            collector.names,
+            collector.mutated_through,
+            collector.mutated_through_nested,
+        )
+    }
+
+    /// Collect every module binding read from a body lowered SEPARATELY from
+    /// the module body, closed over module-slot initializers.
+    ///
+    /// The seed is [`Self::collect_hoisted_body_reads`]: function and class
+    /// declarations, `const` arrow/function initializers and replayed
+    /// object/array literals. A module binding in that set cannot be read
+    /// through a module-body local, so it becomes a module slot unless a folded
+    /// value is provably identical — and a slot's initializer is itself lowered
+    /// into a synthesized nullary function item (see
+    /// [`Self::lower_pending_mutable_global_init`]), which has no module-body
+    /// locals either. So the free names of every such binding's initializer
+    /// are item-context reads too, and the set is closed to a fixed point:
+    ///
+    /// ```ts
+    /// const double = (n: number) => n * 2;
+    /// const table: Record<string, number> = { four: double(2) };
+    /// function lookup(key: string) { return table[key]; }
+    /// ```
+    ///
+    /// `table` is read by `lookup`, so its initializer runs in an item context,
+    /// so `double` is read from one — and must be an item or a slot, never the
+    /// default-returning stub it used to read as.
+    ///
+    /// Over-approximation (an initializer whose binding ends up folded after
+    /// all) only adds names that must then be folded or lifted themselves,
+    /// which is always correct.
+    fn collect_item_context_reads(program: &Program<'_>) -> HashSet<String> {
+        use oxc::ast_visit::Visit;
+        let mut reads = Self::collect_hoisted_body_reads(program);
+        let mut declarators: Vec<(&str, &Expression<'_>)> = Vec::new();
+        for statement in &program.body {
+            let variable = match statement {
+                Statement::VariableDeclaration(variable) => variable,
+                Statement::ExportDeclaration(export) => {
+                    let Declaration::VariableDeclaration(variable) = &export.declaration else {
+                        continue;
+                    };
+                    variable
+                }
+                _ => continue,
+            };
+            if variable.declare {
+                continue;
+            }
+            for declarator in &variable.declarations {
+                if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+                    && let Some(init) = &declarator.init
+                {
+                    declarators.push((binding.name.as_str(), init));
+                }
+            }
+        }
+        let mut expanded: HashSet<&str> = HashSet::new();
+        loop {
+            let mut changed = false;
+            for (name, init) in &declarators {
+                if !reads.contains(*name) || !expanded.insert(name) {
+                    continue;
+                }
+                let mut collector = ReadNameCollector {
+                    names: HashSet::new(),
+                    bound: HashSet::new(),
+                };
+                collector.visit_expression(init);
+                for free in collector.into_free_names() {
+                    changed |= reads.insert(free);
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        reads
+    }
+
+    /// Names of the module-level identifier bindings declared WITH an
+    /// initializer (ambient declarations excluded).
+    fn initialized_module_binding_names(program: &Program<'_>) -> HashSet<String> {
+        let mut names = HashSet::new();
+        for statement in &program.body {
+            let variable = match statement {
+                Statement::VariableDeclaration(variable) => variable,
+                Statement::ExportDeclaration(export) => {
+                    let Declaration::VariableDeclaration(variable) = &export.declaration else {
+                        continue;
+                    };
+                    variable
+                }
+                _ => continue,
+            };
+            if variable.declare {
+                continue;
+            }
+            for declarator in &variable.declarations {
+                if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+                    && declarator.init.is_some()
+                {
+                    names.insert(binding.name.as_str().to_owned());
+                }
+            }
+        }
+        names
+    }
+
+    /// Fold each never-mutated module `let`/`var` with a literal initializer
+    /// exactly like a `const`.
+    ///
+    /// A binding no statement anywhere assigns is a constant in all but
+    /// spelling, so its literal is provably the one value every reader sees.
+    /// Only `const` was folded before, and an item body reading `let greeting =
+    /// 'hello'` fabricated the declared type's default (`""`) instead.
+    fn fold_unmutated_module_let_literals(
+        &mut self,
+        program: &Program<'_>,
+        mutated_anywhere: &HashSet<String>,
+        item_reads: &HashSet<String>,
+    ) {
+        for statement in &program.body {
+            let variable = match statement {
+                Statement::VariableDeclaration(variable) => variable,
+                Statement::ExportDeclaration(export) => {
+                    let Declaration::VariableDeclaration(variable) = &export.declaration else {
+                        continue;
+                    };
+                    variable
+                }
+                _ => continue,
+            };
+            if variable.declare || variable.kind == oxc::ast::ast::VariableDeclarationKind::Const {
+                continue;
+            }
+            for declarator in &variable.declarations {
+                let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                    continue;
+                };
+                let name = binding.name.as_str();
+                // Only an item-read binding needs the fold: a module-body read
+                // already reads the binding's own local.
+                if !item_reads.contains(name)
+                    || mutated_anywhere.contains(name)
+                    || self.consts.literal(name).is_some()
+                {
+                    continue;
+                }
+                let Some(init) = &declarator.init else {
+                    continue;
+                };
+                // The folded literal must carry the binding's recorded type, so
+                // an item-body read sees the type a module-body read does.
+                if let Ok(value) = self.literal_const_expression(init)
+                    && self
+                        .module_globals
+                        .get(name)
+                        .is_some_and(|recorded| *recorded == value.ty)
+                {
+                    self.consts.set_literal(name.to_owned(), value);
+                }
+            }
+        }
     }
 
     /// Every identifier the program uses as a call's callee (`name(..)`).
@@ -4391,6 +4646,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
         for statement in &program.body {
             match statement {
                 Statement::VariableDeclaration(variable) => {
+                    // A module SLOT's initializer is lowered into its own
+                    // nullary function item, so an arrow it names is read from
+                    // an item body exactly like one a function declaration
+                    // names, and must be an item it can call.
+                    for declarator in &variable.declarations {
+                        if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+                            && self.mutable_global_items.contains_key(binding.name.as_str())
+                        {
+                            referrer_spans.push((declarator.span.start, declarator.span.end));
+                        }
+                    }
                     if variable.kind != oxc::ast::ast::VariableDeclarationKind::Const {
                         continue;
                     }
@@ -4503,7 +4769,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
         program: &Program<'_>,
         candidates: &mut HashSet<String>,
     ) {
-        let identity_bindings = Self::identity_bearing_module_binding_names(program);
+        // The divergence this refusal guards needs a WRITE: a re-materialized
+        // copy of a binding nothing mutates is indistinguishable from reading
+        // the binding. And a mutated binding an arrow body reads is a module
+        // SLOT (a hoisted-body read plus a write anywhere lifts it, see
+        // `collect_mutable_globals`), which a lifted function reads through the
+        // slot itself — the one shared value. So only a written binding that
+        // did NOT become a slot (a shape the slot passes decline) still refuses.
+        let (reassigned, through, nested) = Self::collect_all_mutated_names(program);
+        let mut identity_bindings = Self::identity_bearing_module_binding_names(program);
+        identity_bindings.retain(|name| {
+            !self.mutable_global_items.contains_key(name)
+                && (reassigned.contains(name) || through.contains(name) || nested.contains(name))
+        });
         if identity_bindings.is_empty() {
             return;
         }
