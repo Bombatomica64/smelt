@@ -12,6 +12,7 @@ use oxc::span::GetSpan;
 use smelt_hir::{
     AsyncOp, Body, CaptureMode, ClosureCapture, Expr, ExprKind, Field, FunctionType,
     GeneratorResumeKind, Item, Literal, LocalDecl, Param, Pattern, Span, Stmt, Type,
+    TypeParamDef,
 };
 use smelt_stdlib::RuleId;
 use std::collections::HashMap;
@@ -125,7 +126,7 @@ impl<'builder> ModuleBuilder<'builder> {
         {
             return Ok(expr);
         }
-        self.call_expression(call, body)
+        self.call_expression_with_result_hint(call, body, type_hint)
     }
 
     /// Lower `local?.method(..)` on an absent-able STRING or ARRAY local.
@@ -191,6 +192,23 @@ impl<'builder> ModuleBuilder<'builder> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        self.call_expression_with_result_hint(call, body, None)
+    }
+
+    /// Lower a call expression, carrying the contextual type expected of its
+    /// RESULT (`result_hint`) down to generic instantiation.
+    ///
+    /// The hint is only an inference source of last resort for callee type
+    /// parameters that no argument binds (see
+    /// [`Self::complete_callee_type_substitution`]); it never overrides a type
+    /// the arguments determine. Receiver-view registration is the same as in
+    /// [`Self::call_expression`].
+    fn call_expression_with_result_hint(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+        result_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         let receiver_key = match &call.callee {
             Expression::StaticMemberExpression(member)
                 if smelt_stdlib::is_array_non_mutating_method(member.property.name.as_str()) =>
@@ -200,19 +218,23 @@ impl<'builder> ModuleBuilder<'builder> {
             _ => None,
         };
         let Some(receiver_key) = receiver_key else {
-            return self.call_expression_lowering(call, body);
+            return self.call_expression_lowering(call, body, result_hint);
         };
         self.array_view_receivers.push(receiver_key);
-        let lowered = self.call_expression_lowering(call, body);
+        let lowered = self.call_expression_lowering(call, body, result_hint);
         self.array_view_receivers.pop();
         lowered
     }
 
     /// Lower a call expression once its receiver view (if any) is registered.
+    ///
+    /// `result_hint` is the contextual type of the call's result, consumed only
+    /// when instantiating a generic callee's unbound type parameters.
     fn call_expression_lowering(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
+        result_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         // A vitest asymmetric matcher (`expect.any(..)`, `expect.not.arrayContaining(..)`)
         // is a matcher VALUE, so it is recognized before any callee resolution:
@@ -318,7 +340,7 @@ impl<'builder> ModuleBuilder<'builder> {
         if let Some(expr) = self.callable_static_member_call(call, body)? {
             return Ok(expr);
         }
-        if let Some(expr) = self.class_static_method_call(call, body)? {
+        if let Some(expr) = self.class_static_method_call(call, body, result_hint)? {
             return Ok(expr);
         }
         if let Expression::StaticMemberExpression(member) = &call.callee {
@@ -329,6 +351,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 member.span,
                 member.optional,
                 body,
+                result_hint,
             );
         }
         // `receiver.#method(args)` is the same member call as
@@ -361,6 +384,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 member.span,
                 member.optional,
                 body,
+                result_hint,
             );
         }
         if let Some(expr) = self.local_callable_call(call, body)? {
@@ -740,8 +764,14 @@ impl<'builder> ModuleBuilder<'builder> {
                     format!("unresolved function `{}`", callee_ident.name),
                 ));
             };
-            let (params, item_rest, item_required_params, implementation_return_ty, is_async) =
-                if let Item::Function(function) = self.item_ref(item) {
+            let (
+                params,
+                item_rest,
+                item_required_params,
+                implementation_return_ty,
+                is_async,
+                (callee_type_params, callee_generics_materialized),
+            ) = if let Item::Function(function) = self.item_ref(item) {
                     (
                         function
                             .params
@@ -752,6 +782,7 @@ impl<'builder> ModuleBuilder<'builder> {
                         function.required_params,
                         function.return_ty,
                         function.is_async,
+                        self.callee_own_type_params(item),
                     )
                 } else if self.imports.is_value(callee_ident.name.as_str()) {
                     for arg in &call.arguments {
@@ -1081,8 +1112,24 @@ impl<'builder> ModuleBuilder<'builder> {
                 });
                 for (param, arg) in inference_inputs {
                     let arg_ty = Self::expr_ty(body, *arg);
-                    let _ = self.infer_overload_type(*param, arg_ty, &mut substitutions);
+                    let _ = self.infer_callee_type_bindings(
+                        &callee_type_params,
+                        *param,
+                        arg_ty,
+                        &mut substitutions,
+                    );
                 }
+                // Parameters no argument bound take the contextual result
+                // type, then their default / constraint / `unknown`, so the
+                // result never carries a raw callee `TypeParam` that would
+                // alias a same-named caller parameter.
+                self.complete_callee_type_substitution(
+                    &callee_type_params,
+                    callee_generics_materialized,
+                    &mut substitutions,
+                    return_ty,
+                    result_hint,
+                );
                 if substitutions.is_empty() {
                     return_ty
                 } else {
@@ -1123,12 +1170,28 @@ impl<'builder> ModuleBuilder<'builder> {
                     let mut substitutions = HashMap::new();
                     for (param, arg) in params.iter().zip(&args) {
                         let arg_ty = Self::expr_ty(body, *arg);
-                        let _ = self.infer_overload_type(*param, arg_ty, &mut substitutions);
+                        let _ = self.infer_callee_type_bindings(
+                            &callee_type_params,
+                            *param,
+                            arg_ty,
+                            &mut substitutions,
+                        );
                     }
                     if substitutions.contains_key(&name) {
                         return_ty
                     } else {
-                        implementation_return_ty
+                        // Still instantiate the implementation's OTHER unbound
+                        // parameters (and this one) through the contextual
+                        // type / default / constraint / `unknown` chain, so the
+                        // erased return never leaks a raw callee `TypeParam`.
+                        self.complete_callee_type_substitution(
+                            &callee_type_params,
+                            callee_generics_materialized,
+                            &mut substitutions,
+                            implementation_return_ty,
+                            result_hint,
+                        );
+                        self.substitute_type_params(implementation_return_ty, &substitutions)
                     }
                 }
                 _ => return_ty,
@@ -1180,6 +1243,7 @@ impl<'builder> ModuleBuilder<'builder> {
         member_span: oxc::span::Span,
         member_optional: bool,
         body: &mut Body,
+        result_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         if property_name == "next" && call.arguments.is_empty() {
             let receiver = self.expression(object, body)?;
@@ -1232,6 +1296,25 @@ impl<'builder> ModuleBuilder<'builder> {
                 args.push(self.lower_call_arg(arg, hint, body)?);
             }
         }
+        // A resolved generic method instantiates its OWN type parameters from
+        // the arguments / contextual type; class parameters were already
+        // substituted from the receiver by `resolve_method`.
+        let return_ty = if method_item.0 != u32::MAX
+            && let Item::Function(function) = self.item_ref(method_item)
+        {
+            let method_params = function.params.iter().map(|param| param.ty).collect::<Vec<_>>();
+            let (method_type_params, materialized) = self.callee_own_type_params(method_item);
+            let arg_tys = args.iter().map(|arg| Self::expr_ty(body, *arg)).collect::<Vec<_>>();
+            self.instantiate_generic_method_result(
+                (&method_type_params, materialized),
+                &method_params,
+                &arg_tys,
+                return_ty,
+                result_hint,
+            )
+        } else {
+            return_ty
+        };
         if method_item.0 == u32::MAX
             && self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown)
             && !self.receiver_declares_in_progress_method(access_receiver_ty, method, member_span)?
@@ -2538,10 +2621,15 @@ impl<'builder> ModuleBuilder<'builder> {
     /// associated function item so codegen emits `Class::staticMethod(args)`.
     /// Returns `None` when the callee is not a `Class.method(..)` static call so
     /// the caller can fall through to the ordinary member-call path.
+    ///
+    /// A generic static method's own type parameters are instantiated from the
+    /// arguments and `result_hint` (the call's contextual type), see
+    /// [`Self::instantiate_generic_method_result`].
     pub(in crate::lowering) fn class_static_method_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
+        result_hint: Option<smelt_hir::TypeId>,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
@@ -2569,6 +2657,8 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(None);
         };
         let return_ty = function.return_ty;
+        let method_type_params = self.callee_own_type_params(static_item);
+        let method_params = function.params.iter().map(|param| param.ty).collect::<Vec<_>>();
         let span = self.span(call.span.start, call.span.end);
         // Arguments are lowered as-is; the Rust emitter coerces each to the
         // associated function's declared parameter type at the call site, the
@@ -2577,6 +2667,14 @@ impl<'builder> ModuleBuilder<'builder> {
         for argument in &call.arguments {
             args.push(self.argument(argument, body)?);
         }
+        let arg_tys = args.iter().map(|arg| Self::expr_ty(body, *arg)).collect::<Vec<_>>();
+        let return_ty = self.instantiate_generic_method_result(
+            (&method_type_params.0, method_type_params.1),
+            &method_params,
+            &arg_tys,
+            return_ty,
+            result_hint,
+        );
         let callee = body.push_expr(Expr {
             kind: ExprKind::Item(static_item),
             ty: self.item_expr_type(static_item, span)?,
@@ -4962,6 +5060,85 @@ impl<'builder> ModuleBuilder<'builder> {
                 | Type::None,
             )
             | None => false,
+        }
+    }
+
+    /// Instantiate a generic METHOD's declared result type for one call.
+    ///
+    /// Used by the class-method and static-method call paths, which resolve a
+    /// concrete method item but previously typed the call with its declared
+    /// return verbatim, so a method-level type parameter (`list<U = number>():
+    /// U[]`, `static bag<T>(): Record<string, T>`) leaked into the caller as a
+    /// raw `TypeParam` — aliasing any same-named caller parameter.
+    ///
+    /// * `type_params` — the method's OWN type parameters. Only these are
+    ///   instantiated: `return_ty` may still mention the enclosing class's
+    ///   parameters (already substituted from the receiver's arguments by
+    ///   `resolve_method`, or deliberately left as the caller's own `this`
+    ///   parameters), and those must never be rebound here.
+    /// * `params` / `arg_tys` — declared parameter types and the lowered
+    ///   argument types, zipped positionally for inference. Naked `T`
+    ///   parameters are inferred first, exactly like the free-function path.
+    /// * `result_hint` — the call's contextual result type, see
+    ///   [`Self::complete_callee_type_substitution`] for the fallback chain.
+    /// * `materialized` — whether the emitted method is really generic over
+    ///   `type_params` (see [`Self::callee_own_type_params`]). Today's methods
+    ///   are not: their definition renders each own parameter as
+    ///   `SmeltUnknown`, so the call result substitutes them with `unknown`
+    ///   WITHOUT argument inference — typing the result from the arguments
+    ///   would promise a concrete container the erased definition does not
+    ///   return, and `unknown` is precisely what the leaked parameter used to
+    ///   render as.
+    ///
+    /// Returns `return_ty` unchanged for a non-generic method, and keeps the
+    /// declared return where instantiation would turn it into a function that
+    /// renders as the erased `SmeltErasedFunction` (same rule as free calls).
+    fn instantiate_generic_method_result(
+        &mut self,
+        (type_params, materialized): (&[TypeParamDef], bool),
+        params: &[smelt_hir::TypeId],
+        arg_tys: &[smelt_hir::TypeId],
+        return_ty: smelt_hir::TypeId,
+        result_hint: Option<smelt_hir::TypeId>,
+    ) -> smelt_hir::TypeId {
+        if type_params.is_empty()
+            || !self.overload_constraint_contains_unresolved_type_param(return_ty)
+        {
+            return return_ty;
+        }
+        if !materialized {
+            let mut substitutions = HashMap::new();
+            self.complete_callee_type_substitution(
+                type_params,
+                false,
+                &mut substitutions,
+                return_ty,
+                None,
+            );
+            return self.substitute_type_params(return_ty, &substitutions);
+        }
+        let mut inference_inputs = params.iter().zip(arg_tys).collect::<Vec<_>>();
+        inference_inputs.sort_by_key(|(param, _)| {
+            !matches!(self.ctx.krate.types.get(**param), Some(Type::TypeParam { .. }))
+        });
+        let mut substitutions = HashMap::new();
+        for (param, arg_ty) in inference_inputs {
+            let _ =
+                self.infer_callee_type_bindings(type_params, *param, *arg_ty, &mut substitutions);
+        }
+        substitutions.retain(|name, _| type_params.iter().any(|param| param.name == *name));
+        self.complete_callee_type_substitution(
+            type_params,
+            true,
+            &mut substitutions,
+            return_ty,
+            result_hint,
+        );
+        let substituted = self.substitute_type_params(return_ty, &substitutions);
+        if self.renders_as_erased_function(substituted) {
+            return_ty
+        } else {
+            substituted
         }
     }
 

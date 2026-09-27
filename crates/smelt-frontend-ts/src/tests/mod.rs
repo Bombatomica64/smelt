@@ -236,3 +236,4 @@ mod global_namespace_tests;
 mod unresolved_type_import_tests;
 mod closure_argument_hint_tests;
 mod asserted_callback_name_tests;
+mod callee_type_param_tests;
