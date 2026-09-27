@@ -1676,12 +1676,6 @@ const EXPECTED_FIXTURE_FAILURES: &[ExpectedFailure] = &[
         cause: "a source class named `Box` collides with the generated/prelude `Box`, so its \
                 uses take the wrong arity (E0107)",
     },
-    ExpectedFailure {
-        name: "concrete_callback_sunk_into_method",
-        errors: 1,
-        cause: "a non-generic callback sunk into a method call from a generic caller is \
-                passed at the caller's borrowed type (E0308)",
-    },
     // -- Also failing at HEAD. These come from the same rescued suite but were
     // not part of the campaign's re-verified ten, so they are recorded as
     // observed rather than asserted to be pre-existing. Anyone fixing one
