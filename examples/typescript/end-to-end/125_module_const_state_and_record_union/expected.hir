@@ -10,44 +10,48 @@ module examples/typescript/end-to-end/125_module_const_state_and_record_union/in
     %1 const b: (String, String, Bool)
     %2 const collect: fn(Bool) -> Dict<String, String | List<String>>
   exprs
-    #0: String = ":id"
-    #1: fn(String) -> (String, String, Bool) = @4(get_pattern)
-    #2: (String, String, Bool) = call #1(#0)
-    #3: String = ":id"
-    #4: fn(String) -> (String, String, Bool) = @4(get_pattern)
-    #5: (String, String, Bool) = call #4(#3)
-    #6: String = ":name"
-    #7: fn(String) -> (String, String, Bool) = @4(get_pattern)
-    #8: (String, String, Bool) = call #7(#6)
-    #9: (String, String, Bool) = %0
-    #10: Float = 1.0
-    #11: String = tuple_index #9, 1
-    #12: (String, String, Bool) = %1
-    #13: Float = 0.0
-    #14: String = tuple_index #12, 0
-    #15: List<String> = global_get @3(seen)
-    #16: String = "|"
-    #17: String = string_join #15, #16
-    #18: None = @8(console_log)
-    #19: None = call #18(#11, #14, #17)
-    #20: fn(Bool) -> Dict<String, String | List<String>> = closure BodyId(3) captures 0 -> Dict<String, String | List<String>>
-    #21: fn(Bool) -> Dict<String, String | List<String>> = %2
-    #22: Bool = true
-    #23: Dict<String, String | List<String>> = closure_call #21(#22)
-    #24: String = json_stringify #23
-    #25: fn(Bool) -> Dict<String, String | List<String>> = %2
-    #26: Bool = false
-    #27: Dict<String, String | List<String>> = closure_call #25(#26)
-    #28: String = json_stringify #27
-    #29: None = @9(console_log)
-    #30: None = call #29(#24, #28)
+    #0: None = global_get @2(cache)
+    #1: None = global_get @3(seen)
+    #2: String = ":id"
+    #3: fn(String) -> (String, String, Bool) = @4(get_pattern)
+    #4: (String, String, Bool) = call #3(#2)
+    #5: String = ":id"
+    #6: fn(String) -> (String, String, Bool) = @4(get_pattern)
+    #7: (String, String, Bool) = call #6(#5)
+    #8: String = ":name"
+    #9: fn(String) -> (String, String, Bool) = @4(get_pattern)
+    #10: (String, String, Bool) = call #9(#8)
+    #11: (String, String, Bool) = %0
+    #12: Float = 1.0
+    #13: String = tuple_index #11, 1
+    #14: (String, String, Bool) = %1
+    #15: Float = 0.0
+    #16: String = tuple_index #14, 0
+    #17: List<String> = global_get @3(seen)
+    #18: String = "|"
+    #19: String = string_join #17, #18
+    #20: None = @8(console_log)
+    #21: None = call #20(#13, #16, #19)
+    #22: fn(Bool) -> Dict<String, String | List<String>> = closure BodyId(3) captures 0 -> Dict<String, String | List<String>>
+    #23: fn(Bool) -> Dict<String, String | List<String>> = %2
+    #24: Bool = true
+    #25: Dict<String, String | List<String>> = closure_call #23(#24)
+    #26: String = json_stringify #25
+    #27: fn(Bool) -> Dict<String, String | List<String>> = %2
+    #28: Bool = false
+    #29: Dict<String, String | List<String>> = closure_call #27(#28)
+    #30: String = json_stringify #29
+    #31: None = @9(console_log)
+    #32: None = call #31(#26, #30)
   stmts
-    s0: let %0: (String, String, Bool) = #2
-    s1: let %1: (String, String, Bool) = #5
-    s2: #8
-    s3: #19
-    s4: let %2: fn(Bool) -> Dict<String, String | List<String>> = #20
-    s5: #30
+    s0: #0
+    s1: #1
+    s2: let %0: (String, String, Bool) = #4
+    s3: let %1: (String, String, Bool) = #7
+    s4: #10
+    s5: #21
+    s6: let %2: fn(Bool) -> Dict<String, String | List<String>> = #22
+    s7: #32
 
 interned types
   t0 = String
@@ -66,8 +70,8 @@ interned types
   t13 = fn(String) -> (String, String, Bool)
   t14 = Optional<(String, String, Bool)>
   t15 = Float
-  t16 = fn(String) -> (String, String, Bool)
-  t17 = None
+  t16 = None
+  t17 = fn(String) -> (String, String, Bool)
   t18 = List<List<String>>
   t19 = Optional<String>
   t20 = Optional<String | List<String>>

@@ -3470,7 +3470,7 @@ impl ModuleBuilder<'_> {
                     .intern(&format!("{prefix}{source_name}"))
             })
         };
-        let _method_type_params =
+        let method_type_params =
             self.push_type_parameter_scope(method.value.type_parameters.as_deref())?;
         let return_ty = if is_constructor {
             if method.value.return_type.is_some() {
@@ -3724,11 +3724,13 @@ impl ModuleBuilder<'_> {
             return Err(error);
         }
         let body_id = self.ctx.krate.push_body(body);
-        Ok(self.ctx.krate.push_item(Item::Function(Function {
+        let item = self.ctx.krate.push_item(Item::Function(Function {
             name: method_name,
             span: self.span(method.span.start, method.span.end),
             // Class members take generics from the owning class; per-method
             // generics are deferred alongside the generic-class increment.
+            // The declared ones are recorded in `erased_item_type_params` below
+            // so calls can still tell them apart from the caller's.
             type_params: Vec::new(),
             params,
             rest: None,
@@ -3750,7 +3752,11 @@ impl ModuleBuilder<'_> {
                     method: method_name,
                 }
             },
-        })))
+        }));
+        if !method_type_params.is_empty() {
+            self.ctx.erased_item_type_params.insert(item, method_type_params);
+        }
+        Ok(item)
     }
 
     /// Return whether a constructor statement is a bare `super(...)` call.

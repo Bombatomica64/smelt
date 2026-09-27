@@ -199,6 +199,13 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Force a mutable global's lazy thread-local initializer without reading
+    /// its value: `NAME.with(|_| ())`. Used for a slot read whose result is
+    /// never consumed.
+    pub(super) fn global_touch_text(&self, global: u32) -> String {
+        format!("{}.with(|_| ())", crate::global_static_name(self.mir, global))
+    }
+
     /// Whether a mutable global of this type is backed by a `Cell` rather than
     /// a `RefCell`.
     ///
@@ -310,7 +317,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Look up the primitive type of a mutable global by index.
-    fn global_ty(&self, global: u32) -> Result<TypeId, EmitError> {
+    pub(super) fn global_ty(&self, global: u32) -> Result<TypeId, EmitError> {
         self.mir
             .globals
             .get(id_index(global, "mutable global index does not fit usize")?)

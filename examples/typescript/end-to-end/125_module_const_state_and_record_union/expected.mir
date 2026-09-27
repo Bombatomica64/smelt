@@ -46,42 +46,46 @@ fn main (FuncId(3)) -> None
     %0 user a: (String, String, Bool)
     %1 user b: (String, String, Bool)
     %2 user collect: fn(Bool) -> Dict<String, String | List<String>>
-    %3 temp: (String, String, Bool)
-    %4 temp: (String, String, Bool)
+    %3 temp: None
+    %4 temp: None
     %5 temp: (String, String, Bool)
-    %6 temp: String
-    %7 temp: String
-    %8 temp: List<String>
+    %6 temp: (String, String, Bool)
+    %7 temp: (String, String, Bool)
+    %8 temp: String
     %9 temp: String
-    %10 temp: None
-    %11 temp: fn(Bool) -> Dict<String, String | List<String>>
-    %12 temp: Dict<String, String | List<String>>
-    %13 temp: String
+    %10 temp: List<String>
+    %11 temp: String
+    %12 temp: None
+    %13 temp: fn(Bool) -> Dict<String, String | List<String>>
     %14 temp: Dict<String, String | List<String>>
     %15 temp: String
-    %16 temp: None
+    %16 temp: Dict<String, String | List<String>>
+    %17 temp: String
+    %18 temp: None
   bb0:
-    %3 = call fn0(":id") -> bb1
+    %3 = global_get #0
+    %4 = global_get #1
+    %5 = call fn0(":id") -> bb1
   bb1:
-    %0 = move %3
-    %4 = call fn0(":id") -> bb2
+    %0 = move %5
+    %6 = call fn0(":id") -> bb2
   bb2:
-    %1 = move %4
-    %5 = call fn0(":name") -> bb3
+    %1 = move %6
+    %7 = call fn0(":name") -> bb3
   bb3:
-    %6 = tuple_index move %0, 1
-    %7 = tuple_index move %1, 0
-    %8 = global_get #1
-    %9 = string_join move %8, "|"
-    %10 = call @console_log(move %6, move %7, move %9) -> bb4
+    %8 = tuple_index move %0, 1
+    %9 = tuple_index move %1, 0
+    %10 = global_get #1
+    %11 = string_join move %10, "|"
+    %12 = call @console_log(move %8, move %9, move %11) -> bb4
   bb4:
-    %11 = closure ClosureId(0) []
-    %2 = move %11
-    %12 = closure_call copy %2(true)
-    %13 = json_stringify move %12
-    %14 = closure_call move %2(false)
+    %13 = closure ClosureId(0) []
+    %2 = move %13
+    %14 = closure_call copy %2(true)
     %15 = json_stringify move %14
-    %16 = call @console_log(move %13, move %15) -> bb5
+    %16 = closure_call move %2(false)
+    %17 = json_stringify move %16
+    %18 = call @console_log(move %15, move %17) -> bb5
   bb5:
     return none
 

@@ -607,7 +607,7 @@ impl ModuleBuilder<'_> {
                 {
                     return Ok(());
                 }
-                let assertion_narrowing = self.assertion_call_narrowing(&expr_stmt.expression);
+                let assertion_narrowing = self.assertion_call_narrowing(&expr_stmt.expression, body);
                 let expr = self.expression(&expr_stmt.expression, body)?;
                 let expr = if matches!(
                     self.ctx.krate.types.get(Self::expr_ty(body, expr)),
@@ -1219,7 +1219,7 @@ impl ModuleBuilder<'_> {
         {
             return Ok(());
         }
-        let assertion_narrowing = self.assertion_call_narrowing(expression);
+        let assertion_narrowing = self.assertion_call_narrowing(expression, body);
         let value = self.expression(expression, body)?;
         let value = if matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, value)),

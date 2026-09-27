@@ -268,7 +268,11 @@ const upper = word.toUpperCase();
 }
 
 #[test]
-fn lowers_string_case_methods_on_erased_receivers() -> Result<(), String> {
+fn string_case_methods_on_erased_receivers_resolve_at_run_time() -> Result<(), String> {
+    // An erased receiver's runtime tag decides which prototype answers
+    // `toLowerCase`: a string lowercases, anything else throws JavaScript's
+    // `TypeError`. A static `StringCase` guessed "string" and ToString-coerced
+    // every other value, so the call is left to the erased member call.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r"
@@ -280,13 +284,14 @@ const lower = value.toLowerCase();
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
-    ensure!(body.exprs.iter().any(|expr| matches!(
-        expr.kind,
-        ExprKind::StringCase {
-            op: StringCaseOp::Lower,
-            ..
-        }
-    )));
+    ensure!(!body
+        .exprs
+        .iter()
+        .any(|expr| matches!(expr.kind, ExprKind::StringCase { .. })));
+    ensure!(body
+        .exprs
+        .iter()
+        .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. })));
     Ok(())
 }
 
@@ -1288,13 +1293,14 @@ const length = values.push(4);
 }
 
 #[test]
-fn lowers_array_concat_on_erased_value_import_receiver() -> Result<(), String> {
-    // A named value import that resolves to an erased array (`falsey` here) used
-    // as a `concat` receiver is real `Array.prototype.concat`: the member object
-    // is the array and every argument is concatenated onto it. It must not be
+fn array_concat_on_erased_value_import_receiver_resolves_at_run_time() -> Result<(), String> {
+    // A named value import that resolves to an erased value (`falsey` here)
+    // used as a `concat` receiver is `Array.prototype.concat` or
+    // `String.prototype.concat` depending on its runtime tag. It must not be
     // mistaken for the lodash `ns.concat(collection, ...values)` free-function
-    // form (which only applies to namespace/utility objects), and the erased
-    // receiver must lower rather than being rejected as "not an array receiver".
+    // form (which only applies to namespace/utility objects), and it must lower
+    // rather than being rejected: the erased member call resolves it on the
+    // value it meets.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
@@ -1314,7 +1320,7 @@ export function values(): unknown[] {
             .any(|body| body
                 .exprs
                 .iter()
-                .any(|expr| matches!(expr.kind, ExprKind::ListConcat { .. })))
+                .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. })))
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())

@@ -220,6 +220,192 @@ impl ModuleBuilder<'_> {
         Some(completed)
     }
 
+    /// Bind every one of a callee's own type parameters that argument
+    /// inference left unbound to `unknown`, so an instantiated call result
+    /// never carries a raw callee `TypeParam`.
+    ///
+    /// A call without explicit type arguments instantiates the callee's
+    /// signature from whatever `substitutions` inference produced from the
+    /// arguments. A parameter no argument binds (`createNullObject<T =
+    /// any>(): Record<string, T>` called with no arguments) used to stay as the
+    /// raw `TypeParam { name: T }` in the call's result type. Because HIR type
+    /// parameters are identified by NAME, that leaked callee `T` was then
+    /// indistinguishable from the CALLER's own `T` (`class Router<T> { m =
+    /// createNullObject() }` typed `m` as `Record<string, Router::T>`) or was
+    /// simply unbound in the caller.
+    ///
+    /// Why `unknown` and not TypeScript's default / constraint / contextual
+    /// type: the call's HIR type must agree with what the EMITTED callee
+    /// returns, and Rust codegen binds a callee's type parameters from the
+    /// call's ARGUMENTS only (`static_call_monomorphization` in
+    /// `smelt-codegen-rust`). A parameter no argument binds is therefore
+    /// erased at every such call site — either the definition erases it
+    /// outright (`liftable_type_params` finds no inference source, e.g. a
+    /// return-only `T` or one reachable only through `T | ((i) => T)`), or the
+    /// site demotes because the binding is not concrete. Typing the result
+    /// from the default instead (`range<T = number>(..): Generator<T>` as
+    /// `Generator<number>`) described a value the definition never returns,
+    /// and not every container can be converted after the fact (radash's
+    /// `range` generator, E0308). That liftability decision is whole-program
+    /// (it depends on every call site in the MIR), so the frontend cannot
+    /// reproduce it; it instead mirrors the rule the decision is built on.
+    ///
+    /// DYNAMIC BOUNDARY: this `unknown` is the erased callee generic itself;
+    /// it is what codegen rendered the leaked, out-of-scope parameter as
+    /// before, so it adds no new erasure — it only stops aliasing an
+    /// unrelated caller parameter. Recovering the concrete type needs codegen
+    /// to materialize return-only generics (a turbofish at the call site).
+    pub(in crate::lowering) fn complete_callee_type_substitution(
+        &mut self,
+        type_params: &[TypeParamDef],
+        substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) {
+        if type_params
+            .iter()
+            .all(|param| substitutions.contains_key(&param.name))
+        {
+            return;
+        }
+        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+        for param in type_params {
+            substitutions.entry(param.name).or_insert(unknown);
+        }
+    }
+
+    /// Infer callee type-parameter bindings from one `expected` (declared) /
+    /// `actual` pair, binding only the callee's `own` parameters.
+    ///
+    /// Wraps [`Self::infer_overload_type`] with the one case it cannot see:
+    /// HIR type parameters are identified by NAME, so when a caller's `T` flows
+    /// into a callee's same-named `T` (`function tally<T>(x: T) { ident(x) }`)
+    /// the declared and actual types are the SAME interned type, the matcher
+    /// answers "compatible" at once, and nothing is bound. The call's result
+    /// would then fall through to the callee's default or `unknown`. After the
+    /// matcher succeeds, a structural walk binds each still-unbound own
+    /// parameter that sits at a position where `actual` holds that identical
+    /// type — the binding is the caller's type, which is what inference means.
+    ///
+    /// The identity walk binds only `own` names; bindings the matcher itself
+    /// makes are left as they are (callers that must not rebind caller-scope
+    /// names filter the map to `own`). Returns the matcher's verdict.
+    pub(in crate::lowering) fn infer_callee_type_bindings(
+        &mut self,
+        own: &[TypeParamDef],
+        expected: smelt_hir::TypeId,
+        actual: smelt_hir::TypeId,
+        substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) -> bool {
+        let matched = self.infer_overload_type(expected, actual, substitutions);
+        if matched {
+            self.bind_identical_own_type_params(own, expected, actual, substitutions);
+        }
+        matched
+    }
+
+    /// Bind each unbound `own` type parameter in `expected` whose counterpart
+    /// in `actual` is the identical type (see
+    /// [`Self::infer_callee_type_bindings`]). Walks only positions where both
+    /// sides have the same type constructor and arity; anything else is left
+    /// to the ordinary matcher.
+    fn bind_identical_own_type_params(
+        &self,
+        own: &[TypeParamDef],
+        expected: smelt_hir::TypeId,
+        actual: smelt_hir::TypeId,
+        substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) {
+        let (Some(expected_ty), Some(actual_ty)) = (
+            self.ctx.krate.types.get(expected).cloned(),
+            self.ctx.krate.types.get(actual).cloned(),
+        ) else {
+            return;
+        };
+        let walk = |pairs: Vec<(smelt_hir::TypeId, smelt_hir::TypeId)>,
+                    bindings: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>| {
+            for (declared_part, given_part) in pairs {
+                self.bind_identical_own_type_params(own, declared_part, given_part, bindings);
+            }
+        };
+        match (expected_ty, actual_ty) {
+            (Type::TypeParam { name }, _) => {
+                if expected == actual
+                    && own.iter().any(|param| param.name == name)
+                    && !substitutions.contains_key(&name)
+                {
+                    substitutions.insert(name, actual);
+                }
+            }
+            (Type::List(declared), Type::List(given))
+            | (Type::Set(declared), Type::Set(given))
+            | (Type::Optional(declared), Type::Optional(given))
+            | (Type::Future(declared), Type::Future(given)) => {
+                walk(vec![(declared, given)], substitutions);
+            }
+            (Type::Dict(declared_key, declared_value), Type::Dict(given_key, given_value))
+            | (
+                Type::JsMap(declared_key, declared_value),
+                Type::JsMap(given_key, given_value),
+            ) => {
+                walk(
+                    vec![(declared_key, given_key), (declared_value, given_value)],
+                    substitutions,
+                );
+            }
+            (Type::Tuple(declared), Type::Tuple(given))
+            | (Type::Union(declared), Type::Union(given))
+                if declared.len() == given.len() =>
+            {
+                walk(declared.into_iter().zip(given).collect(), substitutions);
+            }
+            (
+                Type::Class {
+                    name: declared_name,
+                    args: declared,
+                },
+                Type::Class {
+                    name: given_name,
+                    args: given,
+                },
+            ) if declared_name == given_name && declared.len() == given.len() => {
+                walk(declared.into_iter().zip(given).collect(), substitutions);
+            }
+            (Type::Function(declared), Type::Function(given))
+                if declared.params.len() == given.params.len() =>
+            {
+                let mut pairs = declared
+                    .params
+                    .into_iter()
+                    .zip(given.params)
+                    .collect::<Vec<_>>();
+                pairs.push((declared.return_ty, given.return_ty));
+                walk(pairs, substitutions);
+            }
+            _ => {}
+        }
+    }
+
+    /// The type parameters a callable item declares.
+    ///
+    /// A free function carries them on `Function::type_params`. Methods and
+    /// lifted arrows keep them only in `HirCtx::erased_item_type_params`
+    /// (their emitted definitions render them as `SmeltUnknown`). Anything
+    /// else declares none.
+    pub(in crate::lowering) fn callee_own_type_params(
+        &self,
+        item: smelt_hir::ItemId,
+    ) -> Vec<TypeParamDef> {
+        if let smelt_hir::Item::Function(function) = self.item_ref(item)
+            && !function.type_params.is_empty()
+        {
+            return function.type_params.clone();
+        }
+        self.ctx
+            .erased_item_type_params
+            .get(&item)
+            .cloned()
+            .unwrap_or_default()
+    }
+
     /// Substitute generic type parameters within a previously lowered HIR type.
     pub(in crate::lowering) fn substitute_type_params(
         &mut self,

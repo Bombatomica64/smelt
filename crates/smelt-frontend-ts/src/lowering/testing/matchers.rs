@@ -2143,25 +2143,6 @@ impl ModuleBuilder<'_> {
         self.scope.narrowed_type(name)
     }
 
-    /// Discover the narrowing applied by a successful assertion call statement.
-    pub(in crate::lowering) fn assertion_call_narrowing(
-        &self,
-        expression: &Expression<'_>,
-    ) -> Option<(String, smelt_hir::TypeId)> {
-        let Expression::CallExpression(call) = expression else {
-            return None;
-        };
-        let Expression::Identifier(callee) = &call.callee else {
-            return None;
-        };
-        let assertion = self.functions.assertion(callee.name.as_str())?;
-        let arg = call.arguments.get(assertion.param_index)?;
-        let Argument::Identifier(identifier) = arg else {
-            return None;
-        };
-        Some((identifier.name.to_string(), assertion.target))
-    }
-
     /// Discover local type facts proven by a boolean guard expression.
     pub(in crate::lowering) fn guard_narrowing(
         &mut self,
@@ -2194,8 +2175,16 @@ impl ModuleBuilder<'_> {
             out.insert(name, target);
         } else if let Some((name, target)) = self.truthy_guard(expression, body) {
             out.insert(name, target);
-        } else if let Some((name, target)) = self.predicate_call_guard(expression) {
+        } else if let Some((name, target)) = self.predicate_call_guard(expression, body) {
             out.insert(name, target);
+        } else if let Expression::UnaryExpression(unary) = expression
+            && unary.operator == UnaryOperator::LogicalNot
+            && let Some(narrowing) = self.inverse_guard_narrowing(&unary.argument, body)
+        {
+            // `!guard` proves exactly what `guard` answering `false` proves, so
+            // the then-branch of `if (!isRaw(r))` sees the members the guard's
+            // inverse leaves behind.
+            out.extend(narrowing);
         }
         (!out.is_empty()).then_some(out)
     }
@@ -2219,6 +2208,8 @@ impl ModuleBuilder<'_> {
         } else if let Some((name, target)) = self.optional_none_inverse_guard(expression, body) {
             out.insert(name, target);
         } else if let Some((name, target)) = self.typeof_inverse_guard(expression, body) {
+            out.insert(name, target);
+        } else if let Some((name, target)) = self.predicate_call_inverse_guard(expression, body) {
             out.insert(name, target);
         } else if let Expression::UnaryExpression(unary) = expression
             && unary.operator == UnaryOperator::LogicalNot
@@ -3505,25 +3496,6 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Recognize a call to a user-defined `value is T` predicate function.
-    pub(in crate::lowering) fn predicate_call_guard(
-        &self,
-        expression: &Expression<'_>,
-    ) -> Option<(String, smelt_hir::TypeId)> {
-        let Expression::CallExpression(call) = expression else {
-            return None;
-        };
-        let Expression::Identifier(callee) = &call.callee else {
-            return None;
-        };
-        let predicate = self.functions.predicate(callee.name.as_str())?;
-        let arg = call.arguments.get(predicate.param_index)?;
-        let Argument::Identifier(identifier) = arg else {
-            return None;
-        };
-        Some((identifier.name.to_string(), predicate.target))
-    }
-
     /// Recognize `value === null` guard expressions.
     pub(in crate::lowering) fn null_guard(
         &mut self,
@@ -3952,6 +3924,9 @@ impl ModuleBuilder<'_> {
         if decl.declare {
             return Ok(());
         }
+        // A block-local arrow or predicate-typed binding narrows its callers'
+        // arguments exactly like a top-level one (see `type_predicates`).
+        self.register_variable_type_predicates(decl);
         for declarator in &decl.declarations {
             // A module-level `let`/`var` binding lifted to a mutable global is
             // fully represented by its thread-local item (its literal
@@ -3972,6 +3947,7 @@ impl ModuleBuilder<'_> {
                 // item and this is a no-op.
                 if let Some(init) = &declarator.init {
                     self.lower_pending_mutable_global_init(binding.name.as_str(), init)?;
+                    self.force_module_slot_init(binding.name.as_str(), binding.span, body, block);
                 }
                 continue;
             }

@@ -682,3 +682,247 @@ export function count(): number {
     ensure!(!fabricates, "a module-const read must not fabricate an erased record");
     Ok(())
 }
+
+/// Return the names of every lifted module slot in the crate.
+fn slot_names(ctx: &HirCtx) -> Vec<String> {
+    ctx.krate
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::MutableGlobal(global) => ctx.krate.symbols.get(global.name).map(str::to_owned),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Return whether `body` reads some module slot through `GlobalGet`.
+fn body_reads_a_slot(body: &smelt_hir::Body) -> bool {
+    body.exprs
+        .iter()
+        .any(|expr| matches!(expr.kind, ExprKind::GlobalGet { .. }))
+}
+
+/// Return the position among `body`'s root statements of the first expression
+/// statement whose expression satisfies `pred`.
+fn root_expr_stmt_position(body: &smelt_hir::Body, pred: impl Fn(&ExprKind) -> bool) -> Option<usize> {
+    let root = body.blocks.get(body.root.0 as usize)?;
+    root.stmts
+        .iter()
+        .filter_map(|stmt| body.stmts.get(stmt.0 as usize))
+        .position(|stmt| {
+            matches!(stmt, Stmt::Expr(expr)
+                if body.exprs.get(expr.0 as usize).is_some_and(|expr| pred(&expr.kind)))
+        })
+}
+
+#[test]
+fn an_unfoldable_record_literal_const_read_from_a_function_is_a_module_slot() -> Result<(), String> {
+    // `{ k: [zero(), 'a'] }` calls a function, so the const folder cannot
+    // record it. The read used to fabricate the declared type's default, an
+    // EMPTY record, so `p[key]` missed the entry the module built.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+function zero(): number { return 0; }
+const p: Record<string, [number, string]> = { k: [zero(), 'a'] };
+export function entry(key: string): string {
+  return p[key][1];
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        slot_names(&ctx).iter().any(|name| name == "p"),
+        "expected a module slot for `p`, got {:?}",
+        slot_names(&ctx),
+    );
+    let module = module(&ctx, module_id)?;
+    let body = function_body(&ctx, named_function_item(&ctx, module, "entry")?)?;
+    ensure!(body_reads_a_slot(body), "`entry` should read `p` through its slot");
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::DictLit(entries) if entries.is_empty())),
+        "`entry` must not fabricate an empty record for `p`",
+    );
+    Ok(())
+}
+
+#[test]
+fn a_module_body_write_to_a_closure_read_array_lifts_it_to_a_slot() -> Result<(), String> {
+    // The folded `[]` initializer is NOT the value a closure reads once the
+    // module body has pushed into the array: Node prints 1, the folded copy
+    // printed 0. A module-body write plus an item-context read is module state.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+const zs: number[] = [];
+zs.push(1);
+const cnt = (): number => zs.length;
+console.log(cnt());
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        slot_names(&ctx).iter().any(|name| name == "zs"),
+        "expected a module slot for `zs`, got {:?}",
+        slot_names(&ctx),
+    );
+    let closure_reads_slot = ctx.krate.bodies.iter().any(|body| {
+        body.exprs.iter().any(|expr| match &expr.kind {
+            ExprKind::Closure(closure) => ctx
+                .krate
+                .bodies
+                .get(closure.body.0 as usize)
+                .is_some_and(body_reads_a_slot),
+            _ => false,
+        })
+    });
+    ensure!(closure_reads_slot, "the `cnt` closure should read `zs` through its slot");
+    Ok(())
+}
+
+#[test]
+fn an_arrow_read_from_a_slot_initializer_is_a_callable_item() -> Result<(), String> {
+    // `table`'s initializer runs inside its synthesized initializer function,
+    // which has no module-body locals. `double` used to read there as a stub
+    // closure returning the declared return type's default (`0`).
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+const double = (n: number): number => n * 2;
+const table: Record<string, number> = { four: double(2) };
+export function lookup(key: string): number {
+  return table[key];
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        slot_names(&ctx).iter().any(|name| name == "table"),
+        "expected a module slot for `table`, got {:?}",
+        slot_names(&ctx),
+    );
+    let init = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Function(function)
+                if ctx
+                    .krate
+                    .symbols
+                    .get(function.name)
+                    .is_some_and(|name| name.starts_with("smelt_global_init__table")) =>
+            {
+                function.body
+            }
+            _ => None,
+        })
+        .and_then(|body| ctx.krate.bodies.get(body.0 as usize))
+        .ok_or("expected a synthesized initializer for `table`")?;
+    ensure!(
+        init.exprs.iter().any(|expr| matches!(expr.kind, ExprKind::Item(_))),
+        "the initializer should call `double` as an item",
+    );
+    ensure!(
+        !init
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Closure(_))),
+        "the initializer must not build a default-returning stub closure for `double`",
+    );
+    Ok(())
+}
+
+#[test]
+fn a_never_reassigned_module_let_literal_is_folded_for_function_reads() -> Result<(), String> {
+    // No statement assigns `greeting`, so its literal is provably the one value
+    // every reader sees. The function read used to fabricate `""`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+let greeting = 'hello';
+export function greet(): string {
+  return greeting;
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = function_body(&ctx, named_function_item(&ctx, module, "greet")?)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::Literal(Literal::String(text)) if text == "hello"
+        )),
+        "`greet` should read the folded literal `hello`",
+    );
+    Ok(())
+}
+
+#[test]
+fn a_module_let_reassigned_in_the_module_body_is_read_through_a_slot() -> Result<(), String> {
+    // `count = 2` runs in the module body; a function reading `count` must see
+    // it, which neither the literal initializer nor a default provides.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+let count = 1;
+count = 2;
+export function read(): number {
+  return count;
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        slot_names(&ctx).iter().any(|name| name == "count"),
+        "expected a module slot for `count`, got {:?}",
+        slot_names(&ctx),
+    );
+    let module = module(&ctx, module_id)?;
+    let body = function_body(&ctx, named_function_item(&ctx, module, "read")?)?;
+    ensure!(body_reads_a_slot(body), "`read` should read `count` through its slot");
+    Ok(())
+}
+
+#[test]
+fn a_slot_initializer_is_evaluated_at_its_declaration() -> Result<(), String> {
+    // The slot's cell initializes lazily; the module body touches it at the
+    // declaration so the one evaluation happens in source order, before the
+    // later `seed = 10` write it must not observe.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+function twice(n: number): number { return n * 2; }
+let seed = 1;
+const snapshot: Record<string, number> = { seed: twice(seed) };
+seed = 10;
+export function read(): number {
+  return snapshot['seed'];
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body_id = module.body.ok_or("module should have a body")?;
+    let body = ctx
+        .krate
+        .bodies
+        .get(body_id.0 as usize)
+        .ok_or("missing module body")?;
+    let force = root_expr_stmt_position(body, |kind| matches!(kind, ExprKind::GlobalGet { .. }));
+    let write = root_expr_stmt_position(body, |kind| matches!(kind, ExprKind::GlobalSet { .. }));
+    let (Some(force), Some(write)) = (force, write) else {
+        return Err(format!(
+            "expected a forcing read and a slot write, got {force:?} and {write:?}"
+        ));
+    };
+    ensure!(
+        force < write,
+        "the slot must be forced (stmt {force}) before `seed = 10` (stmt {write})",
+    );
+    Ok(())
+}
