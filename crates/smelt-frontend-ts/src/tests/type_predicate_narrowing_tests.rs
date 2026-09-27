@@ -73,7 +73,8 @@ fn narrowing_cast_targets(ctx: &HirCtx, name: &str) -> Result<Vec<String>, Strin
                 .get(*name)
                 .unwrap_or("<unnamed>")
                 .to_owned(),
-            other => format!("{other:?}"),
+            Some(other) => format!("{other:?}"),
+            None => "<missing type>".to_owned(),
         })
         .fold(Vec::new(), |mut targets: Vec<String>, target| {
             if targets.last() != Some(&target) {
