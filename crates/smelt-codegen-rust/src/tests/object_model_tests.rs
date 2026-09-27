@@ -327,3 +327,95 @@ export function selfReferential(): number {
         );
     }
 }
+
+#[test]
+fn an_erased_array_read_falls_back_to_bound_prototype_methods() {
+    // `arr.map` on an erased array is a property read: after `length`, the
+    // indices and the named side table, the read resolves `Array.prototype`'s
+    // methods, bound to that array. A string answers `String.prototype`'s the
+    // same way, and the prototype sentinels stay off the text arm.
+    let source = source_for(
+        r"
+export function readTag(value: unknown): unknown {
+  return (value as any).tag;
+}
+",
+    );
+    assert!(
+        source.contains(
+            "values.named_property(field).or_else(|| smelt_array_prototype_member(values, field))"
+        ),
+        "an own named property must shadow the prototype method"
+    );
+    assert!(
+        source.contains(
+            "SmeltUnknown::String(text) if !text.starts_with(\"__smelt_proto:\") => smelt_get_string_field(text, field)"
+        ),
+        "an erased string must answer its String.prototype members"
+    );
+    for helper in [
+        "fn smelt_array_prototype_apply(",
+        "fn smelt_string_prototype_apply(",
+        "fn smelt_throw_not_callable(",
+    ] {
+        assert!(source.contains(helper), "the erased-method runtime must emit `{helper}`");
+    }
+    assert!(
+        !source.contains("fn smelt_array_sort_method("),
+        "`sort` resolves through the shared table, not a dedicated copying helper"
+    );
+}
+
+#[test]
+fn an_erased_method_call_names_its_callee_in_the_type_error() {
+    // A non-callable member throws `TypeError: v.at is not a function`, as V8
+    // words it, instead of answering a `null` stub.
+    let source = source_for(
+        r"
+export function last(v: any): unknown {
+  return v.at(-1);
+}
+",
+    );
+    let body = emitted_function_body(&source, "fn last(");
+    assert!(
+        body.contains("smelt_get_unknown_field("),
+        "the member is read dynamically:\n{body}"
+    );
+    assert!(
+        body.contains("smelt_throw_not_callable(\"v.at\")"),
+        "the dynamic call must throw a TypeError naming the callee:\n{body}"
+    );
+    assert!(
+        !body.contains("else { SmeltUnknown::Null }"),
+        "no null stub for a non-callable:\n{body}"
+    );
+}
+
+#[test]
+fn a_shared_array_string_method_on_an_erased_receiver_is_resolved_at_run_time() {
+    // `slice` is on both prototypes, so an `any` receiver cannot be lowered to a
+    // list slice (which made `anyString.slice(1)` an array of characters). A
+    // typed receiver keeps its typed operation and never reads dynamically.
+    let source = source_for(
+        r"
+export function rest(v: any): unknown {
+  return v.slice(1);
+}
+
+export function tail(xs: number[]): number[] {
+  return xs.slice(1);
+}
+",
+    );
+    let erased = emitted_function_body(&source, "fn rest(");
+    assert!(
+        erased.contains("smelt_get_unknown_field(") && erased.contains("\"slice\""),
+        "an erased receiver resolves `slice` on its runtime value:\n{erased}"
+    );
+    let typed = emitted_function_body(&source, "fn tail(");
+    assert!(
+        !typed.contains("smelt_get_unknown_field(") && !typed.contains("SmeltUnknown"),
+        "a typed list keeps its typed slice:\n{typed}"
+    );
+}

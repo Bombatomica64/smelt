@@ -1318,7 +1318,7 @@ impl FunctionEmitter<'_> {
                         .map(|arg| self.erase(arg))
                         .collect::<Result<Vec<_>, EmitError>>()?;
                     let args_expr = format!("vec![{}]", rendered_args.join(", "));
-                    return Ok(self.dynamic_callable_dispatch_text(&callee_text, &args_expr));
+                    return Ok(self.dynamic_callable_dispatch_text(&callee_text, &args_expr, &self.dynamic_callee_description(indirect_callee)));
                 }
                 let Some(Type::Function(function)) = self.mir.types.get(callee_ty) else {
                     return Err(EmitError::new("indirect call target is not a function"));
