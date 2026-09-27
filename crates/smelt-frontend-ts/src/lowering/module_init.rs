@@ -3154,6 +3154,58 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Record where each imported name came from before the predeclaration
+    /// pass lowers any type surface.
+    ///
+    /// The predeclaration pass lowers every module's type aliases (and class
+    /// field surfaces) before ANY module body lowers, and a consumer that
+    /// lowers before the alias's own module reads that predeclared body — the
+    /// real lowering overwrites it only once the declaring module's turn comes.
+    /// Its builder is otherwise fresh, so without this the alias body had no
+    /// import provenance at all: an ambiguous name it imports (`import type {
+    /// Context } from './context'` in a crate that also declares an
+    /// `interface Context` elsewhere) could not ask the crate-wide rename map
+    /// for the EXPORTING module's rendering, fell through to the bare spelling,
+    /// and so named the OTHER module's type. Hono's `types.ts` alias
+    /// `NotFoundHandler<E> = (c: Context<E>) => ..` was read that way by
+    /// `hono-base.ts`/`compose.ts` whenever the build order lowered them before
+    /// `types.ts`, emitting `Context<SmeltUnknown>` against the router's
+    /// zero-parameter `struct Context` (4,645 `E0107`).
+    ///
+    /// Only the name-provenance facts are recorded (the specifier and the
+    /// exported spelling); binding the name to an item, value-import
+    /// classification and host-import bookkeeping stay with
+    /// [`Self::import_declaration`] in the real pass, because the imported
+    /// module's items need not exist yet.
+    pub(super) fn predeclare_import_provenance(&mut self, program: &Program<'_>) {
+        for statement in &program.body {
+            let Statement::ImportDeclaration(import) = statement else {
+                continue;
+            };
+            let Some(specifiers) = &import.specifiers else {
+                continue;
+            };
+            let source = import.source.value.as_str();
+            for specifier in specifiers {
+                let (imported, local) = match specifier {
+                    ImportDeclarationSpecifier::ImportSpecifier(data) => (
+                        module_export_name(&data.imported),
+                        data.local.name.as_str().to_owned(),
+                    ),
+                    ImportDeclarationSpecifier::ImportDefaultSpecifier(data) => {
+                        ("default".to_owned(), data.local.name.as_str().to_owned())
+                    }
+                    ImportDeclarationSpecifier::ImportNamespaceSpecifier(data) => {
+                        ("*".to_owned(), data.local.name.as_str().to_owned())
+                    }
+                };
+                self.imports
+                    .record_import_source(local.clone(), source.to_owned());
+                self.imports.record_imported_name(local, imported);
+            }
+        }
+    }
+
     /// Lower type aliases early so hoisted function signatures can use them.
     pub(super) fn predeclare_type_alias_items(&mut self, program: &Program<'_>) {
         for _ in 0_usize..2_usize {

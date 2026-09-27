@@ -920,6 +920,156 @@ tag:shape
     Ok(())
 }
 
+/// The module declaring the renamed CLASS. It type-imports `./types`, which
+/// imports this module back: the cycle that lets a consumer lower before both.
+const EARLY_CONSUMER_CLASS: &str = r"import type { Env } from './types';
+
+export class Context<E extends Env = any> {
+  #label: string;
+  env: E['Bindings'];
+
+  constructor(label: string, options: { env: E['Bindings'] }) {
+    this.#label = label;
+    this.env = options.env;
+  }
+
+  label(): string {
+    return this.#label;
+  }
+}
+";
+
+/// The alias module: `Handler<E>` names the class through a TYPE-ONLY import,
+/// and `BaseOf` closes the cycle back to the consumer.
+const EARLY_CONSUMER_TYPES: &str = r"import type { Context } from './context';
+import type { Base } from './base';
+
+export type Env = { Bindings?: object };
+export type Handler<E extends Env = any> = (c: Context<E>) => string;
+export type BaseOf<E extends Env> = Base<E>;
+";
+
+/// The consumer that lowers FIRST: it types a field through the alias and
+/// constructs the class, both before either declaring module has lowered.
+const EARLY_CONSUMER_BASE: &str = r"import { Context } from './context';
+import type { Env, Handler } from './types';
+
+export class Base<E extends Env = Env> {
+  handler: Handler<E>;
+
+  constructor(handler: Handler<E>) {
+    this.handler = handler;
+  }
+
+  dispatch(label: string): string {
+    const c = new Context(label, { env: {} });
+    return this.handler(c);
+  }
+}
+";
+
+/// The module owning the BARE spelling, a zero-parameter interface.
+const EARLY_CONSUMER_INTERFACE: &str = r"export interface Context {
+  varIndex: number;
+}
+
+export function describeSlot(c: Context): string {
+  return `slot ${c.varIndex}`;
+}
+";
+
+/// An importer that uses both declarations of `Context`.
+const EARLY_CONSUMER_MAIN: &str = r"import { Context } from './context';
+import { Base } from './base';
+import { describeSlot } from './node';
+
+const base = new Base((c) => `handled ${c.label()}`);
+const c = new Context('req', { env: { port: 8080 } });
+console.log(base.handler(c));
+console.log(base.dispatch('inner'));
+console.log(describeSlot({ varIndex: 3 }));
+";
+
+/// A module that lowers BEFORE the modules declaring a renamed class and the
+/// alias naming it still names the class by its renamed Rust item.
+///
+/// `context.ts` declares `class Context<E>` and `node.ts` declares `interface
+/// Context`, so the crate renders the class `Context_1` and the interface keeps
+/// the bare `Context`. Dependency order lowers `base.ts` first (it sits inside
+/// the `context.ts` -> `types.ts` -> `base.ts` cycle), so both of its
+/// references reach declarations that have not lowered yet:
+///
+/// * `Handler<E>` is read from the PREDECLARED alias body. That pass had no
+///   import provenance, so its `Context<E>` could not ask the rename map for
+///   `./context`'s rendering and fell back to the bare spelling, emitting
+///   `Fn(Context<E>)` against the interface's zero-parameter struct -- Hono's
+///   4,645 `E0107` in `hono-base.rs`/`compose.rs` once a test reordered the
+///   build.
+/// * `new Context(..)` found no class item and interned the bare spelling, so
+///   it constructed the interface (Hono's `_dispatch`: `expected Context_1,
+///   found Context`).
+///
+/// Both must resolve through the same item as the class definition, with
+/// exactly the generics its struct declares (none: `E` only feeds an indexed
+/// access, so it is not lifted).
+#[test]
+fn build_runs_early_consumer_of_a_renamed_generic_class() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "early-consumer"
+version = "0.1.0"
+
+[sources]
+roots = ["src"]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "early_consumer"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(project_path.join("src/context.ts"), EARLY_CONSUMER_CLASS)?;
+    fs::write(project_path.join("src/types.ts"), EARLY_CONSUMER_TYPES)?;
+    fs::write(project_path.join("src/base.ts"), EARLY_CONSUMER_BASE)?;
+    fs::write(project_path.join("src/node.ts"), EARLY_CONSUMER_INTERFACE)?;
+    fs::write(project_path.join("src/main.ts"), EARLY_CONSUMER_MAIN)?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let generated = fs::read_to_string(project_path.join("dist/src/main.rs"))?;
+    ensure(
+        generated.contains("handler: ::std::rc::Rc<dyn Fn(Context_1) -> String>"),
+        "the alias-typed field must name the renamed class with no type arguments",
+    )?;
+    ensure(
+        !generated.contains(" Context<") && !generated.contains("(Context<"),
+        "no type position may spell the bare (interface) name with type arguments",
+    )?;
+
+    // Same output as `node --experimental-strip-types` on the sources.
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &actual_stdout,
+        &"handled req
+handled inner
+slot 3
+"
+        .to_owned(),
+        "unexpected stdout",
+    )?;
+
+    Ok(())
+}
+
 /// A class extending a base reached under ANOTHER SPELLING inherits the base's
 /// fields, methods, and constructor.
 ///
