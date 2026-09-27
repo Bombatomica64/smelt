@@ -5778,7 +5778,7 @@ fn emit_source_with_free_function_router(
             });
         });
         writer.blank_line();
-        emit_smelt_match(&mut writer, needs_unknown);
+        emit_smelt_match(&mut writer, needs_unknown, needs_smelt_list);
     }
     if needs_headers {
         fetch_types_prelude::emit(&mut writer, needs_unknown);
@@ -6717,7 +6717,7 @@ fn emit_own_keys_projection(writer: &mut CodeWriter) {
     writer.line("fn smelt_own_js_map_keys<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for (key, _) in smelt_own_js_map_entries(map) { if matches!(key, SmeltUnknown::Symbol(_)) { symbols.push(key); } else { strings.push(key); } } strings.extend(symbols); strings }");
 }
 
-fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool) {
+fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool, needs_smelt_list: bool) {
     writer.line("/// A concrete JavaScript RegExp match result (numbered groups, named");
     writer.line("/// groups, `index`, and `input`).");
     writer.line("#[derive(Clone, Debug, Default)]");
@@ -6773,15 +6773,20 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool) {
         impl_writer.block("fn from_global_matches(matches: Vec<String>, input: &str) -> Self", |fn_writer| {
             fn_writer.line("Self { id: smelt_next_object_id(), groups: matches.into_iter().map(Some).collect(), named: ::std::collections::HashMap::new(), match_index: 0, input: input.to_owned() }");
         });
-        impl_writer.line("/// The match viewed as the JavaScript array it is (`[...match]`).");
-        impl_writer.line("///");
-        impl_writer.line("/// Entry 0 is the whole match; a group that did not participate is");
-        impl_writer.line("/// `None` (`undefined`). The list keeps the match's identity (`===`)");
-        impl_writer.line("/// but copies its entries: array methods lowered against it only read");
-        impl_writer.line("/// (writes to a match are not lowered through it).");
-        impl_writer.block("pub fn to_array_view(&self) -> SmeltList<Option<String>>", |fn_writer| {
-            fn_writer.line("SmeltList::with_id(self.id, self.groups.clone())");
-        });
+        // The array view names `SmeltList`, which only exists when the
+        // program uses lists; a program that only reads groups never asks for
+        // the view, so it is emitted under the same pay-for-use gate.
+        if needs_smelt_list {
+            impl_writer.line("/// The match viewed as the JavaScript array it is (`[...match]`).");
+            impl_writer.line("///");
+            impl_writer.line("/// Entry 0 is the whole match; a group that did not participate is");
+            impl_writer.line("/// `None` (`undefined`). The list keeps the match's identity (`===`)");
+            impl_writer.line("/// but copies its entries: array methods lowered against it only read");
+            impl_writer.line("/// (writes to a match are not lowered through it).");
+            impl_writer.block("pub fn to_array_view(&self) -> SmeltList<Option<String>>", |fn_writer| {
+                fn_writer.line("SmeltList::with_id(self.id, self.groups.clone())");
+            });
+        }
         impl_writer.line("/// Read a numbered capture group (`match[n]`).");
         impl_writer.block("fn group(&self, index: usize) -> Option<&str>", |fn_writer| {
             fn_writer.line("self.groups.get(index).and_then(|value| value.as_deref())");
