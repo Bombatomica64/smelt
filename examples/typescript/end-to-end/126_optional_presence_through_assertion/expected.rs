@@ -3278,14 +3278,14 @@ fn main() {
     let _smelt_tmp_22: Option<HandlerSet>;
     let _smelt_tmp_23: Option<HandlerSet>;
     let _smelt_tmp_24: bool;
-    let mut _smelt_tmp_25: Option<String>;
-    let _smelt_tmp_26: Option<String>;
+    let mut _smelt_tmp_25: String;
+    let _smelt_tmp_26: HandlerSet;
     let _smelt_tmp_28: Option<HandlerSet>;
     let _smelt_tmp_29: Option<HandlerSet>;
     let _smelt_tmp_30: Option<HandlerSet>;
     let _smelt_tmp_31: bool;
-    let mut _smelt_tmp_32: Option<String>;
-    let _smelt_tmp_33: Option<String>;
+    let mut _smelt_tmp_32: String;
+    let _smelt_tmp_33: HandlerSet;
     let _smelt_tmp_35: HandlerSet;
     let _smelt_tmp_36: HandlerParamsSet;
     let _smelt_tmp_37: SmeltRecord<String, String>;
@@ -3313,27 +3313,27 @@ fn main() {
     _smelt_tmp_23 = _smelt_tmp_21.clone().or(_smelt_tmp_22);
     picked = _smelt_tmp_23;
     _smelt_tmp_24 = !(picked.clone().is_none());
-    let mut _smelt_tmp_25: Option<String> = None::<String>;
+    let mut _smelt_tmp_25: String = String::new();
     if _smelt_tmp_24 {
-    _smelt_tmp_26 = picked.as_ref().map(|_smelt_value| _smelt_value.handler.clone());
-    _smelt_tmp_25 = _smelt_tmp_26;
+    _smelt_tmp_26 = picked.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_25 = _smelt_tmp_26.handler.clone();
     } else {
-    _smelt_tmp_25 = Some("none".to_owned());
+    _smelt_tmp_25 = "none".to_owned();
     }
-    let _ = { println!("{}", match &_smelt_tmp_25 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", _smelt_tmp_25); };
     _smelt_tmp_28 = entries.clone().get(&"missing".to_owned());
     _smelt_tmp_29 = entries.get(&"other".to_owned());
     _smelt_tmp_30 = _smelt_tmp_28.clone().or(_smelt_tmp_29);
     absent = _smelt_tmp_30;
     _smelt_tmp_31 = !(absent.clone().is_none());
-    let mut _smelt_tmp_32: Option<String> = None::<String>;
+    let mut _smelt_tmp_32: String = String::new();
     if _smelt_tmp_31 {
-    _smelt_tmp_33 = absent.as_ref().map(|_smelt_value| _smelt_value.handler.clone());
-    _smelt_tmp_32 = _smelt_tmp_33;
+    _smelt_tmp_33 = absent.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_32 = _smelt_tmp_33.handler.clone();
     } else {
-    _smelt_tmp_32 = Some("none".to_owned());
+    _smelt_tmp_32 = "none".to_owned();
     }
-    let _ = { println!("{}", match &_smelt_tmp_32 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", _smelt_tmp_32); };
     _smelt_tmp_35 = HandlerSet { handler: "h".to_owned(), score: 1.0 };
     base = _smelt_tmp_35;
     _smelt_tmp_36 = { let smelt_struct_value = base.clone(); HandlerParamsSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerParamsSetInner { handler: smelt_struct_value.handler.clone(), score: smelt_struct_value.score.clone(), params: SmeltRecord::new() }))) };

@@ -3,6 +3,121 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
+    /// Emit `xs[i] === undefined` / `rec[k] == null` as a PRESENCE test.
+    ///
+    /// Without `noUncheckedIndexedAccess` TypeScript types `rec[k]` over a
+    /// `Record<string, string>` as plain `string`, so the comparison looks
+    /// statically `false`. At run time a missing key (or an out-of-range
+    /// index) reads `undefined`, which is exactly what the source is asking
+    /// about. The read is therefore emitted through its own `Option`
+    /// ([`Self::optional_element_read_text`], the same producer `rec[k] ?? f`
+    /// uses) and tested with `is_none()` — the `rec.get(k).is_none()` a
+    /// hand-written Rust port would write.
+    ///
+    /// Applies to the equality operators with an `undefined` literal on one
+    /// side, or a `null` literal under loose `==`/`!=` (a missing key is
+    /// `undefined`, never `null`, so `=== null` stays with the ordinary
+    /// rules). The element type must be one that cannot itself hold a
+    /// nullish value; an optional or erased element keeps the existing
+    /// nullish-tag comparisons, which already see a present `undefined`.
+    pub(super) fn element_presence_comparison_text(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) -> Result<Option<String>, EmitError> {
+        let negated = match op {
+            smelt_hir::BinOp::Eq | smelt_hir::BinOp::JsStrictEq => false,
+            smelt_hir::BinOp::NotEq | smelt_hir::BinOp::JsStrictNotEq => true,
+            _ => return Ok(None),
+        };
+        let loose = matches!(op, smelt_hir::BinOp::Eq | smelt_hir::BinOp::NotEq);
+        let is_nullish_literal = |operand: &Operand| match operand {
+            Operand::Const(Constant::Undefined) => true,
+            Operand::Const(Constant::None) => loose,
+            _ => false,
+        };
+        let read = if is_nullish_literal(rhs) {
+            lhs
+        } else if is_nullish_literal(lhs) {
+            rhs
+        } else {
+            return Ok(None);
+        };
+        if !matches!(
+            read,
+            Operand::Copy(Place::Index { .. }) | Operand::Move(Place::Index { .. })
+        ) {
+            return Ok(None);
+        }
+        let element_ty = self.operand_ty(read)?;
+        if !matches!(
+            self.mir.types.get(element_ty),
+            Some(
+                Type::Bool
+                    | Type::Int
+                    | Type::Float
+                    | Type::String
+                    | Type::List(_)
+                    | Type::Dict(_, _)
+                    | Type::Set(_)
+                    | Type::Tuple(_)
+                    | Type::Class { .. }
+            )
+        ) || self.type_contains_unknown(element_ty)
+            || self.is_erased_class_type(element_ty)
+        {
+            return Ok(None);
+        }
+        let optional_read = if let Some(optional_read) =
+            self.optional_element_read_text(read, element_ty)?
+        {
+            optional_read
+        } else if let Some(presence) = self.map_key_presence_text(read)? {
+            // A keyed read of a map that is not a `SmeltRecord` (a
+            // `HashMap`-backed record): only presence is asked, so the
+            // borrowed `get` is enough.
+            presence
+        } else {
+            return Ok(None);
+        };
+        Ok(Some(if negated {
+            format!("({optional_read}).is_some()")
+        } else {
+            format!("({optional_read}).is_none()")
+        }))
+    }
+
+    /// Render `map.get(&key)` for a keyed read of a non-`SmeltRecord` map.
+    ///
+    /// The key is converted exactly as the total keyed read converts it
+    /// (property-key stringification for string keys, the declared key type
+    /// otherwise). Returns `None` for any other operand, including
+    /// `SmeltRecord`-backed maps, which `optional_element_read_text` answers.
+    fn map_key_presence_text(&self, read: &Operand) -> Result<Option<String>, EmitError> {
+        let (Operand::Copy(Place::Index { base, index, .. })
+        | Operand::Move(Place::Index { base, index, .. })) = read
+        else {
+            return Ok(None);
+        };
+        let base_ty = self.local_decl(*base)?.ty;
+        let Some(Type::Dict(key_ty, _)) = self.mir.types.get(base_ty).cloned() else {
+            return Ok(None);
+        };
+        if self.dict_uses_smelt_record(key_ty) {
+            return Ok(None);
+        }
+        let key_text = if self.mir.types.get(key_ty) == Some(&Type::String) {
+            let source_key = self.operand_ty(index)?;
+            let index_text = self.operand_text(index)?;
+            self.property_key_to_string_text(&index_text, source_key)?
+        } else {
+            self.value_at_type(index, key_ty)?
+        };
+        let base_text = self.local_value_text(*base)?;
+        Ok(Some(format!("{base_text}.get(&{key_text})")))
+    }
+
     /// Emits binary operations involving `Option<T>` by coercing through the
     /// optional's inner type instead of letting Rust compare unrelated shapes.
     pub(super) fn optional_binary_text(

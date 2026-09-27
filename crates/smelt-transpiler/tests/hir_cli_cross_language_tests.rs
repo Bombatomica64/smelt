@@ -1032,6 +1032,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "131_reduce_right_and_declared_const_shapes",
     "132_user_methods_named_like_array_builtins",
     "133_presence_rules",
+    "134_absence_and_host_boundaries",
     "140_user_type_guard_narrowing",
     "11_console_log_expressions",
     "12_while_sum",

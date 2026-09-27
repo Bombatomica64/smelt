@@ -564,8 +564,16 @@ impl ModuleBuilder<'_> {
                 span: self.span(member.span.start, member.span.end),
             }));
         }
+        // Smelt types a JavaScript iterator result as `Optional<T>`, so a
+        // plain `.done` / `.value` on an optional receiver is that result's
+        // member. The syntactic `?.` rules it out: TypeScript types an
+        // iterator result as the non-optional `IteratorResult<T>`, so a source
+        // that writes `r?.value` is reading a genuinely possibly-absent value
+        // (a record from `Object.getOwnPropertyDescriptor`, a `T | undefined`
+        // lookup), whose `value` key the ordinary optional field read answers.
         if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(receiver_ty).cloned()
             && matches!(member.property.name.as_str(), "done" | "value")
+            && !member.optional
         {
             let (kind, ty) = match member.property.name.as_str() {
                 "done" => (

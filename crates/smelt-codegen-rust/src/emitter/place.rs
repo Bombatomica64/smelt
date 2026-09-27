@@ -553,8 +553,15 @@ impl FunctionEmitter<'_> {
                             index,
                             *negative,
                         )?;
+                        // A string index read is TOTAL, like the list read
+                        // above: `''[0]` is `undefined`, never a throw, so an
+                        // out-of-range index answers the element type's missing
+                        // value (`""`) instead of panicking. A caller that must
+                        // see the miss (`s[i] === undefined`, `s[i] ?? f`, an
+                        // optional slot) reads through
+                        // `optional_element_read_text` instead.
                         Ok(format!(
-                            "{base_text}.chars().nth({index_text}).map(|ch| ch.to_string()).expect(\"index out of bounds\")"
+                            "{base_text}.chars().nth({index_text}).map(|ch| ch.to_string()).unwrap_or_default()"
                         ))
                     }
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
@@ -1282,6 +1289,24 @@ impl FunctionEmitter<'_> {
                     .normalized_read_index_text(&format!("{base_text}.chars().count()"), index, *negative)?;
                 Ok(Some(format!(
                     "{base_text}.chars().nth({index_text}).map(|ch| SmeltUnknown::String(ch.to_string().into())).unwrap_or(SmeltUnknown::Undefined)"
+                )))
+            }
+            // A keyed RECORD read misses like an element read (a missing key
+            // is `undefined`), and `SmeltRecord::get` already answers the miss
+            // as `None`, so only the present value is erased. Same scope as
+            // the optional twin's record arm: string-keyed `SmeltRecord`s only,
+            // and element types whose total miss would not already erase to
+            // `Undefined`.
+            Some(Type::Dict(key_ty, value_ty)) if self.dict_uses_smelt_record(key_ty) => {
+                let missing = self.element_missing_value_text(value_ty)?;
+                if self.erase_value_text(&missing, value_ty)? == "SmeltUnknown::Undefined" {
+                    return Ok(None);
+                }
+                let base_text = self.local_value_text(*base)?;
+                let key_text = self.dict_key_reference_text(index, key_ty)?;
+                let erased_value = self.erase_value_text("value", value_ty)?;
+                Ok(Some(format!(
+                    "{base_text}.get({key_text}).map(|value| {erased_value}).unwrap_or(SmeltUnknown::Undefined)"
                 )))
             }
             _ => Ok(None),

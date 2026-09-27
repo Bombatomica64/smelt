@@ -540,6 +540,42 @@ fn smelt_restore_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dy
 }
 
 thread_local! {
+    /// Live host values reachable from their erased records, by object id.
+    static SMELT_HOST_ORIGINS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+}
+
+/// Retain a host value so its erased record can hand back the same object.
+///
+/// Call this from the value's `IntoSmeltUnknown`, with the id the erased
+/// record is built with, so the record and the retained value agree.
+#[allow(dead_code)]
+fn smelt_register_host_origin<T: Clone + 'static>(id: usize, value: T) {
+    SMELT_HOST_ORIGINS.with(|origins| { origins.borrow_mut().insert(id, Box::new(value)); });
+}
+
+/// Recover the host value an erased record was made from.
+///
+/// `None` for a record that did not come from an erasure — a hand-built
+/// object carrying the marker, or one that crossed a process boundary. Each
+/// caller decides what that means for its own type rather than being given
+/// a fabricated value here.
+#[allow(dead_code)]
+fn smelt_restore_host_origin<T: Clone + 'static>(value: &SmeltUnknown) -> Option<T> {
+    let SmeltUnknown::Object(map) = value else { return None };
+    smelt_restore_host_origin_by_id::<T>(map.id)
+}
+
+/// The same lookup from an object id alone.
+///
+/// A write THROUGH an erased record needs this: it holds the record's id
+/// (and its storage record's id) rather than a whole value, and it has to
+/// reach the live object those ids stand for.
+#[allow(dead_code)]
+fn smelt_restore_host_origin_by_id<T: Clone + 'static>(id: usize) -> Option<T> {
+    SMELT_HOST_ORIGINS.with(|origins| origins.borrow().get(&id).and_then(|origin| origin.downcast_ref::<T>()).cloned())
+}
+
+thread_local! {
     static SMELT_CALLABLE_OBJECTS: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
 }
 
@@ -1083,7 +1119,7 @@ fn smelt_host_buffer_element(map: &SmeltObject, key: &str) -> Option<SmeltUnknow
 /// fixed-length storage. The write also lands in the view's backing `buffer`
 /// record *in place*, so `view[0] = 1` is visible through `view.buffer` and the
 /// buffer keeps its object identity (`view.buffer === buffer` still holds).
-fn smelt_host_buffer_set_element(map: &SmeltObject, key: &str, value: SmeltUnknown) -> bool { let Some(marker) = smelt_host_buffer_marker(map) else { return false; }; let Ok(index) = key.parse::<usize>() else { return false; }; let Some(SmeltUnknown::Array(values)) = map.get("bytes") else { return false; }; let mut bytes = values.into_vec(); let (kind, width) = smelt_host_buffer_element_kind(marker).unwrap_or(("uint8", 1)); let offset = index * width; if offset + width <= bytes.len() { let encoded = smelt_host_buffer_encode_element(kind, &value); for (step, byte) in encoded.iter().enumerate() { bytes[offset + step] = byte.clone(); } map.insert("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))); smelt_host_buffer_write_through(map, offset, &encoded);  } true }
+fn smelt_host_buffer_set_element(map: &SmeltObject, key: &str, value: SmeltUnknown) -> bool { let Some(marker) = smelt_host_buffer_marker(map) else { return false; }; let Ok(index) = key.parse::<usize>() else { return false; }; let Some(SmeltUnknown::Array(values)) = map.get("bytes") else { return false; }; let mut bytes = values.into_vec(); let (kind, width) = smelt_host_buffer_element_kind(marker).unwrap_or(("uint8", 1)); let offset = index * width; if offset + width <= bytes.len() { let encoded = smelt_host_buffer_encode_element(kind, &value); for (step, byte) in encoded.iter().enumerate() { bytes[offset + step] = byte.clone(); } map.insert("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))); smelt_host_buffer_write_through(map, offset, &encoded); smelt_typed_array_write_origin(map.id, offset, &encoded); } true }
 /// Mirror an element write into the view's backing `buffer` storage record.
 ///
 /// A typed array is a window onto an `ArrayBuffer`, so a write through the view
@@ -1092,7 +1128,7 @@ fn smelt_host_buffer_set_element(map: &SmeltObject, key: &str, value: SmeltUnkno
 /// in place rather than replaced: replacing it would mint a new object id and
 /// break `view.buffer === buf`. `byteOffset` places the window inside the
 /// buffer. A no-op for the byte-addressed kinds, which have no backing buffer.
-fn smelt_host_buffer_write_through(map: &SmeltObject, offset: usize, encoded: &[SmeltUnknown]) { let Some(SmeltUnknown::Object(storage)) = map.get("buffer") else { return; }; let base = match map.get("byteOffset") { Some(SmeltUnknown::Number(value)) if value >= 0.0 => value as usize, _ => 0 }; let Some(SmeltUnknown::Array(values)) = storage.get("bytes") else { return; }; let mut bytes = values.into_vec(); for (step, byte) in encoded.iter().enumerate() { let at = base + offset + step; if at < bytes.len() { bytes[at] = byte.clone(); } } storage.insert("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes)));  }
+fn smelt_host_buffer_write_through(map: &SmeltObject, offset: usize, encoded: &[SmeltUnknown]) { let Some(SmeltUnknown::Object(storage)) = map.get("buffer") else { return; }; let base = match map.get("byteOffset") { Some(SmeltUnknown::Number(value)) if value >= 0.0 => value as usize, _ => 0 }; let Some(SmeltUnknown::Array(values)) = storage.get("bytes") else { return; }; let mut bytes = values.into_vec(); for (step, byte) in encoded.iter().enumerate() { let at = base + offset + step; if at < bytes.len() { bytes[at] = byte.clone(); } } storage.insert("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))); smelt_typed_array_write_origin(storage.id, base + offset, encoded); }
 /// Whether an erased value is byte *storage* (an `ArrayBuffer`), not a view.
 ///
 /// This is the distinction that decides what `new Float32Array(source)` means:
@@ -1272,6 +1308,8 @@ fn smelt_builtin_namespace(name: &str) -> SmeltUnknown { SMELT_BUILTIN_NAMESPACE
 fn smelt_fresh_identity(value: SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) => SmeltUnknown::Object(SmeltObject::with_id(smelt_next_object_id(), map.iter().collect())), SmeltUnknown::Array(array) => SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), array.into_vec())), other => other } }
 /// Whether an `Object.create` prototype has to be recorded to stay observable.
 fn smelt_prototype_slot_is_observable(prototype: &SmeltUnknown) -> bool { !matches!(prototype, SmeltUnknown::String(sentinel) if &**sentinel == "__smelt_proto:object" || &**sentinel == "__smelt_proto:class") }
+/// Resolve the JavaScript `typeof` spelling for an erased value.
+fn smelt_typeof(value: &SmeltUnknown) -> &'static str { match value { SmeltUnknown::Undefined => "undefined", SmeltUnknown::Bool(_) => "boolean", SmeltUnknown::Number(_) => "number", SmeltUnknown::String(_) => "string", SmeltUnknown::Symbol(_) => "symbol", SmeltUnknown::Function(_) => "function", SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => "object" } }
 
 
 thread_local! {
@@ -1617,7 +1655,7 @@ fn smelt_abort_method(object: SmeltObject, method: &str) -> SmeltUnknown { let m
 
 /// The synthesized host method a member read resolves to, if the object
 /// carries a host marker and has no OWN member of that name.
-fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; } if (object.contains_key("__smelt_abortcontroller") || object.contains_key("__smelt_abortsignal")) && matches!(name, "abort" | "addEventListener" | "removeEventListener" | "dispatchEvent" | "throwIfAborted") { return Some(smelt_abort_method(object.clone(), name)); } None }
+fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; } if (object.contains_key("__smelt_abortcontroller") || object.contains_key("__smelt_abortsignal")) && matches!(name, "abort" | "addEventListener" | "removeEventListener" | "dispatchEvent" | "throwIfAborted") { return Some(smelt_abort_method(object.clone(), name)); } if let Some(found) = smelt_text_encoder_host_method(object, name) { return Some(found); } None }
 
 pub enum SmeltUnknown {
     Null,
@@ -3386,55 +3424,1067 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct Wrapper {
-    label: String,
+/// The element type of a typed-array view.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[allow(dead_code)]
+pub enum SmeltTypedArrayKind {
+    /// `Int8Array`: 1-byte element.
+    Int8,
+    /// `Uint8Array`: 1-byte element.
+    Uint8,
+    /// `Uint8ClampedArray`: 1-byte element.
+    Uint8Clamped,
+    /// `Int16Array`: 2-byte elements.
+    Int16,
+    /// `Uint16Array`: 2-byte elements.
+    Uint16,
+    /// `Int32Array`: 4-byte elements.
+    Int32,
+    /// `Uint32Array`: 4-byte elements.
+    Uint32,
+    /// `Float32Array`: 4-byte elements.
+    Float32,
+    /// `Float64Array`: 8-byte elements.
+    Float64,
+    /// `BigInt64Array`: 8-byte elements.
+    BigInt64,
+    /// `BigUint64Array`: 8-byte elements.
+    BigUint64,
 }
-impl IntoSmeltUnknown for Wrapper {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("label".to_owned(), SmeltUnknown::String(self.label.into())),
-        ])))
+
+#[allow(dead_code)]
+impl SmeltTypedArrayKind {
+    /// The constructor name, which is also the `[object X]` tag.
+    pub fn class_name(self) -> &'static str {
+        match self {
+            Self::Int8 => "Int8Array",
+            Self::Uint8 => "Uint8Array",
+            Self::Uint8Clamped => "Uint8ClampedArray",
+            Self::Int16 => "Int16Array",
+            Self::Uint16 => "Uint16Array",
+            Self::Int32 => "Int32Array",
+            Self::Uint32 => "Uint32Array",
+            Self::Float32 => "Float32Array",
+            Self::Float64 => "Float64Array",
+            Self::BigInt64 => "BigInt64Array",
+            Self::BigUint64 => "BigUint64Array",
+        }
+    }
+    /// The identity marker the erased face stamps for this kind.
+    pub fn marker(self) -> &'static str {
+        match self {
+            Self::Int8 => "__smelt_int8array",
+            Self::Uint8 => "__smelt_uint8array",
+            Self::Uint8Clamped => "__smelt_uint8clampedarray",
+            Self::Int16 => "__smelt_int16array",
+            Self::Uint16 => "__smelt_uint16array",
+            Self::Int32 => "__smelt_int32array",
+            Self::Uint32 => "__smelt_uint32array",
+            Self::Float32 => "__smelt_float32array",
+            Self::Float64 => "__smelt_float64array",
+            Self::BigInt64 => "__smelt_bigint64array",
+            Self::BigUint64 => "__smelt_biguint64array",
+        }
+    }
+    /// `BYTES_PER_ELEMENT`: the stride between elements.
+    pub fn byte_width(self) -> usize {
+        match self {
+            Self::Int8 => 1,
+            Self::Uint8 => 1,
+            Self::Uint8Clamped => 1,
+            Self::Int16 => 2,
+            Self::Uint16 => 2,
+            Self::Int32 => 4,
+            Self::Uint32 => 4,
+            Self::Float32 => 4,
+            Self::Float64 => 8,
+            Self::BigInt64 => 8,
+            Self::BigUint64 => 8,
+        }
+    }
+    /// The kind whose marker a byte-backed record carries, if any.
+    pub fn from_marker(marker: &str) -> Option<Self> {
+        if marker == "__smelt_int8array" { return Some(Self::Int8); }
+        if marker == "__smelt_uint8array" { return Some(Self::Uint8); }
+        if marker == "__smelt_uint8clampedarray" { return Some(Self::Uint8Clamped); }
+        if marker == "__smelt_int16array" { return Some(Self::Int16); }
+        if marker == "__smelt_uint16array" { return Some(Self::Uint16); }
+        if marker == "__smelt_int32array" { return Some(Self::Int32); }
+        if marker == "__smelt_uint32array" { return Some(Self::Uint32); }
+        if marker == "__smelt_float32array" { return Some(Self::Float32); }
+        if marker == "__smelt_float64array" { return Some(Self::Float64); }
+        if marker == "__smelt_bigint64array" { return Some(Self::BigInt64); }
+        if marker == "__smelt_biguint64array" { return Some(Self::BigUint64); }
+        None
+    }
+    /// Read one element out of `bytes` at a byte offset.
+    pub fn decode(self, bytes: &[u8], at: usize) -> f64 {
+        let width = self.byte_width();
+        if at + width > bytes.len() { return 0.0; }
+        let window = &bytes[at..at + width];
+        match self {
+            Self::Int8 => f64::from(window[0] as i8),
+            Self::Uint8 | Self::Uint8Clamped => f64::from(window[0]),
+            Self::Int16 => f64::from(i16::from_le_bytes([window[0], window[1]])),
+            Self::Uint16 => f64::from(u16::from_le_bytes([window[0], window[1]])),
+            Self::Int32 => f64::from(i32::from_le_bytes([window[0], window[1], window[2], window[3]])),
+            Self::Uint32 => f64::from(u32::from_le_bytes([window[0], window[1], window[2], window[3]])),
+            Self::Float32 => f64::from(f32::from_le_bytes([window[0], window[1], window[2], window[3]])),
+            Self::Float64 => f64::from_le_bytes([window[0], window[1], window[2], window[3], window[4], window[5], window[6], window[7]]),
+            Self::BigInt64 => i64::from_le_bytes([window[0], window[1], window[2], window[3], window[4], window[5], window[6], window[7]]) as f64,
+            Self::BigUint64 => u64::from_le_bytes([window[0], window[1], window[2], window[3], window[4], window[5], window[6], window[7]]) as f64,
+        }
+    }
+    /// Write one element into `bytes` at a byte offset.
+    pub fn encode(self, value: f64, bytes: &mut [u8], at: usize) {
+        let width = self.byte_width();
+        if at + width > bytes.len() { return; }
+        let encoded = self.encode_bytes(value);
+        bytes[at..at + width].copy_from_slice(&encoded[..width]);
+    }
+    /// One element's little-endian bytes, low-order first.
+    fn encode_bytes(self, value: f64) -> [u8; 8] {
+        match self {
+            Self::Int8 => [(value as i64 as i8) as u8, 0, 0, 0, 0, 0, 0, 0],
+            Self::Uint8 => [(value as i64 as u8), 0, 0, 0, 0, 0, 0, 0],
+            Self::Uint8Clamped => [(if value.is_nan() { 0.0 } else { value.round_ties_even().clamp(0.0, 255.0) }) as u8, 0, 0, 0, 0, 0, 0, 0],
+            Self::Int16 => { let mut out = [0_u8; 8]; out[..2].copy_from_slice(&(value as i64 as i16).to_le_bytes()); out },
+            Self::Uint16 => { let mut out = [0_u8; 8]; out[..2].copy_from_slice(&(value as i64 as u16).to_le_bytes()); out },
+            Self::Int32 => { let mut out = [0_u8; 8]; out[..4].copy_from_slice(&(value as i64 as i32).to_le_bytes()); out },
+            Self::Uint32 => { let mut out = [0_u8; 8]; out[..4].copy_from_slice(&(value as i64 as u32).to_le_bytes()); out },
+            Self::Float32 => { let mut out = [0_u8; 8]; out[..4].copy_from_slice(&(value as f32).to_le_bytes()); out },
+            Self::Float64 => value.to_le_bytes(),
+            Self::BigInt64 => (value as i64).to_le_bytes(),
+            Self::BigUint64 => (value as i64 as u64).to_le_bytes(),
+        }
     }
 }
-impl SmeltFromUnknown for Wrapper {
+
+/// Byte storage with a JavaScript reference identity (`ArrayBuffer`).
+#[derive(Clone)]
+pub struct SmeltArrayBuffer {
+    id: usize,
+    /// The storage, shared by every view over it.
+    bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>,
+    /// Whether this storage was constructed as a `SharedArrayBuffer`.
+    shared: bool,
+}
+
+impl PartialEq for SmeltArrayBuffer { fn eq(&self, other: &Self) -> bool { *self.bytes.borrow() == *other.bytes.borrow() } }
+impl ::std::fmt::Debug for SmeltArrayBuffer { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { write!(formatter, "{} {{ byteLength: {} }}", self.class_name(), self.bytes.borrow().len()) } }
+#[allow(dead_code)]
+impl SmeltArrayBuffer {
+    /// Zeroed storage of `byte_length` bytes.
+    pub fn new(byte_length: usize) -> Self { Self::from_bytes(vec![0_u8; byte_length]) }
+    /// Storage over owned bytes, with a fresh identity.
+    pub fn from_bytes(bytes: Vec<u8>) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), shared: false } }
+    /// Zeroed SHARED storage: `new SharedArrayBuffer(n)`.
+    pub fn new_shared(byte_length: usize) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(vec![0_u8; byte_length])), shared: true } }
+    /// Whether this storage is a `SharedArrayBuffer`.
+    pub fn is_shared(&self) -> bool { self.shared }
+    /// The constructor name, which is also the `[object X]` tag.
+    pub fn class_name(&self) -> &'static str { if self.shared { "SharedArrayBuffer" } else { "ArrayBuffer" } }
+    /// JS reference identity of this storage.
+    pub fn id(&self) -> usize { self.id }
+    /// `byteLength`: the storage size in bytes.
+    pub fn byte_length(&self) -> f64 { self.bytes.borrow().len() as f64 }
+    /// A COPY of the storage's bytes.
+    pub fn to_bytes(&self) -> Vec<u8> { self.bytes.borrow().clone() }
+    /// The shared storage handle, for a view over it.
+    pub fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>> { ::std::rc::Rc::clone(&self.bytes) }
+    /// Storage sharing this buffer's bytes handle and identity.
+    pub fn from_storage(id: usize, bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>) -> Self { Self { id, bytes, shared: false } }
+    /// Storage sharing a handle and identity, keeping the shared flag.
+    pub fn from_shared_storage(id: usize, bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>, shared: bool) -> Self { Self { id, bytes, shared } }
+    /// Overwrite bytes at an absolute offset; out-of-range bytes are dropped.
+    pub fn write_bytes_at(&self, offset: usize, source: &[u8]) {
+        let mut bytes = self.bytes.borrow_mut();
+        for (step, byte) in source.iter().enumerate() { if let Some(slot) = bytes.get_mut(offset + step) { *slot = *byte; } }
+    }
+    /// `slice(start, end)`: a COPY of a byte range in fresh storage.
+    pub fn slice(&self, start: i64, end: Option<i64>) -> Self {
+        let bytes = self.bytes.borrow();
+        let len = bytes.len() as i64;
+        let from = (if start < 0 { len + start } else { start }).clamp(0, len) as usize;
+        let to = end.map_or(len, |end| if end < 0 { len + end } else { end }).clamp(0, len) as usize;
+        let copy = Self::from_bytes(bytes[from..to.max(from)].to_vec());
+        Self { shared: self.shared, ..copy }
+    }
+}
+impl Default for SmeltArrayBuffer { fn default() -> Self { Self::new(0) } }
+
+/// Erase byte storage for a dynamic boundary.
+impl IntoSmeltUnknown for SmeltArrayBuffer {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        smelt_register_host_origin(self.id, self.clone());
+        let bytes = self.bytes.borrow();
+        let elements: Vec<SmeltUnknown> = bytes.iter().map(|byte| SmeltUnknown::Number(f64::from(*byte))).collect();
+        let marker = if self.shared { "__smelt_sharedarraybuffer" } else { "__smelt_arraybuffer" };
+        smelt_host_buffer_view_record_with_id(self.id, marker, elements, None, 0)
+    }
+}
+
+/// Rebuild byte storage from an erased value.
+impl SmeltFromUnknown for SmeltArrayBuffer {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("label") {
-                result.label = SmeltFromUnknown::smelt_from_unknown(field);
-            }
+        if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }
+        let SmeltUnknown::Object(map) = value else { return Self::new(0) };
+        let Some(SmeltUnknown::Array(items)) = map.get("bytes") else { return Self::new(0) };
+        let bytes = items.into_vec().into_iter().map(|item| match item { SmeltUnknown::Number(value) => value as i64 as u8, _ => 0 }).collect::<Vec<u8>>();
+        let shared = map.contains_key("__smelt_sharedarraybuffer");
+        Self::from_shared_storage(map.id, ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), shared)
+    }
+}
+
+/// An element view over byte storage: kind, offset, length.
+#[derive(Clone)]
+pub struct SmeltTypedArray {
+    id: usize,
+    /// The element type this view reads and writes.
+    kind: SmeltTypedArrayKind,
+    /// The storage, SHARED with every other view over it.
+    bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>,
+    /// Identity of the `ArrayBuffer` this view reports.
+    buffer_id: usize,
+    /// `byteOffset`: where this view starts in the storage.
+    byte_offset: usize,
+    /// `length`: how many elements this view spans.
+    length: usize,
+    /// Whether the storage behind this view is a `SharedArrayBuffer`.
+    buffer_shared: bool,
+}
+
+impl PartialEq for SmeltTypedArray { fn eq(&self, other: &Self) -> bool { self.kind == other.kind && self.to_elements() == other.to_elements() } }
+impl ::std::fmt::Debug for SmeltTypedArray {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        let elements = self.to_elements();
+        let name = self.kind.class_name();
+        if elements.is_empty() { return write!(formatter, "{name}(0) []"); }
+        let items = elements.iter().map(|element| element.to_string()).collect::<Vec<String>>().join(", ");
+        write!(formatter, "{name}({}) [ {items} ]", elements.len())
+    }
+}
+impl Default for SmeltTypedArray { fn default() -> Self { Self::new() } }
+
+#[allow(dead_code)]
+impl SmeltTypedArray {
+    /// An empty `Uint8` view with a fresh reference identity.
+    pub fn new() -> Self { Self::from_bytes(Vec::new()) }
+    /// A `Uint8` view over owned bytes, with a fresh identity.
+    pub fn from_bytes(bytes: Vec<u8>) -> Self { Self::with_bytes(SmeltTypedArrayKind::Uint8, bytes) }
+    /// A view of `kind` over owned bytes, in fresh storage.
+    pub fn with_bytes(kind: SmeltTypedArrayKind, bytes: Vec<u8>) -> Self {
+        let length = bytes.len() / kind.byte_width();
+        Self { id: smelt_next_object_id(), kind, bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), buffer_id: smelt_next_object_id(), byte_offset: 0, length, buffer_shared: false }
+    }
+    /// A zero-filled view of `kind` holding `length` elements.
+    pub fn with_length(kind: SmeltTypedArrayKind, length: usize) -> Self { Self::with_bytes(kind, vec![0_u8; length * kind.byte_width()]) }
+    /// A view of `kind` over the given elements, in fresh storage.
+    pub fn with_elements(kind: SmeltTypedArrayKind, elements: &[f64]) -> Self {
+        let width = kind.byte_width();
+        let mut bytes = vec![0_u8; elements.len() * width];
+        for (index, element) in elements.iter().enumerate() { kind.encode(*element, &mut bytes, index * width); }
+        Self::with_bytes(kind, bytes)
+    }
+    /// A view of `kind` over an existing buffer's storage.
+    pub fn over_buffer(kind: SmeltTypedArrayKind, buffer: &SmeltArrayBuffer, byte_offset: usize, length: Option<usize>) -> Self {
+        let storage = buffer.storage();
+        let available = storage.borrow().len().saturating_sub(byte_offset) / kind.byte_width();
+        let length = length.map_or(available, |length| length.min(available));
+        Self { id: smelt_next_object_id(), kind, bytes: storage, buffer_id: buffer.id(), byte_offset, length, buffer_shared: buffer.is_shared() }
+    }
+    /// JS reference identity of this view.
+    pub fn id(&self) -> usize { self.id }
+    /// The element type this view reads.
+    pub fn kind(&self) -> SmeltTypedArrayKind { self.kind }
+    /// The constructor name, which is also the `[object X]` tag.
+    pub fn class_name(&self) -> &'static str { self.kind.class_name() }
+    /// `length`: the element count.
+    pub fn length(&self) -> f64 { self.length as f64 }
+    /// `byteLength`: the byte count this view spans.
+    pub fn byte_length(&self) -> f64 { (self.length * self.kind.byte_width()) as f64 }
+    /// `byteOffset`: where this view starts in its buffer.
+    pub fn byte_offset(&self) -> f64 { self.byte_offset as f64 }
+    /// `buffer`: the storage this view reads, shared not copied.
+    pub fn buffer(&self) -> SmeltArrayBuffer { SmeltArrayBuffer::from_shared_storage(self.buffer_id, ::std::rc::Rc::clone(&self.bytes), self.buffer_shared) }
+    /// A COPY of the bytes this view spans.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let bytes = self.bytes.borrow();
+        let start = self.byte_offset.min(bytes.len());
+        let end = (start + self.length * self.kind.byte_width()).min(bytes.len());
+        bytes[start..end].to_vec()
+    }
+    /// The view's decoded elements, at its own width and signedness.
+    pub fn to_elements(&self) -> Vec<f64> {
+        let bytes = self.bytes.borrow();
+        let width = self.kind.byte_width();
+        (0..self.length).map(|index| self.kind.decode(&bytes, self.byte_offset + index * width)).collect()
+    }
+    /// `toString()`: the elements joined by commas.
+    pub fn to_js_string(&self) -> String { self.to_elements().into_iter().map(|element| element.to_string()).collect::<Vec<_>>().join(",") }
+    /// An indexed element read; `None` past the end.
+    pub fn get(&self, index: f64) -> Option<f64> {
+        if index < 0.0 || index.fract() != 0.0 { return None; }
+        let index = index as usize;
+        if index >= self.length { return None; }
+        let bytes = self.bytes.borrow();
+        Some(self.kind.decode(&bytes, self.byte_offset + index * self.kind.byte_width()))
+    }
+    /// Overwrite this view's byte window; extra source bytes are ignored.
+    pub fn write_bytes(&self, source: &[u8]) {
+        let mut bytes = self.bytes.borrow_mut();
+        let start = self.byte_offset.min(bytes.len());
+        let end = (start + self.length * self.kind.byte_width()).min(bytes.len());
+        let count = (end - start).min(source.len());
+        bytes[start..start + count].copy_from_slice(&source[..count]);
+    }
+    /// Overwrite bytes at an offset WITHIN this view's window.
+    pub fn write_bytes_at(&self, offset: usize, source: &[u8]) {
+        let mut bytes = self.bytes.borrow_mut();
+        let end = self.byte_offset + self.length * self.kind.byte_width();
+        for (step, byte) in source.iter().enumerate() { let at = self.byte_offset + offset + step; if at < end { if let Some(slot) = bytes.get_mut(at) { *slot = *byte; } } }
+    }
+    /// An indexed element write; dropped past the end.
+    pub fn set_index(&self, index: f64, value: f64) {
+        if index < 0.0 || index.fract() != 0.0 { return; }
+        let index = index as usize;
+        if index >= self.length { return; }
+        let mut bytes = self.bytes.borrow_mut();
+        let at = self.byte_offset + index * self.kind.byte_width();
+        self.kind.encode(value, &mut bytes, at);
+    }
+    /// `subarray(start, end)`: another view over the SAME storage.
+    pub fn subarray(&self, start: i64, end: Option<i64>) -> Self {
+        let (from, to) = self.element_range(start, end);
+        Self { id: smelt_next_object_id(), kind: self.kind, bytes: ::std::rc::Rc::clone(&self.bytes), buffer_id: self.buffer_id, byte_offset: self.byte_offset + from * self.kind.byte_width(), length: to.saturating_sub(from), buffer_shared: self.buffer_shared }
+    }
+    /// `slice(start, end)`: a COPY of an element range.
+    pub fn slice(&self, start: i64, end: Option<i64>) -> Self {
+        let (from, to) = self.element_range(start, end);
+        let width = self.kind.byte_width();
+        let bytes = self.bytes.borrow();
+        let at = self.byte_offset + from * width;
+        let until = (self.byte_offset + to * width).min(bytes.len());
+        Self::with_bytes(self.kind, bytes[at.min(until)..until].to_vec())
+    }
+    /// `set(source, offset)`: copy elements in, converting per element.
+    pub fn set_from(&self, source: &Self, offset: usize) {
+        for (index, element) in source.to_elements().into_iter().enumerate() { self.set_index((offset + index) as f64, element); }
+    }
+    /// `fill(value, start, end)`: write one value across a range.
+    pub fn fill(&self, value: f64, start: i64, end: Option<i64>) -> Self {
+        let (from, to) = self.element_range(start, end);
+        for index in from..to { self.set_index(index as f64, value); }
+        self.clone()
+    }
+    /// Clamped element bounds, counting back from the end when negative.
+    fn element_range(&self, start: i64, end: Option<i64>) -> (usize, usize) {
+        let len = self.length as i64;
+        let from = (if start < 0 { len + start } else { start }).clamp(0, len);
+        let to = end.map_or(len, |end| if end < 0 { len + end } else { end }).clamp(0, len);
+        (from as usize, to.max(from) as usize)
+    }
+}
+
+/// Erase a typed-array view for a dynamic boundary.
+impl IntoSmeltUnknown for SmeltTypedArray {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        smelt_register_host_origin(self.id, self.clone());
+        let bytes = self.to_bytes();
+        let elements: Vec<SmeltUnknown> = bytes.iter().map(|byte| SmeltUnknown::Number(f64::from(*byte))).collect();
+        let storage = self.buffer().into_smelt_unknown();
+        smelt_host_buffer_view_record_with_id(self.id, self.kind.marker(), elements, Some(storage), self.byte_offset)
+    }
+}
+
+#[allow(dead_code)]
+impl SmeltTypedArray {
+    /// Construct a view of `kind` from an argument of unknown shape.
+    pub fn from_erased(kind: SmeltTypedArrayKind, value: &SmeltUnknown) -> Self {
+        match value {
+            SmeltUnknown::Number(length) => Self::with_length(kind, length.max(0.0) as usize),
+            SmeltUnknown::Array(items) => { let elements = items.iter().map(|item| match item { SmeltUnknown::Number(value) => value, _ => 0.0 }).collect::<Vec<f64>>(); Self::with_elements(kind, &elements) }
+            SmeltUnknown::Object(_) => { let source = Self::smelt_from_unknown(value.clone()); if smelt_host_buffer_is_view(value) { Self::with_elements(kind, &source.to_elements()) } else { Self::with_bytes(kind, source.to_bytes()) } }
+            _ => Self::with_length(kind, 0),
         }
-        result
+    }
+}
+
+/// Rebuild a typed-array view from an erased value.
+impl SmeltFromUnknown for SmeltTypedArray {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }
+        let SmeltUnknown::Object(map) = value else { return Self::new() };
+        let Some(SmeltUnknown::Array(items)) = map.get("bytes") else { return Self::new() };
+        let bytes = items.into_vec().into_iter().map(|item| match item { SmeltUnknown::Number(value) => value as i64 as u8, _ => 0 }).collect::<Vec<u8>>();
+        let kind = map.iter().find_map(|(key, _)| SmeltTypedArrayKind::from_marker(&key)).unwrap_or(SmeltTypedArrayKind::Uint8);
+        let width = kind.byte_width();
+        let length = bytes.len() / width;
+        let buffer_shared = map.contains_key("__smelt_sharedarraybuffer");
+        Self { id: map.id, kind, bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), buffer_id: smelt_next_object_id(), byte_offset: 0, length, buffer_shared }
+    }
+}
+
+/// The `Uint8` face of the family: Smelt's concrete byte view.
+pub type SmeltUint8Array = SmeltTypedArray;
+
+/// A `DataView`: a window over byte storage, read at a width per call.
+#[derive(Clone)]
+pub struct SmeltDataView {
+    id: usize,
+    /// The storage, SHARED with every other view over it.
+    bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>,
+    /// Identity of the buffer this view reports.
+    buffer_id: usize,
+    /// `byteOffset`: where this view starts in the storage.
+    byte_offset: usize,
+    /// `byteLength`: how many bytes this view spans.
+    byte_length: usize,
+    /// Whether the storage behind this view is a `SharedArrayBuffer`.
+    buffer_shared: bool,
+}
+
+impl PartialEq for SmeltDataView { fn eq(&self, other: &Self) -> bool { self.to_bytes() == other.to_bytes() } }
+impl ::std::fmt::Debug for SmeltDataView { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { write!(formatter, "DataView {{ byteLength: {} }}", self.byte_length) } }
+impl Default for SmeltDataView { fn default() -> Self { Self::new() } }
+#[allow(dead_code)]
+impl SmeltDataView {
+    /// An empty view over its own empty storage.
+    pub fn new() -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), buffer_id: smelt_next_object_id(), byte_offset: 0, byte_length: 0, buffer_shared: false } }
+    /// `new DataView(buffer, byteOffset?, byteLength?)`.
+    pub fn over_buffer(buffer: &SmeltArrayBuffer, byte_offset: usize, byte_length: Option<usize>) -> Self {
+        let storage = buffer.storage();
+        let available = storage.borrow().len().saturating_sub(byte_offset);
+        let byte_length = byte_length.map_or(available, |length| length.min(available));
+        Self { id: smelt_next_object_id(), bytes: storage, buffer_id: buffer.id(), byte_offset, byte_length, buffer_shared: buffer.is_shared() }
+    }
+    /// JS reference identity of this view.
+    pub fn id(&self) -> usize { self.id }
+    /// The constructor name, which is also the `[object X]` tag.
+    pub fn class_name(&self) -> &'static str { "DataView" }
+    /// `byteOffset`: where this view starts in its buffer.
+    pub fn byte_offset(&self) -> f64 { self.byte_offset as f64 }
+    /// `byteLength`: the window size in bytes.
+    pub fn byte_length(&self) -> f64 { self.byte_length as f64 }
+    /// `buffer`: the storage this view reads, at its own identity.
+    pub fn buffer(&self) -> SmeltArrayBuffer { SmeltArrayBuffer::from_shared_storage(self.buffer_id, ::std::rc::Rc::clone(&self.bytes), self.buffer_shared) }
+    /// A COPY of the bytes in this view's window.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let bytes = self.bytes.borrow();
+        let from = self.byte_offset.min(bytes.len());
+        let to = (self.byte_offset + self.byte_length).min(bytes.len());
+        bytes[from..to].to_vec()
+    }
+    /// Whether `kind` at `offset` lies wholly inside this view.
+    fn in_bounds(&self, kind: SmeltTypedArrayKind, offset: usize) -> bool {
+        let width = kind.byte_width();
+        offset + width <= self.byte_length && self.byte_offset + offset + width <= self.bytes.borrow().len()
+    }
+    /// `getX`, answering `None` when the offset is out of range.
+    pub fn get_checked(&self, kind: SmeltTypedArrayKind, offset: usize, little_endian: bool) -> Option<f64> { if self.in_bounds(kind, offset) { Some(self.get(kind, offset, little_endian)) } else { None } }
+    /// `setX`, answering `false` when the offset is out of range.
+    pub fn set_checked(&self, kind: SmeltTypedArrayKind, offset: usize, value: f64, little_endian: bool) -> bool { if self.in_bounds(kind, offset) { self.set(kind, offset, value, little_endian); true } else { false } }
+    /// `getX(byteOffset, littleEndian?)`: read one element at `kind`'s width.
+    pub fn get(&self, kind: SmeltTypedArrayKind, offset: usize, little_endian: bool) -> f64 {
+        let width = kind.byte_width();
+        let bytes = self.bytes.borrow();
+        let at = self.byte_offset + offset;
+        if offset + width > self.byte_length || at + width > bytes.len() { return 0.0; }
+        let mut window = bytes[at..at + width].to_vec();
+        if !little_endian { window.reverse(); }
+        kind.decode(&window, 0)
+    }
+    /// `setX(byteOffset, value, littleEndian?)`: write one element.
+    pub fn set(&self, kind: SmeltTypedArrayKind, offset: usize, value: f64, little_endian: bool) {
+        let width = kind.byte_width();
+        let at = self.byte_offset + offset;
+        let mut encoded = vec![0_u8; width];
+        kind.encode(value, &mut encoded, 0);
+        if !little_endian { encoded.reverse(); }
+        let mut bytes = self.bytes.borrow_mut();
+        if offset + width > self.byte_length || at + width > bytes.len() { return; }
+        bytes[at..at + width].copy_from_slice(&encoded);
+    }
+}
+
+/// Erase a `DataView` for a dynamic boundary.
+impl IntoSmeltUnknown for SmeltDataView {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        smelt_register_host_origin(self.id, self.clone());
+        let storage = self.buffer().into_smelt_unknown();
+        let elements: Vec<SmeltUnknown> = self.to_bytes().into_iter().map(|byte| SmeltUnknown::Number(f64::from(byte))).collect();
+        smelt_host_buffer_view_record_with_id(self.id, "__smelt_dataview", elements, Some(storage), self.byte_offset)
+    }
+}
+
+/// Rebuild a `DataView` from an erased value.
+impl SmeltFromUnknown for SmeltDataView {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }
+        let SmeltUnknown::Object(map) = value else { return Self::new() };
+        let Some(SmeltUnknown::Array(items)) = map.get("bytes") else { return Self::new() };
+        let bytes = items.into_vec().into_iter().map(|item| match item { SmeltUnknown::Number(value) => value as i64 as u8, _ => 0 }).collect::<Vec<u8>>();
+        let byte_length = bytes.len();
+        Self { id: map.id, bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), buffer_id: smelt_next_object_id(), byte_offset: 0, byte_length, buffer_shared: false }
+    }
+}
+
+/// Write an erased record's encoded bytes through to its live value.
+#[allow(dead_code)]
+fn smelt_typed_array_write_origin(id: usize, offset: usize, encoded: &[SmeltUnknown]) {
+    let bytes: Vec<u8> = encoded.iter().map(|byte| match byte { SmeltUnknown::Number(value) => *value as i64 as u8, _ => 0 }).collect();
+    if let Some(view) = smelt_restore_host_origin_by_id::<SmeltTypedArray>(id) { view.write_bytes_at(offset, &bytes); return; }
+    if let Some(storage) = smelt_restore_host_origin_by_id::<SmeltArrayBuffer>(id) { storage.write_bytes_at(offset, &bytes); }
+}
+
+/// A WHATWG `Blob` (or `File`): immutable bytes, a MIME type, and the
+/// two optional `File` data properties.
+#[derive(Clone)]
+pub struct SmeltBlob {
+    id: usize,
+    /// The blob's bytes. Immutable, so shared without a cell.
+    bytes: ::std::rc::Rc<Vec<u8>>,
+    /// The `type` data property, `""` when none was supplied.
+    blob_type: String,
+    /// `Some` exactly when this blob is a `File`.
+    file_name: Option<String>,
+    /// `lastModified` in epoch milliseconds; meaningless unless a file.
+    last_modified: f64,
+}
+
+impl PartialEq for SmeltBlob { fn eq(&self, other: &Self) -> bool { self.bytes == other.bytes && self.blob_type == other.blob_type && self.file_name == other.file_name && self.last_modified == other.last_modified } }
+impl ::std::fmt::Debug for SmeltBlob {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match &self.file_name {
+            Some(name) => write!(formatter, "File {{ size: {}, type: '{}', name: '{name}', lastModified: {} }}", self.bytes.len(), self.blob_type, self.last_modified),
+            None => write!(formatter, "Blob {{ size: {}, type: '{}' }}", self.bytes.len(), self.blob_type),
+        }
+    }
+}
+impl Default for SmeltBlob { fn default() -> Self { Self::new() } }
+
+#[allow(dead_code)]
+impl SmeltBlob {
+    /// An empty, untyped blob with a fresh JS reference identity.
+    pub fn new() -> Self { Self::from_bytes(Vec::new(), String::new()) }
+    /// A blob over owned bytes, with a fresh JS reference identity.
+    pub fn from_bytes(bytes: Vec<u8>, blob_type: String) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(bytes), blob_type, file_name: None, last_modified: 0.0 } }
+    /// The same, as a `File`: the two extra data properties are present.
+    pub fn file_from_bytes(bytes: Vec<u8>, blob_type: String, name: String, last_modified: f64) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(bytes), blob_type, file_name: Some(name), last_modified } }
+    /// A blob from string parts, with optional `File` metadata.
+    pub fn from_string_parts(parts: Vec<String>, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> Self { let mut bytes: Vec<u8> = Vec::new(); for part in &parts { bytes.extend_from_slice(part.as_bytes()); } Self::with_metadata(bytes, blob_type, file_name, last_modified) }
+    /// A blob from blob parts, with optional `File` metadata.
+    pub fn from_blob_parts(parts: Vec<SmeltBlob>, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> Self { let mut bytes: Vec<u8> = Vec::new(); for part in &parts { bytes.extend_from_slice(&part.bytes); } Self::with_metadata(bytes, blob_type, file_name, last_modified) }
+    /// Pick the plain-blob or file constructor from the optional metadata.
+    pub fn with_metadata(bytes: Vec<u8>, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> Self { match file_name { Some(name) => Self::file_from_bytes(bytes, blob_type, name, last_modified.unwrap_or(0.0)), None => Self::from_bytes(bytes, blob_type) } }
+    /// JS reference identity of this blob.
+    pub fn id(&self) -> usize { self.id }
+    /// Whether this blob is a `File`.
+    pub fn is_file(&self) -> bool { self.file_name.is_some() }
+    /// `size`: the byte count.
+    pub fn size(&self) -> f64 { self.bytes.len() as f64 }
+    /// `type`: the MIME type.
+    pub fn blob_type(&self) -> String { self.blob_type.clone() }
+    /// `name`: the file name, empty for a plain blob.
+    pub fn file_name(&self) -> String { self.file_name.clone().unwrap_or_default() }
+    /// `lastModified`: epoch milliseconds.
+    pub fn last_modified(&self) -> f64 { self.last_modified }
+    /// A copy of the blob's bytes.
+    pub fn to_bytes(&self) -> Vec<u8> { self.bytes.as_ref().clone() }
+    /// `text()`: the bytes UTF-8 decoded, U+FFFD for ill-formed input.
+    pub fn to_text(&self) -> String { String::from_utf8_lossy(&self.bytes).into_owned() }
+    /// `slice(start?, end?, contentType?)`: a new blob over a byte range.
+    pub fn slice(&self, start: Option<f64>, end: Option<f64>, content_type: Option<String>) -> Self {
+        let len = self.bytes.len() as f64;
+        let clamp = |value: f64| -> usize { let resolved = if value < 0.0 { len + value } else { value }; resolved.clamp(0.0, len) as usize };
+        let from = start.map_or(0, clamp);
+        let to = end.map_or(self.bytes.len(), clamp);
+        let range = if to > from { self.bytes[from..to].to_vec() } else { Vec::new() };
+        Self::from_bytes(range, content_type.unwrap_or_default())
+    }
+}
+
+/// Erase a blob for a dynamic boundary.
+///
+/// The record shape has ONE definition, `smelt_blob_record`, shared with the
+/// reflected host constructor, so a concrete blob and a reflectively-built one
+/// erase to the same object.
+impl IntoSmeltUnknown for SmeltBlob { fn into_smelt_unknown(self) -> SmeltUnknown { smelt_blob_record(self.id, &self.bytes, &self.blob_type, self.file_name.clone(), self.last_modified) } }
+
+#[allow(dead_code)]
+impl SmeltBlob {
+    /// Build a blob from an erased `BlobPart` array.
+    pub fn from_parts_unknown(parts: SmeltUnknown, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> Self {
+        Self::with_metadata(smelt_blob_parts_bytes(parts), blob_type, file_name, last_modified)
+    }
+}
+
+/// Rebuild a blob from an erased value.
+impl SmeltFromUnknown for SmeltBlob {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let SmeltUnknown::Object(map) = value else { return Self::new() };
+        let content = match map.get("content") { Some(SmeltUnknown::String(text)) => text.to_string(), _ => String::new() };
+        let blob_type = match map.get("type") { Some(SmeltUnknown::String(text)) => text.to_string(), _ => String::new() };
+        let name = match map.get("name") { Some(SmeltUnknown::String(text)) => Some(text.to_string()), _ => None };
+        let last_modified = match map.get("lastModified") { Some(SmeltUnknown::Number(value)) => value, _ => 0.0 };
+        match name { Some(name) => Self::file_from_bytes(content.into_bytes(), blob_type, name, last_modified), None => Self::from_bytes(content.into_bytes(), blob_type) }
+    }
+}
+
+/// A WHATWG `TextEncoder`: a UTF-8 encoder with a JS reference identity.
+#[derive(Clone)]
+pub struct SmeltTextEncoder {
+    id: usize,
+}
+
+impl PartialEq for SmeltTextEncoder { fn eq(&self, _other: &Self) -> bool { true } }
+impl ::std::fmt::Debug for SmeltTextEncoder { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("TextEncoder { encoding: 'utf-8' }") } }
+impl Default for SmeltTextEncoder { fn default() -> Self { Self::new() } }
+
+#[allow(dead_code)]
+impl SmeltTextEncoder {
+    /// A fresh encoder with a fresh JS reference identity.
+    pub fn new() -> Self { Self { id: smelt_next_object_id() } }
+    /// JS reference identity of this encoder.
+    pub fn id(&self) -> usize { self.id }
+    /// `encoding`: always `"utf-8"` per the spec.
+    pub fn encoding(&self) -> String { "utf-8".to_owned() }
+    /// `encode(input)`: the input's UTF-8 bytes.
+    pub fn encode(&self, input: &str) -> SmeltUint8Array { SmeltUint8Array::from_bytes(input.as_bytes().to_vec()) }
+}
+
+/// Erase a `SmeltTextEncoder` for a dynamic boundary.
+///
+/// Retains the live value under the record's object id, so narrowing the
+/// erased value back hands out the SAME object rather than a copy.
+impl IntoSmeltUnknown for SmeltTextEncoder { fn into_smelt_unknown(self) -> SmeltUnknown { let smelt_id = self.id; smelt_register_host_origin(smelt_id, self.clone()); SmeltUnknown::Object(SmeltObject::with_id(smelt_id, Vec::from([("__smelt_textencoder".to_owned(), SmeltUnknown::Bool(true)), ("encoding".to_owned(), SmeltUnknown::String(self.encoding().into()))]))) } }
+
+/// Recover a `SmeltTextEncoder` from an erased value.
+///
+/// Lossless: the record carries everything the value is, so a record
+/// that did not come from an erasure still recovers correctly.
+impl SmeltFromUnknown for SmeltTextEncoder { fn smelt_from_unknown(value: SmeltUnknown) -> Self { smelt_restore_host_origin::<Self>(&value).unwrap_or_else(|| Self::new()) } }
+
+/// The modeled member of an erased `TextEncoder` record, resolved at run time.
+///
+/// Same dynamic boundary as the sibling host resolvers: the receiver is a
+/// marker-bearing record, so the member is decided by the marker and the
+/// member NAME at run time. A program reaches this only by erasing the codec
+/// on purpose; answering `undefined`, which is what a plain property read
+/// does, made `(encoder as any).encode('ab')` a null rather than the bytes.
+fn smelt_text_encoder_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key("__smelt_textencoder") || name != "encode" { return None; } let encoder = <SmeltTextEncoder as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let input = args.first().cloned().map_or_else(String::new, smelt_property_key); Ok(encoder.encode(&input).into_smelt_unknown()) }))) }
+
+/// `crypto.subtle.digest(algorithm, data)`: hash bytes by algorithm name.
+#[allow(dead_code)]
+fn smelt_crypto_digest(algorithm: &str, data: &[u8]) -> Result<SmeltArrayBuffer, Box<dyn ::std::error::Error>> {
+    use sha1::Digest as _;
+    let name = algorithm.trim().to_ascii_lowercase();
+    if name == "sha-1" { let mut hasher = sha1::Sha1::new(); hasher.update(data); return Ok(SmeltArrayBuffer::from_bytes(hasher.finalize().to_vec())); }
+    if name == "sha-256" { let mut hasher = sha2::Sha256::new(); hasher.update(data); return Ok(SmeltArrayBuffer::from_bytes(hasher.finalize().to_vec())); }
+    if name == "sha-384" { let mut hasher = sha2::Sha384::new(); hasher.update(data); return Ok(SmeltArrayBuffer::from_bytes(hasher.finalize().to_vec())); }
+    if name == "sha-512" { let mut hasher = sha2::Sha512::new(); hasher.update(data); return Ok(SmeltArrayBuffer::from_bytes(hasher.finalize().to_vec())); }
+    Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("NotSupportedError".into())), ("message".to_owned(), SmeltUnknown::String("Unrecognized algorithm name".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])))))
+}
+
+#[derive(Clone)]
+pub enum SmeltUnion8 {
+    M0(String),
+    M1(SmeltBlob),
+}
+impl IntoSmeltUnknown for SmeltUnion8 {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        match self {
+            Self::M0(value) => SmeltUnknown::String(value.into()),
+            Self::M1(value) => value.clone().into_smelt_unknown(),
+        }
+    }
+}
+impl SmeltUnion8 {
+    fn from_smelt_unknown(value: SmeltUnknown) -> Self {
+        if matches!(value, SmeltUnknown::String(_)) { return Self::M0(match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }); }
+        Self::M1(<SmeltBlob as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
+    }
+}
+impl PartialEq for SmeltUnion8 {
+    fn eq(&self, other: &Self) -> bool {
+        self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
+    }
+}
+impl SmeltFromUnknown for SmeltUnion8 {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
+}
+impl SmeltJsKeyEq for SmeltUnion8 {
+    fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
+    fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
+}
+impl ::std::fmt::Debug for SmeltUnion8 {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
+    }
+}
+impl Default for SmeltUnion8 {
+    fn default() -> Self {
+        Self::M0(String::new())
+    }
+}
+
+#[derive(Clone)]
+pub enum SmeltUnion29 {
+    M0(SmeltTypedArray),
+    M1(SmeltTypedArray),
+    M2(SmeltTypedArray),
+    M3(SmeltTypedArray),
+    M4(SmeltTypedArray),
+    M5(SmeltTypedArray),
+    M6(SmeltTypedArray),
+    M7(SmeltTypedArray),
+    M8(SmeltTypedArray),
+    M9(SmeltTypedArray),
+    M10(SmeltTypedArray),
+    M11(SmeltDataView),
+}
+impl IntoSmeltUnknown for SmeltUnion29 {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        match self {
+            Self::M0(value) => value.clone().into_smelt_unknown(),
+            Self::M1(value) => value.clone().into_smelt_unknown(),
+            Self::M2(value) => value.clone().into_smelt_unknown(),
+            Self::M3(value) => value.clone().into_smelt_unknown(),
+            Self::M4(value) => value.clone().into_smelt_unknown(),
+            Self::M5(value) => value.clone().into_smelt_unknown(),
+            Self::M6(value) => value.clone().into_smelt_unknown(),
+            Self::M7(value) => value.clone().into_smelt_unknown(),
+            Self::M8(value) => value.clone().into_smelt_unknown(),
+            Self::M9(value) => value.clone().into_smelt_unknown(),
+            Self::M10(value) => value.clone().into_smelt_unknown(),
+            Self::M11(value) => value.clone().into_smelt_unknown(),
+        }
+    }
+}
+impl SmeltUnion29 {
+    fn from_smelt_unknown(value: SmeltUnknown) -> Self {
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M1(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M2(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M3(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M4(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M5(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M6(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M7(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M8(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M9(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M10(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        Self::M11(<SmeltDataView as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
+    }
+}
+impl PartialEq for SmeltUnion29 {
+    fn eq(&self, other: &Self) -> bool {
+        self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
+    }
+}
+impl SmeltFromUnknown for SmeltUnion29 {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
+}
+impl SmeltJsKeyEq for SmeltUnion29 {
+    fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
+    fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
+}
+impl ::std::fmt::Debug for SmeltUnion29 {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
+    }
+}
+impl Default for SmeltUnion29 {
+    fn default() -> Self {
+        Self::M0(SmeltTypedArray::new())
+    }
+}
+
+#[derive(Clone)]
+pub enum SmeltUnion31 {
+    M0(String),
+    M1(SmeltTypedArray),
+    M2(SmeltTypedArray),
+    M3(SmeltTypedArray),
+    M4(SmeltTypedArray),
+    M5(SmeltTypedArray),
+    M6(SmeltTypedArray),
+    M7(SmeltTypedArray),
+    M8(SmeltTypedArray),
+    M9(SmeltTypedArray),
+    M10(SmeltTypedArray),
+    M11(SmeltTypedArray),
+    M12(SmeltDataView),
+    M13(SmeltArrayBuffer),
+}
+impl IntoSmeltUnknown for SmeltUnion31 {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        match self {
+            Self::M0(value) => SmeltUnknown::String(value.into()),
+            Self::M1(value) => value.clone().into_smelt_unknown(),
+            Self::M2(value) => value.clone().into_smelt_unknown(),
+            Self::M3(value) => value.clone().into_smelt_unknown(),
+            Self::M4(value) => value.clone().into_smelt_unknown(),
+            Self::M5(value) => value.clone().into_smelt_unknown(),
+            Self::M6(value) => value.clone().into_smelt_unknown(),
+            Self::M7(value) => value.clone().into_smelt_unknown(),
+            Self::M8(value) => value.clone().into_smelt_unknown(),
+            Self::M9(value) => value.clone().into_smelt_unknown(),
+            Self::M10(value) => value.clone().into_smelt_unknown(),
+            Self::M11(value) => value.clone().into_smelt_unknown(),
+            Self::M12(value) => value.clone().into_smelt_unknown(),
+            Self::M13(value) => value.clone().into_smelt_unknown(),
+        }
+    }
+}
+impl SmeltUnion31 {
+    fn from_smelt_unknown(value: SmeltUnknown) -> Self {
+        if matches!(value, SmeltUnknown::String(_)) { return Self::M0(match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M1(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M2(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M3(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M4(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M5(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M6(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M7(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M8(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M9(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M10(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M11(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M12(<SmeltDataView as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        Self::M13(<SmeltArrayBuffer as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
+    }
+}
+impl PartialEq for SmeltUnion31 {
+    fn eq(&self, other: &Self) -> bool {
+        self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
+    }
+}
+impl SmeltFromUnknown for SmeltUnion31 {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
+}
+impl SmeltJsKeyEq for SmeltUnion31 {
+    fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
+    fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
+}
+impl ::std::fmt::Debug for SmeltUnion31 {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
+    }
+}
+impl Default for SmeltUnion31 {
+    fn default() -> Self {
+        Self::M0(String::new())
+    }
+}
+
+#[derive(Clone)]
+pub enum SmeltUnion40 {
+    M0(SmeltTypedArray),
+    M1(SmeltTypedArray),
+    M2(SmeltTypedArray),
+    M3(SmeltTypedArray),
+    M4(SmeltTypedArray),
+    M5(SmeltTypedArray),
+    M6(SmeltTypedArray),
+    M7(SmeltTypedArray),
+    M8(SmeltTypedArray),
+    M9(SmeltTypedArray),
+    M10(SmeltTypedArray),
+    M11(SmeltDataView),
+    M12(SmeltArrayBuffer),
+}
+impl IntoSmeltUnknown for SmeltUnion40 {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        match self {
+            Self::M0(value) => value.clone().into_smelt_unknown(),
+            Self::M1(value) => value.clone().into_smelt_unknown(),
+            Self::M2(value) => value.clone().into_smelt_unknown(),
+            Self::M3(value) => value.clone().into_smelt_unknown(),
+            Self::M4(value) => value.clone().into_smelt_unknown(),
+            Self::M5(value) => value.clone().into_smelt_unknown(),
+            Self::M6(value) => value.clone().into_smelt_unknown(),
+            Self::M7(value) => value.clone().into_smelt_unknown(),
+            Self::M8(value) => value.clone().into_smelt_unknown(),
+            Self::M9(value) => value.clone().into_smelt_unknown(),
+            Self::M10(value) => value.clone().into_smelt_unknown(),
+            Self::M11(value) => value.clone().into_smelt_unknown(),
+            Self::M12(value) => value.clone().into_smelt_unknown(),
+        }
+    }
+}
+impl SmeltUnion40 {
+    fn from_smelt_unknown(value: SmeltUnknown) -> Self {
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M1(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M2(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M3(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M4(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M5(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M6(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M7(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M8(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M9(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M10(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M11(<SmeltDataView as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
+        Self::M12(<SmeltArrayBuffer as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
+    }
+}
+impl PartialEq for SmeltUnion40 {
+    fn eq(&self, other: &Self) -> bool {
+        self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
+    }
+}
+impl SmeltFromUnknown for SmeltUnion40 {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
+}
+impl SmeltJsKeyEq for SmeltUnion40 {
+    fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
+    fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
+}
+impl ::std::fmt::Debug for SmeltUnion40 {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
+    }
+}
+impl Default for SmeltUnion40 {
+    fn default() -> Self {
+        Self::M0(SmeltTypedArray::new())
     }
 }
 
 // @smelt:prelude-end — generated program below
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
-    let _smelt_tmp_2: String;
-    let _smelt_tmp_7: ();
-    let _smelt_tmp_0: SmeltFuture<String> = SmeltFuture::from_future(Box::pin(async move { smelt_sleep_ms(0.0 as f64).await; Ok::<_, Box<dyn std::error::Error>>("a".to_owned()) }));
-    let _smelt_tmp_1 = SmeltFuture::from_future(Box::pin(boxed(_smelt_tmp_0)));
-    _smelt_tmp_2 = _smelt_tmp_1.await?;
-    let _ = { println!("{}", _smelt_tmp_2); };
-    let _smelt_tmp_4: String = direct("b".to_owned());
-    let _ = { println!("{}", _smelt_tmp_4); };
-    let _smelt_tmp_6: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
-    _smelt_tmp_7 = _smelt_tmp_6.await?;
+    let rec: SmeltRecord<String, String>;
+    let pairs: SmeltList<(String, SmeltRecord<String, String>)>;
+    let xs: SmeltList<String>;
+    let mut entries: SmeltList<SmeltUnion8>;
+    let digest_bytes: SmeltTypedArray;
+    let mut queue: SmeltList<SmeltList<String>>;
+    let head: Option<SmeltList<String>>;
+    let _smelt_tmp_9: bool;
+    let _smelt_tmp_10: bool;
+    let _smelt_tmp_11: bool;
+    let _smelt_tmp_13: SmeltList<String>;
+    let _smelt_tmp_15: (String, SmeltRecord<String, String>);
+    let _smelt_tmp_16: SmeltList<String>;
+    let _smelt_tmp_18: (String, SmeltRecord<String, String>);
+    let _smelt_tmp_19: SmeltList<(String, SmeltRecord<String, String>)>;
+    let _smelt_tmp_20: SmeltRecord<String, String>;
+    let _smelt_tmp_21: bool;
+    let _smelt_tmp_22: SmeltRecord<String, String>;
+    let _smelt_tmp_23: bool;
+    let _smelt_tmp_25: SmeltList<String>;
+    let _smelt_tmp_26: bool;
+    let _smelt_tmp_27: bool;
+    let _smelt_tmp_29: SmeltList<String>;
+    let _smelt_tmp_31: SmeltList<String>;
+    let _smelt_tmp_34: SmeltList<SmeltUnion8>;
+    let _smelt_tmp_36: f64;
+    let _smelt_tmp_37: String;
+    let _smelt_tmp_39: SmeltRegExp;
+    let _smelt_tmp_42: ();
+    let _smelt_tmp_43: SmeltList<f64>;
+    let _smelt_tmp_44: SmeltTypedArray;
+    let _smelt_tmp_45: SmeltList<f64>;
+    let _smelt_tmp_46: String;
+    let _smelt_tmp_47: SmeltList<f64>;
+    let _smelt_tmp_48: f64;
+    let _smelt_tmp_50: SmeltList<f64>;
+    let mut _smelt_tmp_51: ::std::rc::Rc<dyn Fn(f64, i64, &SmeltList<f64>) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, i64, &SmeltList<f64>) -> String> = ::std::rc::Rc::new(move |arg0: f64, arg1: i64, arg2: &SmeltList<f64>| -> String { String::new() }); smelt_default_callback };
+    let _smelt_tmp_52: SmeltList<String>;
+    let _smelt_tmp_53: String;
+    let _smelt_tmp_55: SmeltList<String>;
+    let _smelt_tmp_56: SmeltList<String>;
+    let _smelt_tmp_57: SmeltList<SmeltList<String>>;
+    let _smelt_tmp_58: Option<SmeltList<String>>;
+    let _smelt_tmp_59: bool;
+    let mut _smelt_tmp_60: String;
+    let _smelt_tmp_61: SmeltList<String>;
+    let _smelt_tmp_62: String;
+    let _smelt_tmp_65: ();
+    let _smelt_tmp_7: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned()]; smelt_list_items }));
+    let _smelt_tmp_8: SmeltRecord<String, String> = make_record(_smelt_tmp_7);
+    rec = _smelt_tmp_8;
+    _smelt_tmp_9 = (rec.get(&"id".to_owned())).is_none();
+    _smelt_tmp_10 = (rec.get(&"a".to_owned())).is_none();
+    _smelt_tmp_11 = (rec.get(&"a".to_owned())).is_some();
+    let _ = { println!("{} {} {}", _smelt_tmp_9, _smelt_tmp_10, _smelt_tmp_11); };
+    _smelt_tmp_13 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    let _smelt_tmp_14: SmeltRecord<String, String> = make_record(_smelt_tmp_13);
+    _smelt_tmp_15 = ("x".to_owned(), _smelt_tmp_14);
+    _smelt_tmp_16 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["id".to_owned()]; smelt_list_items }));
+    let _smelt_tmp_17: SmeltRecord<String, String> = make_record(_smelt_tmp_16);
+    _smelt_tmp_18 = ("y".to_owned(), _smelt_tmp_17);
+    _smelt_tmp_19 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, SmeltRecord<String, String>)> = vec![_smelt_tmp_15.clone(), _smelt_tmp_18.clone()]; smelt_list_items }));
+    pairs = Into::<SmeltList<_>>::into(_smelt_tmp_19);
+    _smelt_tmp_20 = pairs.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), SmeltRecord::new())).1.clone();
+    _smelt_tmp_21 = (_smelt_tmp_20.get(&"id".to_owned())).is_none();
+    _smelt_tmp_22 = pairs.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), SmeltRecord::new())).1.clone();
+    _smelt_tmp_23 = (_smelt_tmp_22.get(&"id".to_owned())).is_none();
+    let _ = { println!("{} {}", _smelt_tmp_21, _smelt_tmp_23); };
+    _smelt_tmp_25 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["q".to_owned()]; smelt_list_items }));
+    xs = Into::<SmeltList<_>>::into(_smelt_tmp_25);
+    _smelt_tmp_26 = (xs.borrow().get({ let smelt_normalized = 3.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned()).is_none();
+    _smelt_tmp_27 = (xs.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned()).is_none();
+    let _ = { println!("{} {}", _smelt_tmp_26, _smelt_tmp_27); };
+    _smelt_tmp_29 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["".to_owned()]; smelt_list_items }));
+    let _smelt_tmp_30: bool = starts_with_slash(_smelt_tmp_29);
+    _smelt_tmp_31 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["/a".to_owned()]; smelt_list_items }));
+    let _smelt_tmp_32: bool = starts_with_slash(_smelt_tmp_31);
+    let _ = { println!("{} {}", _smelt_tmp_30, _smelt_tmp_32); };
+    _smelt_tmp_34 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnion8> = vec![SmeltUnion8::M0("a".to_owned())]; smelt_list_items }));
+    entries = Into::<SmeltList<_>>::into(_smelt_tmp_34);
+    let _smelt_tmp_35: f64 = collect(&mut entries, SmeltUnion8::M0("b".to_owned()));
+    _smelt_tmp_36 = entries.len() as f64;
+    _smelt_tmp_37 = match &entries.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltUnion8::M0(String::new())) { SmeltUnion8::M0(_) => "string", SmeltUnion8::M1(_) => "object" }.to_owned();
+    let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_36), _smelt_tmp_37, entries.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltUnion8::M0(String::new())).into_smelt_unknown()); };
+    _smelt_tmp_39 = SmeltRegExp::new("a/b".to_owned(), "".to_owned());
+    let _ = { println!("{}", _smelt_tmp_39.source.clone().clone()); };
+    let _smelt_tmp_41 = SmeltFuture::from_future(Box::pin(run()));
+    _smelt_tmp_42 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_41.await; })); () };
+    _smelt_tmp_43 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 171.0, 255.0]; smelt_list_items }));
+    _smelt_tmp_44 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_43.to_vec());
+    digest_bytes = _smelt_tmp_44;
+    _smelt_tmp_45 = Into::<SmeltList<_>>::into(SmeltList::new(digest_bytes.clone().to_elements()));
+    _smelt_tmp_46 = _smelt_tmp_45.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&"-".to_owned());
+    _smelt_tmp_47 = Into::<SmeltList<_>>::into(SmeltList::new(digest_bytes.to_elements()));
+    _smelt_tmp_48 = { let smelt_needle = 171.0; _smelt_tmp_47.borrow().iter().position(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).map_or(-1.0, |idx| idx as f64) };
+    let _ = { println!("{} {}", _smelt_tmp_46, smelt_console_number(_smelt_tmp_48)); };
+    _smelt_tmp_50 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![10.0, 255.0]; smelt_list_items }));
+    _smelt_tmp_51 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
+    let _smelt_tmp_3: String = { let value = (closure_arg_0 as f64).trunc() as i128; let radix = ((16.0 as f64).trunc() as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 { digits.push('0'); } while n > 0 { let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 { (b'0' + digit) as char } else { (b'a' + digit - 10) as char }); n /= u128::from(radix); } if negative { digits.push('-'); } digits.iter().rev().collect::<String>() };
+    _smelt_tmp_3.clone()
+    });
+    _smelt_tmp_52 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
+    let _smelt_tmp_3: String = { let value = (closure_arg_0 as f64).trunc() as i128; let radix = ((16.0 as f64).trunc() as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 { digits.push('0'); } while n > 0 { let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 { (b'0' + digit) as char } else { (b'a' + digit - 10) as char }); n /= u128::from(radix); } if negative { digits.push('-'); } digits.iter().rev().collect::<String>() };
+    _smelt_tmp_3.clone()
+    }); let smelt_array = _smelt_tmp_50; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
+    _smelt_tmp_53 = _smelt_tmp_52.borrow().join(&",".to_owned());
+    let _ = { println!("{}", _smelt_tmp_53); };
+    _smelt_tmp_55 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "b".to_owned()]; smelt_list_items }));
+    _smelt_tmp_56 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["c".to_owned()]; smelt_list_items }));
+    _smelt_tmp_57 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_55.clone(), _smelt_tmp_56.clone()]; smelt_list_items }));
+    queue = Into::<SmeltList<_>>::into(_smelt_tmp_57);
+    _smelt_tmp_58 = if queue.is_empty() { None } else { Some(queue.borrow_mut().remove(0)) };
+    head = _smelt_tmp_58;
+    _smelt_tmp_59 = !(head.clone().is_none());
+    let mut _smelt_tmp_60: String = String::new();
+    if _smelt_tmp_59 {
+    _smelt_tmp_61 = Into::<SmeltList<_>>::into(head.clone().expect("optional value was absent after narrowing"));
+    _smelt_tmp_62 = _smelt_tmp_61.borrow().join(&",".to_owned());
+    _smelt_tmp_60 = _smelt_tmp_62;
+    } else {
+    _smelt_tmp_60 = "none".to_owned();
+    }
+    let _ = { println!("{}", _smelt_tmp_60); };
+    let _smelt_tmp_64: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
+    _smelt_tmp_65 = _smelt_tmp_64.await?;
     return Ok(());
 })
-}
-
-impl Wrapper {
-    fn new(label: String) -> Self {
-    let mut this: Self = Wrapper { label: String::new() };
-    this.label = label.clone();
-    return this;
-    }
 }
 
 // ==== source_main.rs
@@ -3444,27 +4494,98 @@ impl Wrapper {
 
 use super::*;
 
-pub(crate) async fn boxed(text: SmeltFuture<String>) -> Result<String, Box<dyn std::error::Error>> {
-    let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: String = "[".to_owned() + &closure_arg_0.clone();
-    let _smelt_tmp_2: String = _smelt_tmp_1.clone() + &"]".to_owned();
-    let _smelt_tmp_3: Wrapper = Wrapper::new(_smelt_tmp_2.clone());
-    _smelt_tmp_3.clone()
-    });
-    let decorate = _smelt_tmp_3.clone();
-    let _smelt_tmp_4: SmeltFuture<Wrapper> = { let smelt_promise_callback = (decorate).clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_value = text.await?; let smelt_callback_value = (smelt_promise_callback)(smelt_value); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) })) };
-    let _smelt_tmp_5: Wrapper = _smelt_tmp_4.await?;
-    let box_: Wrapper = _smelt_tmp_5;
-    return Ok(box_.label.clone());
+pub(crate) fn make_record(keys: SmeltList<String>) -> SmeltRecord<String, String> {
+    let mut key: String;
+    let mut _smelt_tmp_5: f64;
+    let mut _smelt_tmp_6: bool;
+    let mut _smelt_tmp_7: String;
+    let _smelt_tmp_3: SmeltRecord<String, String> = SmeltRecord::from([]);
+    let mut rec: SmeltRecord<String, String> = _smelt_tmp_3;
+    let mut _smelt_tmp_4: f64 = 0.0;
+    loop {
+    _smelt_tmp_5 = keys.len() as f64;
+    _smelt_tmp_6 = _smelt_tmp_4 < _smelt_tmp_5;
+    if !(_smelt_tmp_6) { break; }
+    key = keys.borrow().get({ let smelt_normalized = _smelt_tmp_4 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
+    _smelt_tmp_7 = key.clone() + &"!".to_owned();
+    rec.insert(key.clone(), _smelt_tmp_7);
+    _smelt_tmp_4 = _smelt_tmp_4 + 1.0;
+    }
+    return rec;
 }
 
-pub(crate) fn direct(value: String) -> String {
-    let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: String = closure_arg_0.clone() + &closure_arg_0.clone();
-    let _smelt_tmp_2: Wrapper = Wrapper::new(_smelt_tmp_1.clone());
-    _smelt_tmp_2.clone()
-    });
-    let twice = _smelt_tmp_2.clone();
-    let _smelt_tmp_3: Wrapper = (twice)(value.clone());
-    return _smelt_tmp_3.label.clone();
+pub(crate) fn starts_with_slash(parts: SmeltList<String>) -> bool {
+    let _smelt_tmp_1: String = parts.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
+    let _smelt_tmp_2: bool = _smelt_tmp_1.chars().nth({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default() == "/".to_owned();
+    return _smelt_tmp_2;
+}
+
+pub(crate) async fn digest_length(data: SmeltUnion31) -> Result<f64, Box<dyn std::error::Error>> {
+    let buffer: SmeltArrayBuffer;
+    let _smelt_tmp_4: SmeltTextEncoder;
+    let _smelt_tmp_5: String;
+    let _smelt_tmp_6: SmeltTypedArray;
+    let _smelt_tmp_7: SmeltUnion40;
+    let _smelt_tmp_9: SmeltArrayBuffer;
+    let _smelt_tmp_10: SmeltTypedArray;
+    let mut source: SmeltUnion40 = SmeltUnion40::M0(SmeltTypedArray::new());
+    let _smelt_tmp_3: bool = matches!(data.clone(), SmeltUnion31::M0(_));
+    if _smelt_tmp_3 {
+    _smelt_tmp_4 = SmeltTextEncoder::new();
+    _smelt_tmp_5 = match data.clone() { SmeltUnion31::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
+    _smelt_tmp_6 = _smelt_tmp_4.encode(&_smelt_tmp_5);
+    source = SmeltUnion40::M0(_smelt_tmp_6);
+    } else {
+    _smelt_tmp_7 = match data.clone() { SmeltUnion31::M1(value) => SmeltUnion40::M0(value), SmeltUnion31::M2(value) => SmeltUnion40::M1(value), SmeltUnion31::M3(value) => SmeltUnion40::M2(value), SmeltUnion31::M4(value) => SmeltUnion40::M3(value), SmeltUnion31::M5(value) => SmeltUnion40::M4(value), SmeltUnion31::M6(value) => SmeltUnion40::M5(value), SmeltUnion31::M7(value) => SmeltUnion40::M6(value), SmeltUnion31::M8(value) => SmeltUnion40::M7(value), SmeltUnion31::M9(value) => SmeltUnion40::M8(value), SmeltUnion31::M10(value) => SmeltUnion40::M9(value), SmeltUnion31::M11(value) => SmeltUnion40::M10(value), SmeltUnion31::M12(value) => SmeltUnion40::M11(value), SmeltUnion31::M13(value) => SmeltUnion40::M12(value), _ => unreachable!("union guard selected an excluded member") };
+    source = _smelt_tmp_7;
+    }
+    let _smelt_tmp_8: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = ("SHA-256".to_owned()).clone(); let smelt_data = match &(source) { SmeltUnion40::M0(value) => value.to_bytes(), SmeltUnion40::M1(value) => value.to_bytes(), SmeltUnion40::M2(value) => value.to_bytes(), SmeltUnion40::M3(value) => value.to_bytes(), SmeltUnion40::M4(value) => value.to_bytes(), SmeltUnion40::M5(value) => value.to_bytes(), SmeltUnion40::M6(value) => value.to_bytes(), SmeltUnion40::M7(value) => value.to_bytes(), SmeltUnion40::M8(value) => value.to_bytes(), SmeltUnion40::M9(value) => value.to_bytes(), SmeltUnion40::M10(value) => value.to_bytes(), SmeltUnion40::M11(value) => value.to_bytes(), SmeltUnion40::M12(value) => value.to_bytes() }; SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
+    _smelt_tmp_9 = _smelt_tmp_8.await?;
+    buffer = _smelt_tmp_9;
+    _smelt_tmp_10 = SmeltTypedArray::over_buffer(SmeltTypedArrayKind::Uint8, &buffer, 0, None);
+    return Ok(_smelt_tmp_10.get(0.0).unwrap_or(0.0));
+}
+
+pub(crate) fn collect(mut into: &mut SmeltList<SmeltUnion8>, value: SmeltUnion8) -> f64 {
+    let _smelt_tmp_2: f64 = { let smelt_push_item = value.clone(); into.borrow_mut().push(smelt_push_item); into.len() as f64 };
+    return _smelt_tmp_2;
+}
+
+pub(crate) async fn slow(ms: f64, value: String) -> Result<String, Box<dyn std::error::Error>> {
+    let _smelt_tmp_2: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_sleep_ms(ms as f64).await; Ok::<_, Box<dyn std::error::Error>>(()) }));
+    let _smelt_tmp_3: () = _smelt_tmp_2.await?;
+    return Ok(value.clone());
+}
+
+pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let _smelt_tmp_1: f64;
+    let _smelt_tmp_2: SmeltList<f64>;
+    let _smelt_tmp_3: SmeltTypedArray;
+    let _smelt_tmp_5: f64;
+    let _smelt_tmp_10: String;
+    let _smelt_tmp_15: String;
+    let _smelt_tmp_20: String;
+    let _smelt_tmp_0 = SmeltFuture::from_future(Box::pin(digest_length(SmeltUnion31::M0("abc".to_owned()))));
+    _smelt_tmp_1 = _smelt_tmp_0.await?;
+    _smelt_tmp_2 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
+    _smelt_tmp_3 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_2.to_vec());
+    let _smelt_tmp_4 = SmeltFuture::from_future(Box::pin(digest_length(SmeltUnion31::M1(_smelt_tmp_3))));
+    _smelt_tmp_5 = _smelt_tmp_4.await?;
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_1), smelt_console_number(_smelt_tmp_5)); };
+    let _smelt_tmp_7 = SmeltFuture::from_future(Box::pin(slow(100.0, "slow".to_owned())));
+    let _smelt_tmp_8 = SmeltFuture::from_future(Box::pin(slow(30.0, "fast".to_owned())));
+    let _smelt_tmp_9: SmeltFuture<String> = SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>({ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, Box<dyn std::error::Error>>>>>> = Vec::new(); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_7))); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_8))); smelt_promise_race(smelt_racers).await? }) }));
+    _smelt_tmp_10 = _smelt_tmp_9.await?;
+    let _ = { println!("{}", _smelt_tmp_10); };
+    let _smelt_tmp_12 = SmeltFuture::from_future(Box::pin(slow(110.0, "late".to_owned())));
+    let _smelt_tmp_13 = SmeltFuture::from_future(Box::pin(slow(50.0, "timed out".to_owned())));
+    let _smelt_tmp_14: SmeltFuture<String> = SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>({ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, Box<dyn std::error::Error>>>>>> = Vec::new(); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_12))); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_13))); smelt_promise_race(smelt_racers).await? }) }));
+    _smelt_tmp_15 = _smelt_tmp_14.await?;
+    let _ = { println!("{}", _smelt_tmp_15); };
+    let _smelt_tmp_17 = SmeltFuture::from_future(Box::pin(slow(20.0, "early".to_owned())));
+    let _smelt_tmp_18 = SmeltFuture::from_future(Box::pin(slow(60.0, "late timeout".to_owned())));
+    let _smelt_tmp_19: SmeltFuture<String> = SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>({ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, Box<dyn std::error::Error>>>>>> = Vec::new(); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_17))); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_18))); smelt_promise_race(smelt_racers).await? }) }));
+    _smelt_tmp_20 = _smelt_tmp_19.await?;
+    let _ = { println!("{}", _smelt_tmp_20); };
+    return Ok(());
 }

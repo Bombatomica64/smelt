@@ -121,6 +121,7 @@ impl ModuleBuilder<'_> {
                 let algorithm = self.argument(algorithm, body)?;
                 let algorithm = self.crypto_algorithm_name(algorithm, span, body)?;
                 let data = self.argument(data, body)?;
+                let data = self.byte_source_behind_assertion(data, body);
                 // `BufferSource` is the spec's input type: a VIEW or its
                 // STORAGE, both now concrete. A value whose type carries no
                 // shape (an `unknown`, a generic, or a union with byte arms —
@@ -157,6 +158,40 @@ impl ModuleBuilder<'_> {
             }
             _ => Ok(None),
         }
+    }
+
+    /// Look through an erased type assertion whose operand is already a
+    /// `BufferSource`.
+    ///
+    /// A TypeScript `as` never changes the runtime value, so `buf as
+    /// ArrayBuffer` over an `ArrayBufferView | ArrayBuffer` still holds a view
+    /// half the time. Keeping the asserted member type would make the emitter
+    /// project the union onto that one arm, which cannot be done for the other
+    /// arms. When every member of the operand's union is itself byte-backed
+    /// (a typed-array view, a `DataView` or an `ArrayBuffer`) the parameter
+    /// accepts the operand as it is, so the assertion is dropped and the
+    /// emitter reads the bytes of whichever arm is live. Any other assertion
+    /// is returned unchanged.
+    fn byte_source_behind_assertion(
+        &self,
+        data: smelt_hir::ExprId,
+        body: &Body,
+    ) -> smelt_hir::ExprId {
+        let index = usize::try_from(data.0).expect("expr id should fit into usize");
+        let Some(&ExprKind::TypeAssert { value }) = body.exprs.get(index).map(|expr| &expr.kind)
+        else {
+            return data;
+        };
+        let Some(Type::Union(members)) = self.ctx.krate.types.get(Self::expr_ty(body, value))
+        else {
+            return data;
+        };
+        let all_byte_backed = members.iter().all(|member| {
+            self.is_typed_array_view_type(*member)
+                || self.is_data_view_type(*member)
+                || self.is_array_buffer_type(*member)
+        });
+        if all_byte_backed { value } else { data }
     }
 
     /// Reduce a spec `AlgorithmIdentifier` argument to its name string.

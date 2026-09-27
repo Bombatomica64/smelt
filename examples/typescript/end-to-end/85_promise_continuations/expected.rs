@@ -2474,6 +2474,14 @@ async fn smelt_sleep_ms(delay_ms: f64) {
     smelt_drain_promise_tasks().await;
     let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };
     let target_ms = smelt_mono_ms().saturating_add(delay_ms);
+    if delay_ms > 0 && SMELT_RACE_DEPTH.with(::std::cell::Cell::get) > 0 {
+        let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });
+        let callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(|| Ok(())));
+        SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms: target_ms, callback, period_ms: None }));
+        while smelt_mono_ms() < target_ms { tokio::task::yield_now().await; }
+        smelt_drain_promise_tasks().await;
+        return;
+    }
     let id_barrier = if delay_ms == 0 { SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get) } else { u64::MAX };
     let mut fired_any = false;
     loop {

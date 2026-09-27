@@ -67,12 +67,12 @@ fn main (FuncId(2)) -> None
     %19 temp: None
     %20 temp: Bool
     %21 temp: String
-    %22 temp: Optional<String>
+    %22 temp: Shape
     %23 temp: String
     %24 temp: None
     %25 temp: Bool
     %26 temp: String
-    %27 temp: Optional<Float>
+    %27 temp: Shape
     %28 temp: String
     %29 temp: None
   bb0:
@@ -114,8 +114,8 @@ fn main (FuncId(2)) -> None
     %21 = "no inner"
     goto bb16
   bb14:
-    %22 = copy %3?.field7
-    %23 = call fn0(move %22) -> bb15
+    %22 = copy %3
+    %23 = call fn0(copy %22.field7) -> bb15
   bb15:
     %21 = move %23
     goto bb16
@@ -128,8 +128,8 @@ fn main (FuncId(2)) -> None
     %26 = "no inner"
     goto bb21
   bb19:
-    %27 = move %3?.field6
-    %28 = call fn1(move %27) -> bb20
+    %27 = move %3
+    %28 = call fn1(copy %27.field6) -> bb20
   bb20:
     %26 = move %28
     goto bb21

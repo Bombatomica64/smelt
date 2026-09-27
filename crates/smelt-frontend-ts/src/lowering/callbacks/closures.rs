@@ -723,6 +723,36 @@ impl ModuleBuilder<'_> {
                 ty,
                 span,
             })),
+            // `Number.prototype.toString(radix)`: a numeric (or erased)
+            // receiver with a numeric argument formats in that radix, exactly
+            // as the direct-call lowering (`number_to_string_call`) does.
+            // Dropping the radix rendered `(171).toString(16)` as `"171"`
+            // inside every callback body.
+            "toString" | "to_string"
+                if args.len() == 1
+                    && matches!(
+                        self.ctx.krate.types.get(receiver_ty),
+                        Some(Type::Int | Type::Float | Type::Unknown)
+                    )
+                    && args.first().is_some_and(|radix| {
+                        matches!(
+                            self.ctx.krate.types.get(Self::expr_ty(body, *radix)),
+                            Some(Type::Int | Type::Float)
+                        )
+                    }) =>
+            {
+                let radix = args.first().copied().ok_or_else(|| {
+                    SmeltError::unsupported(span, "number.toString(radix) requires a radix")
+                })?;
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::NumericToStringRadix {
+                        operand: receiver,
+                        radix,
+                    },
+                    ty,
+                    span,
+                }))
+            }
             "toString" | "to_string" if args.len() == 1 => Ok(body.push_expr(Expr {
                 kind: ExprKind::PrimitiveCast {
                     op: PrimitiveCastOp::ToString,

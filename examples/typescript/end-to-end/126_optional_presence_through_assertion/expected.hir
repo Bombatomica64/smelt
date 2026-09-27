@@ -78,10 +78,10 @@ module examples/typescript/end-to-end/126_optional_presence_through_assertion/in
     #63: Optional<HandlerSet> = %2
     #64: None = none
     #65: Bool = NotEq #63, #64
-    #66: Optional<HandlerSet> = %2
-    #67: Optional<String> = #66?.handler
+    #66: HandlerSet = %2
+    #67: String = #66.handler
     #68: String = "none"
-    #69: Optional<String> = if #65 then #67 else #68
+    #69: String = if #65 then #67 else #68
     #70: None = @9(console_log)
     #71: None = call #70(#69)
     #72: Dict<String, HandlerSet> = %1
@@ -94,10 +94,10 @@ module examples/typescript/end-to-end/126_optional_presence_through_assertion/in
     #79: Optional<HandlerSet> = %3
     #80: None = none
     #81: Bool = NotEq #79, #80
-    #82: Optional<HandlerSet> = %3
-    #83: Optional<String> = #82?.handler
+    #82: HandlerSet = %3
+    #83: String = #82.handler
     #84: String = "none"
-    #85: Optional<String> = if #81 then #83 else #84
+    #85: String = if #81 then #83 else #84
     #86: None = @10(console_log)
     #87: None = call #86(#85)
     #88: String = "handler"
@@ -164,4 +164,3 @@ interned types
   t16 = Optional<HandlerParamsSet>
   t17 = fn(String, String, Float) -> None
   t18 = fn(String) -> List<String>
-  t19 = Optional<String>

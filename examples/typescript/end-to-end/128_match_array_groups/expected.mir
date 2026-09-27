@@ -84,20 +84,21 @@ fn describe (FuncId(1)) -> None
     %26 temp: Float
     %27 temp: Bool
     %28 temp: Bool
-    %29 temp: Optional<String>
-    %30 temp: None
-    %31 temp: __SmeltMatch
-    %32 temp: Optional<String>
+    %29 temp: String
+    %30 temp: String
+    %31 temp: None
+    %32 temp: __SmeltMatch
     %33 temp: Optional<String>
-    %34 temp: __SmeltMatch
-    %35 temp: List<Optional<String>>
+    %34 temp: Optional<String>
+    %35 temp: __SmeltMatch
     %36 temp: List<Optional<String>>
     %37 temp: List<Optional<String>>
-    %38 temp: Float
-    %39 temp: __SmeltMatch
+    %38 temp: List<Optional<String>>
+    %39 temp: Float
     %40 temp: __SmeltMatch
-    %41 temp: Bool
-    %42 temp: None
+    %41 temp: __SmeltMatch
+    %42 temp: Bool
+    %43 temp: None
   bb0:
     %6 = external_new0("(\d+)-(\d+)?", "")
     %7 = regex_find move %6, copy %0
@@ -140,28 +141,29 @@ fn describe (FuncId(1)) -> None
     %25 = copy %25 + 1.0
     goto bb5
   bb8:
-    %31 = copy %1
-    %32 = copy %31?.[1.0]
-    %4 = move %32
-    %33 = move %31?.[2.0]
-    %5 = move %33
-    %34 = copy %1
-    %35 = move %34
-    %36 = []
-    %37 = list_concat move %35, move %36
-    %38 = len move %37
-    %39 = copy %1
-    %40 = move %1
-    %41 = move %5 == undefined
-    %42 = call @console_log(move %38, copy %39.field12, copy %40.field25, move %4, move %41) -> bb13
+    %32 = copy %1
+    %33 = copy %32?.[1.0]
+    %4 = move %33
+    %34 = move %32?.[2.0]
+    %5 = move %34
+    %35 = copy %1
+    %36 = move %35
+    %37 = []
+    %38 = list_concat move %36, move %37
+    %39 = len move %38
+    %40 = copy %1
+    %41 = move %1
+    %42 = move %5 == undefined
+    %43 = call @console_log(move %39, copy %40.field12, copy %41.field25, move %4, move %42) -> bb13
   bb9:
     %29 = "undefined"
     goto bb11
   bb10:
-    %29 = move %3
+    %30 = move %3
+    %29 = move %30
     goto bb11
   bb11:
-    %30 = call @console_log(move %29) -> bb12
+    %31 = call @console_log(move %29) -> bb12
   bb12:
     goto bb7
   bb13:

@@ -2904,13 +2904,34 @@ impl ModuleBuilder<'_> {
         }
         let cond = self.condition_expression(&conditional.test, body)?;
         let arm_span = self.span(conditional.span.start, conditional.span.end);
+        // Each arm sees the test's flow facts, exactly as the ternary arm of
+        // `expression_with_hint` and an `if` statement do. This entry point
+        // (a ternary in ARGUMENT position, `console.log(first ? first.join(',')
+        // : ..)`) used to lower both arms unnarrowed, so the present arm saw
+        // `string[] | undefined` and its array method was refused.
+        let then_narrowing = self.guard_narrowing(&conditional.test, body);
+        if let Some(narrowing) = then_narrowing.clone() {
+            self.scope.push_narrowing_scope(narrowing);
+        }
         let then_expr = self.lower_conditional_arm(body, arm_span, |slf, body| {
             slf.expression_with_hint(&conditional.consequent, body, type_hint)
-        })?;
+        });
+        if then_narrowing.is_some() {
+            self.scope.pop_narrowing_scope();
+        }
+        let then_expr = then_expr?;
         let branch_hint = Some(Self::expr_ty(body, then_expr));
+        let else_narrowing = self.inverse_guard_narrowing(&conditional.test, body);
+        if let Some(narrowing) = else_narrowing.clone() {
+            self.scope.push_narrowing_scope(narrowing);
+        }
         let else_expr = self.lower_conditional_arm(body, arm_span, |slf, body| {
             slf.expression_with_hint(&conditional.alternate, body, branch_hint)
-        })?;
+        });
+        if else_narrowing.is_some() {
+            self.scope.pop_narrowing_scope();
+        }
+        let else_expr = else_expr?;
         let then_ty = Self::expr_ty(body, then_expr);
         let else_ty = Self::expr_ty(body, else_expr);
         let ty = self.conditional_branch_type(

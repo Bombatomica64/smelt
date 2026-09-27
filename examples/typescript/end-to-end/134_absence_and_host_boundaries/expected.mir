@@ -1,0 +1,325 @@
+fn make_record (FuncId(0)) -> Dict<String, String>
+  locals
+    %0 param keys: List<String>
+    %1 user rec: Dict<String, String>
+    %2 user key: String
+    %3 temp: Dict<String, String>
+    %4 temp: Float
+    %5 temp: Float
+    %6 temp: Bool
+    %7 temp: String
+  bb0:
+    %3 = {}
+    %1 = move %3
+    %4 = 0.0
+    goto bb1
+  bb1:
+    %5 = len copy %0
+    %6 = copy %4 < move %5
+    switch move %6 ? bb2 : bb4
+  bb2:
+    %2 = copy %0[copy %4]
+    %7 = copy %2 + "!"
+    %1[copy %2] = move %7
+    goto bb3
+  bb3:
+    %4 = copy %4 + 1.0
+    goto bb1
+  bb4:
+    return move %1
+
+fn starts_with_slash (FuncId(1)) -> Bool
+  locals
+    %0 param parts: List<String>
+    %1 temp: String
+    %2 temp: Bool
+  bb0:
+    %1 = copy %0[0.0]
+    %2 = copy %1[0.0] == "/"
+    return move %2
+
+async fn digest_length (FuncId(2)) -> Float
+  locals
+    %0 param data: String | Uint8Array | Int8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array | DataView | ArrayBuffer
+    %1 user source: Uint8Array | Int8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array | DataView | ArrayBuffer
+    %2 user buffer: ArrayBuffer
+    %3 temp: Bool
+    %4 temp: TextEncoder
+    %5 temp: String
+    %6 temp: Uint8Array
+    %7 temp: Uint8Array | Int8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array | DataView | ArrayBuffer
+    %8 temp: Future<ArrayBuffer>
+    %9 temp: ArrayBuffer
+    %10 temp: Uint8Array
+  bb0:
+    %1 = undefined
+    %3 = unknown_is String copy %0
+    switch move %3 ? bb1 : bb2
+  bb1:
+    %4 = text_encoder_new
+    %5 = unknown_cast copy %0 as t1
+    %6 = text_encoder_encode move %4 move %5
+    %1 = move %6
+    goto bb3
+  bb2:
+    %7 = unknown_cast copy %0 as t40
+    %1 = move %7
+    goto bb3
+  bb3:
+    %8 = crypto_digest "SHA-256", move %1
+    %9 = await move %8
+    %2 = move %9
+    %10 = typed_array_new Uint8Array move %2
+    return copy %10[0.0]
+
+fn collect (FuncId(3)) -> Float
+  locals
+    %0 param into: List<String | File>
+    %1 param value: String | File
+    %2 temp: Float
+  bb0:
+    %2 = list_push copy %0, copy %1
+    return move %2
+
+async fn slow (FuncId(4)) -> String
+  locals
+    %0 param ms: Float
+    %1 param value: String
+    %2 temp: Future<None>
+    %3 temp: None
+  bb0:
+    %2 = async_sleep(copy %0)
+    %3 = await move %2
+    return copy %1
+
+async fn run (FuncId(5)) -> None
+  locals
+    %0 temp: Future<Float>
+    %1 temp: Float
+    %2 temp: List<Float>
+    %3 temp: Uint8Array
+    %4 temp: Future<Float>
+    %5 temp: Float
+    %6 temp: None
+    %7 temp: Future<String>
+    %8 temp: Future<String>
+    %9 temp: Future<String>
+    %10 temp: String
+    %11 temp: None
+    %12 temp: Future<String>
+    %13 temp: Future<String>
+    %14 temp: Future<String>
+    %15 temp: String
+    %16 temp: None
+    %17 temp: Future<String>
+    %18 temp: Future<String>
+    %19 temp: Future<String>
+    %20 temp: String
+    %21 temp: None
+  bb0:
+    %0 = call fn2("abc") -> bb1
+  bb1:
+    %1 = await move %0
+    %2 = [1.0, 2.0, 3.0]
+    %3 = typed_array_new Uint8Array move %2
+    %4 = call fn2(move %3) -> bb2
+  bb2:
+    %5 = await move %4
+    %6 = call @console_log(move %1, move %5) -> bb3
+  bb3:
+    %7 = call fn4(100.0, "slow") -> bb4
+  bb4:
+    %8 = call fn4(30.0, "fast") -> bb5
+  bb5:
+    %9 = async_race(move %7, move %8)
+    %10 = await move %9
+    %11 = call @console_log(move %10) -> bb6
+  bb6:
+    %12 = call fn4(110.0, "late") -> bb7
+  bb7:
+    %13 = call fn4(50.0, "timed out") -> bb8
+  bb8:
+    %14 = async_race(move %12, move %13)
+    %15 = await move %14
+    %16 = call @console_log(move %15) -> bb9
+  bb9:
+    %17 = call fn4(20.0, "early") -> bb10
+  bb10:
+    %18 = call fn4(60.0, "late timeout") -> bb11
+  bb11:
+    %19 = async_race(move %17, move %18)
+    %20 = await move %19
+    %21 = call @console_log(move %20) -> bb12
+  bb12:
+    return none
+
+async fn main (FuncId(6)) -> None throws
+  locals
+    %0 user rec: Dict<String, String>
+    %1 user pairs: List<(String, Dict<String, String>)>
+    %2 user xs: List<String>
+    %3 user entries: List<String | File>
+    %4 user digest_bytes: Uint8Array
+    %5 user queue: List<List<String>>
+    %6 user head: Optional<List<String>>
+    %7 temp: List<String>
+    %8 temp: Dict<String, String>
+    %9 temp: Bool
+    %10 temp: Bool
+    %11 temp: Bool
+    %12 temp: None
+    %13 temp: List<String>
+    %14 temp: Dict<String, String>
+    %15 temp: (String, Dict<String, String>)
+    %16 temp: List<String>
+    %17 temp: Dict<String, String>
+    %18 temp: (String, Dict<String, String>)
+    %19 temp: List<(String, Dict<String, String>)>
+    %20 temp: Dict<String, String>
+    %21 temp: Bool
+    %22 temp: Dict<String, String>
+    %23 temp: Bool
+    %24 temp: None
+    %25 temp: List<String>
+    %26 temp: Bool
+    %27 temp: Bool
+    %28 temp: None
+    %29 temp: List<String>
+    %30 temp: Bool
+    %31 temp: List<String>
+    %32 temp: Bool
+    %33 temp: None
+    %34 temp: List<String | File>
+    %35 temp: Float
+    %36 temp: Float
+    %37 temp: String
+    %38 temp: None
+    %39 temp: RegExp
+    %40 temp: None
+    %41 temp: Future<None>
+    %42 temp: None
+    %43 temp: List<Float>
+    %44 temp: Uint8Array
+    %45 temp: List<Float>
+    %46 temp: String
+    %47 temp: List<Float>
+    %48 temp: Float
+    %49 temp: None
+    %50 temp: List<Float>
+    %51 temp: fn(Float, Int, List<Float>) -> String
+    %52 temp: List<String>
+    %53 temp: String
+    %54 temp: None
+    %55 temp: List<String>
+    %56 temp: List<String>
+    %57 temp: List<List<String>>
+    %58 temp: Optional<List<String>>
+    %59 temp: Bool
+    %60 temp: String
+    %61 temp: List<String>
+    %62 temp: String
+    %63 temp: None
+    %64 temp: Future<None>
+    %65 temp: None
+  bb0:
+    %7 = ["a"]
+    %8 = call fn0(move %7) -> bb1
+  bb1:
+    %0 = move %8
+    %9 = copy %0["id"] == undefined
+    %10 = copy %0["a"] == undefined
+    %11 = copy %0["a"] != undefined
+    %12 = call @console_log(move %9, move %10, move %11) -> bb2
+  bb2:
+    %13 = []
+    %14 = call fn0(move %13) -> bb3
+  bb3:
+    %15 = ("x", move %14)
+    %16 = ["id"]
+    %17 = call fn0(move %16) -> bb4
+  bb4:
+    %18 = ("y", move %17)
+    %19 = [move %15, move %18]
+    %1 = move %19
+    %20 = tuple_index copy %1[0.0], 1
+    %21 = copy %20["id"] == undefined
+    %22 = tuple_index copy %1[1.0], 1
+    %23 = copy %22["id"] == none
+    %24 = call @console_log(move %21, move %23) -> bb5
+  bb5:
+    %25 = ["q"]
+    %2 = move %25
+    %26 = copy %2[3.0] == undefined
+    %27 = copy %2[0.0] == undefined
+    %28 = call @console_log(move %26, move %27) -> bb6
+  bb6:
+    %29 = [""]
+    %30 = call fn1(move %29) -> bb7
+  bb7:
+    %31 = ["/a"]
+    %32 = call fn1(move %31) -> bb8
+  bb8:
+    %33 = call @console_log(move %30, move %32) -> bb9
+  bb9:
+    %34 = ["a"]
+    %3 = move %34
+    %35 = call fn3(copy %3, "b") -> bb10
+  bb10:
+    %36 = len copy %3
+    %37 = typeof copy %3[1.0]
+    %38 = call @console_log(move %36, move %37, copy %3[1.0]) -> bb11
+  bb11:
+    %39 = external_new38("a/b", "")
+    %40 = call @console_log(copy %39.field29) -> bb12
+  bb12:
+    %41 = call fn5() -> bb13
+  bb13:
+    %42 = async_spawn_local(move %41)
+    %43 = [1.0, 171.0, 255.0]
+    %44 = typed_array_new Uint8Array move %43
+    %4 = move %44
+    %45 = byte_array_elements copy %4
+    %46 = string_join move %45, "-"
+    %47 = byte_array_elements move %4
+    %48 = list_find move %47, 171.0
+    %49 = call @console_log(move %46, move %48) -> bb14
+  bb14:
+    %50 = [10.0, 255.0]
+    %51 = closure ClosureId(0) []
+    %52 = list_map move %50, move %51
+    %53 = string_join move %52, ","
+    %54 = call @console_log(move %53) -> bb15
+  bb15:
+    %55 = ["a", "b"]
+    %56 = ["c"]
+    %57 = [move %55, move %56]
+    %5 = move %57
+    %58 = list_shift move %5
+    %6 = move %58
+    %59 = copy %6 != none
+    switch move %59 ? bb16 : bb17
+  bb16:
+    %61 = move %6
+    %62 = string_join move %61, ","
+    %60 = move %62
+    goto bb18
+  bb17:
+    %60 = "none"
+    goto bb18
+  bb18:
+    %63 = call @console_log(move %60) -> bb19
+  bb19:
+    %64 = async_exit_drain()
+    %65 = await move %64
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 param __callback_param_0: Float
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<Float>
+    %3 temp: String
+  bb0:
+    %3 = numeric_to_string_radix copy %0, 16.0
+    return copy %3
+

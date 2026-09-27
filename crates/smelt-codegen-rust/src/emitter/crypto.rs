@@ -6,6 +6,7 @@
 //! has none — see that module's `Why no SmeltCrypto type`.
 
 use super::*;
+use super::union::union_name;
 
 impl FunctionEmitter<'_> {
     /// Emit one `WebCrypto` call.
@@ -77,6 +78,14 @@ impl FunctionEmitter<'_> {
                     || self.operand_is_array_buffer(data)?
                 {
                     self.operand_text(data)?
+                } else if let Some(bytes_text) =
+                    self.byte_source_union_bytes_text(&self.operand_text(data)?, data_ty)?
+                {
+                    // A concrete union of byte-backed arms reads the bytes of
+                    // its live arm, so `bytes_text` is already the `Vec<u8>`.
+                    return Ok(format!(
+                        "{{ let smelt_algorithm = ({algorithm_text}).clone(); let smelt_data = {bytes_text}; SmeltFuture::from_future(Box::pin(async move {{ smelt_crypto_digest(&smelt_algorithm, &smelt_data) }})) }}"
+                    ));
                 } else {
                     format!("SmeltTypedArray::smelt_from_unknown({})", self.erase(data)?)
                 };
@@ -85,5 +94,43 @@ impl FunctionEmitter<'_> {
                 ))
             }
         }
+    }
+
+    /// Render the bytes of a concrete union whose every arm is byte-backed.
+    ///
+    /// `ArrayBufferView | ArrayBuffer` (the spec's `BufferSource`) lowers to a
+    /// generated union whose arms are typed-array views, `DataView`s and
+    /// `ArrayBuffer`s; each of those answers `to_bytes()`. The result is a
+    /// `match` over every arm yielding a `Vec<u8>`, so the live arm is read
+    /// without erasing the value or projecting it onto one member. Returns
+    /// `None` when `ty` is not such a union.
+    pub(super) fn byte_source_union_bytes_text(
+        &self,
+        value_text: &str,
+        ty: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        let Some(members) = self.concrete_union_members(ty) else {
+            return Ok(None);
+        };
+        for member in members {
+            let Some(Type::Class { name, .. }) = self.mir.types.get(*member) else {
+                return Ok(None);
+            };
+            if !matches!(
+                self.stdlib_class_of_symbol(*name)?,
+                Some(
+                    smelt_stdlib::StdlibClass::TypedArray
+                        | smelt_stdlib::StdlibClass::DataView
+                        | smelt_stdlib::StdlibClass::ArrayBuffer
+                )
+            ) {
+                return Ok(None);
+            }
+        }
+        let union_enum_name = union_name(ty);
+        let arms = (0..members.len())
+            .map(|index| format!("{union_enum_name}::M{index}(value) => value.to_bytes()"))
+            .collect::<Vec<_>>();
+        Ok(Some(format!("match &({value_text}) {{ {} }}", arms.join(", "))))
     }
 }

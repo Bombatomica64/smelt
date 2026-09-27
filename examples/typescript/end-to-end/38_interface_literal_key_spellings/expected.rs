@@ -3221,10 +3221,10 @@ fn main() {
     let inner: Option<Shape>;
     let _smelt_tmp_20: bool;
     let mut _smelt_tmp_21: String;
-    let _smelt_tmp_22: Option<String>;
+    let _smelt_tmp_22: Shape;
     let _smelt_tmp_25: bool;
     let mut _smelt_tmp_26: String;
-    let _smelt_tmp_27: Option<f64>;
+    let _smelt_tmp_27: Shape;
     let _smelt_tmp_4: Shape = Shape { plain: Some(1.0), camel_case: Some("a".to_owned()), snake_case: Some("b".to_owned()), a_very_long_camel_name: Some(41.0) };
     let full: Shape = _smelt_tmp_4;
     let _smelt_tmp_5: Shape = Shape { plain: None::<f64>, camel_case: Some("only".to_owned()), snake_case: None::<String>, a_very_long_camel_name: None::<f64> };
@@ -3249,8 +3249,8 @@ fn main() {
     if _smelt_tmp_20 {
     _smelt_tmp_21 = "no inner".to_owned();
     } else {
-    _smelt_tmp_22 = inner.clone().as_ref().and_then(|_smelt_value| _smelt_value.camel_case.clone());
-    let _smelt_tmp_23: String = text_of(_smelt_tmp_22);
+    _smelt_tmp_22 = inner.clone().clone().expect("optional value was absent after narrowing");
+    let _smelt_tmp_23: String = text_of(_smelt_tmp_22.camel_case.clone());
     _smelt_tmp_21 = _smelt_tmp_23;
     }
     let _ = { println!("{}", _smelt_tmp_21); };
@@ -3258,8 +3258,8 @@ fn main() {
     if _smelt_tmp_25 {
     _smelt_tmp_26 = "no inner".to_owned();
     } else {
-    _smelt_tmp_27 = inner.as_ref().and_then(|_smelt_value| _smelt_value.plain.clone());
-    let _smelt_tmp_28: String = number_of(_smelt_tmp_27);
+    _smelt_tmp_27 = inner.clone().expect("optional value was absent after narrowing");
+    let _smelt_tmp_28: String = number_of(_smelt_tmp_27.plain.clone());
     _smelt_tmp_26 = _smelt_tmp_28;
     }
     let _ = { println!("{}", _smelt_tmp_26); };

@@ -72,8 +72,8 @@ module examples/typescript/end-to-end/38_interface_literal_key_spellings/input.t
     #58: None = undefined
     #59: Bool = JsStrictEq #57, #58
     #60: String = "no inner"
-    #61: Optional<Shape> = %3
-    #62: Optional<String> = #61?.camel_case
+    #61: Shape = %3
+    #62: Optional<String> = #61.camel_case
     #63: fn(Optional<String>) -> String = @0(text_of)
     #64: String = call #63(#62)
     #65: String = if #59 then #60 else #64
@@ -83,8 +83,8 @@ module examples/typescript/end-to-end/38_interface_literal_key_spellings/input.t
     #69: None = undefined
     #70: Bool = JsStrictEq #68, #69
     #71: String = "no inner"
-    #72: Optional<Shape> = %3
-    #73: Optional<Float> = #72?.plain
+    #72: Shape = %3
+    #73: Optional<Float> = #72.plain
     #74: fn(Optional<Float>) -> String = @1(number_of)
     #75: String = call #74(#73)
     #76: String = if #70 then #71 else #75

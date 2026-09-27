@@ -3254,18 +3254,19 @@ pub(crate) fn describe(text: String) -> () {
     let mut _smelt_tmp_26: f64;
     let mut _smelt_tmp_27: bool;
     let mut _smelt_tmp_28: bool;
-    let mut _smelt_tmp_29: Option<String>;
-    let mut _smelt_tmp_31: SmeltMatch;
-    let mut _smelt_tmp_32: Option<String>;
+    let mut _smelt_tmp_29: String;
+    let mut _smelt_tmp_30: String;
+    let mut _smelt_tmp_32: SmeltMatch;
     let mut _smelt_tmp_33: Option<String>;
-    let mut _smelt_tmp_34: SmeltMatch;
-    let mut _smelt_tmp_35: SmeltList<Option<String>>;
+    let mut _smelt_tmp_34: Option<String>;
+    let mut _smelt_tmp_35: SmeltMatch;
     let mut _smelt_tmp_36: SmeltList<Option<String>>;
     let mut _smelt_tmp_37: SmeltList<Option<String>>;
-    let mut _smelt_tmp_38: f64;
-    let mut _smelt_tmp_39: SmeltMatch;
+    let mut _smelt_tmp_38: SmeltList<Option<String>>;
+    let mut _smelt_tmp_39: f64;
     let mut _smelt_tmp_40: SmeltMatch;
-    let mut _smelt_tmp_41: bool;
+    let mut _smelt_tmp_41: SmeltMatch;
+    let mut _smelt_tmp_42: bool;
     let _smelt_tmp_6: SmeltRegExp = SmeltRegExp::new("(\\d+)-(\\d+)?".to_owned(), "".to_owned());
     let _smelt_tmp_7: Option<SmeltMatch> = _smelt_tmp_6.match_string(&text.clone());
     let m: Option<SmeltMatch> = _smelt_tmp_7;
@@ -3318,31 +3319,32 @@ pub(crate) fn describe(text: String) -> () {
     group = _smelt_tmp_24.borrow().get({ let smelt_normalized = _smelt_tmp_25 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| None::<String>);
     _smelt_tmp_28 = group.clone().is_none();
     if _smelt_tmp_28 {
-    _smelt_tmp_29 = Some("undefined".to_owned());
-    let _ = { println!("{}", match &_smelt_tmp_29 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    _smelt_tmp_29 = "undefined".to_owned();
+    let _ = { println!("{}", _smelt_tmp_29); };
     _smelt_tmp_25 = _smelt_tmp_25 + 1.0;
     continue;
     } else {
-    _smelt_tmp_29 = group;
-    let _ = { println!("{}", match &_smelt_tmp_29 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    _smelt_tmp_30 = group.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_29 = _smelt_tmp_30;
+    let _ = { println!("{}", _smelt_tmp_29); };
     _smelt_tmp_25 = _smelt_tmp_25 + 1.0;
     continue;
     }
     }
-    _smelt_tmp_31 = m.clone().clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_32 = _smelt_tmp_31.clone().group_owned(1.0 as usize);
-    first = _smelt_tmp_32;
-    _smelt_tmp_33 = _smelt_tmp_31.group_owned(2.0 as usize);
-    second = _smelt_tmp_33;
-    _smelt_tmp_34 = m.clone().clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_35 = Into::<SmeltList<_>>::into((_smelt_tmp_34).to_array_view());
-    _smelt_tmp_36 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Option<String>> = vec![]; smelt_list_items }));
-    _smelt_tmp_37 = Into::<SmeltList<_>>::into(_smelt_tmp_35.borrow().iter().cloned().chain(_smelt_tmp_36.borrow().iter().cloned()).collect::<Vec<_>>());
-    _smelt_tmp_38 = _smelt_tmp_37.len() as f64;
-    _smelt_tmp_39 = m.clone().clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_40 = m.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_41 = second.is_none();
-    let _ = { println!("{} {} {} {} {}", smelt_console_number(_smelt_tmp_38), smelt_console_number(_smelt_tmp_39.index()), _smelt_tmp_40.input_owned().clone(), match &first { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_41); };
+    _smelt_tmp_32 = m.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_33 = _smelt_tmp_32.clone().group_owned(1.0 as usize);
+    first = _smelt_tmp_33;
+    _smelt_tmp_34 = _smelt_tmp_32.group_owned(2.0 as usize);
+    second = _smelt_tmp_34;
+    _smelt_tmp_35 = m.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_36 = Into::<SmeltList<_>>::into((_smelt_tmp_35).to_array_view());
+    _smelt_tmp_37 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Option<String>> = vec![]; smelt_list_items }));
+    _smelt_tmp_38 = Into::<SmeltList<_>>::into(_smelt_tmp_36.borrow().iter().cloned().chain(_smelt_tmp_37.borrow().iter().cloned()).collect::<Vec<_>>());
+    _smelt_tmp_39 = _smelt_tmp_38.len() as f64;
+    _smelt_tmp_40 = m.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_41 = m.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_42 = second.is_none();
+    let _ = { println!("{} {} {} {} {}", smelt_console_number(_smelt_tmp_39), smelt_console_number(_smelt_tmp_40.index()), _smelt_tmp_41.input_owned().clone(), match &first { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_42); };
     return;
 }
 
