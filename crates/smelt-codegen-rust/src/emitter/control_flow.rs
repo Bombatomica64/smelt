@@ -2086,6 +2086,166 @@ impl FunctionEmitter<'_> {
         Ok(result)
     }
 
+    /// Find where the two arms of a switch inside a forward join region meet
+    /// again, before (or at) the region's own `stop`.
+    ///
+    /// The answer is the branch's immediate post-dominator within the region:
+    /// the block `J` every non-diverging path of each arm reaches before
+    /// `stop`, chosen as the NEAREST such block (every other candidate is
+    /// reached from it). An arm that diverges before `stop` (returns/throws on
+    /// every path) places no constraint, so `if (b) return; rest` joins at
+    /// `rest`. `stop` itself is always a candidate — the region ends there.
+    ///
+    /// `None` when both arms diverge (there is nothing to rejoin, the plain
+    /// switch emission is right) or when an arm can cycle back to the switch
+    /// block itself: that is a loop edge this forward-region rule does not
+    /// own, and the existing emission keeps handling it.
+    fn join_region_branch_join(
+        &self,
+        switch_block: smelt_mir::BlockId,
+        then_block: smelt_mir::BlockId,
+        else_block: smelt_mir::BlockId,
+        stop: smelt_mir::BlockId,
+    ) -> Result<Option<smelt_mir::BlockId>, EmitError> {
+        let arms = [then_block, else_block];
+        let mut continuing = Vec::new();
+        for arm in arms {
+            if self.block_reaches_target_avoiding(
+                arm,
+                switch_block,
+                &[stop],
+                &mut BlockIdSet::default(),
+            ) {
+                return Ok(None);
+            }
+            if !self.block_diverges_before(arm, stop, &mut BlockIdSet::default())? {
+                continuing.push(arm);
+            }
+        }
+        if continuing.is_empty() {
+            return Ok(None);
+        }
+        // Candidates: every block a continuing arm reaches without passing
+        // `stop`, plus `stop`.
+        let mut candidates = vec![stop];
+        let mut seen = BlockIdSet::default();
+        let mut work = continuing.clone();
+        while let Some(block_id) = work.pop() {
+            if block_id == stop || !seen.insert(block_id) {
+                continue;
+            }
+            candidates.push(block_id);
+            if let Some(terminator) = &self.block(block_id)?.terminator {
+                work.extend(control_flow_successors(terminator));
+            }
+        }
+        let post_dominates = |candidate: smelt_mir::BlockId| {
+            candidate == stop
+                || continuing.iter().all(|arm| {
+                    self.block_reaches_target_avoiding(
+                        *arm,
+                        candidate,
+                        &[stop],
+                        &mut BlockIdSet::default(),
+                    ) && !self.block_reaches_target_avoiding(
+                        *arm,
+                        stop,
+                        &[candidate],
+                        &mut BlockIdSet::default(),
+                    )
+                })
+        };
+        let valid = candidates
+            .into_iter()
+            .filter(|candidate| post_dominates(*candidate))
+            .collect::<Vec<_>>();
+        Ok(valid
+            .iter()
+            .copied()
+            .find(|candidate| {
+                valid.iter().all(|other| {
+                    other == candidate
+                        || self.block_reaches_target_avoiding(
+                            *candidate,
+                            *other,
+                            &[],
+                            &mut BlockIdSet::default(),
+                        )
+                })
+            }))
+    }
+
+    /// Emit one arm of a join-region branch: in full when it diverges before
+    /// the region's `stop` (it never reaches the join), otherwise up to the
+    /// branch's inner `join`.
+    fn emit_join_region_arm(
+        &self,
+        arm: smelt_mir::BlockId,
+        join: smelt_mir::BlockId,
+        stop: smelt_mir::BlockId,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        if self.block_diverges_before(arm, stop, &mut BlockIdSet::default())? {
+            return self.emit_block(self.block(arm)?, out);
+        }
+        self.emit_block_until_goto(self.block(arm)?, join, RegionExit::Join, out)
+    }
+
+    /// Return whether every path from `block_id` returns, throws or is
+    /// unreachable WITHOUT first reaching `stop`.
+    ///
+    /// [`Self::block_eventually_terminates`] asks the same question of the
+    /// whole remaining function, so an arm that merely continues to a join
+    /// whose own continuation ends in `return` scores as terminating. Inside a
+    /// region bounded by `stop` that is the wrong answer: reaching `stop` is
+    /// falling through. A cycle is not proven to terminate, so it answers
+    /// `false`.
+    pub(super) fn block_diverges_before(
+        &self,
+        block_id: smelt_mir::BlockId,
+        stop: smelt_mir::BlockId,
+        visiting: &mut BlockIdSet,
+    ) -> Result<bool, EmitError> {
+        if block_id == stop || !visiting.insert(block_id) {
+            return Ok(false);
+        }
+        let block = self.block(block_id)?;
+        let result = match &block.terminator {
+            Some(Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable) => true,
+            Some(Terminator::Goto(target)) => self.block_diverges_before(*target, stop, visiting)?,
+            // A call with an unwind edge forks the region; both successors
+            // must diverge.
+            Some(terminator @ (Terminator::Call { .. } | Terminator::Await { .. })) => {
+                let mut all = true;
+                for next in control_flow_successors(terminator) {
+                    all = all && self.block_diverges_before(next, stop, visiting)?;
+                }
+                all
+            }
+            Some(Terminator::Switch {
+                then_block,
+                else_block,
+                ..
+            }) => {
+                self.block_diverges_before(*then_block, stop, visiting)?
+                    && self.block_diverges_before(*else_block, stop, visiting)?
+            }
+            Some(Terminator::Match { arms, default, .. }) => {
+                let mut all = match default {
+                    Some(target) => self.block_diverges_before(*target, stop, visiting)?,
+                    None => false,
+                };
+                for arm in arms {
+                    all = all && self.block_diverges_before(arm.target, stop, visiting)?;
+                }
+                all
+            }
+            None => false,
+        };
+        visiting.remove(&block_id);
+        Ok(result)
+    }
+
     /// Return true when no path out of `block_id` ever FALLS OUT of the region
     /// it starts — every path either returns, throws, or loops forever.
     ///
@@ -2945,6 +3105,56 @@ impl FunctionEmitter<'_> {
                 self.emit_loop_branch(self.block(*else_block)?, stop, break_target, out)?;
                 out.push_str("    }\n");
                 Ok(())
+            }
+            // A branch inside a FORWARD join region (an `if` arm that runs on to
+            // the caller's join `stop`). Handing the switch to `emit_terminator`
+            // lost `stop`: the arm then re-derived its continuation from the
+            // whole function and, on meeting the (lower-numbered) join, rendered
+            // the function's default return instead of ending the arm, so the
+            // enclosing `if` silently returned `null`/`undefined` where the
+            // source falls through (Hono `getQueryParam` answered `undefined`
+            // for a key it only finds on the slow path). The structured form is
+            // the branch up to its own inner join, then the inner join onward,
+            // still bounded by `stop` — see `join_region_branch_join`.
+            Some(Terminator::Switch {
+                cond,
+                then_block,
+                else_block,
+            }) if matches!(exit, RegionExit::Join) => {
+                let Some(join) =
+                    self.join_region_branch_join(block.id, *then_block, *else_block, stop)?
+                else {
+                    return self.emit_terminator(
+                        block.id,
+                        block.terminator.as_ref().ok_or_else(|| {
+                            EmitError::new("basic block has no terminator")
+                        })?,
+                        out,
+                    );
+                };
+                let cond_text = self.truthy_operand_text(cond)?;
+                let branch_declared = self.declared_locals_snapshot();
+                if *then_block == join && *else_block == join {
+                    // Both edges already are the join: no branch to emit.
+                } else if *then_block == join {
+                    out.push_str(&format!("    if !({cond_text}) {{\n"));
+                    self.emit_join_region_arm(*else_block, join, stop, out)?;
+                    out.push_str("    }\n");
+                } else {
+                    out.push_str(&format!("    if {cond_text} {{\n"));
+                    self.emit_join_region_arm(*then_block, join, stop, out)?;
+                    if *else_block != join {
+                        out.push_str("    } else {\n");
+                        self.restore_declared_locals(branch_declared.clone());
+                        self.emit_join_region_arm(*else_block, join, stop, out)?;
+                    }
+                    out.push_str("    }\n");
+                }
+                self.restore_declared_locals(branch_declared);
+                if join == stop {
+                    return Ok(());
+                }
+                self.emit_block_until_goto_inner(self.block(join)?, stop, exit, out, visited)
             }
             Some(Terminator::Match {
                 scrutinee,

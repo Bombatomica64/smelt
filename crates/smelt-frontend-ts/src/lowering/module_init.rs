@@ -4512,7 +4512,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     /// Whether `text` mentions `name` as a whole identifier (not as a
     /// substring of a longer one, so `Request` is not found in `HonoRequest`).
-    fn mentions_identifier(text: &str, name: &str) -> bool {
+    pub(in crate::lowering) fn mentions_identifier(text: &str, name: &str) -> bool {
         let is_ident = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
         text.match_indices(name).any(|(at, _)| {
             let before = text[..at].chars().next_back();
@@ -4691,12 +4691,46 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })
     }
 
-    /// Find top-level arrow consts that function bodies may reference before declaration order.
+    /// Find top-level arrow consts that an ITEM body may call, so they must be
+    /// lowered as callable function items rather than module-body closures.
+    ///
+    /// An item body — a function declaration, a CLASS member (method, accessor,
+    /// constructor, field initializer, static block), a default export, a module
+    /// slot's initializer, an exported const, or another lifted arrow — has no
+    /// module-body local to read the arrow through. Reading a closure-held arrow
+    /// from there used to bind `module_global_function_expression`'s
+    /// default-returning stub, so `class C { m() { return helper(1) } }` called
+    /// a function that answered `0`/`""`/an empty object instead of running
+    /// `helper`. Every such referrer is scanned here, classes included.
+    ///
+    /// An arrow that names ITSELF in its own body
+    /// (`const fact = (n) => n * fact(n - 1)`) is its own referrer: the
+    /// recursive call runs inside the arrow's own item context, so a self-recursive arrow is always lifted (and its item is
+    /// predeclared before its body is lowered, see
+    /// `arrow_function_const_declaration_inner`).
     pub(super) fn forward_arrow_const_names(&self, program: &Program<'_>) -> HashSet<String> {
         let mut arrow_consts = Vec::new();
         let mut referrer_spans = Vec::new();
+        let mut self_recursive = HashSet::new();
+        let mut note_self_recursive = |binding: &oxc::ast::ast::BindingIdentifier<'_>,
+                                       init: &Option<Expression<'_>>| {
+            if let Some(Expression::ArrowFunctionExpression(arrow)) = init
+                && Self::mentions_identifier(
+                    self.span_source_text(arrow.body.span()),
+                    binding.name.as_str(),
+                )
+            {
+                self_recursive.insert(binding.name.as_str().to_owned());
+            }
+        };
         for statement in &program.body {
             match statement {
+                Statement::ClassDeclaration(class) => {
+                    referrer_spans.push((class.span.start, class.span.end));
+                }
+                Statement::ExportDefaultDeclaration(export) => {
+                    referrer_spans.push((export.span.start, export.span.end));
+                }
                 Statement::VariableDeclaration(variable) => {
                     // A module SLOT's initializer is lowered into its own
                     // nullary function item, so an arrow it names is read from
@@ -4722,6 +4756,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                             arrow_consts
                                 .push((binding.name.as_str().to_owned(), binding.span.start));
                             referrer_spans.push((declarator.span.start, declarator.span.end));
+                            note_self_recursive(binding, &declarator.init);
                         }
                     }
                 }
@@ -4731,6 +4766,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 Statement::ExportDeclaration(export) => match &export.declaration {
                     Declaration::FunctionDeclaration(function) => {
                         referrer_spans.push((function.span.start, function.span.end));
+                    }
+                    Declaration::ClassDeclaration(class) => {
+                        referrer_spans.push((class.span.start, class.span.end));
                     }
                     Declaration::VariableDeclaration(variable) => {
                         if variable.kind != oxc::ast::ast::VariableDeclarationKind::Const {
@@ -4745,6 +4783,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                             {
                                 arrow_consts
                                     .push((binding.name.as_str().to_owned(), binding.span.start));
+                                note_self_recursive(binding, &declarator.init);
                             }
                             // An arrow const's body refers to other arrows; any
                             // other EXPORTED const is inlined into its importers,
@@ -4780,7 +4819,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                                 )
                                 .is_some_and(|text| text.contains(&name))
                         });
-                referenced.then_some(name)
+                (referenced || self_recursive.contains(&name)).then_some(name)
             })
             .collect()
     }

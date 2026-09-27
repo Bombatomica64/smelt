@@ -1,0 +1,372 @@
+class Counter fields [Public total: Float] constructor Some(FuncId(9)) methods [FuncId(6), FuncId(7), FuncId(8)]
+
+async fn run (FuncId(0)) -> None
+  locals
+    %0 user counter: Counter
+    %1 user reply: Response
+    %2 temp: Counter
+    %3 temp: Float
+    %4 temp: Float
+    %5 temp: None
+    %6 temp: None
+    %7 temp: Response | Future<Response>
+    %8 temp: Future<Response>
+    %9 temp: Response
+    %10 temp: Float
+    %11 temp: Future<String>
+    %12 temp: String
+    %13 temp: None
+    %14 temp: Float
+    %15 temp: List<String>
+    %16 temp: String
+    %17 temp: None
+    %18 temp: Optional<String>
+    %19 temp: None
+    %20 temp: Optional<String>
+    %21 temp: None
+    %22 temp: Optional<String>
+    %23 temp: None
+  bb0:
+    %2 = call fn9() -> bb1
+  bb1:
+    %0 = move %2
+    %3 = call fn6(copy %0) -> bb2
+  bb2:
+    %4 = call fn6(copy %0) -> bb3
+  bb3:
+    %5 = call @console_log(move %3, move %4) -> bb4
+  bb4:
+    %6 = call @console_log(copy %0.field32) -> bb5
+  bb5:
+    %7 = call fn8(move %0) -> bb6
+  bb6:
+    %8 = move %7
+    %9 = await move %8
+    %1 = move %9
+    %10 = response_status copy %1
+    %11 = response_text move %1
+    %12 = await move %11
+    %13 = call @console_log(move %10, move %12) -> bb7
+  bb7:
+    %14 = call fn3(5.0) -> bb8
+  bb8:
+    %15 = ["b", "c"]
+    %16 = call fn4("a", move %15) -> bb9
+  bb9:
+    %17 = call @console_log(move %14, move %16) -> bb10
+  bb10:
+    %18 = call fn5("http://x/?a=1&b", "a") -> bb11
+  bb11:
+    %19 = call @console_log(move %18) -> bb12
+  bb12:
+    %20 = call fn5("http://x/", "a") -> bb13
+  bb13:
+    %21 = call @console_log(move %20) -> bb14
+  bb14:
+    %22 = call fn5("http://x/?z=1&y", undefined, true) -> bb15
+  bb15:
+    %23 = call @console_log(move %22) -> bb16
+  bb16:
+    return none
+
+fn respond__module_examples/typescript/end-to-end/143_module_arrows_are_items/input.ts (FuncId(1)) -> Response
+  locals
+    %0 param text: String
+    %1 param status: Optional<Float>
+    %2 temp: Float
+    %3 temp: Response
+  bb0:
+    %2 = copy %1 ?? 200.0
+    %3 = response_new body=copy %0 status=move %2
+    return move %3
+
+fn add__module_examples/typescript/end-to-end/143_module_arrows_are_items/input.ts (FuncId(2)) -> Float
+  locals
+    %0 param a: Float
+    %1 param b: Optional<Float>
+    %2 temp: Float
+    %3 temp: Float
+  bb0:
+    %2 = copy %1 ?? 1.0
+    %3 = copy %0 + move %2
+    return move %3
+
+fn fact__module_examples/typescript/end-to-end/143_module_arrows_are_items/input.ts (FuncId(3)) -> Float
+  locals
+    %0 param n: Float
+    %1 temp: Bool
+    %2 temp: Float
+    %3 temp: Float
+    %4 temp: Float
+    %5 temp: Float
+  bb0:
+    %1 = copy %0 <= 1.0
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = 1.0
+    goto bb4
+  bb2:
+    %3 = copy %0 - 1.0
+    %4 = call fn3(move %3) -> bb3
+  bb3:
+    %5 = copy %0 * move %4
+    %2 = move %5
+    goto bb4
+  bb4:
+    return move %2
+
+fn join (FuncId(4)) -> String
+  locals
+    %0 param head: String
+    %1 param rest: List<String>
+    %2 temp: Float
+    %3 temp: Bool
+    %4 temp: String
+    %5 temp: String
+    %6 temp: String
+    %7 temp: List<String>
+    %8 temp: String
+    %9 temp: String
+  bb0:
+    %2 = len copy %1
+    %3 = move %2 != 0.0
+    switch move %3 ? bb1 : bb2
+  bb1:
+    %5 = "" + copy %0
+    %6 = move %5 + "/"
+    %7 = list_slice copy %1, 1.0, _
+    %8 = call fn4(copy %1[0.0], move %7) -> bb3
+  bb2:
+    %4 = copy %0
+    goto bb4
+  bb3:
+    %9 = move %6 + move %8
+    %4 = move %9
+    goto bb4
+  bb4:
+    return move %4
+
+fn scan__module_examples/typescript/end-to-end/143_module_arrows_are_items/input.ts (FuncId(5)) -> Optional<String>
+  locals
+    %0 param url: String
+    %1 param key: Optional<String>
+    %2 param multiple: Optional<Bool>
+    %3 user encoded: Bool
+    %4 user index: Float
+    %5 user out: String
+    %6 user next: Float
+    %7 user eq: Float
+    %8 temp: Float
+    %9 temp: Float
+    %10 temp: Bool
+    %11 temp: Bool
+    %12 temp: Bool
+    %13 temp: Bool
+    %14 temp: String
+    %15 temp: Float
+    %16 temp: Float
+    %17 temp: Bool
+    %18 temp: Float
+    %19 temp: Float
+    %20 temp: Bool
+    %21 temp: Float
+    %22 temp: Float
+    %23 temp: Bool
+    %24 temp: Float
+    %25 temp: Float
+    %26 temp: Float
+    %27 temp: Bool
+    %28 temp: Bool
+    %29 temp: Float
+    %30 temp: Bool
+    %31 temp: Float
+    %32 temp: String
+    %33 temp: Float
+    %34 temp: Bool
+    %35 temp: String
+    %36 temp: Bool
+    %37 temp: String
+    %38 temp: Float
+    %39 temp: Float
+    %40 temp: Bool
+    %41 temp: Optional<Float>
+    %42 temp: String
+    %43 temp: String
+    %44 temp: String
+  bb0:
+    %8 = string_find copy %0, "%"
+    %9 = -1.0
+    %10 = move %8 != move %9
+    %3 = move %10
+    %11 = !copy %2
+    switch move %11 ? bb1 : bb2
+  bb1:
+    %12 = copy %1
+    goto bb3
+  bb2:
+    %12 = false
+    goto bb3
+  bb3:
+    switch move %12 ? bb4 : bb5
+  bb4:
+    %14 = copy %1
+    %15 = string_find move %14, "%"
+    %16 = -1.0
+    %17 = move %15 == move %16
+    %13 = move %17
+    goto bb6
+  bb5:
+    %13 = false
+    goto bb6
+  bb6:
+    switch move %13 ? bb7 : bb8
+  bb7:
+    %18 = string_find copy %0, "?"
+    %19 = -1.0
+    %20 = move %18 == move %19
+    switch move %20 ? bb9 : bb10
+  bb8:
+    %21 = string_find copy %0, "?"
+    %4 = move %21
+    %5 = ""
+    goto bb11
+  bb9:
+    return undefined
+  bb10:
+    goto bb8
+  bb11:
+    %22 = -1.0
+    %23 = copy %4 != move %22
+    switch move %23 ? bb12 : bb13
+  bb12:
+    %24 = copy %4 + 1.0
+    %25 = string_find copy %0, "&", move %24
+    %6 = move %25
+    %26 = string_find copy %0, "=", copy %4
+    %7 = move %26
+    %27 = copy %7 > copy %6
+    switch move %27 ? bb14 : bb15
+  bb13:
+    return move %5
+  bb14:
+    %29 = -1.0
+    %30 = copy %6 != move %29
+    %28 = move %30
+    goto bb16
+  bb15:
+    %28 = false
+    goto bb16
+  bb16:
+    switch move %28 ? bb17 : bb18
+  bb17:
+    %31 = -1.0
+    %7 = move %31
+    goto bb18
+  bb18:
+    switch copy %3 ? bb19 : bb20
+  bb19:
+    %32 = move %5 + "%"
+    %5 = move %32
+    goto bb20
+  bb20:
+    %33 = -1.0
+    %34 = move %7 == move %33
+    switch move %34 ? bb21 : bb22
+  bb21:
+    switch copy %3 ? bb23 : bb24
+  bb22:
+    %36 = primitive_cast_bool copy %2
+    switch move %36 ? bb25 : bb26
+  bb23:
+    %35 = move %5 + "?"
+    %5 = move %35
+    goto bb24
+  bb24:
+    goto bb22
+  bb25:
+    %37 = move %5 + "m"
+    %5 = move %37
+    goto bb26
+  bb26:
+    %38 = move %4 + 1.0
+    %39 = -1.0
+    %40 = copy %6 == move %39
+    switch move %40 ? bb27 : bb28
+  bb27:
+    %41 = undefined
+    goto bb29
+  bb28:
+    %41 = copy %6
+    goto bb29
+  bb29:
+    %42 = string_slice copy %0, move %38, move %41
+    %43 = move %42 + ";"
+    %44 = move %5 + move %43
+    %5 = move %44
+    %4 = move %6
+    goto bb11
+
+fn bump (FuncId(6)) -> Float
+  locals
+    %0 param this: Counter
+    %1 temp: Float
+    %2 temp: Float
+  bb0:
+    %1 = call fn2(copy %0.field28, 2.0) -> bb1
+  bb1:
+    %0.field28 = move %1
+    %2 = call fn2(copy %0.field28) -> bb2
+  bb2:
+    return move %2
+
+fn __smelt_get_label (FuncId(7)) -> String
+  locals
+    %0 param this: Counter
+    %1 temp: String
+    %2 temp: Float
+    %3 temp: String
+    %4 temp: List<String>
+    %5 temp: String
+  bb0:
+    %1 = primitive_cast_string copy %0.field28
+    %2 = call fn3(4.0) -> bb1
+  bb1:
+    %3 = primitive_cast_string move %2
+    %4 = [move %1, move %3]
+    %5 = call fn4("c", move %4) -> bb2
+  bb2:
+    return move %5
+
+fn reply (FuncId(8)) -> Response | Future<Response>
+  locals
+    %0 param this: Counter
+    %1 temp: String
+    %2 temp: Response
+  bb0:
+    %1 = "ok:" + copy %0.field28
+    %2 = call fn1(move %1, 201.0) -> bb1
+  bb1:
+    return move %2
+
+fn new (FuncId(9)) -> Counter
+  locals
+    %0 user this: Counter
+  bb0:
+    %0 = struct27 {}
+    %0.field28 = 0.0
+    return move %0
+
+async fn main (FuncId(10)) -> None throws
+  locals
+    %0 temp: Future<None>
+    %1 temp: None
+    %2 temp: Future<None>
+    %3 temp: None
+  bb0:
+    %0 = call fn0() -> bb1
+  bb1:
+    %1 = async_spawn_local(move %0)
+    %2 = async_exit_drain()
+    %3 = await move %2
+    return none
+

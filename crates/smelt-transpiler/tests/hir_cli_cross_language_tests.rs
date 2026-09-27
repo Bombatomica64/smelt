@@ -1188,6 +1188,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "12_while_sum",
     "13_for_of_sum",
     "142_module_global_reads_see_module_values",
+    "143_module_arrows_are_items",
     "14_c_for_loop",
     "15_break_continue",
     "16_switch_break_no_fallthrough",
