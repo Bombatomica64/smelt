@@ -4,6 +4,7 @@ mod ambient_globals;
 mod arguments_forwarding;
 mod function_statics;
 mod hoisting;
+mod presence_tested_locals;
 mod specialization;
 pub(in crate::lowering) mod spread_arguments;
 mod state;
@@ -811,6 +812,10 @@ struct ModuleBuilder<'ctx> {
     /// one, or the earlier capture would observe a slot nothing ever writes.
     /// An entry is consumed by the declaration that fills it.
     forward_referenced_locals: HashSet<String>,
+    /// Binding span starts of locals widened to `T | undefined` because the
+    /// function assigns them a keyed read and tests their presence; see
+    /// `presence_tested_locals`.
+    presence_widened_bindings: HashSet<u32>,
     /// Names of the local `function` declarations whose OWN body is currently
     /// being lowered, innermost last.
     ///

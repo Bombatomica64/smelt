@@ -23,10 +23,10 @@ fn header (FuncId(2)) -> Optional<String>
   locals
     %0 param this: Request
     %1 param name: String
-    %2 temp: Dict<String, String>
+    %2 temp: Optional<String>
   bb0:
-    %2 = copy %0.field3
-    return copy %2[copy %1]
+    %2 = copy %0.field3?.[copy %1]
+    return move %2
 
 fn new (FuncId(3)) -> Request
   locals

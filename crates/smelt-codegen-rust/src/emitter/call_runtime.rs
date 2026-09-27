@@ -311,8 +311,54 @@ impl FunctionEmitter<'_> {
                         .map(|index| format!("smelt_bound_arg_{index}"))
                         .collect::<Vec<_>>()
                         .join(", ");
+                    // A receiver that is still a concrete value (a class
+                    // instance at an ordinary `obj.field(..)` call) is erased
+                    // only if the callee actually reads `this`: the wrapper
+                    // installs a THUNK, and `smelt_this()` forces it. Erasing
+                    // it eagerly would rebuild the instance's whole erased
+                    // view — every prototype member included — on every call
+                    // through a function-valued field.
+                    let receiver_ty = self.operand_ty(receiver)?;
+                    let (bind_receiver, install) =
+                        if matches!(self.mir.types.get(receiver_ty), Some(Type::Unknown)) {
+                            (
+                                format!("let smelt_bound_this = {receiver_text};"),
+                                "smelt_push_this(smelt_bound_this.clone())".to_owned(),
+                            )
+                        } else {
+                            let lazy_erase =
+                                self.erase_value_text("smelt_bound_receiver.clone()", receiver_ty)?;
+                            (
+                                format!(
+                                    "let smelt_bound_receiver = {}.clone();",
+                                    self.operand_text(receiver)?
+                                ),
+                                format!(
+                                    "smelt_push_this_lazy({{ let smelt_bound_receiver = smelt_bound_receiver.clone(); ::std::rc::Rc::new(move || {lazy_erase}) }})"
+                                ),
+                            )
+                        };
+                    // A generic class's function-valued field is STORED with
+                    // its erased declared return (a union mentioning `T` has no
+                    // concrete spelling at the declaration), while the read is
+                    // typed with the receiver's arguments substituted. The
+                    // wrapper has the read's type, so it converts the stored
+                    // callable's result the way a direct call through the field
+                    // does (see `declared_slot_return_is_erased`).
+                    let direct_call = format!("(smelt_bound_callee)({params})");
+                    let forwarded = if self.declared_slot_return_is_erased(callee, &function) {
+                        let unknown_ty = self.type_id(Type::Unknown)?;
+                        self.value_at_type_text(
+                            &direct_call,
+                            unknown_ty,
+                            function.return_ty,
+                            &self.render_scope(),
+                        )?
+                    } else {
+                        direct_call
+                    };
                     return Ok(format!(
-                        "{{ let smelt_bound_callee = {callee}.clone();                          let smelt_bound_this = {receiver_text};                          let smelt_bound: {ty} = ::std::rc::Rc::new(move |{params}| {{                          let _smelt_this_guard = smelt_push_this(smelt_bound_this.clone());                          (smelt_bound_callee)({params}) }}); smelt_bound }}",
+                        "{{ let smelt_bound_callee = {callee}.clone();                          {bind_receiver}                          let smelt_bound: {ty} = ::std::rc::Rc::new(move |{params}| {{                          let _smelt_this_guard = {install};                          {forwarded} }}); smelt_bound }}",
                         callee = self.operand_text(callee)?,
                         // `impl Trait` is illegal in a `let` annotation, and the
                         // annotation is precisely what drives parameter inference

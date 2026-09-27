@@ -411,6 +411,18 @@ impl LoweringCtx<'_> {
                 method,
                 args,
             } => {
+                if let Some(result) =
+                    self.lower_optional_method_with_unwind(&super::optional_call::OptionalMethodCall {
+                        receiver: *receiver,
+                        method: *method,
+                        args,
+                        result_ty: expr.ty,
+                        span: expr.span,
+                    })?
+                {
+                    self.exprs.insert(expr_id, result.clone());
+                    return Ok(result);
+                }
                 let receiver_operand = self.lower_expr(*receiver)?;
                 let lowered_args = args
                     .iter()

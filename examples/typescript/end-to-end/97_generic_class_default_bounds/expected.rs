@@ -2973,10 +2973,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let numbers: Chain<f64>;
     let words: Track<String>;
     let _smelt_tmp_6: String;
-    let _smelt_tmp_8: Chain<f64>;
-    let _smelt_tmp_12: Chain<String>;
-    let _smelt_tmp_16: Chain<String>;
+    let _smelt_tmp_9: Chain<f64>;
+    let _smelt_tmp_13: Chain<String>;
     let _smelt_tmp_17: Chain<String>;
+    let _smelt_tmp_19: Chain<String>;
     let _smelt_tmp_2: Chain<f64> = Chain::new(1.0);
     numbers = _smelt_tmp_2;
     let _smelt_tmp_3: Chain<f64> = numbers.push(2.0);
@@ -2984,18 +2984,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = { println!("{}", smelt_console_number(numbers.0.borrow().value.clone())); };
     _smelt_tmp_6 = numbers.0.borrow().history.clone().borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_6); };
-    _smelt_tmp_8 = { let smelt_callable = ::std::clone::Clone::clone(&numbers.0.borrow().rewind.clone()); (smelt_callable)() };
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_8.0.borrow().value.clone())); };
-    let _smelt_tmp_10: Chain<String> = Chain::new("a".to_owned());
-    let _smelt_tmp_11: Track<String> = Track::new(_smelt_tmp_10);
-    words = _smelt_tmp_11;
-    _smelt_tmp_12 = words.chain.clone();
-    let _smelt_tmp_13: Chain<String> = words.chain.push("b".to_owned());
-    let _smelt_tmp_14: String = words.latest();
-    let _ = { println!("{}", _smelt_tmp_14); };
-    _smelt_tmp_16 = words.chain.clone();
-    _smelt_tmp_17 = { let smelt_callable = ::std::clone::Clone::clone(&_smelt_tmp_16.0.borrow().rewind.clone()); (smelt_callable)() };
-    let _ = { println!("{}", _smelt_tmp_17.0.borrow().value.clone()); };
+    _smelt_tmp_9 = { let smelt_callable = ::std::clone::Clone::clone(&numbers.0.borrow().rewind.clone()); (smelt_callable)() };
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_9.0.borrow().value.clone())); };
+    let _smelt_tmp_11: Chain<String> = Chain::new("a".to_owned());
+    let _smelt_tmp_12: Track<String> = Track::new(_smelt_tmp_11);
+    words = _smelt_tmp_12;
+    _smelt_tmp_13 = words.chain.clone();
+    let _smelt_tmp_14: Chain<String> = words.chain.push("b".to_owned());
+    let _smelt_tmp_15: String = words.latest();
+    let _ = { println!("{}", _smelt_tmp_15); };
+    _smelt_tmp_17 = words.chain.clone();
+    _smelt_tmp_19 = { let smelt_callable = ::std::clone::Clone::clone(&_smelt_tmp_17.0.borrow().rewind.clone()); (smelt_callable)() };
+    let _ = { println!("{}", _smelt_tmp_19.0.borrow().value.clone()); };
     return Ok(());
 }
 

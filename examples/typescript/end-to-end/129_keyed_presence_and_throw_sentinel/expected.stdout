@@ -1,0 +1,7 @@
+added GET /posts/:id
+added GET /posts/:id
+rejected /posts/new true Error:/posts/new
+added POST /posts
+rejected /users/(a|b) true Error:/users/(a|b)
+GET /posts/:id, GET /posts/:id, POST /posts
+{"ALL":{},"GET":{"/posts/:id":["h:/posts/:id","h:/posts/:id"]},"POST":{"/posts":["h:/posts"]}}

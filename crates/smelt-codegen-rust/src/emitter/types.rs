@@ -288,6 +288,11 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::String) => {
                 Ok(format!("!{operand_text}.is_empty()"))
             }
+            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Union(_))
+                if self.union_is_constantly_truthy(operand_ty) =>
+            {
+                Ok("true".to_owned())
+            }
             (
                 smelt_hir::PrimitiveCastOp::ToBool,
                 Type::Bool,
@@ -558,6 +563,37 @@ impl FunctionEmitter<'_> {
             Some(Type::GeneratorResult { .. }) => Ok(format!("{operand_text}.is_some()")),
             None => Err(EmitError::new("optional truthiness inner type is unknown")),
         }
+    }
+
+    /// Return whether a union value's truthiness is `true` for every value its
+    /// Rust representation can hold.
+    ///
+    /// Only a CONCRETE generated union (`SmeltUnion…`) qualifies: its variants
+    /// are exactly the declared arms, so when every arm is an object surface
+    /// (class, function, list, tuple, dict, map, set, future — never falsy in
+    /// JavaScript) no value is falsy. A union stored erased as `SmeltUnknown`
+    /// can also hold `undefined` — a keyed read of a missing entry produces it
+    /// whatever the static type says — so it keeps the runtime test. The
+    /// frontend leaves every such union guard as a `ToBool` for this decision.
+    fn union_is_constantly_truthy(&self, ty: TypeId) -> bool {
+        let Some(members) = self.concrete_union_members(ty) else {
+            return false;
+        };
+        members.iter().all(|member| {
+            matches!(
+                self.mir.types.get(*member),
+                Some(
+                    Type::Class { .. }
+                        | Type::Function(_)
+                        | Type::List(_)
+                        | Type::Tuple(_)
+                        | Type::Dict(_, _)
+                        | Type::JsMap(_, _)
+                        | Type::Set(_)
+                        | Type::Future(_)
+                )
+            )
+        })
     }
 
     /// Convert an operand to a Rust boolean using source-language truthiness.

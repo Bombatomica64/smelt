@@ -34,48 +34,50 @@ module examples/typescript/end-to-end/97_generic_class_default_bounds/input.ts (
     #24: Chain<Float> = %0
     #25: fn() -> Chain<Float> = #24.rewind
     #26: Chain<Float> = %0
-    #27: Chain<Float> = closure_call #25()
-    #28: Float = #27.value
-    #29: None = @8(console_log)
-    #30: None = call #29(#28)
-    #31: String = "a"
-    #32: Chain<String> = new Chain(#31)
-    #33: Track<String> = new Track(#32)
-    #34: Track<String> = %1
-    #35: Chain<String> = #34.chain
-    #36: Track<String> = %1
-    #37: Chain<String> = #36.chain
-    #38: fn(T) -> Chain<T> = #37.push
-    #39: Track<String> = %1
-    #40: Chain<String> = #39.chain
-    #41: String = "b"
-    #42: Chain<String> = #40.push(#41)
-    #43: Track<String> = %1
-    #44: fn() -> T = #43.latest
-    #45: Track<String> = %1
-    #46: String = #45.latest()
-    #47: None = @9(console_log)
-    #48: None = call #47(#46)
-    #49: Track<String> = %1
-    #50: Chain<String> = #49.chain
-    #51: fn() -> Chain<String> = #50.rewind
-    #52: Track<String> = %1
-    #53: Chain<String> = #52.chain
-    #54: Chain<String> = closure_call #51()
-    #55: String = #54.value
-    #56: None = @10(console_log)
-    #57: None = call #56(#55)
+    #27: fn() -> Chain<Float> = bind_this #25, #24
+    #28: Chain<Float> = closure_call #27()
+    #29: Float = #28.value
+    #30: None = @8(console_log)
+    #31: None = call #30(#29)
+    #32: String = "a"
+    #33: Chain<String> = new Chain(#32)
+    #34: Track<String> = new Track(#33)
+    #35: Track<String> = %1
+    #36: Chain<String> = #35.chain
+    #37: Track<String> = %1
+    #38: Chain<String> = #37.chain
+    #39: fn(T) -> Chain<T> = #38.push
+    #40: Track<String> = %1
+    #41: Chain<String> = #40.chain
+    #42: String = "b"
+    #43: Chain<String> = #41.push(#42)
+    #44: Track<String> = %1
+    #45: fn() -> T = #44.latest
+    #46: Track<String> = %1
+    #47: String = #46.latest()
+    #48: None = @9(console_log)
+    #49: None = call #48(#47)
+    #50: Track<String> = %1
+    #51: Chain<String> = #50.chain
+    #52: fn() -> Chain<String> = #51.rewind
+    #53: Track<String> = %1
+    #54: Chain<String> = #53.chain
+    #55: fn() -> Chain<String> = bind_this #52, #51
+    #56: Chain<String> = closure_call #55()
+    #57: String = #56.value
+    #58: None = @10(console_log)
+    #59: None = call #58(#57)
   stmts
     s0: let %0: Chain<Float> = #1
     s1: #7
     s2: #13
     s3: #17
     s4: #23
-    s5: #30
-    s6: let %1: Track<String> = #33
-    s7: #42
-    s8: #48
-    s9: #57
+    s5: #31
+    s6: let %1: Track<String> = #34
+    s7: #43
+    s8: #49
+    s9: #59
 
 interned types
   t0 = Float

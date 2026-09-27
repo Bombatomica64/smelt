@@ -4129,6 +4129,8 @@ impl ModuleBuilder<'_> {
             let deferred_updates = self.deferred_postfix_updates.take().unwrap_or_default();
             self.deferred_postfix_updates = prior_deferred_updates;
             let value = value_result?;
+            let annotated_ty = self.presence_widened_binding_type(declarator, annotated_ty, value, body);
+            let value = value.map(|value| self.keyed_read_into_optional_slot(value, annotated_ty, body));
             if let BindingPattern::BindingIdentifier(binding) = &declarator.id
                 && value.is_none()
                 && let Some(previous) = predeclared_self
@@ -4182,6 +4184,38 @@ impl ModuleBuilder<'_> {
             }
         }
         Ok(())
+    }
+
+    /// The declared type of a local the program assigns a keyed read and
+    /// tests for presence: `T | undefined` in place of an always-truthy `T`.
+    ///
+    /// See `lowering::presence_tested_locals` for why such a local must be able
+    /// to hold the absent value. The widened type is taken from the annotation
+    /// when there is one and from the initializer otherwise; a type that is
+    /// already nullishable, or that has falsy inhabitants (whose Rust defaults
+    /// already read as falsy), is left alone.
+    fn presence_widened_binding_type(
+        &mut self,
+        declarator: &oxc::ast::ast::VariableDeclarator<'_>,
+        annotated_ty: Option<smelt_hir::TypeId>,
+        value: Option<smelt_hir::ExprId>,
+        body: &Body,
+    ) -> Option<smelt_hir::TypeId> {
+        let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+            return annotated_ty;
+        };
+        if !self.presence_widened_bindings.contains(&binding.span.start) {
+            return annotated_ty;
+        }
+        let Some(declared) = annotated_ty.or_else(|| value.map(|value| Self::expr_ty(body, value)))
+        else {
+            return annotated_ty;
+        };
+        if self.is_nullishable_type(declared) || !self.type_is_always_truthy_object_surface(declared)
+        {
+            return annotated_ty;
+        }
+        Some(self.ctx.krate.types.intern(Type::Optional(declared)))
     }
 
     /// Remember that a local was declared at a callable-interface type.

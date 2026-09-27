@@ -2524,8 +2524,20 @@ impl FunctionEmitter<'_> {
             }
             _ => String::new(),
         };
+        // A reference-class view forwards property writes to the instance
+        // (see `view_write_through`); the generated `into_smelt_unknown`
+        // installs the same hook.
+        let write_through = match self.mir.classes.iter().find(|class| class.name == *name) {
+            Some(class) if crate::field_setter_host(self.mir, self.context, class).is_some() => {
+                view_write_through::erased_view_entry_text(
+                    "smelt_struct_value",
+                    "smelt_object_entries",
+                )
+            }
+            _ => String::new(),
+        };
         Ok(format!(
-            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); {entries} {host_markers}{class_marker}{proto_entries}SmeltUnknown::Object({object_ctor}) }}"
+            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); {entries} {host_markers}{class_marker}{proto_entries}{write_through}SmeltUnknown::Object({object_ctor}) }}"
         ))
     }
 

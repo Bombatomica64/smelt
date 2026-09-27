@@ -74,3 +74,49 @@ Gates: examples avoidable 0; es-toolkit 27179 (+0), lib/tests compile; radash 38
 | H23 | string operations on elements of a non-global/dynamic match (`s.match(/x/)!.map(t => t[0])`): elements are `string \| undefined`, string ops on an optional string do not lower (no corpus hit) | — |
 | H24 | `xs.includes(undefined)` on `(string \| undefined)[]` folds to `false` (pre-existing) | — |
 | H25 | a conditional inside a call argument skips truthiness narrowing (`console.log(a ? a.join('+') : 'none')` → "array join requires an array receiver"; fine as a `const`/`return`) (pre-existing) | — |
+
+## Round 4, part 2 — H21 + H22 (reg-exp router)
+
+Hono **192 → 216 passed** (88 → 64 failed); `router_test_2` 22 → 3 failures. Both families were
+several independent general bugs:
+
+H22 (`add` never threw `UnsupportedPathError`):
+* an unannotated method called from inside its own class (`this.#insertPath(..)`) was dropped as
+  `undefined` — the in-progress method is now resolved (`receiver_declares_in_progress_method`);
+* an optional-chained call inside `try` propagated past the `catch` — inside an active catch it is
+  a presence branch plus a real call with an unwind edge (`smelt-mir/src/lower/optional_call.rs`);
+* `if (!record[k][j])` over object values folded to `false` — truthiness of a keyed dict read with
+  an always-truthy value type is a containment test, and a keyed read into an optional slot is an
+  optional lookup;
+* a local both assigned a keyed read and presence-tested in the same function is widened to
+  `T | undefined` (`presence_tested_locals.rs`, a syntactic, per-function scan);
+* an `if` without `else` whose arm contains a loop exiting to a lower-numbered join lost the join
+  (emitter join rule + `block_reaches_within_region`);
+* look-around patterns panicked the `regex` crate — `.test`/replace/split compile with
+  `fancy-regex` (falls back to `regex` for simple patterns);
+* `e instanceof UserClass` on an erased value folded to `false` (now checks the recorded class and
+  its subclasses), and `class E extends Error {}` forwards `message`.
+
+H21 (matcher panic, `if (staticMatch)` → `if true`):
+* a typed function-valued class DATA field called on an instance now receives that instance as
+  `this` (lazy `SmeltThisBinding`; `UnobservedReceiverBind` restores the plain callee when `this`
+  is never read);
+* writes through an erased `this` reach the instance (`__smelt_set_field` + erased-view hook,
+  `emitter/view_write_through.rs`, only in programs with an erased field write); classes bound as
+  `this` in such programs are reference classes;
+* constantly-truthy union guards fold only for a concrete generated union; an erased union gets
+  the runtime test.
+
+Examples `129_keyed_presence_and_throw_sentinel`, `130_this_bound_field_write_through`; 11 unit
+tests. `unknown_report.rs` gains two legitimate-boundary markers (the `__smelt_class` instanceof
+guard, the `__smelt_set_field` adapter), each documented with a regression test.
+
+Gates: examples avoidable 0; es-toolkit avoidable **27179 → 27109** (baseline re-snapshotted);
+radash 384/3, remeda 1787/2; all 78 runtime tiers pass.
+
+Open (next queue): H26 — the 3 remaining `router_test_2` failures: `paths[p][1].reduceRight(..)`
+over a `[number, ParamAssocArray]` tuple stored in a `Record` lowers as an erased list and builds
+`{}`. Also: unannotated `void` methods return `SmeltUnknown`; receivers are not yet bound for calls
+inside the class's own methods, for interface/record receivers, or for async field functions; a
+class `implements` an interface whose method is satisfied by a function-typed field reports a
+missing method.

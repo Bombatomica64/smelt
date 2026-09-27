@@ -634,6 +634,16 @@ impl FunctionEmitter<'_> {
                     // `Index` erased-object path below. Non-self-referential values
                     // keep the simpler inline form to avoid churn.
                     let base_name = self.local_name(*base)?.to_owned();
+                    // A write through an erased reference-class VIEW also lands
+                    // on the instance the view stands for; see
+                    // `view_write_through`. The value is bound once so the view
+                    // and the instance receive the same value.
+                    if self.context.erased_view_write_through() {
+                        out.push_str(&format!(
+                            "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value.clone()); smelt_object_write_through(map, {field_name:?}, &smelt_value); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(function) => {{ smelt_set_function_property(function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n"
+                        ));
+                        return Ok(());
+                    }
                     // A FUNCTION receiver keeps being a function: the write
                     // lands in its identity-keyed own-property bag (see
                     // `crate::function_object_prelude`), which every other
@@ -1712,6 +1722,43 @@ impl FunctionEmitter<'_> {
             out.push_str("    }\n");
             self.restore_declared_locals(branch_declared);
             return self.emit_block(self.block(else_target)?, out);
+        }
+
+        // An `if` with no `else` whose arm is itself structured control flow
+        // (a loop, a nested branch) and then falls through to the `else`
+        // block: that block is the statement's JOIN, not an alternative arm.
+        // MIR allocates the join before lowering the arm, so the arm's exit
+        // edge to it points to a LOWER block id, and the rule below — which
+        // emits `if c { arm } else { join }` — dropped that edge as if it were
+        // a loop back-edge: every run through the arm silently skipped the
+        // rest of the function (Hono's reg-exp router `add` returned right
+        // after creating a new method's handler maps). Emit it as the `if`
+        // it is: the arm up to the join, then the join once.
+        if then_block.0 > current.0
+            && else_block.0 > current.0
+            && matches!(
+                then.terminator,
+                Some(Terminator::Goto(_) | Terminator::Call { .. } | Terminator::Switch { .. })
+            )
+            && self.block_reaches_within_region(
+                then_block,
+                else_block,
+                current,
+                &mut BlockIdSet::default(),
+            )
+            && !self.block_reaches_within_region(
+                else_block,
+                then_block,
+                current,
+                &mut BlockIdSet::default(),
+            )
+        {
+            let branch_declared = self.declared_locals_snapshot();
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            self.emit_block_until_goto(then, else_block, RegionExit::Join, out)?;
+            out.push_str("    }\n");
+            self.restore_declared_locals(branch_declared);
+            return self.emit_block(else_, out);
         }
 
         if let Some(Terminator::Goto(then_target)) = then.terminator

@@ -1027,6 +1027,8 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "126_optional_presence_through_assertion",
     "127_nested_closure_shared_write",
     "128_match_array_groups",
+    "129_keyed_presence_and_throw_sentinel",
+    "130_this_bound_field_write_through",
     "11_console_log_expressions",
     "12_while_sum",
     "13_for_of_sum",

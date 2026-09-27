@@ -2237,7 +2237,7 @@ export function replaceAll(str: string, table: unknown): string {
     assert!(source.contains("replace_all"), "{source}");
     // The replacement is wrapped in the SmeltUnknown -> String ToString match.
     assert!(
-        source.contains("|caps: &regex::Captures<'_>| match ("),
+        source.contains("|caps: &fancy_regex::Captures<'_>| match ("),
         "{source}"
     );
     assert!(
@@ -3656,13 +3656,18 @@ function group(values: string[]): Record<string, string[]> {
 ",
     );
 
+    // `items` is both assigned a keyed read and presence-tested, so it holds
+    // `string[] | undefined` (see `presence_tested_locals`): the read is the
+    // optional lookup itself, and `items === undefined` tests it. The pushed
+    // list is the record's own shared list, so no re-insertion is needed.
     assert!(
-        source.contains(".cloned().unwrap_or(SmeltList::new(Vec::<String>::new()))"),
+        source.contains("let mut items: Option<SmeltList<String>>;"),
         "{source}"
     );
+    assert!(source.contains("items.clone().is_none()"), "{source}");
     assert!(
-        source.contains("output.insert(key.clone(), items.clone());"),
-        "{source}"
+        !source.contains(".cloned().unwrap_or(SmeltList::new(Vec::<String>::new()))"),
+        "a missing key must read as absent, not as a fresh empty list: {source}"
     );
 }
 

@@ -3126,8 +3126,8 @@ impl Request {
     return _smelt_tmp_2;
     }
     fn header(&self, name: String) -> Option<String> {
-    let _smelt_tmp_2: SmeltRecord<String, String> = self.headers.clone();
-    return Some(_smelt_tmp_2.get(&name.clone()).unwrap_or(String::new()));
+    let _smelt_tmp_2: Option<String> = self.headers.clone().get(&name.clone());
+    return _smelt_tmp_2;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
     ///

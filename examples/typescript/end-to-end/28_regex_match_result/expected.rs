@@ -483,8 +483,6 @@ fn main() {
     let _ = { println!("{}", match &_smelt_tmp_43 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
     _smelt_tmp_45 = found_1.clone().expect("optional value was absent after narrowing");
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_45.index())); };
-    return;
-    } else {
-    return;
     }
+    return;
 }

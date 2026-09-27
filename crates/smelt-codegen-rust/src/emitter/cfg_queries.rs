@@ -67,4 +67,37 @@ impl FunctionEmitter<'_> {
             })
     }
 
+
+    /// Return whether `block_id` reaches `target` along blocks numbered above
+    /// `floor`.
+    ///
+    /// MIR allocates a statement's blocks in source order, so the blocks of a
+    /// region that starts after block `floor` all rank above it; an edge to a
+    /// block at or below `floor` leaves the region (an enclosing loop's
+    /// back-edge, or the join an arm resumes at). Restricting the walk to the
+    /// region answers "does this arm's own code fall through to `target`",
+    /// which plain [`Self::block_can_reach`] cannot: through an enclosing
+    /// loop's back-edge nearly every block reaches every other one.
+    pub(super) fn block_reaches_within_region(
+        &self,
+        block_id: smelt_mir::BlockId,
+        target: smelt_mir::BlockId,
+        floor: smelt_mir::BlockId,
+        visited: &mut BlockIdSet,
+    ) -> bool {
+        if block_id == target {
+            return true;
+        }
+        if block_id.0 <= floor.0 || !visited.insert(block_id) {
+            return false;
+        }
+        self.block(block_id)
+            .ok()
+            .and_then(|block| block.terminator.as_ref())
+            .is_some_and(|terminator| {
+                terminator_successors(terminator)
+                    .into_iter()
+                    .any(|next| self.block_reaches_within_region(next, target, floor, visited))
+            })
+    }
 }

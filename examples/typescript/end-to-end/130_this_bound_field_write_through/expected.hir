@@ -1,0 +1,74 @@
+module examples/typescript/end-to-end/130_this_bound_field_write_through/input.ts (ModuleId(0))
+  body BodyId(4)
+  items
+    interface Counter fields [Public label: String, Public builds: Float, Public describe: fn(String) -> String] methods [Public describe(prefix: String) -> String]
+    fn describe owner Module
+    class Tally fields [Public label: String, Public builds: Float, Public describe: fn(String) -> String] constructor Some(ItemId(2)) methods [] implements []
+  locals
+    %0 const tally: Tally
+    %1 const other: Tally
+  exprs
+    #0: String = "apples"
+    #1: Tally = new Tally(#0)
+    #2: Tally = %0
+    #3: fn(String) -> String = #2.describe
+    #4: Tally = %0
+    #5: String = "first"
+    #6: fn(String) -> String = bind_this #3, #2
+    #7: String = closure_call #6(#5)
+    #8: None = @4(console_log)
+    #9: None = call #8(#7)
+    #10: Tally = %0
+    #11: fn(String) -> String = #10.describe
+    #12: Tally = %0
+    #13: String = "second"
+    #14: fn(String) -> String = bind_this #11, #10
+    #15: String = closure_call #14(#13)
+    #16: None = @5(console_log)
+    #17: None = call #16(#15)
+    #18: Tally = %0
+    #19: fn(String) -> String = #18.describe
+    #20: Tally = %0
+    #21: String = "third"
+    #22: fn(String) -> String = bind_this #19, #18
+    #23: String = closure_call #22(#21)
+    #24: None = @6(console_log)
+    #25: None = call #24(#23)
+    #26: Tally = %0
+    #27: Float = #26.builds
+    #28: None = @7(console_log)
+    #29: None = call #28(#27)
+    #30: String = "pears"
+    #31: Tally = new Tally(#30)
+    #32: Tally = %1
+    #33: fn(String) -> String = #32.describe
+    #34: Tally = %1
+    #35: String = "solo"
+    #36: fn(String) -> String = bind_this #33, #32
+    #37: String = closure_call #36(#35)
+    #38: None = @8(console_log)
+    #39: None = call #38(#37)
+    #40: Tally = %1
+    #41: Float = #40.builds
+    #42: Tally = %0
+    #43: Float = #42.builds
+    #44: None = @9(console_log)
+    #45: None = call #44(#41, #43)
+  stmts
+    s0: let %0: Tally = #1
+    s1: #9
+    s2: #17
+    s3: #25
+    s4: #29
+    s5: let %1: Tally = #31
+    s6: #39
+    s7: #45
+
+interned types
+  t0 = String
+  t1 = Tally
+  t2 = fn(String) -> String
+  t3 = Float
+  t4 = fn(String) -> String
+  t5 = Unknown
+  t6 = None

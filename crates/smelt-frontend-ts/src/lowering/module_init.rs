@@ -333,6 +333,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             class_expression_binding_name: None,
             asymmetric_matchers_lowered: 0,
             forward_referenced_locals: HashSet::new(),
+            presence_widened_bindings: HashSet::new(),
             defining_local_functions: Vec::new(),
             allow_unknown_index_access,
             preserve_specialization_receiver: false,
@@ -435,6 +436,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let span = self.span(program.span.start, program.span.end);
         let mut body = Body::new(None, span);
         let mut errors = Vec::new();
+        self.presence_widened_bindings =
+            super::presence_tested_locals::presence_tested_keyed_bindings(program);
         // Top-level code is the program's ENTRY POINT, so it may await: the
         // module body becomes the emitted `main`, which is a
         // `#[tokio::main] async fn` whenever it needs to be. Awaiting here was

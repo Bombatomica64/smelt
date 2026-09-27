@@ -2879,17 +2879,17 @@ fn main() {
     let mut _smelt_tmp_50: bool;
     let mut _smelt_tmp_52: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> bool> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> bool> = ::std::rc::Rc::new(move |arg0: String, arg1: i64, arg2: &SmeltList<String>| -> bool { false }); smelt_default_callback };
     let mut _smelt_tmp_53: bool;
-    let _smelt_tmp_6: bool = regex::Regex::new(&"^[0-9a-f]{4}$".to_owned()).expect("regex compile failed").is_match(&"0a1b".to_owned());
+    let _smelt_tmp_6: bool = fancy_regex::Regex::new(&"^[0-9a-f]{4}$".to_owned()).expect("regex compile failed").is_match(&"0a1b".to_owned()).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_6); };
-    _smelt_tmp_8 = regex::Regex::new(&"^[0-9a-f]{4}$".to_owned()).expect("regex compile failed").is_match(&"zzzz".to_owned());
+    _smelt_tmp_8 = fancy_regex::Regex::new(&"^[0-9a-f]{4}$".to_owned()).expect("regex compile failed").is_match(&"zzzz".to_owned()).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_8); };
-    _smelt_tmp_10 = regex::Regex::new(&"(?i)ab".to_owned()).expect("regex compile failed").is_match(&"AB".to_owned());
+    _smelt_tmp_10 = fancy_regex::Regex::new(&"(?i)ab".to_owned()).expect("regex compile failed").is_match(&"AB".to_owned()).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_10); };
-    _smelt_tmp_12 = regex::Regex::new(&"(?s)^a.c$".to_owned()).expect("regex compile failed").is_match(&"a\nc".to_owned());
+    _smelt_tmp_12 = fancy_regex::Regex::new(&"(?s)^a.c$".to_owned()).expect("regex compile failed").is_match(&"a\nc".to_owned()).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_12); };
-    _smelt_tmp_14 = regex::Regex::new(&"^a+$".to_owned()).expect("regex compile failed").is_match(&"aaa".to_owned());
+    _smelt_tmp_14 = fancy_regex::Regex::new(&"^a+$".to_owned()).expect("regex compile failed").is_match(&"aaa".to_owned()).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_14); };
-    _smelt_tmp_16 = regex::Regex::new(&"b".to_owned()).expect("regex compile failed").is_match(&"abc".to_owned());
+    _smelt_tmp_16 = fancy_regex::Regex::new(&"b".to_owned()).expect("regex compile failed").is_match(&"abc".to_owned()).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_16); };
     _smelt_tmp_18 = SmeltRegExp::new("^a+$".to_owned(), "i".to_owned());
     _smelt_tmp_19 = _smelt_tmp_18.test(&"AAA".to_owned());
@@ -2937,30 +2937,30 @@ fn main() {
     _smelt_tmp_44 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["alpha".to_owned(), "beta".to_owned(), "gamma".to_owned(), "delta".to_owned()]; smelt_list_items }));
     words = Into::<SmeltList<_>>::into(_smelt_tmp_44);
     _smelt_tmp_45 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = regex::Regex::new(&"^[ad]".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone());
+    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"^[ad]".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1
     });
     _smelt_tmp_46 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = regex::Regex::new(&"^[ad]".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone());
+    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"^[ad]".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1
     }); let smelt_array = words.clone(); smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
     _smelt_tmp_47 = _smelt_tmp_46.borrow().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_47); };
     _smelt_tmp_49 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = regex::Regex::new(&"a".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone());
+    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"a".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1
     });
     _smelt_tmp_50 = { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = regex::Regex::new(&"a".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone());
+    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"a".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1
     }); let smelt_array = words.clone(); smelt_array.borrow().iter().enumerate().all(|(index, item)| (smelt_callback)(item.clone(), index as i64, &smelt_array)) };
     let _ = { println!("{}", _smelt_tmp_50); };
     _smelt_tmp_52 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = regex::Regex::new(&"^z".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone());
+    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"^z".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1
     });
     _smelt_tmp_53 = { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = regex::Regex::new(&"^z".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone());
+    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"^z".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1
     }); let smelt_array = words; smelt_array.borrow().iter().enumerate().any(|(index, item)| (smelt_callback)(item.clone(), index as i64, &smelt_array)) };
     let _ = { println!("{}", _smelt_tmp_53); };

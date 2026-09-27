@@ -3412,7 +3412,63 @@ impl FunctionEmitter<'_> {
                  registry marker and an `IntoSmeltUnknown` that stamps it."
             )));
         }
+        if let Some(check) = self.erased_user_class_instance_of_text(value, value_ty, class)? {
+            return Ok(check);
+        }
         Ok("false".to_owned())
+    }
+
+    /// Answer `value instanceof C` for an ERASED operand and a source class `C`.
+    ///
+    /// A class instance that crosses an erasure seam keeps its provenance in
+    /// the hidden `__smelt_class` marker (stamped with the class's source name
+    /// by the struct erasure), so the check is a runtime probe of that marker
+    /// against every generated class that is `C` or extends it. Folding it to
+    /// `false` instead silently deleted the branch: a caught
+    /// `class UnsupportedPathError extends Error {}` value — a `catch` binding is
+    /// always erased — never answered `instanceof UnsupportedPathError`.
+    ///
+    /// Answers `None` for a target that is not a generated class, and for an
+    /// operand whose Rust value is not a `SmeltUnknown` (or an optional one),
+    /// so the caller keeps its existing answer.
+    fn erased_user_class_instance_of_text(
+        &self,
+        value: &Operand,
+        value_ty: TypeId,
+        class: Symbol,
+    ) -> Result<Option<String>, EmitError> {
+        if !self.mir.classes.iter().any(|item| item.name == class) {
+            return Ok(None);
+        }
+        let optional = match self.mir.types.get(value_ty) {
+            Some(Type::Unknown | Type::TypeParam { .. }) => false,
+            Some(Type::Union(_)) if self.concrete_union_members(value_ty).is_none() => false,
+            Some(Type::Optional(inner))
+                if matches!(self.mir.types.get(*inner), Some(Type::Unknown)) =>
+            {
+                true
+            }
+            _ => return Ok(None),
+        };
+        let mut names = Vec::new();
+        for item in &self.mir.classes {
+            if self.class_extends_or_equals(item.name, class) {
+                let name = format!("{:?}", self.symbol_source_name(item.name)?);
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+        let probe = format!(
+            "matches!(value.get(\"__smelt_class\"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, {}))",
+            names.join(" | ")
+        );
+        let value_text = self.operand_text(value)?;
+        Ok(Some(if optional {
+            format!("matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if {probe})")
+        } else {
+            format!("matches!({value_text}.clone(), SmeltUnknown::Object(value) if {probe})")
+        }))
     }
 
     /// Render a method call through a stored callable field when the receiver's

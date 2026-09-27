@@ -57,6 +57,29 @@ fn smelt_panic_message(panic: &(dyn ::std::any::Any + Send)) -> String { if let 
 /// Recover the error class a `catch` observes from a caught panic.
 fn smelt_panic_class(panic: &(dyn ::std::any::Any + Send)) -> String { panic.downcast_ref::<SmeltPanic>().map_or_else(|| "Error".to_owned(), |payload| payload.class.clone()) }
 thread_local! {
+    static SMELT_NEXT_CAPTURE_SCOPE: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
+    static SMELT_SHARED_CAPTURES: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), ::std::rc::Weak<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+}
+
+fn smelt_next_capture_scope() -> usize {
+    SMELT_NEXT_CAPTURE_SCOPE.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id })
+}
+
+fn smelt_shared_capture<T: Clone + 'static>(scope: usize, slot: *mut T, initial: T) -> ::std::rc::Rc<::std::cell::RefCell<T>> {
+    let key = (scope, slot as usize);
+    SMELT_SHARED_CAPTURES.with(|captures| {
+        let mut captures = captures.borrow_mut();
+        if let Some(existing) = captures.get(&key).and_then(::std::rc::Weak::upgrade) {
+            return existing.downcast::<::std::cell::RefCell<T>>().expect("shared capture type mismatch");
+        }
+        let value: ::std::rc::Rc<::std::cell::RefCell<T>> = ::std::rc::Rc::new(::std::cell::RefCell::new(initial));
+        let erased: ::std::rc::Rc<dyn ::std::any::Any> = value.clone();
+        captures.insert(key, ::std::rc::Rc::downgrade(&erased));
+        value
+    })
+}
+
+thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
 
@@ -510,42 +533,6 @@ fn smelt_same_erased_function(left: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> 
 /// Recover a typed callback previously passed through an erased ABI.
 fn smelt_restore_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> Option<T> {
     SMELT_FUNCTION_ORIGINS.with(|origins| origins.borrow().get(&smelt_erased_function_key(function)).and_then(|origin| origin.downcast_ref::<T>()).cloned())
-}
-
-thread_local! {
-    /// Live host values reachable from their erased records, by object id.
-    static SMELT_HOST_ORIGINS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
-}
-
-/// Retain a host value so its erased record can hand back the same object.
-///
-/// Call this from the value's `IntoSmeltUnknown`, with the id the erased
-/// record is built with, so the record and the retained value agree.
-#[allow(dead_code)]
-fn smelt_register_host_origin<T: Clone + 'static>(id: usize, value: T) {
-    SMELT_HOST_ORIGINS.with(|origins| { origins.borrow_mut().insert(id, Box::new(value)); });
-}
-
-/// Recover the host value an erased record was made from.
-///
-/// `None` for a record that did not come from an erasure — a hand-built
-/// object carrying the marker, or one that crossed a process boundary. Each
-/// caller decides what that means for its own type rather than being given
-/// a fabricated value here.
-#[allow(dead_code)]
-fn smelt_restore_host_origin<T: Clone + 'static>(value: &SmeltUnknown) -> Option<T> {
-    let SmeltUnknown::Object(map) = value else { return None };
-    smelt_restore_host_origin_by_id::<T>(map.id)
-}
-
-/// The same lookup from an object id alone.
-///
-/// A write THROUGH an erased record needs this: it holds the record's id
-/// (and its storage record's id) rather than a whole value, and it has to
-/// reach the live object those ids stand for.
-#[allow(dead_code)]
-fn smelt_restore_host_origin_by_id<T: Clone + 'static>(id: usize) -> Option<T> {
-    SMELT_HOST_ORIGINS.with(|origins| origins.borrow().get(&id).and_then(|origin| origin.downcast_ref::<T>()).cloned())
 }
 
 thread_local! {
@@ -1628,7 +1615,7 @@ fn smelt_abort_method(object: SmeltObject, method: &str) -> SmeltUnknown { let m
 
 /// The synthesized host method a member read resolves to, if the object
 /// carries a host marker and has no OWN member of that name.
-fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; } if (object.contains_key("__smelt_abortcontroller") || object.contains_key("__smelt_abortsignal")) && matches!(name, "abort" | "addEventListener" | "removeEventListener" | "dispatchEvent" | "throwIfAborted") { return Some(smelt_abort_method(object.clone(), name)); } if let Some(found) = smelt_headers_host_method(object, name) { return Some(found); } None }
+fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; } if (object.contains_key("__smelt_abortcontroller") || object.contains_key("__smelt_abortsignal")) && matches!(name, "abort" | "addEventListener" | "removeEventListener" | "dispatchEvent" | "throwIfAborted") { return Some(smelt_abort_method(object.clone(), name)); } None }
 
 pub enum SmeltUnknown {
     Null,
@@ -1659,6 +1646,71 @@ impl Clone for SmeltUnknown {
         }
     }
 }
+
+/// What `this` is bound to: an erased receiver, or the erasure of a concrete one, run on first read.
+#[derive(Clone)]
+enum SmeltThisBinding { Value(SmeltUnknown), Deferred(::std::rc::Rc<dyn Fn() -> SmeltUnknown>) }
+
+thread_local! {
+    /// Receiver installed by the innermost active call, `undefined` when none.
+    static SMELT_THIS: ::std::cell::RefCell<SmeltThisBinding> = ::std::cell::RefCell::new(SmeltThisBinding::Value(SmeltUnknown::Undefined));
+}
+
+/// Restores the previously installed `this` binding when dropped.
+struct SmeltThisGuard { previous: SmeltThisBinding }
+
+impl Drop for SmeltThisGuard {
+    fn drop(&mut self) {
+        let previous = ::std::mem::replace(&mut self.previous, SmeltThisBinding::Value(SmeltUnknown::Undefined));
+        SMELT_THIS.with(|slot| { *slot.borrow_mut() = previous; });
+    }
+}
+
+/// Install `receiver` as `this` until the returned guard is dropped.
+fn smelt_push_this(receiver: SmeltUnknown) -> SmeltThisGuard {
+    SmeltThisGuard { previous: SMELT_THIS.with(|slot| slot.replace(SmeltThisBinding::Value(receiver))) }
+}
+
+/// Install a concrete receiver as `this`, erased by `erase` only when first read.
+#[allow(dead_code)]
+fn smelt_push_this_lazy(erase: ::std::rc::Rc<dyn Fn() -> SmeltUnknown>) -> SmeltThisGuard {
+    SmeltThisGuard { previous: SMELT_THIS.with(|slot| slot.replace(SmeltThisBinding::Deferred(erase))) }
+}
+
+/// Read the `this` receiver installed by the innermost active call.
+fn smelt_this() -> SmeltUnknown {
+    let binding = SMELT_THIS.with(|slot| slot.borrow().clone());
+    match binding {
+        SmeltThisBinding::Value(receiver) => receiver,
+        SmeltThisBinding::Deferred(erase) => {
+            let receiver = erase();
+            SMELT_THIS.with(|slot| { *slot.borrow_mut() = SmeltThisBinding::Value(receiver.clone()); });
+            receiver
+        }
+    }
+}
+
+/// Bind a receiver to an erased callable, as `Function.prototype.bind` does.
+fn smelt_bind_this(callee: SmeltUnknown, receiver: SmeltUnknown) -> SmeltUnknown {
+    match callee {
+        SmeltUnknown::Function(function) => SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| {
+            let _smelt_this_guard = smelt_push_this(receiver.clone());
+            function(args)
+        })),
+        SmeltUnknown::Object(object) => match object.get("__smelt_call") {
+            Some(callable @ SmeltUnknown::Function(_)) => {
+                let bound = object.clone();
+                bound.insert("__smelt_call".to_owned(), smelt_bind_this(callable, receiver));
+                SmeltUnknown::Object(bound)
+            }
+            _ => SmeltUnknown::Object(object),
+        },
+        other => other,
+    }
+}
+
+/// Forward a property write on an erased class view to the instance it stands for.
+fn smelt_object_write_through(map: &SmeltObject, key: &str, value: &SmeltUnknown) { if let Some(SmeltUnknown::Function(setter)) = map.get("__smelt_method:__smelt_set_field") { let _ = setter(vec![SmeltUnknown::String(key.into()), value.clone()]); } }
 
 /// Concatenate an erased `BlobPart` array into the bytes it contributes.
 ///
@@ -2481,25 +2533,45 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct InitLike {
-    headers: Option<SmeltHeaders>,
-    status: Option<f64>,
+#[derive(Clone)]
+#[allow(dead_code)]
+struct Counter {
+    label: String,
+    builds: f64,
+    describe: ::std::rc::Rc<dyn Fn(String) -> String>,
 }
-impl IntoSmeltUnknown for InitLike {
+impl Default for Counter {
+    fn default() -> Self {
+        Self {
+            label: String::new(),
+            builds: 0.0,
+            describe: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback },
+        }
+    }
+}
+impl ::std::fmt::Debug for Counter {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.debug_struct("Counter").finish_non_exhaustive()
+    }
+}
+impl IntoSmeltUnknown for Counter {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("headers".to_owned(), self.headers.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
-        ("status".to_owned(), self.status.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
+        ("label".to_owned(), SmeltUnknown::String(self.label.into())),
+        ("builds".to_owned(), SmeltUnknown::Number(self.builds as f64)),
+        ("describe".to_owned(), SmeltUnknown::Null),
         ])))
     }
 }
-impl SmeltFromUnknown for InitLike {
+impl SmeltFromUnknown for Counter {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("status") {
-                result.status = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(field) = object.get("label") {
+                result.label = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("builds") {
+                result.builds = SmeltFromUnknown::smelt_from_unknown(field);
             }
         }
         result
@@ -2904,491 +2976,118 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
-/// A WHATWG `Headers` list: ordered name/value pairs, case-insensitive
-/// names, comma-joined reads, and the `Set-Cookie` carve-out.
-#[derive(Clone)]
-pub struct SmeltHeaders {
-    id: usize,
-    /// Lower-cased name and normalized value, in insertion order.
-    entries: ::std::rc::Rc<::std::cell::RefCell<Vec<(String, String)>>>,
-}
-
-impl PartialEq for SmeltHeaders { fn eq(&self, other: &Self) -> bool { self.entries_sorted() == other.entries_sorted() } }
-impl ::std::fmt::Debug for SmeltHeaders { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_map().entries(self.entries_sorted()).finish() } }
-impl Default for SmeltHeaders { fn default() -> Self { Self::new() } }
-
 #[allow(dead_code)]
-impl SmeltHeaders {
-    /// An empty header list with a fresh JS reference identity.
-    pub fn new() -> Self { Self { id: smelt_next_object_id(), entries: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) } }
-    /// JS reference identity of this header list.
-    pub fn id(&self) -> usize { self.id }
-    /// Build a header list from name/value pairs, appending in order.
-    pub fn from_pairs(pairs: Vec<(String, String)>) -> Self { let headers = Self::new(); for (name, value) in pairs { headers.append(&name, &value); } headers }
-    /// The spec's header-name normalization: lower-cased.
-    fn normalize_name(name: &str) -> String { name.trim().to_ascii_lowercase() }
-    /// The spec's header-value normalization: strip HTTP whitespace.
-    fn normalize_value(value: &str) -> String { value.trim_matches(|ch| ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n').to_owned() }
-    /// `get(name)`: every value for the name, joined with `", "`.
-    ///
-    /// `None` is the source `null`: the name is not in the list. The
-    /// return type is the source type, so no caller has to re-narrow it.
-    pub fn get(&self, name: &str) -> Option<String> {
-        let key = Self::normalize_name(name);
-        let values: Vec<String> = self.entries.borrow().iter().filter(|(entry_name, _)| *entry_name == key).map(|(_, value)| value.clone()).collect();
-        if values.is_empty() { None } else { Some(values.join(", ")) }
-    }
-    /// `has(name)`.
-    pub fn has(&self, name: &str) -> bool { let key = Self::normalize_name(name); self.entries.borrow().iter().any(|(entry_name, _)| *entry_name == key) }
-    /// `append(name, value)`: add a pair, keeping existing ones.
-    pub fn append(&self, name: &str, value: &str) { self.entries.borrow_mut().push((Self::normalize_name(name), Self::normalize_value(value))); }
-    /// `set(name, value)`: replace every value for the name.
-    ///
-    /// The first existing pair's position is kept, matching the spec's
-    /// "set the value of the first such header and remove the others".
-    pub fn set(&self, name: &str, value: &str) {
-        let key = Self::normalize_name(name);
-        let normalized = Self::normalize_value(value);
-        let mut entries = self.entries.borrow_mut();
-        let position = entries.iter().position(|(entry_name, _)| *entry_name == key);
-        let Some(index) = position else { entries.push((key, normalized)); return; };
-        entries[index] = (key.clone(), normalized);
-        // Keep the first pair with this name (the one just written) and
-        // drop the rest, as the spec's `set` does.
-        let mut kept = false;
-        entries.retain(|(entry_name, _)| { if *entry_name != key { return true; } let first = !kept; kept = true; first });
-    }
-    /// `delete(name)`: remove every pair with the name.
-    pub fn delete(&self, name: &str) { let key = Self::normalize_name(name); self.entries.borrow_mut().retain(|(entry_name, _)| *entry_name != key); }
-    /// The spec's iteration order: sorted by name, values combined.
-    ///
-    /// `set-cookie` is the exception the spec carves out: its values are
-    /// never combined, so each cookie stays its own entry.
-    pub fn entries_sorted(&self) -> Vec<(String, String)> {
-        let entries = self.entries.borrow().clone();
-        let mut names: Vec<String> = entries.iter().map(|(name, _)| name.clone()).collect();
-        names.sort();
-        names.dedup();
-        let mut combined = Vec::new();
-        for name in names {
-            let values: Vec<String> = entries.iter().filter(|(entry_name, _)| *entry_name == name).map(|(_, value)| value.clone()).collect();
-            if name == "set-cookie" {
-                for value in values { combined.push((name.clone(), value)); }
-            }
-            else {
-                combined.push((name.clone(), values.join(", ")));
-            }
-        }
-        combined
-    }
-    /// The stored pairs, in insertion order, uncombined.
-    ///
-    /// NOT the spec's iteration order (`entries_sorted`), which sorts by
-    /// name and comma-joins values. Copying a header list has to go
-    /// through this instead: rebuilding from the combined view would turn
-    /// two `Accept` headers into one, which a copy must not do.
-    pub fn entries_in_insertion_order(&self) -> Vec<(String, String)> { self.entries.borrow().clone() }
-    /// `keys()`: header names in iteration order.
-    pub fn keys(&self) -> Vec<String> { self.entries_sorted().into_iter().map(|(name, _)| name).collect() }
-    /// `values()`: header values in iteration order.
-    pub fn values(&self) -> Vec<String> { self.entries_sorted().into_iter().map(|(_, value)| value).collect() }
-    /// `getSetCookie()`: each `Set-Cookie` value, uncombined.
-    pub fn get_set_cookie(&self) -> Vec<String> { self.entries.borrow().iter().filter(|(name, _)| name == "set-cookie").map(|(_, value)| value.clone()).collect() }
-}
-
-/// Erase a header list for a dynamic boundary (identity marker + pairs).
-impl IntoSmeltUnknown for SmeltHeaders {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        smelt_register_host_origin(self.id, self.clone());
-        let pairs: Vec<SmeltUnknown> = self.entries_sorted().into_iter().map(|(name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(name.into()), SmeltUnknown::String(value.into())]).into())).collect();
-        SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([("__smelt_headers".to_owned(), SmeltUnknown::Bool(true)), ("entries".to_owned(), SmeltUnknown::Array(pairs.into()))])))
-    }
-}
-
-/// The modeled members of an erased `Headers` record, resolved at run time.
-///
-/// **Dynamic boundary.** The receiver is a marker-bearing record, so the
-/// member it carries is decided by the record's marker and the member NAME,
-/// both of which are runtime values here — a program reaches this only by
-/// erasing the value on purpose (`as any`, an `any`-typed field), since every
-/// ordinary spelling keeps its type through narrowing. Answering `undefined`
-/// instead, which is what a plain property read does, was a silent wrong
-/// value: `(headers as any).get('a')` gave `null` where Node gives the header.
-///
-/// The recovered value is the SAME one the record was erased from (the origin
-/// registry), so a mutating member is observed by the holder of the concrete
-/// value. Only the synchronous members are here; the async body readers are
-/// not, and they keep the erased read's `undefined`.
-fn smelt_headers_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key("__smelt_headers") { return None; } if !matches!(name, "get" | "has" | "set" | "append" | "delete" | "keys" | "values" | "entries" | "getSetCookie") { return None; } let headers = <SmeltHeaders as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); let method = name.to_owned(); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let arg = |index: usize| args.get(index).cloned().map_or_else(String::new, smelt_property_key); Ok(match method.as_str() { "get" => headers.get(&arg(0)).map_or(SmeltUnknown::Null, |value| SmeltUnknown::String(value.into())), "has" => SmeltUnknown::Bool(headers.has(&arg(0))), "set" => { headers.set(&arg(0), &arg(1)); SmeltUnknown::Undefined }, "append" => { headers.append(&arg(0), &arg(1)); SmeltUnknown::Undefined }, "delete" => { headers.delete(&arg(0)); SmeltUnknown::Undefined }, "keys" => SmeltUnknown::Array(headers.keys().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), "values" => SmeltUnknown::Array(headers.values().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), "entries" => SmeltUnknown::Array(headers.entries_sorted().into_iter().map(|(entry_name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(entry_name.into()), SmeltUnknown::String(value.into())]).into())).collect::<Vec<_>>().into()), _ => SmeltUnknown::Array(headers.get_set_cookie().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), }) }))) }
-
-/// Rebuild a header list from an erased value.
-impl SmeltFromUnknown for SmeltHeaders {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }
-        let SmeltUnknown::Object(map) = value else { return Self::new() };
-        let Some(SmeltUnknown::Array(pairs)) = map.get("entries") else { return Self::new() };
-        let headers = Self::new();
-        for pair in pairs.into_vec() {
-            let SmeltUnknown::Array(pair) = pair else { continue };
-            let pair = pair.into_vec();
-            let (Some(SmeltUnknown::String(name)), Some(SmeltUnknown::String(entry_value))) = (pair.first().cloned(), pair.get(1).cloned()) else { continue };
-            headers.append(&name, &entry_value);
-        }
-        headers
-    }
-}
-
-/// The bytes a `Request`/`Response` carries, and whether they were read.
-///
-/// A body is **single-use**: the spec's `bodyUsed` becomes `true` on the
-/// first reader, and a second read is a `TypeError`. That is why the
-/// payload sits behind an `Rc<RefCell<..>>` with a `Cell<bool>` beside it
-/// rather than being moved out: two variables holding the same response
-/// observe one another's consumption, exactly as in JavaScript.
-#[derive(Clone)]
-pub enum SmeltBodyPayload {
-    /// No body at all (`new Response()`, a GET request).
-    Empty,
-    /// A fully-buffered body: a string, bytes, or form data.
-    Bytes(Vec<u8>),
-    /// A body still arriving in chunks, in arrival order.
-    ///
-    /// This is the shape `node:http`'s `IncomingMessage` and a streamed
-    /// `fetch` response need. Reading it concatenates the chunks;
-    /// `ReadableStream` (not implemented yet) is the surface that will
-    /// expose them one at a time.
-    Stream(Vec<Vec<u8>>),
-}
-
-/// A single-use body with a JS reference identity.
-#[derive(Clone)]
-pub struct SmeltBody {
-    id: usize,
-    payload: ::std::rc::Rc<::std::cell::RefCell<SmeltBodyPayload>>,
-    /// The spec's `bodyUsed`, shared by every clone of this handle.
-    used: ::std::rc::Rc<::std::cell::Cell<bool>>,
-    /// The `Content-Type` this body implies, when it implies one.
-    ///
-    /// The spec's "extract a body" step returns a body *and* a type, and
-    /// the type is what a `Request`/`Response` constructor appends to the
-    /// header list when the caller did not set one. A string body implies
-    /// `text/plain;charset=UTF-8`; raw bytes and a stream imply nothing,
-    /// which is why this is an `Option` rather than a default string.
-    content_type: Option<String>,
-}
-
-impl PartialEq for SmeltBody { fn eq(&self, other: &Self) -> bool { self.peek_bytes() == other.peek_bytes() } }
-impl ::std::fmt::Debug for SmeltBody { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltBody").field("used", &self.used.get()).field("len", &self.peek_bytes().len()).finish() } }
-impl Default for SmeltBody { fn default() -> Self { Self::empty() } }
-
+struct Tally(::std::rc::Rc<::std::cell::RefCell<TallyInner>>);
 #[allow(dead_code)]
-impl SmeltBody {
-    /// An unused empty body with a fresh JS reference identity.
-    pub fn empty() -> Self { Self::from_payload(SmeltBodyPayload::Empty) }
-    /// A buffered body holding `text`'s UTF-8 bytes.
-    ///
-    /// Carries `text/plain;charset=UTF-8` as its implied type, which the
-    /// holder's constructor appends when the caller set no `Content-Type`.
-    pub fn from_text(text: &str) -> Self { let mut body = Self::from_payload(SmeltBodyPayload::Bytes(text.as_bytes().to_vec())); body.content_type = Some("text/plain;charset=UTF-8".to_owned()); body }
-    /// A buffered body holding `bytes`.
-    pub fn from_bytes(bytes: Vec<u8>) -> Self { Self::from_payload(SmeltBodyPayload::Bytes(bytes)) }
-    /// A body from a blob's bytes, carrying the blob's MIME type.
-    pub fn from_blob(bytes: Vec<u8>, blob_type: String) -> Self { let mut body = Self::from_payload(SmeltBodyPayload::Bytes(bytes)); if !blob_type.is_empty() { body.content_type = Some(blob_type); } body }
-    /// A streaming body whose chunks arrive in order.
-    pub fn from_chunks(chunks: Vec<Vec<u8>>) -> Self { Self::from_payload(SmeltBodyPayload::Stream(chunks)) }
-    /// Take a source body: same payload, fresh used flag, source disturbed.
-    pub fn take_from_source(source: &Self) -> Self {
-        if !source.is_empty() { source.used.set(true); }
-        Self { id: smelt_next_object_id(), payload: ::std::rc::Rc::clone(&source.payload), used: ::std::rc::Rc::new(::std::cell::Cell::new(false)), content_type: source.content_type.clone() }
-    }
-    /// Wrap a payload, unused, with a fresh identity.
-    fn from_payload(payload: SmeltBodyPayload) -> Self { Self { id: smelt_next_object_id(), payload: ::std::rc::Rc::new(::std::cell::RefCell::new(payload)), used: ::std::rc::Rc::new(::std::cell::Cell::new(false)), content_type: None } }
-    /// JS reference identity of this body.
-    pub fn id(&self) -> usize { self.id }
-    /// The spec's `bodyUsed`.
-    pub fn body_used(&self) -> bool { self.used.get() }
-    /// The `Content-Type` this body implies, when it implies one.
-    pub fn content_type(&self) -> Option<String> { self.content_type.clone() }
-    /// Whether there is no body at all (the spec's null body).
-    pub fn is_empty(&self) -> bool { matches!(&*self.payload.borrow(), SmeltBodyPayload::Empty) }
-    /// The body's bytes WITHOUT consuming it.
-    ///
-    /// Only for observers that the spec does not count as readers:
-    /// equality, `Debug`, and cloning a response. Every source-visible
-    /// reader goes through `take_bytes`.
-    pub fn peek_bytes(&self) -> Vec<u8> {
-        match &*self.payload.borrow() {
-            SmeltBodyPayload::Empty => Vec::new(),
-            SmeltBodyPayload::Bytes(bytes) => bytes.clone(),
-            SmeltBodyPayload::Stream(chunks) => chunks.concat(),
-        }
-    }
-    /// Consume the body, or fail the way the spec does.
-    ///
-    /// The first reader gets the bytes and sets `bodyUsed`; a second
-    /// reader gets the spec's `TypeError: Body is unusable`. The error is
-    /// a thrown JS value rather than a Rust panic, so source-level
-    /// `try`/`catch` around a double read behaves as it does in Node.
-    pub fn take_bytes(&self) -> Result<Vec<u8>, Box<dyn ::std::error::Error>> {
-        if self.used.get() {
-            return Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("TypeError".into())), ("message".to_owned(), SmeltUnknown::String("Body is unusable: Body has already been read".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])))));
-        }
-        self.used.set(true);
-        Ok(self.peek_bytes())
-    }
-    /// `text()`: the body decoded as UTF-8, lossily, as the spec does.
-    pub fn take_text(&self) -> Result<String, Box<dyn ::std::error::Error>> { Ok(String::from_utf8_lossy(&self.take_bytes()?).into_owned()) }
-    /// A clone that shares neither the bytes nor the used flag.
-    ///
-    /// This is `Response.clone()`: the spec gives the clone its own
-    /// unread body, so reading one must not consume the other. `Clone`
-    /// (the Rust trait) is the *handle* copy and shares both, which is
-    /// what assigning a response to another variable does.
-    pub fn tee(&self) -> Self { let mut body = Self::from_payload(self.payload.borrow().clone()); body.content_type = self.content_type.clone(); body }
+struct TallyInner {
+    label: String,
+    builds: f64,
+    describe: ::std::rc::Rc<dyn Fn(String) -> String>,
 }
-
-/// A WHATWG `Response`: a status line, a header list, and a body.
-///
-/// The status line and headers are plain fields because the spec makes
-/// them immutable on a response, so there is nothing for a shared cell to
-/// coordinate. The BODY is the mutable part — reading it is observable
-/// through every handle — and `SmeltBody` owns that sharing, which is why
-/// this struct does not wrap itself in another `Rc<RefCell<..>>`.
-#[derive(Clone)]
-pub struct SmeltResponse {
-    id: usize,
-    status: f64,
-    status_text: String,
-    headers: SmeltHeaders,
-    body: SmeltBody,
-}
-
-impl PartialEq for SmeltResponse { fn eq(&self, other: &Self) -> bool { self.status == other.status && self.status_text == other.status_text && self.headers == other.headers && self.body == other.body } }
-impl ::std::fmt::Debug for SmeltResponse { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltResponse").field("status", &self.status).field("statusText", &self.status_text).field("headers", &self.headers).field("body", &self.body).finish() } }
-impl Default for SmeltResponse { fn default() -> Self { Self::new() } }
-
-#[allow(dead_code)]
-impl SmeltResponse {
-    /// `new Response()`: 200, empty reason phrase, no body.
-    ///
-    /// 200 is the spec's default status, and the default reason phrase is
-    /// the EMPTY string, not `"OK"` — `new Response().statusText` is `""`
-    /// in Node. Filling in a phrase here would invent an observable value.
-    pub fn new() -> Self { Self::from_parts(200.0, String::new(), SmeltHeaders::new(), SmeltBody::empty()) }
-    /// Assemble a response with a fresh JS reference identity.
-    ///
-    /// A body that implies a `Content-Type` adds it to the header list
-    /// unless the caller already set one — the spec's "extract a body"
-    /// step, which is why `new Response('hi').headers.get('content-type')`
-    /// is `text/plain;charset=UTF-8` and not `null`.
-    pub fn from_parts(status: f64, status_text: String, headers: SmeltHeaders, body: SmeltBody) -> Self {
-        if let Some(content_type) = body.content_type() && !headers.has("content-type") {
-            headers.append("content-type", &content_type);
-        }
-        Self { id: smelt_next_object_id(), status, status_text, headers, body }
-    }
-    /// JS reference identity of this response.
-    pub fn id(&self) -> usize { self.id }
-    /// `status`.
-    pub fn status(&self) -> f64 { self.status }
-    /// `statusText`.
-    pub fn status_text(&self) -> String { self.status_text.clone() }
-    /// `ok`: the spec derives it from the status, so this does too.
-    ///
-    /// Storing it would let it drift from `status`; deriving cannot.
-    pub fn ok(&self) -> bool { self.status >= 200.0 && self.status <= 299.0 }
-    /// `headers`.
-    ///
-    /// The same header list, not a copy: `Headers` is a reference object,
-    /// so two reads of `response.headers` observe one another.
-    pub fn headers(&self) -> SmeltHeaders { self.headers.clone() }
-    /// `bodyUsed`.
-    pub fn body_used(&self) -> bool { self.body.body_used() }
-    /// The response's body handle.
-    pub fn body(&self) -> SmeltBody { self.body.clone() }
-    /// `text()`: the body decoded as UTF-8, consuming it.
-    ///
-    /// Fallible for the spec's reason: a second read is a `TypeError`.
-    pub fn take_text(&self) -> Result<String, Box<dyn ::std::error::Error>> { self.body.take_text() }
-    /// `clone()`: a response whose body is independently readable.
-    ///
-    /// The spec's `clone()` tees the body, so reading one side must not
-    /// consume the other. It is therefore NOT Rust's `Clone`, which copies
-    /// the handle and keeps one shared body — that is what assigning a
-    /// response to a second variable does, and both spellings are needed.
-    ///
-    /// The header list is copied too: the clone's headers are its own.
-    pub fn tee(&self) -> Self { Self::from_parts(self.status, self.status_text.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee()) }
-}
-
-/// Erase a response for a dynamic boundary (identity marker + status line).
-///
-/// Retains the live response, for the reason its `Request` sibling does:
-/// erasing a value and narrowing it back is the SAME object in JavaScript,
-/// body handle and `bodyUsed` cell included.
-impl IntoSmeltUnknown for SmeltResponse {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        smelt_register_host_origin(self.id, self.clone());
-        let body_text = String::from_utf8_lossy(&self.body.peek_bytes()).into_owned();
-        SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([("__smelt_response".to_owned(), SmeltUnknown::Bool(true)), ("status".to_owned(), SmeltUnknown::Number(self.status)), ("statusText".to_owned(), SmeltUnknown::String(self.status_text.into())), ("ok".to_owned(), SmeltUnknown::Bool(self.status >= 200.0 && self.status <= 299.0)), ("headers".to_owned(), self.headers.into_smelt_unknown()), ("body".to_owned(), SmeltUnknown::String(body_text.into()))])))
-    }
-}
-
-/// Recover a response from an erased value.
-///
-/// The retained origin first, exactly as for a request; a record that did
-/// not come from an erasure is rebuilt from its fields.
-impl SmeltFromUnknown for SmeltResponse {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }
-        let SmeltUnknown::Object(map) = value else { return Self::new() };
-        let status = match map.get("status") { Some(SmeltUnknown::Number(status)) => status, _ => 200.0 };
-        let status_text = match map.get("statusText") { Some(SmeltUnknown::String(text)) => text.to_string(), _ => String::new() };
-        let headers = map.get("headers").map_or_else(SmeltHeaders::new, SmeltHeaders::smelt_from_unknown);
-        let body = match map.get("body") { Some(SmeltUnknown::String(text)) if !text.is_empty() => SmeltBody::from_text(&text.to_string()), _ => SmeltBody::empty() };
-        Self::from_parts(status, status_text, headers, body)
-    }
-}
-
-#[derive(Clone)]
-pub enum SmeltUnion3 {
-    M0(f64),
-    M1(InitLike),
-    M2(SmeltResponse),
-}
-impl IntoSmeltUnknown for SmeltUnion3 {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        match self {
-            Self::M0(value) => SmeltUnknown::Number(value as f64),
-            Self::M1(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); if let Some(value) = smelt_object_value.headers.clone() { smelt_object_entries.push(("headers".to_owned(), value.clone().into_smelt_unknown())); } if let Some(value) = smelt_object_value.status.clone() { smelt_object_entries.push(("status".to_owned(), SmeltUnknown::Number(value as f64))); } SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },
-            Self::M2(value) => value.clone().into_smelt_unknown(),
-        }
-    }
-}
-impl SmeltUnion3 {
-    fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Number(_)) { return Self::M0(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }); }
-        if matches!(value, SmeltUnknown::Object(_)) { return Self::M1(match (value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); InitLike { headers: smelt_record_map.get("headers").or_else(|| smelt_record_map.get("__smelt_proto:headers")).or_else(|| smelt_record_map.get("__smelt_method:headers")).cloned().map(|value| <SmeltHeaders as SmeltFromUnknown>::smelt_from_unknown(value.clone())), status: smelt_record_map.get("status").or_else(|| smelt_record_map.get("__smelt_proto:status")).or_else(|| smelt_record_map.get("__smelt_method:status")).cloned().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } } }, _ => Default::default() }); }
-        Self::M2(<SmeltResponse as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
-    }
-}
-impl PartialEq for SmeltUnion3 {
-    fn eq(&self, other: &Self) -> bool {
-        self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
-    }
-}
-impl SmeltFromUnknown for SmeltUnion3 {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
-}
-impl SmeltJsKeyEq for SmeltUnion3 {
-    fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
-    fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
-}
-impl ::std::fmt::Debug for SmeltUnion3 {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
-    }
-}
-impl Default for SmeltUnion3 {
+impl Default for TallyInner {
     fn default() -> Self {
-        Self::M0(0.0)
-    }
-}
-
-#[derive(Clone)]
-pub enum SmeltUnion7 {
-    M0(InitLike),
-    M1(SmeltResponse),
-}
-impl IntoSmeltUnknown for SmeltUnion7 {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        match self {
-            Self::M0(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); if let Some(value) = smelt_object_value.headers.clone() { smelt_object_entries.push(("headers".to_owned(), value.clone().into_smelt_unknown())); } if let Some(value) = smelt_object_value.status.clone() { smelt_object_entries.push(("status".to_owned(), SmeltUnknown::Number(value as f64))); } SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },
-            Self::M1(value) => value.clone().into_smelt_unknown(),
+        Self {
+            label: String::new(),
+            builds: 0.0,
+            describe: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback },
         }
     }
 }
-impl SmeltUnion7 {
-    fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(match (value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); InitLike { headers: smelt_record_map.get("headers").or_else(|| smelt_record_map.get("__smelt_proto:headers")).or_else(|| smelt_record_map.get("__smelt_method:headers")).cloned().map(|value| <SmeltHeaders as SmeltFromUnknown>::smelt_from_unknown(value.clone())), status: smelt_record_map.get("status").or_else(|| smelt_record_map.get("__smelt_proto:status")).or_else(|| smelt_record_map.get("__smelt_method:status")).cloned().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } } }, _ => Default::default() }); }
-        Self::M1(<SmeltResponse as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
-    }
-}
-impl PartialEq for SmeltUnion7 {
-    fn eq(&self, other: &Self) -> bool {
-        self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
-    }
-}
-impl SmeltFromUnknown for SmeltUnion7 {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
-}
-impl SmeltJsKeyEq for SmeltUnion7 {
-    fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
-    fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
-}
-impl ::std::fmt::Debug for SmeltUnion7 {
+impl ::std::fmt::Debug for TallyInner {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
+        formatter.debug_struct("TallyInner").finish_non_exhaustive()
     }
 }
-impl Default for SmeltUnion7 {
+impl Clone for Tally {
+    fn clone(&self) -> Self {
+        Tally(::std::rc::Rc::clone(&self.0))
+    }
+}
+impl PartialEq for Tally {
+    fn eq(&self, other: &Self) -> bool {
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Default for Tally {
     fn default() -> Self {
-        Self::M0(Default::default())
+        Tally(::std::rc::Rc::new(::std::cell::RefCell::new(TallyInner::default())))
+    }
+}
+impl ::std::fmt::Debug for Tally {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
+    }
+}
+impl IntoSmeltUnknown for Tally {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let __smelt_id = smelt_reference_object_identity(::std::rc::Rc::as_ptr(&self.0) as usize);
+        let __smelt_inner = self.0.borrow();
+        let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
+        ("label".to_owned(), SmeltUnknown::String((__smelt_inner.label.clone()).into())),
+        ("builds".to_owned(), SmeltUnknown::Number(__smelt_inner.builds.clone() as f64)),
+        ("describe".to_owned(), SmeltUnknown::Null),
+        ]);
+        __smelt_entries.push(("__smelt_method:__smelt_set_field".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::String(smelt_key)) = smelt_args.first() { smelt_receiver.__smelt_set_field(&smelt_key.to_string(), smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)); } Ok(SmeltUnknown::Undefined) } })))); 
+        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))
     }
 }
 
 // @smelt:prelude-end — generated program below
-fn main() {
-    let _smelt_tmp_7: SmeltRecord<String, String>;
-    let _smelt_tmp_8: SmeltResponse;
-    let _smelt_tmp_11: SmeltRecord<String, f64>;
-    let _smelt_tmp_14: SmeltList<String>;
-    let _smelt_tmp_15: SmeltList<SmeltList<String>>;
-    let _smelt_tmp_16: SmeltHeaders;
-    let _smelt_tmp_17: SmeltRecord<String, SmeltHeaders>;
-    let _smelt_tmp_20: SmeltRecord<String, String>;
-    let _smelt_tmp_21: SmeltResponse;
-    let _smelt_tmp_24: SmeltRecord<String, f64>;
-    let _smelt_tmp_29: SmeltRecord<String, f64>;
-    let _smelt_tmp_32: SmeltResponse;
-    let _smelt_tmp_1: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x-a".to_owned(), "from-init".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_2: SmeltList<SmeltList<String>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_1.clone()]; smelt_list_items }));
-    let _smelt_tmp_3: SmeltHeaders = SmeltHeaders::from_pairs(_smelt_tmp_2.to_vec().into_iter().filter_map(|smelt_pair| { let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }).collect::<Vec<(String, String)>>());
-    let _smelt_tmp_4: InitLike = InitLike { headers: Some(_smelt_tmp_3), status: None::<f64> };
-    let init: InitLike = _smelt_tmp_4;
-    let _smelt_tmp_5: String = header_of(SmeltUnion7::M0(init), "x-a".to_owned());
-    let _ = { println!("{}", _smelt_tmp_5); };
-    _smelt_tmp_7 = SmeltRecord::from([("x-a".to_owned(), "from-response".to_owned())]);
-    _smelt_tmp_8 = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_7.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"body".to_owned()));
-    let _smelt_tmp_9: String = header_of(SmeltUnion7::M1(_smelt_tmp_8), "x-a".to_owned());
-    let _ = { println!("{}", _smelt_tmp_9); };
-    _smelt_tmp_11 = SmeltRecord::from([("status".to_owned(), 204.0)]);
-    let _smelt_tmp_12: String = header_of(SmeltUnion7::M0({ let smelt_record_map = _smelt_tmp_11.clone(); InitLike { headers: None, status: smelt_record_map.get("status").cloned().map(|value| value) } }), "x-a".to_owned());
-    let _ = { println!("{}", _smelt_tmp_12); };
-    _smelt_tmp_14 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x-b".to_owned(), "init".to_owned()]; smelt_list_items }));
-    _smelt_tmp_15 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_14.clone()]; smelt_list_items }));
-    _smelt_tmp_16 = SmeltHeaders::from_pairs(_smelt_tmp_15.to_vec().into_iter().filter_map(|smelt_pair| { let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }).collect::<Vec<(String, String)>>());
-    _smelt_tmp_17 = SmeltRecord::from([("headers".to_owned(), _smelt_tmp_16)]);
-    let _smelt_tmp_18: String = status_header_of(SmeltUnion3::M1({ let smelt_record_map = _smelt_tmp_17.clone(); InitLike { headers: smelt_record_map.get("headers").cloned().map(|value| value), status: None } }));
-    let _ = { println!("{}", _smelt_tmp_18); };
-    _smelt_tmp_20 = SmeltRecord::from([("x-b".to_owned(), "response".to_owned())]);
-    _smelt_tmp_21 = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_20.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"body".to_owned()));
-    let _smelt_tmp_22: String = status_header_of(SmeltUnion3::M2(_smelt_tmp_21));
-    let _ = { println!("{}", _smelt_tmp_22); };
-    _smelt_tmp_24 = SmeltRecord::from([("status".to_owned(), 201.0)]);
-    let _smelt_tmp_25: String = status_header_of(SmeltUnion3::M1({ let smelt_record_map = _smelt_tmp_24.clone(); InitLike { headers: None, status: smelt_record_map.get("status").cloned().map(|value| value) } }));
-    let _ = { println!("{}", _smelt_tmp_25); };
-    let _smelt_tmp_27: String = status_header_of(SmeltUnion3::M0(204.0));
-    let _ = { println!("{}", _smelt_tmp_27); };
-    _smelt_tmp_29 = SmeltRecord::from([("status".to_owned(), 201.0)]);
-    let _smelt_tmp_30: f64 = status_of(SmeltUnion3::M1({ let smelt_record_map = _smelt_tmp_29.clone(); InitLike { headers: None, status: smelt_record_map.get("status").cloned().map(|value| value) } }));
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_30)); };
-    _smelt_tmp_32 = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::new(), SmeltBody::from_text(&"body".to_owned()));
-    let _smelt_tmp_33: f64 = status_of(SmeltUnion3::M2(_smelt_tmp_32));
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_33)); };
-    let _smelt_tmp_35: f64 = status_of(SmeltUnion3::M0(418.0));
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_35)); };
-    return;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let tally: Tally;
+    let other: Tally;
+    let mut _smelt_tmp_3: ::std::rc::Rc<dyn Fn(String) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback };
+    let _smelt_tmp_4: String;
+    let mut _smelt_tmp_6: ::std::rc::Rc<dyn Fn(String) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback };
+    let _smelt_tmp_7: String;
+    let mut _smelt_tmp_9: ::std::rc::Rc<dyn Fn(String) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback };
+    let _smelt_tmp_10: String;
+    let mut _smelt_tmp_14: ::std::rc::Rc<dyn Fn(String) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback };
+    let _smelt_tmp_15: String;
+    let _smelt_tmp_2: Tally = Tally::new("apples".to_owned());
+    tally = _smelt_tmp_2;
+    _smelt_tmp_3 = { let smelt_bound_callee = tally.0.borrow().describe.clone().clone();                          let smelt_bound_receiver = tally.clone().clone();                          let smelt_bound: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |smelt_bound_arg_0| {                          let _smelt_this_guard = smelt_push_this_lazy({ let smelt_bound_receiver = smelt_bound_receiver.clone(); ::std::rc::Rc::new(move || { let smelt_object_value = smelt_bound_receiver.clone(); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("label".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().label.clone()).into()))); smelt_object_entries.push(("builds".to_owned(), SmeltUnknown::Number(smelt_object_value.0.borrow().builds.clone() as f64))); smelt_object_entries.push(("describe".to_owned(), { let smelt_function_value = smelt_object_value.0.borrow().describe.clone(); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String(((smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() })).into()))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Tally".into()))); smelt_object_entries.push(("__smelt_method:__smelt_set_field".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({ let smelt_receiver = smelt_struct_value.clone(); move |smelt_args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::String(smelt_key)) = smelt_args.first() { smelt_receiver.__smelt_set_field(&smelt_key.to_string(), smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)); } Ok(SmeltUnknown::Undefined) } })))); SmeltUnknown::Object(SmeltObject::with_id(smelt_reference_object_identity(::std::rc::Rc::as_ptr(&smelt_struct_value.0) as usize), smelt_object_entries)) }) });                          (smelt_bound_callee)(smelt_bound_arg_0) }); smelt_bound };
+    _smelt_tmp_4 = (_smelt_tmp_3)("first".to_owned());
+    let _ = { println!("{}", _smelt_tmp_4); };
+    _smelt_tmp_6 = { let smelt_bound_callee = tally.0.borrow().describe.clone().clone();                          let smelt_bound_receiver = tally.clone().clone();                          let smelt_bound: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |smelt_bound_arg_0| {                          let _smelt_this_guard = smelt_push_this_lazy({ let smelt_bound_receiver = smelt_bound_receiver.clone(); ::std::rc::Rc::new(move || { let smelt_object_value = smelt_bound_receiver.clone(); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("label".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().label.clone()).into()))); smelt_object_entries.push(("builds".to_owned(), SmeltUnknown::Number(smelt_object_value.0.borrow().builds.clone() as f64))); smelt_object_entries.push(("describe".to_owned(), { let smelt_function_value = smelt_object_value.0.borrow().describe.clone(); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String(((smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() })).into()))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Tally".into()))); smelt_object_entries.push(("__smelt_method:__smelt_set_field".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({ let smelt_receiver = smelt_struct_value.clone(); move |smelt_args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::String(smelt_key)) = smelt_args.first() { smelt_receiver.__smelt_set_field(&smelt_key.to_string(), smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)); } Ok(SmeltUnknown::Undefined) } })))); SmeltUnknown::Object(SmeltObject::with_id(smelt_reference_object_identity(::std::rc::Rc::as_ptr(&smelt_struct_value.0) as usize), smelt_object_entries)) }) });                          (smelt_bound_callee)(smelt_bound_arg_0) }); smelt_bound };
+    _smelt_tmp_7 = (_smelt_tmp_6)("second".to_owned());
+    let _ = { println!("{}", _smelt_tmp_7); };
+    _smelt_tmp_9 = { let smelt_bound_callee = tally.0.borrow().describe.clone().clone();                          let smelt_bound_receiver = tally.clone().clone();                          let smelt_bound: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |smelt_bound_arg_0| {                          let _smelt_this_guard = smelt_push_this_lazy({ let smelt_bound_receiver = smelt_bound_receiver.clone(); ::std::rc::Rc::new(move || { let smelt_object_value = smelt_bound_receiver.clone(); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("label".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().label.clone()).into()))); smelt_object_entries.push(("builds".to_owned(), SmeltUnknown::Number(smelt_object_value.0.borrow().builds.clone() as f64))); smelt_object_entries.push(("describe".to_owned(), { let smelt_function_value = smelt_object_value.0.borrow().describe.clone(); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String(((smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() })).into()))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Tally".into()))); smelt_object_entries.push(("__smelt_method:__smelt_set_field".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({ let smelt_receiver = smelt_struct_value.clone(); move |smelt_args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::String(smelt_key)) = smelt_args.first() { smelt_receiver.__smelt_set_field(&smelt_key.to_string(), smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)); } Ok(SmeltUnknown::Undefined) } })))); SmeltUnknown::Object(SmeltObject::with_id(smelt_reference_object_identity(::std::rc::Rc::as_ptr(&smelt_struct_value.0) as usize), smelt_object_entries)) }) });                          (smelt_bound_callee)(smelt_bound_arg_0) }); smelt_bound };
+    _smelt_tmp_10 = (_smelt_tmp_9)("third".to_owned());
+    let _ = { println!("{}", _smelt_tmp_10); };
+    let _ = { println!("{}", smelt_console_number(tally.0.borrow().builds.clone())); };
+    let _smelt_tmp_13: Tally = Tally::new("pears".to_owned());
+    other = _smelt_tmp_13;
+    _smelt_tmp_14 = { let smelt_bound_callee = other.0.borrow().describe.clone().clone();                          let smelt_bound_receiver = other.clone().clone();                          let smelt_bound: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |smelt_bound_arg_0| {                          let _smelt_this_guard = smelt_push_this_lazy({ let smelt_bound_receiver = smelt_bound_receiver.clone(); ::std::rc::Rc::new(move || { let smelt_object_value = smelt_bound_receiver.clone(); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("label".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().label.clone()).into()))); smelt_object_entries.push(("builds".to_owned(), SmeltUnknown::Number(smelt_object_value.0.borrow().builds.clone() as f64))); smelt_object_entries.push(("describe".to_owned(), { let smelt_function_value = smelt_object_value.0.borrow().describe.clone(); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String(((smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() })).into()))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Tally".into()))); smelt_object_entries.push(("__smelt_method:__smelt_set_field".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({ let smelt_receiver = smelt_struct_value.clone(); move |smelt_args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::String(smelt_key)) = smelt_args.first() { smelt_receiver.__smelt_set_field(&smelt_key.to_string(), smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)); } Ok(SmeltUnknown::Undefined) } })))); SmeltUnknown::Object(SmeltObject::with_id(smelt_reference_object_identity(::std::rc::Rc::as_ptr(&smelt_struct_value.0) as usize), smelt_object_entries)) }) });                          (smelt_bound_callee)(smelt_bound_arg_0) }); smelt_bound };
+    _smelt_tmp_15 = (_smelt_tmp_14)("solo".to_owned());
+    let _ = { println!("{}", _smelt_tmp_15); };
+    let _ = { println!("{} {}", smelt_console_number(other.0.borrow().builds.clone()), smelt_console_number(tally.0.borrow().builds.clone())); };
+    return Ok(());
+}
+
+impl Tally {
+    fn new(label: String) -> Self {
+    let mut this: Self = Tally(::std::rc::Rc::new(::std::cell::RefCell::new(TallyInner { label: String::new(), builds: 0.0, describe: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback } })));
+    this.0.borrow_mut().builds = 0.0;
+    let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: String| {
+    let _smelt_tmp_1: String = describe(closure_arg_0.clone());
+    _smelt_tmp_1.clone()
+    });
+    this.0.borrow_mut().describe = _smelt_tmp_2.clone();
+    this.0.borrow_mut().label = label.clone();
+    return this;
+    }
+    /// Assign an own-property field from a write through this instance's erased view.
+    #[allow(dead_code, unreachable_patterns)]
+    fn __smelt_set_field(&self, key: &str, value: SmeltUnknown) {
+        match key {
+            "label" => { let smelt_field_value = match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }; self.0.borrow_mut().label = smelt_field_value; }
+            "builds" => { let smelt_field_value = match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }; self.0.borrow_mut().builds = smelt_field_value; }
+            "describe" => { let smelt_field_value = { let smelt_source_value = value.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: ::std::rc::Rc<dyn Fn(String) -> String> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String) -> String>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move |arg0: String| -> String { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(SmeltUnknown::String(arg0.into())); smelt_call_args }).unwrap_or_else(|error| smelt_panic_throw(error)); match smelt_result.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() } }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback } } }; self.0.borrow_mut().describe = smelt_field_value; }
+            _ => { let _ = value; }
+        }
+    }
 }
 
 // ==== source_main.rs
@@ -3398,111 +3097,27 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn header_of(arg: SmeltUnion7, name: String) -> String {
-    let headers: Option<SmeltHeaders>;
-    let mut _smelt_tmp_4: Option<SmeltHeaders>;
-    let _smelt_tmp_5: SmeltResponse;
-    let _smelt_tmp_6: SmeltHeaders;
-    let _smelt_tmp_7: InitLike;
-    let _smelt_tmp_8: Option<SmeltHeaders>;
-    let _smelt_tmp_9: bool;
-    let _smelt_tmp_10: SmeltHeaders;
-    let _smelt_tmp_11: Option<String>;
-    let _smelt_tmp_12: String;
-    let _smelt_tmp_3: bool = matches!(arg.clone(), SmeltUnion7::M1(_));
-    let mut _smelt_tmp_4: Option<SmeltHeaders> = None::<SmeltHeaders>;
-    if _smelt_tmp_3 {
-    _smelt_tmp_5 = match arg.clone() { SmeltUnion7::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_6 = _smelt_tmp_5.headers();
-    _smelt_tmp_4 = Some(_smelt_tmp_6);
-    } else {
-    _smelt_tmp_7 = match arg.clone() { SmeltUnion7::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_4 = _smelt_tmp_7.headers.clone();
+pub(crate) fn describe(prefix: String) -> String {
+    let mut _smelt_tmp_3: SmeltUnknown = smelt_this();
+    let _smelt_tmp_4: SmeltUnknown = smelt_this();
+    let _smelt_tmp_5: f64 = match smelt_get_unknown_field(&_smelt_tmp_4.clone(), "builds").clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN } + 1.0;
+    { let smelt_value = SmeltUnknown::Number(_smelt_tmp_5 as f64); match &mut _smelt_tmp_3 { SmeltUnknown::Object(map) => { map.insert("builds".to_owned(), smelt_value.clone()); smelt_object_write_through(map, "builds", &smelt_value); }, SmeltUnknown::Array(values) => { values.set_named_property("builds".to_owned(), smelt_value); }, SmeltUnknown::Function(function) => { smelt_set_function_property(function, "builds", smelt_value); }, other => { *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([("builds".to_owned(), smelt_value)]))); } } }
+    let _smelt_tmp_6: SmeltUnknown = smelt_this();
+    let label: SmeltUnknown = smelt_get_unknown_field(&_smelt_tmp_6.clone(), "label").clone();
+    let _smelt_tmp_7 = ::std::rc::Rc::new({
+    let label = label.clone();
+    move |closure_arg_0: String| {
+    let _smelt_tmp_2: String = closure_arg_0.clone() + &" ".to_owned();
+    let _smelt_tmp_3: String = _smelt_tmp_2.clone() + &match label.clone() {  SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
+    let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &" (cached)".to_owned();
+    _smelt_tmp_4.clone()
     }
-    _smelt_tmp_8 = _smelt_tmp_4;
-    headers = _smelt_tmp_8;
-    _smelt_tmp_9 = headers.clone().is_none();
-    if _smelt_tmp_9 {
-    return "none".to_owned();
-    } else {
-    _smelt_tmp_10 = headers.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_11 = _smelt_tmp_10.get(&name.clone());
-    _smelt_tmp_12 = _smelt_tmp_11.clone().unwrap_or("none".to_owned());
-    return _smelt_tmp_12;
-    }
-}
-
-pub(crate) fn status_header_of(arg: SmeltUnion3) -> String {
-    let headers: Option<SmeltHeaders>;
-    let _smelt_tmp_3: SmeltUnion7;
-    let _smelt_tmp_4: bool;
-    let mut _smelt_tmp_5: Option<SmeltHeaders>;
-    let _smelt_tmp_6: SmeltResponse;
-    let _smelt_tmp_7: SmeltHeaders;
-    let _smelt_tmp_8: InitLike;
-    let _smelt_tmp_9: Option<SmeltHeaders>;
-    let _smelt_tmp_10: bool;
-    let _smelt_tmp_11: SmeltHeaders;
-    let _smelt_tmp_12: Option<String>;
-    let _smelt_tmp_13: String;
-    let _smelt_tmp_2: bool = matches!(arg.clone(), SmeltUnion3::M1(_) | SmeltUnion3::M2(_));
-    if _smelt_tmp_2 {
-    _smelt_tmp_3 = match arg.clone() { SmeltUnion3::M1(value) => SmeltUnion7::M0(value), SmeltUnion3::M2(value) => SmeltUnion7::M1(value), _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_4 = matches!(_smelt_tmp_3.clone(), SmeltUnion7::M1(_));
-    let mut _smelt_tmp_5: Option<SmeltHeaders> = None::<SmeltHeaders>;
-    if _smelt_tmp_4 {
-    _smelt_tmp_6 = match _smelt_tmp_3 { SmeltUnion7::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_7 = _smelt_tmp_6.headers();
-    _smelt_tmp_5 = Some(_smelt_tmp_7);
-    } else {
-    _smelt_tmp_8 = match _smelt_tmp_3 { SmeltUnion7::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_5 = _smelt_tmp_8.headers.clone();
-    }
-    _smelt_tmp_9 = _smelt_tmp_5;
-    headers = _smelt_tmp_9;
-    _smelt_tmp_10 = !(headers.clone().is_none());
-    if _smelt_tmp_10 {
-    _smelt_tmp_11 = headers.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_12 = _smelt_tmp_11.get(&"x-b".to_owned());
-    _smelt_tmp_13 = _smelt_tmp_12.clone().unwrap_or("none".to_owned());
-    return _smelt_tmp_13;
-    } else {
-    return "not-an-object".to_owned();
-    }
-    }
-    return "not-an-object".to_owned();
-}
-
-pub(crate) fn status_of(arg: SmeltUnion3) -> f64 {
-    let _smelt_tmp_2: SmeltUnion7;
-    let _smelt_tmp_3: bool;
-    let mut _smelt_tmp_4: Option<f64>;
-    let _smelt_tmp_5: SmeltResponse;
-    let _smelt_tmp_6: f64;
-    let _smelt_tmp_7: InitLike;
-    let _smelt_tmp_8: Option<f64>;
-    let _smelt_tmp_9: f64;
-    let _smelt_tmp_10: f64;
-    let _smelt_tmp_11: f64;
-    let _smelt_tmp_1: bool = matches!(arg.clone(), SmeltUnion3::M1(_) | SmeltUnion3::M2(_));
-    if _smelt_tmp_1 {
-    _smelt_tmp_2 = match arg.clone() { SmeltUnion3::M1(value) => SmeltUnion7::M0(value), SmeltUnion3::M2(value) => SmeltUnion7::M1(value), _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_3 = matches!(_smelt_tmp_2.clone(), SmeltUnion7::M1(_));
-    let mut _smelt_tmp_4: Option<f64> = None::<f64>;
-    if _smelt_tmp_3 {
-    _smelt_tmp_5 = match _smelt_tmp_2 { SmeltUnion7::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_6 = _smelt_tmp_5.status();
-    _smelt_tmp_4 = Some(_smelt_tmp_6);
-    } else {
-    _smelt_tmp_7 = match _smelt_tmp_2 { SmeltUnion7::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_4 = _smelt_tmp_7.status.clone();
-    }
-    _smelt_tmp_8 = _smelt_tmp_4;
-    _smelt_tmp_9 = -1.0;
-    _smelt_tmp_10 = _smelt_tmp_8.clone().unwrap_or(_smelt_tmp_9);
-    return _smelt_tmp_10;
-    } else {
-    _smelt_tmp_11 = match arg.clone() { SmeltUnion3::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
+});
+    let fast = _smelt_tmp_7.clone();
+    let mut _smelt_tmp_8: SmeltUnknown = smelt_this();
+    { let smelt_value = SmeltUnknown::Function({ let smelt_source_fn = fast.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String(((smelt_callback)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() })).into()))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, 1.0); smelt_erased_fn }); match &mut _smelt_tmp_8 { SmeltUnknown::Object(map) => { map.insert("describe".to_owned(), smelt_value.clone()); smelt_object_write_through(map, "describe", &smelt_value); }, SmeltUnknown::Array(values) => { values.set_named_property("describe".to_owned(), smelt_value); }, SmeltUnknown::Function(function) => { smelt_set_function_property(function, "describe", smelt_value); }, other => { *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([("describe".to_owned(), smelt_value)]))); } } }
+    let _smelt_tmp_9: String = prefix.clone() + &" ".to_owned();
+    let _smelt_tmp_10: String = _smelt_tmp_9 + &match label.clone() {  SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
+    let _smelt_tmp_11: String = _smelt_tmp_10 + &" (built)".to_owned();
     return _smelt_tmp_11;
-    }
 }

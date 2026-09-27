@@ -595,7 +595,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 26] = [
+    const BOUNDARY_MARKERS: [&str; 29] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -711,6 +711,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // when it is created, before any of them is known. Proven in
         // `this_receiver_channel_is_a_boundary` below.
         "smelt_push_this(",
+        "smelt_push_this_lazy(",
         "smelt_this()",
         "smelt_bind_this(",
         // The erased class-prototype slot
@@ -843,6 +844,32 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // receiver folds to a literal that names no `SmeltUnknown` at all.
         // Proven by `error_brand_instanceof_guard_is_a_boundary` below.
         "if matches!(value.get(\"__smelt_error\")",
+        // `instanceof UserClass` against an erased operand — the same guard for
+        // a SOURCE class. An erased class instance records its class in the
+        // hidden `__smelt_class` provenance marker (stamped by the struct
+        // erasure), and `e instanceof UnsupportedPathError` is lowered to a
+        // guard reading that marker back and comparing it against the class
+        // and every generated class extending it
+        // (`erased_user_class_instance_of_text`). The canonical operand is
+        // again a `catch` binding: `unknown` by TypeScript's own rule, arriving
+        // on the exception channel, and narrowed by nothing but this runtime
+        // test — no concrete type, union arm, or scoped generic can carry a
+        // thrown value of a class the catch site does not name. Narrow like its
+        // siblings: the marker is the probe inside the guard's own `value`
+        // binding. Proven by `user_class_instanceof_guard_is_a_boundary`.
+        "if matches!(value.get(\"__smelt_class\")",
+        // The write-through setter of a reference class's erased view
+        // (`crates/smelt-codegen-rust/src/emitter/view_write_through.rs`). Its
+        // `SmeltUnknown` parameter is the value an ERASED property write
+        // (`this.match = m` with `this` erased) stored on the view: the write
+        // site has only the erased carrier, and the setter is the adapter that
+        // converts it back to the field's own declared type before assigning.
+        // It is the inbound mirror of `into_smelt_unknown` -- a boundary
+        // adapter by construction -- and no concrete type, union arm, or scoped
+        // generic can carry "whatever an erased write stored under this key",
+        // since one view receives writes for every field through one entry.
+        // Proven by `view_write_through_setter_is_a_boundary`.
+        "fn __smelt_set_field(",
     ];
 
     // A JavaScript update-expression (`x++`/`++x`) used as a value snapshots its
@@ -1156,6 +1183,50 @@ mod tests {
     /// emitter produces (plain and `Option` receiver) while an erased local, an
     /// erased parameter, and a brand probe that is NOT a narrowing guard all
     /// stay avoidable.
+    /// `instanceof` a SOURCE class over an erased operand probes the hidden
+    /// `__smelt_class` marker — runtime narrowing of a value whose static type
+    /// says nothing (a `catch` binding), so it is a boundary; an erased local
+    /// holding the same value stays avoidable.
+    /// The erased-view write-through setter converts an erased write back to
+    /// a field's declared type; its erased parameter is that boundary.
+    #[test]
+    fn view_write_through_setter_is_a_boundary() {
+        assert_eq!(
+            classify_line(
+                "    fn __smelt_set_field(&self, key: &str, value: SmeltUnknown) {",
+                false
+            ),
+            Category::LegitimateBoundary,
+            "the setter adapts an erased property write to the field's type"
+        );
+        assert_eq!(
+            classify_line("    fn set_label(&self, value: SmeltUnknown) {", false),
+            Category::AvoidableErasure,
+            "an ordinary erased parameter must stay avoidable"
+        );
+    }
+
+    #[test]
+    fn user_class_instanceof_guard_is_a_boundary() {
+        let guard = "    _smelt_tmp_7 = matches!(e.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get(\"__smelt_class\"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, \"UnsupportedPathError\")));";
+        assert_eq!(
+            classify_line(guard, false),
+            Category::LegitimateBoundary,
+            "a caught source-class error recovers its class from the value's marker"
+        );
+        let optional = "    let _smelt_tmp_2: bool = matches!(input.clone(), Some(SmeltUnknown::Object(value)) if matches!(value.get(\"__smelt_class\"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, \"Base\" | \"Derived\")));";
+        assert_eq!(
+            classify_line(optional, false),
+            Category::LegitimateBoundary,
+            "the `Option` receiver spelling of the same guard is the same boundary"
+        );
+        assert_eq!(
+            classify_line("    let caught: SmeltUnknown = e;", false),
+            Category::AvoidableErasure,
+            "an ordinary erased local must stay avoidable"
+        );
+    }
+
     #[test]
     fn host_brand_instanceof_guard_is_a_boundary() {
         let guard = "    _smelt_tmp_3 = matches!(error.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_domexception\"));";

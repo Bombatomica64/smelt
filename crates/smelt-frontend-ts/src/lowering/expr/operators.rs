@@ -2844,12 +2844,10 @@ impl ModuleBuilder<'_> {
         }
         let operand = self.expression(&unary.argument, body)?;
         let operand = if matches!(op, UnaryOp::Not) {
-            self.optional_known_date_presence_condition(
-                operand,
-                self.span(unary.argument.span().start, unary.argument.span().end),
-                body,
-            )
-            .unwrap_or(operand)
+            let span = self.span(unary.argument.span().start, unary.argument.span().end);
+            self.optional_known_date_presence_condition(operand, span, body)
+                .or_else(|| self.keyed_read_presence_condition(operand, span, body))
+                .unwrap_or(operand)
         } else {
             operand
         };

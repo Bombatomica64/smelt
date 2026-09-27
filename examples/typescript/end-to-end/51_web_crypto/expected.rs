@@ -3627,7 +3627,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_24 = groups.borrow().get({ let smelt_normalized = 3.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).chars().count() as f64;
     _smelt_tmp_25 = groups.borrow().get({ let smelt_normalized = 4.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).chars().count() as f64;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_24), smelt_console_number(_smelt_tmp_25)); };
-    _smelt_tmp_27 = regex::Regex::new(&"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$".to_owned()).expect("regex compile failed").is_match(&id);
+    _smelt_tmp_27 = fancy_regex::Regex::new(&"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$".to_owned()).expect("regex compile failed").is_match(&id).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_27); };
     _smelt_tmp_29 = SmeltTextEncoder::new();
     _smelt_tmp_30 = _smelt_tmp_29.encode(&"abc".to_owned());

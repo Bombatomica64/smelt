@@ -96,6 +96,7 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
         collect_field_mutation_triggers(mir, function, &mut references);
         collect_self_capture_triggers(mir, function, &mut references);
     }
+    collect_bound_receiver_triggers(mir, &mut references);
     // Before the index-store deviation below, so that deviation still has the
     // final say for a class that carries a dynamic index signature.
     close_over_heritage(mir, &mut references);
@@ -201,6 +202,54 @@ fn collect_field_write_triggers(
             }
             references.insert(name);
         }
+    }
+}
+
+/// Record classes whose instances are installed as a call's `this` in a
+/// program that writes properties through erased values.
+///
+/// A call through a function-valued field (`tally.describe(..)`) installs the
+/// instance as the callee's `this` ([`Rvalue::BindThis`]), and the callee sees
+/// it only as an erased view. A property write through that view
+/// (`this.builds = ..`) is a post-construction mutation of THE instance, and
+/// `emitter::view_write_through` forwards it there — which needs the shared
+/// identity only the handle representation has: a by-value instance's view is
+/// a copy, so the write would land on nothing the program can read back.
+/// Gated on the program containing an erased property write at all, the only
+/// statement the view can be mutated through, so programs that merely bind a
+/// receiver keep their value classes.
+fn collect_bound_receiver_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
+    if !crate::emitter::view_write_through::program_writes_erased_fields(mir) {
+        return;
+    }
+    let mut record = |locals: &[smelt_mir::LocalDecl], blocks: &[smelt_mir::BasicBlock]| {
+        for statement in blocks.iter().flat_map(|block| &block.statements) {
+            let Statement::Assign {
+                value: Rvalue::BindThis { receiver, .. },
+                ..
+            } = statement
+            else {
+                continue;
+            };
+            let Some(local) = operand_base_local(receiver) else {
+                continue;
+            };
+            let Some(decl) = usize::try_from(local.0).ok().and_then(|index| locals.get(index))
+            else {
+                continue;
+            };
+            if let Some(Type::Class { name, .. }) = mir.types.get(decl.ty)
+                && mir.classes.iter().any(|class| class.name == *name)
+            {
+                references.insert(*name);
+            }
+        }
+    };
+    for function in &mir.functions {
+        record(&function.locals, &function.blocks);
+    }
+    for closure in &mir.closures {
+        record(&closure.locals, &closure.blocks);
     }
 }
 

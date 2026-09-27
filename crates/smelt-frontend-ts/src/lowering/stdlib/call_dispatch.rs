@@ -1230,7 +1230,10 @@ impl<'builder> ModuleBuilder<'builder> {
                 args.push(self.lower_call_arg(arg, None, body)?);
             }
         }
-        if method_item.0 == u32::MAX && self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown) {
+        if method_item.0 == u32::MAX
+            && self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown)
+            && !self.receiver_declares_in_progress_method(access_receiver_ty, method, member_span)?
+        {
             let ty = self.ctx.krate.types.intern(Type::Unknown);
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::None),
@@ -1266,6 +1269,145 @@ impl<'builder> ModuleBuilder<'builder> {
         }))
     }
 
+    /// Return whether a member call through a TYPED function-valued field
+    /// supplies its class-instance receiver as `this`.
+    ///
+    /// JavaScript binds `this` from the call: `router.match(m, p)` runs the
+    /// stored function with `this === router` even when the field holds a
+    /// plain function (Hono's `match: typeof match<..> = match`, whose body
+    /// reads `this.buildAllMatchers()` and assigns `this.match`). The erased
+    /// call ABI already installs that receiver; a callee that kept its
+    /// concrete `Type::Function` did not, so the function observed
+    /// `undefined` and every erased read through it came back empty.
+    ///
+    /// Binding wraps the callable in a closure of the SAME Rust type that
+    /// installs the receiver (lazily erased, see the `BindThis` emission) and
+    /// forwards its arguments. That forwarding is exact only when every
+    /// argument travels by value, so the rule is gated to signatures whose
+    /// parameters are scalars, strings, erased values, optionals of those or
+    /// callables: a structural parameter can be passed by `&mut` reference
+    /// through the call site itself, and a synchronous function only, since
+    /// the receiver is installed for the duration of the call and an `async`
+    /// body reads it after the call has returned its future. Other signatures
+    /// keep the receiver-less call they had.
+    ///
+    /// The receiver must be a class instance: that is the value whose erased
+    /// view keeps the instance's identity and prototype members, which is what
+    /// the callee's `this` reads resolve against. The whole-program
+    /// `UnobservedReceiverBind` MIR pass removes the bind again from programs
+    /// that never read `this`.
+    fn typed_field_callee_takes_class_receiver(
+        &self,
+        dispatch_ty: smelt_hir::TypeId,
+        receiver: smelt_hir::ExprId,
+        property: &str,
+        body: &Body,
+    ) -> bool {
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(dispatch_ty) else {
+            return false;
+        };
+        if function.is_async || !function.mutable_params.is_empty() {
+            return false;
+        }
+        if !function
+            .params
+            .iter()
+            .all(|param| self.type_is_by_value_call_argument(*param))
+        {
+            return false;
+        }
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(Self::expr_ty(body, receiver))
+        else {
+            return false;
+        };
+        self.class_declares_data_field(*name, property)
+    }
+
+    /// Return whether `property` names a DATA field (not a method) of the
+    /// generated class `class` or of a class it extends.
+    ///
+    /// A method is emitted as a Rust method whose receiver is `self`, so a call
+    /// to it never needs the dynamic `this` channel — even where the class
+    /// also carries a slot of that name for virtual dispatch. Only a field that
+    /// STORES a function value (`match: typeof match<..> = match`) runs code
+    /// that can only find its receiver through the channel.
+    fn class_declares_data_field(&self, class: smelt_hir::Symbol, property: &str) -> bool {
+        let mut current = Some(class);
+        for _ in 0_u32..64_u32 {
+            let Some(class_symbol) = current else {
+                return false;
+            };
+            let Some(item) = self.class_by_symbol(class_symbol) else {
+                return false;
+            };
+            let names_property = |symbol: smelt_hir::Symbol| {
+                self.ctx.krate.symbols.get(symbol) == Some(property)
+                    || self.ctx.krate.names.get(symbol) == Some(property)
+            };
+            if item.methods.iter().any(|method| {
+                matches!(self.item_ref(*method), Item::Function(function) if names_property(function.name))
+            }) || item
+                .abstract_methods
+                .iter()
+                .any(|method| names_property(method.name))
+            {
+                return false;
+            }
+            if item.fields.iter().any(|field| names_property(field.name)) {
+                return true;
+            }
+            current = item.base;
+        }
+        false
+    }
+
+    /// Return whether a typed closure parameter of `ty` is always passed by
+    /// value, so a forwarding wrapper passes exactly what the call site did.
+    fn type_is_by_value_call_argument(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(
+                Type::Bool
+                | Type::Int
+                | Type::Float
+                | Type::String
+                | Type::Unknown
+                | Type::TypeParam { .. }
+                | Type::Function(_),
+            ) => true,
+            Some(Type::Optional(inner)) => self.type_is_by_value_call_argument(*inner),
+            _ => false,
+        }
+    }
+
+    /// Return whether `receiver_ty` is a class still being lowered that
+    /// DECLARES `method` itself.
+    ///
+    /// `resolve_method` answers such a call with the declared return type and
+    /// no item (`ItemId(u32::MAX)`), because the class's item is registered
+    /// only once all its members are lowered; MIR resolves the call by name
+    /// later. When the method has no return annotation that type is still
+    /// `Unknown`, which made the pair look exactly like a genuinely dynamic
+    /// member call, and `member_call` replaced the whole call with `undefined`:
+    /// `add() { this.#insertPath(m, p) }` inside the same class dropped the
+    /// call — and every side effect and throw in it (Hono's reg-exp router
+    /// `add` never inserted a path or raised `UnsupportedPathError`).
+    fn receiver_declares_in_progress_method(
+        &self,
+        receiver_ty: smelt_hir::TypeId,
+        method: smelt_hir::Symbol,
+        span: oxc::span::Span,
+    ) -> Result<bool, SmeltError> {
+        let Some(Type::Class { name, args }) = self.ctx.krate.types.get(receiver_ty).cloned()
+        else {
+            return Ok(false);
+        };
+        if self.class_by_symbol(name).is_some() {
+            return Ok(false);
+        }
+        Ok(self
+            .in_progress_class_method_return(name, &args, method, span)?
+            .is_some())
+    }
 
     /// Lower `receiver[key]()` over a receiver whose member set is known.
     ///
@@ -3050,6 +3192,14 @@ impl<'builder> ModuleBuilder<'builder> {
             _ => false,
         };
         if !callee_uses_erased_call_abi {
+            if self.typed_field_callee_takes_class_receiver(
+                dispatch_ty,
+                receiver,
+                member.property.name.as_str(),
+                body,
+            ) {
+                return self.bind_this_receiver(callee, receiver, body, span);
+            }
             return callee;
         }
         // A read whose DECLARED type is a function but whose receiver erases to

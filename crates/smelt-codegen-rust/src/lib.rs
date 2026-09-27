@@ -3617,29 +3617,51 @@ fn emit_source_with_free_function_router(
         // read. `smelt_bind_this` installs a receiver for exactly one call and
         // the guard restores the previous binding on scope exit (including on
         // unwind), so the channel is always balanced.
+        // A receiver is either an erased value or a DEFERRED erasure of a
+        // concrete one: a call through a typed function-valued field
+        // (`router.match(..)`) installs a thunk, so the instance's erased view
+        // is built only if the callee actually reads `this`.
+        writer.line("/// What `this` is bound to: an erased receiver, or the erasure of a concrete one, run on first read.");
+        writer.line("#[derive(Clone)]");
+        writer.line("enum SmeltThisBinding { Value(SmeltUnknown), Deferred(::std::rc::Rc<dyn Fn() -> SmeltUnknown>) }");
+        writer.blank_line();
         writer.line("thread_local! {");
         writer.line("    /// Receiver installed by the innermost active call, `undefined` when none.");
-        writer.line("    static SMELT_THIS: ::std::cell::RefCell<SmeltUnknown> = ::std::cell::RefCell::new(SmeltUnknown::Undefined);");
+        writer.line("    static SMELT_THIS: ::std::cell::RefCell<SmeltThisBinding> = ::std::cell::RefCell::new(SmeltThisBinding::Value(SmeltUnknown::Undefined));");
         writer.line("}");
         writer.blank_line();
         writer.line("/// Restores the previously installed `this` binding when dropped.");
-        writer.line("struct SmeltThisGuard { previous: SmeltUnknown }");
+        writer.line("struct SmeltThisGuard { previous: SmeltThisBinding }");
         writer.blank_line();
         writer.line("impl Drop for SmeltThisGuard {");
         writer.line("    fn drop(&mut self) {");
-        writer.line("        let previous = ::std::mem::replace(&mut self.previous, SmeltUnknown::Undefined);");
+        writer.line("        let previous = ::std::mem::replace(&mut self.previous, SmeltThisBinding::Value(SmeltUnknown::Undefined));");
         writer.line("        SMELT_THIS.with(|slot| { *slot.borrow_mut() = previous; });");
         writer.line("    }");
         writer.line("}");
         writer.blank_line();
         writer.line("/// Install `receiver` as `this` until the returned guard is dropped.");
         writer.line("fn smelt_push_this(receiver: SmeltUnknown) -> SmeltThisGuard {");
-        writer.line("    SmeltThisGuard { previous: SMELT_THIS.with(|slot| slot.replace(receiver)) }");
+        writer.line("    SmeltThisGuard { previous: SMELT_THIS.with(|slot| slot.replace(SmeltThisBinding::Value(receiver))) }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Install a concrete receiver as `this`, erased by `erase` only when first read.");
+        writer.line("#[allow(dead_code)]");
+        writer.line("fn smelt_push_this_lazy(erase: ::std::rc::Rc<dyn Fn() -> SmeltUnknown>) -> SmeltThisGuard {");
+        writer.line("    SmeltThisGuard { previous: SMELT_THIS.with(|slot| slot.replace(SmeltThisBinding::Deferred(erase))) }");
         writer.line("}");
         writer.blank_line();
         writer.line("/// Read the `this` receiver installed by the innermost active call.");
         writer.line("fn smelt_this() -> SmeltUnknown {");
-        writer.line("    SMELT_THIS.with(|slot| slot.borrow().clone())");
+        writer.line("    let binding = SMELT_THIS.with(|slot| slot.borrow().clone());");
+        writer.line("    match binding {");
+        writer.line("        SmeltThisBinding::Value(receiver) => receiver,");
+        writer.line("        SmeltThisBinding::Deferred(erase) => {");
+        writer.line("            let receiver = erase();");
+        writer.line("            SMELT_THIS.with(|slot| { *slot.borrow_mut() = SmeltThisBinding::Value(receiver.clone()); });");
+        writer.line("            receiver");
+        writer.line("        }");
+        writer.line("    }");
         writer.line("}");
         writer.blank_line();
         writer.line("/// Bind a receiver to an erased callable, as `Function.prototype.bind` does.");
@@ -3663,6 +3685,12 @@ fn emit_source_with_free_function_router(
         writer.line("        other => other,");
         writer.line("    }");
         writer.line("}");
+        }
+        if context.erased_view_write_through() {
+            writer.blank_line();
+            for line in emitter::view_write_through::WRITE_THROUGH_PRELUDE.lines() {
+                writer.line(line);
+            }
         }
         if needs_vitest_mock {
             writer.blank_line();
@@ -5419,6 +5447,7 @@ fn emit_source_with_free_function_router(
                     declared_name: interface.name,
                     // An object shape has no method bodies to bind.
                     has_proto_entries: false,
+                    has_field_setter: false,
                 },
                 needs_unknown,
             )?;
@@ -6205,6 +6234,12 @@ fn emit_source_with_free_function_router(
                 class_proto::class_proto_entries_method(mir, &context, class)?
         {
             out.push_str(&proto_entries);
+        }
+        if needs_unknown && let Some(host) = field_setter_host(mir, &context, class) {
+            let emitter = FunctionEmitter::new(mir, &context, host)?;
+            out.push_str(
+                &emitter.reference_field_setter_method_text(&effective_class_fields(mir, class))?,
+            );
         }
         out.push_str("}\n");
         for protocol in &class.protocols {
@@ -7039,6 +7074,7 @@ fn emit_reference_class_storage(
             type_param_names: class.type_params.iter().map(|param| param.name).collect(),
             declared_name: class.name,
             has_proto_entries: class_proto::class_has_proto_entries(mir, context, class),
+            has_field_setter: field_setter_host(mir, context, class).is_some(),
         },
         needs_unknown,
     )
@@ -7080,6 +7116,9 @@ struct ReferenceRecordShape<'a> {
     /// Only a `class` has method bodies to bind; an object *shape* has none, so
     /// it is always `false` there.
     has_proto_entries: bool,
+    /// Whether the type emits the erased-view write-through setter (see
+    /// `emitter::view_write_through`); always `false` for a shape.
+    has_field_setter: bool,
 }
 
 /// Emit the handle newtype, inner record, and identity impls for one record type.
@@ -7100,6 +7139,7 @@ fn emit_reference_record_storage(
         type_param_names,
         declared_name,
         has_proto_entries,
+        has_field_setter,
     } = shape;
     let inner_name = format!("{name}Inner");
     let scoped_type_params = type_param_names.iter().copied().collect::<HashSet<_>>();
@@ -7299,10 +7339,35 @@ fn emit_reference_record_storage(
             type_args,
             fields,
             *has_proto_entries,
+            *has_field_setter,
         )?;
     }
     writer.blank_line();
     Ok(())
+}
+
+/// The function whose emitter renders a reference class's erased-view field
+/// setter (see `emitter::view_write_through`), when the class gets one.
+///
+/// Any function of the class works — the setter only needs the class's type
+/// parameters in its render scope — so the constructor is used, falling back
+/// to the first method. `None` when the program has no erased property write
+/// (the machinery is pay-for-use), when the class is not a reference class
+/// (a by-value instance has no identity for a view to stand for), or when the
+/// class has no function at all.
+pub(crate) fn field_setter_host<'mir>(
+    mir: &'mir Mir,
+    context: &EmitContext,
+    class: &smelt_mir::MirClass,
+) -> Option<&'mir MirFunction> {
+    if !context.erased_view_write_through() || !context.is_reference_class(class.name) {
+        return None;
+    }
+    class
+        .constructor
+        .into_iter()
+        .chain(effective_class_methods(mir, class))
+        .find_map(|function| mir.functions.get(usize::try_from(function.0).ok()?))
 }
 
 /// Emit the field lines of a reference class's inner record.
@@ -7344,6 +7409,7 @@ fn emit_reference_class_into_smelt_unknown_impl(
     type_args: &str,
     fields: &[smelt_mir::MirField],
     has_proto_entries: bool,
+    has_field_setter: bool,
 ) -> Result<(), EmitError> {
     writer.block(
         format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
@@ -7394,6 +7460,11 @@ fn emit_reference_class_into_smelt_unknown_impl(
                 fn_writer.line("]);");
                 if has_proto_entries {
                     fn_writer.line("__smelt_entries.extend(__smelt_proto);");
+                }
+                // A property write through this view reaches the instance
+                // (see `emitter::view_write_through`).
+                if has_field_setter {
+                    fn_writer.line(emitter::view_write_through::erased_view_entry_text("self", "__smelt_entries"));
                 }
                 fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))");
             });

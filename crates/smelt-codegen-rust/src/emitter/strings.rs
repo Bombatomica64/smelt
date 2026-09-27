@@ -367,14 +367,19 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a regex boolean match operation to Rust text using the `regex` crate.
+    /// Converts a regex boolean match operation to Rust text using the `fancy-regex` crate.
     ///
     /// The emitted expression compiles the pattern at the call site so the dependency stays
     /// interchangeable with a future cached-regex helper module.
-    /// Converts a regex boolean match operation to Rust text using the `regex` crate.
     ///
-    /// The emitted expression compiles the pattern at the call site so the dependency stays
-    /// interchangeable with a future cached-regex helper module.
+    /// `fancy-regex` rather than `regex`: both JavaScript and Python patterns
+    /// use look-around and backreferences, which the `regex` crate rejects at
+    /// compile time — `/\((?!\?:)/.test(s)` (Hono's reg-exp router) panicked
+    /// with "look-around ... is not supported". `fancy-regex` delegates every
+    /// pattern without those features to `regex` itself, so simple patterns
+    /// match exactly as before, and it ships with the `regex` dependency (see
+    /// `smelt_stdlib::deps`). A backtracking-limit error at match time answers
+    /// "no match", as the `SmeltRegExp` runtime already does.
     pub(super) fn regex_is_match_text(
         &self,
         op: smelt_hir::RegexMatchOp,
@@ -384,17 +389,19 @@ impl FunctionEmitter<'_> {
         let pattern_text = self.string_like_operand_text(pattern, "regex match")?;
         let haystack_text = self.string_like_operand_text(haystack, "regex match")?;
         let regex_text =
-            format!("regex::Regex::new(&{pattern_text}).expect(\"regex compile failed\")");
+            format!("fancy_regex::Regex::new(&{pattern_text}).expect(\"regex compile failed\")");
         Ok(match op {
             smelt_hir::RegexMatchOp::Search => {
-                format!("{regex_text}.is_match(&{haystack_text})")
+                format!("{regex_text}.is_match(&{haystack_text}).unwrap_or(false)")
             }
             smelt_hir::RegexMatchOp::Match => {
-                format!("{regex_text}.find(&{haystack_text}).is_some_and(|m| m.start() == 0)")
+                format!(
+                    "{regex_text}.find(&{haystack_text}).ok().flatten().is_some_and(|m| m.start() == 0)"
+                )
             }
             smelt_hir::RegexMatchOp::FullMatch => {
                 format!(
-                    "{regex_text}.find(&{haystack_text}).is_some_and(|m| m.start() == 0 && m.end() == {haystack_text}.len())"
+                    "{regex_text}.find(&{haystack_text}).ok().flatten().is_some_and(|m| m.start() == 0 && m.end() == {haystack_text}.len())"
                 )
             }
         })
@@ -422,8 +429,12 @@ impl FunctionEmitter<'_> {
     /// Converts a regex replacement callback operation to Rust text.
     ///
     /// `args` names the ECMA-262 replacer arguments the callback declared, in
-    /// order, as resolved by the frontend; each is rendered from the `regex`
-    /// crate's `Captures` and from the subject string.
+    /// order, as resolved by the frontend; each is rendered from the
+    /// `fancy-regex` `Captures` and from the subject string. Like every regex
+    /// site here it compiles with `fancy-regex`, because JavaScript patterns
+    /// use look-around (Hono's `buildWildcardRegExp` replaces with
+    /// `(?=[/{]|$)`), which the `regex` crate rejects; see
+    /// [`Self::regex_is_match_text`].
     pub(super) fn regex_replace_callback_text(
         &self,
         op: smelt_hir::StringReplaceOp,
@@ -434,7 +445,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         self.require_string_operands(&[pattern, haystack], "regex replace callback")?;
         let regex_text = format!(
-            "regex::Regex::new(&{}).expect(\"regex compile failed\")",
+            "fancy_regex::Regex::new(&{}).expect(\"regex compile failed\")",
             self.operand_text(pattern)?
         );
         let haystack_text = self.operand_text(haystack)?;
@@ -451,7 +462,7 @@ impl FunctionEmitter<'_> {
         // String-extract boundary so the closure hands `replace` a real string.
         let call_expr = format!("({callback_text})({})", arg_texts.join(", "));
         let replacement_expr = self.regex_replacement_as_string(call_expr, callback)?;
-        let replacement = format!("|caps: &regex::Captures<'_>| {replacement_expr}");
+        let replacement = format!("|caps: &fancy_regex::Captures<'_>| {replacement_expr}");
         // The subject string is bound once, before the replace call, because a
         // `position`/`string` argument reads it from INSIDE the replacer closure
         // and re-rendering the operand there would evaluate it a second time.
@@ -564,17 +575,19 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         self.require_string_operands(&[pattern, haystack], "regex uppercase replace")?;
         let regex_text = format!(
-            "regex::Regex::new(&{}).expect(\"regex compile failed\")",
+            "fancy_regex::Regex::new(&{}).expect(\"regex compile failed\")",
             self.operand_text(pattern)?
         );
         let haystack_text = self.operand_text(haystack)?;
         Ok(format!(
-            "{regex_text}.replace(&{haystack_text}, |captures: &regex::Captures<'_>| captures.get(0).map_or_else(String::new, |matched| matched.as_str().to_uppercase())).to_string()"
+            "{regex_text}.replace(&{haystack_text}, |captures: &fancy_regex::Captures<'_>| captures.get(0).map_or_else(String::new, |matched| matched.as_str().to_uppercase())).to_string()"
         ))
     }
 
-    /// Converts a regex split operation to Rust text using the `regex` crate.
-    /// Converts a regex split operation to Rust text using the `regex` crate.
+    /// Converts a regex split operation to Rust text using the `fancy-regex` crate.
+    ///
+    /// A backtracking-limit error on one piece drops that piece, the same
+    /// no-match answer the other `fancy-regex` sites give.
     pub(super) fn regex_split_text(
         &self,
         pattern: &Operand,
@@ -582,12 +595,12 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         self.require_string_operands(&[pattern, haystack], "regex split")?;
         let regex_text = format!(
-            "regex::Regex::new(&{}).expect(\"regex compile failed\")",
+            "fancy_regex::Regex::new(&{}).expect(\"regex compile failed\")",
             self.operand_text(pattern)?
         );
         let haystack_text = self.operand_text(haystack)?;
         Ok(format!(
-            "{regex_text}.split(&{haystack_text}).map(str::to_owned).collect::<Vec<_>>()"
+            "{regex_text}.split(&{haystack_text}).filter_map(Result::ok).map(str::to_owned).collect::<Vec<_>>()"
         ))
     }
 
