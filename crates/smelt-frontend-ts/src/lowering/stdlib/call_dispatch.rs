@@ -12,6 +12,7 @@ use oxc::span::GetSpan;
 use smelt_hir::{
     AsyncOp, Body, CaptureMode, ClosureCapture, Expr, ExprKind, Field, FunctionType,
     GeneratorResumeKind, Item, Literal, LocalDecl, Param, Pattern, Span, Stmt, Type,
+    TypeParamDef,
 };
 use smelt_stdlib::RuleId;
 use std::collections::HashMap;
@@ -740,8 +741,14 @@ impl<'builder> ModuleBuilder<'builder> {
                     format!("unresolved function `{}`", callee_ident.name),
                 ));
             };
-            let (params, item_rest, item_required_params, implementation_return_ty, is_async) =
-                if let Item::Function(function) = self.item_ref(item) {
+            let (
+                params,
+                item_rest,
+                item_required_params,
+                implementation_return_ty,
+                is_async,
+                callee_type_params,
+            ) = if let Item::Function(function) = self.item_ref(item) {
                     (
                         function
                             .params
@@ -752,6 +759,7 @@ impl<'builder> ModuleBuilder<'builder> {
                         function.required_params,
                         function.return_ty,
                         function.is_async,
+                        self.callee_own_type_params(item),
                     )
                 } else if self.imports.is_value(callee_ident.name.as_str()) {
                     for arg in &call.arguments {
@@ -1081,8 +1089,18 @@ impl<'builder> ModuleBuilder<'builder> {
                 });
                 for (param, arg) in inference_inputs {
                     let arg_ty = Self::expr_ty(body, *arg);
-                    let _ = self.infer_overload_type(*param, arg_ty, &mut substitutions);
+                    let _ = self.infer_callee_type_bindings(
+                        &callee_type_params,
+                        *param,
+                        arg_ty,
+                        &mut substitutions,
+                    );
                 }
+                // Parameters no argument bound instantiate to `unknown`, the
+                // type the emitted definition returns for them, so the result
+                // never carries a raw callee `TypeParam` that would alias a
+                // same-named caller parameter.
+                self.complete_callee_type_substitution(&callee_type_params, &mut substitutions);
                 if substitutions.is_empty() {
                     return_ty
                 } else {
@@ -1123,12 +1141,24 @@ impl<'builder> ModuleBuilder<'builder> {
                     let mut substitutions = HashMap::new();
                     for (param, arg) in params.iter().zip(&args) {
                         let arg_ty = Self::expr_ty(body, *arg);
-                        let _ = self.infer_overload_type(*param, arg_ty, &mut substitutions);
+                        let _ = self.infer_callee_type_bindings(
+                            &callee_type_params,
+                            *param,
+                            arg_ty,
+                            &mut substitutions,
+                        );
                     }
                     if substitutions.contains_key(&name) {
                         return_ty
                     } else {
-                        implementation_return_ty
+                        // Still instantiate the implementation's unbound
+                        // parameters (this one included) to `unknown`, so the
+                        // erased return never leaks a raw callee `TypeParam`.
+                        self.complete_callee_type_substitution(
+                            &callee_type_params,
+                            &mut substitutions,
+                        );
+                        self.substitute_type_params(implementation_return_ty, &substitutions)
                     }
                 }
                 _ => return_ty,
@@ -1232,6 +1262,15 @@ impl<'builder> ModuleBuilder<'builder> {
                 args.push(self.lower_call_arg(arg, hint, body)?);
             }
         }
+        // A resolved generic method instantiates its OWN type parameters (to
+        // `unknown`, what its erased definition returns); class parameters
+        // were already substituted from the receiver by `resolve_method`.
+        let return_ty = if method_item.0 == u32::MAX {
+            return_ty
+        } else {
+            let method_type_params = self.callee_own_type_params(method_item);
+            self.instantiate_generic_method_result(&method_type_params, return_ty)
+        };
         if method_item.0 == u32::MAX
             && self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown)
             && !self.receiver_declares_in_progress_method(access_receiver_ty, method, member_span)?
@@ -2538,6 +2577,9 @@ impl<'builder> ModuleBuilder<'builder> {
     /// associated function item so codegen emits `Class::staticMethod(args)`.
     /// Returns `None` when the callee is not a `Class.method(..)` static call so
     /// the caller can fall through to the ordinary member-call path.
+    ///
+    /// A generic static method's own type parameters are instantiated as in
+    /// [`Self::instantiate_generic_method_result`].
     pub(in crate::lowering) fn class_static_method_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -2569,6 +2611,7 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(None);
         };
         let return_ty = function.return_ty;
+        let method_type_params = self.callee_own_type_params(static_item);
         let span = self.span(call.span.start, call.span.end);
         // Arguments are lowered as-is; the Rust emitter coerces each to the
         // associated function's declared parameter type at the call site, the
@@ -2577,6 +2620,7 @@ impl<'builder> ModuleBuilder<'builder> {
         for argument in &call.arguments {
             args.push(self.argument(argument, body)?);
         }
+        let return_ty = self.instantiate_generic_method_result(&method_type_params, return_ty);
         let callee = body.push_expr(Expr {
             kind: ExprKind::Item(static_item),
             ty: self.item_expr_type(static_item, span)?,
@@ -4962,6 +5006,51 @@ impl<'builder> ModuleBuilder<'builder> {
                 | Type::None,
             )
             | None => false,
+        }
+    }
+
+    /// Instantiate a generic METHOD's declared result type for one call.
+    ///
+    /// Used by the class-method and static-method call paths, which resolve a
+    /// concrete method item but previously typed the call with its declared
+    /// return verbatim, so a method-level type parameter (`list<U = number>():
+    /// U[]`, `static bag<T>(): Record<string, T>`) leaked into the caller as a
+    /// raw `TypeParam` — aliasing any same-named caller parameter.
+    ///
+    /// `type_params` are the method's OWN type parameters (recorded in
+    /// `HirCtx::erased_item_type_params`). Only these are instantiated:
+    /// `return_ty` may still mention the enclosing class's parameters (already
+    /// substituted from the receiver's arguments by `resolve_method`, or
+    /// deliberately left as the caller's own `this` parameters), and those must
+    /// never be rebound here.
+    ///
+    /// DYNAMIC BOUNDARY: every own parameter becomes `unknown`, without
+    /// argument inference. Codegen emits a method's own type parameters as
+    /// `SmeltUnknown` (methods are never generic over them in Rust), so typing
+    /// the result from the arguments would promise a concrete container the
+    /// erased definition does not return; `unknown` is exactly what the
+    /// leaked parameter used to render as.
+    ///
+    /// Returns `return_ty` unchanged for a non-generic method, and keeps the
+    /// declared return where instantiation would turn it into a function that
+    /// renders as the erased `SmeltErasedFunction` (same rule as free calls).
+    fn instantiate_generic_method_result(
+        &mut self,
+        type_params: &[TypeParamDef],
+        return_ty: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
+        if type_params.is_empty()
+            || !self.overload_constraint_contains_unresolved_type_param(return_ty)
+        {
+            return return_ty;
+        }
+        let mut substitutions = HashMap::new();
+        self.complete_callee_type_substitution(type_params, &mut substitutions);
+        let substituted = self.substitute_type_params(return_ty, &substitutions);
+        if self.renders_as_erased_function(substituted) {
+            return_ty
+        } else {
+            substituted
         }
     }
 

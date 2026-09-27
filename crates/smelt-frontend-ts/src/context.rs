@@ -177,6 +177,18 @@ pub struct HirCtx {
     /// Keyed by the interned spelling of the declared name, which is what an
     /// unqualified type reference to it resolves to.
     pub class_type_params: HashMap<smelt_hir::Symbol, Vec<smelt_hir::TypeParamDef>>,
+    /// Type parameters a callable item DECLARES in source but whose HIR item
+    /// does not carry (its `Function::type_params` is empty).
+    ///
+    /// Class methods, static methods and lifted arrow functions do not yet
+    /// materialize their own generics: codegen renders each such parameter as
+    /// `SmeltUnknown` in the definition. A call to one must still know which
+    /// type parameters in the declared signature are the CALLEE's own, so the
+    /// call's result substitutes them (to the erased type the definition really
+    /// returns) instead of leaking a raw `TypeParam` that, being identified by
+    /// name, would alias a same-named parameter of the caller. Keyed by the
+    /// callee's item id.
+    pub erased_item_type_params: HashMap<ItemId, Vec<TypeParamDef>>,
     /// Value types declared by class string index signatures (`[k: string]: T`).
     ///
     /// Populated when a class declaration carries a `TSIndexSignature`, and read
@@ -289,6 +301,7 @@ impl HirCtx {
             date_returning_functions: HashSet::new(),
             type_alias_fields: HashMap::new(),
             class_type_params: HashMap::new(),
+            erased_item_type_params: HashMap::new(),
             interface_extends: HashMap::new(),
             interface_index_values: HashMap::new(),
             class_index_values: HashMap::new(),

@@ -66,7 +66,7 @@ impl ModuleBuilder<'_> {
         qualify_private_name: bool,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let function_hint = self.contextual_function_type(type_hint);
-        let _type_params = self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
+        let arrow_type_params = self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
         let explicit_return_ty = match arrow
             .return_type
             .as_ref()
@@ -413,6 +413,12 @@ return_ty,
             body: Some(body_id),
             owner: FunctionOwner::Module,
         }));
+        // The arrow's own generics are not materialized on the item (see the
+        // comment above); record them so a call can instantiate them instead
+        // of leaking the raw parameters into its caller.
+        if !arrow_type_params.is_empty() {
+            self.ctx.erased_item_type_params.insert(item, arrow_type_params);
+        }
         self.items.insert(name_text.to_owned(), item);
         if let Some(rest) = rest {
             self.functions.set_rest(name_text.to_owned(), rest);
