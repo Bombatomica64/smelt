@@ -3,8 +3,8 @@
 //! [`FunctionRegistry`] owns what the lowering pass knows about *named
 //! functions* before or independently of their bodies: TypeScript overload
 //! signatures, rest-parameter metadata, the forward-visible signatures of
-//! hoisted declarations, and the two narrowing tables for user assertion
-//! (`asserts value is T`) and predicate (`value is T`) functions.
+//! hoisted declarations, and the narrowing tables for user assertion
+//! (`asserts value is T`) and predicate (`value is T`) functions and methods.
 //!
 //! # The invariants this struct owns
 //!
@@ -24,10 +24,15 @@ use std::collections::{HashMap, HashSet};
 use smelt_hir::{Symbol, TypeId};
 
 use crate::OverloadSignature;
+use crate::lowering::type_predicates::PredicateKind;
 use crate::lowering::{AssertionNarrowing, RestParam};
 
 /// Forward-visible signature of a hoisted function declaration.
 type ForwardFunctionType = (Symbol, TypeId);
+
+/// A class member that may carry a type predicate: the class's source name,
+/// whether the member is static, and the member name.
+pub(in crate::lowering) type MethodPredicateKey = (String, bool, String);
 
 /// Named-function signature knowledge for one module.
 ///
@@ -46,6 +51,9 @@ pub(in crate::lowering) struct FunctionRegistry {
     assertions: HashMap<String, AssertionNarrowing>,
     /// User predicate functions declared with `value is T`.
     predicates: HashMap<String, AssertionNarrowing>,
+    /// Class methods whose return annotation is a type predicate, keyed by
+    /// member and by which kind of predicate it is.
+    method_predicates: HashMap<(MethodPredicateKey, PredicateKind), AssertionNarrowing>,
 }
 
 impl FunctionRegistry {
@@ -155,6 +163,25 @@ impl FunctionRegistry {
         narrowing: AssertionNarrowing,
     ) {
         self.predicates.insert(name, narrowing);
+    }
+
+    /// Return the `kind` predicate declared by the class member `key`.
+    pub(in crate::lowering) fn method_type_predicate(
+        &self,
+        key: &MethodPredicateKey,
+        kind: PredicateKind,
+    ) -> Option<AssertionNarrowing> {
+        self.method_predicates.get(&(key.clone(), kind)).copied()
+    }
+
+    /// Record the `kind` predicate declared by the class member `key`.
+    pub(in crate::lowering) fn set_method_type_predicate(
+        &mut self,
+        key: MethodPredicateKey,
+        kind: PredicateKind,
+        narrowing: AssertionNarrowing,
+    ) {
+        self.method_predicates.insert((key, kind), narrowing);
     }
 }
 
