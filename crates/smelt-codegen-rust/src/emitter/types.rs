@@ -1955,8 +1955,12 @@ impl FunctionEmitter<'_> {
             // where they resolve to the dynamic carrier — which is what such a
             // value is used as: a class VALUE is the constructor, never an
             // instance, and every read of it goes through erasure.
-            Type::Class { name, args } if args.is_empty() && self.class_type_param_count(*name) > 0 => {
-                let placeholders = vec!["SmeltUnknown"; self.class_type_param_count(*name)].join(", ");
+            // Only the parameters the emitted struct CARRIES are spelled: an
+            // elided position has no slot (see `crate::generic_elision`), so a
+            // class whose every parameter is elided (`Context<E extends Env =
+            // any, ..>`) is non-generic in Rust and takes the plain default.
+            Type::Class { name, args } if args.is_empty() && self.carried_class_type_param_count(*name) > 0 => {
+                let placeholders = vec!["SmeltUnknown"; self.carried_class_type_param_count(*name)].join(", ");
                 Ok(format!(
                     "{}::<{placeholders}>::default()",
                     sanitize_ident(self.symbol_name(*name)?)
@@ -2169,16 +2173,23 @@ impl FunctionEmitter<'_> {
             })
     }
 
-    /// How many type parameters the class named `name` declares.
+    /// Number of a class's type parameters its emitted Rust struct declares.
     ///
-    /// `0` for a non-generic class and for a name that is not a generated class
-    /// at all, so callers can ask without checking first.
-    pub(super) fn class_type_param_count(&self, name: smelt_hir::Symbol) -> usize {
+    /// Generic elision (`crate::generic_elision`) drops the SOURCE parameters
+    /// that carry no information, and a turbofish must name exactly the ones
+    /// that remain. `0` for a non-generic class and for a name that is not a
+    /// generated class at all, so callers can ask without checking first.
+    pub(super) fn carried_class_type_param_count(&self, name: smelt_hir::Symbol) -> usize {
         self.mir
             .classes
             .iter()
             .find(|class| class.name == name)
-            .map_or(0, |class| class.type_params.len())
+            .map_or(0, |class| {
+                self.context
+                    .type_param_elision()
+                    .retain_carried(class.name, class.type_params.iter().collect::<Vec<_>>())
+                    .len()
+            })
     }
 
     /// Substitute concrete class/interface arguments into structural fields.
