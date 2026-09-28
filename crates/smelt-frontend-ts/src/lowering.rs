@@ -12,6 +12,7 @@ mod stdlib;
 mod stdlib_dispatch;
 mod support;
 mod type_predicates;
+mod computed_member_call;
 mod union_member_read;
 mod ty;
 use std::{

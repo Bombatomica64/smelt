@@ -257,13 +257,18 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(expr);
         }
         if let Expression::ComputedMemberExpression(member) = &call.callee {
+            let callee = self.computed_member(member, body)?;
+            let callee_ty = Self::expr_ty(body, callee);
+            if let Some(expr) =
+                self.computed_member_callable_value_call(call, member, callee, callee_ty, body)?
+            {
+                return Ok(expr);
+            }
             let args = call
                 .arguments
                 .iter()
                 .map(|arg| self.argument(arg, body))
                 .collect::<Result<Vec<_>, _>>()?;
-            let callee = self.computed_member(member, body)?;
-            let callee_ty = Self::expr_ty(body, callee);
             if let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned() {
                 if args.len() < function.params.len() {
                     return Err(SmeltError::unsupported(
@@ -277,14 +282,6 @@ impl<'builder> ModuleBuilder<'builder> {
                         args: args.into_iter().take(function.params.len()).collect(),
                     },
                     ty: function.return_ty,
-                    span: self.span(call.span.start, call.span.end),
-                }));
-            }
-            if matches!(self.ctx.krate.types.get(callee_ty), Some(Type::Unknown)) {
-                let ty = self.ctx.krate.types.intern(Type::Unknown);
-                return Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::None),
-                    ty,
                     span: self.span(call.span.start, call.span.end),
                 }));
             }
@@ -3026,6 +3023,18 @@ impl<'builder> ModuleBuilder<'builder> {
         let Ok(callee) = self.static_member_no_absent_fallback(member, body) else {
             return Ok(None);
         };
+        // `<RegExp-typed expression>.test(text)`: the member read resolved to
+        // the host class's `test` slot, whose erased call answers `null`. See
+        // `regexp_test_on_typed_receiver`.
+        if member.property.name == "test"
+            && let Some(&ExprKind::Field { receiver, .. }) = usize::try_from(callee.0)
+                .ok()
+                .and_then(|index| body.exprs.get(index))
+                .map(|expr| &expr.kind)
+            && let Some(expr) = self.regexp_test_on_typed_receiver(call, receiver, body)?
+        {
+            return Ok(Some(expr));
+        }
         if self.static_member_is_concrete_class_method(callee, member, body) {
             return Ok(None);
         }

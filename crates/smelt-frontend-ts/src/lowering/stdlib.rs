@@ -1584,6 +1584,49 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower `receiver.test(text)` when the already-lowered receiver is TYPED `RegExp`.
+    ///
+    /// [`Self::regexp_test_call`] decides from the receiver's SPELLING, before
+    /// lowering it, because a library may define its own `.test(..)`; it
+    /// recognizes a regex literal, `new RegExp(..)` and a local/constant of a
+    /// regex type. Any other receiver expression — a call returning `RegExp`
+    /// (`buildWildcardRegExp(k).test(path)` in Hono's `RegExpRouter`), a field,
+    /// an element — reached the generic member call, which has no `test` on the
+    /// host class and answered `null`, so every such test was silently false.
+    /// Once the receiver is lowered its type is known: exactly `RegExp` means
+    /// the host method, with the same stateful runtime `test` a variable
+    /// receiver gets. `None` for any other receiver type.
+    pub(super) fn regexp_test_on_typed_receiver(
+        &mut self,
+        call: &CallExpression<'_>,
+        receiver: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let regexp_ty = self.regexp_type();
+        if Self::expr_ty(body, receiver) != regexp_ty {
+            return Ok(None);
+        }
+        let [haystack_argument] = call.arguments.as_slice() else {
+            return Ok(None);
+        };
+        let haystack = self.argument(haystack_argument, body)?;
+        let Some(haystack) = self.regexp_text_operand(haystack, body) else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "RegExp.test() requires a string haystack",
+            ));
+        };
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::RegexTest {
+                regex: receiver,
+                haystack,
+            },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Return whether an untagged `.test(...)` receiver is plausibly a `RegExp` value.
     ///
     /// Many validation libraries expose their own `.test(...)` APIs. Smelt only
