@@ -333,6 +333,14 @@ impl EmitContext {
         self.erased_view_write_through && !self.reference_classes.is_empty()
     }
 
+    /// Return whether any record type is emitted as a reference class.
+    ///
+    /// Gates the erased-view origin slot (see [`crate::reference_origin`]):
+    /// only an erasure of a reference record ever stamps one.
+    pub(crate) fn has_reference_classes(&self) -> bool {
+        !self.reference_classes.is_empty()
+    }
+
     /// Return whether the class named `symbol` is emitted as a reference class.
     ///
     /// Reference classes use the handle-newtype representation with interior

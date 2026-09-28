@@ -1861,10 +1861,25 @@ impl<'mir> FunctionEmitter<'mir> {
         // struct. The record round-trip must mint a fresh shared cell around the
         // reconstructed inner record rather than emit a struct literal against a
         // tuple struct (was E0560/E0609).
+        //
+        // A record view that came from an erasure of this reference record
+        // carries the live handle, and JavaScript narrowing yields that SAME
+        // object -- so the rebuild is only the answer for a view with no origin
+        // (a literal, a JSON value, a spread copy). See `reference_origin`.
         if self.context.is_reference_class(*name) {
-            return Ok(Some(format!(
-                "{{ let smelt_record_map = {value_text}.clone(); {target_name}(::std::rc::Rc::new(::std::cell::RefCell::new({target_name}Inner {{ {} }}))) }}",
+            let rebuild = format!(
+                "{target_name}(::std::rc::Rc::new(::std::cell::RefCell::new({target_name}Inner {{ {} }})))",
                 field_text.join(", ")
+            );
+            // Only an erased-valued `SmeltRecord` view can share an erased
+            // object's store; a concretely typed dictionary never carries one.
+            let body = if source_is_erased && self.dict_uses_smelt_record(source_key) {
+                crate::reference_origin::restore_or_rebuild_text("smelt_record_map", &rebuild)
+            } else {
+                rebuild
+            };
+            return Ok(Some(format!(
+                "{{ let smelt_record_map = {value_text}.clone(); {body} }}"
             )));
         }
         Ok(Some(format!(
@@ -3176,7 +3191,11 @@ impl<'mir> FunctionEmitter<'mir> {
             call
         };
         let unknown_ty = self.type_id(Type::Unknown)?;
-        let return_text = if self.mir.types.get(source.return_ty) == Some(&Type::None) {
+        // A `never`-returning callback (one that always throws) is still CALLED:
+        // its throw is the whole point of invoking it, and erasing its "result"
+        // must not replace the call with a constant. It therefore takes the
+        // statement shape of a `void` callback, whose value is never observed.
+        let return_text = if matches!(self.mir.types.get(source.return_ty), Some(Type::None | Type::Never)) {
             let null_text = self.null_value_text();
             format!("{{ {call_value}; {null_text} }}")
         } else {
@@ -4844,7 +4863,11 @@ impl<'mir> FunctionEmitter<'mir> {
             },
             ..source.clone()
         };
-        let return_text = if self.mir.types.get(source.return_ty) == Some(&Type::None) {
+        // A `never`-returning callback (one that always throws) is still CALLED:
+        // its throw is the whole point of invoking it, and erasing its "result"
+        // must not replace the call with a constant. It therefore takes the
+        // statement shape of a `void` callback, whose value is never observed.
+        let return_text = if matches!(self.mir.types.get(source.return_ty), Some(Type::None | Type::Never)) {
             // A `void`-returning callback erased to a callable value returns
             // JavaScript `undefined`, not `null`.
             if source.may_throw {
@@ -4964,7 +4987,11 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             format!("{function_text}({args})")
         };
-        let return_text = if self.mir.types.get(source.return_ty) == Some(&Type::None) {
+        // A `never`-returning callback (one that always throws) is still CALLED:
+        // its throw is the whole point of invoking it, and erasing its "result"
+        // must not replace the call with a constant. It therefore takes the
+        // statement shape of a `void` callback, whose value is never observed.
+        let return_text = if matches!(self.mir.types.get(source.return_ty), Some(Type::None | Type::Never)) {
             // A `void`-returning callback erased to a callable value returns
             // JavaScript `undefined`, not `null`.
             if source.may_throw {

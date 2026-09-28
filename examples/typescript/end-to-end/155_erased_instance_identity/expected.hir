@@ -1,0 +1,38 @@
+module examples/typescript/end-to-end/155_erased_instance_identity/input.ts (ModuleId(0))
+  body BodyId(6)
+  items
+    class Context fields [Public res: String, Public headers: List<String>, Public count: Float] constructor Some(ItemId(4)) methods [ItemId(3)] implements []
+    class Point fields [Public x: Float, Public y: Float] constructor Some(ItemId(6)) methods [] implements []
+    fn fail owner Module
+    fn fail_later owner Module
+    fn run owner Module
+  exprs
+    #0: async fn() -> Future<None> = @2(run)
+    #1: Future<None> = call #0()
+    #2: None = async_spawn_local(#1)
+    #3: Future<None> = async_exit_drain()
+    #4: None = await #3
+  stmts
+    s0: #2
+    s1: #4
+  async state machine
+    states [state0, state1]
+    suspend #4 on #3 -> state5
+
+interned types
+  t0 = Context
+  t1 = None
+  t2 = fn(Context) -> None
+  t3 = Future<None>
+  t4 = async fn(Context) -> Future<None>
+  t5 = async fn() -> Future<None>
+  t6 = String
+  t7 = List<String>
+  t8 = Float
+  t9 = Point
+  t10 = fn(Context) -> None
+  t11 = Unknown
+  t12 = fn(String) -> None
+  t13 = Bool
+  t14 = async fn(Context) -> Future<None>
+  t15 = async fn() -> Future<None>

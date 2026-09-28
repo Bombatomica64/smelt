@@ -24,6 +24,9 @@
 //!   construction (`obj.<field> = …` or `obj[key] = …`), or
 //! - `this` (a method's `self`) is captured by a closure (the escaping-`this`
 //!   case that needs a shareable handle), or
+//! - its instances are compared by identity (`===`/`!==` against a
+//!   non-literal), which only a handle can answer (see
+//!   [`collect_identity_comparison_triggers`]), or
 //! - it INHERITS from a reference class, or a class inheriting from it is one
 //!   (see [`close_over_heritage`]).
 //!
@@ -98,6 +101,7 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
         collect_self_capture_triggers(mir, function, &mut references);
     }
     collect_bound_receiver_triggers(mir, &mut references);
+    collect_identity_comparison_triggers(mir, &mut references);
     // Before the index-store deviation below, so that deviation still has the
     // final say for a class that carries a dynamic index signature.
     close_over_heritage(mir, &mut references);
@@ -265,6 +269,77 @@ fn collect_bound_receiver_triggers(mir: &Mir, references: &mut HashSet<Symbol>) 
     for closure in &mir.closures {
         record(&closure.locals, &closure.blocks);
     }
+}
+
+/// Record classes whose instances are compared by JavaScript identity.
+///
+/// `a === b` on two objects asks whether they are the SAME object, and a
+/// by-value struct has no identity to answer with: every copy is
+/// indistinguishable, so the emitter could only fold the comparison to a
+/// constant `false` — even for `a === a`, and for a value narrowed back from an
+/// erased view of `a`. The handle representation carries identity (its cell
+/// address), so a class whose values reach `===`/`!==` or `Object.is` against
+/// another non-literal value is lifted to it. A comparison against a literal
+/// (`c === null`, `c !== undefined`) is a presence test, not an identity one,
+/// and does not lift anything.
+fn collect_identity_comparison_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
+    let class_of = |locals: &[smelt_mir::LocalDecl], operand: &Operand| -> Option<Symbol> {
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand
+        else {
+            return None;
+        };
+        let mut ty = locals.get(usize::try_from(local.0).ok()?)?.ty;
+        if let Some(Type::Optional(inner)) = mir.types.get(ty) {
+            ty = *inner;
+        }
+        match mir.types.get(ty) {
+            Some(Type::Class { name, .. }) if is_record_type_symbol(mir, *name) => Some(*name),
+            _ => None,
+        }
+    };
+    let mut record = |locals: &[smelt_mir::LocalDecl], blocks: &[smelt_mir::BasicBlock]| {
+        for statement in blocks.iter().flat_map(|block| &block.statements) {
+            let Statement::Assign {
+                value: Rvalue::Binary { op, lhs, rhs },
+                ..
+            } = statement
+            else {
+                continue;
+            };
+            if !matches!(
+                op,
+                smelt_hir::BinOp::StrictEq
+                    | smelt_hir::BinOp::StrictNotEq
+                    | smelt_hir::BinOp::JsStrictEq
+                    | smelt_hir::BinOp::JsStrictNotEq
+            ) || matches!(lhs, Operand::Const(_))
+                || matches!(rhs, Operand::Const(_))
+            {
+                continue;
+            }
+            for operand in [lhs, rhs] {
+                if let Some(name) = class_of(locals, operand) {
+                    references.insert(name);
+                }
+            }
+        }
+    };
+    for function in &mir.functions {
+        record(&function.locals, &function.blocks);
+    }
+    for closure in &mir.closures {
+        record(&closure.locals, &closure.blocks);
+    }
+}
+
+/// Whether `name` is a record type this crate declares: a class, or an object
+/// shape (`interface` / lowered type literal). See [`class_name_of_local`].
+fn is_record_type_symbol(mir: &Mir, name: Symbol) -> bool {
+    mir.classes.iter().any(|class| class.name == name)
+        || mir
+            .interfaces
+            .iter()
+            .any(|interface| interface.name == name)
 }
 
 /// Record classes mutated through an in-place collection method on a field.

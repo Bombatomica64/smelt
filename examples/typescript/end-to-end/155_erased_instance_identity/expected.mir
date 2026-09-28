@@ -1,0 +1,152 @@
+class Context fields [Public res: String, Public headers: List<String>, Public count: Float] constructor Some(FuncId(4)) methods [FuncId(3)]
+class Point fields [Public x: Float, Public y: Float] constructor Some(FuncId(5)) methods []
+
+fn fail (FuncId(0)) -> None throws
+  locals
+    %0 param c: Context
+  bb0:
+    throw copy %0
+
+async fn fail_later (FuncId(1)) -> None throws
+  locals
+    %0 param c: Context
+  bb0:
+    throw copy %0
+
+async fn run (FuncId(2)) -> None
+  locals
+    %0 user c: Context
+    %1 user err: Unknown
+    %2 user back: Context
+    %3 user err: Unknown
+    %4 user back: Context
+    %5 user p: Point
+    %6 user q: Point
+    %7 user alias: Point
+    %8 temp: Context
+    %9 temp: None
+    %10 temp: Context
+    %11 temp: None
+    %12 temp: String
+    %13 temp: Bool
+    %14 temp: None
+    %15 temp: Future<None>
+    %16 temp: None
+    %17 temp: Context
+    %18 temp: None
+    %19 temp: String
+    %20 temp: Bool
+    %21 temp: Bool
+    %22 temp: None
+    %23 temp: Point
+    %24 temp: Point
+    %25 temp: Bool
+    %26 temp: Bool
+    %27 temp: Bool
+    %28 temp: None
+  bb0:
+    %8 = call fn4() -> bb1
+  bb1:
+    %0 = move %8
+    goto bb2
+  bb2:
+    %9 = call fn0(copy %0) -> bb5 unwind bb4
+  bb3:
+    goto bb8
+  bb4:
+    %10 = unknown_cast move %1 as t0
+    %2 = move %10
+    %2.field5 = "from-catch"
+    %11 = call fn3(copy %2, "x-one") -> bb6
+  bb5:
+    goto bb3
+  bb6:
+    %12 = string_join copy %0.field6, ","
+    %13 = move %2 == copy %0
+    %14 = call @console_log(copy %0.field5, move %12, copy %0.field7, move %13) -> bb7
+  bb7:
+    goto bb3
+  bb8:
+    %15 = call fn1(copy %0) -> bb11 unwind bb10
+  bb9:
+    %23 = call fn5(1.0, 2.0) -> bb15
+  bb10:
+    %17 = unknown_cast move %3 as t0
+    %4 = move %17
+    %18 = call fn3(copy %4, "x-two") -> bb13
+  bb11:
+    %16 = await move %15 -> bb12 unwind bb10
+  bb12:
+    goto bb9
+  bb13:
+    %19 = string_join copy %0.field6, ","
+    %20 = copy %4 == copy %0
+    %21 = move %4 != copy %0
+    %22 = call @console_log(move %19, copy %0.field7, move %20, move %21) -> bb14
+  bb14:
+    goto bb9
+  bb15:
+    %5 = move %23
+    %24 = call fn5(1.0, 2.0) -> bb16
+  bb16:
+    %6 = move %24
+    %7 = copy %5
+    %25 = copy %5 == copy %5
+    %26 = copy %5 == copy %6
+    %27 = move %5 != move %6
+    %28 = call @console_log(move %25, move %26, move %27) -> bb17
+  bb17:
+    return none
+
+fn header (FuncId(3)) -> None
+  locals
+    %0 param this: Context
+    %1 param value: String
+    %2 temp: List<String>
+    %3 temp: Float
+    %4 temp: Float
+  bb0:
+    %2 = copy %0.field6
+    %3 = list_push copy %2, copy %1
+    %0.field6 = move %2
+    %4 = copy %0.field7 + 1.0
+    %0.field7 = move %4
+    return none
+
+fn new (FuncId(4)) -> Context
+  locals
+    %0 user this: Context
+    %1 temp: List<String>
+  bb0:
+    %0 = struct1 {}
+    %0.field5 = "init"
+    %1 = []
+    %0.field6 = move %1
+    %0.field7 = 0.0
+    return move %0
+
+fn new (FuncId(5)) -> Point
+  locals
+    %0 user this: Point
+    %1 param x: Float
+    %2 param y: Float
+  bb0:
+    %0 = struct13 {}
+    %0.field14 = copy %1
+    %0.field15 = copy %2
+    return move %0
+
+async fn main (FuncId(6)) -> None throws
+  locals
+    %0 temp: Future<None>
+    %1 temp: None
+    %2 temp: Future<None>
+    %3 temp: None
+  bb0:
+    %0 = call fn2() -> bb1
+  bb1:
+    %1 = async_spawn_local(move %0)
+    %2 = async_exit_drain()
+    %3 = await move %2
+    return none
+

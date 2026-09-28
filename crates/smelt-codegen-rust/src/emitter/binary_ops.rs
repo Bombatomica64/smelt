@@ -1009,11 +1009,15 @@ impl FunctionEmitter<'_> {
     /// `.clone()` freely, and a JS value copy would otherwise lose its
     /// identity), so an identity comparison survives codegen's own clones.
     ///
+    /// A reference record's handle (`Rc<RefCell<Inner>>`) carries its identity
+    /// as the cell address.
+    ///
     /// The representations deliberately left without identity are the plain
     /// `HashMap`/`HashSet` dicts and sets, Rust tuples (`Type::Tuple`) and
-    /// generated class structs (`Type::Class`): none of them stores an object
+    /// by-value class structs (`Type::Class`): none of them stores an object
     /// id today, so there is no identity to read and this returns `None` rather
-    /// than inventing one.
+    /// than inventing one. A class compared by `===` is lifted to the handle
+    /// representation by `classify::reference_classes` for exactly that reason.
     fn reference_identity_text(&self, text: &str, ty: TypeId) -> Option<String> {
         match self.mir.types.get(ty)? {
             Type::List(_) => Some(format!("{text}.id()")),
@@ -1068,6 +1072,17 @@ impl FunctionEmitter<'_> {
             {
                 Some(format!("{text}.id()"))
             }
+            // A reference record (`classify::reference_classes`) IS one shared
+            // cell, so the cell's address is its JavaScript identity: every
+            // handle on it — including one recovered from an erased view (see
+            // `crate::reference_origin`) — reads the same address. Before this
+            // arm `c === c` on a handle class answered the constant `false`.
+            // The address shares no space with the object-id counter above,
+            // but `tsc` rejects `===` between a class and an unrelated
+            // container, so the two never meet in one comparison.
+            Type::Class { name, .. } if self.context.is_reference_class(*name) => Some(format!(
+                "(::std::rc::Rc::as_ptr(&({text}).0) as *const () as usize)"
+            )),
             _ => None,
         }
     }
