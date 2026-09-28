@@ -1,0 +1,549 @@
+class TableRouter fields [Public name: String, Public table: Dict<String, List<String>>, Public match: fn(String, String) -> List<String>] constructor Some(FuncId(4)) methods [FuncId(2), FuncId(3)]
+class SmartRouter fields [Public name: String, Hidden #routers: List<Router>, Public match: fn(String, String) -> List<String>] constructor Some(FuncId(5)) methods [FuncId(6)]
+class App fields [Public get: fn(String) -> Float, Public post: fn(String) -> Float, Hidden #routes: Optional<List<String>>] constructor Some(FuncId(7)) methods [FuncId(8), FuncId(9)]
+interface Router
+
+fn match (FuncId(0)) -> List<String>
+  locals
+    %0 param method: String
+    %1 param path: String
+    %2 user lookup: fn(String, String) -> List<String>
+    %3 user table: Dict<String, List<String>>
+    %4 user none: List<String>
+    %5 temp: Unknown
+    %6 temp: List<String>
+    %7 temp: fn(String, String) -> List<String>
+    %8 temp: Unknown
+    %9 temp: List<String>
+    %10 temp: Float
+    %11 temp: None
+    %12 temp: List<String>
+  bb0:
+    %5 = this
+    %3 = copy %5.field14
+    %6 = []
+    %4 = move %6
+    %7 = closure ClosureId(0) [copy %3, copy %4]
+    %2 = move %7
+    %8 = this
+    %8.field6 = copy %2
+    %9 = dict_keys copy %3
+    %10 = len move %9
+    %11 = call @console_log("first match", move %10) -> bb1
+  bb1:
+    %12 = closure_call move %2(copy %0, copy %1)
+    return move %12
+
+fn greet (FuncId(1)) -> String
+  locals
+    %0 param name: String
+    %1 temp: Unknown
+    %2 temp: String
+  bb0:
+    %1 = this
+    %2 = copy %1.field36 + copy %0
+    return move %2
+
+fn add (FuncId(2)) -> None
+  locals
+    %0 param this: TableRouter
+    %1 param method: String
+    %2 param path: String
+    %3 param handler: String
+    %4 user k: String
+    %5 temp: String
+    %6 temp: String
+    %7 temp: Bool
+    %8 temp: Bool
+    %9 temp: Dict<String, List<String>>
+    %10 temp: List<String>
+    %11 temp: Dict<String, List<String>>
+    %12 temp: List<String>
+    %13 temp: Float
+  bb0:
+    %5 = copy %1 + " "
+    %6 = move %5 + copy %2
+    %4 = move %6
+    %7 = dict_contains_key copy %0.field14, copy %4, own
+    %8 = !move %7
+    switch move %8 ? bb1 : bb2
+  bb1:
+    %9 = copy %0.field14
+    %10 = []
+    %9[copy %4] = move %10
+    %0.field14 = move %9
+    goto bb2
+  bb2:
+    %11 = copy %0.field14
+    %12 = copy %11[copy %4]
+    %0.field14 = copy %11
+    %13 = list_push copy %12, copy %3
+    %11[copy %4] = move %12
+    return none
+
+fn count (FuncId(3)) -> Float
+  locals
+    %0 param this: TableRouter
+    %1 param pairs: List<(String, String)>
+    %2 user n: Float
+    %3 user __smelt_for_item: (String, String)
+    %4 user lookup: String
+    %5 user p: String
+    %6 temp: Float
+    %7 temp: Float
+    %8 temp: Bool
+    %9 temp: String
+    %10 temp: String
+    %11 temp: String
+    %12 temp: Float
+    %13 temp: Float
+  bb0:
+    %2 = 0.0
+    %6 = 0.0
+    goto bb1
+  bb1:
+    %7 = len copy %1
+    %8 = copy %6 < move %7
+    switch move %8 ? bb2 : bb4
+  bb2:
+    %3 = copy %1[copy %6]
+    %9 = tuple_index copy %3, 0
+    %4 = move %9
+    %10 = tuple_index move %3, 1
+    %5 = move %10
+    %11 = move %4 + move %5
+    %12 = len move %11
+    %13 = move %2 + move %12
+    %2 = move %13
+    goto bb3
+  bb3:
+    %6 = copy %6 + 1.0
+    goto bb1
+  bb4:
+    return move %2
+
+fn new (FuncId(4)) -> TableRouter
+  locals
+    %0 user this: TableRouter
+    %1 temp: Dict<String, List<String>>
+    %2 temp: fn(String, String) -> List<String>
+  bb0:
+    %0 = struct0 {}
+    %0.field10 = "TableRouter"
+    %1 = {}
+    %0.field14 = move %1
+    %2 = closure ClosureId(1) []
+    %0.field6 = move %2
+    return move %0
+
+fn new (FuncId(5)) -> SmartRouter
+  locals
+    %0 user this: SmartRouter
+    %1 param routers: List<Router>
+    %2 temp: fn(String, String) -> List<String>
+  bb0:
+    %0 = struct1 {}
+    %0.field10 = "SmartRouter"
+    %2 = closure ClosureId(2) [copy %0]
+    %0.field6 = move %2
+    %0.field28 = copy %1
+    return move %0
+
+fn add (FuncId(6)) -> None throws
+  locals
+    %0 param this: SmartRouter
+    %1 param method: String
+    %2 param path: String
+    %3 param handler: String
+    %4 user r: Router
+    %5 temp: List<Router>
+    %6 temp: Float
+    %7 temp: Float
+    %8 temp: Bool
+    %9 temp: None
+  bb0:
+    %5 = copy %0.field28
+    %6 = 0.0
+    goto bb1
+  bb1:
+    %7 = len copy %5
+    %8 = copy %6 < move %7
+    switch move %8 ? bb2 : bb4
+  bb2:
+    %4 = copy %5[copy %6]
+    %9 = closure_call copy %4.field12(copy %1, copy %2, copy %3)
+    goto bb3
+  bb3:
+    %6 = copy %6 + 1.0
+    goto bb1
+  bb4:
+    return none
+
+fn new (FuncId(7)) -> App
+  locals
+    %0 user this: App
+    %1 user verbs: List<String>
+    %2 user verb: String
+    %3 temp: Optional<List<String>>
+    %4 temp: List<String>
+    %5 temp: List<String>
+    %6 temp: List<String>
+    %7 temp: Float
+    %8 temp: Float
+    %9 temp: Bool
+    %10 temp: fn(String) -> Float
+  bb0:
+    %0 = struct3 {}
+    %3 = []
+    %0.field39 = move %3
+    %4 = ["get", "post"]
+    %5 = []
+    %6 = list_concat move %4, move %5
+    %1 = move %6
+    %7 = 0.0
+    goto bb1
+  bb1:
+    %8 = len copy %1
+    %9 = copy %7 < move %8
+    switch move %9 ? bb2 : bb4
+  bb2:
+    %2 = copy %1[copy %7]
+    %10 = closure ClosureId(4) [copy %0, copy %2]
+    %0[copy %2] = move %10
+    goto bb3
+  bb3:
+    %7 = copy %7 + 1.0
+    goto bb1
+  bb4:
+    return move %0
+
+fn #register (FuncId(8)) -> Float throws
+  locals
+    %0 param this: App
+    %1 param route: String
+    %2 temp: Bool
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: List<String>
+    %6 temp: Float
+    %7 temp: List<String>
+    %8 temp: Float
+  bb0:
+    %2 = !copy %0.field39
+    switch move %2 ? bb1 : bb2
+  bb1:
+    %3 = {"__smelt_error": "Error", "message": "sealed", "stack": undefined, "cause": undefined}
+    %4 = unknown_cast move %3 as t3
+    throw move %4
+  bb2:
+    %5 = copy %0.field39
+    %6 = list_push copy %5, copy %1
+    %0.field39 = move %5
+    %7 = copy %0.field39
+    %8 = len move %7
+    return move %8
+
+fn routes (FuncId(9)) -> String
+  locals
+    %0 param this: App
+    %1 temp: List<String>
+    %2 temp: List<String>
+    %3 temp: String
+  bb0:
+    %1 = []
+    %2 = copy %0.field39 ?? move %1
+    %3 = string_join move %2, ", "
+    return move %3
+
+fn main (FuncId(10)) -> None throws
+  locals
+    %0 user r: TableRouter
+    %1 user s: SmartRouter
+    %2 user __smelt_bind_callee: fn(String) -> String
+    %3 user bound: fn(String) -> String
+    %4 user __smelt_bind_callee: fn(String) -> String
+    %5 user __smelt_bind_arg_0: String
+    %6 user bound2: fn() -> String
+    %7 user verbs: List<String>
+    %8 user app: App
+    %9 temp: TableRouter
+    %10 temp: None
+    %11 temp: None
+    %12 temp: None
+    %13 temp: fn(String, String) -> List<String>
+    %14 temp: List<String>
+    %15 temp: String
+    %16 temp: None
+    %17 temp: fn(String, String) -> List<String>
+    %18 temp: List<String>
+    %19 temp: String
+    %20 temp: None
+    %21 temp: fn(String, String) -> List<String>
+    %22 temp: List<String>
+    %23 temp: Float
+    %24 temp: None
+    %25 temp: List<String>
+    %26 temp: List<List<String>>
+    %27 temp: Float
+    %28 temp: None
+    %29 temp: TableRouter
+    %30 temp: List<TableRouter>
+    %31 temp: SmartRouter
+    %32 temp: None
+    %33 temp: fn(String, String) -> List<String>
+    %34 temp: List<String>
+    %35 temp: String
+    %36 temp: None
+    %37 temp: fn(String, String) -> List<String>
+    %38 temp: List<String>
+    %39 temp: String
+    %40 temp: None
+    %41 temp: fn(String, String) -> List<String>
+    %42 temp: List<String>
+    %43 temp: Float
+    %44 temp: None
+    %45 temp: None
+    %46 temp: fn(String) -> String
+    %47 temp: Dict<String, String>
+    %48 temp: fn(String) -> String
+    %49 temp: fn(String) -> String
+    %50 temp: String
+    %51 temp: None
+    %52 temp: fn(String) -> String
+    %53 temp: Dict<String, String>
+    %54 temp: fn(String) -> String
+    %55 temp: fn() -> String
+    %56 temp: String
+    %57 temp: None
+    %58 temp: List<String>
+    %59 temp: App
+    %60 temp: fn(String) -> Float
+    %61 temp: Float
+    %62 temp: fn(String) -> Float
+    %63 temp: Float
+    %64 temp: fn(String) -> Float
+    %65 temp: Float
+    %66 temp: None
+    %67 temp: String
+    %68 temp: None
+  bb0:
+    %9 = call fn4() -> bb1
+  bb1:
+    %0 = move %9
+    %10 = call fn2(copy %0, "GET", "/a", "one") -> bb2
+  bb2:
+    %11 = call fn2(copy %0, "GET", "/a", "two") -> bb3
+  bb3:
+    %12 = call fn2(copy %0, "POST", "/b", "three") -> bb4
+  bb4:
+    %13 = bind_this copy %0.field6, copy %0
+    %14 = closure_call move %13("GET", "/a")
+    %15 = string_join move %14, ","
+    %16 = call @console_log(move %15) -> bb5
+  bb5:
+    %17 = bind_this copy %0.field6, copy %0
+    %18 = closure_call move %17("POST", "/b")
+    %19 = string_join move %18, ","
+    %20 = call @console_log(move %19) -> bb6
+  bb6:
+    %21 = bind_this copy %0.field6, copy %0
+    %22 = closure_call move %21("GET", "/zz")
+    %23 = len move %22
+    %24 = call @console_log(move %23) -> bb7
+  bb7:
+    %25 = ["ab", "c"]
+    %26 = [move %25]
+    %27 = call fn3(move %0, move %26) -> bb8
+  bb8:
+    %28 = call @console_log(move %27) -> bb9
+  bb9:
+    %29 = call fn4() -> bb10
+  bb10:
+    %30 = [move %29]
+    %31 = call fn5(move %30) -> bb11
+  bb11:
+    %1 = move %31
+    %32 = call fn6(copy %1, "GET", "/x", "hx") -> bb12
+  bb12:
+    %33 = bind_this copy %1.field6, copy %1
+    %34 = closure_call move %33("GET", "/x")
+    %35 = string_join move %34, ","
+    %36 = call @console_log(move %35) -> bb13
+  bb13:
+    %37 = bind_this copy %1.field6, copy %1
+    %38 = closure_call move %37("GET", "/x")
+    %39 = string_join move %38, ","
+    %40 = call @console_log(move %39) -> bb14
+  bb14:
+    %41 = bind_this copy %1.field6, copy %1
+    %42 = closure_call move %41("GET", "/y")
+    %43 = len move %42
+    %44 = call @console_log(move %43) -> bb15
+  bb15:
+    %45 = call @console_log(copy %1.field10) -> bb16
+  bb16:
+    %46 = closure ClosureId(5) []
+    %47 = {"prefix": "hi "}
+    %48 = bind_this move %46, move %47
+    %2 = move %48
+    %49 = closure ClosureId(6) [copy %2]
+    %3 = move %49
+    %50 = closure_call move %3("bob")
+    %51 = call @console_log(move %50) -> bb17
+  bb17:
+    %52 = closure ClosureId(7) []
+    %53 = {"prefix": "yo "}
+    %54 = bind_this move %52, move %53
+    %4 = move %54
+    %5 = "amy"
+    %55 = closure ClosureId(8) [copy %4, copy %5]
+    %6 = move %55
+    %56 = closure_call move %6()
+    %57 = call @console_log(move %56) -> bb18
+  bb18:
+    %58 = ["get", "post"]
+    %7 = move %58
+    %59 = call fn7() -> bb19
+  bb19:
+    %8 = move %59
+    %60 = bind_this copy %8.field37, copy %8
+    %61 = closure_call move %60("/a")
+    %62 = bind_this copy %8.field38, copy %8
+    %63 = closure_call move %62("/b")
+    %64 = bind_this copy %8.field37, copy %8
+    %65 = closure_call move %64("/c")
+    %66 = call @console_log(move %61, move %63, move %65) -> bb20
+  bb20:
+    %67 = call fn9(move %8) -> bb21
+  bb21:
+    %68 = call @console_log(move %67) -> bb22
+  bb22:
+    return none
+
+closure ClosureId(0) -> List<String>
+  locals
+    %0 param __callback_param_0: String
+    %1 param __callback_param_1: String
+    %2 user table: Dict<String, List<String>>
+    %3 user none: List<String>
+    %4 temp: String
+    %5 temp: String
+    %6 temp: Bool
+    %7 temp: List<String>
+    %8 temp: String
+    %9 temp: String
+  bb0:
+    %4 = copy %0 + " "
+    %5 = copy %4 + copy %1
+    %6 = copy %2[copy %5] != none
+    switch copy %6 ? bb1 : bb2
+  bb1:
+    %8 = copy %0 + " "
+    %9 = copy %8 + copy %1
+    %7 = copy %2[copy %9]
+    goto bb3
+  bb2:
+    %7 = copy %3
+    goto bb3
+  bb3:
+    return copy %7
+
+closure ClosureId(1) -> List<String>
+  locals
+    %0 param method: String
+    %1 param path: String
+    %2 temp: List<String>
+  bb0:
+    %2 = call fn0(copy %0, copy %1) -> bb1
+  bb1:
+    return copy %2
+
+closure ClosureId(2) -> List<String> throws
+  locals
+    %0 param method: String
+    %1 param path: String
+    %2 user this: SmartRouter
+    %3 user router: Router
+    %4 user res: List<String>
+    %5 user __smelt_bind_callee: fn(String, String) -> List<String>
+    %6 temp: List<Router>
+    %7 temp: List<String>
+    %8 temp: fn(String, String) -> List<String>
+    %9 temp: fn(String, String) -> List<String>
+    %10 temp: String
+  bb0:
+    %6 = copy %2.field28
+    %3 = copy %6[0.0]
+    %7 = closure_call copy %3.field6(copy %0, copy %1)
+    %4 = copy %7
+    %8 = bind_this copy %3.field6, copy %3
+    %5 = copy %8
+    %9 = closure ClosureId(3) [copy %5]
+    %2.field6 = copy %9
+    %10 = "SmartRouter + " + copy %3.field10
+    %2.field10 = copy %10
+    return copy %4
+
+closure ClosureId(3) -> List<String>
+  locals
+    %0 user __smelt_bind_callee: fn(String, String) -> List<String>
+    %1 param __param0: String
+    %2 param __param1: String
+    %3 temp: List<String>
+  bb0:
+    %3 = closure_call copy %0(copy %1, copy %2)
+    return copy %3
+
+closure ClosureId(4) -> Float throws
+  locals
+    %0 param path: String
+    %1 user this: App
+    %2 user verb: String
+    %3 temp: String
+    %4 temp: String
+    %5 temp: String
+    %6 temp: Float
+  bb0:
+    %3 = string_upper copy %2
+    %4 = copy %3 + " "
+    %5 = copy %4 + copy %0
+    %6 = call fn8(copy %1, copy %5) -> bb1
+  bb1:
+    return copy %6
+
+closure ClosureId(5) -> String
+  locals
+    %0 param name: String
+    %1 temp: String
+  bb0:
+    %1 = call fn1(copy %0) -> bb1
+  bb1:
+    return copy %1
+
+closure ClosureId(6) -> String
+  locals
+    %0 user __smelt_bind_callee: fn(String) -> String
+    %1 param __param0: String
+    %2 temp: String
+  bb0:
+    %2 = closure_call copy %0(copy %1)
+    return copy %2
+
+closure ClosureId(7) -> String
+  locals
+    %0 param name: String
+    %1 temp: String
+  bb0:
+    %1 = call fn1(copy %0) -> bb1
+  bb1:
+    return copy %1
+
+closure ClosureId(8) -> String
+  locals
+    %0 user __smelt_bind_callee: fn(String) -> String
+    %1 user __smelt_bind_arg_0: String
+    %2 temp: String
+  bb0:
+    %2 = closure_call copy %0(copy %1)
+    return copy %2
+

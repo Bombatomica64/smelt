@@ -205,7 +205,7 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
-        if let Some(callback) = self.scope.callback(name).cloned() {
+        if let Some(callback) = self.visible_callback(name, body) {
             return self.callback_expr_to_closure_with_return_ty(
                 callback.return_ty,
                 &callback.callback,

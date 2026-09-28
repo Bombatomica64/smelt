@@ -428,3 +428,137 @@ message (it currently accepts any throw), which is what hid the false positive.
 * Generic-base type substitution (see "Known limitation" above): inherited method copies of
   a generic base spell the base's `T` out of scope (`fn get(&self) -> T` in `impl NumBox`,
   E0425), unchanged by this round.
+
+# Round 9 — `this`-parameter functions as methods, and what stood behind them
+
+Baseline: main at `7417c58` (#270), measured locally with a main build on the same overlay:
+**311 passed / 16 failed**.
+
+## What the family actually was
+
+`reg-exp-router/matcher.ts` declares `function match<R extends Router<T>, T>(this: R, ..)`
+and `RegExpRouter` installs it as a field (`match: typeof match<Router<T>, T> = match`);
+`SmartRouter.match` rebinds itself (`this.match = router.match.bind(router)`). The
+function's `this` is NOT erased in Smelt: `this` is the dynamically scoped receiver
+channel (`smelt_push_this` / `smelt_this()`, a documented boundary), and a direct
+`instance.field(..)` call already installed the instance (`Rvalue::BindThis`). `R` is a
+bounded type parameter, which the existing rule erases, so a real first parameter would
+also have been `SmeltUnknown`; the channel was already the precise type. The receiver was
+lost at a different seam:
+
+* **Interface views of an instance.** Hono only ever reaches the router through
+  `Router<T>` (an interface record): `HonoBase.router`, `SmartRouter.#routers`. Building
+  that record from a class copied each callable FIELD as a bare value, so
+  `router.match(..)` ran `match` with no receiver installed (`this` = `undefined`,
+  `buildAllMatchers` → `null`), and never saw the field's later reassignment.
+
+Behind it, once routing ran, three more defects each silently dropped a write:
+
+* `if (!this.#routes) throw ..; this.#routes.push(x)` — a push on an array field declared
+  optional lowered to `none` (SmartRouter.add registered nothing).
+* `this[method] = handler` on a class instance (HonoBase's verb installation over
+  `[...METHODS, 'all']`) was emitted as `let _ = handler;` — `app.get(..)` stayed the
+  field's default closure and registered no route.
+* A flat callback table: `const m = (..) => ..` inside one function resolved `m` in an
+  unrelated function's `for (const [m, p] of ..)` (RegExpRouter's `buildAll` keyed its
+  table by `" /a"`).
+
+## Rules
+
+* **A. A class's callable field viewed through an interface record dispatches through the
+  instance.** The record slot (`emitter/receiver_bound_slot.rs`) installs the source
+  instance as `this` (lazily erased) and reads the field AT CALL TIME. The same holds one
+  step later, for a record projected out of an ERASED object (`routers: [new RegExpRouter()]`
+  with an erased element type): the slot reads the member live and installs the object as
+  `this`. Both are pay-for-use (`program_reads_this`) and apply to INTERFACE record
+  targets only: narrowing to a CLASS rebuilds a class value whose callable fields must
+  stay the very function values the object holds (a first version also wrapped class
+  targets and broke es-toolkit `cloneDeep > should clone instance`, `b.d === d`).
+* **B. A live read of a callable own field through an erased view.** The erased view is a
+  snapshot, but the instance keeps changing (`SmartRouter` replaces `match` on its first
+  call). A reference class with callable own fields, in a program that reads `this`,
+  carries `__smelt_get_callable_field` (`view_write_through.rs`), the read mirror of the
+  existing `__smelt_set_field`; the prelude's `smelt_live_member` asks it first.
+  Reclassified in `unknown_report.rs` with its boundary argument and a test.
+* **C. An in-place array method on an optional array receiver asserts it present**
+  (`push`/`pop`/`shift`/`unshift`/`reverse`/`sort`): `tsc` rejects the call on a
+  possibly-absent receiver, so the array is present; the `TypeAssert` keeps it a mutation
+  place (field → write back; a local asserted at another type now takes the copy +
+  write-back route in MIR). Optionality inherited from an optional BASE keeps the old path.
+* **D. A computed-key write into a class instance dispatches on the key**
+  (`emitter/class_keyed_write.rs`): `match key { "get" => self.get = v, .. }` over the fields
+  the value is assignable to (same type, same call signature, or a callable-interface
+  field for a function value). Other keys are discarded as before.
+* **E. A non-function binding shadows another body's local callback** (`visible_callback`).
+* **F. A class field holding a function satisfies an implemented interface method**
+  (`validate_implements`).
+* **G. `toThrow(expected)` / `toThrowError(expected)` compare the thrown error** with
+  vitest's rules (`testing/to_throw.rs`): string ⊂ message, RegExp tests the message, a class
+  is `instanceof`; no argument → any throw. The message is a `string`-typed catch binding
+  (`smelt_thrown_message`: `message` when a string, else `String(e)`), so the handler gets
+  no branch (a branch there re-emits the rest of the test body per arm — a first version
+  with a `typeof` conditional grew `helper/ssg/utils.test.ts` from 7.6 MB to 18 MB and
+  OOM'd rustc). `toThrowErrorMatchingInlineSnapshot` compares a serialization, not a
+  message, and keeps the any-throw check (applying the substring rule to it broke remeda
+  `conditional > runtime (dataFirst) > throws when no matching case`, whose snapshot is
+  `[Error: conditional: data failed for all cases]`).
+
+`f.bind(obj)` / `f.bind(obj, a)` and `this.m = other.m.bind(other)` then `this.m(..)` needed
+no change: they already bind through the channel, and with A/B the bound member is live.
+
+**Not done — a real typed first parameter for `this`.** Every corpus `this:` annotation is
+`any`, `unknown` or a bounded (hence erased) type parameter, for which a parameter would
+be `SmeltUnknown` exactly like the channel, while threading it would change the ABI of
+every erased callable (es-toolkit has ~30 `function (this: any, ..)` wrappers). A typed
+parameter pays off only for a concrete `this: SomeClass` / record annotation (only
+`jsx/dom/css.ts`, excluded). Left as a follow-up, pending a decision.
+
+## Gates (local, merged with main `7417c58`)
+
+* `cargo check --lib` / `cargo clippy --lib`: no diagnostics on added lines.
+* `cargo test --lib`: smelt-codegen-rust 1134, smelt-frontend-ts 1147, smelt-hir 9,
+  smelt-mir 55; `unknown_report` tests 31 (incl. the new boundary test).
+* `hir_cli_cross_language_tests`: 21/21; `hir_cli_typescript_tests::build_runs_typescript_to_throw_expected_error_comparison` (new, `.not.toThrow(other)` only passes when the comparison runs).
+* New e2e `153_this_param_function_as_method` (stdout from `node --experimental-strip-types`).
+  Golden changes: `130_this_bound_field_write_through/expected.rs` only — the
+  `smelt_live_member` prelude helper, the `__smelt_get_callable_field` method and its
+  erased-view entry (rule B), stdout unchanged. HIR/MIR goldens: only 153's.
+* SmeltUnknown: examples avoidable **0 → 0**; es-toolkit avoidable **25,549 → 25,549**
+  (prelude +10, boundary +20).
+* hono (main build vs this branch, same overlay): **311/16 → 312/15**, 0 lost; gained
+  `timeout API > no timeout should pass`.
+* radash **384 passed; 3 failed**, remeda **1787 passed; 2 failed**, es-toolkit
+  **1053 passed; 6 failed** — each with identical failing names to a main build. No test
+  in any corpus flips because of the `toThrow` comparison: every argument-bearing
+  `toThrow` there already threw the expected error.
+
+## The 8 app tests
+
+All eight now ROUTE (on main they panic in `matcher.rs`: no route was ever registered).
+One passes. The rest fail later:
+
+| test | now |
+| --- | --- |
+| powered-by ×3 | `X-Powered-By` header missing: a middleware's `c.header(..)` after `await next()` does not reach the response |
+| timeout ×3 | status is not 504/408/500: the timeout race's exception path |
+| nextjs `should return 200` | `res.json()` → `EOF`: `c.json(..)`'s body is empty |
+| nextjs `should not use route()` | honest failure now: `handler(req)` does not throw `Custom Error` synchronously |
+
+## Next blocker
+
+Response-body / header propagation out of handlers (`c.json` / `c.text` bodies empty,
+headers set after `next()` lost) — it owns the powered-by, nextjs and likely the timeout
+tests. Minimal: `const app = new Hono(); app.get('/a', (c) => c.text('root'));
+(await app.request('/a')).text()` answers `''`.
+
+## Open issues found (not fixed here)
+
+* `app.router.name` read through the `Router` record is a snapshot: after
+  `SmartRouter.match` sets `this.name`, the view still says `SmartRouter` (data fields of
+  interface views are copies; only callable fields are now live).
+* `unshift` on a class field is unsupported ("requires a local array receiver").
+* `return this.#items ? this.#items.join(..) : ''` fails (`array join requires an array
+  receiver`): ternary narrowing does not reach a private member path.
+* An erased generic `T` return through a class field slot (`SmeltList<SmeltUnknown>` vs
+  `SmeltList<T>`) and `Router<T>` projections at a concrete `T` (union arm mismatch) — both
+  pre-existing, seen while reducing fixtures.

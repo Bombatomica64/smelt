@@ -2541,6 +2541,11 @@ impl FunctionEmitter<'_> {
                 view_write_through::erased_view_entry_text(
                     "smelt_struct_value",
                     "smelt_object_entries",
+                    view_write_through::has_live_callable_fields(
+                        self.mir,
+                        self.context.program_reads_this(),
+                        &crate::effective_class_fields(self.mir, class),
+                    ),
                 )
             }
             _ => String::new(),

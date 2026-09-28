@@ -595,7 +595,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 29] = [
+    const BOUNDARY_MARKERS: [&str; 31] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -870,6 +870,21 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // since one view receives writes for every field through one entry.
         // Proven by `view_write_through_setter_is_a_boundary`.
         "fn __smelt_set_field(",
+        // The read mirror of the setter above
+        // (`view_write_through::reference_callable_field_getter_method_text`):
+        // the CURRENT value of a callable own field, erased, for a member read
+        // through a snapshot view (a method call through an interface record
+        // projected from an erased instance, whose field the callee may have
+        // replaced since the view was built -- Hono's `SmartRouter.match`
+        // rebinding itself). It answers a key chosen at runtime by the reader
+        // with one of several differently typed fields through one entry, so
+        // no concrete type, union arm, or scoped generic can carry the result;
+        // it is the `into_smelt_unknown` of one field on demand. Proven by
+        // `live_callable_field_getter_is_a_boundary`.
+        "fn __smelt_get_callable_field(",
+        // The live member read that asks that getter first (the prelude's
+        // `smelt_live_member`), called from a receiver-bound record slot.
+        "smelt_live_member(",
     ];
 
     // A JavaScript update-expression (`x++`/`++x`) used as a value snapshots its
@@ -1203,6 +1218,25 @@ mod tests {
             classify_line("    fn set_label(&self, value: SmeltUnknown) {", false),
             Category::AvoidableErasure,
             "an ordinary erased parameter must stay avoidable"
+        );
+    }
+
+    /// The erased-view live getter is the read mirror of the setter: a key
+    /// chosen at runtime selects one of several differently typed fields.
+    #[test]
+    fn live_callable_field_getter_is_a_boundary() {
+        assert_eq!(
+            classify_line(
+                "    fn __smelt_get_callable_field(&self, key: &str) -> SmeltUnknown { match key { _ => SmeltUnknown::Undefined } }",
+                false
+            ),
+            Category::LegitimateBoundary,
+            "the getter erases one live field on demand for an erased read"
+        );
+        assert_eq!(
+            classify_line("    fn get_label(&self, key: &str) -> SmeltUnknown {", false),
+            Category::AvoidableErasure,
+            "an ordinary erased return must stay avoidable"
         );
     }
 

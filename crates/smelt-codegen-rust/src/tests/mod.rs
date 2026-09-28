@@ -93,6 +93,7 @@ mod nullish_and_identity_tests;
 mod tail_r3_tests;
 mod tail_r7_tests;
 mod tail_r8_tests;
+mod receiver_bound_slot_tests;
 mod truthiness_lowering_tests;
 mod name_and_shape_tests;
 mod object_model_tests;

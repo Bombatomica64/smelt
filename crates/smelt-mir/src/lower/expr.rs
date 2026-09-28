@@ -3216,7 +3216,17 @@ impl LoweringCtx<'_> {
         }
 
         let (place, writebacks) = self.lower_place(expr_id)?;
-        if matches!(place, Place::Local(_)) {
+        // A bare local is mutated in place -- unless the receiver ASSERTS it
+        // at another type (`callbacks.push(..)` on an `Optional<List<T>>` local
+        // proved present), in which case it takes the copy-and-write-back
+        // route below like any projection, so the mutation runs on a value of
+        // the asserted type.
+        if let Place::Local(local) = place
+            && usize::try_from(local.0)
+                .ok()
+                .and_then(|index| self.function.locals.get(index))
+                .is_none_or(|decl| decl.ty == expr.ty)
+        {
             return Ok((Operand::Copy(place), None));
         }
 

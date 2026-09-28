@@ -100,6 +100,7 @@ pub(crate) type BlockIdSet = rustc_hash::FxHashSet<smelt_mir::BlockId>;
 mod binary_ops;
 mod call;
 mod call_runtime;
+mod class_keyed_write;
 mod capture_analysis;
 mod cfg_queries;
 mod closures;
@@ -129,6 +130,7 @@ mod map;
 mod numeric;
 mod optional_access;
 mod place;
+mod receiver_bound_slot;
 mod record_slot_abi;
 mod render_scope;
 mod rendered_text_rewrite;
@@ -224,6 +226,9 @@ pub(crate) struct EmitContext {
     /// Whether property writes through an erased reference-class view are
     /// forwarded to the instance (see [`view_write_through`]).
     erased_view_write_through: bool,
+    /// Whether any body reads the dynamic `this` receiver channel (see
+    /// [`receiver_bound_slot`]).
+    program_reads_this: bool,
 }
 
 impl EmitContext {
@@ -324,6 +329,7 @@ impl EmitContext {
             reference_classes: crate::classify::reference_classes(mir),
             type_param_elision: crate::generic_elision::compute(mir),
             erased_view_write_through: view_write_through::program_writes_erased_fields(mir),
+            program_reads_this: receiver_bound_slot::program_reads_this(mir),
         })
     }
 
@@ -331,6 +337,12 @@ impl EmitContext {
     /// reference-class instance it stands for (see [`view_write_through`]).
     pub(crate) fn erased_view_write_through(&self) -> bool {
         self.erased_view_write_through && !self.reference_classes.is_empty()
+    }
+
+    /// Return whether any body reads the dynamic `this` receiver channel, so a
+    /// receiver installed by a call is observable (see [`receiver_bound_slot`]).
+    pub(crate) fn program_reads_this(&self) -> bool {
+        self.program_reads_this
     }
 
     /// Return whether any record type is emitted as a reference class.

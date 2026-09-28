@@ -5,13 +5,43 @@
 use crate::lowering::{
     Argument, ArrayExpressionElement, AssignmentOperator, AssignmentTarget, BinOp, BinaryOperator,
     Body, CallbackCallArg, CallbackExpr, CallbackExprKind, ClosureCallback, ConstCollectionValue,
-    Expr, ExprKind, Expression, FunctionType, HashMap, Item, Literal, LogicalOperator, ModuleBuilder,
+    Expr, ExprKind, Expression, LocalCallback, FunctionType, HashMap, Item, Literal, LogicalOperator, ModuleBuilder,
     ObjectPropertyKind, PropertyKey, SmeltError, Span, Type, UnaryOp, UnaryOperator, UnknownKind,
 };
 use crate::{ObjectConst, ObjectConstValue};
 use oxc::span::GetSpan;
 
 impl ModuleBuilder<'_> {
+    /// Return the local callback registered under `name`, unless a binding of
+    /// the same name that is NOT a function shadows it.
+    ///
+    /// The callback table is flat and outlives the body that registered it
+    /// (nested closures and nested function declarations rebuild an outer
+    /// arrow from it), so a later `for (const [m, p] of xs)` in an unrelated
+    /// function or method used to resolve `m` to another body's
+    /// `const m = (..) => ..` and read a closure where a string was bound.
+    /// A binding that shadows a callback legitimately is a capture of it (the
+    /// closure-capture path rebinds the name to a local of the SAME function
+    /// type), so a bound local whose type cannot hold a function is always a
+    /// different variable and hides the callback.
+    pub(in crate::lowering) fn visible_callback(
+        &self,
+        name: &str,
+        body: &Body,
+    ) -> Option<LocalCallback> {
+        let callback = self.scope.callback(name)?;
+        if let Some(local) = self.scope.lookup(name) {
+            let local_ty = Self::local_ty(body, local);
+            if !matches!(
+                self.ctx.krate.types.get(local_ty),
+                Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            ) {
+                return None;
+            }
+        }
+        Some(callback.clone())
+    }
+
     /// Rebuild a folded object constant as a compact callback dict literal.
     ///
     /// Callback bodies are lowered by the side-effect-free [`CallbackExpr`] IR,
@@ -232,7 +262,7 @@ impl ModuleBuilder<'_> {
                 format!("{context} local callback `{name}` is not in scope"),
             ));
         }
-        let Some(callback) = self.scope.callback(name).cloned() else {
+        let Some(callback) = self.visible_callback(name, body) else {
             // The name is a local holding a value but is not an inlined
             // callback literal. If its (possibly erased) type is a callable
             // surface — `any`/`unknown`, a type parameter, or a union that

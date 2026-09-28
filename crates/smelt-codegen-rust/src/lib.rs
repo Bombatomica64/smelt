@@ -3714,6 +3714,15 @@ fn emit_source_with_free_function_router(
                 writer.line(line);
             }
         }
+        // Receiver-bound record slots read members live (see
+        // `emitter::receiver_bound_slot`), which only programs reading `this`
+        // emit.
+        if context.program_reads_this() {
+            writer.blank_line();
+            for line in emitter::view_write_through::LIVE_MEMBER_PRELUDE.lines() {
+                writer.line(line);
+            }
+        }
         if needs_vitest_mock {
             writer.blank_line();
             // Stateful Vitest `vi.fn()` mock runtime. A mock is a genuine dynamic
@@ -6324,6 +6333,14 @@ fn emit_source_with_free_function_router(
             out.push_str(
                 &emitter.reference_field_setter_method_text(&effective_class_fields(mir, class))?,
             );
+            let fields = effective_class_fields(mir, class);
+            if emitter::view_write_through::has_live_callable_fields(
+                mir,
+                context.program_reads_this(),
+                &fields,
+            ) {
+                out.push_str(&emitter.reference_callable_field_getter_method_text(&fields)?);
+            }
         }
         out.push_str("}\n");
         for protocol in &class.protocols {
@@ -7424,6 +7441,12 @@ fn emit_reference_record_storage(
             fields,
             *has_proto_entries,
             *has_field_setter,
+            *has_field_setter
+                && emitter::view_write_through::has_live_callable_fields(
+                    mir,
+                    context.program_reads_this(),
+                    fields,
+                ),
         )?;
         // The inbound half restores the live handle (see `reference_origin`).
         reference_origin::emit_reference_from_smelt_unknown_impl(
@@ -7504,6 +7527,7 @@ fn emit_reference_class_into_smelt_unknown_impl(
     fields: &[smelt_mir::MirField],
     has_proto_entries: bool,
     has_field_setter: bool,
+    has_live_reads: bool,
 ) -> Result<(), EmitError> {
     writer.block(
         format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
@@ -7558,7 +7582,7 @@ fn emit_reference_class_into_smelt_unknown_impl(
                 // A property write through this view reaches the instance
                 // (see `emitter::view_write_through`).
                 if has_field_setter {
-                    fn_writer.line(emitter::view_write_through::erased_view_entry_text("self", "__smelt_entries"));
+                    fn_writer.line(emitter::view_write_through::erased_view_entry_text("self", "__smelt_entries", has_live_reads));
                 }
                 // The erased view holds the live handle, so narrowing it back
                 // yields this instance (see `reference_origin`).

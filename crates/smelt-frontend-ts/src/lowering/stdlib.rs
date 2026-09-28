@@ -2310,7 +2310,7 @@ impl ModuleBuilder<'_> {
                 "array shift requires no arguments",
             ));
         }
-        let list = self.expression(&member.object, body)?;
+        let list = self.present_list_receiver(&member.object, body)?;
         let list_ty = Self::expr_ty(body, list);
         let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
             return Ok(None);
@@ -2342,7 +2342,7 @@ impl ModuleBuilder<'_> {
                 "array pop requires no arguments",
             ));
         }
-        let list = self.expression(&member.object, body)?;
+        let list = self.present_list_receiver(&member.object, body)?;
         let list_ty = Self::expr_ty(body, list);
         let Some(Type::List(element_ty)) = self.ctx.krate.types.get(list_ty) else {
             return Ok(None);
@@ -2414,7 +2414,7 @@ impl ModuleBuilder<'_> {
                 ));
             }
         };
-        let list = self.expression(&member.object, body)?;
+        let list = self.present_list_receiver(&member.object, body)?;
         let list_ty = Self::expr_ty(body, list);
         let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
             return Ok(None);
@@ -2574,6 +2574,54 @@ impl ModuleBuilder<'_> {
         Ok(Some(expr))
     }
 
+    /// Lower the receiver of an in-place array method (`push`, `pop`,
+    /// `shift`, `unshift`, `reverse`, `sort`), asserting an OPTIONAL array
+    /// present.
+    ///
+    /// Under strict null checks `tsc` rejects these calls on a possibly-absent
+    /// receiver, so an `Optional<List<T>>` receiver here is one a guard
+    /// already proved present (`if (!this.#routes) throw ..` before
+    /// `this.#routes.push(..)`) whose narrowing did not reach the member path.
+    /// Such a call used to fall through to a lowering that dropped the
+    /// mutation entirely (its value became `none`). The `TypeAssert` keeps the
+    /// receiver a mutation place: MIR writes a `TypeAssert` over a field back
+    /// like the field itself.
+    fn present_list_receiver(
+        &mut self,
+        object: &Expression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let list = self.expression(object, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        // Only an array that is itself declared optional: a member read whose
+        // optionality comes from an optional BASE (`child.#values` with
+        // `child: Node | undefined`) keeps the path it already had, which
+        // writes the array back through the base.
+        let optional_from_base = usize::try_from(list.0)
+            .ok()
+            .and_then(|index| body.exprs.get(index))
+            .is_some_and(|expr| match &expr.kind {
+                ExprKind::Field { receiver, .. } | ExprKind::OptionalField { receiver, .. } => {
+                    matches!(
+                        self.ctx.krate.types.get(Self::expr_ty(body, *receiver)),
+                        Some(Type::Optional(_))
+                    )
+                }
+                _ => false,
+            });
+        if !optional_from_base
+            && let Some(Type::Optional(inner)) = self.ctx.krate.types.get(list_ty).cloned()
+            && matches!(self.ctx.krate.types.get(inner), Some(Type::List(_)))
+        {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: list },
+                ty: inner,
+                span: self.span(object.span().start, object.span().end),
+            }));
+        }
+        Ok(list)
+    }
+
     /// Lower direct TypeScript `Array.prototype.push` calls.
     pub(super) fn list_push_call(
         &mut self,
@@ -2592,7 +2640,7 @@ impl ModuleBuilder<'_> {
                 "array push currently requires at least one item argument",
             ));
         }
-        let list = self.expression(&member.object, body)?;
+        let list = self.present_list_receiver(&member.object, body)?;
         let list_ty = Self::expr_ty(body, list);
         let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
             return Ok(None);
@@ -2699,7 +2747,7 @@ impl ModuleBuilder<'_> {
         ) {
             return Ok(None);
         }
-        let list = self.expression(&member.object, body)?;
+        let list = self.present_list_receiver(&member.object, body)?;
         let list_ty = Self::expr_ty(body, list);
         let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
             return Ok(None);
@@ -3154,7 +3202,7 @@ impl ModuleBuilder<'_> {
                 "array unshift currently requires a local array receiver",
             ));
         };
-        let list = self.expression(&member.object, body)?;
+        let list = self.present_list_receiver(&member.object, body)?;
         let list_ty = Self::expr_ty(body, list);
         let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
             return Ok(None);
