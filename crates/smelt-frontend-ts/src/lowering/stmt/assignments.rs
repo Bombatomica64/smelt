@@ -455,6 +455,14 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.http_property_read(member, body)? {
             return Ok(expr);
         }
+        // A read through `(erased as { .. })` is a read off the erased value:
+        // the record view would drop every inherited member. See
+        // `lowering::asserted_member_read`.
+        if !is_assignment_target
+            && let Some(expr) = self.asserted_erased_member_read(member, body)?
+        {
+            return Ok(expr);
+        }
         // The exemption an assignment target carries follows the whole target
         // chain: in `fn.prop.inner = value` the base `fn.prop` is read only to
         // locate the slot the (discarded) write targets, so rejecting it would

@@ -1,0 +1,201 @@
+class Reply fields [Public body: String] constructor Some(FuncId(5)) methods []
+
+fn defer (FuncId(0)) -> None
+  locals
+    %0 param task: fn() -> None
+    %1 temp: None
+  bb0:
+    %1 = closure_call copy %0()
+    return none
+
+fn later (FuncId(1)) -> Future<Reply>
+  locals
+    %0 temp: fn(fn(Reply) -> None) -> None
+    %1 temp: Future<Reply>
+  bb0:
+    %0 = closure ClosureId(0) []
+    %1 = async_promise(move %0)
+    return move %1
+
+fn counted (FuncId(2)) -> Future<Float>
+  locals
+    %0 param flag: Bool
+    %1 temp: fn(fn(Float) -> None) -> None
+    %2 temp: Future<Float>
+  bb0:
+    %1 = closure ClosureId(2) [copy %0]
+    %2 = async_promise(move %1)
+    return move %2
+
+fn maybe (FuncId(3)) -> Future<Optional<Float>>
+  locals
+    %0 param flag: Bool
+    %1 temp: fn(fn(Optional<Float>) -> None) -> None
+    %2 temp: Future<Optional<Float>>
+  bb0:
+    %1 = closure ClosureId(3) [copy %0]
+    %2 = async_promise(move %1)
+    return move %2
+
+async fn entry (FuncId(4)) -> None
+  locals
+    %0 user reply: Reply
+    %1 user present: Optional<Float>
+    %2 user absent: Optional<Float>
+    %3 user greet: fn(String) -> String
+    %4 temp: Future<Reply>
+    %5 temp: Reply
+    %6 temp: None
+    %7 temp: Future<Float>
+    %8 temp: Float
+    %9 temp: Future<Float>
+    %10 temp: Float
+    %11 temp: None
+    %12 temp: Future<Optional<Float>>
+    %13 temp: Optional<Float>
+    %14 temp: Future<Optional<Float>>
+    %15 temp: Optional<Float>
+    %16 temp: Bool
+    %17 temp: None
+    %18 temp: fn(String, Optional<String>) -> String
+    %19 temp: fn(String) -> String
+    %20 temp: String
+    %21 temp: None
+  bb0:
+    %4 = call fn1() -> bb1
+  bb1:
+    %5 = await move %4
+    %0 = move %5
+    %6 = call @console_log(copy %0.field9) -> bb2
+  bb2:
+    %7 = call fn2(true) -> bb3
+  bb3:
+    %8 = await move %7
+    %9 = call fn2(false) -> bb4
+  bb4:
+    %10 = await move %9
+    %11 = call @console_log(move %8, move %10) -> bb5
+  bb5:
+    %12 = call fn3(true) -> bb6
+  bb6:
+    %13 = await move %12
+    %1 = move %13
+    %14 = call fn3(false) -> bb7
+  bb7:
+    %15 = await move %14
+    %2 = move %15
+    %16 = move %2 == undefined
+    %17 = call @console_log(move %1, move %16) -> bb8
+  bb8:
+    %18 = closure ClosureId(4) []
+    %19 = move %18
+    %3 = move %19
+    %20 = closure_call move %3("smelt")
+    %21 = call @console_log(move %20) -> bb9
+  bb9:
+    return none
+
+fn new (FuncId(5)) -> Reply
+  locals
+    %0 user this: Reply
+    %1 param body: String
+  bb0:
+    %0 = struct8 {}
+    %0.field9 = copy %1
+    return move %0
+
+async fn main (FuncId(6)) -> None throws
+  locals
+    %0 temp: Future<None>
+    %1 temp: None
+    %2 temp: Future<None>
+    %3 temp: None
+  bb0:
+    %0 = call fn4() -> bb1
+  bb1:
+    %1 = async_spawn_local(move %0)
+    %2 = async_exit_drain()
+    %3 = await move %2
+    return none
+
+closure ClosureId(0) -> None
+  locals
+    %0 param resolve: fn(Reply) -> None
+    %1 temp: fn() -> None
+    %2 temp: None
+  bb0:
+    %1 = closure ClosureId(1) [copy %0]
+    %2 = call fn0(copy %1) -> bb1
+  bb1:
+    return copy %2
+
+closure ClosureId(1) -> None
+  locals
+    %0 user resolve: fn(Reply) -> None
+    %1 temp: Reply
+    %2 temp: None
+  bb0:
+    %1 = call fn5("late reply") -> bb1
+  bb1:
+    %2 = closure_call copy %0(copy %1)
+    return copy %2
+
+closure ClosureId(2) -> None
+  locals
+    %0 param resolve: fn(Float) -> None
+    %1 user flag: Bool
+    %2 temp: None
+    %3 temp: None
+  bb0:
+    switch copy %1 ? bb1 : bb2
+  bb1:
+    %2 = closure_call copy %0(3.0)
+    goto bb3
+  bb2:
+    %3 = closure_call copy %0(4.0)
+    goto bb3
+  bb3:
+    return none
+
+closure ClosureId(3) -> None
+  locals
+    %0 param __callback_param_0: fn(Optional<Float>) -> None
+    %1 user flag: Bool
+    %2 temp: None
+    %3 temp: None
+    %4 temp: None
+  bb0:
+    switch copy %1 ? bb1 : bb2
+  bb1:
+    %3 = closure_call copy %0(1.0)
+    %2 = copy %3
+    goto bb3
+  bb2:
+    %4 = closure_call copy %0()
+    %2 = copy %4
+    goto bb3
+  bb3:
+    return copy %2
+
+closure ClosureId(4) -> String
+  locals
+    %0 param __callback_param_0: String
+    %1 param __callback_param_1: Optional<String>
+    %2 temp: String
+    %3 temp: Bool
+    %4 temp: Optional<String>
+    %5 temp: String
+  bb0:
+    %2 = "hello " + copy %0
+    %3 = copy %1 != none
+    switch copy %3 ? bb1 : bb2
+  bb1:
+    %4 = copy %1
+    goto bb3
+  bb2:
+    %4 = "!"
+    goto bb3
+  bb3:
+    %5 = copy %2 + copy %4
+    return copy %5
+

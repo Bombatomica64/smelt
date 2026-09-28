@@ -240,3 +240,4 @@ mod callee_type_param_tests;
 mod type_predicate_narrowing_tests;
 mod module_arrow_item_tests;
 mod this_receiver_tests;
+mod promise_resolution_tests;

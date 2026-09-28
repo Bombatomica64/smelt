@@ -101,3 +101,4 @@ mod stdlib_boundary_tests;
 mod function_semantics_tests;
 mod blocker_site_tests;
 mod closure_capture_frame_tests;
+mod erased_runtime_shape_tests;

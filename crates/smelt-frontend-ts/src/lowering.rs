@@ -2,9 +2,11 @@
 
 mod ambient_globals;
 mod arguments_forwarding;
+mod asserted_member_read;
 mod function_statics;
 mod hoisting;
 mod presence_tested_locals;
+mod promise_resolution;
 mod specialization;
 pub(in crate::lowering) mod spread_arguments;
 mod state;
