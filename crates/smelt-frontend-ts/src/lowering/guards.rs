@@ -2027,13 +2027,37 @@ impl ModuleBuilder<'_> {
                         "setTimeout lowering supports the Smelt timer shim shape setTimeout(milliseconds)",
                     ));
                 };
-                let duration = self.argument(duration_argument, body)?;
+                let first = self.argument(duration_argument, body)?;
+                // `setTimeout(callback)` is the ordinary timer with its delay
+                // omitted, which JavaScript reads as `0`. Only a non-callable
+                // argument is the shim's `setTimeout(milliseconds)`.
+                if matches!(
+                    self.ctx.krate.types.get(Self::expr_ty(body, first)),
+                    Some(Type::Function(_))
+                ) {
+                    let float_ty = self.ctx.krate.types.intern(Type::Float);
+                    let span = self.span(call.span.start, call.span.end);
+                    let zero = body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::Float(0.0)),
+                        ty: float_ty,
+                        span,
+                    });
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok(Some(body.push_expr(Expr {
+                        kind: ExprKind::AsyncOp {
+                            op: AsyncOp::SetTimeout,
+                            args: vec![first, zero],
+                        },
+                        ty,
+                        span,
+                    })));
+                }
                 let none_ty = self.ctx.krate.types.intern(Type::None);
                 let ty = self.ctx.krate.types.intern(Type::Future(none_ty));
                 Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::AsyncOp {
                         op: AsyncOp::Sleep,
-                        args: vec![duration],
+                        args: vec![first],
                     },
                     ty,
                     span: self.span(call.span.start, call.span.end),

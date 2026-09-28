@@ -269,3 +269,49 @@ export function wrap(call: Middleware): Middleware {
         "the captured handle must be cloned before the wrapper closure:\n{source}"
     );
 }
+
+/// An `async` callback whose promise flows into a result slot typed
+/// `T | Promise<T>` lands in the union's PROMISE arm: the adapter wraps the
+/// callback's future (re-typed to the arm's awaited output) in that variant
+/// instead of handing a bare `SmeltFuture` to a `SmeltUnion…` slot (E0308 in
+/// Hono's `compose(middleware, async (err, c) => ..)`).
+#[test]
+fn async_callback_into_union_promise_arm_wraps_the_future() {
+    let input = r#"
+type Handler = (key: string) => string | Promise<string>;
+
+export async function run(handler: Handler): Promise<string> {
+  return await handler("k");
+}
+
+export function main(): Promise<string> {
+  const handler = async (key: string) => key + "!";
+  return run(handler);
+}
+"#;
+    let source = source_for(input);
+    assert!(
+        source.contains("::M1({ let smelt_source_future = (_smelt_adapted_callback)"),
+        "the async callback's future must be injected into the promise arm:\n{source}"
+    );
+}
+
+/// `setTimeout(callback)` with the delay omitted is the ordinary timer at delay
+/// `0`, not the shim's `setTimeout(milliseconds)` sleep: the callback must be
+/// registered, never cast to a number of milliseconds.
+#[test]
+fn set_timeout_with_only_a_callback_registers_a_zero_delay_timer() {
+    let input = r#"
+export function main(): void {
+  setTimeout(() => {
+    console.log("fired");
+  });
+}
+"#;
+    let source = source_for(input);
+    assert!(
+        !source.contains("smelt_sleep_ms(_smelt_tmp"),
+        "a callback-only setTimeout must not lower to the millisecond sleep shim:\n{source}"
+    );
+    assert!(source.contains("\"fired\""), "{source}");
+}

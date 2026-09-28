@@ -83,30 +83,33 @@ exclude = [
   # Sequential `expect(..).toThrow()` duplicates the continuation: 616 MB
   # module, rustc OOM (round 2 item). phase 3 pending.
   "src/utils/cookie.test.ts",
-  # These used to stop at `unknown class method set` (the module's own
-  # `interface Set<E>` lowered as the global `Set` collection, so the
-  # callable-interface field `Context.set` had no call signature). That is
-  # fixed; each now stops at the next blocker named here. phase 3 pending.
-  # `callback method header` (overloaded `HonoRequest.header` in an arrow):
-  "src/compose.test.ts",
-  # `hc` from the excluded client, `callback method param`, erased Response
-  # init keys, dynamic `import()` in `utils/color.ts`:
+  # These used to stop at `unknown class method set`, then at `callback
+  # method X is not lowered into closure bodies yet` (`c.req.header(..)`
+  # through the `req` getter) or `toContain` on an erased/optional actual.
+  # Those are fixed; each now stops at the next blocker named here. phase 3
+  # pending.
+  # `hc` from the excluded client, erased Response init keys, dynamic
+  # `import()` in `utils/color.ts`:
   "src/hono.test.ts",
   # `hc` / `testClient` from the excluded client and testing helper:
   "src/types.test.ts",
   "src/helper/factory/index.test.ts",
-  # `expect(..).toContain(..)` on an erased actual:
+  # `smelt check` clean; `cargo` E0308 in the modules it reaches:
+  # `middleware/language/index.ts`, `utils/accept.ts`, `helper/cookie` and
+  # `utils/cookie.ts` (see the accept/cookie tests below):
   "src/middleware/language/index.test.ts",
   # `smelt check` clean; `cargo` E0428: the module arrow `requestId` and the
   # named function expression it returns (`async function requestId`) both
   # emit an item `request_id`:
   "src/middleware/request-id/index.test.ts",
-  # `toContain` on an erased actual + a `List`/`Tuple` conditional in
-  # `secure-headers.ts`:
+  # A `List`/`Tuple` conditional in `secure-headers.ts`:
   "src/middleware/secure-headers/index.test.ts",
-  # `expect(..).toContain(..)` on an erased actual. phase 3 pending.
+  # `new URL(path, base)` (two arguments):
   "src/context.test.ts",
+  # `array unshift arguments must match the array element type` in
+  # `middleware/basic-auth/index.ts`:
   "src/middleware/basic-auth/index.test.ts",
+  # Index access on an `Optional` receiver in `middleware/bearer-auth/index.ts`:
   "src/middleware/bearer-auth/index.test.ts",
   # Unresolved `ReadableStream`/`TransformStream`/`(De)CompressionStream`
   # (the test or a module it reaches). phase 3 pending.
@@ -158,8 +161,8 @@ exclude = [
   "src/utils/buffer.test.ts",
   # Test-shape lowering gaps: `call expression is not lowered yet`,
   # non-direct `describe` bodies, `expect(..)` modifiers other than `.not`,
-  # `.resolves` on a non-Promise actual (+ `declare` methods), callback
-  # methods (`safe_parse`) inside closures. phase 3 pending.
+  # `.resolves` on a non-Promise actual (+ `declare` methods). phase 3
+  # pending.
   "src/jsx/utils.test.ts",
   "src/router/reg-exp-router/prepared-router.test.ts",
   "src/utils/types.test.ts",

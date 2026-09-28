@@ -139,6 +139,53 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Check that a compact callback rebuilds into a closure, keeping nothing.
+    ///
+    /// A local `const f = (..) => ..` whose compact form is registered for
+    /// inlining is only turned into a closure later, at each reference, and a
+    /// reference cannot retry a compact-IR gap through full closure-body
+    /// lowering because the source arrow is no longer in hand. The declaration
+    /// calls this to find such a gap while it still can: the rebuild runs
+    /// exactly as a reference would run it (same callback, parameter types and
+    /// declaring body), and then every trace of it is rolled back —
+    ///
+    /// * the one expression the rebuild appends to `body` (the closure itself;
+    ///   capture discovery only reads `body`), by truncating `body.exprs`;
+    /// * the closure bodies it pushed onto the crate, by truncating
+    ///   `krate.bodies` — but only when no item was added meanwhile, since an
+    ///   item could name one of those bodies. Nothing else holds a `BodyId` or
+    ///   `ExprId` minted here, so the truncation leaves no dangling ids.
+    ///
+    /// Returns the rebuild's error, if any, for the caller to classify.
+    pub(in crate::lowering) fn compact_callback_rebuilds(
+        &mut self,
+        return_ty: smelt_hir::TypeId,
+        callback: &CallbackExpr,
+        params: &[smelt_hir::TypeId],
+        rest: Option<usize>,
+        required_params: Option<usize>,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        let exprs = body.exprs.len();
+        let bodies = self.ctx.krate.bodies.len();
+        let items = self.ctx.krate.items.len();
+        let result = self.callback_expr_to_closure_with_return_ty(
+            return_ty,
+            callback,
+            params,
+            rest,
+            required_params,
+            span,
+            body,
+        );
+        body.exprs.truncate(exprs);
+        if self.ctx.krate.items.len() == items {
+            self.ctx.krate.bodies.truncate(bodies);
+        }
+        result.map(|_| ())
+    }
+
     /// Remap callback capture references to locals declared in the closure body.
     pub(in crate::lowering) fn remap_callback_captures(
         callback: &mut CallbackExpr,

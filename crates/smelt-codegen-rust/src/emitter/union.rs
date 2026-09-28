@@ -420,6 +420,11 @@ impl FunctionEmitter<'_> {
                 // coercion adapts the arity once the arm is chosen, and the
                 // unique-shape rule keeps a union of two callbacks ambiguous.
                 | (Some(Type::Function(_)), Some(Type::Function(_)))
+                // A promise injected into a union's promise arm (an `async`
+                // handler returning `Promise<unknown>` into a
+                // `Response | Promise<Response>` result). The future-to-future
+                // coercion re-types the awaited output once the arm is chosen.
+                | (Some(Type::Future(_)), Some(Type::Future(_)))
         )
     }
 

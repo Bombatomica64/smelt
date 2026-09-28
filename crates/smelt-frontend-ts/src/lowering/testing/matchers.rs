@@ -8,8 +8,8 @@ use oxc::span::GetSpan;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
 use smelt_hir::{
     BinOp, Body, CallbackExpr, CallbackExprKind, CaptureMode, ClosureCapture, Expr, ExprKind,
-    FileId, FunctionType, Literal, LocalDecl, Param, Pattern, PropertyLookup, Span, Stmt, Type,
-    UnaryOp,
+    FileId, FunctionType, Literal, LocalDecl, Param, Pattern, PrimitiveCastOp, PropertyLookup,
+    Span, Stmt, Type, UnaryOp, UnknownKind,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -718,6 +718,10 @@ impl ModuleBuilder<'_> {
         if inverted {
             failed = self.unary_bool_expr(UnaryOp::Not, failed, call.span, body);
         }
+        if let Some(rejected) = self.nullish_actual_rejected_expr(matcher, actual, call.span, body)
+        {
+            failed = self.bool_or_expr(rejected, failed, call.span, body);
+        }
         self.push_test_failure_if(
             failed,
             &format!("expect(...).{}(...) failed", matcher.source_name()),
@@ -725,6 +729,98 @@ impl ModuleBuilder<'_> {
             body,
         );
         Ok(true)
+    }
+
+    /// The condition under which a matcher rejects its actual outright.
+    ///
+    /// `toContain` and `toMatch` do not answer "no" for a `null`/`undefined`
+    /// actual — vitest throws (chai's `include` has no container to search, and
+    /// `toMatch` requires a string), so the assertion fails under `.not` too.
+    /// That rejection is independent of the matcher's own result, which is why
+    /// it is OR-ed onto the failure condition AFTER the `.not` inversion.
+    /// Only an actual that can be nullish produces one: an optional actual is
+    /// tested against `None`, an erased one against its runtime null/undefined
+    /// tags; every other matcher and actual type returns `None`.
+    fn nullish_actual_rejected_expr(
+        &mut self,
+        matcher: TestMatcher,
+        actual: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        if !matches!(matcher, TestMatcher::Contain | TestMatcher::Match) {
+            return None;
+        }
+        let hir_span = self.span(span.start, span.end);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        match self.ctx.krate.types.get(Self::expr_ty(body, actual)) {
+            Some(Type::Optional(_)) => {
+                let none_ty = self.ctx.krate.types.intern(Type::None);
+                let none = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty: none_ty,
+                    span: hir_span,
+                });
+                Some(body.push_expr(Expr {
+                    kind: ExprKind::BinOp {
+                        op: BinOp::Eq,
+                        lhs: actual,
+                        rhs: none,
+                    },
+                    ty: bool_ty,
+                    span: hir_span,
+                }))
+            }
+            Some(Type::Unknown) => {
+                let is_null = body.push_expr(Expr {
+                    kind: ExprKind::UnknownIs {
+                        value: actual,
+                        kind: UnknownKind::Null,
+                    },
+                    ty: bool_ty,
+                    span: hir_span,
+                });
+                let is_undefined = body.push_expr(Expr {
+                    kind: ExprKind::UnknownIs {
+                        value: actual,
+                        kind: UnknownKind::Undefined,
+                    },
+                    ty: bool_ty,
+                    span: hir_span,
+                });
+                Some(self.bool_or_expr(is_null, is_undefined, span, body))
+            }
+            _ => None,
+        }
+    }
+
+    /// Short-circuiting `lhs || rhs` over two boolean expressions.
+    ///
+    /// Built as a `Conditional` so `rhs` is only evaluated when `lhs` is
+    /// false, exactly as JavaScript `||` does.
+    fn bool_or_expr(
+        &mut self,
+        lhs: smelt_hir::ExprId,
+        rhs: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let hir_span = self.span(span.start, span.end);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let yes = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span: hir_span,
+        });
+        body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond: lhs,
+                then_expr: yes,
+                else_expr: rhs,
+            },
+            ty: bool_ty,
+            span: hir_span,
+        })
     }
 
     /// Erase both operands of an equality matcher whose static types are
@@ -1952,32 +2048,15 @@ impl ModuleBuilder<'_> {
                     item: expected,
                 }
             }
-            // The actual may itself be erased (`Unknown`/leaked type param) when
-            // it comes from a cross-module helper whose return type does not
-            // resolve in this lowering unit (`expect(keysIn(buffer)).toContain(k)`).
-            // JavaScript containment inspects the live value, so project the
-            // erased actual to an erased list and erase the needle; the emitted
-            // runtime projection panics if the value is not an array, matching
-            // how other matchers treat erased actuals.
+            // `string | null` (`headers.get(name)`) and every other optional
+            // actual: vitest rejects a nullish actual, so an absent value never
+            // contains anything, and a present one is checked at its inner type.
+            Some(Type::Optional(inner)) => {
+                let inner_ty = *inner;
+                return self.optional_contains_expr(actual, inner_ty, expected, span, body);
+            }
             Some(Type::Unknown | Type::TypeParam { .. }) => {
-                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-                let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
-                let matcher_span = self.span(span.start, span.end);
-                let list = body.push_expr(Expr {
-                    kind: ExprKind::TypeAssert { value: actual },
-                    ty: list_ty,
-                    span: matcher_span,
-                });
-                let item = if expected_ty == unknown_ty {
-                    expected
-                } else {
-                    body.push_expr(Expr {
-                        kind: ExprKind::TypeAssert { value: expected },
-                        ty: unknown_ty,
-                        span: matcher_span,
-                    })
-                };
-                ExprKind::ListContains { list, item }
+                return Ok(self.erased_contains_expr(actual, expected, span, body));
             }
             _ => {
                 return Err(SmeltError::unsupported(
@@ -1991,6 +2070,185 @@ impl ModuleBuilder<'_> {
             ty: bool_ty,
             span: self.span(span.start, span.end),
         }))
+    }
+
+    /// Containment over an optional actual (`string | null`, `T[] | undefined`).
+    ///
+    /// vitest's `toContain`/`toMatch` reject a nullish actual, so the check is
+    /// `actual != null && contains(actual!, expected)`: the presence test
+    /// guards a `TypeAssert` to the inner type, and the inner containment is
+    /// whatever [`Self::contains_expr`] picks for that type — the typed string,
+    /// list, set or tuple path, never an erased one. The `Conditional` keeps
+    /// the unwrap from running when the value is absent.
+    fn optional_contains_expr(
+        &mut self,
+        actual: smelt_hir::ExprId,
+        inner_ty: smelt_hir::TypeId,
+        expected: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let hir_span = self.span(span.start, span.end);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let none = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::None),
+            ty: none_ty,
+            span: hir_span,
+        });
+        let present = body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op: BinOp::NotEq,
+                lhs: actual,
+                rhs: none,
+            },
+            ty: bool_ty,
+            span: hir_span,
+        });
+        let value = body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value: actual },
+            ty: inner_ty,
+            span: hir_span,
+        });
+        let contains = self.contains_expr(value, expected, span, body)?;
+        let absent = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(false)),
+            ty: bool_ty,
+            span: hir_span,
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond: present,
+                then_expr: contains,
+                else_expr: absent,
+            },
+            ty: bool_ty,
+            span: hir_span,
+        }))
+    }
+
+    /// Containment over an erased actual (`unknown`, `any`, a leaked type param).
+    ///
+    /// DYNAMIC BOUNDARY: the actual has no static shape here — it is source
+    /// `unknown`/`any`, or a cross-module helper's result that does not resolve
+    /// in this lowering unit (`expect(keysIn(buffer)).toContain(k)`,
+    /// `expect(JSON.parse(text)).toContain('x')`) — and vitest's `toContain`
+    /// picks its semantics from the LIVE value: a string actual is a substring
+    /// search, an array actual an element search with `===`, and anything else
+    /// fails the assertion. No concrete type, union or scoped generic can make
+    /// that choice at compile time, because the source never names one; the
+    /// only thing that knows is the value's runtime tag. So the check reads it
+    /// (`UnknownIs`) and dispatches:
+    ///
+    /// * string → `StringContains` over the value viewed as a string, with the
+    ///   needle converted by JavaScript `ToString` (what `String.prototype.
+    ///   includes` does to a non-string argument);
+    /// * array → `ListContains` over the value viewed as an erased list, with
+    ///   the needle erased to the same runtime representation;
+    /// * otherwise → `false`, so the assertion fails as vitest's does.
+    ///
+    /// A statically typed actual never reaches this: string/list/set/tuple and
+    /// optional actuals keep their typed paths in [`Self::contains_expr`].
+    fn erased_contains_expr(
+        &mut self,
+        actual: smelt_hir::ExprId,
+        expected: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let hir_span = self.span(span.start, span.end);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
+        let expected_ty = Self::expr_ty(body, expected);
+        let value = Self::erase_to_unknown(actual, unknown_ty, hir_span, body);
+
+        let is_string = body.push_expr(Expr {
+            kind: ExprKind::UnknownIs {
+                value,
+                kind: UnknownKind::String,
+            },
+            ty: bool_ty,
+            span: hir_span,
+        });
+        let haystack = body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value },
+            ty: string_ty,
+            span: hir_span,
+        });
+        let needle = if expected_ty == string_ty {
+            expected
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToString,
+                    operand: expected,
+                },
+                ty: string_ty,
+                span: hir_span,
+            })
+        };
+        let string_contains = body.push_expr(Expr {
+            kind: ExprKind::StringContains {
+                haystack,
+                needle,
+                from_index: None,
+            },
+            ty: bool_ty,
+            span: hir_span,
+        });
+
+        let is_array = body.push_expr(Expr {
+            kind: ExprKind::UnknownIs {
+                value,
+                kind: UnknownKind::Array,
+            },
+            ty: bool_ty,
+            span: hir_span,
+        });
+        let list = body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value },
+            ty: list_ty,
+            span: hir_span,
+        });
+        let item = if expected_ty == unknown_ty {
+            expected
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: expected },
+                ty: unknown_ty,
+                span: hir_span,
+            })
+        };
+        let list_contains = body.push_expr(Expr {
+            kind: ExprKind::ListContains { list, item },
+            ty: bool_ty,
+            span: hir_span,
+        });
+        let neither = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(false)),
+            ty: bool_ty,
+            span: hir_span,
+        });
+        let array_or_nothing = body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond: is_array,
+                then_expr: list_contains,
+                else_expr: neither,
+            },
+            ty: bool_ty,
+            span: hir_span,
+        });
+        body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond: is_string,
+                then_expr: string_contains,
+                else_expr: array_or_nothing,
+            },
+            ty: bool_ty,
+            span: hir_span,
+        })
     }
 
     /// Create a dictionary key containment expression for `toHaveProperty`.
@@ -4393,6 +4651,29 @@ impl ModuleBuilder<'_> {
                 may_throw: false,
             }));
             let predeclared_local = self.local_arrow_existing_body_local(name, body);
+            // A local callback is rebuilt into a closure at each use (and, when
+            // predeclared, once more right here), where a compact-IR gap can no
+            // longer retry through full closure-body lowering: the source
+            // arrow is gone, or the binding is already committed. Prove the
+            // rebuild now, and take the closure-body path below when it would
+            // fail — the same retry every inline callback argument gets
+            // (`should_fallback_to_closure_body_for_callback`).
+            let callback_result = callback_result.and_then(|callback| {
+                match self.compact_callback_rebuilds(
+                    return_ty,
+                    &callback,
+                    &params,
+                    rest.map(|rest| rest.index),
+                    Some(required_params),
+                    self.span(arrow.span.start, arrow.span.end),
+                    body,
+                ) {
+                    Err(error) if Self::should_fallback_to_closure_body_for_callback(&error) => {
+                        Err(error)
+                    }
+                    _ => Ok(callback),
+                }
+            });
             if let Ok(callback) = callback_result {
                 let expected_callback_ty = match self.ctx.krate.types.get(return_ty) {
                     Some(Type::Future(inner)) if arrow.r#async => *inner,

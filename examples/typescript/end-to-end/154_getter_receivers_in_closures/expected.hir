@@ -1,0 +1,104 @@
+module examples/typescript/end-to-end/154_getter_receivers_in_closures/input.ts (ModuleId(0))
+  body BodyId(12)
+  items
+    type KnownHeader = String
+    class Request fields [Private headers: Map<String, String>] constructor Some(ItemId(5)) methods [ItemId(6), ItemId(7), ItemId(8)] implements []
+    class Context fields [Public reads: Float, Hidden #req: Optional<Request>, Hidden #raw: Map<String, String>] constructor Some(ItemId(10)) methods [ItemId(11), ItemId(12)] implements []
+    fn content_type owner Module
+    fn present owner Module
+  locals
+    %0 const handler: fn(Context) -> String
+    %1 const ctx: Context
+  exprs
+    #0: fn(Context) -> String = closure BodyId(11) captures 0 -> String
+    #1: String = "content-type"
+    #2: String = "text/plain"
+    #3: String = "accept"
+    #4: String = "*/*"
+    #5: Map<String, String> = {#1: #2, #3: #4}
+    #6: Context = new Context(#5)
+    #7: Context = %1
+    #8: fn(Context) -> String = @2(content_type)
+    #9: String = call #8(#7)
+    #10: None = @14(console_log)
+    #11: None = call #10(#9)
+    #12: Context = %1
+    #13: Float = #12.reads
+    #14: None = @15(console_log)
+    #15: None = call #14(#13)
+    #16: fn(Context) -> String = %0
+    #17: Context = %1
+    #18: String = closure_call #16(#17)
+    #19: None = @16(console_log)
+    #20: None = call #19(#18)
+    #21: Context = %1
+    #22: Float = #21.reads
+    #23: None = @17(console_log)
+    #24: None = call #23(#22)
+    #25: Context = %1
+    #26: String = "accept"
+    #27: String = "x-missing"
+    #28: String = "content-type"
+    #29: List<String> = [#26, #27, #28]
+    #30: fn(Context, List<String>) -> List<String> = @3(present)
+    #31: List<String> = call #30(#25, #29)
+    #32: String = ","
+    #33: String = string_join #31, #32
+    #34: None = @18(console_log)
+    #35: None = call #34(#33)
+    #36: Context = %1
+    #37: Float = #36.reads
+    #38: None = @19(console_log)
+    #39: None = call #38(#37)
+    #40: Context = %1
+    #41: Request = #40.req
+    #42: fn() -> List<String> = #41.names
+    #43: Context = %1
+    #44: Request = #43.req
+    #45: List<String> = #44.names()
+    #46: String = ","
+    #47: String = string_join #45, #46
+    #48: None = @20(console_log)
+    #49: None = call #48(#47)
+    #50: Context = %1
+    #51: Float = #50.reads
+    #52: None = @21(console_log)
+    #53: None = call #52(#51)
+  stmts
+    s0: let %0: fn(Context) -> String = #0
+    s1: let %1: Context = #6
+    s2: #11
+    s3: #15
+    s4: #20
+    s5: #24
+    s6: #35
+    s7: #39
+    s8: #49
+    s9: #53
+
+interned types
+  t0 = String
+  t1 = Context
+  t2 = Unknown
+  t3 = fn(Context) -> Unknown
+  t4 = Map<String, String>
+  t5 = fn(Context) -> String
+  t6 = List<String>
+  t7 = fn(Context, List<String>) -> List<String>
+  t8 = Request
+  t9 = None
+  t10 = Optional<String>
+  t11 = Bool
+  t12 = Float
+  t13 = Optional<Request>
+  t14 = fn(String) -> Optional<String>
+  t15 = fn(String) -> Unknown
+  t16 = fn(String) -> Bool
+  t17 = fn(String) -> Bool
+  t18 = Int
+  t19 = fn(String, Int, List<String>) -> Bool
+  t20 = List<Unknown>
+  t21 = fn(String) -> String
+  t22 = fn(Context) -> String
+  t23 = fn(Context, List<String>) -> List<String>
+  t24 = fn() -> List<String>
