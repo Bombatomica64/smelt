@@ -46,6 +46,14 @@ pub(in crate::lowering) struct TypeScope {
     param_scopes: Vec<HashMap<String, TypeId>>,
     /// Constraints for active generic type parameters, innermost last.
     param_constraint_scopes: Vec<HashMap<Symbol, TypeId>>,
+    /// Source names of the types the current module declares at top level.
+    ///
+    /// A module-scope `interface`/`type`/`class`/`enum` binds its name for the
+    /// whole module, so a type reference spelled with that name means the
+    /// declaration, not a same-spelled global lib type (Hono's
+    /// `interface Set<E> { (key, value): void }` is not the builtin `Set<T>`).
+    /// Filled once by the module prepass, before any type reference is lowered.
+    module_type_names: HashSet<String>,
 }
 
 impl TypeScope {
@@ -94,6 +102,16 @@ impl TypeScope {
     /// Record that an alias spells a callable-object intersection surface.
     pub(in crate::lowering) fn mark_callable_object_alias(&mut self, name: Symbol) {
         self.callable_object_aliases.insert(name);
+    }
+
+    /// Record the type names the current module declares at top level.
+    pub(in crate::lowering) fn declare_module_type_names(&mut self, names: HashSet<String>) {
+        self.module_type_names = names;
+    }
+
+    /// Return whether the current module declares a top-level type named `name`.
+    pub(in crate::lowering) fn module_declares_type_name(&self, name: &str) -> bool {
+        self.module_type_names.contains(name)
     }
 
     /// Enter a TypeScript namespace for type-only declarations.

@@ -1,0 +1,192 @@
+module examples/typescript/end-to-end/152_callable_interface_fields/input.ts (ModuleId(0))
+  body BodyId(6)
+  items
+    interface Get fields [Public __smelt_call: fn(String) -> Float] methods []
+    interface Set fields [Public __smelt_call: fn(String, String | Float) -> None] methods []
+    interface SetHeaderOptions fields [Public append?: Optional<Bool>] methods []
+    interface SetHeader fields [Public __smelt_call: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None] methods []
+    interface Echo fields [Public __smelt_call: fn(String) -> String] methods []
+    class Context fields [Public store: Map<String, String>, Public headers: Map<String, String>, Public reads: Float, Public get: Get, Public set: Set, Public header: SetHeader, Public echo: Echo] constructor Some(ItemId(6)) methods [ItemId(5)] implements []
+  locals
+    %0 const c: Context
+    %1 const read: Get
+  exprs
+    #0: Context = new Context()
+    #1: Context = %0
+    #2: Context = %0
+    #3: Context = %0
+    #4: Context = %0
+    #5: Context = %0
+    #6: Context = %0
+    #7: Set = #6.set
+    #8: Context = %0
+    #9: String = "a"
+    #10: String = "hello"
+    #11: fn(String, String | Float) -> None = assert_type #7
+    #12: None = closure_call #11(#9, #10)
+    #13: Context = %0
+    #14: Context = %0
+    #15: Context = %0
+    #16: Context = %0
+    #17: Context = %0
+    #18: Context = %0
+    #19: Set = #18.set
+    #20: Context = %0
+    #21: String = "b"
+    #22: Float = 7.0
+    #23: fn(String, String | Float) -> None = assert_type #19
+    #24: None = closure_call #23(#21, #22)
+    #25: Context = %0
+    #26: Context = %0
+    #27: Context = %0
+    #28: Context = %0
+    #29: Context = %0
+    #30: Get = #29.get
+    #31: Context = %0
+    #32: String = "a"
+    #33: fn(String) -> Float = assert_type #30
+    #34: Float = closure_call #33(#32)
+    #35: None = @8(console_log)
+    #36: None = call #35(#34)
+    #37: Context = %0
+    #38: Context = %0
+    #39: Context = %0
+    #40: Context = %0
+    #41: Context = %0
+    #42: Get = #41.get
+    #43: Context = %0
+    #44: String = "b"
+    #45: fn(String) -> Float = assert_type #42
+    #46: Float = closure_call #45(#44)
+    #47: None = @9(console_log)
+    #48: None = call #47(#46)
+    #49: Context = %0
+    #50: fn() -> Float = #49.touch
+    #51: Context = %0
+    #52: Float = #51.touch()
+    #53: None = @10(console_log)
+    #54: None = call #53(#52)
+    #55: Context = %0
+    #56: Echo = #55.echo
+    #57: Context = %0
+    #58: String = "zz"
+    #59: fn(String) -> String = assert_type #56
+    #60: String = closure_call #59(#58)
+    #61: None = @11(console_log)
+    #62: None = call #61(#60)
+    #63: Context = %0
+    #64: SetHeader = #63.header
+    #65: Context = %0
+    #66: String = "x-one"
+    #67: String = "1"
+    #68: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None = assert_type #64
+    #69: None = closure_call #68(#66, #67)
+    #70: Context = %0
+    #71: SetHeader = #70.header
+    #72: Context = %0
+    #73: String = "x-one"
+    #74: String = "2"
+    #75: String = "append"
+    #76: Bool = true
+    #77: Dict<String, Bool> = {#75: #76}
+    #78: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None = assert_type #71
+    #79: None = closure_call #78(#73, #74, #77)
+    #80: Context = %0
+    #81: SetHeader = #80.header
+    #82: Context = %0
+    #83: String = "x-two"
+    #84: String = "2"
+    #85: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None = assert_type #81
+    #86: None = closure_call #85(#83, #84)
+    #87: Context = %0
+    #88: SetHeader = #87.header
+    #89: Context = %0
+    #90: String = "x-two"
+    #91: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None = assert_type #88
+    #92: None = closure_call #91(#90)
+    #93: Context = %0
+    #94: Context = %0
+    #95: Context = %0
+    #96: Context = %0
+    #97: Map<String, String> = #96.headers
+    #98: String = "x-one"
+    #99: Optional<String> = dict_get #97, #98, _
+    #100: None = @12(console_log)
+    #101: None = call #100(#99)
+    #102: Context = %0
+    #103: Context = %0
+    #104: Context = %0
+    #105: Context = %0
+    #106: Map<String, String> = #105.headers
+    #107: String = "x-two"
+    #108: Bool = dict_contains_key #106, #107, own
+    #109: None = @13(console_log)
+    #110: None = call #109(#108)
+    #111: Context = %0
+    #112: Context = %0
+    #113: Context = %0
+    #114: Context = %0
+    #115: Map<String, String> = #114.headers
+    #116: String = "x-inner"
+    #117: Optional<String> = dict_get #115, #116, _
+    #118: None = @14(console_log)
+    #119: None = call #118(#117)
+    #120: Context = %0
+    #121: Get = #120.get
+    #122: Get = %1
+    #123: fn(String) -> Float = assert_type #122
+    #124: String = "a"
+    #125: Float = closure_call #123(#124)
+    #126: None = @15(console_log)
+    #127: None = call #126(#125)
+    #128: Context = %0
+    #129: Float = #128.reads
+    #130: None = @16(console_log)
+    #131: None = call #130(#129)
+  stmts
+    s0: let %0: Context = #0
+    s1: #12
+    s2: #24
+    s3: #36
+    s4: #48
+    s5: #54
+    s6: #62
+    s7: #69
+    s8: #79
+    s9: #86
+    s10: #92
+    s11: #101
+    s12: #110
+    s13: #119
+    s14: let %1: Get = #121
+    s15: #127
+    s16: #131
+
+interned types
+  t0 = Context
+  t1 = String
+  t2 = Unknown
+  t3 = Dict<String, Unknown>
+  t4 = Float
+  t5 = fn(String) -> Float
+  t6 = None
+  t7 = String | Float
+  t8 = fn(String, String | Float) -> None
+  t9 = Bool
+  t10 = Optional<Bool>
+  t11 = SetHeaderOptions
+  t12 = Optional<SetHeaderOptions>
+  t13 = Optional<String>
+  t14 = fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None
+  t15 = K
+  t16 = fn(String) -> String
+  t17 = Map<String, String>
+  t18 = Get
+  t19 = Set
+  t20 = SetHeader
+  t21 = Echo
+  t22 = fn(String) -> Float
+  t23 = fn(String, String | Float) -> None
+  t24 = fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None
+  t25 = fn() -> Float
+  t26 = Dict<String, Bool>

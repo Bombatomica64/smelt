@@ -1,0 +1,229 @@
+class Context fields [Public store: Map<String, String>, Public headers: Map<String, String>, Public reads: Float, Public get: Get, Public set: Set, Public header: SetHeader, Public echo: Echo] constructor Some(FuncId(1)) methods [FuncId(0)]
+interface Get
+interface Set
+interface SetHeaderOptions
+interface SetHeader
+interface Echo
+
+fn touch (FuncId(0)) -> Float
+  locals
+    %0 param this: Context
+    %1 temp: fn(String, String | Float) -> None
+    %2 temp: None
+    %3 temp: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None
+    %4 temp: None
+    %5 temp: fn(String) -> Float
+    %6 temp: Float
+  bb0:
+    %1 = copy %0.field13
+    %2 = closure_call move %1("inner", 42.0)
+    %3 = copy %0.field14
+    %4 = closure_call move %3("x-inner", "yes")
+    %5 = copy %0.field1
+    %6 = closure_call move %5("inner")
+    return move %6
+
+fn new (FuncId(1)) -> Context
+  locals
+    %0 user this: Context
+    %1 temp: Map<String, String>
+    %2 temp: Map<String, String>
+    %3 temp: fn(String) -> Float
+    %4 temp: fn(String, String | Float) -> None
+    %5 temp: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None
+    %6 temp: fn(String) -> String
+  bb0:
+    %0 = struct0 {}
+    %1 = {}
+    %0.field10 = move %1
+    %2 = {}
+    %0.field11 = move %2
+    %0.field12 = 0.0
+    %3 = closure ClosureId(0) [copy %0]
+    %0.field1 = move %3
+    %4 = closure ClosureId(1) [copy %0]
+    %0.field13 = move %4
+    %5 = closure ClosureId(2) [copy %0]
+    %0.field14 = move %5
+    %6 = closure ClosureId(3) []
+    %0.field15 = move %6
+    return move %0
+
+fn main (FuncId(2)) -> None
+  locals
+    %0 user c: Context
+    %1 user read: Get
+    %2 temp: Context
+    %3 temp: fn(String, String | Float) -> None
+    %4 temp: None
+    %5 temp: fn(String, String | Float) -> None
+    %6 temp: None
+    %7 temp: fn(String) -> Float
+    %8 temp: Float
+    %9 temp: None
+    %10 temp: fn(String) -> Float
+    %11 temp: Float
+    %12 temp: None
+    %13 temp: Float
+    %14 temp: None
+    %15 temp: fn(String) -> String
+    %16 temp: String
+    %17 temp: None
+    %18 temp: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None
+    %19 temp: None
+    %20 temp: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None
+    %21 temp: Dict<String, Bool>
+    %22 temp: None
+    %23 temp: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None
+    %24 temp: None
+    %25 temp: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None
+    %26 temp: None
+    %27 temp: Optional<String>
+    %28 temp: None
+    %29 temp: Bool
+    %30 temp: None
+    %31 temp: Optional<String>
+    %32 temp: None
+    %33 temp: fn(String) -> Float
+    %34 temp: Float
+    %35 temp: None
+    %36 temp: None
+  bb0:
+    %2 = call fn1() -> bb1
+  bb1:
+    %0 = move %2
+    %3 = copy %0.field13
+    %4 = closure_call move %3("a", "hello")
+    %5 = copy %0.field13
+    %6 = closure_call move %5("b", 7.0)
+    %7 = copy %0.field1
+    %8 = closure_call move %7("a")
+    %9 = call @console_log(move %8) -> bb2
+  bb2:
+    %10 = copy %0.field1
+    %11 = closure_call move %10("b")
+    %12 = call @console_log(move %11) -> bb3
+  bb3:
+    %13 = call fn0(copy %0) -> bb4
+  bb4:
+    %14 = call @console_log(move %13) -> bb5
+  bb5:
+    %15 = copy %0.field15
+    %16 = closure_call move %15("zz")
+    %17 = call @console_log(move %16) -> bb6
+  bb6:
+    %18 = copy %0.field14
+    %19 = closure_call move %18("x-one", "1")
+    %20 = copy %0.field14
+    %21 = {"append": true}
+    %22 = closure_call move %20("x-one", "2", move %21)
+    %23 = copy %0.field14
+    %24 = closure_call move %23("x-two", "2")
+    %25 = copy %0.field14
+    %26 = closure_call move %25("x-two")
+    %27 = dict_get copy %0.field11, "x-one", _
+    %28 = call @console_log(move %27) -> bb7
+  bb7:
+    %29 = dict_contains_key copy %0.field11, "x-two", own
+    %30 = call @console_log(move %29) -> bb8
+  bb8:
+    %31 = dict_get copy %0.field11, "x-inner", _
+    %32 = call @console_log(move %31) -> bb9
+  bb9:
+    %1 = copy %0.field1
+    %33 = move %1
+    %34 = closure_call move %33("a")
+    %35 = call @console_log(move %34) -> bb10
+  bb10:
+    %36 = call @console_log(copy %0.field12) -> bb11
+  bb11:
+    return none
+
+closure ClosureId(0) -> Float
+  locals
+    %0 param key: String
+    %1 user this: Context
+    %2 temp: Float
+    %3 temp: Optional<String>
+    %4 temp: String
+    %5 temp: Float
+  bb0:
+    %2 = copy %1.field12 + 1.0
+    %1.field12 = copy %2
+    %3 = dict_get copy %1.field10, copy %0, _
+    %4 = copy %3 ?? ""
+    %5 = len copy %4
+    return copy %5
+
+closure ClosureId(1) -> None
+  locals
+    %0 param key: String
+    %1 param value: String | Float
+    %2 user this: Context
+    %3 temp: String
+    %4 temp: Map<String, String>
+  bb0:
+    %3 = primitive_cast_string copy %1
+    %4 = dict_set copy %2.field10, copy %0, copy %3
+    return none
+
+closure ClosureId(2) -> None
+  locals
+    %0 param name: String
+    %1 param value: Optional<String>
+    %2 param options: Optional<SetHeaderOptions>
+    %3 user this: Context
+    %4 user previous: Optional<String>
+    %5 temp: Bool
+    %6 temp: Bool
+    %7 temp: Optional<String>
+    %8 temp: Optional<Bool>
+    %9 temp: Bool
+    %10 temp: Bool
+    %11 temp: Bool
+    %12 temp: String
+    %13 temp: String
+    %14 temp: String
+    %15 temp: String
+    %16 temp: Map<String, String>
+    %17 temp: String
+    %18 temp: Map<String, String>
+  bb0:
+    %5 = copy %1 == undefined
+    switch copy %5 ? bb1 : bb2
+  bb1:
+    %6 = dict_remove_key copy %3.field11, copy %0
+    return none
+  bb2:
+    %7 = dict_get copy %3.field11, copy %0, _
+    %4 = copy %7
+    %8 = copy %2?.field6
+    %9 = primitive_cast_bool copy %8
+    switch copy %9 ? bb3 : bb4
+  bb3:
+    %11 = copy %4 != undefined
+    %10 = copy %11
+    goto bb5
+  bb4:
+    %10 = false
+    goto bb5
+  bb5:
+    switch copy %10 ? bb6 : bb7
+  bb6:
+    %12 = copy %4
+    %13 = copy %12 + ", "
+    %14 = copy %1
+    %15 = copy %13 + copy %14
+    %16 = dict_set copy %3.field11, copy %0, copy %15
+    return none
+  bb7:
+    %17 = copy %1
+    %18 = dict_set copy %3.field11, copy %0, copy %17
+    return none
+
+closure ClosureId(3) -> String
+  locals
+    %0 param __callback_param_0: String
+  bb0:
+    return copy %0
+

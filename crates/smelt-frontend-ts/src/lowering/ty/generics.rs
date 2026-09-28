@@ -60,6 +60,52 @@ impl ModuleBuilder<'_> {
         Ok(lowered)
     }
 
+    /// Push the type-parameter scope of a generic CLOSURE value (an arrow
+    /// expression lowered as a closure rather than lifted to an item).
+    ///
+    /// A Rust closure — and the `Rc<dyn Fn(..)>` slot it is stored in — cannot
+    /// be generic over its own parameters, so a hand-written port of
+    /// `<K extends string>(key: K): K => key` writes `|key: String| key`. Each
+    /// own parameter with a constraint therefore resolves to that constraint
+    /// inside the closure, the same erase-to-constraint rule a callable
+    /// interface's generic call signature follows (`decls::call_signature`),
+    /// so the closure and the slot it is stored into agree on one concrete
+    /// signature. An unconstrained parameter has no single type to stand for
+    /// it and stays a [`Type::TypeParam`].
+    ///
+    /// The declaration is first pushed as an ordinary scope so a constraint
+    /// may mention a sibling parameter (`<T, K extends keyof T>`); when any
+    /// parameter is constrained that scope is replaced by the erased one. Pop
+    /// it with [`Self::pop_type_parameter_scope`] as usual.
+    pub(in crate::lowering) fn push_closure_type_parameter_scope(
+        &mut self,
+        params: Option<&oxc::ast::ast::TSTypeParameterDeclaration<'_>>,
+    ) -> Result<(), SmeltError> {
+        let defs = self.push_type_parameter_scope(params)?;
+        let Some(params) = params else {
+            return Ok(());
+        };
+        if defs.iter().all(|def| def.constraint.is_none()) {
+            return Ok(());
+        }
+        self.pop_type_parameter_scope();
+        let mut scope = HashMap::new();
+        let mut constraints = HashMap::new();
+        for (param, def) in params.params.iter().zip(&defs) {
+            let ty = match def.constraint {
+                Some(constraint) => {
+                    constraints.insert(def.name, constraint);
+                    constraint
+                }
+                None => self.ctx.krate.types.intern(Type::TypeParam { name: def.name }),
+            };
+            scope.insert(param.name.name.to_string(), ty);
+        }
+        self.types.push_param_types(scope);
+        self.types.push_param_constraints(constraints);
+        Ok(())
+    }
+
     /// Record the type-parameter declarations of every class in this program.
     ///
     /// A PREPASS. It runs twice over the crate for two different reasons, and
