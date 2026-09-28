@@ -2,6 +2,7 @@
 //! interfaces, enums, and the constructor-function idiom.
 
 mod arrows;
+mod call_signature;
 mod callable_object;
 mod constructor;
 mod enums;

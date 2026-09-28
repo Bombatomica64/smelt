@@ -2873,6 +2873,14 @@ impl ModuleBuilder<'_> {
         let substitutions = self
             .type_argument_substitution(&type_params, args, self.span(0, 0))
             .ok()?;
+        // An overload set that shares one result is stored as ONE concrete
+        // slot typed by the merged signature (`merged_overload_call_signature`),
+        // so every call — and every read of the callable as a value — uses that
+        // signature directly: the arguments are coerced into the merged
+        // parameters and no per-overload adapter is built around the slot.
+        if let Some(merged) = self.merged_overload_call_signature(&signatures) {
+            return Some(self.instantiate_signature(&merged, &substitutions));
+        }
         let Some(count) = arg_count else {
             // No call site to select against (`function_member_type`): the
             // first declared signature stands in for the callable's shape.

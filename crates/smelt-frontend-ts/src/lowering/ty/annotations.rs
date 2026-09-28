@@ -226,7 +226,19 @@ impl ModuleBuilder<'_> {
                 let true_ty = self.ts_type_to_hir(&conditional.true_type)?;
                 let false_ty = self.ts_type_to_hir(&conditional.false_type)?;
                 if true_ty == false_ty {
-                    Ok(true_ty)
+                    return Ok(true_ty);
+                }
+                // Arms that agree once a type-parameter arm is read at its
+                // constraint describe one runtime type: under
+                // `T extends string`, `T extends `${infer F}${infer R}` ?
+                // `${Uppercase<F>}${R}` : T` is a `string` on both branches,
+                // the type a hand port gives it (es-toolkit's `Capitalize<T>`).
+                // Only when the arms still differ is the result decided by
+                // the type-level test, which Smelt does not evaluate.
+                let true_erased = self.type_param_constraint_or_self(true_ty);
+                let false_erased = self.type_param_constraint_or_self(false_ty);
+                if true_erased == false_erased {
+                    Ok(true_erased)
                 } else {
                     Ok(self.ctx.krate.types.intern(Type::Unknown))
                 }
@@ -1792,13 +1804,19 @@ return_ty: function.return_ty,
     /// parameter/return lowering is factored here to keep the two entry points
     /// in lockstep. A caller-supplied type-parameter scope wraps the lowering so
     /// generic callable types resolve their own parameters.
+    ///
+    /// A callable TYPE's own type parameters (`<K extends string>(key: K) => K`)
+    /// describe a value that is stored and passed as one `Rc<dyn Fn(..)>`, which
+    /// cannot be generic, so a constrained one resolves to its constraint — the
+    /// rule `push_closure_type_parameter_scope` documents, shared with generic
+    /// arrow closures and callable-interface call signatures so the three agree.
     fn callable_type_to_hir(
         &mut self,
         type_parameters: Option<&oxc::ast::ast::TSTypeParameterDeclaration<'_>>,
         params: &oxc::ast::ast::FormalParameters<'_>,
         return_type: &oxc::ast::ast::TSTypeAnnotation<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
-        self.push_type_parameter_scope(type_parameters)?;
+        self.push_closure_type_parameter_scope(type_parameters)?;
         let mut lowered_params = Vec::new();
         let result = (|| {
             for param in &params.items {
@@ -1997,7 +2015,16 @@ return_ty: function.return_ty,
         {
             return Ok(init_ty);
         }
-        match (name_text.as_str(), args.as_slice()) {
+        // The table below lowers the GLOBAL lib types by spelling. A name the
+        // module declares itself shadows the global one, so it skips the table
+        // and resolves through the declaration path in the fallback arm; an
+        // empty spelling matches no builtin arm.
+        let builtin_spelling = if self.module_type_shadows_global(reference) {
+            ""
+        } else {
+            name_text.as_str()
+        };
+        match (builtin_spelling, args.as_slice()) {
             ("RegExp", []) => Ok(self.regexp_type()),
             // `BodyInit` is a UNION, not an opaque class. Leaving it opaque made
             // `JSON.stringify(body)` report "value must be JSON-serializable
@@ -4442,6 +4469,30 @@ return_ty: function.return_ty,
     /// same reason: a declaration can appear after the reference that needs to
     /// know about it, so the interface registry is not yet populated when the
     /// question is asked.
+    /// Whether a type reference names a declaration of the current module that
+    /// shadows a same-spelled global lib type.
+    ///
+    /// TypeScript resolves an unqualified type name lexically: a module-scope
+    /// `interface Set<E> { … }` binds `Set` for the whole module, so every
+    /// `Set<…>` written there is that interface and never the global
+    /// `Set<T>` collection. Smelt's lib-type table matches by spelling alone, so
+    /// without this check Hono's `set: Set<E> = (key, value) => …` class field
+    /// lowered to a `Type::Set` collection, the callable-interface field lost
+    /// its call signatures, and `c.set('k', v)` failed as an unknown method.
+    ///
+    /// Only an unqualified identifier can be shadowed this way (a qualified
+    /// `NS.Set` never reaches the global table's spellings), and only a
+    /// declaration of THIS module counts: an interface item another module
+    /// lowered is visible crate-wide by symbol, so consulting the crate's items
+    /// would let one file's `Set` hijack every other file's builtin `Set<T>`.
+    fn module_type_shadows_global(&self, reference: &oxc::ast::ast::TSTypeReference<'_>) -> bool {
+        let TSTypeName::IdentifierReference(name) = &reference.type_name else {
+            return false;
+        };
+        self.types.module_declares_type_name(name.name.as_str())
+    }
+
+    /// Whether the module's source text spells a declaration of the type `name`.
     fn source_declares_type(&self, name: &str) -> bool {
         [
             format!("interface {name}"),

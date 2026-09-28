@@ -368,6 +368,10 @@ impl ModuleBuilder<'_> {
     /// Returns `None` when every overload has the identical shape, so a
     /// single-signature (or uniformly-shaped) callable interface keeps its
     /// precise concrete slot type and nothing is erased that need not be.
+    /// An overload set whose signatures share one result is not erased either:
+    /// it answers the merged concrete signature from
+    /// `merged_overload_call_signature`, and only a set whose result differs
+    /// per overload takes the erased variadic slot.
     fn overloaded_call_signature_slot_type(
         &mut self,
         call_signatures: &[FunctionType],
@@ -383,6 +387,13 @@ impl ModuleBuilder<'_> {
         let first_shape = shapes.next()?;
         if !shapes.any(|shape| shape != first_shape) {
             return None;
+        }
+        // Overloads that share one result are one concrete signature whose
+        // parameters accept every overload's arguments; only a set whose result
+        // depends on the arguments needs the erased slot below. See
+        // `decls::call_signature`.
+        if let Some(merged) = self.merged_overload_call_signature(call_signatures) {
+            return Some(self.ctx.krate.types.intern(Type::Function(merged)));
         }
         let item_ty = self.ctx.krate.types.intern(Type::Unknown);
         let rest_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
@@ -2977,68 +2988,7 @@ impl ModuleBuilder<'_> {
                     });
                 }
                 TSSignature::TSCallSignatureDeclaration(signature) => {
-                    let return_ty = signature
-                        .return_type
-                        .as_ref()
-                        .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                        .transpose()?
-                        .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-                    let mut params = Vec::new();
-                    for param in &signature.params.items {
-                        let ty = param
-                            .type_annotation
-                            .as_ref()
-                            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                            .transpose()?
-                            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-                        // Optional call-signature parameters keep the
-                        // `Optional<T>` ABI so under-application can supply a
-                        // typed `None`, matching the `required_params` count.
-                        let ty = if param.optional {
-                            self.ctx.krate.types.intern(Type::Optional(ty))
-                        } else {
-                            ty
-                        };
-                        params.push(ty);
-                    }
-                    // Preserve a trailing rest parameter so the call
-                    // signature's runtime arity survives instead of the
-                    // rest slot being lowered as a fixed array parameter.
-                    let mut rest_index = None;
-                    if let Some(rest) = &signature.params.rest {
-                        let rest_ty = rest
-                            .type_annotation
-                            .as_ref()
-                            .map(|annotation| {
-                                self.function_type_rest_param_to_hir(
-                                    &annotation.type_annotation,
-                                )
-                            })
-                            .transpose()?
-                            .ok_or_else(|| {
-                                SmeltError::unsupported(
-                                    self.span(rest.span.start, rest.span.end),
-                                    "call signature rest parameters require explicit array types",
-                                )
-                            })?;
-                        rest_index = Some(params.len());
-                        params.push(rest_ty);
-                    }
-                    let required_params =
-                        Self::formal_parameters_required_count(&signature.params);
-                    call_signatures.push(FunctionType {
-                        mutable_params: self
-                            .mutable_params_from_returned_tuple_state(&params, return_ty),
-                        params,
-                        rest: rest_index,
-                        required_params: Some(required_params),
-                        return_ty,
-                        is_async: matches!(
-                            self.ctx.krate.types.get(return_ty),
-                            Some(Type::Future(_))
-                        ),
-                        may_throw: false,
-                    });
+                    call_signatures.push(self.call_signature_to_hir(signature)?);
                 }
                 TSSignature::TSIndexSignature(index) => {
                     *index_value_ty =

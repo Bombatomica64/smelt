@@ -1957,7 +1957,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
+        self.push_closure_type_parameter_scope(arrow.type_parameters.as_deref())?;
         let result = (|| {
             let contextual_function = type_hint.and_then(|hint| {
                 let function_hint = self.function_member_type(hint).unwrap_or(hint);
