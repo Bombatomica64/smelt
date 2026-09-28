@@ -18,7 +18,7 @@ module examples/typescript/end-to-end/94_throwing_getter_in_callback/input.ts (M
     #9: String = "beta"
     #10: None = #8.add(#9)
     #11: Registry = %0
-    #12: Unknown = #11.first
+    #12: String = #11.first
     #13: None = @7(console_log)
     #14: None = call #13(#12)
     #15: Registry = %0

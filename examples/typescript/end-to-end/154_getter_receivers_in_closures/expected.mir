@@ -1,0 +1,223 @@
+class Request fields [Private headers: Map<String, String>] constructor Some(FuncId(2)) methods [FuncId(3), FuncId(4), FuncId(5)]
+class Context fields [Public reads: Float, Hidden #req: Optional<Request>, Hidden #raw: Map<String, String>] constructor Some(FuncId(6)) methods [FuncId(7), FuncId(8)]
+
+fn content_type (FuncId(0)) -> String
+  locals
+    %0 param c: Context
+    %1 temp: Request
+    %2 temp: Optional<String>
+    %3 temp: String
+  bb0:
+    %1 = copy %0.field19
+    %2 = call fn3(move %1, "content-type") -> bb1
+  bb1:
+    %3 = move %2 ?? "none"
+    return move %3
+
+fn present (FuncId(1)) -> List<String>
+  locals
+    %0 param c: Context
+    %1 param names: List<String>
+    %2 user known: fn(String) -> Bool
+    %3 temp: fn(String) -> Bool
+    %4 temp: fn(String, Int, List<String>) -> Bool
+    %5 temp: List<String>
+  bb0:
+    %3 = closure ClosureId(0) [copy %0]
+    %2 = move %3
+    %4 = closure ClosureId(1) [copy %0, copy %2]
+    %5 = list_filter copy %1, move %4
+    return move %5
+
+fn new (FuncId(2)) -> Request
+  locals
+    %0 user this: Request
+    %1 param headers: Map<String, String>
+  bb0:
+    %0 = struct6 {}
+    %0.field7 = copy %1
+    return move %0
+
+fn header (FuncId(3)) -> Optional<String>
+  locals
+    %0 param this: Request
+    %1 param name: String
+    %2 temp: Optional<String>
+  bb0:
+    %2 = dict_get copy %0.field7, copy %1, _
+    return move %2
+
+fn names (FuncId(4)) -> List<String>
+  locals
+    %0 param this: Request
+    %1 temp: List<String>
+    %2 temp: List<String>
+    %3 temp: List<String>
+  bb0:
+    %1 = dict_keys copy %0.field7
+    %2 = []
+    %3 = list_concat move %1, move %2
+    return move %3
+
+fn has (FuncId(5)) -> Bool
+  locals
+    %0 param this: Request
+    %1 param name: String
+    %2 temp: Bool
+  bb0:
+    %2 = dict_contains_key copy %0.field7, copy %1, own
+    return move %2
+
+fn new (FuncId(6)) -> Context
+  locals
+    %0 user this: Context
+    %1 param raw: Map<String, String>
+  bb0:
+    %0 = struct1 {}
+    %0.field13 = 0.0
+    %0.field15 = copy %1
+    return move %0
+
+fn __smelt_get_req (FuncId(7)) -> Request
+  locals
+    %0 param this: Context
+    %1 user __smelt_logical_value_1: Request
+    %2 temp: Float
+    %3 temp: Bool
+    %4 temp: Request
+  bb0:
+    %2 = copy %0.field13 + 1.0
+    %0.field13 = move %2
+    %3 = copy %0.field14 == none
+    switch move %3 ? bb1 : bb2
+  bb1:
+    %4 = call fn2(copy %0.field15) -> bb3
+  bb2:
+    return copy %0.field14
+  bb3:
+    %1 = move %4
+    %0.field14 = move %1
+    goto bb2
+
+fn text (FuncId(8)) -> String
+  locals
+    %0 param this: Context
+    %1 param body: String
+    %2 temp: String
+  bb0:
+    %2 = "text:" + copy %1
+    return move %2
+
+fn main (FuncId(9)) -> None
+  locals
+    %0 user handler: fn(Context) -> String
+    %1 user ctx: Context
+    %2 temp: fn(Context) -> String
+    %3 temp: Map<String, String>
+    %4 temp: Context
+    %5 temp: String
+    %6 temp: None
+    %7 temp: None
+    %8 temp: String
+    %9 temp: None
+    %10 temp: None
+    %11 temp: List<String>
+    %12 temp: List<String>
+    %13 temp: String
+    %14 temp: None
+    %15 temp: None
+    %16 temp: Request
+    %17 temp: List<String>
+    %18 temp: String
+    %19 temp: None
+    %20 temp: None
+  bb0:
+    %2 = closure ClosureId(2) []
+    %0 = move %2
+    %3 = {"content-type": "text/plain", "accept": "*/*"}
+    %4 = call fn6(move %3) -> bb1
+  bb1:
+    %1 = move %4
+    %5 = call fn0(copy %1) -> bb2
+  bb2:
+    %6 = call @console_log(move %5) -> bb3
+  bb3:
+    %7 = call @console_log(copy %1.field13) -> bb4
+  bb4:
+    %8 = closure_call move %0(copy %1)
+    %9 = call @console_log(move %8) -> bb5
+  bb5:
+    %10 = call @console_log(copy %1.field13) -> bb6
+  bb6:
+    %11 = ["accept", "x-missing", "content-type"]
+    %12 = call fn1(copy %1, move %11) -> bb7
+  bb7:
+    %13 = string_join move %12, ","
+    %14 = call @console_log(move %13) -> bb8
+  bb8:
+    %15 = call @console_log(copy %1.field13) -> bb9
+  bb9:
+    %16 = copy %1.field19
+    %17 = call fn4(move %16) -> bb10
+  bb10:
+    %18 = string_join move %17, ","
+    %19 = call @console_log(move %18) -> bb11
+  bb11:
+    %20 = call @console_log(copy %1.field13) -> bb12
+  bb12:
+    return none
+
+closure ClosureId(0) -> Bool
+  locals
+    %0 param name: String
+    %1 user c: Context
+    %2 temp: Request
+    %3 temp: Bool
+  bb0:
+    %2 = copy %1.field19
+    %3 = call fn5(copy %2, copy %0) -> bb1
+  bb1:
+    return copy %3
+
+closure ClosureId(1) -> Bool
+  locals
+    %0 param name: String
+    %1 user c: Context
+    %2 user known: fn(String) -> Bool
+    %3 temp: Request
+    %4 temp: Bool
+    %5 temp: Bool
+    %6 temp: Bool
+  bb0:
+    %3 = copy %1.field19
+    %4 = call fn5(copy %3, copy %0) -> bb1
+  bb1:
+    switch copy %4 ? bb2 : bb3
+  bb2:
+    %6 = closure_call copy %2(copy %0)
+    %5 = copy %6
+    goto bb4
+  bb3:
+    %5 = false
+    goto bb4
+  bb4:
+    return copy %5
+
+closure ClosureId(2) -> String
+  locals
+    %0 param c: Context
+    %1 user accept: String
+    %2 temp: Request
+    %3 temp: Optional<String>
+    %4 temp: String
+    %5 temp: String
+  bb0:
+    %2 = copy %0.field19
+    %3 = call fn3(copy %2, "accept") -> bb1
+  bb1:
+    %4 = copy %3 ?? ""
+    %1 = copy %4
+    %5 = call fn8(copy %0, copy %1) -> bb2
+  bb2:
+    return copy %5
+

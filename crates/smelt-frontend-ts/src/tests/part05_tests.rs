@@ -1329,6 +1329,145 @@ describe("sample", () => {
     Ok(())
 }
 
+/// Count the lowered expressions, across every body, that satisfy `pred`.
+fn count_exprs(ctx: &HirCtx, pred: impl Fn(&ExprKind) -> bool) -> usize {
+    ctx.krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| pred(&expr.kind))
+        .count()
+}
+
+/// Regression for the `toContain` dynamic boundary (see
+/// `erased_contains_expr`): an `unknown` actual has no static shape, and
+/// vitest picks substring vs element search from the LIVE value, so the
+/// lowering must read the runtime tag. The same file's statically typed
+/// actuals must keep their typed paths — no runtime tag read for them.
+#[test]
+fn expect_to_contain_on_erased_actual_dispatches_on_runtime_tag() -> Result<(), String> {
+    let mut erased_ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+import { describe, expect, it } from "vitest";
+
+describe("erased", () => {
+  it("contains", () => {
+    const value: unknown = "hello world";
+    expect(value).toContain("world");
+  });
+});
+"#),
+        "src/erased.test.ts",
+        &mut erased_ctx,
+    )?;
+    let is_string_tag = |kind: &ExprKind| {
+        matches!(
+            kind,
+            ExprKind::UnknownIs {
+                kind: smelt_hir::UnknownKind::String,
+                ..
+            }
+        )
+    };
+    let is_array_tag = |kind: &ExprKind| {
+        matches!(
+            kind,
+            ExprKind::UnknownIs {
+                kind: smelt_hir::UnknownKind::Array,
+                ..
+            }
+        )
+    };
+    ensure!(
+        count_exprs(&erased_ctx, is_string_tag) == 1 && count_exprs(&erased_ctx, is_array_tag) == 1,
+        "an erased toContain actual should dispatch on its string and array runtime tags",
+    );
+    ensure!(
+        count_exprs(&erased_ctx, |kind| matches!(kind, ExprKind::StringContains { .. })) == 1
+            && count_exprs(&erased_ctx, |kind| matches!(kind, ExprKind::ListContains { .. })) == 1,
+        "an erased toContain actual should carry both a substring and an element search",
+    );
+
+    let mut typed_ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+import { describe, expect, it } from "vitest";
+
+describe("typed", () => {
+  it("contains", () => {
+    expect("hello world").toContain("world");
+    expect(["a", "b"]).toContain("b");
+    const headers = new Headers({ "content-type": "text/plain" });
+    expect(headers.get("content-type")).toContain("text");
+  });
+});
+"#),
+        "src/typed.test.ts",
+        &mut typed_ctx,
+    )?;
+    ensure!(
+        count_exprs(&typed_ctx, |kind| matches!(kind, ExprKind::UnknownIs { .. })) == 0,
+        "typed and optional toContain actuals must not read a runtime tag",
+    );
+    ensure!(
+        count_exprs(&typed_ctx, |kind| matches!(kind, ExprKind::StringContains { .. })) == 2
+            && count_exprs(&typed_ctx, |kind| matches!(kind, ExprKind::ListContains { .. })) == 1,
+        "typed toContain actuals keep their typed string/list containment",
+    );
+    Ok(())
+}
+
+/// A class method reached through a getter (`c.req.header(..)`, overloaded)
+/// lowers inside a local arrow and a callback exactly as in a function body:
+/// the getter read is typed as the getter's return, so the call is a direct
+/// `Method` dispatch, never an erased member read.
+#[test]
+fn getter_reached_class_method_lowers_inside_closures() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+class Req {
+  header(name: "a" | "b"): string | undefined;
+  header(name: string): string | undefined;
+  header(name: string): string | undefined {
+    return name;
+  }
+}
+
+class Ctx {
+  #req: Req | undefined;
+  get req(): Req {
+    this.#req ??= new Req();
+    return this.#req;
+  }
+}
+
+const handler = (c: Ctx) => {
+  const value = c.req.header("x") || "";
+  return value;
+};
+
+export function names(c: Ctx, keys: string[]): string[] {
+  return keys.filter((key) => c.req.header(key) !== undefined);
+}
+
+export function run(c: Ctx): string {
+  return handler(c);
+}
+"#),
+        "src/getter.ts",
+        &mut ctx,
+    )?;
+    let header = ctx.krate.symbols.intern("header");
+    ensure!(
+        count_exprs(&ctx, |kind| matches!(kind, ExprKind::Method { method, .. } if *method == header))
+            >= 2,
+        "getter-reached `header` calls should lower to class method dispatch in both closures",
+    );
+    Ok(())
+}
+
 #[test]
 fn lowers_new_map_with_declared_union_value_type() -> Result<(), String> {
     // A `Map<K, V>` annotation whose value type is a union should accept

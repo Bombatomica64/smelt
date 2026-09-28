@@ -21,7 +21,7 @@ module examples/typescript/end-to-end/41_symbol_keyed_class_members/input.ts (Mo
     #8: Unknown = symbol("Symbol(same)@945")
     #9: Holder = new Holder()
     #10: Holder = %5
-    #11: Unknown = #10.__smelt_symbol_unique__at_813
+    #11: Float = #10.__smelt_symbol_unique__at_813
     #12: None = @8(console_log)
     #13: None = call #12(#11)
     #14: Float = 1.0

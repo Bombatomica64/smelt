@@ -476,7 +476,7 @@ impl ModuleBuilder<'_> {
             Ok(callback) => {
                 let span = self.span(argument.span().start, argument.span().end);
                 let callback = self.coerce_callback_expr_to_truthy(callback, span)?;
-                let expr = self.callback_expr_to_closure_with_return_ty(
+                let expr = match self.callback_expr_to_closure_with_return_ty(
                     bool_ty,
                     &callback,
                     expected_param_tys,
@@ -484,7 +484,21 @@ impl ModuleBuilder<'_> {
                     None,
                     span,
                     body,
-                )?;
+                ) {
+                    Ok(expr) => expr,
+                    // The compact tree classified, but turning it into a
+                    // closure hit a compact-IR gap (a method the compact
+                    // dispatcher does not model): retry the literal through
+                    // full closure-body lowering, exactly as a classification
+                    // failure does below.
+                    Err(error)
+                        if Self::should_fallback_to_closure_body_for_callback(&error)
+                            && Self::is_closure_body_fallback_argument(argument) =>
+                    {
+                        self.callback_closure_body_expr(argument, expected_param_tys, bool_ty, body)?
+                    }
+                    Err(error) => return Err(error),
+                };
                 Ok(ClosureCallback {
                     expr,
                     return_ty: bool_ty,
@@ -730,6 +744,129 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Reject a compact logical operand whose evaluation runs user code.
+    ///
+    /// The compact callback IR lowers `a || b`, `a ?? b` and a value-producing
+    /// `a || b` to a conditional that REPLAYS `a` (once as the test, once as
+    /// the value), and a boolean `a && b` / `a || b` to a binary node whose
+    /// operands are both evaluated before they are combined. Both are exact
+    /// only for an operand without effects. An operand that invokes user code
+    /// — a function or closure call, a user class method (or callable field),
+    /// or a read through a class getter — would run twice, or run when
+    /// JavaScript short-circuits it away (`c.req.header(k) || ''` read the
+    /// getter and called the method twice). Such an operand gets the
+    /// fallback-eligible error, and the whole callback retries through full
+    /// closure-body lowering, whose `||`/`&&`/`??` evaluate each operand at
+    /// most once, in source order. Builtin string/array/number operations are
+    /// effect-free and stay compact.
+    fn callback_operand_must_be_replayable(
+        &mut self,
+        operand: &CallbackExpr,
+        span: oxc::span::Span,
+    ) -> Result<(), SmeltError> {
+        if self.callback_expr_invokes_user_code(operand) {
+            return Err(SmeltError::unsupported(
+                self.span(span.start, span.end),
+                "callback logical operand runs user code; needs closure-body lowering",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Whether evaluating a compact callback expression can run user code.
+    ///
+    /// See [`Self::callback_operand_must_be_replayable`]. A `Call` whose callee
+    /// is a literal name is the compact IR's spelling of a builtin conversion
+    /// (`String(x)`), not an invocation, so it does not count.
+    fn callback_expr_invokes_user_code(&mut self, callback: &CallbackExpr) -> bool {
+        match &callback.kind {
+            CallbackExprKind::Call { callee, args } => {
+                !matches!(callee.kind, CallbackExprKind::Literal(_))
+                    || args
+                        .iter()
+                        .any(|arg| self.callback_expr_invokes_user_code(&arg.expr))
+            }
+            CallbackExprKind::MethodCall {
+                receiver,
+                method,
+                args,
+            } => {
+                let receiver_ty = self.type_param_constraint_or_self(receiver.ty);
+                let user_method = self.receiver_declares_method(receiver_ty, *method)
+                    || (matches!(
+                        self.ctx.krate.types.get(receiver_ty),
+                        Some(Type::Class { .. })
+                    ) && self.class_field_type(receiver_ty, *method).is_ok_and(|field_ty| {
+                        matches!(
+                            self.ctx.krate.types.get(self.type_param_constraint_or_self(field_ty)),
+                            Some(Type::Function(_))
+                        )
+                    }));
+                user_method
+                    || self.callback_expr_invokes_user_code(receiver)
+                    || args
+                        .iter()
+                        .any(|arg| self.callback_expr_invokes_user_code(&arg.expr))
+            }
+            CallbackExprKind::Field { receiver, field } => {
+                self.class_member_reads_through_getter(receiver.ty, *field)
+                    || self.callback_expr_invokes_user_code(receiver)
+            }
+            CallbackExprKind::Unary { operand, .. } => self.callback_expr_invokes_user_code(operand),
+            CallbackExprKind::Binary { lhs, rhs, .. } => {
+                self.callback_expr_invokes_user_code(lhs) || self.callback_expr_invokes_user_code(rhs)
+            }
+            CallbackExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr,
+            } => {
+                self.callback_expr_invokes_user_code(cond)
+                    || self.callback_expr_invokes_user_code(then_expr)
+                    || self.callback_expr_invokes_user_code(else_expr)
+            }
+            CallbackExprKind::UnknownIs { value, .. }
+            | CallbackExprKind::TypeofValue { value }
+            | CallbackExprKind::ValueTruthy { value } => {
+                self.callback_expr_invokes_user_code(value)
+            }
+            // A capture write and a throw are effects of their own.
+            CallbackExprKind::AssignCapture { .. } | CallbackExprKind::Throw { .. } => true,
+            CallbackExprKind::Index { receiver, .. }
+            | CallbackExprKind::HasField { receiver, .. }
+            | CallbackExprKind::FieldTruthy { receiver, .. } => {
+                self.callback_expr_invokes_user_code(receiver)
+            }
+            CallbackExprKind::DynamicIndex { receiver, index } => {
+                self.callback_expr_invokes_user_code(receiver)
+                    || self.callback_expr_invokes_user_code(index)
+            }
+            CallbackExprKind::HasDynamicField { receiver, field } => {
+                self.callback_expr_invokes_user_code(receiver)
+                    || self.callback_expr_invokes_user_code(field)
+            }
+            CallbackExprKind::ListLit(items) => {
+                items.iter().any(|item| self.callback_expr_invokes_user_code(item))
+            }
+            CallbackExprKind::DictLit(entries) => entries
+                .iter()
+                .any(|(_, value)| self.callback_expr_invokes_user_code(value)),
+            CallbackExprKind::Sequence { effects, result } => {
+                effects
+                    .iter()
+                    .any(|effect| self.callback_expr_invokes_user_code(effect))
+                    || self.callback_expr_invokes_user_code(result)
+            }
+            CallbackExprKind::FunctionTableLookup { key, .. } => {
+                self.callback_expr_invokes_user_code(key)
+            }
+            CallbackExprKind::Param(_)
+            | CallbackExprKind::Capture(_)
+            | CallbackExprKind::Function(_)
+            | CallbackExprKind::Literal(_) => false,
+        }
+    }
+
     /// Return whether compact callback lowering should retry as a normal closure.
     pub(in crate::lowering) fn should_fallback_to_closure_body_for_callback(error: &SmeltError) -> bool {
         error.message == "callback expression kind is not supported yet"
@@ -776,6 +913,10 @@ impl ModuleBuilder<'_> {
             || error.message
                 == "callback throws inside a conditional; needs closure-body lowering"
             || error.message == "async callbacks need closure-body lowering"
+            // A logical operand the compact IR would replay or evaluate eagerly
+            // runs user code (`callback_operand_must_be_replayable`).
+            || error.message
+                == "callback logical operand runs user code; needs closure-body lowering"
             // A method/receiver call the compact callback dispatcher does not
             // model but the full method-call lowering does (e.g. `String.repeat`,
             // `Array.at` on a richer receiver). Retrying through the closure body
@@ -2185,6 +2326,8 @@ impl ModuleBuilder<'_> {
                 if logical.operator == LogicalOperator::Coalesce {
                     let lhs = self.callback_expression(&logical.left, params, body)?;
                     let rhs = self.callback_expression(&logical.right, params, body)?;
+                    // `lhs` is replayed as both the presence test and the value.
+                    self.callback_operand_must_be_replayable(&lhs, logical.span)?;
                     let none_ty = self.ctx.krate.types.intern(Type::None);
                     let cond_ty = self.ctx.krate.types.intern(Type::Bool);
                     let cond = CallbackExpr {
@@ -2238,6 +2381,8 @@ impl ModuleBuilder<'_> {
                     let lhs = self.callback_expression(&logical.left, params, body)?;
                     let lhs_ty = lhs.ty;
                     if self.is_numeric_like_type(lhs_ty) {
+                        // `lhs` is replayed as both the zero test and the value.
+                        self.callback_operand_must_be_replayable(&lhs, logical.span)?;
                         let rhs = self.callback_expression(&logical.right, params, body)?;
                         if self.numeric_type_compatible(lhs_ty, rhs.ty) {
                             let zero = CallbackExpr {
@@ -2276,6 +2421,8 @@ impl ModuleBuilder<'_> {
                 if logical.operator == LogicalOperator::Or
                     && (lhs.ty != bool_ty || rhs.ty != bool_ty)
                 {
+                    // `lhs` is replayed as both the truthiness test and the value.
+                    self.callback_operand_must_be_replayable(&lhs, logical.span)?;
                     let span = self.span(logical.span.start, logical.span.end);
                     let cond = self.coerce_callback_expr_to_truthy(lhs.clone(), span)?;
                     let (lhs, rhs, ty) = self.callback_unify_conditional_exprs(
@@ -2293,6 +2440,9 @@ impl ModuleBuilder<'_> {
                         ty,
                     });
                 }
+                // The binary form evaluates both operands before combining
+                // them, so a short-circuited `rhs` must be free of effects.
+                self.callback_operand_must_be_replayable(&rhs, logical.span)?;
                 let op = match logical.operator {
                     LogicalOperator::And => BinOp::And,
                     LogicalOperator::Or => BinOp::Or,

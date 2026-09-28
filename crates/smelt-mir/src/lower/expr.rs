@@ -2712,7 +2712,14 @@ impl LoweringCtx<'_> {
                 )?;
                 let materialized_receiver_ty = self.mir_local(base)?.ty;
                 let callee_id = self.resolve_method(materialized_receiver_ty, *method, expr.span)?;
-                let mut lowered_args = vec![receiver_operand];
+                // A getter-backed receiver is evaluated once, into `base`
+                // (see `receiver_reads_through_getter`).
+                let receiver_arg = if self.receiver_reads_through_getter(*receiver) {
+                    Operand::Copy(Place::Local(base))
+                } else {
+                    receiver_operand
+                };
+                let mut lowered_args = vec![receiver_arg];
                 lowered_args.extend(
                     args.iter()
                         .map(|arg| self.lower_expr(*arg))
@@ -3022,6 +3029,63 @@ impl LoweringCtx<'_> {
             format!("class `{name}` has no resolvable constructor"),
             Some(span),
         ))
+    }
+
+    /// Returns whether reading `receiver` runs a source getter.
+    ///
+    /// A member read `obj.x` where `x` is a class accessor (`get x() { .. }`,
+    /// recorded as a [`smelt_hir::Descriptor`] with a getter on `obj`'s class
+    /// or one of its bases) is a CALL, not a storage read: the place
+    /// `obj.field(x)` is emitted as `obj.__smelt_get_x()` every time it is
+    /// read. JavaScript evaluates a method-call receiver exactly once, so a
+    /// caller that already materialized such a receiver must pass that local
+    /// instead of re-reading the place — otherwise `c.req.header(..)` runs the
+    /// getter twice and any side effect in it (a counter, a lazily-built
+    /// cache) is observed twice.
+    fn receiver_reads_through_getter(&self, receiver: ExprId) -> bool {
+        let Ok(receiver_expr) = self.hir_expr(receiver) else {
+            return false;
+        };
+        let ExprKind::Field {
+            receiver: object,
+            field,
+        } = &receiver_expr.kind
+        else {
+            return false;
+        };
+        let Ok(object_expr) = self.hir_expr(*object) else {
+            return false;
+        };
+        let Some(Type::Class { name, .. }) = self.krate.types.get(object_expr.ty) else {
+            return false;
+        };
+        let mut class = Some(*name);
+        let mut visited = std::collections::HashSet::new();
+        while let Some(class_name) = class
+            && visited.insert(class_name)
+        {
+            let Some(class_item) = self.krate.items.iter().find_map(|item| {
+                if let smelt_hir::Item::Class(class_item) = item
+                    && class_item.name == class_name
+                {
+                    Some(class_item)
+                } else {
+                    None
+                }
+            }) else {
+                return false;
+            };
+            if class_item.descriptors.iter().any(|descriptor| {
+                descriptor.name == *field && descriptor.getter.is_some() && !descriptor.is_static
+            }) {
+                return true;
+            }
+            if class_item.fields.iter().any(|item| item.name == *field) {
+                return false;
+            }
+            class = class_item.base;
+        }
+        false
     }
 
     /// Resolves the constructor a derived `super(..)` runs as an initializer.
