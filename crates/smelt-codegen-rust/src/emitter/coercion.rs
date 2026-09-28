@@ -3167,8 +3167,23 @@ impl FunctionEmitter<'_> {
             Some(Type::Never | Type::Union(_)) => Ok(text.to_owned()),
             Some(Type::Optional(inner)) => {
                 if self.optional_inner_preserves_erased_singletons(*inner) {
-                    let inner_text = self.extract_value_text(text, *inner, scope)?;
-                    return Ok(format!("Some({inner_text})"));
+                    // The slot keeps an explicit `null` as a present
+                    // `Some(SmeltUnknown::Null)`, but `undefined` IS the absent
+                    // case: `None`, as every other producer of such a slot
+                    // spells it (a missing record key reads `None`). Wrapping
+                    // it in `Some` made an absent erased property read present
+                    // (`!!(value as { then?: Function })?.then` on a number).
+                    if is_trivial_reeval_expr(text) {
+                        let inner_text = self.extract_value_text(text, *inner, scope)?;
+                        return Ok(format!(
+                            "if smelt_unknown_is_undefined(&{text}) {{ None }} else {{ Some({inner_text}) }}"
+                        ));
+                    }
+                    let inner_text =
+                        self.extract_value_text("smelt_optional_source", *inner, scope)?;
+                    return Ok(format!(
+                        "{{ let smelt_optional_source = {text}; if smelt_unknown_is_undefined(&smelt_optional_source) {{ None }} else {{ Some({inner_text}) }} }}"
+                    ));
                 }
                 // The nullish guard and the `Some(...)` arm both read the source,
                 // so a side-effecting `text` (e.g. an erased `.call(..)` that
