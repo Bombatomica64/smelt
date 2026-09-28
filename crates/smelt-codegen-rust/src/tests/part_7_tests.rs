@@ -13674,7 +13674,7 @@ export function curry2(fn: (...args: any[]) => any): ((...args: any[]) => any) &
 
 export interface ArityReporter {
   (): string;
-  (t1: number): string;
+  (t1: number): number;
 }
 
 export function arityReporter(): ArityReporter;
@@ -13741,6 +13741,11 @@ const total = curried(2, 3);
 /// variadic `__smelt_call` slot, so the call is executable. Falling back to the
 /// first declared signature truncated the argument list at the adapter and
 /// called the callee with nothing.
+///
+/// `ArityReporter`'s overloads return different types on purpose: an overload
+/// set that shares ONE result is stored as its merged concrete signature
+/// instead (see `overload_set_sharing_a_result_is_one_concrete_slot`), so only
+/// a result-dependent set keeps the erased slot this test guards.
 #[test]
 fn call_beyond_every_declared_overload_arity_keeps_its_arguments() {
     let source = source_for(&format!(
@@ -13754,6 +13759,123 @@ const seen = reporter(1, 2, 3);
     assert!(
         source.contains("smelt_callback.call(vec![arg0.clone(), arg1.clone(), arg2.clone()])"),
         "all three arguments must reach the erased callable:\n{source}"
+    );
+}
+
+/// An overload set whose signatures all return the same type is stored as ONE
+/// concrete closure whose parameters accept every overload's arguments: a
+/// position's type is the union of the overloads' types there, and a position
+/// some overload omits or marks optional is `Option<_>`. That is the signature
+/// a hand-written port stores (the TypeScript implementation signature), so
+/// the slot is not erased and a call passes its arguments straight through.
+#[test]
+fn overload_set_sharing_a_result_is_one_concrete_slot() {
+    let source = source_for(
+        "interface Setter {
+  (key: string, value: number): void;
+  (key: string, value: string): void;
+}
+interface Header {
+  (name: string): void;
+  (name: string, value: string, append?: boolean): void;
+}
+class Store {
+  seen: string[] = [];
+  set: Setter = (key: string, value: number | string) => {
+    this.seen.push(key + '=' + String(value));
+  };
+  header: Header = (name: string, value?: string, append?: boolean) => {
+    this.seen.push(name + ':' + (value ?? '') + (append ? '+' : ''));
+  };
+}
+const store = new Store();
+store.set('a', 1);
+store.set('b', 'two');
+store.header('x');
+store.header('y', 'z', true);
+",
+    );
+
+    assert!(
+        !source.contains("__smelt_call: SmeltErasedFunction"),
+        "an overload set sharing one result must not erase its slot:\n{source}"
+    );
+    assert!(
+        source.contains(
+            "__smelt_call: ::std::rc::Rc<dyn Fn(String, Option<String>, Option<bool>) -> ()>"
+        ),
+        "positions an overload omits or marks optional merge to Option:\n{source}"
+    );
+    assert!(
+        !source.contains("smelt_callback.call(vec!["),
+        "calls must reach the concrete slot without an erased adapter:\n{source}"
+    );
+}
+
+/// A generic call signature stores its callable at the CONSTRAINT of each of
+/// its own type parameters: an `Rc<dyn Fn>` cannot be generic, so
+/// `<K extends string>(key: K): K` is `Fn(String) -> String`, and a generic
+/// arrow or function-type annotation follows the same rule.
+#[test]
+fn generic_call_signature_is_stored_at_its_constraints() {
+    let source = source_for(
+        "interface Picker {
+  <K extends string>(key: K): K;
+}
+class Holder {
+  pick: Picker = <K extends string>(key: K): K => key;
+  direct: <K extends string>(key: K) => K = <K extends string>(key: K): K => key;
+}
+const holder = new Holder();
+const picked: string = holder.pick('a') + holder.direct('b');
+",
+    );
+
+    assert!(
+        source.contains("__smelt_call: ::std::rc::Rc<dyn Fn(String) -> String>"),
+        "the call signature erases K to its constraint:\n{source}"
+    );
+    assert!(
+        source.contains("direct: ::std::rc::Rc<dyn Fn(String) -> String>"),
+        "a generic function-type annotation follows the same rule:\n{source}"
+    );
+    assert!(
+        !source.contains("&SmeltUnknown| {"),
+        "no generic closure may take its argument as SmeltUnknown:\n{source}"
+    );
+}
+
+/// A type the module declares shadows the global lib type of the same name.
+///
+/// TypeScript resolves `Set<E>` lexically, so under a module-scope
+/// `interface Set<E> { (key: string, value: number): void }` it is that
+/// callable interface, not the builtin collection. Matching the lib table by
+/// spelling alone turned the class field into a `SmeltJsSet<_>` collection,
+/// and `ctx.set('k', 1)` then failed as an unknown class method.
+#[test]
+fn module_declared_type_shadows_the_global_lib_type() {
+    let source = source_for(
+        "interface Set<E> {
+  (key: string, value: number): void;
+}
+class Ctx {
+  total = 0;
+  set: Set<string> = (key: string, value: number) => {
+    this.total += key.length + value;
+  };
+}
+const ctx = new Ctx();
+ctx.set('ab', 3);
+",
+    );
+
+    assert!(
+        source.contains("    set: Set,") && !source.contains("set: SmeltJsSet<"),
+        "the module's `Set` must not lower to the builtin collection:\n{source}"
+    );
+    assert!(
+        source.contains("__smelt_call: ::std::rc::Rc<dyn Fn(String, f64) -> ()>"),
+        "the field keeps the module's own callable `Set` interface:\n{source}"
     );
 }
 

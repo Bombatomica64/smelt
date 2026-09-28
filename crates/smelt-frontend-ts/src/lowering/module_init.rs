@@ -475,6 +475,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.classify_pending_host_imports(test_module);
         let implemented_functions = implemented_function_names(program);
         self.shadow_cross_module_overloads(&implemented_functions);
+        // Declared before any type reference is lowered (the alias predeclaration
+        // below is the first), so a module type that shares a global lib type's
+        // spelling shadows it everywhere in the module; see
+        // `ModuleBuilder::module_type_shadows_global`.
+        self.types
+            .declare_module_type_names(Self::program_type_declaration_names(program));
         self.predeclare_type_alias_items(program);
         self.collect_module_enums(program);
         self.collect_module_globals(program);
@@ -1128,6 +1134,46 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some((name, _)) = Self::const_class_expression(declarator) {
                     names.insert(name.to_owned());
                 }
+            }
+        }
+        names
+    }
+
+    /// Collect the names of every TYPE the module declares at top level.
+    ///
+    /// These are the declarations that bind a name in the module's type
+    /// namespace: `interface`, `type`, `class` and `enum`, written bare or under
+    /// `export`. A `const Foo = class {}` binds only a VALUE, so it is not
+    /// collected here even though `program_class_names` registers it as a class.
+    /// Ambient `declare` forms bind the name just the same and are included.
+    pub(super) fn program_type_declaration_names(program: &Program<'_>) -> HashSet<String> {
+        let mut names = HashSet::new();
+        for statement in &program.body {
+            let declaration = match statement {
+                Statement::ExportDeclaration(export) => Some(&export.declaration),
+                _ => None,
+            };
+            let name = match (statement, declaration) {
+                (Statement::TSInterfaceDeclaration(interface), _)
+                | (_, Some(Declaration::TSInterfaceDeclaration(interface))) => {
+                    Some(interface.id.name.as_str())
+                }
+                (Statement::TSTypeAliasDeclaration(alias), _)
+                | (_, Some(Declaration::TSTypeAliasDeclaration(alias))) => {
+                    Some(alias.id.name.as_str())
+                }
+                (Statement::ClassDeclaration(class), _)
+                | (_, Some(Declaration::ClassDeclaration(class))) => {
+                    class.id.as_ref().map(|id| id.name.as_str())
+                }
+                (Statement::TSEnumDeclaration(declaration), _)
+                | (_, Some(Declaration::TSEnumDeclaration(declaration))) => {
+                    Some(declaration.id.name.as_str())
+                }
+                _ => None,
+            };
+            if let Some(name) = name {
+                names.insert(name.to_owned());
             }
         }
         names
