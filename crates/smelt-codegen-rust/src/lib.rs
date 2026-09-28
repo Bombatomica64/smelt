@@ -1657,6 +1657,24 @@ fn emit_source_with_free_function_router(
         writer.line("    }");
         writer.line("}");
         writer.blank_line();
+        // An adapter that calls a wider callback through a signature with FEWER
+        // parameters (`((ctx, next) => ..) as Next`) is still that wider
+        // JavaScript function: a type assertion changes nothing at runtime, so
+        // a call reaching it through an erased `Function` must pass every
+        // argument it has. The adapter's `Rc<dyn Fn(..)>` cannot accept them,
+        // so it records the full-arity erased function here (in the same
+        // registry, keyed the same way) and shares its identity; erasing the
+        // adapter then answers that function. Same boundary as the callable
+        // objects above: it preserves the source callable, it erases nothing.
+        writer.line("/// Remember the full-arity erased function a narrowing adapter forwards to.");
+        writer.line("fn smelt_register_narrowed_callable<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, wide: SmeltUnknown) {");
+        writer.line("    if let SmeltUnknown::Function(wide_function) = &wide {");
+        writer.line("        smelt_link_function_identity(function, wide_function);");
+        writer.line("        let key = smelt_retain_callable_key(function);");
+        writer.line("        SMELT_CALLABLE_OBJECTS.with(|objects| { objects.borrow_mut().insert(key, wide); });");
+        writer.line("    }");
+        writer.line("}");
+        writer.blank_line();
         writer.line("/// Recover the callable object a typed callback was narrowed from.");
         writer.line("fn smelt_lookup_callable_object<F: ?Sized>(function: &::std::rc::Rc<F>) -> Option<SmeltUnknown> {");
         writer.line("    SMELT_CALLABLE_OBJECTS.with(|objects| objects.borrow().get(&smelt_callable_object_key(function)).cloned())");

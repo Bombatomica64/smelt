@@ -4755,11 +4755,54 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             format!("move |{}| {closure_tail}", arg_decls.join(", "))
         };
-        Ok(Some(if borrowed {
-            format!("&mut {closure}")
-        } else {
-            format!("::std::rc::Rc::new({closure})")
-        }))
+        if borrowed {
+            return Ok(Some(format!("&mut {closure}")));
+        }
+        let adapter = format!("::std::rc::Rc::new({closure})");
+        if uses_adapted_callback
+            && !source_is_erased
+            && let Some(wide_erasure) =
+                self.arity_narrowing_erasure_text(place, source, target_function)?
+        {
+            return Ok(Some(format!(
+                "{{ let smelt_narrowed_callable = {adapter}; smelt_register_narrowed_callable(&smelt_narrowed_callable, {wide_erasure}); smelt_narrowed_callable }}"
+            )));
+        }
+        Ok(Some(adapter))
+    }
+
+    /// Erased full-arity view of a callback an adapter narrows to fewer parameters.
+    ///
+    /// A shape adapter whose SOURCE declares more parameters than its TARGET
+    /// slot supplies (`((ctx, next) => ..) as Next` with `Next = () => ..`, or a
+    /// callback with optional trailing parameters passed where a shorter
+    /// callback is expected) fills the missing trailing arguments with
+    /// defaults when it is called through the target's typed signature. That
+    /// is right for a TYPED call — the target signature is all the caller can
+    /// supply — but the adapter is still the same JavaScript function as its
+    /// source: an assertion or a wider-to-narrower assignment changes nothing
+    /// at runtime, and a call that reaches the value through an erased
+    /// `Function` (`handler(context, next)`) passes every argument it has.
+    ///
+    /// Returns the erased (`SmeltUnknown::Function`) rendering of the source
+    /// callback, which the caller records against the adapter allocation with
+    /// `smelt_register_narrowed_callable`; every erasure of the adapter then
+    /// answers that full-arity function instead of a wrapper that can only
+    /// forward the target's parameters. `None` when the adapter does not narrow
+    /// the arity (same or more target parameters, or a target rest parameter
+    /// that already forwards every argument).
+    fn arity_narrowing_erasure_text(
+        &self,
+        place: &Place,
+        source: &FunctionType,
+        target_function: &FunctionType,
+    ) -> Result<Option<String>, EmitError> {
+        if target_function.rest.is_some() || source.params.len() <= target_function.params.len() {
+            return Ok(None);
+        }
+        let source_ty = self.place_ty(place)?;
+        let source_text = format!("{}.clone()", self.place_text(place)?);
+        self.erase_value_text(&source_text, source_ty).map(Some)
     }
 
     /// If `operand` is a bare function-item-as-value wrapper, return its crate
@@ -4971,7 +5014,12 @@ impl<'mir> FunctionEmitter<'mir> {
                 // the last point that knows both the arity and the allocation it
                 // belongs to. es-toolkit `rest(func)` reads `func.length` off
                 // exactly this adapter.
-                "{{ let smelt_source_fn = {function_text}.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = {inner}; smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); {register}(&smelt_erased_fn, {length}.0); {class_registration}smelt_erased_fn }}",
+                // A callback built by an arity-NARROWING adapter
+                // (`function_shape_adapter_text`) already recorded the
+                // full-arity erased function it forwards to; that function, not
+                // a fresh wrapper limited to the narrowed parameters, is the
+                // value's erased form.
+                "{{ let smelt_source_fn = {function_text}.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = if let Some(SmeltUnknown::Function(smelt_narrowed_fn)) = smelt_lookup_callable_object(&smelt_source_fn) {{ smelt_narrowed_fn }} else {{ {inner} }}; smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); {register}(&smelt_erased_fn, {length}.0); {class_registration}smelt_erased_fn }}",
                 register = smelt_stdlib::runtime_symbols::function_length::REGISTER,
                 length = self.operand_function_length(operand)?,
                 class_registration = self.constructed_class_registration_text(source.return_ty),
