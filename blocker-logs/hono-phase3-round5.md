@@ -355,26 +355,65 @@ LAYOUT's scope so it always agrees with the fields it writes. Real substitution
 (`Base<T>` fields at `D`'s `Base<number>` argument, for layout, methods and initializers
 together) is the follow-up.
 
-## Status of this change (landed vs pending)
+## Status of this change
 
-Landed (all four pieces above): HIR `BaseConstructorInit`, MIR `Callee::BaseInit`,
-frontend `super(..)`/implicit-constructor lowering for plain, generic and abstract bases
-(construct-and-copy path deleted), derived field initializers + parameter properties moved
-after a top-level `super(..)`, codegen `base_init` module (initializer chain per impl,
-`__smelt_init_<Base>(smelt_receiver: Self, ..) -> Self`, `this`/call-dest typed `Self`,
-impl-scope type parameters, arguments coerced in the impl's scope), upward heritage closure.
+Landed: the four pieces above, plus two rules the Hono run needed once `HonoBase`'s
+constructor actually ran on the derived instance:
 
-Verified locally: the round-7 repro prints `base:smart:hi` (was `base::x`); the generic-base
-repro runs the base constructor (`gbase ctor gd`, `late:hi`; was `""`); new e2e
-`151_derived_constructor_runs_on_instance` matches Node byte-for-byte (compiled and run by
-hand); generating all 131 TS e2e examples changes exactly the three derived-class goldens
-(`64`, `83`, `89`) and no other; `cargo clippy --lib` clean on added lines.
+* **D. The base-initializer receiver is upcast where its declaring base type is asked
+  for.** `onError = (h): Hono<..> => { ..; return this }` stored by the base constructor
+  returns the receiver, which in the initializer copy is `Self` (the derived struct) while
+  the slot declares the base (E0271 `expected Hono_1, found Hono`). The receiver, and every
+  closure capture of it (`inherit_base_initializer_receiver`), is rebuilt at the base type
+  through the existing member-wise structural adapter
+  (`base_initializer_receiver_upcast_text`). A reference class's callable members are
+  shared `Rc`s capturing the original instance, so calls made through the upcast value
+  still reach it. (Rejected: re-typing the inherited slot to the derived class — it made the
+  existing base->derived structural copy (`handle(app: Hono)` given `basePath`'s
+  `HonoBase`) need a function-return adapter that can only truncate to a default.)
+* **E. An argument read through a reference class's cell is bound before a call on a
+  reference receiver.** `this.#addRoute(m, this.#path, h)` held the `Ref` guard of
+  `this.#path` across `#addRoute`'s `borrow_mut` ("RefCell already borrowed"); it was
+  latent because HonoBase's constructor closures never ran on the app.
 
-PENDING — stopped at the disk guard (< 2 GB free): `scripts/regen-example-rust.sh` for
-`64 83 89 151` (the `expected.rs` goldens are NOT regenerated in this commit; 151 has no
-`expected.rs` yet), `cargo test --lib` for the touched crates (codegen tests in
-`part_7_tests.rs` were rewritten for the new shape but not yet run), the examples
-SmeltUnknown report, and the hono / radash / remeda corpus runs.
+## Gates (local)
+
+* `cargo check --lib` / `cargo clippy --lib`: no diagnostics on added lines.
+* `cargo test --lib`: smelt-codegen-rust 1121, smelt-frontend-ts 1138, smelt-hir 9,
+  smelt-mir 55 — all pass (7 derived-construction codegen tests new or rewritten).
+* `hir_cli_cross_language_tests`: 21/21 (after merging main). New e2e
+  `151_derived_constructor_runs_on_instance` (stdout from `node
+  --experimental-transform-types`).
+* Golden changes: `64_error_subclass_optional_message`, `83_class_expression_binding`,
+  `89_derived_default_constructor` (`__smelt_super` + field copies become
+  `Self::__smelt_init_<Base>(this, ..)` + the re-emitted initializer; MIR `call init fnN`).
+  stdout unchanged for all three. No other golden moved (all 132 examples regenerated
+  byte-identically).
+* examples SmeltUnknown: avoidable **0 -> 0**.
+* radash **384 passed; 3 failed** (unchanged). remeda **1787 passed; 2 failed**
+  (unchanged).
+* hono (main's overlay, main binary vs this branch): **283/12 -> 282/13**. The 8 app tests
+  still fail, now LATER: `app.request` dispatches into the router and
+  `SmartRouter`/`RegExpRouter` `match` returns `null` (`matchers[method]` absent after
+  `(this as any).buildAllMatchers()` in `reg-exp-router/matcher.ts`, a module
+  `function match(this: R, ..)` installed as a method — the erased-`this` method family,
+  not derived construction). One test flips ok -> FAILED:
+  `adapter for Next.js > should not use route if path argument is not passed`. It was a
+  FALSE POSITIVE: with the base constructor never run, `HonoBase`'s `#notFoundHandler` was
+  a default closure answering `null`, and dispatch threw "Context is not finalized. Did you
+  forget to return a Response object or `await next()`?" — which
+  `toThrowError('Custom Error')` accepted because the generated matcher does not check the
+  message. With the real 404 handler installed nothing throws, and the route itself never
+  matches because of the router family above. Instrumented in both builds to confirm
+  (`dispatch path= match=Null` in both; baseline throw message as quoted).
+
+## Next blocker
+
+The router `this`-method family: `export function match<R>(this: R, method, path)` assigned
+as `RegExpRouter.match` (and `SmartRouter.match`'s `this.match = router.match.bind(router)`)
+reads `this` erased, so `buildAllMatchers()` answers `null`. Fixing it should move the 8 app
+tests and restore the Next.js one honestly. Also: `toThrowError(message)` should compare the
+message (it currently accepts any throw), which is what hid the false positive.
 
 ## Open issues found (pre-existing, not caused here)
 
@@ -386,8 +425,6 @@ SmeltUnknown report, and the hono / radash / remeda corpus runs.
   constructor therefore cannot be shown yet; the initializer copy itself is ready for it
   (it is emitted with `Self` = the derived class, so a direct `self.m()` would dispatch to
   the override).
-* `this.m(this.f)` on a reference class holds the `borrow()` guard of the argument across
-  the call (`RefCell already borrowed`) when `m` writes `this`.
 * Generic-base type substitution (see "Known limitation" above): inherited method copies of
   a generic base spell the base's `T` out of scope (`fn get(&self) -> T` in `impl NumBox`,
   E0425), unchanged by this round.
