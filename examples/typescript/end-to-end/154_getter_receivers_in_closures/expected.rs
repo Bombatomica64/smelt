@@ -554,6 +554,15 @@ fn smelt_register_callable_object<F: ?Sized + 'static>(function: &::std::rc::Rc<
     }
 }
 
+/// Remember the full-arity erased function a narrowing adapter forwards to.
+fn smelt_register_narrowed_callable<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, wide: SmeltUnknown) {
+    if let SmeltUnknown::Function(wide_function) = &wide {
+        smelt_link_function_identity(function, wide_function);
+        let key = smelt_retain_callable_key(function);
+        SMELT_CALLABLE_OBJECTS.with(|objects| { objects.borrow_mut().insert(key, wide); });
+    }
+}
+
 /// Recover the callable object a typed callback was narrowed from.
 fn smelt_lookup_callable_object<F: ?Sized>(function: &::std::rc::Rc<F>) -> Option<SmeltUnknown> {
     SMELT_CALLABLE_OBJECTS.with(|objects| objects.borrow().get(&smelt_callable_object_key(function)).cloned())

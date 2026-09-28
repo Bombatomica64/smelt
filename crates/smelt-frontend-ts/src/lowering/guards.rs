@@ -1841,10 +1841,7 @@ impl ModuleBuilder<'_> {
         } else {
             None
         };
-        let output_ty = contextual_output
-            .or(inferred_output)
-            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
-        let ty = self.ctx.krate.types.intern(Type::Future(output_ty));
+        let declared_output = contextual_output.or(inferred_output);
         // Only collapse a Promise to a bare `Sleep` when its executor is the pure
         // delay shape `new Promise(resolve => setTimeout(resolve, ms))` — the
         // timer's callback IS the `resolve` parameter, so the promise resolves
@@ -1852,59 +1849,63 @@ impl ModuleBuilder<'_> {
         // timer callback does real work (e.g. `() => resolve(value)`) must flow
         // through `AsyncOp::Promise`, which threads `resolve`/`reject`; treating
         // it as `Sleep` would silently discard the resolved value.
-        let duration = if let Some(timer_call) = bare_delay_timer {
-            let Some(duration_argument) = timer_call.arguments.get(1) else {
-                return Err(SmeltError::unsupported(
-                    self.span(timer_call.span.start, timer_call.span.end),
-                    "Promise timer executor must pass a duration argument",
-                ));
-            };
-            self.argument(duration_argument, body)?
-        } else {
-            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let Some(timer_call) = bare_delay_timer else {
             let none_ty = self.ctx.krate.types.intern(Type::None);
-            let resolve_value_ty = if self.ctx.krate.types.get(output_ty) == Some(&Type::None) {
-                unknown_ty
+            let mut output_ty = declared_output.unwrap_or(none_ty);
+            let executor_expr = if let Some(executor) = lowered_executor {
+                executor
             } else {
-                output_ty
+                let exprs_before = body.exprs.len();
+                let bodies_before = self.ctx.krate.bodies.len();
+                let items_before = self.ctx.krate.items.len();
+                let executor_ty = self.promise_executor_type(output_ty);
+                let executor =
+                    self.argument_with_hint(executor_arg, body, Some(executor_ty))?;
+                let resolved = if declared_output.is_none() {
+                    self.promise_output_from_resolve_calls(body, executor)
+                } else {
+                    None
+                };
+                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                match resolved {
+                    // `unknown` is exactly the erased resolver the executor
+                    // was just lowered against, so only the output changes.
+                    Some(resolved) if resolved == unknown_ty => {
+                        output_ty = resolved;
+                        executor
+                    }
+                    Some(resolved) if resolved != output_ty => {
+                        // The executor was lowered with an erased `resolve`
+                        // to read what it resolves with; lower it again
+                        // against the typed resolver so the values flow at
+                        // their own type. The first lowering is rolled back
+                        // the way `compact_callback_rebuilds` rolls back its
+                        // probe: its expressions, and its closure bodies
+                        // when no item was minted meanwhile.
+                        body.exprs.truncate(exprs_before);
+                        if self.ctx.krate.items.len() == items_before {
+                            self.ctx.krate.bodies.truncate(bodies_before);
+                        }
+                        let typed_executor_ty = self.promise_executor_type(resolved);
+                        if let Ok(typed) =
+                            self.argument_with_hint(executor_arg, body, Some(typed_executor_ty))
+                        {
+                            output_ty = resolved;
+                            typed
+                        } else {
+                            // A value the typed resolver does not accept
+                            // keeps the erased resolver the probe used.
+                            body.exprs.truncate(exprs_before);
+                            if self.ctx.krate.items.len() == items_before {
+                                self.ctx.krate.bodies.truncate(bodies_before);
+                            }
+                            self.argument_with_hint(executor_arg, body, Some(executor_ty))?
+                        }
+                    }
+                    _ => executor,
+                }
             };
-            // `resolve`/`reject` accept their value argument optionally: TypeScript
-            // types them `(value?: T) => void`, and `resolve()` with no argument is
-            // valid (it settles with `undefined`). Recording `required_params: 0`
-            // lets the callbacks satisfy shorter expected function slots such as the
-            // `Array<() => void>` deferred-task queue used by promise concurrency
-            // primitives (semaphore/mutex).
-            let resolve_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-                params: vec![resolve_value_ty],
-                rest: None,
-                required_params: Some(0),
-                mutable_params: Vec::new(),
-                return_ty: none_ty,
-                is_async: false,
-                may_throw: false,
-            }));
-            let reject_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-                params: vec![unknown_ty],
-                rest: None,
-                required_params: Some(0),
-                mutable_params: Vec::new(),
-                return_ty: none_ty,
-                is_async: false,
-                may_throw: false,
-            }));
-            let executor_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-                params: vec![resolve_ty, reject_ty],
-                rest: None,
-                required_params: Some(2),
-                mutable_params: Vec::new(),
-                return_ty: none_ty,
-                is_async: false,
-                may_throw: false,
-            }));
-            let executor_expr = match lowered_executor {
-                Some(executor) => executor,
-                None => self.argument_with_hint(executor_arg, body, Some(executor_ty))?,
-            };
+            let ty = self.ctx.krate.types.intern(Type::Future(output_ty));
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::AsyncOp {
                     op: AsyncOp::Promise,
@@ -1914,6 +1915,19 @@ impl ModuleBuilder<'_> {
                 span: self.span(new_expr.span.start, new_expr.span.end),
             })));
         };
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Future(declared_output.unwrap_or(none_ty)));
+        let Some(duration_argument) = timer_call.arguments.get(1) else {
+            return Err(SmeltError::unsupported(
+                self.span(timer_call.span.start, timer_call.span.end),
+                "Promise timer executor must pass a duration argument",
+            ));
+        };
+        let duration = self.argument(duration_argument, body)?;
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::AsyncOp {
                 op: AsyncOp::Sleep,
@@ -1922,6 +1936,79 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         })))
+    }
+
+    /// The executor signature `new Promise<T>(executor)` hands its callback.
+    ///
+    /// `resolve`/`reject` accept their value argument optionally: TypeScript
+    /// types them `(value?: T) => void`, and `resolve()` with no argument is
+    /// valid (it settles with `undefined`). Recording `required_params: 0`
+    /// lets the callbacks satisfy shorter expected function slots such as the
+    /// `Array<() => void>` deferred-task queue used by promise concurrency
+    /// primitives (semaphore/mutex). A valueless `Promise<void>` still takes an
+    /// erased (ignored) resolve value.
+    fn promise_executor_type(&mut self, output_ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let resolve_value_ty = if output_ty == none_ty { unknown_ty } else { output_ty };
+        let resolve_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: vec![resolve_value_ty],
+            rest: None,
+            required_params: Some(0),
+            mutable_params: Vec::new(),
+            return_ty: none_ty,
+            is_async: false,
+            may_throw: false,
+        }));
+        let reject_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: vec![unknown_ty],
+            rest: None,
+            required_params: Some(0),
+            mutable_params: Vec::new(),
+            return_ty: none_ty,
+            is_async: false,
+            may_throw: false,
+        }));
+        self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: vec![resolve_ty, reject_ty],
+            rest: None,
+            required_params: Some(2),
+            mutable_params: Vec::new(),
+            return_ty: none_ty,
+            is_async: false,
+            may_throw: false,
+        }))
+    }
+
+    /// The value type an unannotated Promise resolves with, read off its executor.
+    ///
+    /// Applies the rule in [`super::promise_resolution`]: one argument type ->
+    /// that type (optional when some call passes nothing), disagreeing types ->
+    /// `unknown`, no valued call -> `None` (keep the valueless promise).
+    fn promise_output_from_resolve_calls(
+        &mut self,
+        body: &Body,
+        executor: smelt_hir::ExprId,
+    ) -> Option<smelt_hir::TypeId> {
+        let calls = super::promise_resolution::executor_resolve_calls(
+            &self.ctx.krate.bodies,
+            body,
+            executor,
+        )?;
+        let first = *calls.argument_types.first()?;
+        // A `resolve(fail())` whose argument never returns settles nothing.
+        if self.ctx.krate.types.get(first) == Some(&Type::Never) {
+            return None;
+        }
+        let resolved = if calls.argument_types.iter().all(|ty| *ty == first) {
+            first
+        } else {
+            self.ctx.krate.types.intern(Type::Unknown)
+        };
+        if calls.has_empty_call && !self.is_nullishable_type(resolved) {
+            return Some(self.ctx.krate.types.intern(Type::Optional(resolved)));
+        }
+        Some(resolved)
     }
 
     /// Infer `Promise<T>`'s resolved `T` from a named executor's first callback.

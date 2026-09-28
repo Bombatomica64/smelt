@@ -1,0 +1,62 @@
+module examples/typescript/end-to-end/156_runtime_shape_behind_static_types/input.ts (ModuleId(0))
+  body BodyId(11)
+  items
+    class Reply fields [Public body: String] constructor Some(ItemId(7)) methods [] implements []
+    fn defer owner Module
+    fn later owner Module
+    fn counted owner Module
+    fn maybe owner Module
+    type Greet = fn(String) -> String
+    fn entry owner Module
+  exprs
+    #0: async fn() -> Future<None> = @6(entry)
+    #1: Future<None> = call #0()
+    #2: None = async_spawn_local(#1)
+    #3: Future<None> = async_exit_drain()
+    #4: None = await #3
+  stmts
+    s0: #2
+    s1: #4
+  async state machine
+    states [state0, state1]
+    suspend #4 on #3 -> state5
+
+interned types
+  t0 = String
+  t1 = fn(String) -> String
+  t2 = None
+  t3 = fn() -> None
+  t4 = fn(fn() -> None) -> None
+  t5 = Unknown
+  t6 = fn() -> Unknown
+  t7 = Bool
+  t8 = fn(Bool) -> Unknown
+  t9 = Future<None>
+  t10 = async fn() -> Future<None>
+  t11 = Reply
+  t12 = fn(Unknown) -> None
+  t13 = fn(fn(Unknown) -> None, fn(Unknown) -> None) -> None
+  t14 = fn(fn() -> None) -> None
+  t15 = fn() -> None
+  t16 = fn(fn(Unknown) -> None) -> None
+  t17 = fn(Reply) -> None
+  t18 = fn(fn(Reply) -> None, fn(Unknown) -> None) -> None
+  t19 = fn(fn(Reply) -> None) -> None
+  t20 = Future<Reply>
+  t21 = Float
+  t22 = fn(Float) -> None
+  t23 = fn(fn(Float) -> None, fn(Unknown) -> None) -> None
+  t24 = fn(fn(Float) -> None) -> None
+  t25 = Future<Float>
+  t26 = fn(fn(Unknown) -> None) -> None
+  t27 = Optional<Float>
+  t28 = fn(Optional<Float>) -> None
+  t29 = fn(fn(Optional<Float>) -> None, fn(Unknown) -> None) -> None
+  t30 = fn(fn(Optional<Float>) -> None) -> None
+  t31 = Future<Optional<Float>>
+  t32 = fn() -> Future<Reply>
+  t33 = fn(Bool) -> Future<Float>
+  t34 = fn(Bool) -> Future<Optional<Float>>
+  t35 = Optional<String>
+  t36 = fn(String, Optional<String>) -> String
+  t37 = async fn() -> Future<None>

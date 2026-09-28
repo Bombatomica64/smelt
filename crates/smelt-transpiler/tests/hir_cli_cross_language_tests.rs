@@ -1193,6 +1193,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "152_callable_interface_fields",
     "154_getter_receivers_in_closures",
     "155_erased_instance_identity",
+    "156_runtime_shape_behind_static_types",
     "14_c_for_loop",
     "15_break_continue",
     "16_switch_break_no_fallthrough",
