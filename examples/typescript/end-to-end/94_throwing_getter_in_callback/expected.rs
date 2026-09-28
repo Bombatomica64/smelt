@@ -253,11 +253,13 @@ const SMELT_FIELD_SCAN_LIMIT: usize = 12;
 pub struct SmeltFieldStore<K, V> {
     entries: Vec<SmeltFieldEntry<K, V>>,
     index: Option<SmeltFieldMap<u64, usize>>,
+    /// The live typed value this store is an erased view of, if any (see `smelt_with_origin`).
+    origin: Option<Box<dyn ::std::any::Any>>,
 }
 
 impl<K, V> SmeltFieldStore<K, V> {
     /// Build an empty store sized for `capacity` entries.
-    fn with_capacity(capacity: usize) -> Self { Self { entries: Vec::with_capacity(capacity), index: None } }
+    fn with_capacity(capacity: usize) -> Self { Self { entries: Vec::with_capacity(capacity), index: None, origin: None } }
     #[inline]
     fn len(&self) -> usize { self.entries.len() }
     /// Borrow the key/value pairs in JavaScript own-key order.
@@ -266,7 +268,7 @@ impl<K, V> SmeltFieldStore<K, V> {
 }
 
 impl<K, V> Default for SmeltFieldStore<K, V> {
-    fn default() -> Self { Self { entries: Vec::new(), index: None } }
+    fn default() -> Self { Self { entries: Vec::new(), index: None, origin: None } }
 }
 
 impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
@@ -933,6 +935,22 @@ impl SmeltObject {
     fn iter(&self) -> ::std::vec::IntoIter<(String, SmeltUnknown)> { self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }
     fn keys(&self) -> Vec<String> { self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect() }
     fn values(&self) -> Vec<SmeltUnknown> { self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect() }
+    /// Record the live typed value this erased object is a view of.
+    ///
+    /// Called by a reference record's erasure with a clone of its handle, so
+    /// narrowing the erased object back hands out the SAME instance rather than
+    /// a copy rebuilt from the field snapshot.
+    #[allow(dead_code)]
+    fn smelt_with_origin<T: 'static>(self, origin: T) -> Self { self.store.borrow_mut().origin = Some(Box::new(origin)); self }
+    /// The live typed value this erased object is a view of, when it is a `T`.
+    #[allow(dead_code)]
+    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { self.store.borrow().origin.as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }
+}
+
+impl<K, V> SmeltRecord<K, V> {
+    /// The live typed value this record's store is an erased view of, when it is a `T`.
+    #[allow(dead_code)]
+    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { self.store.borrow().origin.as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }
 }
 
 /// Return whether an erased object key is visible to JavaScript `for...in` iteration.
@@ -3209,7 +3227,18 @@ impl IntoSmeltUnknown for Registry {
         ("slots".to_owned(), SmeltUnknown::Array(__smelt_inner.slots.clone().into_iter().map(|value| SmeltUnknown::String(value.into())).collect())),
         ]);
         __smelt_entries.extend(__smelt_proto);
-        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))
+        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
+    }
+}
+/// Recover this reference record from an erased value: the live instance
+/// when the value is an erasure of one, else a fresh object rebuilt from it.
+impl SmeltFromUnknown for Registry {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let SmeltUnknown::Object(object) = value else { return Self::default() };
+        if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
+        let result = Self::default();
+        if let Some(field) = object.get("slots") { result.0.borrow_mut().slots = SmeltFromUnknown::smelt_from_unknown(field); }
+        result
     }
 }
 

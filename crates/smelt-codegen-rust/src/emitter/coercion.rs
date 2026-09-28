@@ -2500,10 +2500,16 @@ impl FunctionEmitter<'_> {
         // `const b = a; erase(a) === erase(b)` (and `expect(x).toBe(obj)` after a
         // mutation) is false for what is one object. A by-value record has no
         // identity to preserve and keeps minting a fresh id per erasure.
+        //
+        // The reference view also holds the live handle, so narrowing it back
+        // yields this instance rather than a rebuilt copy (`reference_origin`).
         let object_ctor = if self.is_reference_class_type(target) {
-            "SmeltObject::with_id(smelt_reference_object_identity(::std::rc::Rc::as_ptr(&smelt_struct_value.0) as usize), smelt_object_entries)"
+            crate::reference_origin::with_origin_text(
+                "SmeltObject::with_id(smelt_reference_object_identity(::std::rc::Rc::as_ptr(&smelt_struct_value.0) as usize), smelt_object_entries)",
+                "smelt_struct_value",
+            )
         } else {
-            "SmeltObject::new(smelt_object_entries)"
+            "SmeltObject::new(smelt_object_entries)".to_owned()
         };
         // A class instance keeps its methods across the erasure seam, as
         // prototype-carried members (`__smelt_proto:<name>`). Without them an
@@ -3257,8 +3263,17 @@ impl FunctionEmitter<'_> {
                 );
                 self.record_conversion_stack.borrow_mut().pop();
                 if let Some(adapter) = adapter_result? {
+                    // A reference record's adapter first asks the record view
+                    // for the live instance it stands for, and that view only
+                    // carries it when it SHARES the erased object's store;
+                    // a copied entry list would drop it (`reference_origin`).
+                    let record_view = if self.is_reference_class_type(target) {
+                        "values.smelt_shared_record()"
+                    } else {
+                        "SmeltRecord::with_id_from_entries(values.id, values.into_iter())"
+                    };
                     return Ok(format!(
-                        "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => {{ let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); {adapter} }}, _ => Default::default() }}"
+                        "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => {{ let smelt_record_map = {record_view}; {adapter} }}, _ => Default::default() }}"
                     ));
                 }
                 Ok("Default::default()".to_owned())

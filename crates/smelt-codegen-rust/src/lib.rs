@@ -98,6 +98,7 @@ pub(crate) mod base_init;
 pub(crate) mod class_proto;
 pub(crate) mod classes;
 pub(crate) mod classify;
+pub(crate) mod reference_origin;
 pub(crate) mod deps;
 mod function_object_prelude;
 mod http_server_prelude;
@@ -1170,11 +1171,22 @@ fn emit_source_with_free_function_router(
         writer.line("pub struct SmeltFieldStore<K, V> {");
         writer.line("    entries: Vec<SmeltFieldEntry<K, V>>,");
         writer.line("    index: Option<SmeltFieldMap<u64, usize>>,");
+        // The erased-view origin slot is pay-for-use: only a program with a
+        // reference record ever erases one (see `reference_origin`).
+        let needs_reference_origins = context.has_reference_classes();
+        let origin_init = if needs_reference_origins {
+            for line in reference_origin::STORE_FIELD_DECL.lines() {
+                writer.line(line);
+            }
+            reference_origin::STORE_FIELD_INIT
+        } else {
+            ""
+        };
         writer.line("}");
         writer.blank_line();
         writer.line("impl<K, V> SmeltFieldStore<K, V> {");
         writer.line("    /// Build an empty store sized for `capacity` entries.");
-        writer.line("    fn with_capacity(capacity: usize) -> Self { Self { entries: Vec::with_capacity(capacity), index: None } }");
+        writer.line(format!("    fn with_capacity(capacity: usize) -> Self {{ Self {{ entries: Vec::with_capacity(capacity), index: None{origin_init} }} }}"));
         writer.line("    #[inline]");
         writer.line("    fn len(&self) -> usize { self.entries.len() }");
         writer.line("    /// Borrow the key/value pairs in JavaScript own-key order.");
@@ -1183,7 +1195,7 @@ fn emit_source_with_free_function_router(
         writer.line("}");
         writer.blank_line();
         writer.line("impl<K, V> Default for SmeltFieldStore<K, V> {");
-        writer.line("    fn default() -> Self { Self { entries: Vec::new(), index: None } }");
+        writer.line(format!("    fn default() -> Self {{ Self {{ entries: Vec::new(), index: None{origin_init} }} }}"));
         writer.line("}");
         writer.blank_line();
         writer.line("impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {");
@@ -2318,7 +2330,18 @@ fn emit_source_with_free_function_router(
         writer.line("    fn iter(&self) -> ::std::vec::IntoIter<(String, SmeltUnknown)> { self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }");
         writer.line("    fn keys(&self) -> Vec<String> { self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect() }");
         writer.line("    fn values(&self) -> Vec<SmeltUnknown> { self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect() }");
+        if needs_reference_origins {
+            for line in reference_origin::OBJECT_METHODS.lines() {
+                writer.line(line);
+            }
+        }
         writer.line("}");
+        if needs_reference_origins {
+            writer.blank_line();
+            for line in reference_origin::RECORD_IMPL.lines() {
+                writer.line(line);
+            }
+        }
         writer.blank_line();
         writer.line(
             "/// Return whether an erased object key is visible to JavaScript `for...in` iteration.",
@@ -7402,6 +7425,16 @@ fn emit_reference_record_storage(
             *has_proto_entries,
             *has_field_setter,
         )?;
+        // The inbound half restores the live handle (see `reference_origin`).
+        reference_origin::emit_reference_from_smelt_unknown_impl(
+            writer,
+            mir,
+            context,
+            name,
+            impl_generics,
+            type_args,
+            fields,
+        );
     }
     writer.blank_line();
     Ok(())
@@ -7527,7 +7560,12 @@ fn emit_reference_class_into_smelt_unknown_impl(
                 if has_field_setter {
                     fn_writer.line(emitter::view_write_through::erased_view_entry_text("self", "__smelt_entries"));
                 }
-                fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))");
+                // The erased view holds the live handle, so narrowing it back
+                // yields this instance (see `reference_origin`).
+                fn_writer.line(format!(
+                    "SmeltUnknown::Object({})",
+                    reference_origin::with_origin_text("SmeltObject::with_id(__smelt_id, __smelt_entries)", "self")
+                ));
             });
         },
     );
@@ -8036,12 +8074,14 @@ pub(crate) fn type_supports_from_unknown(
         // `SmeltRegExp` has no inbound impl — so admitting every class emitted a
         // call that does not compile.
         //
-        // A *reference* class is generated too, but as an `Rc<RefCell<Inner>>`
-        // newtype by `emit_reference_class_storage`, which emits only the
-        // outbound `IntoSmeltUnknown` half. Recovering a shared handle from an
-        // erased snapshot would in any case invent a new cell rather than
-        // restore the aliasing the handle exists for, so such a field keeps its
-        // `Default` instead.
+        // A *reference* class is generated too, as an `Rc<RefCell<Inner>>`
+        // newtype by `emit_reference_class_storage`. It now carries an inbound
+        // impl as well (`reference_origin::emit_reference_from_smelt_unknown_impl`,
+        // which restores the live handle an erasure stamped), so it satisfies
+        // the generated `SmeltFromUnknown` type-parameter bound. This whitelist
+        // still leaves it out: it decides where the EMITTER reaches for the
+        // impl (record fields, prototype-method parameters), and widening those
+        // sites is a separate change from making identity round-trip.
         Some(Type::Class { name, .. }) => {
             let name = *name;
             !context.is_reference_class(name)

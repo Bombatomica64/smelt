@@ -144,6 +144,36 @@ function run(): number { const f: Flags = { era: 1 }; return readEra(f); }
     assert!(names.is_empty(), "{names:?}");
 }
 
+#[test]
+fn classifies_identity_comparison_as_reference() {
+    // Rule: instances compared by `===` need an identity only a handle has.
+    let names = reference_class_names(
+        r"
+class Point {
+  x: number;
+  constructor(x: number) { this.x = x; }
+}
+function same(a: Point, b: Point): boolean { return a === b; }
+",
+    );
+    assert_eq!(names, vec!["Point".to_owned()]);
+}
+
+#[test]
+fn comparison_against_a_nullish_literal_does_not_lift() {
+    // `p === undefined` is a presence test, not an identity comparison.
+    let names = reference_class_names(
+        r"
+class Point {
+  x: number;
+  constructor(x: number) { this.x = x; }
+}
+function absent(p: Point | undefined): boolean { return p === undefined; }
+",
+    );
+    assert!(names.is_empty(), "{names:?}");
+}
+
 // ---- Emitter shape --------------------------------------------------------
 
 #[test]
@@ -367,14 +397,16 @@ function run(): boolean { const a = new Box(); const b = new Box(); return a ===
 #[test]
 fn value_class_derives_partial_eq() {
     // A value class with only comparable fields derives structural `PartialEq`
-    // so generated comparisons (`!=`, `assert_eq!`) type-check.
+    // so generated comparisons (`!=`, `assert_eq!`) type-check. The comparison
+    // is the LOOSE `!=`: a strict `!==` is an identity comparison, which lifts
+    // the class to a handle (`classifies_identity_comparison_as_reference`).
     let source = source_for(
         r"
 class Point {
   x: number;
   constructor(x: number) { this.x = x; }
 }
-function run(): boolean { const p = new Point(1); const q = new Point(2); return p !== q; }
+function run(): boolean { const p = new Point(1); const q = new Point(2); return p != q; }
 ",
     );
     assert!(
@@ -456,4 +488,48 @@ function read(e: FetcherError): number { return e.innerError; }
         source.contains("inner_error"),
         "readonly parameter property should declare an inner_error field: {source}"
     );
+}
+
+#[test]
+fn erased_reference_instance_narrows_back_to_the_same_handle() {
+    // The erased view holds the live handle, and narrowing it back yields that
+    // handle before it would rebuild a copy from the field snapshot; `===` on
+    // two handles compares the shared cell.
+    let source = source_for(
+        r"
+class Ctx {
+  res: string;
+  constructor() { this.res = 'init'; }
+}
+function roundTrip(value: unknown): unknown { return value; }
+function run(): boolean {
+  const c = new Ctx();
+  const back = roundTrip(c) as Ctx;
+  back.res = 'written';
+  return back === c;
+}
+",
+    );
+    assert!(source.contains("origin: Option<Box<dyn ::std::any::Any>>"), "{source}");
+    assert!(source.contains(".smelt_with_origin("), "{source}");
+    assert!(
+        source.contains("match smelt_record_map.smelt_origin() { Some(smelt_origin) => smelt_origin, None =>"),
+        "{source}"
+    );
+    assert!(source.contains("::std::rc::Rc::as_ptr(&(back).0) as *const () as usize"), "{source}");
+}
+
+#[test]
+fn program_without_reference_classes_has_no_origin_slot() {
+    let source = source_for(
+        r"
+class Point {
+  x: number;
+  constructor(x: number) { this.x = x; }
+}
+function erase(p: Point): unknown { return p; }
+",
+    );
+    assert!(!source.contains("smelt_with_origin"), "{source}");
+    assert!(!source.contains("origin: Option<Box<dyn ::std::any::Any>>"), "{source}");
 }

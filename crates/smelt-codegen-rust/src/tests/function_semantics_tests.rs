@@ -315,3 +315,29 @@ export function main(): void {
     );
     assert!(source.contains("\"fired\""), "{source}");
 }
+
+#[test]
+fn erasing_a_never_returning_callback_still_calls_it() {
+    // An always-throwing arrow (`() => never`) stored as `Function` must still
+    // be CALLED through its erased adapter: its throw is the call's whole
+    // effect. Erasing its "result" used to replace the call with a constant
+    // `Ok(SmeltUnknown::Null)`, so a `try` around the erased call never saw
+    // the throw (Hono `compose.test.ts`, "500 error").
+    let source = source_for(
+        r#"
+function call(fn: Function): void { fn(); }
+function run(): void {
+  const boom = () => { throw new Error("boom"); };
+  call(boom);
+}
+"#,
+    );
+    assert!(
+        !source.contains("move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Null)"),
+        "the erased adapter must not drop the call: {source}"
+    );
+    assert!(
+        source.contains("(smelt_callback)()?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined)"),
+        "the erased adapter must call the callback and propagate its throw: {source}"
+    );
+}
