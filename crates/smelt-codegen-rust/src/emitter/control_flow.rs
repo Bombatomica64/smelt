@@ -416,6 +416,11 @@ impl FunctionEmitter<'_> {
                 // skips the owned copy entirely -- the borrowed spelling IS the
                 // value. See `emitter::typeof_str_locals`.
                 let raw_rendered_value = match value {
+                    // A base initializer copy is handed its instance: the
+                    // constructor's allocation of `this` becomes the receiver.
+                    Rvalue::Struct { .. } if self.is_base_initializer_receiver(*dest) => {
+                        crate::base_init::BASE_INIT_RECEIVER.to_owned()
+                    }
                     Rvalue::TypeofValue { value: typeof_operand }
                         if self.local_is_static_typeof_str(*dest) =>
                     {
@@ -475,7 +480,7 @@ impl FunctionEmitter<'_> {
                     // it unsolved — E0282 in the generated crate.
                     out.push_str(&format!(
                         "    let smelt_capture_{name}: ::std::rc::Rc<::std::cell::RefCell<{}>> = ::std::rc::Rc::new(::std::cell::RefCell::new({rendered_value}));\n",
-                        self.type_text_with_impl_trait(local.ty, false)?
+                        self.capture_cell_type_text(*dest, local.ty)?
                     ));
                 } else {
                     out.push_str(&format!(
@@ -877,7 +882,7 @@ impl FunctionEmitter<'_> {
             if self.local_uses_shared_capture_storage(*local) {
                 out.push_str(&format!(
                     "    let smelt_capture_{name}: ::std::rc::Rc<::std::cell::RefCell<{}>> = ::std::rc::Rc::new(::std::cell::RefCell::new({rendered_value}));\n",
-                    self.type_text_with_impl_trait(decl.ty, false)?
+                    self.capture_cell_type_text(*local, decl.ty)?
                 ));
             } else {
                 out.push_str(&format!(
@@ -1167,11 +1172,25 @@ impl FunctionEmitter<'_> {
         } else {
             out.push_str(&format!(
                 "    let {mutability}{name}: {} = {call_text};\n",
-                self.type_text_with_impl_trait(local.ty, false)?
+                self.call_dest_type_text(callee, local.ty)?
             ));
         }
         self.mark_local_declared(dest);
         Ok(())
+    }
+
+    /// The Rust type a call's destination binding is declared at.
+    ///
+    /// A base initializer answers the receiver it was handed, which is `Self`:
+    /// the derived instance under construction. Its MIR type names the class
+    /// whose constructor issued the `super(..)`, and inside an initializer copy
+    /// re-emitted further down the chain (`Point3`'s constructor inside `impl
+    /// Point4`) that class is NOT the impl's type.
+    fn call_dest_type_text(&self, callee: &Callee, ty: TypeId) -> Result<String, EmitError> {
+        if matches!(callee, Callee::BaseInit(_)) {
+            return Ok("Self".to_owned());
+        }
+        self.type_text_with_impl_trait(ty, false)
     }
 
     /// Emits the region reached after a terminator, honoring loop context.
@@ -1340,7 +1359,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     out.push_str(&format!(
                         "            let {mutability}{name}: {} = {value_text};\n",
-                        self.type_text_with_impl_trait(local.ty, false)?
+                        self.call_dest_type_text(callee, local.ty)?
                     ));
                 }
             }
@@ -1417,7 +1436,7 @@ impl FunctionEmitter<'_> {
         } else {
             out.push_str(&format!(
                 "            let {mutability}{name}: {} = {value_text};\n",
-                self.type_text_with_impl_trait(local.ty, false)?
+                self.call_dest_type_text(callee, local.ty)?
             ));
         }
         self.mark_local_declared(dest);

@@ -105,6 +105,9 @@ impl FunctionEmitter<'_> {
         target: TypeId,
         scope: &RenderScope,
     ) -> Result<String, EmitError> {
+        if let Some(upcast) = self.base_initializer_receiver_upcast_text(operand, target, scope)? {
+            return Ok(upcast);
+        }
         let source_ty = self.operand_ty(operand)?;
         let operand_text = self.operand_text(operand)?;
         if let Some(injected) = self.inject_union_value_text(&operand_text, source_ty, target, scope)? {

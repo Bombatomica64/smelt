@@ -121,12 +121,15 @@ impl Base {
 
 impl Derived {
     fn new() -> Self {
-    let __smelt_super: Base;
     let mut this: Self = Derived { label: String::new(), extra: 0.0 };
-    let _smelt_tmp_2: Base = Base::new();
-    __smelt_super = _smelt_tmp_2;
-    this.label = __smelt_super.label.clone();
+    let _smelt_tmp_1: Self = Self::__smelt_init_Base(this);
+    this = _smelt_tmp_1;
     this.extra = 7.0;
+    return this;
+    }
+    fn __smelt_init_Base(smelt_receiver: Self) -> Self {
+    let mut this: Self = smelt_receiver;
+    this.label = "base".to_owned();
     return this;
     }
     fn describe(&self) -> String {
@@ -151,13 +154,16 @@ impl Point {
 
 impl Point3 {
     fn new(x: f64, y: f64) -> Self {
-    let __smelt_super: Point;
     let mut this: Self = Point3 { x: 0.0, y: 0.0, z: 0.0 };
-    let _smelt_tmp_4: Point = Point::new(x, y);
-    __smelt_super = _smelt_tmp_4;
-    this.x = __smelt_super.x;
-    this.y = __smelt_super.y;
+    let _smelt_tmp_3: Self = Self::__smelt_init_Point(this, x, y);
+    this = _smelt_tmp_3;
     this.z = 3.0;
+    return this;
+    }
+    fn __smelt_init_Point(smelt_receiver: Self, x: f64, y: f64) -> Self {
+    let mut this: Self = smelt_receiver;
+    this.x = x;
+    this.y = y;
     return this;
     }
     fn sum(&self) -> f64 {
@@ -178,26 +184,40 @@ impl Tagged {
 
 impl Labelled {
     fn new(tag: Option<String>) -> Self {
-    let __smelt_super: Tagged;
     let mut this: Self = Labelled { tag: String::new(), seen: false };
-    let _smelt_tmp_3: Tagged = Tagged::new(tag.clone());
-    __smelt_super = _smelt_tmp_3;
-    this.tag = __smelt_super.tag.clone();
+    let _smelt_tmp_2: Self = Self::__smelt_init_Tagged(this, tag.clone());
+    this = _smelt_tmp_2;
     this.seen = true;
+    return this;
+    }
+    fn __smelt_init_Tagged(smelt_receiver: Self, tag: Option<String>) -> Self {
+    let mut this: Self = smelt_receiver;
+    let _smelt_tmp_3: String = tag.clone().clone().unwrap_or("none".to_owned());
+    let tag_1: String = _smelt_tmp_3;
+    this.tag = tag_1;
     return this;
     }
 }
 
 impl Deeper {
     fn new(x: f64, y: f64) -> Self {
-    let __smelt_super: Point3;
     let mut this: Self = Deeper { x: 0.0, y: 0.0, z: 0.0, w: 0.0 };
-    let _smelt_tmp_4: Point3 = Point3::new(x, y);
-    __smelt_super = _smelt_tmp_4;
-    this.x = __smelt_super.x;
-    this.y = __smelt_super.y;
-    this.z = __smelt_super.z;
+    let _smelt_tmp_3: Self = Self::__smelt_init_Point3(this, x, y);
+    this = _smelt_tmp_3;
     this.w = 4.0;
+    return this;
+    }
+    fn __smelt_init_Point3(smelt_receiver: Self, x: f64, y: f64) -> Self {
+    let mut this: Self = smelt_receiver;
+    let _smelt_tmp_3: Self = Self::__smelt_init_Point(this, x, y);
+    this = _smelt_tmp_3;
+    this.z = 3.0;
+    return this;
+    }
+    fn __smelt_init_Point(smelt_receiver: Self, x: f64, y: f64) -> Self {
+    let mut this: Self = smelt_receiver;
+    this.x = x;
+    this.y = y;
     return this;
     }
     fn sum(&self) -> f64 {

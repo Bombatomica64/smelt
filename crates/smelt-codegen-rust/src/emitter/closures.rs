@@ -578,6 +578,7 @@ impl FunctionEmitter<'_> {
             // signature to erase as well). The enclosing set is already gated by
             // that function's own erasure decision.
             emitter.enclosing_type_params = self.current_function_type_params();
+            self.inherit_base_initializer_receiver(&mut emitter, &closure.captures);
             for (index, param) in closure.params.iter().enumerate() {
                 emitter.names.insert(*param, format!("closure_arg_{index}"));
             }

@@ -874,6 +874,7 @@ impl FunctionEmitter<'_> {
                 let value_text = self.string_like_operand_text(value, "URI decoder input")?;
                 Ok(format!("{adapter}({value_text}.as_str())?"))
             }
+            Callee::BaseInit(func) => self.base_initializer_call_text(*func, args),
             Callee::Static(func) => {
                 let function = self
                     .mir
@@ -1040,18 +1041,27 @@ impl FunctionEmitter<'_> {
                         let _ = index;
                         rendered_args.push(self.default_value(target_ty)?);
                     }
-                    let arg_values = rendered_args.join(", ");
-                    return if arg_values.is_empty() {
-                        Ok(format!(
-                            "{receiver_text}.{method_name}(){}",
-                            self.throwing_call_suffix(function)
-                        ))
+                    // An argument read through a reference class's cell
+                    // (`this.0.borrow()._path.clone()`) holds its `Ref` guard to
+                    // the end of the statement, so a method on a reference
+                    // receiver that writes its own cell panicked "already
+                    // borrowed" — `this.#addRoute(m, this.#path, h)` in Hono's
+                    // base constructor. Such arguments are bound first, which
+                    // drops each guard before the call runs (JavaScript
+                    // evaluates arguments before the call anyway).
+                    let prebound = if self.is_reference_class_type(self.operand_ty(receiver)?) {
+                        self.prebind_ref_cell_arguments(rest, &mut rendered_args)?
                     } else {
-                        Ok(format!(
-                            "{receiver_text}.{method_name}({arg_values}){}",
-                            self.throwing_call_suffix(function)
-                        ))
+                        Vec::new()
                     };
+                    let arg_values = rendered_args.join(", ");
+                    let call = format!("{receiver_text}.{method_name}({arg_values})");
+                    let call = if prebound.is_empty() {
+                        call
+                    } else {
+                        format!("{{ {} {call} }}", prebound.join(" "))
+                    };
+                    return Ok(format!("{call}{}", self.throwing_call_suffix(function)));
                 }
                 if let HirOrigin::ClassStaticMethod { class, method, .. } = function.origin {
                     // `Class.staticMethod(args)` lowers to the receiver-free
@@ -2777,6 +2787,9 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<TypeId, EmitError> {
         let source_ty = match callee {
+            // The initializer answers the receiver it was handed, which is the
+            // derived instance the destination holds.
+            Callee::BaseInit(_) => dest_ty,
             Callee::Static(func) => {
                 let function = self
                     .mir
@@ -2965,6 +2978,79 @@ impl FunctionEmitter<'_> {
         ) || self.is_erased_class_type(callee_ty)
     }
 
+    /// Bind every argument that reads through a `RefCell` borrow to a local.
+    ///
+    /// `args` are the call's argument operands, positionally paired with
+    /// `rendered_args` (their rendered text, rewritten in place to the bound
+    /// name). Returns the `let` bindings to emit before the call, in argument
+    /// order, so evaluation order is unchanged. See
+    /// [`Self::operand_reads_through_ref_cell`] for which reads hold a guard.
+    fn prebind_ref_cell_arguments(
+        &self,
+        args: &[Operand],
+        rendered_args: &mut [String],
+    ) -> Result<Vec<String>, EmitError> {
+        let mut bindings = Vec::new();
+        for (index, (arg, rendered)) in args.iter().zip(rendered_args.iter_mut()).enumerate() {
+            // A by-reference argument (`&mut` in-place ABI, borrowed callback)
+            // borrows INTO the read; binding it would outlive its temporary.
+            if !self.operand_reads_through_ref_cell(arg) || rendered.starts_with('&') {
+                continue;
+            }
+            let name = format!("smelt_call_arg_{index}");
+            bindings.push(format!("let {name} = {rendered};"));
+            *rendered = name;
+        }
+        Ok(bindings)
+    }
+
+    /// Render a derived `super(..)`: `Self::__smelt_init_Base(this, args..)`.
+    ///
+    /// The first argument is the receiver (the derived `this`), handed to the
+    /// base constructor body re-emitted into this impl as an initializer (see
+    /// `crate::base_init`); the rest are the base constructor's own arguments,
+    /// each coerced to its parameter's type, and an omitted trailing argument
+    /// takes that type's default, as a `Base::new(..)` call does. A throwing
+    /// base constructor makes the initializer fallible, so the call carries the
+    /// same `?` suffix a throwing `new` does.
+    fn base_initializer_call_text(&self, func: FuncId, args: &[Operand]) -> Result<String, EmitError> {
+        let function = self
+            .mir
+            .functions
+            .get(id_index(func.0, "function index does not fit usize")?)
+            .ok_or_else(|| EmitError::new("base initializer references an unknown function"))?;
+        let class = crate::base_init::constructor_class(function)
+            .ok_or_else(|| EmitError::new("base initializer callee is not a constructor"))?;
+        let Some((receiver, rest)) = args.split_first() else {
+            return Err(EmitError::new("base initializer call is missing its receiver"));
+        };
+        // The initializer is emitted into THIS impl, so its parameters are
+        // rendered in the same type-parameter scope as this call: coercing each
+        // argument to the declared parameter type here is exactly what the
+        // initializer's signature spells (a base type parameter the derived
+        // layout erases is erased on both sides). No callee-generic binding
+        // applies, unlike a `Base::new(..)` call into the base's own impl.
+        let mut rendered_args = vec![self.operand_text(receiver)?];
+        for (index, arg) in rest.iter().enumerate() {
+            let Some(param) = function.params.get(index).copied() else {
+                rendered_args.push(self.operand_text(arg)?);
+                continue;
+            };
+            let target_ty = self.function_local_decl(function, param)?.ty;
+            rendered_args.push(self.value_at_type(arg, target_ty)?);
+        }
+        for param in function.params.iter().skip(rest.len()) {
+            let target_ty = self.function_local_decl(function, *param)?.ty;
+            rendered_args.push(self.default_value(target_ty)?);
+        }
+        Ok(format!(
+            "Self::{}({}){}",
+            crate::base_init::base_initializer_name(self.mir, class)?,
+            rendered_args.join(", "),
+            self.throwing_call_suffix(function)
+        ))
+    }
+
     /// Returns the static return type of a call expression.
     pub(super) fn call_source_ty(&self, callee: &Callee) -> Result<TypeId, EmitError> {
         let source_ty = match callee {
@@ -2991,7 +3077,7 @@ impl FunctionEmitter<'_> {
                     return self.type_id(Type::Float);
                 }
             }
-            Callee::Static(func) => {
+            Callee::Static(func) | Callee::BaseInit(func) => {
                 let function = self
                     .mir
                     .functions

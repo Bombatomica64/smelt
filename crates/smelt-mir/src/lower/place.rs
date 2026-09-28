@@ -523,6 +523,7 @@ impl LoweringCtx<'_> {
             | ExprKind::DictLit(_)
             | ExprKind::TupleLit(_)
             | ExprKind::New { .. }
+            | ExprKind::BaseConstructorInit { .. }
             | ExprKind::Await(_)
             | ExprKind::AsyncOp { .. } => self.error(
                 format!(

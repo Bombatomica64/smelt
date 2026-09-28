@@ -61,14 +61,12 @@ fn new (FuncId(4)) -> Counter
 fn new (FuncId(5)) -> DeclaredReporting
   locals
     %0 user this: DeclaredReporting
-    %1 user __smelt_super: Counter
-    %2 temp: Counter
+    %1 temp: DeclaredReporting
   bb0:
     %0 = struct3 {}
-    %2 = call fn4() -> bb1
+    %1 = call init fn4(move %0) -> bb1
   bb1:
-    %1 = move %2
-    %0.field13 = copy %1.field13
+    %0 = move %1
     return move %0
 
 fn report (FuncId(6)) -> String
@@ -83,14 +81,12 @@ fn report (FuncId(6)) -> String
 fn new (FuncId(7)) -> Reporting
   locals
     %0 user this: Reporting
-    %1 user __smelt_super: Counter
-    %2 temp: Counter
+    %1 temp: Reporting
   bb0:
     %0 = struct2 {}
-    %2 = call fn4() -> bb1
+    %1 = call init fn4(move %0) -> bb1
   bb1:
-    %1 = move %2
-    %0.field13 = copy %1.field13
+    %0 = move %1
     return move %0
 
 fn report (FuncId(8)) -> String

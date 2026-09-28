@@ -3344,15 +3344,19 @@ impl HTTPException {
 
 impl GatewayError {
     fn new(options: Option<HTTPExceptionOptions>) -> Self {
-    let __smelt_super: HTTPException;
     let mut this: Self = GatewayError { name: String::new(), message: String::new(), stack: None::<String>, cause: SmeltUnknown::Null, status: 0.0 };
-    let _smelt_tmp_3: HTTPException = HTTPException::new(502.0, options.clone());
-    __smelt_super = _smelt_tmp_3;
-    this.name = __smelt_super.name.clone();
-    this.message = __smelt_super.message.clone();
-    this.stack = __smelt_super.stack.clone();
-    this.cause = __smelt_super.cause.clone();
-    this.status = __smelt_super.status;
+    let _smelt_tmp_2: Self = Self::__smelt_init_HTTPException(this, 502.0, options.clone());
+    this = _smelt_tmp_2;
+    return this;
+    }
+    fn __smelt_init_HTTPException(smelt_receiver: Self, status: f64, options: Option<HTTPExceptionOptions>) -> Self {
+    let mut this: Self = smelt_receiver;
+    this.name = "Error".to_owned();
+    let _smelt_tmp_3: Option<String> = options.clone().as_ref().and_then(|_smelt_value| _smelt_value.message.clone());
+    let _smelt_tmp_4: String = _smelt_tmp_3.clone().unwrap_or("".to_owned());
+    this.message = _smelt_tmp_4;
+    this.stack = Some("".to_owned());
+    this.status = status;
     return this;
     }
 }

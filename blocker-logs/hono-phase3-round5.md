@@ -235,3 +235,196 @@ path is fine; `{ status?: number }` passed as `ResponseInit` reads `init.status`
 * es-toolkit / other corpora not run locally (CI). Rule A lifts more arrows (every arrow a
   class body reads), rule B replaces a `Dict<String, Unknown>` spelling with the host class,
   rule C changes structured emission of branches inside forward join regions.
+
+# Round 8 — derived-class construction: the base constructor runs on the derived instance
+
+Baseline: PR #265 (round 7), **268 passed / 12 failed**.
+
+## How inheritance is represented today
+
+* **Layout is flattened.** A derived class is its own Rust struct carrying the base's
+  fields first (`effective_class_fields`), no base value inside it.
+* **Methods are re-emitted, not dispatched.** Every inherited method's MIR body is
+  emitted a second time into the derived `impl` (`effective_class_methods`), so
+  `self.m()` inside it resolves statically to the derived override — virtual dispatch
+  by monomorphization over the receiver.
+* **Value vs reference is per class** (`classify.rs`): a by-value struct unless the class
+  is mutated after construction or lets `this` escape into a closure, then an
+  `Rc<RefCell<Inner>>` handle. Heritage closes DOWNWARD only (a subclass of a reference
+  class is a reference class).
+* **Constructors** are `fn new(..) -> Self` whose MIR allocates `this` (statement 0,
+  `Rvalue::Struct`) and returns it.
+* **`super(args)`** (`super_call.rs`): for a non-generic, non-abstract source base,
+  `let __smelt_super = Base::new(args)` and then every inherited field is COPIED from
+  `__smelt_super` into `this`. For a generic or abstract base the call is dropped.
+  `Error`-like host bases assign their slots directly (own path, unchanged here).
+
+Both defects fall out of the copy: the base constructor runs on ANOTHER object (a closure
+it stores captures that object as `this`, so `base::hi` instead of `base:smart:hi`), and a
+base whose constructed value cannot be moved field-by-field into the erased derived layout
+(generic) cannot run at all. A third, found while reproducing: the derived constructor's
+own field initializers were emitted BEFORE `super(..)`, so the copy overwrote a field the
+derived class redeclares (`msg = 'hi'` came back as the base's `'x'`).
+
+## JavaScript semantics to reproduce
+
+One object. `new D(a)`: D's constructor runs; at `super(args)` the base constructor
+initialises THAT object (base field initializers, base parameter properties, base body —
+recursively for its own `super`), then D's field initializers and parameter properties,
+then the rest of D's body. `this` in a base-created closure is the D instance; a method
+the base constructor calls dispatches to D's override.
+
+## Design: the base constructor is an initializer over the derived receiver
+
+What a hand-porting team writes for "construct the derived value, then let each ancestor
+initialise it" given flattened structs is an initializer taking the receiver:
+
+```rust
+impl Derived {
+    fn new(..) -> Self {
+        let mut this: Self = Derived { /* zero fields */ };
+        this = Self::__smelt_init_Base(this, args);   // super(args)
+        this.own_field = ..;                          // derived field initializers
+        ..                                            // rest of the body
+        this
+    }
+    // Base's constructor body, re-emitted over `Self` exactly like an inherited method.
+    fn __smelt_init_Base(this: Self, ..) -> Self { ..; this }
+}
+```
+
+This is the same move Smelt already makes for methods (re-emit the base body over the
+derived receiver), applied to the constructor, so it composes with everything that already
+works: field access through the flattened layout, `self.m()` static dispatch to overrides,
+value vs reference representation (a reference-class handle passed in and returned is the
+same `Rc`, so closures created by the base capture the derived instance), throwing
+constructors (`-> Result<Self, ..>` + `?`), multi-level chains (the base initializer's own
+`super(..)` is a call to the grand-base initializer, emitted into the same impl). Passing
+and returning `Self` by value (rather than `&mut Self`) keeps the constructor MIR unchanged
+— the only difference from `new` is that `this` arrives instead of being allocated — and
+works identically for value structs and handles.
+
+Rejected alternatives: (a) a `BaseFields` trait / `fn init<T: BaseFields>(this: &T)` —
+every field access in the base body becomes a trait accessor, a much larger rewrite of
+field emission for no semantic gain over re-emission, which Smelt already relies on for
+methods; (b) embedding a real base struct (`struct D { base: B, .. }`) — changes every
+field path and still needs `this` in base closures to be the D, which an embedded B
+cannot be; (c) re-lowering the base constructor's AST inside the derived constructor —
+the base may live in another module (Hono: `hono-base.ts`), and re-lowering duplicates
+HIR instead of reusing the one MIR body.
+
+### Pieces
+
+1. HIR `ExprKind::BaseConstructorInit { base, receiver, args }` — "run `base`'s
+   constructor over `receiver`, evaluate to the initialised receiver"; MIR lowers it to
+   `Terminator::Call { callee: Callee::BaseInit(base_ctor), args: [receiver, ..] }`.
+2. Frontend: `super(args)` to ANY source-declared base (plain, generic, abstract) lowers to
+   `this = BaseConstructorInit(Base, this, args)`; the implicit derived constructor forwards
+   the same way. The copy path is deleted. Derived field initializers and parameter
+   properties are emitted right after a top-level `super(..)`, as JavaScript orders them.
+   `Error`-like host bases keep their slot path.
+3. Codegen: each class impl emits `__smelt_init_<Ancestor>` for every ancestor whose
+   initializer its constructor (transitively) calls, from the ancestor constructor's MIR:
+   receiver parameter instead of the allocation, `this` typed `Self`, type parameters
+   resolved in the IMPL class's scope (the one its flattened layout is rendered in).
+4. Classification: a class whose initializer body is re-emitted into a reference class's
+   impl must share that representation, so heritage now closes UPWARD as well — a base
+   of a reference class is a reference class (the downward rule's reasoning, "same
+   JavaScript objects", applies in both directions once base bodies run on the derived
+   receiver; inherited method copies had the same latent mismatch).
+
+### Blast radius (surveyed before coding)
+
+* examples: `83_class_expression_binding` (super() to a value base), `89_derived_default_
+  constructor` (implicit forwarding, 3 levels, parameter properties, defaults); Error
+  subclasses (`64`, `129`) keep their own path.
+* hono: `Hono extends HonoBase<E,S,BasePath>` (generic, reference, closures over `this`),
+  `EventProcessor<T>` subclasses and `JSXNode` subclasses (excluded test closures),
+  `class<T> extends RegExpRouter<T>` (implicit ctor, generic base), 20 `Error` subclasses.
+* es-toolkit: Error/DOMException subclasses (unchanged path), one spec-local
+  `ImmutableCache extends CustomCache`. radash: one `Error` subclass. remeda: none.
+
+### Known limitation carried (not introduced)
+
+A generic base's type parameters are not substituted with the derived class's type
+arguments anywhere yet: the flattened layout renders a base `T` field in the derived
+struct's own scope (erased when the derived class does not declare a same-named
+parameter), and inherited method copies spell `T` in a scope that may not declare it
+(`fn get(&self) -> T` inside `impl NumBox`, E0425). The initializer copy follows the
+LAYOUT's scope so it always agrees with the fields it writes. Real substitution
+(`Base<T>` fields at `D`'s `Base<number>` argument, for layout, methods and initializers
+together) is the follow-up.
+
+## Status of this change
+
+Landed: the four pieces above, plus two rules the Hono run needed once `HonoBase`'s
+constructor actually ran on the derived instance:
+
+* **D. The base-initializer receiver is upcast where its declaring base type is asked
+  for.** `onError = (h): Hono<..> => { ..; return this }` stored by the base constructor
+  returns the receiver, which in the initializer copy is `Self` (the derived struct) while
+  the slot declares the base (E0271 `expected Hono_1, found Hono`). The receiver, and every
+  closure capture of it (`inherit_base_initializer_receiver`), is rebuilt at the base type
+  through the existing member-wise structural adapter
+  (`base_initializer_receiver_upcast_text`). A reference class's callable members are
+  shared `Rc`s capturing the original instance, so calls made through the upcast value
+  still reach it. (Rejected: re-typing the inherited slot to the derived class — it made the
+  existing base->derived structural copy (`handle(app: Hono)` given `basePath`'s
+  `HonoBase`) need a function-return adapter that can only truncate to a default.)
+* **E. An argument read through a reference class's cell is bound before a call on a
+  reference receiver.** `this.#addRoute(m, this.#path, h)` held the `Ref` guard of
+  `this.#path` across `#addRoute`'s `borrow_mut` ("RefCell already borrowed"); it was
+  latent because HonoBase's constructor closures never ran on the app.
+
+## Gates (local)
+
+* `cargo check --lib` / `cargo clippy --lib`: no diagnostics on added lines.
+* `cargo test --lib`: smelt-codegen-rust 1121, smelt-frontend-ts 1138, smelt-hir 9,
+  smelt-mir 55 — all pass (7 derived-construction codegen tests new or rewritten).
+* `hir_cli_cross_language_tests`: 21/21 (after merging main). New e2e
+  `151_derived_constructor_runs_on_instance` (stdout from `node
+  --experimental-transform-types`).
+* Golden changes: `64_error_subclass_optional_message`, `83_class_expression_binding`,
+  `89_derived_default_constructor` (`__smelt_super` + field copies become
+  `Self::__smelt_init_<Base>(this, ..)` + the re-emitted initializer; MIR `call init fnN`).
+  stdout unchanged for all three. No other golden moved (all 132 examples regenerated
+  byte-identically).
+* examples SmeltUnknown: avoidable **0 -> 0**.
+* radash **384 passed; 3 failed** (unchanged). remeda **1787 passed; 2 failed**
+  (unchanged).
+* hono (main's overlay, main binary vs this branch): **283/12 -> 282/13**. The 8 app tests
+  still fail, now LATER: `app.request` dispatches into the router and
+  `SmartRouter`/`RegExpRouter` `match` returns `null` (`matchers[method]` absent after
+  `(this as any).buildAllMatchers()` in `reg-exp-router/matcher.ts`, a module
+  `function match(this: R, ..)` installed as a method — the erased-`this` method family,
+  not derived construction). One test flips ok -> FAILED:
+  `adapter for Next.js > should not use route if path argument is not passed`. It was a
+  FALSE POSITIVE: with the base constructor never run, `HonoBase`'s `#notFoundHandler` was
+  a default closure answering `null`, and dispatch threw "Context is not finalized. Did you
+  forget to return a Response object or `await next()`?" — which
+  `toThrowError('Custom Error')` accepted because the generated matcher does not check the
+  message. With the real 404 handler installed nothing throws, and the route itself never
+  matches because of the router family above. Instrumented in both builds to confirm
+  (`dispatch path= match=Null` in both; baseline throw message as quoted).
+
+## Next blocker
+
+The router `this`-method family: `export function match<R>(this: R, method, path)` assigned
+as `RegExpRouter.match` (and `SmartRouter.match`'s `this.match = router.match.bind(router)`)
+reads `this` erased, so `buildAllMatchers()` answers `null`. Fixing it should move the 8 app
+tests and restore the Next.js one honestly. Also: `toThrowError(message)` should compare the
+message (it currently accepts any throw), which is what hid the false positive.
+
+## Open issues found (pre-existing, not caused here)
+
+* **Overridden/abstract method slots are never filled.** A method a subclass overrides (or
+  an abstract one) becomes a callable FIELD on the base (`add_overridden_base_method_fields`)
+  and every `this.m()` inside the class calls that field, whose value is the default
+  closure: `new Shape().label` is `made ` (Node `made shape`), `this.step()` on an abstract
+  method answers `0`. Reproduced with the round-7 binary. Virtual dispatch from a base
+  constructor therefore cannot be shown yet; the initializer copy itself is ready for it
+  (it is emitted with `Self` = the derived class, so a direct `self.m()` would dispatch to
+  the override).
+* Generic-base type substitution (see "Known limitation" above): inherited method copies of
+  a generic base spell the base's `T` out of scope (`fn get(&self) -> T` in `impl NumBox`,
+  E0425), unchanged by this round.

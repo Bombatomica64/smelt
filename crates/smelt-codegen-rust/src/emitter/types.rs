@@ -1407,6 +1407,11 @@ impl FunctionEmitter<'_> {
             return self.enclosing_type_params.clone();
         }
         let class_name = match self.function.origin {
+            // A base initializer copy renders in the impl it is emitted into,
+            // whose flattened layout is what its field writes must agree with.
+            HirOrigin::ClassConstructor { .. } if let Some(owner) = self.base_initializer_owner => {
+                owner
+            }
             HirOrigin::ClassConstructor { class, .. }
             | HirOrigin::ClassMethod { class, .. }
             | HirOrigin::ClassStaticMethod { class, .. } => class,

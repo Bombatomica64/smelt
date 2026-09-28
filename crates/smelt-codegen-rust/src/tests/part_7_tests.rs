@@ -1277,21 +1277,20 @@ const p = new Point3(1, 2);
         "a reproducible base has a known arity, so nothing forwards through an erased slot:\n{source}"
     );
     // The forwarded `super(..)` is what makes the base's parameter properties
-    // run at all; without it the derived struct kept the field defaults.
-    assert!(source.contains("Point::new(x, y)"), "{source}");
+    // run at all; without it the derived struct kept the field defaults. It runs
+    // the base constructor over the derived instance (see `base_init`).
+    assert!(source.contains("Self::__smelt_init_Point(this, x, y)"), "{source}");
 }
 
-/// The erased forwarded argument survives only where the base is NOT
-/// reproducible, and that is a genuine dynamic boundary.
+/// An implicit constructor over a GENERIC base forwards the base constructor's
+/// parameters at the derived class's `extends` type arguments.
 ///
-/// A generic base, an abstract base and a host constructor each leave this
-/// lowering with no parameter list to copy — the base's arity and parameter
-/// types are not available to it — so no concrete type, generated union, or
-/// scoped generic can carry the forwarded argument, and the call-compatible
-/// erased slot is what keeps `new Subclass(x)` from becoming a blocker. This
-/// pins that the H69 rule did not widen to those bases.
+/// Before round 8 a generic base was not runnable at all, so the implicit
+/// constructor fell back to one erased `Option<SmeltUnknown>` slot and never
+/// ran the base's parameter properties. The base's `T` is substituted with the
+/// `extends Box<string>` argument, so the forwarded parameter is a `String`.
 #[test]
-fn a_non_reproducible_base_keeps_the_erased_forwarded_constructor_argument() {
+fn an_implicit_constructor_over_a_generic_base_forwards_typed_parameters() {
     let source = source_for(
         r#"
 class Box<T> {
@@ -1299,20 +1298,33 @@ class Box<T> {
 }
 class StringBox extends Box<string> {}
 const withArg = new StringBox("value");
-const ctor = withArg.constructor;
+"#,
+    );
+
+    assert!(source.contains("fn new(value: String) -> Self"), "{source}");
+    assert!(source.contains("Self::__smelt_init_Box(this, "), "{source}");
+    assert!(!source.contains("_smelt_super_arg"), "{source}");
+}
+
+/// The erased forwarded argument survives only where the base is NOT a
+/// source-declared class, and that is a genuine dynamic boundary.
+///
+/// A host constructor leaves this lowering with no parameter list to copy —
+/// its arity and parameter types are not available to it — so no concrete
+/// type, generated union, or scoped generic can carry the forwarded argument,
+/// and the call-compatible erased slot is what keeps `new Subclass(x)` from
+/// becoming a blocker.
+#[test]
+fn a_host_base_keeps_the_erased_forwarded_constructor_argument() {
+    let source = source_for(
+        r#"
+class Stamp extends Date {}
+const stamp = new Stamp(0);
 "#,
     );
 
     assert!(
         source.contains("fn new(_smelt_super_arg: Option<SmeltUnknown>) -> Self"),
-        "{source}"
-    );
-    assert!(
-        source.contains("StringBox::new(Some(SmeltUnknown::String(\"value\".into())))"),
-        "{source}"
-    );
-    assert!(
-        source.contains("ctor = SmeltUnknown::Null.clone()"),
         "{source}"
     );
 }
@@ -10162,9 +10174,12 @@ export function firstBig(values: number[], limit: number): number {
 /// against the derived `this`.
 ///
 /// Rust has no inheritance, so the base's fields are flattened into the derived
-/// struct; nothing initializes them unless the `super(...)` lowering constructs
-/// the base and moves its fields across. Before the fix the call was dropped and
-/// `Child::new` returned a struct still holding the Rust type defaults.
+/// struct; nothing initializes them unless `super(...)` runs the base's
+/// initialization. It runs as an INITIALIZER over the derived receiver: the base
+/// constructor body is re-emitted into the derived impl
+/// (`__smelt_init_Base(smelt_receiver: Self, ..) -> Self`), never as a separate
+/// `Base::new(..)` whose fields are copied over (round 8 of
+/// `blocker-logs/hono-phase3-round5.md`).
 #[test]
 fn derived_constructor_super_call_runs_the_base_constructor() {
     let source = source_for(
@@ -10184,18 +10199,22 @@ const child = new Child('hello');
 ",
     );
 
-    assert!(source.contains("Base::new("), "{source}");
     assert!(
-        source.contains("this.message = __smelt_super.message"),
+        source.contains("Self::__smelt_init_Base(this, message"),
         "{source}"
     );
+    assert!(
+        source.contains("fn __smelt_init_Base(smelt_receiver: Self, message: String) -> Self"),
+        "{source}"
+    );
+    assert!(!source.contains("__smelt_super"), "no base value is built: {source}");
 }
 
 /// `super(...)` chains through every inheritance level.
 ///
-/// Each level reproduces only its immediate base, so a three-level chain must
-/// still initialize the base-most field: `C::new` constructs `B`, whose
-/// constructor constructs `A`.
+/// Each level's initializer calls its own base's initializer, and a class's impl
+/// carries every ancestor initializer its chain reaches, so the base-most field
+/// is written on the leaf instance itself.
 #[test]
 fn derived_constructor_super_call_composes_across_inheritance_levels() {
     let source = source_for(
@@ -10224,15 +10243,197 @@ const value = new C();
 ",
     );
 
-    // The `super()` result is bound at the base-most type. A constructor body
-    // predeclares its locals like any other method body, so the binding and its
-    // assignment are two statements; what matters is the TYPE of the binding.
-    assert!(source.contains("let __smelt_super: A"), "{source}");
-    assert!(source.contains("B::new()"), "{source}");
-    // `C::new` copies BOTH inherited slots out of the constructed `B`, so the
-    // base-most field reaches the leaf instance.
+    let impl_c = source
+        .split("impl C {")
+        .nth(1)
+        .and_then(|rest| rest.split("\nimpl ").next())
+        .unwrap_or_default();
+    assert!(impl_c.contains("fn __smelt_init_B(smelt_receiver: Self) -> Self"), "{source}");
+    assert!(impl_c.contains("fn __smelt_init_A(smelt_receiver: Self) -> Self"), "{source}");
+    // B's initializer, re-emitted over `C`, runs A's over the same receiver.
+    assert!(impl_c.contains("Self::__smelt_init_A(this)"), "{source}");
+    assert!(!source.contains("__smelt_super"), "{source}");
+}
+
+/// A closure the base constructor stores captures the DERIVED instance.
+///
+/// The base is a reference class (its constructor lets `this` escape), so the
+/// derived class is too, and the receiver handed through the initializer is
+/// the derived handle itself: the derived constructor's later write is visible
+/// to the closure. The old lowering built a separate base object, so the
+/// closure read the base object's `name` (Node prints `base:smart:hi`, Smelt
+/// printed `base::x`).
+#[test]
+fn base_constructor_closures_capture_the_derived_instance() {
+    let source = source_for(
+        r"
+class Base {
+  name: string = '';
+  msg: string = 'x';
+  greet: () => string;
+  constructor() {
+    this.greet = () => 'base:' + this.name + ':' + this.msg;
+  }
+}
+class Smart extends Base {
+  msg = 'hi';
+  constructor() {
+    super();
+    this.name = 'smart';
+  }
+}
+console.log(new Smart().greet());
+",
+    );
+
     assert!(
-        source.contains("this.a = __smelt_super.a") && source.contains("this.b = __smelt_super.b"),
+        source.contains("struct Smart(::std::rc::Rc<::std::cell::RefCell<SmartInner>>)"),
+        "{source}"
+    );
+    let impl_smart = source
+        .split("impl Smart {")
+        .nth(1)
+        .and_then(|rest| rest.split("\nimpl ").next())
+        .unwrap_or_default();
+    let init_call = impl_smart.find("Self::__smelt_init_Base(this)");
+    let own_field = impl_smart.find("this.0.borrow_mut().msg = \"hi\"");
+    // The derived field initializer runs AFTER the base initialization, so the
+    // redeclared `msg` is not overwritten by the base's `'x'`.
+    assert!(
+        init_call.is_some() && own_field.is_some() && init_call < own_field,
+        "{source}"
+    );
+    assert!(impl_smart.contains("let mut this: Self = smelt_receiver;"), "{source}");
+}
+
+/// A GENERIC base's constructor runs too.
+///
+/// No base value is ever built, so the base's type arguments never have to fit
+/// the derived class's flattened layout — the reason the construct-and-copy
+/// lowering used to drop `super(..)` to a generic base entirely (Hono's
+/// `class Hono<E> extends HonoBase<E>`).
+#[test]
+fn generic_base_constructor_runs_over_the_derived_instance() {
+    let source = source_for(
+        r"
+class AppBase<E = string> {
+  prefix: string = '';
+  handle: (path: string) => string;
+  constructor(label: string) {
+    this.handle = (path: string) => label + this.prefix + path;
+  }
+}
+class App<E = string> extends AppBase<E> {
+  constructor() {
+    super('app');
+    this.prefix = '/api';
+  }
+}
+console.log(new App<number>().handle('/x'));
+",
+    );
+
+    assert!(source.contains("Self::__smelt_init_AppBase(this, \"app\".to_owned())"), "{source}");
+    assert!(source.contains("fn __smelt_init_AppBase(smelt_receiver: Self, label: String)"), "{source}");
+}
+
+/// A base-constructor slot answering `this` at the BASE type is upcast.
+///
+/// Hono's `onError = (h): Hono<..> => { ..; return this }` stored by the base
+/// constructor: in the initializer copy the receiver is `Self` (the derived
+/// struct), a different Rust type from the declared base return, so the value
+/// is rebuilt at the base type through the member-wise structural adapter
+/// (was E0271, "expected `Hono_1`, found `Hono`").
+#[test]
+fn a_base_initializer_slot_returning_this_upcasts_the_derived_receiver() {
+    let source = source_for(
+        r"
+class Router<E = string> {
+  handler: string = 'default';
+  onError = (handler: string): Router<E> => {
+    this.handler = handler;
+    return this;
+  };
+}
+class App<E = string> extends Router<E> {
+  constructor() {
+    super();
+  }
+}
+console.log(new App<number>().onError('x').handler);
+",
+    );
+
+    let init = source
+        .split("fn __smelt_init_Router(smelt_receiver: Self) -> Self {")
+        .nth(1)
+        .and_then(|rest| rest.split("\n    fn ").next())
+        .unwrap_or_default();
+    assert!(
+        init.contains("Router(::std::rc::Rc::new(::std::cell::RefCell::new(RouterInner {"),
+        "the returned receiver is rebuilt at the base type: {source}"
+    );
+}
+
+/// An argument read through a reference class's cell is bound before a call
+/// on a reference receiver, so its `Ref` guard cannot outlive into a callee
+/// that writes the same cell ("RefCell already borrowed").
+#[test]
+fn a_ref_cell_argument_is_bound_before_a_reference_method_call() {
+    let source = source_for(
+        r"
+class Tally {
+  total: number = 1;
+  bump(by: number): void {
+    this.total = this.total + by;
+  }
+  twice(): number {
+    this.bump(this.total);
+    return this.total;
+  }
+}
+console.log(new Tally().twice());
+",
+    );
+
+    assert!(
+        source.contains("let smelt_call_arg_0 = self.0.borrow().total.clone(); self.bump(smelt_call_arg_0)"),
+        "{source}"
+    );
+}
+
+/// A base of a reference class is a reference class too.
+///
+/// The base constructor body runs re-emitted over the derived receiver, and
+/// that copy renders field access in the DECLARING class's representation: a
+/// value base under a reference subclass would write `this.x = ..` on a handle.
+#[test]
+fn a_base_of_a_reference_class_is_a_reference_class() {
+    let source = source_for(
+        r"
+class Plain {
+  x: number;
+  constructor() {
+    this.x = 1;
+  }
+}
+class Mutated extends Plain {
+  bump(): void {
+    this.x = this.x + 1;
+  }
+}
+const m = new Mutated();
+m.bump();
+console.log(m.x);
+",
+    );
+
+    assert!(
+        source.contains("struct Plain(::std::rc::Rc<::std::cell::RefCell<PlainInner>>)"),
+        "{source}"
+    );
+    assert!(
+        source.contains("struct Mutated(::std::rc::Rc<::std::cell::RefCell<MutatedInner>>)"),
         "{source}"
     );
 }

@@ -52,6 +52,29 @@ fn smelt_panic_message(panic: &(dyn ::std::any::Any + Send)) -> String { if let 
 /// Recover the error class a `catch` observes from a caught panic.
 fn smelt_panic_class(panic: &(dyn ::std::any::Any + Send)) -> String { panic.downcast_ref::<SmeltPanic>().map_or_else(|| "Error".to_owned(), |payload| payload.class.clone()) }
 thread_local! {
+    static SMELT_NEXT_CAPTURE_SCOPE: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
+    static SMELT_SHARED_CAPTURES: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), ::std::rc::Weak<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+}
+
+fn smelt_next_capture_scope() -> usize {
+    SMELT_NEXT_CAPTURE_SCOPE.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id })
+}
+
+fn smelt_shared_capture<T: Clone + 'static>(scope: usize, slot: *mut T, initial: T) -> ::std::rc::Rc<::std::cell::RefCell<T>> {
+    let key = (scope, slot as usize);
+    SMELT_SHARED_CAPTURES.with(|captures| {
+        let mut captures = captures.borrow_mut();
+        if let Some(existing) = captures.get(&key).and_then(::std::rc::Weak::upgrade) {
+            return existing.downcast::<::std::cell::RefCell<T>>().expect("shared capture type mismatch");
+        }
+        let value: ::std::rc::Rc<::std::cell::RefCell<T>> = ::std::rc::Rc::new(::std::cell::RefCell::new(initial));
+        let erased: ::std::rc::Rc<dyn ::std::any::Any> = value.clone();
+        captures.insert(key, ::std::rc::Rc::downgrade(&erased));
+        value
+    })
+}
+
+thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
 
@@ -3151,55 +3174,476 @@ impl SmeltFromUnknown for SmeltMatch {
 }
 
 #[allow(dead_code)]
-struct __smelt_anon_class_1394<T>(::std::rc::Rc<::std::cell::RefCell<__smelt_anon_class_1394Inner<T>>>);
+struct Greeter(::std::rc::Rc<::std::cell::RefCell<GreeterInner>>);
 #[allow(dead_code)]
-struct __smelt_anon_class_1394Inner<T> {
-    items: SmeltList<T>,
-    _smelt_phantom: ::std::marker::PhantomData<(T)>,
+struct GreeterInner {
+    name: String,
+    msg: String,
+    greet: ::std::rc::Rc<dyn Fn() -> String>,
 }
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for __smelt_anon_class_1394Inner<T> {
+impl Default for GreeterInner {
     fn default() -> Self {
         Self {
-            items: SmeltList::new(Vec::<T>::new()),
-            _smelt_phantom: ::std::marker::PhantomData,
+            name: String::new(),
+            msg: String::new(),
+            greet: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> String> = ::std::rc::Rc::new(move || -> String { String::new() }); smelt_default_callback },
         }
     }
 }
-impl<T> ::std::fmt::Debug for __smelt_anon_class_1394Inner<T> {
+impl ::std::fmt::Debug for GreeterInner {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        formatter.debug_struct("__smelt_anon_class_1394Inner").finish_non_exhaustive()
+        formatter.debug_struct("GreeterInner").finish_non_exhaustive()
     }
 }
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Clone for __smelt_anon_class_1394<T> {
+impl Clone for Greeter {
     fn clone(&self) -> Self {
-        __smelt_anon_class_1394(::std::rc::Rc::clone(&self.0))
+        Greeter(::std::rc::Rc::clone(&self.0))
     }
 }
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> PartialEq for __smelt_anon_class_1394<T> {
+impl PartialEq for Greeter {
     fn eq(&self, other: &Self) -> bool {
         ::std::rc::Rc::ptr_eq(&self.0, &other.0)
     }
 }
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for __smelt_anon_class_1394<T> {
+impl Default for Greeter {
     fn default() -> Self {
-        __smelt_anon_class_1394(::std::rc::Rc::new(::std::cell::RefCell::new(__smelt_anon_class_1394Inner::default())))
+        Greeter(::std::rc::Rc::new(::std::cell::RefCell::new(GreeterInner::default())))
     }
 }
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> ::std::fmt::Debug for __smelt_anon_class_1394<T> {
+impl ::std::fmt::Debug for Greeter {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        formatter.debug_struct("__smelt_anon_class_1394").finish_non_exhaustive()
+        ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
     }
 }
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for __smelt_anon_class_1394<T> {
+impl IntoSmeltUnknown for Greeter {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let __smelt_id = smelt_reference_object_identity(::std::rc::Rc::as_ptr(&self.0) as usize);
+        let __smelt_inner = self.0.borrow();
+        let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
+        ("name".to_owned(), SmeltUnknown::String((__smelt_inner.name.clone()).into())),
+        ("msg".to_owned(), SmeltUnknown::String((__smelt_inner.msg.clone()).into())),
+        ("greet".to_owned(), SmeltUnknown::Null),
+        ]);
+        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))
+    }
+}
+
+#[allow(dead_code)]
+struct SmartGreeter(::std::rc::Rc<::std::cell::RefCell<SmartGreeterInner>>);
+#[allow(dead_code)]
+struct SmartGreeterInner {
+    name: String,
+    msg: String,
+    greet: ::std::rc::Rc<dyn Fn() -> String>,
+}
+impl Default for SmartGreeterInner {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            msg: String::new(),
+            greet: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> String> = ::std::rc::Rc::new(move || -> String { String::new() }); smelt_default_callback },
+        }
+    }
+}
+impl ::std::fmt::Debug for SmartGreeterInner {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.debug_struct("SmartGreeterInner").finish_non_exhaustive()
+    }
+}
+impl Clone for SmartGreeter {
+    fn clone(&self) -> Self {
+        SmartGreeter(::std::rc::Rc::clone(&self.0))
+    }
+}
+impl PartialEq for SmartGreeter {
+    fn eq(&self, other: &Self) -> bool {
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Default for SmartGreeter {
+    fn default() -> Self {
+        SmartGreeter(::std::rc::Rc::new(::std::cell::RefCell::new(SmartGreeterInner::default())))
+    }
+}
+impl ::std::fmt::Debug for SmartGreeter {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
+    }
+}
+impl IntoSmeltUnknown for SmartGreeter {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let __smelt_id = smelt_reference_object_identity(::std::rc::Rc::as_ptr(&self.0) as usize);
+        let __smelt_inner = self.0.borrow();
+        let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
+        ("name".to_owned(), SmeltUnknown::String((__smelt_inner.name.clone()).into())),
+        ("msg".to_owned(), SmeltUnknown::String((__smelt_inner.msg.clone()).into())),
+        ("greet".to_owned(), SmeltUnknown::Null),
+        ]);
+        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))
+    }
+}
+
+#[allow(dead_code)]
+struct AppBase(::std::rc::Rc<::std::cell::RefCell<AppBaseInner>>);
+#[allow(dead_code)]
+struct AppBaseInner {
+    routes: SmeltList<String>,
+    prefix: String,
+    add: ::std::rc::Rc<dyn Fn(String) -> f64>,
+    handle: ::std::rc::Rc<dyn Fn(String) -> String>,
+}
+impl Default for AppBaseInner {
+    fn default() -> Self {
+        Self {
+            routes: SmeltList::new(Vec::<String>::new()),
+            prefix: String::new(),
+            add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback },
+            handle: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback },
+        }
+    }
+}
+impl ::std::fmt::Debug for AppBaseInner {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.debug_struct("AppBaseInner").finish_non_exhaustive()
+    }
+}
+impl Clone for AppBase {
+    fn clone(&self) -> Self {
+        AppBase(::std::rc::Rc::clone(&self.0))
+    }
+}
+impl PartialEq for AppBase {
+    fn eq(&self, other: &Self) -> bool {
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Default for AppBase {
+    fn default() -> Self {
+        AppBase(::std::rc::Rc::new(::std::cell::RefCell::new(AppBaseInner::default())))
+    }
+}
+impl ::std::fmt::Debug for AppBase {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.debug_struct("AppBase").finish_non_exhaustive()
+    }
+}
+impl IntoSmeltUnknown for AppBase {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let __smelt_id = smelt_reference_object_identity(::std::rc::Rc::as_ptr(&self.0) as usize);
+        let __smelt_inner = self.0.borrow();
+        let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
+        ("routes".to_owned(), SmeltUnknown::Array(__smelt_inner.routes.clone().into_iter().map(|value| SmeltUnknown::String(value.into())).collect())),
+        ("prefix".to_owned(), SmeltUnknown::String((__smelt_inner.prefix.clone()).into())),
+        ("add".to_owned(), SmeltUnknown::Null),
+        ("handle".to_owned(), SmeltUnknown::Null),
+        ]);
+        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))
+    }
+}
+
+#[allow(dead_code)]
+struct App(::std::rc::Rc<::std::cell::RefCell<AppInner>>);
+#[allow(dead_code)]
+struct AppInner {
+    routes: SmeltList<String>,
+    prefix: String,
+    add: ::std::rc::Rc<dyn Fn(String) -> f64>,
+    handle: ::std::rc::Rc<dyn Fn(String) -> String>,
+}
+impl Default for AppInner {
+    fn default() -> Self {
+        Self {
+            routes: SmeltList::new(Vec::<String>::new()),
+            prefix: String::new(),
+            add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback },
+            handle: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback },
+        }
+    }
+}
+impl ::std::fmt::Debug for AppInner {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.debug_struct("AppInner").finish_non_exhaustive()
+    }
+}
+impl Clone for App {
+    fn clone(&self) -> Self {
+        App(::std::rc::Rc::clone(&self.0))
+    }
+}
+impl PartialEq for App {
+    fn eq(&self, other: &Self) -> bool {
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Default for App {
+    fn default() -> Self {
+        App(::std::rc::Rc::new(::std::cell::RefCell::new(AppInner::default())))
+    }
+}
+impl ::std::fmt::Debug for App {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.debug_struct("App").finish_non_exhaustive()
+    }
+}
+impl IntoSmeltUnknown for App {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let __smelt_id = smelt_reference_object_identity(::std::rc::Rc::as_ptr(&self.0) as usize);
+        let __smelt_inner = self.0.borrow();
+        let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
+        ("routes".to_owned(), SmeltUnknown::Array(__smelt_inner.routes.clone().into_iter().map(|value| SmeltUnknown::String(value.into())).collect())),
+        ("prefix".to_owned(), SmeltUnknown::String((__smelt_inner.prefix.clone()).into())),
+        ("add".to_owned(), SmeltUnknown::Null),
+        ("handle".to_owned(), SmeltUnknown::Null),
+        ]);
+        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))
+    }
+}
+
+#[allow(dead_code)]
+struct PlainApp(::std::rc::Rc<::std::cell::RefCell<PlainAppInner>>);
+#[allow(dead_code)]
+struct PlainAppInner {
+    routes: SmeltList<String>,
+    prefix: String,
+    add: ::std::rc::Rc<dyn Fn(String) -> f64>,
+    handle: ::std::rc::Rc<dyn Fn(String) -> String>,
+}
+impl Default for PlainAppInner {
+    fn default() -> Self {
+        Self {
+            routes: SmeltList::new(Vec::<String>::new()),
+            prefix: String::new(),
+            add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback },
+            handle: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback },
+        }
+    }
+}
+impl ::std::fmt::Debug for PlainAppInner {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.debug_struct("PlainAppInner").finish_non_exhaustive()
+    }
+}
+impl Clone for PlainApp {
+    fn clone(&self) -> Self {
+        PlainApp(::std::rc::Rc::clone(&self.0))
+    }
+}
+impl PartialEq for PlainApp {
+    fn eq(&self, other: &Self) -> bool {
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Default for PlainApp {
+    fn default() -> Self {
+        PlainApp(::std::rc::Rc::new(::std::cell::RefCell::new(PlainAppInner::default())))
+    }
+}
+impl ::std::fmt::Debug for PlainApp {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
+    }
+}
+impl IntoSmeltUnknown for PlainApp {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let __smelt_id = smelt_reference_object_identity(::std::rc::Rc::as_ptr(&self.0) as usize);
+        let __smelt_inner = self.0.borrow();
+        let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
+        ("routes".to_owned(), SmeltUnknown::Array(__smelt_inner.routes.clone().into_iter().map(|value| SmeltUnknown::String(value.into())).collect())),
+        ("prefix".to_owned(), SmeltUnknown::String((__smelt_inner.prefix.clone()).into())),
+        ("add".to_owned(), SmeltUnknown::Null),
+        ("handle".to_owned(), SmeltUnknown::Null),
+        ]);
+        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))
+    }
+}
+
+#[allow(dead_code)]
+struct Tally(::std::rc::Rc<::std::cell::RefCell<TallyInner>>);
+#[derive(Debug, Default)]
+#[allow(dead_code)]
+struct TallyInner {
+    total: f64,
+    history: String,
+}
+impl Clone for Tally {
+    fn clone(&self) -> Self {
+        Tally(::std::rc::Rc::clone(&self.0))
+    }
+}
+impl PartialEq for Tally {
+    fn eq(&self, other: &Self) -> bool {
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Default for Tally {
+    fn default() -> Self {
+        Tally(::std::rc::Rc::new(::std::cell::RefCell::new(TallyInner::default())))
+    }
+}
+impl ::std::fmt::Debug for Tally {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
+    }
+}
+impl IntoSmeltUnknown for Tally {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let __smelt_id = smelt_reference_object_identity(::std::rc::Rc::as_ptr(&self.0) as usize);
         let __smelt_proto = self.__smelt_proto_entries();
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
-        ("items".to_owned(), SmeltUnknown::Array(__smelt_inner.items.clone().into_iter().map(|value| (value).into_smelt_unknown()).collect())),
+        ("total".to_owned(), SmeltUnknown::Number(__smelt_inner.total.clone() as f64)),
+        ("history".to_owned(), SmeltUnknown::String((__smelt_inner.history.clone()).into())),
         ]);
         __smelt_entries.extend(__smelt_proto);
         SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))
+    }
+}
+
+#[allow(dead_code)]
+struct DoubleTally(::std::rc::Rc<::std::cell::RefCell<DoubleTallyInner>>);
+#[derive(Debug, Default)]
+#[allow(dead_code)]
+struct DoubleTallyInner {
+    total: f64,
+    history: String,
+    doubled: bool,
+}
+impl Clone for DoubleTally {
+    fn clone(&self) -> Self {
+        DoubleTally(::std::rc::Rc::clone(&self.0))
+    }
+}
+impl PartialEq for DoubleTally {
+    fn eq(&self, other: &Self) -> bool {
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Default for DoubleTally {
+    fn default() -> Self {
+        DoubleTally(::std::rc::Rc::new(::std::cell::RefCell::new(DoubleTallyInner::default())))
+    }
+}
+impl ::std::fmt::Debug for DoubleTally {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
+    }
+}
+impl IntoSmeltUnknown for DoubleTally {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let __smelt_id = smelt_reference_object_identity(::std::rc::Rc::as_ptr(&self.0) as usize);
+        let __smelt_proto = self.__smelt_proto_entries();
+        let __smelt_inner = self.0.borrow();
+        let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
+        ("total".to_owned(), SmeltUnknown::Number(__smelt_inner.total.clone() as f64)),
+        ("history".to_owned(), SmeltUnknown::String((__smelt_inner.history.clone()).into())),
+        ("doubled".to_owned(), SmeltUnknown::Bool(__smelt_inner.doubled.clone())),
+        ]);
+        __smelt_entries.extend(__smelt_proto);
+        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Point {
+    x: f64,
+    y: f64,
+}
+impl IntoSmeltUnknown for Point {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("x".to_owned(), SmeltUnknown::Number(self.x as f64)),
+        ("y".to_owned(), SmeltUnknown::Number(self.y as f64)),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Point {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("x") {
+                result.x = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("y") {
+                result.y = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Point3 {
+    x: f64,
+    y: f64,
+    z: f64,
+}
+impl IntoSmeltUnknown for Point3 {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("x".to_owned(), SmeltUnknown::Number(self.x as f64)),
+        ("y".to_owned(), SmeltUnknown::Number(self.y as f64)),
+        ("z".to_owned(), SmeltUnknown::Number(self.z as f64)),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Point3 {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("x") {
+                result.x = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("y") {
+                result.y = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("z") {
+                result.z = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Point4 {
+    x: f64,
+    y: f64,
+    z: f64,
+    w: f64,
+    tag: String,
+}
+impl IntoSmeltUnknown for Point4 {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("x".to_owned(), SmeltUnknown::Number(self.x as f64)),
+        ("y".to_owned(), SmeltUnknown::Number(self.y as f64)),
+        ("z".to_owned(), SmeltUnknown::Number(self.z as f64)),
+        ("w".to_owned(), SmeltUnknown::Number(self.w as f64)),
+        ("tag".to_owned(), SmeltUnknown::String(self.tag.into())),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Point4 {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("x") {
+                result.x = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("y") {
+                result.y = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("z") {
+                result.z = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("w") {
+                result.w = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("tag") {
+                result.tag = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
     }
 }
 
@@ -3208,7 +3652,7 @@ struct Counter(::std::rc::Rc<::std::cell::RefCell<CounterInner>>);
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct CounterInner {
-    _hits: SmeltList<String>,
+    count: f64,
 }
 impl Clone for Counter {
     fn clone(&self) -> Self {
@@ -3236,6 +3680,7 @@ impl IntoSmeltUnknown for Counter {
         let __smelt_proto = self.__smelt_proto_entries();
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
+        ("count".to_owned(), SmeltUnknown::Number(__smelt_inner.count.clone() as f64)),
         ]);
         __smelt_entries.extend(__smelt_proto);
         SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))
@@ -3243,130 +3688,199 @@ impl IntoSmeltUnknown for Counter {
 }
 
 #[allow(dead_code)]
-struct DeclaredReporting(::std::rc::Rc<::std::cell::RefCell<DeclaredReportingInner>>);
+struct FromThree(::std::rc::Rc<::std::cell::RefCell<FromThreeInner>>);
 #[derive(Debug, Default)]
 #[allow(dead_code)]
-struct DeclaredReportingInner {
-    _hits: SmeltList<String>,
+struct FromThreeInner {
+    count: f64,
 }
-impl Clone for DeclaredReporting {
+impl Clone for FromThree {
     fn clone(&self) -> Self {
-        DeclaredReporting(::std::rc::Rc::clone(&self.0))
+        FromThree(::std::rc::Rc::clone(&self.0))
     }
 }
-impl PartialEq for DeclaredReporting {
+impl PartialEq for FromThree {
     fn eq(&self, other: &Self) -> bool {
         ::std::rc::Rc::ptr_eq(&self.0, &other.0)
     }
 }
-impl Default for DeclaredReporting {
+impl Default for FromThree {
     fn default() -> Self {
-        DeclaredReporting(::std::rc::Rc::new(::std::cell::RefCell::new(DeclaredReportingInner::default())))
+        FromThree(::std::rc::Rc::new(::std::cell::RefCell::new(FromThreeInner::default())))
     }
 }
-impl ::std::fmt::Debug for DeclaredReporting {
+impl ::std::fmt::Debug for FromThree {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
     }
 }
-impl IntoSmeltUnknown for DeclaredReporting {
+impl IntoSmeltUnknown for FromThree {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let __smelt_id = smelt_reference_object_identity(::std::rc::Rc::as_ptr(&self.0) as usize);
         let __smelt_proto = self.__smelt_proto_entries();
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
+        ("count".to_owned(), SmeltUnknown::Number(__smelt_inner.count.clone() as f64)),
         ]);
         __smelt_entries.extend(__smelt_proto);
         SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))
     }
 }
 
-#[allow(dead_code)]
-struct Reporting(::std::rc::Rc<::std::cell::RefCell<ReportingInner>>);
-#[derive(Debug, Default)]
-#[allow(dead_code)]
-struct ReportingInner {
-    _hits: SmeltList<String>,
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Labelled {
+    label: String,
 }
-impl Clone for Reporting {
-    fn clone(&self) -> Self {
-        Reporting(::std::rc::Rc::clone(&self.0))
-    }
-}
-impl PartialEq for Reporting {
-    fn eq(&self, other: &Self) -> bool {
-        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
-    }
-}
-impl Default for Reporting {
-    fn default() -> Self {
-        Reporting(::std::rc::Rc::new(::std::cell::RefCell::new(ReportingInner::default())))
-    }
-}
-impl ::std::fmt::Debug for Reporting {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
-    }
-}
-impl IntoSmeltUnknown for Reporting {
+impl IntoSmeltUnknown for Labelled {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        let __smelt_id = smelt_reference_object_identity(::std::rc::Rc::as_ptr(&self.0) as usize);
-        let __smelt_proto = self.__smelt_proto_entries();
-        let __smelt_inner = self.0.borrow();
-        let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
-        ]);
-        __smelt_entries.extend(__smelt_proto);
-        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("label".to_owned(), SmeltUnknown::String(self.label.into())),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Labelled {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("label") {
+                result.label = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Named {
+    label: String,
+}
+impl IntoSmeltUnknown for Named {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("label".to_owned(), SmeltUnknown::String(self.label.into())),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Named {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("label") {
+                result.label = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
     }
 }
 
 #[allow(dead_code)]
-struct Boxed<T>(::std::rc::Rc<::std::cell::RefCell<BoxedInner<T>>>);
+struct Router(::std::rc::Rc<::std::cell::RefCell<RouterInner>>);
 #[allow(dead_code)]
-struct BoxedInner<T> {
-    items: SmeltList<T>,
-    _smelt_phantom: ::std::marker::PhantomData<(T)>,
+struct RouterInner {
+    label: String,
+    handler: String,
+    on_error: ::std::rc::Rc<dyn Fn(String) -> Router>,
 }
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for BoxedInner<T> {
+impl Default for RouterInner {
     fn default() -> Self {
         Self {
-            items: SmeltList::new(Vec::<T>::new()),
-            _smelt_phantom: ::std::marker::PhantomData,
+            label: String::new(),
+            handler: String::new(),
+            on_error: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> Router> = ::std::rc::Rc::new(move |arg0: String| -> Router { Default::default() }); smelt_default_callback },
         }
     }
 }
-impl<T> ::std::fmt::Debug for BoxedInner<T> {
+impl ::std::fmt::Debug for RouterInner {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        formatter.debug_struct("BoxedInner").finish_non_exhaustive()
+        formatter.debug_struct("RouterInner").finish_non_exhaustive()
     }
 }
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Clone for Boxed<T> {
+impl Clone for Router {
     fn clone(&self) -> Self {
-        Boxed(::std::rc::Rc::clone(&self.0))
+        Router(::std::rc::Rc::clone(&self.0))
     }
 }
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> PartialEq for Boxed<T> {
+impl PartialEq for Router {
     fn eq(&self, other: &Self) -> bool {
         ::std::rc::Rc::ptr_eq(&self.0, &other.0)
     }
 }
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Boxed<T> {
+impl Default for Router {
     fn default() -> Self {
-        Boxed(::std::rc::Rc::new(::std::cell::RefCell::new(BoxedInner::default())))
+        Router(::std::rc::Rc::new(::std::cell::RefCell::new(RouterInner::default())))
     }
 }
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> ::std::fmt::Debug for Boxed<T> {
+impl ::std::fmt::Debug for Router {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        formatter.debug_struct("Boxed").finish_non_exhaustive()
+        formatter.debug_struct("Router").finish_non_exhaustive()
     }
 }
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for Boxed<T> {
+impl IntoSmeltUnknown for Router {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let __smelt_id = smelt_reference_object_identity(::std::rc::Rc::as_ptr(&self.0) as usize);
         let __smelt_proto = self.__smelt_proto_entries();
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
-        ("items".to_owned(), SmeltUnknown::Array(__smelt_inner.items.clone().into_iter().map(|value| (value).into_smelt_unknown()).collect())),
+        ("label".to_owned(), SmeltUnknown::String((__smelt_inner.label.clone()).into())),
+        ("handler".to_owned(), SmeltUnknown::String((__smelt_inner.handler.clone()).into())),
+        ("onError".to_owned(), SmeltUnknown::Null),
+        ]);
+        __smelt_entries.extend(__smelt_proto);
+        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))
+    }
+}
+
+#[allow(dead_code)]
+struct RoutedApp(::std::rc::Rc<::std::cell::RefCell<RoutedAppInner>>);
+#[allow(dead_code)]
+struct RoutedAppInner {
+    label: String,
+    handler: String,
+    on_error: ::std::rc::Rc<dyn Fn(String) -> Router>,
+}
+impl Default for RoutedAppInner {
+    fn default() -> Self {
+        Self {
+            label: String::new(),
+            handler: String::new(),
+            on_error: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> Router> = ::std::rc::Rc::new(move |arg0: String| -> Router { Default::default() }); smelt_default_callback },
+        }
+    }
+}
+impl ::std::fmt::Debug for RoutedAppInner {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.debug_struct("RoutedAppInner").finish_non_exhaustive()
+    }
+}
+impl Clone for RoutedApp {
+    fn clone(&self) -> Self {
+        RoutedApp(::std::rc::Rc::clone(&self.0))
+    }
+}
+impl PartialEq for RoutedApp {
+    fn eq(&self, other: &Self) -> bool {
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Default for RoutedApp {
+    fn default() -> Self {
+        RoutedApp(::std::rc::Rc::new(::std::cell::RefCell::new(RoutedAppInner::default())))
+    }
+}
+impl ::std::fmt::Debug for RoutedApp {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.debug_struct("RoutedApp").finish_non_exhaustive()
+    }
+}
+impl IntoSmeltUnknown for RoutedApp {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let __smelt_id = smelt_reference_object_identity(::std::rc::Rc::as_ptr(&self.0) as usize);
+        let __smelt_proto = self.__smelt_proto_entries();
+        let __smelt_inner = self.0.borrow();
+        let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
+        ("label".to_owned(), SmeltUnknown::String((__smelt_inner.label.clone()).into())),
+        ("handler".to_owned(), SmeltUnknown::String((__smelt_inner.handler.clone()).into())),
+        ("onError".to_owned(), SmeltUnknown::Null),
         ]);
         __smelt_entries.extend(__smelt_proto);
         SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))
@@ -3375,73 +3889,286 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSme
 
 // @smelt:prelude-end — generated program below
 
-fn main() {
-    let reporting: Reporting;
-    let declared: DeclaredReporting;
-    let numbers: Boxed<f64>;
-    let _smelt_tmp_7: String;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut smart: SmartGreeter;
+    let app: App;
+    let plain: PlainApp;
+    let tally: DoubleTally;
+    let p4: Point4;
+    let counter: FromThree;
+    let routed: RoutedApp;
+    let _smelt_tmp_9: String;
     let _smelt_tmp_12: String;
-    let _smelt_tmp_16: String;
-    let _smelt_tmp_17: String;
-    let _smelt_tmp_18: String;
-    let _smelt_tmp_19: SmeltList<f64>;
-    let _smelt_tmp_20: String;
+    let _smelt_tmp_16: f64;
+    let _smelt_tmp_18: f64;
     let _smelt_tmp_21: String;
-    let _smelt_tmp_23: bool;
-    let mut _smelt_tmp_24: String;
-    let _smelt_tmp_25: String;
-    let _smelt_tmp_27: String;
+    let _smelt_tmp_23: String;
+    let _smelt_tmp_27: f64;
     let _smelt_tmp_29: String;
-    let _smelt_tmp_31: String;
-    let _smelt_tmp_3: Reporting = Reporting::new();
-    reporting = _smelt_tmp_3;
-    let _ = reporting.add("a".to_owned());
-    let _ = reporting.add("b".to_owned());
-    let _smelt_tmp_6: String = reporting.report();
-    _smelt_tmp_7 = "expression subclass: ".to_owned() + &_smelt_tmp_6;
-    let _ = { println!("{}", _smelt_tmp_7); };
-    let _smelt_tmp_9: DeclaredReporting = DeclaredReporting::new();
-    declared = _smelt_tmp_9;
-    let _ = declared.add("c".to_owned());
-    let _smelt_tmp_11: String = declared.report();
-    _smelt_tmp_12 = "declared subclass: ".to_owned() + &_smelt_tmp_11;
+    let _smelt_tmp_30: f64;
+    let _smelt_tmp_44: Router;
+    let _smelt_tmp_48: Router;
+    let _smelt_tmp_7: SmartGreeter = SmartGreeter::new();
+    smart = _smelt_tmp_7;
+    _smelt_tmp_9 = { let smelt_callable = ::std::clone::Clone::clone(&smart.0.borrow().greet.clone()); (smelt_callable)() };
+    let _ = { println!("{}", _smelt_tmp_9); };
+    smart.0.borrow_mut().name = "later".to_owned();
+    _smelt_tmp_12 = { let smelt_callable = ::std::clone::Clone::clone(&smart.0.borrow().greet.clone()); (smelt_callable)() };
     let _ = { println!("{}", _smelt_tmp_12); };
-    let _smelt_tmp_14: Boxed<f64> = Boxed::new();
-    numbers = _smelt_tmp_14;
-    let _smelt_tmp_15: f64 = numbers.push(7.0);
-    _smelt_tmp_16 = smelt_number_to_string(_smelt_tmp_15);
-    _smelt_tmp_17 = "generic: ".to_owned() + &_smelt_tmp_16;
-    _smelt_tmp_18 = _smelt_tmp_17 + &" ".to_owned();
-    _smelt_tmp_19 = Into::<SmeltList<_>>::into(numbers.0.borrow().items.clone());
-    _smelt_tmp_20 = smelt_number_to_string(_smelt_tmp_19.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0));
-    _smelt_tmp_21 = _smelt_tmp_18 + &_smelt_tmp_20;
-    let _ = { println!("{}", _smelt_tmp_21); };
-    _smelt_tmp_23 = true;
-    let _smelt_tmp_24: String = if _smelt_tmp_23 { "yes".to_owned() } else { "no".to_owned() };
-    _smelt_tmp_25 = "instanceof: ".to_owned() + &_smelt_tmp_24;
-    let _ = { println!("{}", _smelt_tmp_25); };
-    _smelt_tmp_27 = "typeof expression class: ".to_owned() + &"function".to_owned();
-    let _ = { println!("{}", _smelt_tmp_27); };
-    _smelt_tmp_29 = "typeof declared class: ".to_owned() + &"function".to_owned();
-    let _ = { println!("{}", _smelt_tmp_29); };
-    _smelt_tmp_31 = "typeof instance: ".to_owned() + &"object".to_owned();
-    let _ = { println!("{}", _smelt_tmp_31); };
-    return;
+    let _smelt_tmp_14: App = App::new("/api".to_owned());
+    app = _smelt_tmp_14;
+    _smelt_tmp_16 = { let smelt_callable = ::std::clone::Clone::clone(&app.0.borrow().add.clone()); (smelt_callable)("/users".to_owned()) };
+    _smelt_tmp_18 = { let smelt_callable = ::std::clone::Clone::clone(&app.0.borrow().add.clone()); (smelt_callable)("/posts".to_owned()) };
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_16), smelt_console_number(_smelt_tmp_18)); };
+    _smelt_tmp_21 = { let smelt_callable = ::std::clone::Clone::clone(&app.0.borrow().handle.clone()); (smelt_callable)("/users".to_owned()) };
+    _smelt_tmp_23 = { let smelt_callable = ::std::clone::Clone::clone(&app.0.borrow().handle.clone()); (smelt_callable)("/nope".to_owned()) };
+    let _ = { println!("{} {}", _smelt_tmp_21, _smelt_tmp_23); };
+    let _smelt_tmp_25: PlainApp = PlainApp::new();
+    plain = _smelt_tmp_25;
+    _smelt_tmp_27 = { let smelt_callable = ::std::clone::Clone::clone(&plain.0.borrow().add.clone()); (smelt_callable)("a".to_owned()) };
+    _smelt_tmp_29 = { let smelt_callable = ::std::clone::Clone::clone(&plain.0.borrow().handle.clone()); (smelt_callable)("a".to_owned()) };
+    _smelt_tmp_30 = plain.0.borrow().routes.clone().len() as f64;
+    let _ = { println!("{} {}", _smelt_tmp_29, smelt_console_number(_smelt_tmp_30)); };
+    let _smelt_tmp_32: DoubleTally = DoubleTally::new();
+    tally = _smelt_tmp_32;
+    let _ = { println!("{} {} {}", smelt_console_number(tally.0.borrow().total.clone()), tally.0.borrow().history.clone(), tally.0.borrow().doubled.clone()); };
+    let _smelt_tmp_34: Point4 = Point4::new("p".to_owned());
+    p4 = _smelt_tmp_34;
+    let _ = { println!("{} {} {} {} {}", smelt_console_number(p4.x), smelt_console_number(p4.y), smelt_console_number(p4.z), smelt_console_number(p4.w), p4.tag.clone()); };
+    let _smelt_tmp_36: FromThree = FromThree::new();
+    counter = _smelt_tmp_36;
+    let _smelt_tmp_37: f64 = counter.next();
+    let _smelt_tmp_38: f64 = counter.next();
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_37), smelt_console_number(_smelt_tmp_38)); };
+    let _smelt_tmp_40: Named = Named::new("forwarded".to_owned());
+    let _ = { println!("{}", _smelt_tmp_40.label.clone()); };
+    let _smelt_tmp_42: RoutedApp = RoutedApp::new();
+    routed = _smelt_tmp_42;
+    _smelt_tmp_44 = { let smelt_callable = ::std::clone::Clone::clone(&routed.0.borrow().on_error.clone()); (smelt_callable)("custom".to_owned()) };
+    let _smelt_tmp_45: String = routed.describe();
+    let _ = { println!("{}", _smelt_tmp_45); };
+    _smelt_tmp_48 = { let smelt_callable = ::std::clone::Clone::clone(&routed.0.borrow().on_error.clone()); (smelt_callable)("again".to_owned()) };
+    let _smelt_tmp_49: String = _smelt_tmp_48.describe();
+    let _smelt_tmp_50: String = routed.describe();
+    let _ = { println!("{} {}", _smelt_tmp_49, _smelt_tmp_50); };
+    return Ok(());
 }
 
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> __smelt_anon_class_1394<T> {
+impl Greeter {
     fn new() -> Self {
-    let mut this: Self = __smelt_anon_class_1394(::std::rc::Rc::new(::std::cell::RefCell::new(__smelt_anon_class_1394Inner { items: SmeltList::new(Vec::<T>::new()), _smelt_phantom: ::std::marker::PhantomData })));
-    let _smelt_tmp_1: SmeltList<T> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<T> = vec![]; smelt_list_items }));
-    this.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_1);
+    let mut this: Self = Greeter(::std::rc::Rc::new(::std::cell::RefCell::new(GreeterInner { name: String::new(), msg: String::new(), greet: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> String> = ::std::rc::Rc::new(move || -> String { String::new() }); smelt_default_callback } })));
+    this.0.borrow_mut().name = "".to_owned();
+    this.0.borrow_mut().msg = "x".to_owned();
+    let _smelt_tmp_1 = ::std::rc::Rc::new({
+    let mut this = this.clone();
+    move || {
+    let _smelt_tmp_1: String = "base:".to_owned() + &this.0.borrow().name.clone().clone();
+    let _smelt_tmp_2: String = _smelt_tmp_1.clone() + &":".to_owned();
+    let _smelt_tmp_3: String = _smelt_tmp_2.clone() + &this.0.borrow().msg.clone().clone();
+    _smelt_tmp_3.clone()
+    }
+});
+    this.0.borrow_mut().greet = _smelt_tmp_1.clone();
     return this;
     }
-    fn push(&self, item: T) -> f64 {
-    let mut _smelt_tmp_2: SmeltList<T> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
-    let _smelt_tmp_3: f64 = { let smelt_push_item = item.clone(); _smelt_tmp_2.borrow_mut().push(smelt_push_item); _smelt_tmp_2.len() as f64 };
-    self.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_2);
-    let _smelt_tmp_4: f64 = self.0.borrow().items.clone().len() as f64;
-    return _smelt_tmp_4;
+}
+
+impl SmartGreeter {
+    fn new() -> Self {
+    let mut this: Self = SmartGreeter(::std::rc::Rc::new(::std::cell::RefCell::new(SmartGreeterInner { name: String::new(), msg: String::new(), greet: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> String> = ::std::rc::Rc::new(move || -> String { String::new() }); smelt_default_callback } })));
+    let _smelt_tmp_1: Self = Self::__smelt_init_Greeter(this);
+    this = _smelt_tmp_1;
+    this.0.borrow_mut().msg = "hi".to_owned();
+    this.0.borrow_mut().name = "smart".to_owned();
+    return this;
+    }
+    fn __smelt_init_Greeter(smelt_receiver: Self) -> Self {
+    let mut this: Self = smelt_receiver;
+    this.0.borrow_mut().name = "".to_owned();
+    this.0.borrow_mut().msg = "x".to_owned();
+    let _smelt_tmp_1 = ::std::rc::Rc::new({
+    let mut this = this.clone();
+    move || {
+    let _smelt_tmp_1: String = "base:".to_owned() + &this.0.borrow().name.clone().clone();
+    let _smelt_tmp_2: String = _smelt_tmp_1.clone() + &":".to_owned();
+    let _smelt_tmp_3: String = _smelt_tmp_2.clone() + &this.0.borrow().msg.clone().clone();
+    _smelt_tmp_3.clone()
+    }
+});
+    this.0.borrow_mut().greet = _smelt_tmp_1.clone();
+    return this;
+    }
+}
+
+impl AppBase {
+    fn new(label: String) -> Self {
+    let mut _smelt_tmp_5: ::std::rc::Rc<dyn Fn(String) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback };
+    let mut _smelt_tmp_6: ::std::rc::Rc<dyn Fn(String) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback };
+    let smelt_capture_this: ::std::rc::Rc<::std::cell::RefCell<AppBase>> = ::std::rc::Rc::new(::std::cell::RefCell::new(AppBase(::std::rc::Rc::new(::std::cell::RefCell::new(AppBaseInner { routes: SmeltList::new(Vec::<String>::new()), prefix: String::new(), add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback }, handle: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback } })))));
+    let _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    (*smelt_capture_this.borrow()).0.borrow_mut().routes = Into::<SmeltList<_>>::into(_smelt_tmp_2);
+    (*smelt_capture_this.borrow()).0.borrow_mut().prefix = "".to_owned();
+    let _smelt_tmp_3: String = "base constructor for ".to_owned() + &label.clone();
+    let _ = { println!("{}", _smelt_tmp_3); };
+    _smelt_tmp_5 = ::std::rc::Rc::new({
+    let smelt_capture_this = smelt_capture_this.clone();
+    move |closure_arg_0: String| {
+    let mut _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into((*smelt_capture_this.borrow()).0.borrow().routes.clone());
+    let _smelt_tmp_3: String = (*smelt_capture_this.borrow()).0.borrow().prefix.clone().clone() + &closure_arg_0.clone();
+    let _smelt_tmp_4: f64 = { let smelt_push_item = _smelt_tmp_3.clone(); _smelt_tmp_2.borrow_mut().push(smelt_push_item); _smelt_tmp_2.len() as f64 };
+    (*smelt_capture_this.borrow()).0.borrow_mut().routes = Into::<SmeltList<_>>::into(_smelt_tmp_2.clone());
+    let _smelt_tmp_5: f64 = (*smelt_capture_this.borrow()).0.borrow().routes.clone().len() as f64;
+    _smelt_tmp_5
+    }
+});
+    (*smelt_capture_this.borrow()).0.borrow_mut().add = _smelt_tmp_5.clone();
+    _smelt_tmp_6 = ::std::rc::Rc::new({
+    let smelt_capture_this = smelt_capture_this.clone();
+    move |closure_arg_0: String| {
+    let mut _smelt_tmp_5: String;
+    let _smelt_tmp_6: String;
+    let _smelt_tmp_7: String;
+    let _smelt_tmp_3: String = (*smelt_capture_this.borrow()).0.borrow().prefix.clone().clone() + &closure_arg_0.clone();
+    let full: String = _smelt_tmp_3.clone();
+    let _smelt_tmp_4: bool = (*smelt_capture_this.borrow()).0.borrow().routes.clone().borrow().contains(&full.clone());
+    if _smelt_tmp_4 {
+    _smelt_tmp_6 = "hit ".to_owned() + &full.clone();
+    _smelt_tmp_5 = _smelt_tmp_6.clone();
+    _smelt_tmp_5.clone()
+    } else {
+    _smelt_tmp_7 = "miss ".to_owned() + &full.clone();
+    _smelt_tmp_5 = _smelt_tmp_7.clone();
+    _smelt_tmp_5.clone()
+    }
+    }
+});
+    (*smelt_capture_this.borrow()).0.borrow_mut().handle = _smelt_tmp_6.clone();
+    return ((*smelt_capture_this.borrow())).clone();
+    }
+}
+
+impl App {
+    fn new(prefix: String) -> Self {
+    let mut this: Self = App(::std::rc::Rc::new(::std::cell::RefCell::new(AppInner { routes: SmeltList::new(Vec::<String>::new()), prefix: String::new(), add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback }, handle: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback } })));
+    let _smelt_tmp_2: Self = Self::__smelt_init_AppBase(this, "app".to_owned());
+    this = _smelt_tmp_2;
+    this.0.borrow_mut().prefix = prefix.clone();
+    return this;
+    }
+    fn __smelt_init_AppBase(smelt_receiver: Self, label: String) -> Self {
+    let mut _smelt_tmp_5: ::std::rc::Rc<dyn Fn(String) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback };
+    let mut _smelt_tmp_6: ::std::rc::Rc<dyn Fn(String) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback };
+    let smelt_capture_this: ::std::rc::Rc<::std::cell::RefCell<Self>> = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_receiver));
+    let _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    (*smelt_capture_this.borrow()).0.borrow_mut().routes = Into::<SmeltList<_>>::into(_smelt_tmp_2);
+    (*smelt_capture_this.borrow()).0.borrow_mut().prefix = "".to_owned();
+    let _smelt_tmp_3: String = "base constructor for ".to_owned() + &label.clone();
+    let _ = { println!("{}", _smelt_tmp_3); };
+    _smelt_tmp_5 = ::std::rc::Rc::new({
+    let smelt_capture_this = smelt_capture_this.clone();
+    move |closure_arg_0: String| {
+    let mut _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into((*smelt_capture_this.borrow()).0.borrow().routes.clone());
+    let _smelt_tmp_3: String = (*smelt_capture_this.borrow()).0.borrow().prefix.clone().clone() + &closure_arg_0.clone();
+    let _smelt_tmp_4: f64 = { let smelt_push_item = _smelt_tmp_3.clone(); _smelt_tmp_2.borrow_mut().push(smelt_push_item); _smelt_tmp_2.len() as f64 };
+    (*smelt_capture_this.borrow()).0.borrow_mut().routes = Into::<SmeltList<_>>::into(_smelt_tmp_2.clone());
+    let _smelt_tmp_5: f64 = (*smelt_capture_this.borrow()).0.borrow().routes.clone().len() as f64;
+    _smelt_tmp_5
+    }
+});
+    (*smelt_capture_this.borrow()).0.borrow_mut().add = _smelt_tmp_5.clone();
+    _smelt_tmp_6 = ::std::rc::Rc::new({
+    let smelt_capture_this = smelt_capture_this.clone();
+    move |closure_arg_0: String| {
+    let mut _smelt_tmp_5: String;
+    let _smelt_tmp_6: String;
+    let _smelt_tmp_7: String;
+    let _smelt_tmp_3: String = (*smelt_capture_this.borrow()).0.borrow().prefix.clone().clone() + &closure_arg_0.clone();
+    let full: String = _smelt_tmp_3.clone();
+    let _smelt_tmp_4: bool = (*smelt_capture_this.borrow()).0.borrow().routes.clone().borrow().contains(&full.clone());
+    if _smelt_tmp_4 {
+    _smelt_tmp_6 = "hit ".to_owned() + &full.clone();
+    _smelt_tmp_5 = _smelt_tmp_6.clone();
+    _smelt_tmp_5.clone()
+    } else {
+    _smelt_tmp_7 = "miss ".to_owned() + &full.clone();
+    _smelt_tmp_5 = _smelt_tmp_7.clone();
+    _smelt_tmp_5.clone()
+    }
+    }
+});
+    (*smelt_capture_this.borrow()).0.borrow_mut().handle = _smelt_tmp_6.clone();
+    return ((*smelt_capture_this.borrow())).clone();
+    }
+}
+
+impl PlainApp {
+    fn new() -> Self {
+    let mut this: Self = PlainApp(::std::rc::Rc::new(::std::cell::RefCell::new(PlainAppInner { routes: SmeltList::new(Vec::<String>::new()), prefix: String::new(), add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback }, handle: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback } })));
+    let _smelt_tmp_1: Self = Self::__smelt_init_AppBase(this, "plain".to_owned());
+    this = _smelt_tmp_1;
+    this.0.borrow_mut().prefix = "#".to_owned();
+    return this;
+    }
+    fn __smelt_init_AppBase(smelt_receiver: Self, label: String) -> Self {
+    let mut _smelt_tmp_5: ::std::rc::Rc<dyn Fn(String) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback };
+    let mut _smelt_tmp_6: ::std::rc::Rc<dyn Fn(String) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback };
+    let smelt_capture_this: ::std::rc::Rc<::std::cell::RefCell<Self>> = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_receiver));
+    let _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    (*smelt_capture_this.borrow()).0.borrow_mut().routes = Into::<SmeltList<_>>::into(_smelt_tmp_2);
+    (*smelt_capture_this.borrow()).0.borrow_mut().prefix = "".to_owned();
+    let _smelt_tmp_3: String = "base constructor for ".to_owned() + &label.clone();
+    let _ = { println!("{}", _smelt_tmp_3); };
+    _smelt_tmp_5 = ::std::rc::Rc::new({
+    let smelt_capture_this = smelt_capture_this.clone();
+    move |closure_arg_0: String| {
+    let mut _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into((*smelt_capture_this.borrow()).0.borrow().routes.clone());
+    let _smelt_tmp_3: String = (*smelt_capture_this.borrow()).0.borrow().prefix.clone().clone() + &closure_arg_0.clone();
+    let _smelt_tmp_4: f64 = { let smelt_push_item = _smelt_tmp_3.clone(); _smelt_tmp_2.borrow_mut().push(smelt_push_item); _smelt_tmp_2.len() as f64 };
+    (*smelt_capture_this.borrow()).0.borrow_mut().routes = Into::<SmeltList<_>>::into(_smelt_tmp_2.clone());
+    let _smelt_tmp_5: f64 = (*smelt_capture_this.borrow()).0.borrow().routes.clone().len() as f64;
+    _smelt_tmp_5
+    }
+});
+    (*smelt_capture_this.borrow()).0.borrow_mut().add = _smelt_tmp_5.clone();
+    _smelt_tmp_6 = ::std::rc::Rc::new({
+    let smelt_capture_this = smelt_capture_this.clone();
+    move |closure_arg_0: String| {
+    let mut _smelt_tmp_5: String;
+    let _smelt_tmp_6: String;
+    let _smelt_tmp_7: String;
+    let _smelt_tmp_3: String = (*smelt_capture_this.borrow()).0.borrow().prefix.clone().clone() + &closure_arg_0.clone();
+    let full: String = _smelt_tmp_3.clone();
+    let _smelt_tmp_4: bool = (*smelt_capture_this.borrow()).0.borrow().routes.clone().borrow().contains(&full.clone());
+    if _smelt_tmp_4 {
+    _smelt_tmp_6 = "hit ".to_owned() + &full.clone();
+    _smelt_tmp_5 = _smelt_tmp_6.clone();
+    _smelt_tmp_5.clone()
+    } else {
+    _smelt_tmp_7 = "miss ".to_owned() + &full.clone();
+    _smelt_tmp_5 = _smelt_tmp_7.clone();
+    _smelt_tmp_5.clone()
+    }
+    }
+});
+    (*smelt_capture_this.borrow()).0.borrow_mut().handle = _smelt_tmp_6.clone();
+    return ((*smelt_capture_this.borrow())).clone();
+    }
+}
+
+impl Tally {
+    fn new(seed: f64) -> Self {
+    let _smelt_tmp_3: String;
+    let mut this: Self = Tally(::std::rc::Rc::new(::std::cell::RefCell::new(TallyInner { total: 0.0, history: String::new() })));
+    this.0.borrow_mut().total = 0.0;
+    let _ = this.bump(seed);
+    _smelt_tmp_3 = "seeded ".to_owned() + &smelt_number_to_string(this.0.borrow().total.clone());
+    this.0.borrow_mut().history = _smelt_tmp_3;
+    return this;
+    }
+    fn bump(&self, by: f64) -> () {
+    let _smelt_tmp_2: f64 = self.0.borrow().total.clone() + by;
+    self.0.borrow_mut().total = _smelt_tmp_2;
+    return;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
     ///
@@ -3451,27 +4178,110 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> __smelt
     #[allow(dead_code)]
     fn __smelt_proto_entries(&self) -> Vec<(String, SmeltUnknown)> {
         let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();
-        smelt_proto_entries.push(("__smelt_method:push".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.push(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(SmeltUnknown::Number(smelt_result as f64)) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("__smelt_anon_class_1394::push")); SmeltUnknown::Function(smelt_method) }));
+        smelt_proto_entries.push(("__smelt_method:bump".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.bump(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok({ let () = smelt_result; SmeltUnknown::Undefined }) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Tally::bump")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
+    }
+}
+
+impl DoubleTally {
+    fn new() -> Self {
+    let mut this: Self = DoubleTally(::std::rc::Rc::new(::std::cell::RefCell::new(DoubleTallyInner { total: 0.0, history: String::new(), doubled: false })));
+    let _smelt_tmp_1: Self = Self::__smelt_init_Tally(this, 5.0);
+    this = _smelt_tmp_1;
+    this.0.borrow_mut().doubled = true;
+    let _ = { let smelt_call_arg_0 = this.0.borrow().total.clone(); this.bump(smelt_call_arg_0) };
+    return this;
+    }
+    fn __smelt_init_Tally(smelt_receiver: Self, seed: f64) -> Self {
+    let _smelt_tmp_3: String;
+    let mut this: Self = smelt_receiver;
+    this.0.borrow_mut().total = 0.0;
+    let _ = this.bump(seed);
+    _smelt_tmp_3 = "seeded ".to_owned() + &smelt_number_to_string(this.0.borrow().total.clone());
+    this.0.borrow_mut().history = _smelt_tmp_3;
+    return this;
+    }
+    fn bump(&self, by: f64) -> () {
+    let _smelt_tmp_2: f64 = self.0.borrow().total.clone() + by;
+    self.0.borrow_mut().total = _smelt_tmp_2;
+    return;
+    }
+    /// Prototype-carried members of this class, as receiver-bound erased functions.
+    ///
+    /// Keyed under the runtime's `__smelt_method:` prefix, which `smelt_get_object_field`
+    /// resolves after the own property misses, and which key enumeration, structural
+    /// equality, hashing and JSON all skip -- a class's methods are non-enumerable.
+    #[allow(dead_code)]
+    fn __smelt_proto_entries(&self) -> Vec<(String, SmeltUnknown)> {
+        let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();
+        smelt_proto_entries.push(("__smelt_method:bump".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.bump(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok({ let () = smelt_result; SmeltUnknown::Undefined }) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Tally::bump")); SmeltUnknown::Function(smelt_method) }));
+        smelt_proto_entries
+    }
+}
+
+impl Point {
+    fn new(x: f64, y: f64) -> Self {
+    let mut this: Self = Point { x: 0.0, y: 0.0 };
+    this.x = x;
+    this.y = y;
+    return this;
+    }
+}
+
+impl Point3 {
+    fn new(x: f64, y: f64, z: f64) -> Self {
+    let _smelt_tmp_5: f64;
+    let mut this: Self = Point3 { x: 0.0, y: 0.0, z: 0.0 };
+    let _smelt_tmp_4: Self = Self::__smelt_init_Point(this, x, y);
+    this = _smelt_tmp_4;
+    this.z = 0.0;
+    _smelt_tmp_5 = z + this.x;
+    this.z = _smelt_tmp_5;
+    return this;
+    }
+    fn __smelt_init_Point(smelt_receiver: Self, x: f64, y: f64) -> Self {
+    let mut this: Self = smelt_receiver;
+    this.x = x;
+    this.y = y;
+    return this;
+    }
+}
+
+impl Point4 {
+    fn new(tag: String) -> Self {
+    let _smelt_tmp_3: f64;
+    let mut this: Self = Point4 { x: 0.0, y: 0.0, z: 0.0, w: 0.0, tag: String::new() };
+    let _smelt_tmp_2: Self = Self::__smelt_init_Point3(this, 1.0, 2.0, 3.0);
+    this = _smelt_tmp_2;
+    this.w = 9.0;
+    this.tag = tag.clone();
+    _smelt_tmp_3 = this.w + this.z;
+    this.w = _smelt_tmp_3;
+    return this;
+    }
+    fn __smelt_init_Point3(smelt_receiver: Self, x: f64, y: f64, z: f64) -> Self {
+    let _smelt_tmp_5: f64;
+    let mut this: Self = smelt_receiver;
+    let _smelt_tmp_4: Self = Self::__smelt_init_Point(this, x, y);
+    this = _smelt_tmp_4;
+    this.z = 0.0;
+    _smelt_tmp_5 = z + this.x;
+    this.z = _smelt_tmp_5;
+    return this;
+    }
+    fn __smelt_init_Point(smelt_receiver: Self, x: f64, y: f64) -> Self {
+    let mut this: Self = smelt_receiver;
+    this.x = x;
+    this.y = y;
+    return this;
     }
 }
 
 impl Counter {
-    fn new() -> Self {
-    let mut this: Self = Counter(::std::rc::Rc::new(::std::cell::RefCell::new(CounterInner { _hits: SmeltList::new(Vec::<String>::new()) })));
-    let _smelt_tmp_1: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    this.0.borrow_mut()._hits = Into::<SmeltList<_>>::into(_smelt_tmp_1);
-    return this;
-    }
-    fn add(&self, key: String) -> () {
-    let mut _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into(self.0.borrow()._hits.clone());
-    let _smelt_tmp_3: f64 = { let smelt_push_item = key.clone(); _smelt_tmp_2.borrow_mut().push(smelt_push_item); _smelt_tmp_2.len() as f64 };
-    self.0.borrow_mut()._hits = Into::<SmeltList<_>>::into(_smelt_tmp_2);
-    return;
-    }
-    fn tally(&self) -> String {
-    let _smelt_tmp_1: String = self.0.borrow()._hits.clone().borrow().join(&",".to_owned());
-    return _smelt_tmp_1;
+    fn next(&self) -> f64 {
+    let _smelt_tmp_1: f64 = self.0.borrow().count.clone() + 2.0;
+    self.0.borrow_mut().count = _smelt_tmp_1;
+    return self.0.borrow().count.clone();
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
     ///
@@ -3481,38 +4291,28 @@ impl Counter {
     #[allow(dead_code)]
     fn __smelt_proto_entries(&self) -> Vec<(String, SmeltUnknown)> {
         let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();
-        smelt_proto_entries.push(("__smelt_method:add".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.add(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok({ let () = smelt_result; SmeltUnknown::Undefined }) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Counter::add")); SmeltUnknown::Function(smelt_method) }));
-        smelt_proto_entries.push(("__smelt_method:tally".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.tally(); Ok(SmeltUnknown::String(smelt_result.into())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Counter::tally")); SmeltUnknown::Function(smelt_method) }));
+        smelt_proto_entries.push(("__smelt_method:next".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.next(); Ok(SmeltUnknown::Number(smelt_result as f64)) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Counter::next")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
 }
 
-impl DeclaredReporting {
+impl FromThree {
     fn new() -> Self {
-    let mut this: Self = DeclaredReporting(::std::rc::Rc::new(::std::cell::RefCell::new(DeclaredReportingInner { _hits: SmeltList::new(Vec::<String>::new()) })));
-    let _smelt_tmp_1: Self = Self::__smelt_init_Counter(this);
+    let mut this: Self = FromThree(::std::rc::Rc::new(::std::cell::RefCell::new(FromThreeInner { count: 0.0 })));
+    let _smelt_tmp_1: Self = Self::__smelt_init_Counter(this, 3.0);
     this = _smelt_tmp_1;
     return this;
     }
-    fn __smelt_init_Counter(smelt_receiver: Self) -> Self {
+    fn __smelt_init_Counter(smelt_receiver: Self, start: f64) -> Self {
     let mut this: Self = smelt_receiver;
-    let _smelt_tmp_1: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    this.0.borrow_mut()._hits = Into::<SmeltList<_>>::into(_smelt_tmp_1);
+    let _smelt_tmp_2: f64 = start * 10.0;
+    this.0.borrow_mut().count = _smelt_tmp_2;
     return this;
     }
-    fn add(&self, key: String) -> () {
-    let mut _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into(self.0.borrow()._hits.clone());
-    let _smelt_tmp_3: f64 = { let smelt_push_item = key.clone(); _smelt_tmp_2.borrow_mut().push(smelt_push_item); _smelt_tmp_2.len() as f64 };
-    self.0.borrow_mut()._hits = Into::<SmeltList<_>>::into(_smelt_tmp_2);
-    return;
-    }
-    fn tally(&self) -> String {
-    let _smelt_tmp_1: String = self.0.borrow()._hits.clone().borrow().join(&",".to_owned());
-    return _smelt_tmp_1;
-    }
-    fn report(&self) -> String {
-    let _smelt_tmp_1: String = self.tally();
-    return _smelt_tmp_1;
+    fn next(&self) -> f64 {
+    let _smelt_tmp_1: f64 = self.0.borrow().count.clone() + 2.0;
+    self.0.borrow_mut().count = _smelt_tmp_1;
+    return self.0.borrow().count.clone();
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
     ///
@@ -3522,39 +4322,92 @@ impl DeclaredReporting {
     #[allow(dead_code)]
     fn __smelt_proto_entries(&self) -> Vec<(String, SmeltUnknown)> {
         let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();
-        smelt_proto_entries.push(("__smelt_method:add".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.add(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok({ let () = smelt_result; SmeltUnknown::Undefined }) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Counter::add")); SmeltUnknown::Function(smelt_method) }));
-        smelt_proto_entries.push(("__smelt_method:tally".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.tally(); Ok(SmeltUnknown::String(smelt_result.into())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Counter::tally")); SmeltUnknown::Function(smelt_method) }));
-        smelt_proto_entries.push(("__smelt_method:report".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.report(); Ok(SmeltUnknown::String(smelt_result.into())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("DeclaredReporting::report")); SmeltUnknown::Function(smelt_method) }));
+        smelt_proto_entries.push(("__smelt_method:next".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.next(); Ok(SmeltUnknown::Number(smelt_result as f64)) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Counter::next")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
 }
 
-impl Reporting {
+impl Labelled {
+    fn new(label: String) -> Self {
+    let mut this: Self = Labelled { label: String::new() };
+    this.label = label.clone();
+    return this;
+    }
+}
+
+impl Named {
+    fn new(label: String) -> Self {
+    let mut this: Self = Named { label: String::new() };
+    let _smelt_tmp_2: Self = Self::__smelt_init_Labelled(this, label.clone());
+    this = _smelt_tmp_2;
+    return this;
+    }
+    fn __smelt_init_Labelled(smelt_receiver: Self, label: String) -> Self {
+    let mut this: Self = smelt_receiver;
+    this.label = label.clone();
+    return this;
+    }
+}
+
+impl Router {
     fn new() -> Self {
-    let mut this: Self = Reporting(::std::rc::Rc::new(::std::cell::RefCell::new(ReportingInner { _hits: SmeltList::new(Vec::<String>::new()) })));
-    let _smelt_tmp_1: Self = Self::__smelt_init_Counter(this);
+    let smelt_capture_this: ::std::rc::Rc<::std::cell::RefCell<Router>> = ::std::rc::Rc::new(::std::cell::RefCell::new(Router(::std::rc::Rc::new(::std::cell::RefCell::new(RouterInner { label: String::new(), handler: String::new(), on_error: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> Router> = ::std::rc::Rc::new(move |arg0: String| -> Router { Default::default() }); smelt_default_callback } })))));
+    (*smelt_capture_this.borrow()).0.borrow_mut().label = "r".to_owned();
+    (*smelt_capture_this.borrow()).0.borrow_mut().handler = "default".to_owned();
+    let _smelt_tmp_1 = ::std::rc::Rc::new({
+    let smelt_capture_this = smelt_capture_this.clone();
+    move |closure_arg_0: String| {
+    (*smelt_capture_this.borrow()).0.borrow_mut().handler = closure_arg_0.clone();
+    (*smelt_capture_this.borrow()).clone()
+    }
+});
+    (*smelt_capture_this.borrow()).0.borrow_mut().on_error = _smelt_tmp_1.clone();
+    return ((*smelt_capture_this.borrow())).clone();
+    }
+    fn describe(&self) -> String {
+    let _smelt_tmp_1: String = self.0.borrow().label.clone().clone() + &":".to_owned();
+    let _smelt_tmp_2: String = _smelt_tmp_1 + &self.0.borrow().handler.clone().clone();
+    return _smelt_tmp_2;
+    }
+    /// Prototype-carried members of this class, as receiver-bound erased functions.
+    ///
+    /// Keyed under the runtime's `__smelt_method:` prefix, which `smelt_get_object_field`
+    /// resolves after the own property misses, and which key enumeration, structural
+    /// equality, hashing and JSON all skip -- a class's methods are non-enumerable.
+    #[allow(dead_code)]
+    fn __smelt_proto_entries(&self) -> Vec<(String, SmeltUnknown)> {
+        let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();
+        smelt_proto_entries.push(("__smelt_method:describe".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.describe(); Ok(SmeltUnknown::String(smelt_result.into())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Router::describe")); SmeltUnknown::Function(smelt_method) }));
+        smelt_proto_entries
+    }
+}
+
+impl RoutedApp {
+    fn new() -> Self {
+    let mut this: Self = RoutedApp(::std::rc::Rc::new(::std::cell::RefCell::new(RoutedAppInner { label: String::new(), handler: String::new(), on_error: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> Router> = ::std::rc::Rc::new(move |arg0: String| -> Router { Default::default() }); smelt_default_callback } })));
+    let _smelt_tmp_1: Self = Self::__smelt_init_Router(this);
     this = _smelt_tmp_1;
+    this.0.borrow_mut().label = "app".to_owned();
     return this;
     }
-    fn __smelt_init_Counter(smelt_receiver: Self) -> Self {
-    let mut this: Self = smelt_receiver;
-    let _smelt_tmp_1: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    this.0.borrow_mut()._hits = Into::<SmeltList<_>>::into(_smelt_tmp_1);
-    return this;
+    fn __smelt_init_Router(smelt_receiver: Self) -> Self {
+    let smelt_capture_this: ::std::rc::Rc<::std::cell::RefCell<Self>> = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_receiver));
+    (*smelt_capture_this.borrow()).0.borrow_mut().label = "r".to_owned();
+    (*smelt_capture_this.borrow()).0.borrow_mut().handler = "default".to_owned();
+    let _smelt_tmp_1 = ::std::rc::Rc::new({
+    let smelt_capture_this = smelt_capture_this.clone();
+    move |closure_arg_0: String| {
+    (*smelt_capture_this.borrow()).0.borrow_mut().handler = closure_arg_0.clone();
+    { let smelt_struct_value = (*smelt_capture_this.borrow()).clone().clone(); Router(::std::rc::Rc::new(::std::cell::RefCell::new(RouterInner { label: smelt_struct_value.0.borrow().label.clone(), handler: smelt_struct_value.0.borrow().handler.clone(), on_error: smelt_struct_value.0.borrow().on_error.clone() }))) }
     }
-    fn add(&self, key: String) -> () {
-    let mut _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into(self.0.borrow()._hits.clone());
-    let _smelt_tmp_3: f64 = { let smelt_push_item = key.clone(); _smelt_tmp_2.borrow_mut().push(smelt_push_item); _smelt_tmp_2.len() as f64 };
-    self.0.borrow_mut()._hits = Into::<SmeltList<_>>::into(_smelt_tmp_2);
-    return;
+});
+    (*smelt_capture_this.borrow()).0.borrow_mut().on_error = _smelt_tmp_1.clone();
+    return ((*smelt_capture_this.borrow())).clone();
     }
-    fn tally(&self) -> String {
-    let _smelt_tmp_1: String = self.0.borrow()._hits.clone().borrow().join(&",".to_owned());
-    return _smelt_tmp_1;
-    }
-    fn report(&self) -> String {
-    let _smelt_tmp_1: String = self.tally();
-    return _smelt_tmp_1;
+    fn describe(&self) -> String {
+    let _smelt_tmp_1: String = self.0.borrow().label.clone().clone() + &":".to_owned();
+    let _smelt_tmp_2: String = _smelt_tmp_1 + &self.0.borrow().handler.clone().clone();
+    return _smelt_tmp_2;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
     ///
@@ -3564,36 +4417,7 @@ impl Reporting {
     #[allow(dead_code)]
     fn __smelt_proto_entries(&self) -> Vec<(String, SmeltUnknown)> {
         let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();
-        smelt_proto_entries.push(("__smelt_method:add".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.add(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok({ let () = smelt_result; SmeltUnknown::Undefined }) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Counter::add")); SmeltUnknown::Function(smelt_method) }));
-        smelt_proto_entries.push(("__smelt_method:tally".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.tally(); Ok(SmeltUnknown::String(smelt_result.into())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Counter::tally")); SmeltUnknown::Function(smelt_method) }));
-        smelt_proto_entries.push(("__smelt_method:report".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.report(); Ok(SmeltUnknown::String(smelt_result.into())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Reporting::report")); SmeltUnknown::Function(smelt_method) }));
-        smelt_proto_entries
-    }
-}
-
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Boxed<T> {
-    fn new() -> Self {
-    let mut this: Self = Boxed(::std::rc::Rc::new(::std::cell::RefCell::new(BoxedInner { items: SmeltList::new(Vec::<T>::new()), _smelt_phantom: ::std::marker::PhantomData })));
-    let _smelt_tmp_1: SmeltList<T> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<T> = vec![]; smelt_list_items }));
-    this.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_1);
-    return this;
-    }
-    fn push(&self, item: T) -> f64 {
-    let mut _smelt_tmp_2: SmeltList<T> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
-    let _smelt_tmp_3: f64 = { let smelt_push_item = item.clone(); _smelt_tmp_2.borrow_mut().push(smelt_push_item); _smelt_tmp_2.len() as f64 };
-    self.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_2);
-    let _smelt_tmp_4: f64 = self.0.borrow().items.clone().len() as f64;
-    return _smelt_tmp_4;
-    }
-    /// Prototype-carried members of this class, as receiver-bound erased functions.
-    ///
-    /// Keyed under the runtime's `__smelt_method:` prefix, which `smelt_get_object_field`
-    /// resolves after the own property misses, and which key enumeration, structural
-    /// equality, hashing and JSON all skip -- a class's methods are non-enumerable.
-    #[allow(dead_code)]
-    fn __smelt_proto_entries(&self) -> Vec<(String, SmeltUnknown)> {
-        let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();
-        smelt_proto_entries.push(("__smelt_method:push".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.push(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(SmeltUnknown::Number(smelt_result as f64)) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Boxed::push")); SmeltUnknown::Function(smelt_method) }));
+        smelt_proto_entries.push(("__smelt_method:describe".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.describe(); Ok(SmeltUnknown::String(smelt_result.into())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Router::describe")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
 }

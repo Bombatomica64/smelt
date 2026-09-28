@@ -1129,7 +1129,7 @@ fn rewrite_terminator(terminator: &mut Terminator, aliases: &HashMap<LocalId, Lo
         } => {
             let mut changed = match callee {
                 Callee::Indirect(operand) => rewrite_operand(operand, aliases),
-                Callee::Static(_) | Callee::Builtin(_) => false,
+                Callee::Static(_) | Callee::Builtin(_) | Callee::BaseInit(_) => false,
             };
             for arg in args {
                 changed |= rewrite_operand_except(arg, aliases, Some(*dest));

@@ -24,7 +24,8 @@
 //!   construction (`obj.<field> = …` or `obj[key] = …`), or
 //! - `this` (a method's `self`) is captured by a closure (the escaping-`this`
 //!   case that needs a shareable handle), or
-//! - it INHERITS from a reference class (see [`close_over_heritage`]).
+//! - it INHERITS from a reference class, or a class inheriting from it is one
+//!   (see [`close_over_heritage`]).
 //!
 //! The heritage rule is not a heuristic: a subclass's instances are the same
 //! JavaScript objects as its base's, so identity and mutation semantics cannot
@@ -112,7 +113,7 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
     references
 }
 
-/// Add every class that inherits from a reference class.
+/// Close the reference set over the inheritance chain, in both directions.
 ///
 /// A trigger fires on the class whose FIELD is written, which is the class that
 /// declares it -- so a subclass that only inherits mutated state is never named
@@ -125,18 +126,31 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
 /// as a value struct -- `no field 0 on __smelt_anon_class_3050<T>` (E0609 x9 in
 /// the router slice, and H30 in `blocker-logs/hono-phase2-generated-rust.md`).
 ///
-/// Only DOWNWARD, along `MirClass::base`: a base's own storage is a separate
-/// struct, and lifting a base because a subclass was lifted would pay the
-/// handle's cost for objects that never need it. Iterated to a fixed point so a
-/// chain of any depth closes, and bounded by the class count so a cyclic
-/// `base` chain (which the frontend rejects) cannot spin here.
+/// UPWARD, a base of a reference class is a reference class too. A derived
+/// constructor's `super(..)` runs the base constructor body re-emitted over the
+/// derived receiver (`crate::base_init`), and inherited method bodies are
+/// re-emitted the same way; each copy renders field access in the DECLARING
+/// class's representation. A value base under a reference subclass therefore
+/// emitted `this.x = ..` against a handle that has no field `x`. The reasoning
+/// is the downward rule's: the subclass's instances ARE instances of the base,
+/// so one identity model has to hold for the whole chain.
+///
+/// Iterated to a fixed point so a chain of any depth closes, and bounded by the
+/// class count so a cyclic `base` chain (which the frontend rejects) cannot spin
+/// here.
 fn close_over_heritage(mir: &Mir, references: &mut HashSet<Symbol>) {
     for _ in 0..mir.classes.len() {
         let mut changed = false;
         for class in &mir.classes {
-            if let Some(base) = class.base
-                && references.contains(&base)
-                && references.insert(class.name)
+            let Some(base) = class.base else {
+                continue;
+            };
+            if references.contains(&base) && references.insert(class.name) {
+                changed = true;
+            }
+            if references.contains(&class.name)
+                && mir.classes.iter().any(|candidate| candidate.name == base)
+                && references.insert(base)
             {
                 changed = true;
             }

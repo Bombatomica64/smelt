@@ -187,7 +187,7 @@ fn rewrite_terminator(
                 Callee::Indirect(operand) => {
                     try_convert(operand, live_after, read_counts, convertible)
                 }
-                Callee::Static(_) | Callee::Builtin(_) => false,
+                Callee::Static(_) | Callee::Builtin(_) | Callee::BaseInit(_) => false,
             };
             for arg in args.iter_mut() {
                 changed |= try_convert(arg, live_after, read_counts, convertible);

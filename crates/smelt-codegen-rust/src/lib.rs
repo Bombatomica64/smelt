@@ -94,6 +94,7 @@ mod crypto_prelude;
 mod form_data_prelude;
 mod text_codec_prelude;
 mod typed_array_prelude;
+pub(crate) mod base_init;
 pub(crate) mod class_proto;
 pub(crate) mod classes;
 pub(crate) mod classify;
@@ -6236,6 +6237,20 @@ fn emit_source_with_free_function_router(
         {
             let mut emitter = FunctionEmitter::new(mir, &context, function)?;
             emitter.emit_method(&mut out)?;
+        }
+        // Each ancestor constructor this class's `super(..)` chain runs is
+        // re-emitted here as an initializer over `Self`, exactly as inherited
+        // methods are below: see `base_init` for why the base body must run on
+        // the derived instance rather than on a separately constructed base.
+        for base_constructor in base_init::base_initializer_chain(mir, class)? {
+            if let Some(function) = mir.functions.get(id_index(
+                base_constructor.0,
+                "base constructor index does not fit usize",
+            )?) {
+                let mut emitter = FunctionEmitter::new(mir, &context, function)?;
+                emitter.mark_base_initializer_copy(class.name);
+                emitter.emit_method(&mut out)?;
+            }
         }
         // Inherited methods are emitted into the subclass's own impl block:
         // Smelt flattens inheritance and Rust has no method inheritance, so a
