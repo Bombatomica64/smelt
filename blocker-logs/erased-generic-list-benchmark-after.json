@@ -1,0 +1,75 @@
+{
+  "meta": {
+    "repeats": 3,
+    "quick": false,
+    "node": "v22.22.2",
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+    "generated_at": "2026-09-06T15:00:31Z"
+  },
+  "baselines": {
+    "remeda": {
+      "ts": {
+        "kind": "baseline",
+        "peak_rss_bytes": 56184832,
+        "rss_bytes": 56188928,
+        "cpu_user_s": 0.05,
+        "cpu_sys_s": 0.03
+      },
+      "rust": {
+        "kind": "baseline",
+        "peak_rss_bytes": 6410240,
+        "rss_bytes": 6410240,
+        "cpu_user_s": 0,
+        "cpu_sys_s": 0.01
+      }
+    }
+  },
+  "rows": [
+    {
+      "lib": "remeda",
+      "case": "unique_by",
+      "has_ts": true,
+      "ts_observations": [
+        2530.9919970033056,
+        2659.1972769819886,
+        2123.3451178987375
+      ],
+      "ts": {
+        "kind": "result",
+        "case": "unique_by",
+        "ns_per_op_median": 376053.3333333333,
+        "ns_per_op_best": 314367,
+        "ops_per_sec": 2659.1972769819886,
+        "samples": 2493,
+        "iterations": 7479,
+        "checksum": 3475094833,
+        "peak_rss_bytes": 99479552,
+        "rss_bytes": 98484224,
+        "cpu_user_s": 3.54,
+        "cpu_sys_s": 0.27
+      },
+      "rust_observations": [
+        1.7103837210986457,
+        1.6170511602516717,
+        1.7337292019634427
+      ],
+      "rust": {
+        "kind": "result",
+        "case": "unique_by",
+        "ns_per_op_median": 576791346,
+        "ns_per_op_best": 554941094,
+        "ops_per_sec": 1.7337292019634427,
+        "samples": 10,
+        "iterations": 10,
+        "checksum": 3475094833,
+        "peak_rss_bytes": 27918336,
+        "rss_bytes": 20570112,
+        "cpu_user_s": 6.85,
+        "cpu_sys_s": 0.12,
+        "identity_lists": 0,
+        "identity_promises": 0,
+        "identity_functions": 12
+      }
+    }
+  ]
+}
