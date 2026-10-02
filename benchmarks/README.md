@@ -14,6 +14,14 @@ The point is not to win a benchmark. It is to answer, per operation, the questio
 would have produced? A row where the generated Rust is *slower* than V8 is a row
 where the answer is "not close yet", and it names the construct responsible.
 
+## Latest recorded run
+
+The September 6, 2026 run measures compiler `fe03b91`. See [FINDINGS.md](FINDINGS.md)
+for the current interpretation and [results/environment.json](results/environment.json)
+for exact revisions, tool versions, machine details, and hashes. The August analysis
+is archived separately; comparisons across those machines are not controlled speedups.
+The preparation script currently enables mimalloc for both generated benchmark crates.
+
 ## Reproducing
 
 ```sh
