@@ -1141,6 +1141,15 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 format!("abort_signal_{op_name} {args_text}")
             }
         }
+        Rvalue::GlobalObject => "global_object".to_owned(),
+        Rvalue::HostModuleCall { op, args } => {
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(" ");
+            format!("{} {args_text}", op.name())
+        }
         Rvalue::CryptoOp { op, args } => {
             let op_name = match op {
                 smelt_hir::CryptoOp::RandomUuid => "random_uuid",
@@ -1925,6 +1934,8 @@ fn callee_text(callee: &Callee) -> String {
         Callee::Builtin(BuiltinFn::ConsoleErrorWrite) => "@console_error_write".to_owned(),
         Callee::Builtin(BuiltinFn::JsonParse) => "@json_parse".to_owned(),
         Callee::Builtin(BuiltinFn::Base64(op)) => format!("@{}", op.name()),
+        Callee::Builtin(BuiltinFn::RegExpCompile) => "@regexp_compile".to_owned(),
+        Callee::Builtin(BuiltinFn::HostModule(op)) => format!("@{}", op.name()),
         Callee::Builtin(BuiltinFn::DataViewAccess { write, element }) => format!(
             "@data_view_{}{}",
             if *write { "set" } else { "get" },

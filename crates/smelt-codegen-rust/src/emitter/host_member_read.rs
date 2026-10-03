@@ -142,7 +142,7 @@ impl FunctionEmitter<'_> {
     /// `host_class_members` is; `None` when the crate never mentions the class,
     /// which makes the member read that needs it unavailable instead of
     /// wrongly typed.
-    fn stdlib_class_ty(&self, class: smelt_stdlib::StdlibClass) -> Option<TypeId> {
+    pub(super) fn stdlib_class_ty(&self, class: smelt_stdlib::StdlibClass) -> Option<TypeId> {
         self.mir
             .types
             .all()

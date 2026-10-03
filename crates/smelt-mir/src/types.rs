@@ -1496,6 +1496,17 @@ pub enum Rvalue {
         /// Operation arguments, in source order.
         args: Vec<Operand>,
     },
+    /// The shared ambient global object (see `smelt_hir::ExprKind::GlobalObject`).
+    GlobalObject,
+    /// An INFALLIBLE modeled host-module call (`path.join(..)`); see
+    /// `smelt_hir::ExprKind::HostModuleCall`. The fallible ones are
+    /// [`BuiltinFn::HostModule`] call terminators.
+    HostModuleCall {
+        /// Which host function this call runs.
+        op: smelt_hir::HostModuleOp,
+        /// Operation arguments, in the op's documented order.
+        args: Vec<Operand>,
+    },
     /// Apply a `WebCrypto` operation.
     ///
     /// No receiver operand: the `crypto` namespace holds no state a program can
@@ -2515,6 +2526,17 @@ pub enum BuiltinFn {
     /// refuses a malformed base64 string, so neither has an infallible rvalue
     /// form to keep.
     Base64(smelt_hir::Base64Op),
+    /// `new RegExp(pattern, flags)` over a run-time pattern, which throws a
+    /// catchable `SyntaxError` when the pattern (or a flag) is malformed.
+    ///
+    /// A builtin for the reason [`Self::JsonParse`] is. Literal patterns never
+    /// reach it: they keep the infallible `New { class: RegExp }` construction
+    /// (see `smelt_hir::ExprKind::RegExpCompile`).
+    RegExpCompile,
+    /// A FALLIBLE modeled host-module call (see
+    /// `smelt_hir::HostModuleOp::is_fallible`); the infallible ones are
+    /// [`Rvalue::HostModuleCall`].
+    HostModule(smelt_hir::HostModuleOp),
 }
 
 impl BuiltinFn {
@@ -2533,6 +2555,8 @@ impl BuiltinFn {
             Self::JsonParse
             | Self::UriDecode(_)
             | Self::Base64(_)
+            | Self::RegExpCompile
+            | Self::HostModule(_)
             | Self::DataViewAccess { .. } => true,
             Self::ConsoleLog { .. } | Self::ConsoleWrite | Self::ConsoleErrorWrite => false,
         }

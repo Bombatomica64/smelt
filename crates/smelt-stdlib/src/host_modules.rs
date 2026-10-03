@@ -84,10 +84,42 @@ pub struct HostExport {
     pub surface: HostSurface,
 }
 
+/// The identity of a modeled host module, whatever specifier named it.
+///
+/// Lowering keys a modeled export on `(identity, export name)` rather than on
+/// the specifier spelling, so `node:path`, `path`, `node:path/posix` and
+/// `path/posix` are one module to every rule that implements it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[non_exhaustive]
+pub enum HostModuleId {
+    /// `@date-fns/tz`.
+    DateFnsTz,
+    /// `node:buffer`.
+    Buffer,
+    /// `node:crypto`.
+    Crypto,
+    /// `node:events`.
+    Events,
+    /// `node:http`.
+    Http,
+    /// `node:path` on the POSIX profile, and `node:path/posix`.
+    ///
+    /// One identity for both: the profile Smelt compiles for is POSIX, where
+    /// Node's `path` IS `path.posix` (`require('path') === require('path').posix`
+    /// on Linux and macOS), so the two specifiers name the same functions.
+    Path,
+    /// `node:sqlite`.
+    Sqlite,
+    /// `node:url`.
+    Url,
+}
+
 /// A module specifier whose implementation lives in Rust rather than in source.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct HostModule {
+    /// Which modeled module this is, independent of the specifier spelling.
+    pub id: HostModuleId,
     /// Every specifier that names this module (`node:http` and bare `http`).
     pub specifiers: &'static [&'static str],
     /// The exports Smelt knows about, implemented or declared.
@@ -158,26 +190,48 @@ const SQLITE_REASON: &str = "the node:sqlite database surface is not implemented
 const CRYPTO_KEY_REASON: &str =
     "the WebCrypto key surface (subtle.importKey/sign/verify) is not implemented yet";
 
-/// Reason text for the `node:crypto` members outside `WebCrypto`.
+/// Reason text for the `node:crypto` members outside `WebCrypto` that are
+/// still declared.
 ///
-/// `createHash` and `randomBytes` are Node's own pre-`WebCrypto` spellings of
-/// what `subtle.digest` and `getRandomValues` now do. They are declared rather
-/// than aliased onto those rules because their shapes differ in ways a caller
-/// observes: `createHash` answers a stateful, chainable `Hash` object with its
-/// own `update`/`digest("hex")` encoding surface, and `randomBytes` answers a
-/// `Buffer` and has a callback form.
+/// `createHash` is modeled (a stateful, chainable `Hash` over the `RustCrypto`
+/// hashers; see `host_module_prelude` in the Rust backend). `randomBytes`
+/// answers a `Buffer` and has a callback form, so it is a surface of its own
+/// rather than an alias of `getRandomValues`.
 const CRYPTO_NODE_REASON: &str =
-    "the node:crypto createHash/randomBytes surface is not implemented yet; use crypto.subtle.digest and crypto.getRandomValues";
+    "the node:crypto randomBytes surface is not implemented yet; use crypto.getRandomValues";
 
-/// Reason text shared by the `node:path` surface.
+/// Reason text for the `node:path` members that are still declared.
 ///
-/// `path.join`/`path.resolve` had a lowering rule that returned an empty string
-/// literal. That is a worse false green than erasure: `resolve(__dirname,
-/// '../key.pub')` became `""` and the program went on to open it. Real path
-/// joining is cheap to implement (`std::path::PathBuf`) but it is a surface
-/// with semantics to get right (`..` collapsing, absolute-segment reset,
-/// platform separators), so it is declared here and the stub is gone.
-const PATH_REASON: &str = "the node:path surface is not implemented yet";
+/// The string-to-string surface (`join`, `resolve`, `normalize`, `dirname`,
+/// `basename`, `extname`, `relative`, `isAbsolute`, `sep`, `delimiter`) is
+/// modeled with Node's own POSIX algorithms. `parse`/`format` answer and take a
+/// `ParsedPath` RECORD, and the `win32` flavour is a second path grammar; both
+/// stay declared so using one is a named blocker rather than a guess.
+const PATH_REASON: &str =
+    "the node:path parse/format/win32 surface is not implemented yet";
+
+/// The `node:path` exports, shared by `node:path` and `node:path/posix`.
+///
+/// `posix` is modeled as a NAMESPACE (like `crypto.subtle`): on the POSIX
+/// profile `path.posix` is `path` itself, so `path.posix.join(..)` resolves to
+/// the same rule as `path.join(..)`.
+const PATH_EXPORTS: &[HostExport] = &[
+    modeled_value("join"),
+    modeled_value("resolve"),
+    modeled_value("dirname"),
+    modeled_value("basename"),
+    modeled_value("extname"),
+    modeled_value("relative"),
+    modeled_value("normalize"),
+    modeled_value("isAbsolute"),
+    modeled_value("sep"),
+    modeled_value("delimiter"),
+    modeled_value("posix"),
+    modeled_value("default"),
+    declared_value("parse", PATH_REASON),
+    declared_value("format", PATH_REASON),
+    declared_value("win32", PATH_REASON),
+];
 
 /// The modeled host modules, in specifier order.
 pub const HOST_MODULES: &[HostModule] = &[
@@ -185,6 +239,7 @@ pub const HOST_MODULES: &[HostModule] = &[
     // `chrono-tz` timezone value; it is here (rather than as a name test inside
     // import lowering) so package spellings live in exactly one registry.
     HostModule {
+        id: HostModuleId::DateFnsTz,
         specifiers: &["@date-fns/tz"],
         exports: &[
             modeled_value("tz"),
@@ -196,11 +251,13 @@ pub const HOST_MODULES: &[HostModule] = &[
         dependencies: &[BackendDependency::Chrono, BackendDependency::ChronoTz],
     },
     HostModule {
+        id: HostModuleId::Buffer,
         specifiers: &["node:buffer", "buffer"],
         exports: &[modeled_class("Buffer")],
         dependencies: &[],
     },
     HostModule {
+        id: HostModuleId::Crypto,
         specifiers: &["node:crypto", "crypto"],
         exports: &[
             modeled_value("randomUUID"),
@@ -211,7 +268,14 @@ pub const HOST_MODULES: &[HostModule] = &[
             // member that is not `digest`, does not resolve to this and reports
             // the key-surface blocker.
             modeled_value("subtle"),
-            declared_value("createHash", CRYPTO_NODE_REASON),
+            // Node's stateful hasher: `createHash(name)` answers a `Hash`
+            // whose `update` chains and whose `digest` finalizes it.
+            modeled_value("createHash"),
+            modeled_class("Hash"),
+            // `import crypto from 'node:crypto'` is the module object: its
+            // members resolve through the same rules as the named imports
+            // (`crypto.createHash(..)`, `crypto.randomUUID()`).
+            modeled_value("default"),
             declared_value("randomBytes", CRYPTO_NODE_REASON),
             declared_value("importKey", CRYPTO_KEY_REASON),
             declared_value("sign", CRYPTO_KEY_REASON),
@@ -223,6 +287,7 @@ pub const HOST_MODULES: &[HostModule] = &[
         dependencies: &[],
     },
     HostModule {
+        id: HostModuleId::Events,
         specifiers: &["node:events", "events"],
         exports: &[
             modeled_class("EventEmitter"),
@@ -231,6 +296,7 @@ pub const HOST_MODULES: &[HostModule] = &[
         dependencies: &[],
     },
     HostModule {
+        id: HostModuleId::Http,
         specifiers: &["node:http", "http"],
         exports: &[
             modeled_value("createServer"),
@@ -250,23 +316,13 @@ pub const HOST_MODULES: &[HostModule] = &[
         dependencies: &[BackendDependency::Hyper],
     },
     HostModule {
-        specifiers: &["node:path", "path"],
-        exports: &[
-            declared_value("join", PATH_REASON),
-            declared_value("resolve", PATH_REASON),
-            declared_value("dirname", PATH_REASON),
-            declared_value("basename", PATH_REASON),
-            declared_value("extname", PATH_REASON),
-            declared_value("relative", PATH_REASON),
-            declared_value("normalize", PATH_REASON),
-            declared_value("isAbsolute", PATH_REASON),
-            declared_value("parse", PATH_REASON),
-            declared_value("sep", PATH_REASON),
-            declared_value("default", PATH_REASON),
-        ],
+        id: HostModuleId::Path,
+        specifiers: &["node:path", "path", "node:path/posix", "path/posix"],
+        exports: PATH_EXPORTS,
         dependencies: &[],
     },
     HostModule {
+        id: HostModuleId::Sqlite,
         specifiers: &["node:sqlite"],
         exports: &[
             declared_class("DatabaseSync", SQLITE_REASON),
@@ -275,6 +331,7 @@ pub const HOST_MODULES: &[HostModule] = &[
         dependencies: &[],
     },
     HostModule {
+        id: HostModuleId::Url,
         specifiers: &["node:url", "url"],
         exports: &[modeled_class("URL"), modeled_class("URLSearchParams")],
         dependencies: &[BackendDependency::Url],
@@ -287,6 +344,12 @@ pub fn host_module(specifier: &str) -> Option<&'static HostModule> {
     HOST_MODULES
         .iter()
         .find(|module| module.specifiers.contains(&specifier))
+}
+
+/// Return the identity of the host module a specifier names, if modeled.
+#[must_use]
+pub fn host_module_id(specifier: &str) -> Option<HostModuleId> {
+    host_module(specifier).map(|module| module.id)
 }
 
 /// Return whether a specifier names a modeled host module.
@@ -419,6 +482,27 @@ mod tests {
         let blocker = host_value_blocker("node:url", "fileURLToPath")
             .expect("an unmodeled export must block");
         assert!(blocker.contains("fileURLToPath"), "{blocker}");
+    }
+
+    /// Every `node:path` spelling is the one POSIX path module, and its
+    /// string surface is modeled while the record/win32 half stays declared.
+    #[test]
+    fn path_specifiers_share_one_modeled_surface() {
+        for specifier in ["node:path", "path", "node:path/posix", "path/posix"] {
+            assert_eq!(host_module_id(specifier), Some(HostModuleId::Path), "{specifier}");
+            assert!(host_value_blocker(specifier, "join").is_none(), "{specifier}");
+            assert!(host_value_blocker(specifier, "sep").is_none(), "{specifier}");
+        }
+        assert!(host_value_blocker("node:path", "parse").is_some());
+        assert!(host_value_blocker("node:path", "win32").is_some());
+    }
+
+    /// `createHash` is modeled; `randomBytes` still reports its blocker.
+    #[test]
+    fn crypto_create_hash_is_modeled() {
+        assert!(host_value_blocker("node:crypto", "createHash").is_none());
+        assert!(host_value_blocker("crypto", "Hash").is_none());
+        assert!(host_value_blocker("node:crypto", "randomBytes").is_some());
     }
 
     /// Dependencies are declared per module so use stays pay-for-use.

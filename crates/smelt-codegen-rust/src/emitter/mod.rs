@@ -114,6 +114,7 @@ mod blob;
 mod fetch_types;
 mod abort_signal;
 mod crypto;
+mod host_module;
 mod form_data;
 mod text_codec;
 mod typed_array;

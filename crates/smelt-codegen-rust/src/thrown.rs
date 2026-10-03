@@ -332,6 +332,125 @@ pub(crate) fn emit_base64_support(writer: &mut CodeWriter) {
     ));
 }
 
+/// Name of the generated accessor for the shared global object.
+pub(crate) const GLOBAL_OBJECT_FN: &str = "smelt_global_object";
+
+/// Name of the generated erased `Object.assign` helper.
+pub(crate) const UNKNOWN_ASSIGN_FN: &str = "smelt_unknown_assign";
+
+/// Emits the shared global object and the erased `Object.assign` helper.
+///
+/// **Dynamic boundary.** The global object is JavaScript's open property bag:
+/// the program writes to it (`Object.assign(globalThis, {..})`,
+/// `globalThis.x = v`) and a host-injected `declare const X` is read from it,
+/// so which members exist is a run-time fact no concrete type, generated union
+/// or scoped generic can state. It is ONE record per thread (tests run one per
+/// thread, and each gets its own global, as each `vitest` worker does), shared
+/// by every reference through `SmeltObject`'s shared storage, so a write
+/// through one reference is visible through all of them. It carries the
+/// `__smelt_global_object` marker the rest of the runtime already recognizes
+/// (the `[object global]` tag, the modeled-constructor lookup of
+/// `globalThis[name]`, and its exclusion from `for...in`). The regression test
+/// `global_object_members_are_run_time_facts` in
+/// `crates/smelt-transpiler/src/unknown_report.rs` records why this is a
+/// legitimate boundary rather than avoidable erasure.
+pub(crate) fn emit_global_object_support(writer: &mut CodeWriter) {
+    writer.blank_line();
+    writer.line("/// The ambient global object (`globalThis`): one shared record per thread.");
+    writer.line(format!(
+        "fn {GLOBAL_OBJECT_FN}() -> SmeltUnknown {{ thread_local! {{ static SMELT_GLOBAL_OBJECT: SmeltObject = SmeltObject::new(Vec::from([(\"__smelt_global_object\".to_owned(), SmeltUnknown::Bool(true))])); }} SmeltUnknown::Object(SMELT_GLOBAL_OBJECT.with(Clone::clone)) }}"
+    ));
+}
+
+/// Emits `Object.assign(target, ...sources)` for an ERASED target.
+///
+/// **Dynamic boundary.** The target's static type is `unknown`, so its own
+/// properties are only known at run time; the helper copies each source's own
+/// enumerable string-keyed entries onto the SAME object (JavaScript mutates the
+/// target in place and returns it), writing through `smelt_index_assign` so a
+/// function, array or byte-backed target keeps its own write rules.
+pub(crate) fn emit_unknown_assign_support(writer: &mut CodeWriter) {
+    writer.blank_line();
+    writer.line("/// `Object.assign(target, source)` onto an erased target, in place.");
+    writer.line(format!(
+        "fn {UNKNOWN_ASSIGN_FN}(target: &mut SmeltUnknown, source: &SmeltUnknown) {{ \
+         let entries: Vec<(String, SmeltUnknown)> = match source {{ \
+         SmeltUnknown::Object(object) => object.iter().filter(|(key, _)| smelt_is_for_in_object_key(object, key)).collect(), \
+         SmeltUnknown::Array(values) => values.clone().into_vec().into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect(), \
+         SmeltUnknown::String(text) => text.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string().into()))).collect(), \
+         _ => Vec::new() }}; \
+         for (key, value) in entries {{ smelt_index_assign(target, key, value); }} }}"
+    ));
+}
+
+/// Name of the generated fallible run-time `RegExp` compiler.
+///
+/// `smelt_regexp_compile(String, String) -> Result<SmeltRegExp, Box<dyn Error>>`.
+pub(crate) const REGEXP_COMPILE_FN: &str = "smelt_regexp_compile";
+
+/// Emits the fallible `new RegExp(pattern, flags)` adapter into the prelude.
+///
+/// ECMA-262 `RegExpInitialize` validates the flags and parses the pattern at
+/// CONSTRUCTION, throwing a `SyntaxError` for either — a program can catch it
+/// around `new RegExp(p)` (Hono's `PatternRouter` turns it into its own
+/// `UnsupportedPathError`). The adapter runs the same two checks:
+///
+/// * the flags are each one of `dgimsuvy`, none repeated, and not both `u`
+///   and `v` — the spec's list, checked here because the engine never sees
+///   most of them;
+/// * the pattern compiles through `SmeltRegExp::try_compiled`, the exact path
+///   every later match takes, so "constructed" and "usable" cannot disagree.
+///   A successful compile is memoized there, so the first match pays nothing
+///   extra.
+///
+/// The messages follow V8's spelling (`Invalid regular expression: /src/flags:
+/// ...`, `Invalid flags supplied to RegExp constructor '..'`); the engine's
+/// own reason for rejecting a pattern is not V8's, so the reason is the
+/// generic `Invalid pattern`.
+pub(crate) fn emit_regexp_compile_support(writer: &mut CodeWriter) {
+    let flags_error = error_payload_record_expr(
+        "SyntaxError",
+        "format!(\"Invalid flags supplied to RegExp constructor '{flags}'\")",
+    );
+    let pattern_error = error_payload_record_expr(
+        "SyntaxError",
+        "format!(\"Invalid regular expression: /{}/{}: {reason}\", regexp.source, regexp.flags)",
+    );
+    writer.blank_line();
+    writer.line(
+        "/// Whether a JavaScript pattern names two capture groups alike (a `SyntaxError` in V8).",
+    );
+    writer.line(
+        "fn smelt_regexp_has_duplicate_group_name(source: &str) -> bool { \
+         let chars: Vec<char> = source.chars().collect(); \
+         let mut names = ::std::collections::HashSet::new(); \
+         let (mut index, mut in_class) = (0, false); \
+         while index < chars.len() { \
+         match chars[index] { \
+         '\\\\' => { index += 2; continue; } \
+         '[' => in_class = true, \
+         ']' => in_class = false, \
+         '(' if !in_class && chars.get(index + 1) == Some(&'?') && chars.get(index + 2) == Some(&'<') && !matches!(chars.get(index + 3), Some('=' | '!')) => { \
+         let name: String = chars[index + 3..].iter().take_while(|ch| **ch != '>').collect(); \
+         if !names.insert(name) { return true; } } \
+         _ => {} } \
+         index += 1; } \
+         false }",
+    );
+    writer.blank_line();
+    writer.line(
+        "/// `new RegExp(pattern, flags)` over a run-time pattern, throwing a catchable `SyntaxError`.",
+    );
+    writer.line(format!(
+        "fn {REGEXP_COMPILE_FN}(source: String, flags: String) -> Result<SmeltRegExp, Box<dyn ::std::error::Error>> {{ \
+         let mut seen = ::std::collections::HashSet::new(); \
+         if !flags.chars().all(|flag| \"dgimsuvy\".contains(flag) && seen.insert(flag)) || (seen.contains(&'u') && seen.contains(&'v')) {{ return Err({THROW_FN}({flags_error})); }} \
+         let regexp = SmeltRegExp::new(source, flags); \
+         let reason = if smelt_regexp_has_duplicate_group_name(&regexp.source) {{ \"Duplicate capture group name\" }} else if regexp.try_compiled().is_none() {{ \"Invalid pattern\" }} else {{ return Ok(regexp) }}; \
+         Err({THROW_FN}({pattern_error})) }}"
+    ));
+}
+
 /// Emits the exception-payload ABI into the generated runtime prelude.
 ///
 /// Only called from inside the prelude's `needs_unknown` region: the payload is

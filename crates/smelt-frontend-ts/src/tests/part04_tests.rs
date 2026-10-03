@@ -5687,16 +5687,13 @@ const init = () => {
     Ok(())
 }
 
-/// `node:path` is a declared surface, so `path.join`/`path.resolve` block.
-///
-/// This test used to assert that these calls *lowered*. They did, to an empty
-/// string literal — a wrong value with no diagnostic. The stub is gone and the
-/// reason now names the module; `host_module_tests.rs` carries the rest of the
-/// coverage for this surface.
+/// `path.join`/`path.resolve` through a default import lower to the modeled
+/// host calls (they once lowered to an empty string literal, then blocked).
+/// `host_module_tests.rs` carries the rest of the coverage for this surface.
 #[test]
-fn node_path_join_and_resolve_static_calls_block() -> Result<(), String> {
+fn node_path_join_and_resolve_static_calls_lower() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
+    lower_ok(
         ts!(r"
 import path from 'path';
 
@@ -5706,8 +5703,14 @@ const resourcePath = path.resolve('/srv', '../resources/key.pub');
         &mut ctx,
     )?;
     ensure!(
-        errors.iter().any(|error| error.message.contains("node:path")),
-        "path.join/path.resolve must block on the declared node:path surface: {errors:?}",
+        any_expr_kind(&ctx, |kind| matches!(
+            kind,
+            ExprKind::HostModuleCall {
+                op: smelt_hir::HostModuleOp::Path(smelt_hir::PathOp::Resolve),
+                ..
+            }
+        )),
+        "path.resolve must lower to the node:path host call"
     );
     Ok(())
 }

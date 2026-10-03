@@ -13,6 +13,7 @@ use super::{
     UrlField,
     AbortSignalOp as AbortSignalOpKind,
     CryptoOp as CryptoOpKind,
+    HostModuleOp as HostModuleOpKind,
     FormDataOp as FormDataOpKind,
     UrlSearchParamsOp as UrlSearchParamsOpKind,
     Base64Op as Base64OpKind, BlobOp as BlobOpKind, ByteArrayOp as ByteArrayOpKind,
@@ -512,6 +513,42 @@ pub enum ExprKind {
         op: Base64OpKind,
         /// The string to encode or decode.
         operand: ExprId,
+    },
+    /// The ambient global object (`globalThis`, `global`), as ONE shared value.
+    ///
+    /// **Dynamic boundary.** JavaScript's global object is an open property bag
+    /// the program and its host both write to (`Object.assign(globalThis, {..})`,
+    /// `globalThis.x = v`, a host-injected `declare const X`), so its members
+    /// have no static shape a struct, union or generic could describe — which
+    /// names exist is decided by whatever ran before the read. Every reference
+    /// therefore evaluates to the same erased object (a thread-local
+    /// `SmeltObject` carrying the `__smelt_global_object` marker), and a typed
+    /// read of a member goes through a checked cast at the read site.
+    GlobalObject,
+    /// A call into a modeled Node host module (`path.join(..)`,
+    /// `createHash('sha256')`, `hash.update(..)`), resolved from the IMPORT the
+    /// callee names rather than from its spelling — see [`HostModuleOpKind`]
+    /// for each op's arguments and result type.
+    HostModuleCall {
+        /// Which host function this call runs.
+        op: HostModuleOpKind,
+        /// Operation arguments, in the op's documented order.
+        args: Vec<ExprId>,
+    },
+    /// `new RegExp(pattern, flags)` over a pattern that is NOT a source literal.
+    ///
+    /// A literal pattern (`/a+/`, `new RegExp('a+')`) is checked by the
+    /// frontend and stays an ordinary `New { class: RegExp }`. A pattern that is
+    /// only known at run time can be malformed, and JavaScript answers that
+    /// with a catchable `SyntaxError` AT CONSTRUCTION (`try { new RegExp(p) }
+    /// catch { .. }`), so this node reaches MIR as a call terminator with an
+    /// unwind edge — the same route `JSON.parse` takes — rather than an
+    /// infallible rvalue that could only panic at the first match.
+    RegExpCompile {
+        /// The pattern text, a `String`.
+        pattern: ExprId,
+        /// The flags text, a `String` (`""` when the source passed none).
+        flags: ExprId,
     },
     /// Construct a value of the concrete typed-array family.
     ///

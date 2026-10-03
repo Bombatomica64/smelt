@@ -595,7 +595,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 31] = [
+    const BOUNDARY_MARKERS: [&str; 33] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -747,6 +747,18 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // the classification; the helper call is the same boundary, now spelled
         // once. Proven in `erased_property_read_is_a_boundary` below.
         "smelt_get_unknown_field(",
+        // The ambient global object (`crates/smelt-codegen-rust/src/thrown.rs`,
+        // `emit_global_object_support`). JavaScript's global object is an open
+        // property bag that the program AND its host write to
+        // (`Object.assign(globalThis, {..})`, a host-injected
+        // `declare const X`), so which members it holds is a run-time fact of
+        // whatever ran before the read: no struct, generated union arm or
+        // scoped generic can describe it. Every reference is the one shared
+        // erased record, and `smelt_unknown_assign` is the in-place
+        // `Object.assign` onto it. Proven in
+        // `global_object_members_are_run_time_facts` below.
+        "smelt_global_object(",
+        "smelt_unknown_assign(",
         // An error record's `cause` slot. ES2022 types it `cause?: unknown`,
         // and that spelling is the canonical source-level dynamic boundary: the
         // value is whatever the program chose to attach to the error, so it is
@@ -1526,6 +1538,24 @@ mod tests {
             0,
             "a symbol-keyed member read is not an erasure site at all"
         );
+    }
+
+    /// The global object and the in-place `Object.assign` onto it are
+    /// boundaries: the members exist only because some earlier statement (or
+    /// the host) put them there, so a read's shape is a run-time fact.
+    ///
+    /// The contrast lines stay avoidable: an erased LOCAL declared next to the
+    /// global object, and a typed record merge, carry no boundary marker.
+    #[test]
+    fn global_object_members_are_run_time_facts() {
+        let read = "    let manifest: SmeltUnknown = smelt_get_unknown_field(&smelt_global_object(), \"__MANIFEST\").clone();";
+        assert_eq!(classify_line(read, false), Category::LegitimateBoundary);
+        let write = "    let _smelt_tmp_3: SmeltUnknown = { let mut smelt_target = smelt_global_object(); smelt_unknown_assign(&mut smelt_target, &SmeltUnknown::Object(SmeltObject::new(Vec::new()))); smelt_target };";
+        assert_eq!(classify_line(write, false), Category::LegitimateBoundary);
+        let helper = "fn smelt_global_object() -> SmeltUnknown { thread_local! { static SMELT_GLOBAL_OBJECT: SmeltObject = SmeltObject::new(Vec::new()); } SmeltUnknown::Object(SMELT_GLOBAL_OBJECT.with(Clone::clone)) }";
+        assert_eq!(classify_line(helper, false), Category::RuntimePrelude);
+        let erased_local = "    let mut _smelt_tmp_4: SmeltUnknown;";
+        assert_eq!(classify_line(erased_local, false), Category::AvoidableErasure);
     }
 
     /// Counting is non-overlapping and handles repeats on one line.

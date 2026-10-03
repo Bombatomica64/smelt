@@ -4,6 +4,7 @@ mod blob;
 mod buffer;
 mod abort_signal;
 mod crypto;
+mod host_modules;
 pub(in crate::lowering) mod call_dispatch;
 mod collections;
 mod fetch_types;
@@ -72,6 +73,25 @@ impl ModuleBuilder<'_> {
             ));
         }
 
+        // `Object.assign(globalThis, { .. })` writes INTO the one shared global
+        // object (a dynamic boundary, see `ExprKind::GlobalObject`), so there is
+        // no typed record to merge into: each source crosses the boundary and
+        // is copied onto the global object in place.
+        if let Some(target_expression) = target_arg.as_expression()
+            && self.expr_is_global_alias(target_expression)
+        {
+            let target = self.argument(target_arg, body)?;
+            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let mut sources = Vec::with_capacity(source_args.len());
+            for source_arg in source_args {
+                sources.push(self.argument(source_arg, body)?);
+            }
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DictAssign { target, sources },
+                ty: unknown_ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         if self.object_assign_callable_target_candidate(target_arg, body)
             && Self::object_assign_callable_sources_static(source_args)
         {
@@ -1941,6 +1961,24 @@ impl ModuleBuilder<'_> {
                 span: self.span(new_expr.span.start, new_expr.span.end),
             })
         };
+        // A pattern and flags that are both source literals are known when the
+        // program is written, exactly like a `/re/` literal, and keep the
+        // infallible construction. Anything computed is compiled at RUN time
+        // through the fallible builtin, so a malformed pattern throws the
+        // catchable `SyntaxError` JavaScript throws at construction.
+        let is_literal = |id: smelt_hir::ExprId| {
+            usize::try_from(id.0)
+                .ok()
+                .and_then(|index| body.exprs.get(index))
+                .is_some_and(|expr| matches!(expr.kind, ExprKind::Literal(Literal::String(_))))
+        };
+        if !is_literal(pattern) || !is_literal(flags) {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::RegExpCompile { pattern, flags },
+                ty: self.regexp_type(),
+                span: self.span(new_expr.span.start, new_expr.span.end),
+            }));
+        }
         Ok(body.push_expr(Expr {
             kind: ExprKind::New {
                 class: self.intern_type_name("RegExp"),

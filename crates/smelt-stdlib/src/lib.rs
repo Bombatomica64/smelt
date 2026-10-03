@@ -44,8 +44,9 @@ pub use globals::{
     global_namespace_member_is_namespace, is_error_class_name, is_javascript_global_builtin,
 };
 pub use host_modules::{
-    HOST_MODULES, HostExport, HostExportKind, HostModule, HostSurface, host_module,
-    host_module_dependencies, host_module_export, host_value_blocker, is_host_module,
+    HOST_MODULES, HostExport, HostExportKind, HostModule, HostModuleId, HostSurface, host_module,
+    host_module_dependencies, host_module_export, host_module_id, host_value_blocker,
+    is_host_module,
     unmodeled_package_use_blocks,
 };
 pub use host_object::{

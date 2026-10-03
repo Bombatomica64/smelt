@@ -564,6 +564,18 @@ impl ExprKind {
                 op,
                 operand: f(operand)?,
             },
+            Self::GlobalObject => Self::GlobalObject,
+            Self::HostModuleCall { op, args } => {
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::HostModuleCall { op, args: mapped }
+            }
+            Self::RegExpCompile { pattern, flags } => Self::RegExpCompile {
+                pattern: f(pattern)?,
+                flags: f(flags)?,
+            },
             Self::TypedArrayNew { class_name, args } => {
                 let mut mapped = Vec::with_capacity(args.len());
                 for arg in args {

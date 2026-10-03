@@ -847,6 +847,24 @@ impl FunctionEmitter<'_> {
             Callee::Builtin(BuiltinFn::DataViewAccess { write, element }) => {
                 self.data_view_access_text(*write, *element, args)
             }
+            Callee::Builtin(BuiltinFn::HostModule(op)) => self.host_module_call_text(*op, args),
+            Callee::Builtin(BuiltinFn::RegExpCompile) => {
+                let pattern = args.first().map_or_else(
+                    || Ok("String::new()".to_owned()),
+                    |arg| self.string_like_operand_text(arg, "RegExp pattern"),
+                )?;
+                let flags = args.get(1).map_or_else(
+                    || Ok("String::new()".to_owned()),
+                    |arg| self.string_like_operand_text(arg, "RegExp flags"),
+                )?;
+                // The trailing `?` is what marks the call fallible to
+                // `emit_throwing_call_terminator`, which binds the caught
+                // `SyntaxError` and jumps to the handler's catch block.
+                Ok(format!(
+                    "{}({pattern}, {flags})?",
+                    crate::thrown::REGEXP_COMPILE_FN
+                ))
+            }
             Callee::Builtin(BuiltinFn::UriDecode(op)) => {
                 let value = args.first().ok_or_else(|| {
                     EmitError::new("a URI decoder takes one string argument")
@@ -3067,6 +3085,16 @@ impl FunctionEmitter<'_> {
             // adapter wraps a typed helper, and only the throw crosses the
             // erased channel.
             Callee::Builtin(BuiltinFn::Base64(_)) => return self.type_id(Type::String),
+            // A run-time compile answers the concrete `SmeltRegExp`; only the
+            // `SyntaxError` crosses the erased channel.
+            Callee::Builtin(BuiltinFn::HostModule(op)) => {
+                return self.host_module_call_source_ty(*op);
+            }
+            Callee::Builtin(BuiltinFn::RegExpCompile) => {
+                return self.regexp_class_ty().ok_or_else(|| {
+                    EmitError::new("a RegExp compile call needs the RegExp class type interned")
+                });
+            }
             // A read answers a number; a write answers `undefined`. Both come
             // back from a typed adapter, so only the throw crosses the erased
             // channel — the same shape the decoders and the base64 pair have.

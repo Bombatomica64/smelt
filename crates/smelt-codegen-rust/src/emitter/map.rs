@@ -601,6 +601,33 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Emit `Object.assign(target, ...sources)` onto an ERASED target.
+    ///
+    /// The target is a shared erased object, so each source (erased at this
+    /// boundary) is copied onto the SAME object by the runtime helper and the
+    /// call evaluates to that object, as JavaScript's does. The frontend only
+    /// builds this shape for a target whose static type is `unknown` — the
+    /// global object above all — where there is no typed record to merge into.
+    fn unknown_assign_text(
+        &self,
+        target: &Operand,
+        sources: &[Operand],
+    ) -> Result<String, EmitError> {
+        let mut steps = Vec::with_capacity(sources.len());
+        for source in sources {
+            steps.push(format!(
+                "{}(&mut smelt_target, &{});",
+                crate::thrown::UNKNOWN_ASSIGN_FN,
+                self.erase(source)?
+            ));
+        }
+        Ok(format!(
+            "{{ let mut smelt_target = {}; {} smelt_target }}",
+            self.operand_text(target)?,
+            steps.join(" ")
+        ))
+    }
+
     /// Converts a dictionary assign operation to Rust text.
     pub(super) fn dict_assign_text(
         &self,
@@ -609,6 +636,9 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let target_ty = self.operand_ty(target)?;
+        if matches!(self.mir.types.get(target_ty), Some(Type::Unknown)) {
+            return self.unknown_assign_text(target, sources);
+        }
         if !matches!(self.mir.types.get(target_ty), Some(Type::Dict(_, _))) {
             return Err(EmitError::new("dict assign target must be a dict"));
         }

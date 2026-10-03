@@ -81,6 +81,14 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if needs_base64_runtime(mir) {
         deps.push(BackendDependency::Base64);
     }
+    // `createHash` names its algorithm at run time, so every hasher it can
+    // answer is linked: the SHA family and MD5.
+    if needs_node_hash_runtime(mir) {
+        if !deps.contains(&BackendDependency::Sha) {
+            deps.push(BackendDependency::Sha);
+        }
+        deps.push(BackendDependency::Md5);
+    }
     deps
 }
 
@@ -408,6 +416,9 @@ pub(crate) fn needs_byte_array_runtime(mir: &Mir) -> bool {
         // Both `crypto` members answer or fill a family value.
         || needs_crypto_random_values_runtime(mir)
         || needs_crypto_digest_runtime(mir)
+        // The raw `hash.digest()` answers a view, and an erased `update`
+        // argument reads its bytes through the view's boundary adapter.
+        || needs_node_hash_runtime(mir)
         || any_rvalue_needs(mir, |rvalue| {
             matches!(
                 rvalue,
@@ -793,6 +804,95 @@ pub(crate) fn needs_base64_runtime(mir: &Mir) -> bool {
     })
 }
 
+/// Returns true when generated Rust needs the shared global-object record.
+pub(crate) fn needs_global_object_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| matches!(rvalue, Rvalue::GlobalObject))
+}
+
+/// Returns true when some `Object.assign` writes onto an ERASED target.
+///
+/// The erased-target helper is emitted only then, so a crate whose every
+/// `Object.assign` merges typed records carries none of it.
+pub(crate) fn needs_unknown_assign_runtime(mir: &Mir) -> bool {
+    let erased_target = |locals: &[smelt_mir::LocalDecl], target: &smelt_mir::Operand| {
+        let (smelt_mir::Operand::Copy(smelt_mir::Place::Local(local))
+        | smelt_mir::Operand::Move(smelt_mir::Place::Local(local))) = target
+        else {
+            return false;
+        };
+        usize::try_from(local.0)
+            .ok()
+            .and_then(|index| locals.get(index))
+            .is_some_and(|decl| matches!(mir.types.get(decl.ty), Some(Type::Unknown)))
+    };
+    let scan = |locals: &[smelt_mir::LocalDecl], blocks: &[smelt_mir::BasicBlock]| {
+        blocks.iter().flat_map(|block| block.statements.iter()).any(|statement| {
+            matches!(
+                statement,
+                Statement::Assign { value: Rvalue::DictAssign { target, .. }, .. }
+                    if erased_target(locals, target)
+            )
+        })
+    };
+    mir.functions
+        .iter()
+        .any(|function| scan(&function.locals, &function.blocks))
+        || mir
+            .closures
+            .iter()
+            .any(|closure| scan(&closure.locals, &closure.blocks))
+}
+
+/// Returns true when generated Rust needs the `node:path` helpers.
+pub(crate) fn needs_node_path_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::HostModuleCall {
+                op: smelt_hir::HostModuleOp::Path(_),
+                ..
+            }
+        )
+    })
+}
+
+/// Returns true when generated Rust needs the `SmeltHash` runtime type.
+///
+/// Either a hasher call (a fallible `Terminator::Call`, so the rvalue scan
+/// cannot see it) or a mention of the `Hash` class in the type table (a value
+/// that is only stored or passed).
+pub(crate) fn needs_node_hash_runtime(mir: &Mir) -> bool {
+    terminators(mir).any(|terminator| {
+        matches!(
+            terminator,
+            Terminator::Call {
+                callee: Callee::Builtin(BuiltinFn::HostModule(smelt_hir::HostModuleOp::Hash(_))),
+                ..
+            }
+        )
+    }) || mir
+        .types
+        .all()
+        .iter()
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::NodeHash))
+}
+
+/// Returns true when generated Rust needs the fallible run-time RegExp compiler.
+///
+/// Keyed on the call, like [`needs_base64_runtime`]: a `new RegExp(p)` over a
+/// run-time pattern is a `Terminator::Call`, invisible to the rvalue scan.
+pub(crate) fn needs_regexp_compile_runtime(mir: &Mir) -> bool {
+    terminators(mir).any(|terminator| {
+        matches!(
+            terminator,
+            Terminator::Call {
+                callee: Callee::Builtin(BuiltinFn::RegExpCompile),
+                ..
+            }
+        )
+    })
+}
+
 /// Iterates over every block terminator in the program, functions and closures.
 fn terminators(mir: &Mir) -> impl Iterator<Item = &Terminator> {
     mir.functions
@@ -966,6 +1066,12 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
         // adapters would be emitted into a prelude block the program never
         // enters, and the generated crate would not compile (E0425).
         || needs_base64_runtime(mir)
+        // A run-time `new RegExp(p)` answers a concrete `SmeltRegExp`, and only
+        // its `SyntaxError` crosses the erased channel — the same case again.
+        || needs_regexp_compile_runtime(mir)
+        // Every hasher member can throw a branded `Error` record, and the raw
+        // digest crosses into a `Buffer` record — the same case again.
+        || needs_node_hash_runtime(mir)
         // A `DataView` accessor is the same case again, and the first stdlib
         // MEMBER in it: a read answers an `f64` and a write `undefined`, so a
         // program whose only fallible operation is `view.getInt16(0)` has no
