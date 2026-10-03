@@ -284,6 +284,21 @@ impl ModuleBuilder<'_> {
             {
                 return Ok(expr);
             }
+            // An ambient name the profile knows nothing about is a member the
+            // HOST put on the global object (`declare const __STATIC_CONTENT`),
+            // so it is read from the global object rather than fabricated as
+            // the declared type's default.
+            if self.ambient_value_declarations.contains(name)
+                && let Some(expr) = self.ambient_global_member_read(name, start, end, body)
+            {
+                return Ok(expr);
+            }
+            // A host-module data export imported by name (`import { sep }`).
+            if let Some(resolved) = self.host_module_identifier_export_path(name)
+                && let Some(expr) = self.host_module_value_expression(resolved, start, end, body)
+            {
+                return Ok(expr);
+            }
             if let Some(ty) = self.module_globals.get(name).copied() {
                 return self.module_global_expression(name, ty, start, end, body);
             }
@@ -1324,8 +1339,63 @@ impl ModuleBuilder<'_> {
             && ambient_globals::global_alias_object_presence(guard_name) == Some(true)
     }
 
-    /// Build the concrete marker-record expression used for bare global-object
-    /// values such as `globalThis`, `global`, and `self`.
+    /// Read an ambient `declare`d name as a member of the global object.
+    ///
+    /// Only for a name the profile has no model of
+    /// (`GlobalPresence::Unknown`), that is not itself a global alias or the
+    /// modeled `process`: those keep their modeled value. The read is
+    /// `globalThis.name` — **a dynamic boundary**: whatever the program or
+    /// host stored there is only known at run time, see
+    /// [`ExprKind::GlobalObject`] — narrowed to the DECLARED type by a checked
+    /// cast at the read, so the rest of the program keeps the declared static
+    /// type. A declared `unknown` stays erased.
+    pub(in crate::lowering) fn ambient_global_member_read(
+        &mut self,
+        name: &str,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        if smelt_stdlib::global_member_presence(name) != smelt_stdlib::GlobalPresence::Unknown
+            || matches!(name, "structuredClone" | "fetch" | "process")
+            || ambient_globals::is_global_alias_name(name)
+            || self.imports.is_global_object_alias(name)
+        {
+            return None;
+        }
+        let span = self.span(start, end);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let receiver = self.global_object_value_expression(start, end, body);
+        // A static member read off the erased global object, which the emitter
+        // renders as the canonical erased property read.
+        let field = self.intern_source_name(name);
+        let value = body.push_expr(Expr {
+            kind: ExprKind::Field { receiver, field },
+            ty: unknown_ty,
+            span,
+        });
+        let declared = self.module_globals.get(name).copied().unwrap_or(unknown_ty);
+        if matches!(self.ctx.krate.types.get(declared), Some(Type::Unknown)) {
+            return Some(value);
+        }
+        Some(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value,
+                target: declared,
+            },
+            ty: declared,
+            span,
+        }))
+    }
+
+    /// Build the value of a bare global-object reference (`globalThis`,
+    /// `global`, `self`).
+    ///
+    /// Every reference is the ONE shared global object
+    /// ([`ExprKind::GlobalObject`], a dynamic boundary documented there), not a
+    /// fresh marker record per read: a write through one reference
+    /// (`Object.assign(global, {..})`) must be visible through every other,
+    /// including the ambient `declare const` reads that resolve against it.
     pub(in crate::lowering) fn global_object_value_expression(
         &mut self,
         start: u32,
@@ -1333,34 +1403,9 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         let span = self.span(start, end);
-        let string_ty = self.ctx.krate.types.intern(Type::String);
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let dict_ty = self
-            .ctx
-            .krate
-            .types
-            .intern(Type::Dict(string_ty, unknown_ty));
-        let marker_key = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("__smelt_global_object".to_owned())),
-            ty: string_ty,
-            span,
-        });
-        let marker_value = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Bool(true)),
-            ty: bool_ty,
-            span,
-        });
-        let object = body.push_expr(Expr {
-            kind: ExprKind::DictLit(vec![(marker_key, marker_value)]),
-            ty: dict_ty,
-            span,
-        });
         body.push_expr(Expr {
-            kind: ExprKind::UnknownCast {
-                value: object,
-                target: unknown_ty,
-            },
+            kind: ExprKind::GlobalObject,
             ty: unknown_ty,
             span,
         })

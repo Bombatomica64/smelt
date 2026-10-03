@@ -91,6 +91,7 @@ mod number_format_prelude;
 mod blob_prelude;
 mod fetch_types_prelude;
 mod crypto_prelude;
+mod host_module_prelude;
 mod form_data_prelude;
 mod text_codec_prelude;
 mod typed_array_prelude;
@@ -651,6 +652,8 @@ fn emit_source_with_free_function_router(
     let needs_body = stdlib::needs_body_runtime(mir);
     let needs_text_encoder = stdlib::needs_text_encoder_runtime(mir);
     let needs_text_decoder = stdlib::needs_text_decoder_runtime(mir);
+    let needs_node_path = stdlib::needs_node_path_runtime(mir);
+    let needs_node_hash = stdlib::needs_node_hash_runtime(mir);
     let needs_byte_array = stdlib::needs_byte_array_runtime(mir);
     let needs_data_view = stdlib::needs_data_view_runtime(mir);
     let needs_blob = stdlib::needs_blob_runtime(mir);
@@ -887,6 +890,7 @@ fn emit_source_with_free_function_router(
     // declares (E0425), which is how a program whose only container was a
     // primitive-keyed `Set` (`SmeltPrimSet::new`) failed to compile.
     let mints_object_ids = needs_regex
+        || needs_node_hash
         || needs_headers
         || needs_url_search_params
         || needs_form_data
@@ -1561,6 +1565,7 @@ fn emit_source_with_free_function_router(
         // it through this registry.
         if needs_text_encoder
             || needs_text_decoder
+            || needs_node_hash
             || needs_event_emitter
             || needs_http_server
             || needs_headers
@@ -5051,6 +5056,19 @@ fn emit_source_with_free_function_router(
         if stdlib::needs_base64_runtime(mir) {
             thrown::emit_base64_support(&mut writer);
         }
+        // The global object is an erased record, so it lives in this block.
+        if stdlib::needs_global_object_runtime(mir) {
+            thrown::emit_global_object_support(&mut writer);
+        }
+        if stdlib::needs_unknown_assign_runtime(mir) {
+            thrown::emit_unknown_assign_support(&mut writer);
+        }
+        // The run-time RegExp compiler, same channel and same ABI dependency.
+        // It names `SmeltRegExp`, which the regex prelude emits because the
+        // call's result type is the interned `RegExp` class.
+        if stdlib::needs_regexp_compile_runtime(mir) {
+            thrown::emit_regexp_compile_support(&mut writer);
+        }
         writer.blank_line();
         writer.line("impl Eq for SmeltUnknown {}");
         writer.blank_line();
@@ -5962,6 +5980,14 @@ fn emit_source_with_free_function_router(
                 }),
             },
         );
+    }
+    // The `node:path` helpers are plain string functions; the hasher names
+    // `SmeltUint8Array` (its raw digest), so it follows the byte family.
+    if needs_node_path {
+        host_module_prelude::emit_path(&mut writer);
+    }
+    if needs_node_hash {
+        host_module_prelude::emit_hash(&mut writer);
     }
     if needs_event_emitter {
         event_emitter_prelude::emit(&mut writer);

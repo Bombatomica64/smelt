@@ -1941,6 +1941,14 @@ impl<'builder> ModuleBuilder<'builder> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        // A host-module function is recognized by the IMPORT its callee names
+        // (`path.join`, `posixJoin`, `createHash`), not by a member name, so it
+        // is asked first: the default-import receiver `path` is otherwise an
+        // erased module binding, which the erased-prototype rule below would
+        // hand to a run-time `join` lookup on an empty record.
+        if let Some(expr) = self.host_module_call(call, body)? {
+            return Ok(Some(expr));
+        }
         // Every handler below claims a callee by its member NAME. A receiver
         // whose static type declares that member as a method owns the call —
         // `bag.reduce(..)`, `stack.push(..)`, `this.join(..)` on a user class
@@ -2320,6 +2328,7 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::dispatch_form_data_method,
         Self::dispatch_text_encoder_method,
         Self::dispatch_text_decoder_method,
+        Self::dispatch_node_hash_method,
         Self::dispatch_blob_method,
         Self::dispatch_response_method,
         Self::dispatch_request_method,

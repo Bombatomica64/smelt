@@ -739,6 +739,120 @@ impl Base64Op {
     }
 }
 
+/// A call into a modeled Node host module (`node:path`, `node:crypto`'s hasher).
+///
+/// One node for every host-module function whose implementation is a runtime
+/// helper, grouped by module so the MIR and codegen plumbing is written once:
+/// a new function is a new variant here plus its helper, not a new node kind in
+/// every layer. Which members of a group can throw is recorded by
+/// [`Self::is_fallible`], which decides whether MIR lowers the call as an
+/// infallible rvalue or as a call terminator with an unwind edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HostModuleOp {
+    /// A `node:path` function (the POSIX flavour).
+    Path(PathOp),
+    /// A `node:crypto` `createHash` / `Hash` member.
+    Hash(HashOp),
+}
+
+impl HostModuleOp {
+    /// Whether this call can throw a catchable JavaScript error.
+    ///
+    /// The path functions are total over strings. Every hasher member can
+    /// throw: `createHash` rejects an unknown algorithm ("Digest method not
+    /// supported"), and `update`/`digest` on a finalized hash throw
+    /// `ERR_CRYPTO_HASH_FINALIZED` ("Digest already called").
+    #[must_use]
+    pub const fn is_fallible(self) -> bool {
+        matches!(self, Self::Hash(_))
+    }
+
+    /// The dotted source name both dumps print (`path.join`, `hash.update`).
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Path(op) => op.name(),
+            Self::Hash(op) => op.name(),
+        }
+    }
+}
+
+/// A `node:path` function on the POSIX profile.
+///
+/// Arguments, in HIR: `Join`/`Resolve` take ONE `List<String>` (their source
+/// rest parameter, spreads already packed); `Relative` takes `from, to`;
+/// `Basename` takes the path and an optional suffix; every other op takes the
+/// one path. `IsAbsolute` answers a `Bool`, every other op a `String`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PathOp {
+    /// `path.join(...segments)`.
+    Join,
+    /// `path.resolve(...segments)`, against the process working directory.
+    Resolve,
+    /// `path.normalize(path)`.
+    Normalize,
+    /// `path.dirname(path)`.
+    Dirname,
+    /// `path.basename(path, suffix?)`.
+    Basename,
+    /// `path.extname(path)`.
+    Extname,
+    /// `path.relative(from, to)`.
+    Relative,
+    /// `path.isAbsolute(path)`.
+    IsAbsolute,
+}
+
+impl PathOp {
+    /// The dotted source name both dumps print.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Join => "path.join",
+            Self::Resolve => "path.resolve",
+            Self::Normalize => "path.normalize",
+            Self::Dirname => "path.dirname",
+            Self::Basename => "path.basename",
+            Self::Extname => "path.extname",
+            Self::Relative => "path.relative",
+            Self::IsAbsolute => "path.isAbsolute",
+        }
+    }
+}
+
+/// A `node:crypto` hasher operation.
+///
+/// Arguments, in HIR: `Create` takes the algorithm name; `Update` takes the
+/// `Hash` receiver, the data and an optional input encoding; `DigestText`
+/// takes the receiver and the output encoding; `DigestBytes` takes the
+/// receiver alone. `Create`/`Update` answer the `Hash`, `DigestText` a
+/// `String` and `DigestBytes` the digest bytes as a `Uint8Array` (which the
+/// frontend wraps into the `Buffer` the source is typed with).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HashOp {
+    /// `createHash(algorithm)`.
+    Create,
+    /// `hash.update(data, inputEncoding?)`, answering the same hash.
+    Update,
+    /// `hash.digest(encoding)`: the digest as encoded text.
+    DigestText,
+    /// `hash.digest()`: the digest bytes.
+    DigestBytes,
+}
+
+impl HashOp {
+    /// The dotted source name both dumps print.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Create => "crypto.createHash",
+            Self::Update => "hash.update",
+            Self::DigestText => "hash.digest_text",
+            Self::DigestBytes => "hash.digest_bytes",
+        }
+    }
+}
+
 /// A directly lowered member of the concrete typed-array family.
 ///
 /// One enum for both halves of the family — the element VIEW

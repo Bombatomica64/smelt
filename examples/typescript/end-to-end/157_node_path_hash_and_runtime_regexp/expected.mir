@@ -1,0 +1,378 @@
+class UnsupportedPathError fields [Public name: String, Public message: String, Public stack: Optional<String>, Public cause: Unknown] constructor Some(FuncId(6)) methods []
+
+fn own_join (FuncId(0)) -> String
+  locals
+    %0 param first: String
+    %1 param second: String
+    %2 temp: String
+    %3 temp: String
+    %4 temp: String
+  bb0:
+    %2 = "" + copy %0
+    %3 = move %2 + "+"
+    %4 = move %3 + copy %1
+    return move %4
+
+fn hex_of (FuncId(1)) -> String
+  locals
+    %0 param algorithm: String
+    %1 param data: String
+    %2 user e: Unknown
+    %3 temp: Hash
+    %4 temp: Hash
+    %5 temp: String
+  bb0:
+    goto bb1
+  bb1:
+    %3 = call @crypto.createHash(copy %0) -> bb4 unwind bb3
+  bb2:
+    return none
+  bb3:
+    return "unsupported"
+  bb4:
+    %4 = call @hash.update(move %3, copy %1) -> bb5 unwind bb3
+  bb5:
+    %5 = call @hash.digest_text(move %4, "hex") -> bb6 unwind bb3
+  bb6:
+    return move %5
+
+fn digest_twice (FuncId(2)) -> String throws
+  locals
+    %0 user hash: Hash
+    %1 user first: String
+    %2 user e: Unknown
+    %3 temp: Hash
+    %4 temp: Hash
+    %5 temp: String
+    %6 temp: String
+    %7 temp: Float
+    %8 temp: String
+    %9 temp: String
+  bb0:
+    %3 = call @crypto.createHash("sha1") -> bb1
+  bb1:
+    %0 = move %3
+    %4 = call @hash.update(copy %0, "once") -> bb2
+  bb2:
+    %5 = call @hash.digest_text(copy %0, "hex") -> bb3
+  bb3:
+    %1 = move %5
+    goto bb4
+  bb4:
+    %6 = call @hash.digest_text(move %0, "hex") -> bb7 unwind bb6
+  bb5:
+    return none
+  bb6:
+    %7 = len move %1
+    %8 = "" + move %7
+    %9 = move %8 + " then threw"
+    return move %9
+  bb7:
+    return "no throw"
+
+fn compile_route (FuncId(3)) -> RegExp throws
+  locals
+    %0 param route: String
+    %1 temp: String
+    %2 temp: String
+    %3 temp: RegExp
+    %4 temp: UnsupportedPathError
+  bb0:
+    goto bb1
+  bb1:
+    %1 = "^" + copy %0
+    %2 = move %1 + "$"
+    %3 = call @regexp_compile(move %2, "") -> bb4 unwind bb3
+  bb2:
+    return none
+  bb3:
+    %4 = call fn6() -> bb5
+  bb4:
+    return move %3
+  bb5:
+    throw move %4
+
+fn describe_compile (FuncId(4)) -> String
+  locals
+    %0 param route: String
+    %1 user compiled: RegExp
+    %2 user e: Unknown
+    %3 temp: RegExp
+    %4 temp: String
+    %5 temp: String
+    %6 temp: Bool
+    %7 temp: String
+    %8 temp: Bool
+    %9 temp: String
+  bb0:
+    goto bb1
+  bb1:
+    %3 = call fn3(copy %0) -> bb4 unwind bb3
+  bb2:
+    return none
+  bb3:
+    %8 = instanceof move %2, class33
+    %9 = "rejected " + move %8
+    return move %9
+  bb4:
+    %1 = move %3
+    %4 = "" + copy %1.field42
+    %5 = move %4 + " "
+    %6 = regex_test move %1 "/7/8"
+    %7 = move %5 + move %6
+    return move %7
+
+fn try_flags (FuncId(5)) -> String
+  locals
+    %0 param flags: String
+    %1 temp: RegExp
+  bb0:
+    goto bb1
+  bb1:
+    %1 = call @regexp_compile("a", copy %0) -> bb4 unwind bb3
+  bb2:
+    return none
+  bb3:
+    return "bad flags"
+  bb4:
+    return copy %1.field26
+
+fn new (FuncId(6)) -> UnsupportedPathError
+  locals
+    %0 user this: UnsupportedPathError
+    %1 param message: Optional<String>
+    %2 temp: String
+  bb0:
+    %0 = struct33 {}
+    %0.field37 = "Error"
+    %2 = copy %1 ?? ""
+    %0.field36 = move %2
+    %0.field38 = ""
+    return move %0
+
+fn main (FuncId(7)) -> None throws
+  locals
+    %0 user segments: List<String>
+    %1 user literal: RegExp
+    %2 temp: List<String>
+    %3 temp: List<String>
+    %4 temp: String
+    %5 temp: None
+    %6 temp: String
+    %7 temp: List<String>
+    %8 temp: String
+    %9 temp: None
+    %10 temp: List<String>
+    %11 temp: String
+    %12 temp: List<String>
+    %13 temp: String
+    %14 temp: List<String>
+    %15 temp: String
+    %16 temp: List<String>
+    %17 temp: String
+    %18 temp: None
+    %19 temp: List<String>
+    %20 temp: String
+    %21 temp: List<String>
+    %22 temp: String
+    %23 temp: None
+    %24 temp: String
+    %25 temp: String
+    %26 temp: String
+    %27 temp: String
+    %28 temp: None
+    %29 temp: String
+    %30 temp: String
+    %31 temp: String
+    %32 temp: String
+    %33 temp: None
+    %34 temp: String
+    %35 temp: String
+    %36 temp: String
+    %37 temp: None
+    %38 temp: String
+    %39 temp: String
+    %40 temp: String
+    %41 temp: String
+    %42 temp: None
+    %43 temp: String
+    %44 temp: String
+    %45 temp: String
+    %46 temp: Bool
+    %47 temp: None
+    %48 temp: Bool
+    %49 temp: Bool
+    %50 temp: None
+    %51 temp: String
+    %52 temp: None
+    %53 temp: Hash
+    %54 temp: Hash
+    %55 temp: String
+    %56 temp: None
+    %57 temp: Hash
+    %58 temp: Hash
+    %59 temp: Hash
+    %60 temp: String
+    %61 temp: None
+    %62 temp: Hash
+    %63 temp: Hash
+    %64 temp: String
+    %65 temp: None
+    %66 temp: Hash
+    %67 temp: Uint8Array
+    %68 temp: Hash
+    %69 temp: String
+    %70 temp: None
+    %71 temp: String
+    %72 temp: String
+    %73 temp: None
+    %74 temp: String
+    %75 temp: None
+    %76 temp: String
+    %77 temp: None
+    %78 temp: String
+    %79 temp: None
+    %80 temp: String
+    %81 temp: None
+    %82 temp: String
+    %83 temp: String
+    %84 temp: String
+    %85 temp: None
+    %86 temp: RegExp
+    %87 temp: None
+  bb0:
+    %2 = ["public", "sub/", "../file.html"]
+    %0 = move %2
+    %3 = ["/home/app", "static//main.html"]
+    %4 = path.join move %3
+    %5 = call @console_log(move %4) -> bb1
+  bb1:
+    %6 = path.join move %0
+    %7 = ["a/b", "..", "c"]
+    %8 = path.join move %7
+    %9 = call @console_log(move %6, move %8) -> bb2
+  bb2:
+    %10 = []
+    %11 = path.join move %10
+    %12 = [""]
+    %13 = path.join move %12
+    %14 = ["public", ""]
+    %15 = path.join move %14
+    %16 = ["./x", "/abs"]
+    %17 = path.join move %16
+    %18 = call @console_log(move %11, move %13, move %15, move %17) -> bb3
+  bb3:
+    %19 = ["/a/b", "./c", "../d"]
+    %20 = path.resolve move %19
+    %21 = ["/x", "/y", "z"]
+    %22 = path.resolve move %21
+    %23 = call @console_log(move %20, move %22) -> bb4
+  bb4:
+    %24 = path.normalize "/a//b/../c/."
+    %25 = path.normalize "a/.."
+    %26 = path.normalize ""
+    %27 = path.normalize "x/"
+    %28 = call @console_log(move %24, move %25, move %26, move %27) -> bb5
+  bb5:
+    %29 = path.dirname "/a/b/c.txt"
+    %30 = path.dirname "a"
+    %31 = path.dirname "/"
+    %32 = path.dirname "//x"
+    %33 = call @console_log(move %29, move %30, move %31, move %32) -> bb6
+  bb6:
+    %34 = path.basename "/a/b/c.txt"
+    %35 = path.basename "/a/b/c.txt" ".txt"
+    %36 = path.basename "a/b/"
+    %37 = call @console_log(move %34, move %35, move %36) -> bb7
+  bb7:
+    %38 = path.extname "x.tar.gz"
+    %39 = path.extname ".hidden"
+    %40 = path.extname "a."
+    %41 = path.extname "noext"
+    %42 = call @console_log(move %38, move %39, move %40, move %41) -> bb8
+  bb8:
+    %43 = path.relative "/a/b/c" "/a/d"
+    %44 = path.relative "/a" "/a/b/c"
+    %45 = path.relative "/same" "/same"
+    %46 = move %45 == ""
+    %47 = call @console_log(move %43, move %44, move %46) -> bb9
+  bb9:
+    %48 = path.isAbsolute "/x"
+    %49 = path.isAbsolute "x"
+    %50 = call @console_log(move %48, move %49, "/", "/") -> bb10
+  bb10:
+    %51 = call fn0("a", "b") -> bb11
+  bb11:
+    %52 = call @console_log(move %51) -> bb12
+  bb12:
+    %53 = call @crypto.createHash("sha256") -> bb13
+  bb13:
+    %54 = call @hash.update(move %53, "hello") -> bb14
+  bb14:
+    %55 = call @hash.digest_text(move %54, "hex") -> bb15
+  bb15:
+    %56 = call @console_log(move %55) -> bb16
+  bb16:
+    %57 = call @crypto.createHash("SHA1") -> bb17
+  bb17:
+    %58 = call @hash.update(move %57, "hel") -> bb18
+  bb18:
+    %59 = call @hash.update(move %58, "lo") -> bb19
+  bb19:
+    %60 = call @hash.digest_text(move %59, "base64") -> bb20
+  bb20:
+    %61 = call @console_log(move %60) -> bb21
+  bb21:
+    %62 = call @crypto.createHash("md5") -> bb22
+  bb22:
+    %63 = call @hash.update(move %62, "68656c6c6f", "hex") -> bb23
+  bb23:
+    %64 = call @hash.digest_text(move %63, "hex") -> bb24
+  bb24:
+    %65 = call @console_log(move %64) -> bb25
+  bb25:
+    %66 = call @crypto.createHash("sha512") -> bb26
+  bb26:
+    %67 = typed_array_new Uint8Array 3.0
+    %68 = call @hash.update(move %66, move %67) -> bb27
+  bb27:
+    %69 = call @hash.digest_text(move %68, "base64url") -> bb28
+  bb28:
+    %70 = call @console_log(move %69) -> bb29
+  bb29:
+    %71 = call fn1("sha384", "") -> bb30
+  bb30:
+    %72 = call fn1("bogus", "x") -> bb31
+  bb31:
+    %73 = call @console_log(move %71, move %72) -> bb32
+  bb32:
+    %74 = call fn2() -> bb33
+  bb33:
+    %75 = call @console_log(move %74) -> bb34
+  bb34:
+    %76 = call fn4("/(?<id>[^/]+)/(?<rest>[^/]+)") -> bb35
+  bb35:
+    %77 = call @console_log(move %76) -> bb36
+  bb36:
+    %78 = call fn4("/(?<id>[^/]+)/(?<id>[^/]+)") -> bb37
+  bb37:
+    %79 = call @console_log(move %78) -> bb38
+  bb38:
+    %80 = call fn4("/(unclosed") -> bb39
+  bb39:
+    %81 = call @console_log(move %80) -> bb40
+  bb40:
+    %82 = call fn5("gi") -> bb41
+  bb41:
+    %83 = call fn5("gg") -> bb42
+  bb42:
+    %84 = call fn5("q") -> bb43
+  bb43:
+    %85 = call @console_log(move %82, move %83, move %84) -> bb44
+  bb44:
+    %86 = external_new14("x+", "g")
+    %1 = move %86
+    %87 = call @console_log(copy %1.field42, copy %1.field26) -> bb45
+  bb45:
+    return none
+

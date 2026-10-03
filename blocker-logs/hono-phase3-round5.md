@@ -562,3 +562,65 @@ tests. Minimal: `const app = new Hono(); app.get('/a', (c) => c.text('root'));
 * An erased generic `T` return through a class field slot (`SmeltList<SmeltUnknown>` vs
   `SmeltList<T>`) and `Router<T>` projections at a concrete `T` (union arm mismatch) — both
   pre-existing, seen while reducing fixtures.
+
+# Round 10 — the four host singletons (`node:path`, `createHash`, runtime `RegExp`, global object)
+
+Baseline: main @ 6c66003 (#272), rebuilt locally: **315 passed / 12 failed** (327).
+End: **318 passed / 9 failed**. Previously passing now failing: **0**.
+Gained: `crypto should create hash for buffer`, `defaultJoin … behave like path.posix.join`,
+`pattern duplicate param name > self`.
+
+## Rules
+
+* **Host-module functions are resolved from the import, not the spelling.** A callee whose
+  root identifier is an import from a modeled host module (`smelt_stdlib::host_module_id`)
+  resolves to `(module, export path)`: default/namespace imports are the module, a named
+  import starts at its EXPORTED name (`join as posixJoin` → `join`), and `posix` segments of
+  `node:path` are dropped (on the POSIX profile `path.posix === path`). Only a local
+  binding shadows. `node:path`, `path`, `node:path/posix`, `path/posix` are one
+  `HostModuleId::Path`. A bare specifier naming a modeled host module never resolves to a
+  sibling source file (`crypto` next to Hono's own `utils/crypto.ts`).
+* **`node:path` (POSIX)**: `join`/`resolve`/`normalize`/`dirname`/`basename`/`extname`/
+  `relative`/`isAbsolute` are a line-for-line port of Node's `lib/path.js`
+  (`host_module_prelude.rs`); `sep`/`delimiter` fold to `/`/`:`. Differentially tested
+  against Node on 25 join cases, 16 single-path cases × 7 functions, 7 `relative` pairs and
+  a 256-pair cross product of 16 atoms over all nine functions (identical digest).
+  `parse`/`format`/`win32` stay declared blockers.
+* **`createHash`** answers a concrete `Hash` (`SmeltHash`: shared state, so `update` chains on
+  one hasher) over `md-5`/`sha1`/`sha2` (md5, sha1, sha224/256/384/512, sha512-224/256,
+  `sha-256`/`RSA-SHA256` aliases); `update(string, enc?)` decodes utf8/latin1/binary/ascii/
+  utf16le/hex/base64(url); bytes from any byte-backed value; `digest(enc)` hex/base64/
+  base64url/latin1/ascii/utf8/utf16le; `digest()` a `Buffer`. Unknown algorithm, a second
+  `digest`/`update` and odd-length hex throw Node's catchable errors (fallible
+  `BuiltinFn::HostModule`).
+* **Runtime `new RegExp(p, f)`**: a pattern or flags that are not both source literals lower
+  to `ExprKind::RegExpCompile` → fallible `BuiltinFn::RegExpCompile`, which validates the
+  flags (`dgimsuvy`, no repeats, not `u`+`v`), rejects duplicate capture-group names (V8)
+  and compiles through `SmeltRegExp::try_compiled`; failure is a catchable `SyntaxError` at
+  construction. Literal patterns keep the infallible `New`.
+* **The global object is one shared object** (`ExprKind::GlobalObject` → per-thread
+  `smelt_global_object()`), replacing a fresh marker record per read.
+  `Object.assign(globalThis|global, ..)` writes in place (`smelt_unknown_assign`); an ambient
+  `declare const X` the profile does not model reads `globalThis.X` through a checked cast to
+  its declared type. Both are classified legitimate-boundary
+  (`global_object_members_are_run_time_facts`). Top-level expression statements of a test
+  module replay in each test's setup, like statements in a `describe` body.
+
+## Open
+
+* cloudflare KV `getContentFromKVAsset` still fails, now one step later: the globals are
+  read correctly, but `content as unknown as ReadableStream` over a STRING value casts into
+  `SmeltBody`, which has no erased recovery, so the cast fabricates an empty default body.
+  Needs a `SmeltBody` boundary adapter that keeps the value it was narrowed from (so
+  re-erasure is identity) — a fetch-types change of its own.
+* `Buffer.prototype.toString('hex'|'base64')` answers the comma-joined bytes (pre-existing;
+  affects `createHash(..).digest().toString('hex')`).
+
+## Gates
+
+* `cargo test --lib` stdlib/hir/mir/frontend-ts/codegen-rust: 9 / 55 / 65 / 1157 / 1138 pass;
+  unknown_report tests 32 pass; `hir_cli_cross_language_tests` 21/21.
+* New e2e `157_node_path_hash_and_runtime_regexp` (stdout from Node). No other golden changed.
+* examples avoidable **0 → 0**; es-toolkit avoidable **25,512 → 25,424** (−88, baseline
+  re-snapshotted; main's binary measures 25,512 on the same checkout).
+* radash `384 passed; 3 failed`; remeda `1787 passed; 2 failed`.

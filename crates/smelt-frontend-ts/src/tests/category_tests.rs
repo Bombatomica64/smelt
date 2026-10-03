@@ -351,7 +351,7 @@ export function readGlobal(): unknown {
     ensure!(
         body.exprs.iter().any(|expr| matches!(
             &expr.kind,
-            ExprKind::Literal(Literal::String(text)) if text == "__smelt_global_object"
+            ExprKind::GlobalObject
         )),
         "expected bare `globalThis` value to carry the `__smelt_global_object` marker",
     );
@@ -390,7 +390,7 @@ export function readGlobal(): unknown {
     ensure!(
         body.exprs.iter().any(|expr| matches!(
             &expr.kind,
-            ExprKind::Literal(Literal::String(text)) if text == "__smelt_global_object"
+            ExprKind::GlobalObject
         )),
         "expected the global-detection chain to fold to the `__smelt_global_object` value",
     );
@@ -443,7 +443,7 @@ export function isBuffer(x: unknown): boolean {
     ensure!(
         !body.exprs.iter().any(|expr| matches!(
             &expr.kind,
-            ExprKind::Literal(Literal::String(text)) if text == "__smelt_global_object"
+            ExprKind::GlobalObject
         )),
         "the alias must resolve the member statically, not materialize the global object",
     );
@@ -556,7 +556,7 @@ fn ordinary_or_fallback_is_not_folded_to_global() -> Result<(), String> {
     ensure!(
         !body.exprs.iter().any(|expr| matches!(
             &expr.kind,
-            ExprKind::Literal(Literal::String(text)) if text == "__smelt_global_object"
+            ExprKind::GlobalObject
         )),
         "an ordinary `||` fallback must not fold to the global-object value",
     );

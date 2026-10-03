@@ -674,6 +674,60 @@ impl LoweringCtx<'_> {
                     )?
                 }
             }
+            ExprKind::GlobalObject => {
+                self.assign_temp(expr.ty, expr.span, Rvalue::GlobalObject)?
+            }
+            ExprKind::HostModuleCall { op, args } => {
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                if op.is_fallible() {
+                    // A hasher member can throw (unknown algorithm, digest
+                    // already called), so it needs the call terminator's
+                    // unwind edge for the reason `JSON.parse` does. The path
+                    // functions are total and stay rvalues.
+                    let dest = self.push_temp(expr.ty, expr.span);
+                    let target = self.function.push_block(expr.span);
+                    self.set_terminator(Terminator::Call {
+                        callee: Callee::Builtin(BuiltinFn::HostModule(*op)),
+                        args: arg_operands,
+                        dest,
+                        target,
+                        unwind: self.current_exception_handler(),
+                    })?;
+                    self.current_block = target;
+                    Operand::Copy(Place::Local(dest))
+                } else {
+                    self.assign_temp(
+                        expr.ty,
+                        expr.span,
+                        Rvalue::HostModuleCall {
+                            op: *op,
+                            args: arg_operands,
+                        },
+                    )?
+                }
+            }
+            ExprKind::RegExpCompile { pattern, flags } => {
+                // A run-time pattern can be malformed, and JavaScript throws the
+                // `SyntaxError` at construction, where a `try` the source wrote
+                // around `new RegExp(p)` catches it. Only a call terminator
+                // carries that unwind edge (see the `JsonParse` arm below).
+                let lowered_pattern = self.lower_expr(*pattern)?;
+                let lowered_flags = self.lower_expr(*flags)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                let target = self.function.push_block(expr.span);
+                self.set_terminator(Terminator::Call {
+                    callee: Callee::Builtin(BuiltinFn::RegExpCompile),
+                    args: vec![lowered_pattern, lowered_flags],
+                    dest,
+                    target,
+                    unwind: self.current_exception_handler(),
+                })?;
+                self.current_block = target;
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::Base64Transcode { op, operand } => {
                 // Both directions throw, so both need the call terminator's
                 // unwind edge — the same reason `JSON.parse` and the URI

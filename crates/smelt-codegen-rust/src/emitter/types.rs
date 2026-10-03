@@ -1022,6 +1022,27 @@ impl FunctionEmitter<'_> {
         })
     }
 
+    /// Find the interned stdlib `RegExp` class type, if the program uses it.
+    ///
+    /// The frontend interns it whenever it types a `RegExp` value, so a
+    /// run-time `new RegExp(p)` call (whose builtin callee carries no type of
+    /// its own) can name its result type through this lookup.
+    pub(super) fn regexp_class_ty(&self) -> Option<TypeId> {
+        self.mir
+            .types
+            .all()
+            .iter()
+            .position(|ty| {
+                matches!(
+                    ty,
+                    Type::Class { name, args } if args.is_empty()
+                        && self.is_regexp_class_symbol(*name) == Ok(true)
+                )
+            })
+            .and_then(|index| compact_index(index, "type index does not fit u32").ok())
+            .map(TypeId)
+    }
+
     /// Find the interned `__SmeltMatchGroups` class type, if the program uses it.
     ///
     /// The frontend interns this synthetic class whenever it types a `.groups`
@@ -1534,6 +1555,7 @@ impl FunctionEmitter<'_> {
                 if let Some(codec_type) = match self.stdlib_class_of_symbol(*name)? {
                     Some(smelt_stdlib::StdlibClass::TextEncoder) => Some("SmeltTextEncoder"),
                     Some(smelt_stdlib::StdlibClass::TextDecoder) => Some("SmeltTextDecoder"),
+                    Some(smelt_stdlib::StdlibClass::NodeHash) => Some("SmeltHash"),
                     // The whole typed-array family is ONE Rust type: the
                     // element kind is a runtime field of the value, not part of
                     // its static identity, so all eleven source spellings and
@@ -1891,6 +1913,13 @@ impl FunctionEmitter<'_> {
                     == Some(smelt_stdlib::StdlibClass::TextDecoder) =>
             {
                 Ok("SmeltTextDecoder::new()".to_owned())
+            }
+            // A slot assigned before it is read; see `SmeltHash`'s `Default`.
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::NodeHash) =>
+            {
+                Ok("SmeltHash::default()".to_owned())
             }
             // An empty byte view, which is what `new Uint8Array(0)` is: a view
             // with no bytes is a value the type can hold, unlike a server

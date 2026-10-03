@@ -3308,12 +3308,13 @@ const selected: unknown = value ? value : fallback;
 }
 
 #[test]
-fn wraps_concrete_records_when_casting_to_erased_intersection_aliases() {
-    // An AMBIENT binding has no initializer, so its read is the erased record
-    // cast to the intersection alias; that cast must wrap the concrete record.
-    // (A binding WITH an initializer, `let defaultOptions: DefaultOptions =
-    // {}`, is a module slot holding its one evaluated value instead — see
-    // `module_bound_intersection_alias_reads_its_slot`.)
+fn ambient_binding_reads_the_global_object_member() {
+    // An AMBIENT binding has no initializer: the HOST provides it, as a member
+    // of the global object. Its read is that member (a dynamic boundary), not
+    // a fabricated default record of the declared type — which is what this
+    // test used to pin. (A binding WITH an initializer, `let defaultOptions:
+    // DefaultOptions = {}`, is a module slot holding its one evaluated value
+    // instead — see `module_bound_intersection_alias_reads_its_slot`.)
     let source = source_for(
         r"
 type A = { locale?: unknown };
@@ -3328,12 +3329,13 @@ export function getDefaultOptions(): DefaultOptions {
 ",
     );
 
+    // The member read off the ONE global object, with no default record
+    // fabricated in between.
     assert!(
-        source.contains("let _smelt_tmp_1: SmeltUnknown = SmeltUnknown::Object"),
-        "{source}"
-    );
-    assert!(
-        !source.contains("let _smelt_tmp_1: SmeltUnknown = _smelt_tmp_0.clone();"),
+        source.contains("let _smelt_tmp_0: SmeltUnknown = smelt_global_object();")
+            && source.contains(
+                "let _smelt_tmp_1: SmeltUnknown = smelt_get_unknown_field(&_smelt_tmp_0.clone(), \"defaultOptions\").clone();"
+            ),
         "{source}"
     );
 }
@@ -5230,7 +5232,7 @@ export function cloneRe(obj: unknown): RegExp {
     );
 
     assert!(
-        source.contains("SmeltRegExp::new(reg_exp.source.clone().clone(), reg_exp.flags.clone().clone())"),
+        source.contains("smelt_regexp_compile(reg_exp.source.clone().clone(), reg_exp.flags.clone().clone())?"),
         "{source}"
     );
     // The erased stringify coercion must not be applied to the concrete

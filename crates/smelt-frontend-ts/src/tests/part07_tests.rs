@@ -408,16 +408,12 @@ export function dyn(key: string): unknown {
         kind,
         ExprKind::Index { .. }
     )));
-    // The receiver is the global-object marker value, not a fabricated empty
-    // record: its `__smelt_global_object` key is what the runtime property
+    // The receiver is the ONE shared global object, not a fabricated empty
+    // record: its `__smelt_global_object` marker is what the runtime property
     // resolution keys off.
     ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
-        ExprKind::Literal(Literal::String(text)) if text == "__smelt_global_object"
-    )));
-    ensure!(crate_has_expr(&ctx, |kind| matches!(
-        kind,
-        ExprKind::UnknownCast { .. }
+        ExprKind::GlobalObject
     )));
     Ok(())
 }

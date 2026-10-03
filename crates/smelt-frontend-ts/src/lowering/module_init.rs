@@ -720,6 +720,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
                 continue;
             }
+            // Any other top-level expression statement of a test module is part
+            // of the module evaluation every test runs after
+            // (`Object.assign(global, { .. })` installing a host mock), so it
+            // replays in each test's setup in source order beside the
+            // top-level bindings — exactly as statements inside a `describe`
+            // body already do. It is still lowered into the module body below.
+            if test_module && matches!(statement, Statement::ExpressionStatement(_)) {
+                top_level_test_setup.push(statement);
+            }
             if let Statement::ExportDeclaration(export) = statement
                 && let decl = &export.declaration
             {
@@ -3619,6 +3628,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     /// Return candidate module-export keys for a TypeScript source specifier.
     pub(super) fn resolved_module_export_keys(&self, source: &str) -> Vec<String> {
+        // A bare specifier that names a modeled host module (`crypto`,
+        // `path`) IS that module: Node resolves a builtin before any file, so
+        // it must never be joined onto the importer's directory, where it
+        // would pick a sibling source file of the same stem (Hono's
+        // `utils/crypto.test.ts` imports `createHash` from `crypto` next to
+        // its own `utils/crypto.ts`).
+        if !source.starts_with('.')
+            && !Path::new(source).is_absolute()
+            && smelt_stdlib::is_host_module(source)
+        {
+            return Vec::new();
+        }
         let mut keys = Vec::new();
         Self::push_module_export_key(&mut keys, source);
         let source_path = Path::new(source);

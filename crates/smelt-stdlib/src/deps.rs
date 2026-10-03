@@ -62,6 +62,13 @@ pub enum BackendDependency {
     /// gets subtly wrong, and `base64` is the crate a Rust team would reach
     /// for.
     Base64,
+    /// `md-5` for generated `node:crypto` `createHash("md5")`.
+    ///
+    /// Separate from [`Self::Sha`] because `WebCrypto` never names MD5; only
+    /// Node's `createHash` does, so a `subtle.digest` program must not carry it.
+    /// It is the `RustCrypto` crate beside `sha1`/`sha2`, sharing their `digest`
+    /// traits, so one `Digest` import drives all three.
+    Md5,
 }
 
 impl BackendDependency {
@@ -100,6 +107,7 @@ impl BackendDependency {
             Self::GetRandom => "getrandom = \"0.3\"\n",
             Self::Sha => "sha1 = \"0.10\"\nsha2 = \"0.10\"\n",
             Self::Base64 => "base64 = \"0.22\"\n",
+            Self::Md5 => "md-5 = \"0.10\"\n",
         }
     }
 }

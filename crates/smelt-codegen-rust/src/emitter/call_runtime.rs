@@ -1269,6 +1269,10 @@ impl FunctionEmitter<'_> {
                 self.abort_signal_op_text(*op, args, dest_ty)
             }
             Rvalue::CryptoOp { op, args } => self.crypto_op_text(*op, args, dest_ty),
+            Rvalue::HostModuleCall { op, args } => self.host_module_rvalue_text(*op, args),
+            // The ONE global object: every reference is a handle on the same
+            // shared record (see `emit_global_object_support`).
+            Rvalue::GlobalObject => Ok(format!("{}()", crate::thrown::GLOBAL_OBJECT_FN)),
             Rvalue::FormDataNew => Ok("SmeltFormData::new()".to_owned()),
             Rvalue::FormDataOp { op, form, args } => {
                 self.form_data_op_text(*op, form, args, dest_ty)

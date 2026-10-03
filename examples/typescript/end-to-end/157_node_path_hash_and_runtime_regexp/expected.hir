@@ -1,0 +1,257 @@
+module examples/typescript/end-to-end/157_node_path_hash_and_runtime_regexp/input.ts (ModuleId(0))
+  body BodyId(7)
+  items
+    fn own_join owner Module
+    fn hex_of owner Module
+    fn digest_twice owner Module
+    class UnsupportedPathError fields [Public name: String, Public message: String, Public stack: Optional<String>, Public cause: Unknown] constructor Some(ItemId(6)) methods [] implements []
+    fn compile_route owner Module
+    fn describe_compile owner Module
+    fn try_flags owner Module
+  locals
+    %0 const segments: List<String>
+    %1 const literal: RegExp
+  exprs
+    #0: String = "public"
+    #1: String = "sub/"
+    #2: String = "../file.html"
+    #3: List<String> = [#0, #1, #2]
+    #4: String = "/home/app"
+    #5: String = "static//main.html"
+    #6: List<String> = [#4, #5]
+    #7: String = path.join #6
+    #8: None = @8(console_log)
+    #9: None = call #8(#7)
+    #10: List<String> = %0
+    #11: String = path.join #10
+    #12: String = "a/b"
+    #13: String = ".."
+    #14: String = "c"
+    #15: List<String> = [#12, #13, #14]
+    #16: String = path.join #15
+    #17: None = @9(console_log)
+    #18: None = call #17(#11, #16)
+    #19: List<String> = []
+    #20: String = path.join #19
+    #21: String = ""
+    #22: List<String> = [#21]
+    #23: String = path.join #22
+    #24: String = "public"
+    #25: String = ""
+    #26: List<String> = [#24, #25]
+    #27: String = path.join #26
+    #28: String = "./x"
+    #29: String = "/abs"
+    #30: List<String> = [#28, #29]
+    #31: String = path.join #30
+    #32: None = @10(console_log)
+    #33: None = call #32(#20, #23, #27, #31)
+    #34: String = "/a/b"
+    #35: String = "./c"
+    #36: String = "../d"
+    #37: List<String> = [#34, #35, #36]
+    #38: String = path.resolve #37
+    #39: String = "/x"
+    #40: String = "/y"
+    #41: String = "z"
+    #42: List<String> = [#39, #40, #41]
+    #43: String = path.resolve #42
+    #44: None = @11(console_log)
+    #45: None = call #44(#38, #43)
+    #46: String = "/a//b/../c/."
+    #47: String = path.normalize #46
+    #48: String = "a/.."
+    #49: String = path.normalize #48
+    #50: String = ""
+    #51: String = path.normalize #50
+    #52: String = "x/"
+    #53: String = path.normalize #52
+    #54: None = @12(console_log)
+    #55: None = call #54(#47, #49, #51, #53)
+    #56: String = "/a/b/c.txt"
+    #57: String = path.dirname #56
+    #58: String = "a"
+    #59: String = path.dirname #58
+    #60: String = "/"
+    #61: String = path.dirname #60
+    #62: String = "//x"
+    #63: String = path.dirname #62
+    #64: None = @13(console_log)
+    #65: None = call #64(#57, #59, #61, #63)
+    #66: String = "/a/b/c.txt"
+    #67: String = path.basename #66
+    #68: String = "/a/b/c.txt"
+    #69: String = ".txt"
+    #70: String = path.basename #68 #69
+    #71: String = "a/b/"
+    #72: String = path.basename #71
+    #73: None = @14(console_log)
+    #74: None = call #73(#67, #70, #72)
+    #75: String = "x.tar.gz"
+    #76: String = path.extname #75
+    #77: String = ".hidden"
+    #78: String = path.extname #77
+    #79: String = "a."
+    #80: String = path.extname #79
+    #81: String = "noext"
+    #82: String = path.extname #81
+    #83: None = @15(console_log)
+    #84: None = call #83(#76, #78, #80, #82)
+    #85: String = "/a/b/c"
+    #86: String = "/a/d"
+    #87: String = path.relative #85 #86
+    #88: String = "/a"
+    #89: String = "/a/b/c"
+    #90: String = path.relative #88 #89
+    #91: String = "/same"
+    #92: String = "/same"
+    #93: String = path.relative #91 #92
+    #94: String = ""
+    #95: Bool = JsStrictEq #93, #94
+    #96: None = @16(console_log)
+    #97: None = call #96(#87, #90, #95)
+    #98: String = "/x"
+    #99: Bool = path.isAbsolute #98
+    #100: String = "x"
+    #101: Bool = path.isAbsolute #100
+    #102: String = "/"
+    #103: String = "/"
+    #104: None = @17(console_log)
+    #105: None = call #104(#99, #101, #102, #103)
+    #106: String = "a"
+    #107: String = "b"
+    #108: fn(String, String) -> String = @0(own_join)
+    #109: String = call #108(#106, #107)
+    #110: None = @18(console_log)
+    #111: None = call #110(#109)
+    #112: String = "sha256"
+    #113: Hash = crypto.createHash #112
+    #114: String = "hello"
+    #115: Hash = hash.update #113 #114
+    #116: String = "hex"
+    #117: String = hash.digest_text #115 #116
+    #118: None = @19(console_log)
+    #119: None = call #118(#117)
+    #120: String = "SHA1"
+    #121: Hash = crypto.createHash #120
+    #122: String = "hel"
+    #123: Hash = hash.update #121 #122
+    #124: String = "lo"
+    #125: Hash = hash.update #123 #124
+    #126: String = "base64"
+    #127: String = hash.digest_text #125 #126
+    #128: None = @20(console_log)
+    #129: None = call #128(#127)
+    #130: String = "md5"
+    #131: Hash = crypto.createHash #130
+    #132: String = "68656c6c6f"
+    #133: String = "hex"
+    #134: Hash = hash.update #131 #132 #133
+    #135: String = "hex"
+    #136: String = hash.digest_text #134 #135
+    #137: None = @21(console_log)
+    #138: None = call #137(#136)
+    #139: String = "sha512"
+    #140: Hash = crypto.createHash #139
+    #141: Float = 3.0
+    #142: Uint8Array = typed_array_new Uint8Array #141
+    #143: Hash = hash.update #140 #142
+    #144: String = "base64url"
+    #145: String = hash.digest_text #143 #144
+    #146: None = @22(console_log)
+    #147: None = call #146(#145)
+    #148: String = "sha384"
+    #149: String = ""
+    #150: fn(String, String) -> String = @1(hex_of)
+    #151: String = call #150(#148, #149)
+    #152: String = "bogus"
+    #153: String = "x"
+    #154: fn(String, String) -> String = @1(hex_of)
+    #155: String = call #154(#152, #153)
+    #156: None = @23(console_log)
+    #157: None = call #156(#151, #155)
+    #158: fn() -> String = @2(digest_twice)
+    #159: String = call #158()
+    #160: None = @24(console_log)
+    #161: None = call #160(#159)
+    #162: String = "/(?<id>[^/]+)/(?<rest>[^/]+)"
+    #163: fn(String) -> String = @4(describe_compile)
+    #164: String = call #163(#162)
+    #165: None = @25(console_log)
+    #166: None = call #165(#164)
+    #167: String = "/(?<id>[^/]+)/(?<id>[^/]+)"
+    #168: fn(String) -> String = @4(describe_compile)
+    #169: String = call #168(#167)
+    #170: None = @26(console_log)
+    #171: None = call #170(#169)
+    #172: String = "/(unclosed"
+    #173: fn(String) -> String = @4(describe_compile)
+    #174: String = call #173(#172)
+    #175: None = @27(console_log)
+    #176: None = call #175(#174)
+    #177: String = "gi"
+    #178: fn(String) -> String = @5(try_flags)
+    #179: String = call #178(#177)
+    #180: String = "gg"
+    #181: fn(String) -> String = @5(try_flags)
+    #182: String = call #181(#180)
+    #183: String = "q"
+    #184: fn(String) -> String = @5(try_flags)
+    #185: String = call #184(#183)
+    #186: None = @28(console_log)
+    #187: None = call #186(#179, #182, #185)
+    #188: String = "x+"
+    #189: String = "g"
+    #190: RegExp = new RegExp(#188, #189)
+    #191: RegExp = %1
+    #192: String = #191.source
+    #193: RegExp = %1
+    #194: String = #193.flags
+    #195: None = @29(console_log)
+    #196: None = call #195(#192, #194)
+  stmts
+    s0: let %0: List<String> = #3
+    s1: #9
+    s2: #18
+    s3: #33
+    s4: #45
+    s5: #55
+    s6: #65
+    s7: #74
+    s8: #84
+    s9: #97
+    s10: #105
+    s11: #111
+    s12: #119
+    s13: #129
+    s14: #138
+    s15: #147
+    s16: #157
+    s17: #161
+    s18: #166
+    s19: #171
+    s20: #176
+    s21: #187
+    s22: let %1: RegExp = #190
+    s23: #196
+
+interned types
+  t0 = Unknown
+  t1 = String
+  t2 = List<String>
+  t3 = RegExp
+  t4 = fn(String, String) -> String
+  t5 = fn() -> String
+  t6 = fn(String) -> RegExp
+  t7 = fn(String) -> String
+  t8 = Hash
+  t9 = Float
+  t10 = UnsupportedPathError
+  t11 = Optional<String>
+  t12 = None
+  t13 = fn(String) -> RegExp
+  t14 = Bool
+  t15 = fn(String, String) -> String
+  t16 = Uint8Array
+  t17 = fn() -> String
+  t18 = fn(String) -> String

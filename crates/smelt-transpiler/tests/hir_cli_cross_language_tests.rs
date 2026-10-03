@@ -1195,6 +1195,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "154_getter_receivers_in_closures",
     "155_erased_instance_identity",
     "156_runtime_shape_behind_static_types",
+    "157_node_path_hash_and_runtime_regexp",
     "14_c_for_loop",
     "15_break_continue",
     "16_switch_break_no_fallthrough",

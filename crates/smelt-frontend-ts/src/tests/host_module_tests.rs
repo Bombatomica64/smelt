@@ -228,50 +228,198 @@ export function methodOf(request: Request): string {
     Ok(())
 }
 
-/// `node:path` is declared, not modeled, and blocks by name.
+/// Return whether any lowered body contains an expression matching `predicate`.
+fn any_host_expr(ctx: &HirCtx, predicate: impl Fn(&smelt_hir::ExprKind) -> bool) -> bool {
+    ctx.krate
+        .bodies
+        .iter()
+        .any(|body| body.exprs.iter().any(|expr| predicate(&expr.kind)))
+}
+
+/// `node:path` is modeled: every import shape reaches the same host call.
 ///
-/// `path.join`/`path.resolve` previously had a lowering rule that returned an
-/// empty string literal, so `resolve(__dirname, '../key.pub')` became `""` and
-/// the program went on to use it as a filename. That is a worse false green
-/// than erasure — a wrong value with no diagnostic — so the rule is gone and
-/// the surface is declared until it is implemented against `std::path`.
+/// `path.join`/`path.resolve` once had a lowering rule that returned an empty
+/// string literal (`resolve(__dirname, '../key.pub')` became `""`), then were
+/// declared blockers. They are now Node's own POSIX algorithms, resolved from
+/// the IMPORT the callee names — a default import, a namespace import through
+/// `path.posix`, and an aliased named import from `node:path/posix` all lower
+/// to `HostModuleCall { Path(..) }`.
 #[test]
-fn node_path_surface_is_declared_not_faked() -> Result<(), String> {
+fn node_path_import_shapes_lower_to_host_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
+    lower_ok(
         ts!(r"
 import path from 'path';
+import * as ns from 'node:path';
+import { join as posixJoin, basename } from 'node:path/posix';
 
-export const configPath = path.join('/tmp', 'updater.json');
+export const a = path.join('/tmp', 'updater.json');
+export const b = ns.posix.resolve('/etc', '../key.pub');
+export const c = posixJoin('x', 'y');
+export const d = basename('/a/b.txt', '.txt');
+export const e = path.sep;
 "),
         &mut ctx,
     )?;
-    let blocker = errors
-        .iter()
-        .find(|error| error.message.contains("node:path"))
-        .ok_or_else(|| format!("node:path must block by name: {errors:?}"))?;
-    ensure_eq!(
-        blocker.category,
-        smelt_stdlib::DiagnosticCategory::MissingStdlib
+    for op in [
+        smelt_hir::PathOp::Join,
+        smelt_hir::PathOp::Resolve,
+        smelt_hir::PathOp::Basename,
+    ] {
+        ensure!(
+            any_host_expr(&ctx, |kind| matches!(
+                kind,
+                smelt_hir::ExprKind::HostModuleCall { op: smelt_hir::HostModuleOp::Path(found), .. }
+                    if *found == op
+            )),
+            "expected a `{}` host call",
+            op.name()
+        );
+    }
+    ensure!(
+        any_host_expr(&ctx, |kind| matches!(
+            kind,
+            smelt_hir::ExprKind::Literal(smelt_hir::Literal::String(text)) if text == "/"
+        )),
+        "`path.sep` must fold to the POSIX separator"
     );
     Ok(())
 }
 
-/// The named-import spelling of `node:path` blocks with the same reason.
+/// A program's OWN `join` is not the host function, whatever it is called.
+///
+/// Recognition is keyed on the import, so a local `join` (and a `basename`
+/// imported from a source module) keeps its own meaning.
 #[test]
-fn node_path_named_import_blocks() -> Result<(), String> {
+fn own_join_is_not_the_path_host_call() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+function join(...parts: string[]): string {
+  return parts.join('+');
+}
+export const joined = join('a', 'b');
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        !any_host_expr(&ctx, |kind| matches!(kind, smelt_hir::ExprKind::HostModuleCall { .. })),
+        "a source `join` must not lower to the node:path host call"
+    );
+    Ok(())
+}
+
+/// The record half of `node:path` (`parse`) stays declared and blocks by name.
+#[test]
+fn node_path_parse_stays_declared() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
         ts!(r"
-import { resolve } from 'path';
+import { parse } from 'path';
 
-export const keyPath = resolve('/etc', '../key.pub');
+export const parsed = parse('/etc/key.pub');
 "),
         &mut ctx,
     )?;
     ensure!(
         errors.iter().any(|error| error.message.contains("node:path")),
-        "node:path must block by name: {errors:?}",
+        "node:path parse must block by name: {errors:?}",
+    );
+    Ok(())
+}
+
+/// `createHash(..).update(..).digest(..)` lowers to fallible hasher calls on a
+/// concrete `Hash`, never to an erased member chain.
+#[test]
+fn create_hash_chain_lowers_to_hasher_calls() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+import { createHash } from 'crypto';
+
+export function hex(data: string): string {
+  return createHash('sha256').update(data).digest('hex');
+}
+"),
+        &mut ctx,
+    )?;
+    for op in [
+        smelt_hir::HashOp::Create,
+        smelt_hir::HashOp::Update,
+        smelt_hir::HashOp::DigestText,
+    ] {
+        ensure!(
+            any_host_expr(&ctx, |kind| matches!(
+                kind,
+                smelt_hir::ExprKind::HostModuleCall { op: smelt_hir::HostModuleOp::Hash(found), .. }
+                    if *found == op
+            )),
+            "expected a `{}` hasher call",
+            op.name()
+        );
+    }
+    ensure!(
+        smelt_hir::HostModuleOp::Hash(smelt_hir::HashOp::Create).is_fallible()
+            && !smelt_hir::HostModuleOp::Path(smelt_hir::PathOp::Join).is_fallible(),
+        "hasher calls throw Node's errors; path functions are total"
+    );
+    Ok(())
+}
+
+/// A run-time `new RegExp(pattern)` compiles fallibly; a literal one does not.
+#[test]
+fn dynamic_regexp_construction_is_a_fallible_compile() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export function compile(source: string): RegExp {
+  return new RegExp(`^${source}$`);
+}
+export const fixed = new RegExp('a+', 'g');
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        any_host_expr(&ctx, |kind| matches!(kind, smelt_hir::ExprKind::RegExpCompile { .. })),
+        "a template pattern must compile at run time"
+    );
+    ensure!(
+        any_host_expr(&ctx, |kind| matches!(kind, smelt_hir::ExprKind::New { .. })),
+        "a literal pattern keeps the infallible construction"
+    );
+    Ok(())
+}
+
+/// `globalThis` is ONE shared object, `Object.assign(global, ..)` writes into
+/// it in place, and an ambient `declare const` reads its member back through a
+/// checked cast to the declared type.
+#[test]
+fn global_object_store_backs_ambient_declarations() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+declare const __MANIFEST: string;
+Object.assign(global, { __MANIFEST: '{}' });
+export function manifest(): string {
+  return __MANIFEST;
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        any_host_expr(&ctx, |kind| matches!(kind, smelt_hir::ExprKind::GlobalObject)),
+        "the global object must be the shared global-object node"
+    );
+    ensure!(
+        !any_host_expr(&ctx, |kind| matches!(
+            kind,
+            smelt_hir::ExprKind::Literal(smelt_hir::Literal::String(text)) if text == "__smelt_global_object"
+        )),
+        "no per-read marker record may be minted any more"
+    );
+    ensure!(
+        any_host_expr(&ctx, |kind| matches!(kind, smelt_hir::ExprKind::UnknownCast { .. })),
+        "the ambient read must narrow the stored member to its declared type"
     );
     Ok(())
 }

@@ -81,6 +81,11 @@ pub enum StdlibClass {
     /// WHATWG `TextDecoder`, backed by the generated concrete `SmeltTextDecoder`
     /// runtime type (an encoding label plus the reference identity).
     TextDecoder,
+    /// `node:crypto`'s `Hash`, backed by the generated concrete `SmeltHash`
+    /// runtime type: an algorithm, the bytes fed so far and a finalized flag,
+    /// behind a shared cell so `hash.update(a).update(b)` feeds ONE hasher, as
+    /// the chained source does.
+    NodeHash,
     /// The concrete typed-array FAMILY: an element view over byte storage,
     /// backed by the generated `SmeltTypedArray` runtime type (a kind, a shared
     /// `Rc<RefCell<Vec<u8>>>`, a byte offset, an element count, and a JS
@@ -204,6 +209,7 @@ impl StdlibClass {
                 | Self::DataView
                 | Self::TextEncoder
                 | Self::TextDecoder
+                | Self::NodeHash
                 | Self::EventEmitter
                 | Self::HttpServer
                 | Self::IncomingMessage
@@ -273,11 +279,14 @@ impl StdlibClass {
     /// blocker — the honest answer, and the same reason its `instanceof` is
     /// still worth answering: identity is knowable where reconstruction is not.
     ///
+    /// `NodeHash` is the same case: a hasher's state is the bytes fed so far
+    /// behind a shared cell, and a record cannot hand that cell back.
+    ///
     /// `Blob` and `File` both answer true and share one adapter, since they
     /// share one runtime type (see [`Self::File`]).
     #[must_use]
     pub const fn narrows_from_erased(self) -> bool {
-        self.erases_through_adapter() && !matches!(self, Self::HttpServer)
+        self.erases_through_adapter() && !matches!(self, Self::HttpServer | Self::NodeHash)
     }
 
     /// Return whether values of this class are a generated concrete Rust type
@@ -429,6 +438,10 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         "ReadableStream" => Some(StdlibClass::ReadableStream),
         "TextEncoder" => Some(StdlibClass::TextEncoder),
         "TextDecoder" => Some(StdlibClass::TextDecoder),
+        // `node:crypto`'s hasher, under the name the module exports it as
+        // (`import type { Hash } from 'node:crypto'`). A user class of the same
+        // name shadows it, as for every other entry here.
+        "Hash" => Some(StdlibClass::NodeHash),
         // The eleven typed-array views are ONE modeled class, keyed off the
         // shared registry rather than eleven arms here, so the construction
         // side, the annotation side and codegen's Rust-type side cannot
@@ -595,6 +608,7 @@ const fn stdlib_class_instance_members(class: StdlibClass) -> Option<MemberLists
         StdlibClass::File => &[BLOB_MEMBERS, &["name", "lastModified", "webkitRelativePath"]],
         StdlibClass::TextEncoder => &[&["encoding", "encode", "encodeInto"]],
         StdlibClass::TextDecoder => &[&["encoding", "fatal", "ignoreBOM", "decode"]],
+        StdlibClass::NodeHash => &[&["update", "digest", "copy"]],
         _ => return None,
     })
 }

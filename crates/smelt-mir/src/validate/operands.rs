@@ -102,7 +102,7 @@ impl Rvalue {
                     visit(arg);
                 }
             }
-            Self::TextEncoderNew => {}
+            Self::TextEncoderNew | Self::GlobalObject => {}
             Self::TextDecoderNew { label } => {
                 if let Some(label) = label {
                     visit(label);
@@ -142,7 +142,9 @@ impl Rvalue {
                     visit(arg);
                 }
             }
-            Self::AbortSignalOp { args, .. } | Self::CryptoOp { args, .. } => {
+            Self::AbortSignalOp { args, .. }
+            | Self::CryptoOp { args, .. }
+            | Self::HostModuleCall { args, .. } => {
                 for arg in args {
                     visit(arg);
                 }
@@ -1038,7 +1040,7 @@ impl Rvalue {
                     visit(arg);
                 }
             }
-            Self::TextEncoderNew => {}
+            Self::TextEncoderNew | Self::GlobalObject => {}
             Self::TextDecoderNew { label } => {
                 if let Some(label) = label {
                     visit(label);
@@ -1078,7 +1080,9 @@ impl Rvalue {
                     visit(arg);
                 }
             }
-            Self::AbortSignalOp { args, .. } | Self::CryptoOp { args, .. } => {
+            Self::AbortSignalOp { args, .. }
+            | Self::CryptoOp { args, .. }
+            | Self::HostModuleCall { args, .. } => {
                 for arg in args.iter_mut() {
                     visit(arg);
                 }

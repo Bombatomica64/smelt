@@ -700,9 +700,13 @@ fn intern_fallible_builtin_return_types(mir: &mut Mir) {
                 BuiltinFn::DataViewAccess { write, .. } => {
                     needed.push(if *write { Type::None } else { Type::Float });
                 }
+                // The result is the frontend's `RegExp` class type, which it
+                // interned when it typed the node.
                 BuiltinFn::ConsoleLog { .. }
                 | BuiltinFn::ConsoleWrite
-                | BuiltinFn::ConsoleErrorWrite => {}
+                | BuiltinFn::ConsoleErrorWrite
+                | BuiltinFn::RegExpCompile
+                | BuiltinFn::HostModule(_) => {}
             }
         }
     }

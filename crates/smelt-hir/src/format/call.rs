@@ -657,6 +657,18 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::Base64Transcode { op, operand } => {
             format!("{} {}", op.name(), expr_ref(*operand))
         }
+        ExprKind::GlobalObject => "global_object".to_owned(),
+        ExprKind::HostModuleCall { op, args } => {
+            let args_text = args
+                .iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(" ");
+            format!("{} {args_text}", op.name())
+        }
+        ExprKind::RegExpCompile { pattern, flags } => {
+            format!("regexp_compile {} {}", expr_ref(*pattern), expr_ref(*flags))
+        }
         ExprKind::TypedArrayNew { class_name, args } => {
             let args_text = args
                 .iter()
