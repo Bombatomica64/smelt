@@ -856,6 +856,18 @@ impl FunctionEmitter<'_> {
                         ));
                         return Ok(());
                     }
+                    // A computed-key write into a class instance dispatches on
+                    // the runtime key over the fields that can hold the value
+                    // (see `class_keyed_write`).
+                    Some(Type::Class { .. })
+                        if let Some(statement) =
+                            self.class_keyed_field_write_text(*base, base_ty, index, value)? =>
+                    {
+                        out.push_str("    ");
+                        out.push_str(&statement);
+                        out.push('\n');
+                        return Ok(());
+                    }
                     _ => {
                         let rendered_value = self.rvalue_text(value)?;
                         out.push_str(&format!("    let _ = {rendered_value};\n"));

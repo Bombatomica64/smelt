@@ -1384,9 +1384,9 @@ impl ModuleBuilder<'_> {
 
     /// Lower `expect(() => ...).toThrow(...)` to native HIR exception flow.
     ///
-    /// The initial lowering only needs to prove that the callback throws. The
-    /// optional expected message argument is intentionally ignored until HIR has
-    /// a first-class panic payload comparison path for TypeScript exceptions.
+    /// The optional expected-error argument is compared against the caught
+    /// value with vitest's rules (`to_throw.rs`); without one, any throw
+    /// matches.
     pub(in crate::lowering) fn expect_to_throw_statement(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -1536,27 +1536,44 @@ impl ModuleBuilder<'_> {
             body.push_stmt_to_block(try_block, Stmt::Expr(call_expr));
             try_block
         };
+        // The caught value, for the expected-error argument: `did_throw`
+        // becomes "threw an error MATCHING the argument" (see `to_throw.rs`),
+        // so a wrong error fails the assertion instead of counting as a throw.
+        // `toThrowErrorMatchingInlineSnapshot(snapshot)` compares the thrown
+        // error's SERIALIZATION (`[Error: message]`) with a snapshot, not its
+        // message with a substring, so the message rules do not apply to it;
+        // it keeps the any-throw check.
+        let compares_expected = Self::canonical_matcher_name(member.property.name.as_str())
+            != "toThrowErrorMatchingInlineSnapshot";
+        let (catch_binding, matched) = match call.arguments.first().filter(|_| compares_expected) {
+            Some(expected_arg) => self
+                .expected_error_predicate(expected_arg, body)?
+                .map_or((None, None), |(caught, matched)| (Some(caught), Some(matched))),
+            None => (None, None),
+        };
         let catch_block = body.push_block(span);
         let did_throw_target = body.push_expr(Expr {
             kind: ExprKind::Local(did_throw),
             ty: bool_ty,
             span,
         });
-        let true_expr = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Bool(true)),
-            ty: bool_ty,
-            span,
+        let matched = matched.unwrap_or_else(|| {
+            body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(true)),
+                ty: bool_ty,
+                span,
+            })
         });
         body.push_stmt_to_block(
             catch_block,
             Stmt::Assign {
                 target: did_throw_target,
-                value: true_expr,
+                value: matched,
             },
         );
         let try_stmt = Stmt::TryCatch {
             body: try_block,
-            catch_binding: None,
+            catch_binding,
             catch_body: Some(catch_block),
             finally_body: None,
         };

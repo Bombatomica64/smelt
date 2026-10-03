@@ -2,5 +2,6 @@
 
 mod matchers;
 mod suites;
+mod to_throw;
 
 pub(in crate::lowering) use matchers::LoweredActual;

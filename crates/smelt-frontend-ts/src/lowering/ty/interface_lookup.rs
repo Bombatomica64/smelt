@@ -509,6 +509,24 @@ impl ModuleBuilder<'_> {
                 }
             }
             for required in &required_methods {
+                // TypeScript checks members structurally: a method signature is
+                // also satisfied by a FIELD holding a function
+                // (`match: typeof match = match`, or a method the class body
+                // reassigns and therefore stores as a callable field). The
+                // field's function type must accept the method's parameters
+                // and return an assignable value, the same check the method
+                // path below makes.
+                if let Some(field) = class.fields.iter().find(|field| field.name == required.name)
+                    && let Some(Type::Function(function)) = self.ctx.krate.types.get(field.ty).cloned()
+                {
+                    let parameters_match = function.params.len() == required.params.len()
+                        && function.params.iter().zip(&required.params).all(|(actual, required)| {
+                            self.type_assignable_to(required.ty, *actual)
+                        });
+                    if parameters_match && self.type_assignable_to(function.return_ty, required.return_ty) {
+                        continue;
+                    }
+                }
                 let Some(actual_item) = class.methods.iter().find(|method_item| {
                     matches!(self.item_ref(**method_item), Item::Function(function) if function.name == required.name)
                 }) else {

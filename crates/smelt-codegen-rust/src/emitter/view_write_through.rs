@@ -33,6 +33,27 @@ pub(crate) const SET_FIELD_KEY: &str = "__smelt_method:__smelt_set_field";
 /// Name of the generated per-class field setter method.
 pub(crate) const SET_FIELD_METHOD: &str = "__smelt_set_field";
 
+/// Erased-view key of the live callable-member read hook (see
+/// [`LIVE_MEMBER_PRELUDE`]).
+pub(crate) const GET_CALLABLE_KEY: &str = "__smelt_method:__smelt_get_callable_field";
+
+/// Name of the generated per-class live callable-field getter method.
+pub(crate) const GET_CALLABLE_METHOD: &str = "__smelt_get_callable_field";
+
+/// The prelude helper that reads a member off an erased value LIVE.
+///
+/// An erased view of a reference-class instance is a snapshot of its fields
+/// taken when it was built, while the instance itself keeps changing: Hono's
+/// `SmartRouter.match` replaces its own `match` field on its first call
+/// (`this.match = router.match.bind(router)`), and the NEXT call through an
+/// interface view projected from an earlier erasure must reach the new
+/// function, not the snapshot's. A reference class whose program reads `this`
+/// therefore carries a getter for its callable own fields under
+/// [`GET_CALLABLE_KEY`]; this helper asks it first and falls back to the
+/// ordinary member read (own property, then prototype) when the value has no
+/// such hook or the hook does not know the key.
+pub(crate) const LIVE_MEMBER_PRELUDE: &str = "/// Read `key` off an erased value, asking a class view's live callable-field getter first.\n#[allow(dead_code)]\nfn smelt_live_member(value: &SmeltUnknown, key: &str) -> SmeltUnknown { if let SmeltUnknown::Object(map) = value && let Some(SmeltUnknown::Function(getter)) = map.get(\"__smelt_method:__smelt_get_callable_field\") && let Ok(live) = getter(vec![SmeltUnknown::String(key.into())]) && !matches!(live, SmeltUnknown::Undefined) { return live; } smelt_get_unknown_field(value, key) }";
+
 /// Return whether any function or closure writes a named property through an
 /// erased (`unknown`, type-parameter, or union) value.
 ///
@@ -79,13 +100,72 @@ pub(crate) const WRITE_THROUGH_PRELUDE: &str = "/// Forward a property write on 
 /// `into_smelt_unknown` (`self`, `__smelt_entries`) and the emitter's inline
 /// struct adapter (`smelt_struct_value`, `smelt_object_entries`), so the two
 /// views of one instance agree.
-pub(crate) fn erased_view_entry_text(receiver: &str, entries: &str) -> String {
-    format!(
+pub(crate) fn erased_view_entry_text(receiver: &str, entries: &str, live_reads: bool) -> String {
+    let setter = format!(
         "{entries}.push(({SET_FIELD_KEY:?}.to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({{ let smelt_receiver = {receiver}.clone(); move |smelt_args: Vec<SmeltUnknown>| {{ if let Some(SmeltUnknown::String(smelt_key)) = smelt_args.first() {{ smelt_receiver.{SET_FIELD_METHOD}(&smelt_key.to_string(), smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)); }} Ok(SmeltUnknown::Undefined) }} }})))); "
+    );
+    if !live_reads {
+        return setter;
+    }
+    // The live-read hook (see `LIVE_MEMBER_PRELUDE`).
+    format!(
+        "{setter}{entries}.push(({GET_CALLABLE_KEY:?}.to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({{ let smelt_receiver = {receiver}.clone(); move |smelt_args: Vec<SmeltUnknown>| {{ Ok(match smelt_args.first() {{ Some(SmeltUnknown::String(smelt_key)) => smelt_receiver.{GET_CALLABLE_METHOD}(&smelt_key.to_string()), _ => SmeltUnknown::Undefined }}) }} }})))); "
     )
 }
 
+/// Whether a reference class's erased view carries the live callable-field
+/// getter: the program reads `this` (so a receiver-bound slot may read a member
+/// live) and the class has at least one callable own field to serve.
+pub(crate) fn has_live_callable_fields(
+    mir: &Mir,
+    program_reads_this: bool,
+    fields: &[smelt_mir::MirField],
+) -> bool {
+    program_reads_this
+        && fields.iter().any(|field| {
+            field.visibility.is_own_property()
+                && matches!(mir.types.get(field.ty), Some(Type::Function(_)))
+        })
+}
+
 impl FunctionEmitter<'_> {
+    /// Render the `__smelt_get_callable_field` method of one reference class:
+    /// the CURRENT value of each callable own-property field, erased, keyed by
+    /// its source spelling (`Undefined` for any other key). Only callable
+    /// fields are served: they are what a method call through a snapshot view
+    /// must read live (see [`LIVE_MEMBER_PRELUDE`]), and erasing every field
+    /// on each read would rebuild whole nested values for nothing.
+    pub(crate) fn reference_callable_field_getter_method_text(
+        &self,
+        fields: &[smelt_mir::MirField],
+    ) -> Result<String, EmitError> {
+        let mut arms = String::new();
+        for field in fields {
+            if !field.visibility.is_own_property()
+                || !matches!(self.mir.types.get(field.ty), Some(Type::Function(_)))
+            {
+                continue;
+            }
+            let key = self.symbol_source_name(field.name)?;
+            let field_name =
+                crate::rust::RustIdent::new(self.mir.symbols.get(field.name).unwrap_or("field"))
+                    .into_string();
+            let Ok(erased) =
+                self.erase_value_text(&format!("self.0.borrow().{field_name}.clone()"), field.ty)
+            else {
+                continue;
+            };
+            arms.push_str(&format!("{key:?} => {erased}, "));
+        }
+        // One line on purpose: the whole method is the erased-view read
+        // adapter, and `smelt-unknown-report` classifies it by the
+        // `fn __smelt_get_callable_field(` marker (see its
+        // `live_callable_field_getter_is_a_boundary` test).
+        Ok(format!(
+            "    /// The live value of a callable own field, for a read through this instance's erased view.\n    #[allow(dead_code, unreachable_patterns)]\n    fn {GET_CALLABLE_METHOD}(&self, key: &str) -> SmeltUnknown {{ match key {{ {arms}_ => SmeltUnknown::Undefined }} }}\n"
+        ))
+    }
+
     /// Render the `__smelt_set_field` method of one reference class.
     ///
     /// One arm per own-property field, keyed by the field's SOURCE spelling

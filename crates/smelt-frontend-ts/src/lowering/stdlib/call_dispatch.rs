@@ -5744,7 +5744,7 @@ impl<'builder> ModuleBuilder<'builder> {
             function.return_ty
         };
         let supplied_arg_count = call.arguments.len();
-        let callback_meta = self.scope.callback(callee_ident.name.as_str()).cloned();
+        let callback_meta = self.visible_callback(callee_ident.name.as_str(), body);
         // Dynamically dispatched callees (union/unknown/type-parameter/erased
         // callable surfaces) are invoked through the runtime `SmeltUnknown` call
         // ABI, which flattens the entire argument list. A spread must therefore
@@ -6567,7 +6567,7 @@ impl<'builder> ModuleBuilder<'builder> {
             .cloned();
         if !matches!(function_ty, Some(Type::Function(_)))
             && let Argument::Identifier(identifier) = function_arg
-            && let Some(callback) = self.scope.callback(identifier.name.as_str()).cloned()
+            && let Some(callback) = self.visible_callback(identifier.name.as_str(), body)
         {
             callee_expr = self.callback_expr_to_closure_with_return_ty(
                 callback.return_ty,

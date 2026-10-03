@@ -613,6 +613,85 @@ describe("add", () => {
     Ok(())
 }
 
+/// `toThrow(expected)` compares the thrown error with vitest's rules: a string
+/// is a substring of the message, a RegExp tests it, a class is an
+/// `instanceof`. The `.not` forms only pass when the comparison really runs:
+/// a matcher that accepted any throw would fail every `.not.toThrow(other)`
+/// below, because each callback does throw.
+#[test]
+fn build_runs_typescript_to_throw_expected_error_comparison() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-to-throw-message"
+version = "0.1.0"
+
+[sources]
+roots = ["src"]
+entries = ["src/index.ts"]
+test-prefix = ["**/*.test.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_to_throw_message"
+build = false
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/index.ts"),
+        r#"
+export class PathError extends Error {}
+
+export function failPath(path: string): void {
+  throw new PathError("unsupported path: " + path);
+}
+
+export function failPlain(): void {
+  throw new Error("plain failure");
+}
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/index.test.ts"),
+        r#"
+import { describe, expect, test } from "vitest";
+import { PathError, failPath, failPlain } from "./index.ts";
+
+describe("toThrow", () => {
+  test("string is a substring of the message", () => {
+    expect(() => failPath("/a")).toThrow("unsupported path");
+    expect(() => failPath("/a")).not.toThrow("another message");
+  });
+  test("regexp tests the message", () => {
+    expect(() => failPlain()).toThrowError(/plain fail/);
+    expect(() => failPlain()).not.toThrowError(/^unsupported/);
+  });
+  test("class is instanceof", () => {
+    expect(() => failPath("/b")).toThrow(PathError);
+    expect(() => failPlain()).not.toThrow(PathError);
+  });
+});
+"#,
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let test_stdout = cargo_test_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure(
+        test_stdout.contains("3 passed") && test_stdout.contains("test result: ok"),
+        "toThrow expected-error comparisons did not all pass",
+    )?;
+
+    Ok(())
+}
+
 #[test]
 fn build_runs_typescript_folded_const_expression_import() -> TestResult {
     let project = TempProject::new()?;

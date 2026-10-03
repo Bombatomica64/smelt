@@ -1191,6 +1191,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "143_module_arrows_are_items",
     "151_derived_constructor_runs_on_instance",
     "152_callable_interface_fields",
+    "153_this_param_function_as_method",
     "154_getter_receivers_in_closures",
     "155_erased_instance_identity",
     "156_runtime_shape_behind_static_types",

@@ -1137,6 +1137,13 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.virtual_method_storage_field_text(source, target, target_field.name)?
             {
                 value
+            } else if let Some(value) = match &source_field_match {
+                Some(source_field) => {
+                    self.receiver_bound_field_slot_text(source, target, source_field, &target_field, scope)?
+                }
+                None => None,
+            } {
+                value
             } else if let Some(source_field) = source_field_match {
                 let source_field_name = sanitize_ident(self.symbol_name(source_field.name)?);
                 // A reference-class source keeps its fields inside the shared
@@ -1816,7 +1823,17 @@ impl<'mir> FunctionEmitter<'mir> {
             } else {
                 format!("{lookup_text}.cloned()")
             };
-            let value = if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
+            let receiver_bound = if source_is_erased
+                && self.dict_uses_smelt_record(source_key)
+                && self.can_render_dict_value_as(source_value, field.ty)
+            {
+                self.erased_record_callable_slot_text("smelt_record_map", target, &field, scope)?
+            } else {
+                None
+            };
+            let value = if let Some(value) = receiver_bound {
+                value
+            } else if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
                 if self.can_render_dict_value_as(source_value, *inner) {
                     let mapped = self.value_at_type_text("value", source_value, *inner, scope)?;
                     format!("{lookup_value}.map(|value| {mapped})")
