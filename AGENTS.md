@@ -18,13 +18,12 @@ would refuse to merge. See "Type lowering".
 
 
 ## always run
-Tight loop (fast — `--lib` skips compiling the ~40k lines of inline tests in
-smelt-frontend-ts/smelt-codegen-rust, so it doesn't rebuild them every edit):
+Tight loop (`--lib` skips compiling inline tests):
 cargo check --lib
 cargo clippy --lib
 When working ONLY on the TypeScript path (not Python), add `--no-default-features`
 to drop the whole `ty` Python stack (ty_python_semantic/core/module_resolver +
-ruff + smelt-frontend-py, ~86s of the cold build):
+ruff + smelt-frontend-py):
 cargo check --lib --no-default-features
 cargo clippy --lib --no-default-features
 Full check before a commit only (compiles + type-checks all tests):
@@ -80,12 +79,30 @@ Measure it: `smelt smelt-unknown-report <generated-crate>/src --baseline blocker
 
 Three committed baselines: `blocker-logs/smelt-unknown-baseline.json` (examples corpus) is a hard invariant — avoidable stays 0, and CI enforces it with `--fail-on-regression`; `blocker-logs/smelt-unknown-baseline-es-toolkit.json` is a ratchet — avoidable may only stay equal or fall, also blocking; `blocker-logs/smelt-unknown-baseline-remeda.json` is advisory — it exists so remeda's report has something meaningful to diff against, and it never blocks. Any PR that regenerates a corpus must include the report delta. `avoidable(current) > avoidable(baseline)` blocks merge (CI runs the es-toolkit report with `--fail-on-regression`) unless the PR (1) documents the genuine dynamic boundary in a code comment at the emit site and (2) adds a regression test proving concrete types/unions/scoped generics cannot represent it — then reclassify via `classify_line` in `crates/smelt-transpiler/src/unknown_report.rs` and re-snapshot the baseline in the same commit rather than accepting the increase. legitimate-boundary increases never block; avoidable decreases re-snapshot in the same commit.
 
-## Subagents
-the orchestrating session may write feature code itself — the old "Fable must only orchestrate" rule is retired now that Opus 5 runs the main loop. Prefer doing small, well-understood changes inline over paying a dispatch round-trip for them; delegate when the work is large, parallelisable, or needs a context of its own
-send code-writing subagents on Opus (`model: opus`), and review their diffs before merging rather than trusting the summary — verify the load-bearing claims independently
+## Verification contracts and generated output
+Treat expected source behavior and type preservation as requirements independent of the implementation. Never make a fix pass by weakening assertions, deleting coverage, broadening erasure classifications, or relaxing a baseline. If an expectation is wrong, document the old and new requirement, the source-language evidence, and why the correction preserves the intended guarantee. Follow the specific baseline-update rules above.
 
-the real constraint is concurrent **cargo builds**, not agent count: parallel rustc makes this machine lag. So cap the builders, not the agents — at most two agents running cargo at a time, but any number of cargo-free agents (CI/YAML edits, report and blocker-log analysis, design plans, doc writing) may run alongside them
-state explicitly in each dispatch prompt whether the agent is expected to compile. two agents sharing one worktree's `target/` serialize on the cargo lock rather than thrashing, so same-worktree builders are cheaper than agents given separate target dirs via `isolation: worktree`
+Fix lowering, emission, or runtime helpers at their source. Edits to generated Rust may be used to investigate a failure, but are not a durable fix. When a change affects committed generated artifacts, regenerate the affected artifacts and verify that they match the committed output. Preserve unchanged file mtimes; use temporary output for comparisons where appropriate. Validate the final tree being committed, and rerun affected checks if it changes afterward.
+
+For a new or corrected general lowering rule, state both its behavioral and type-preservation requirements. Use valid source examples and compare source-runtime behavior with generated Rust where practical; also check the emitted concrete or generic types. Successful compilation alone does not establish either requirement.
+
+For high-risk lowering rules or suspected coverage gaps, temporarily introduce a plausible defect and verify that the relevant check fails. Examples include dropping a namespace qualifier, erasing a generic parameter, or breaking a union-narrowing branch. Restore the implementation before committing. Record which defect the check detects; a passing suite alone does not demonstrate that it would catch that defect.
+
+## Audit evidence
+Review behavioral equivalence, type preservation, and weakened checks or stale generated output as separate questions. Include shared lowering and runtime helpers, not only the changed call sites. When running repeated independent audits, give each auditor a fresh context with the requirements and relevant artifacts, and require concrete evidence for findings.
+
+Prioritize findings reproducible through accepted TypeScript or Python source or a supported public API. For an internal-state finding, establish how a caller can reach that state; record unreachable states separately rather than treating them as demonstrated source-level failures. This does not replace frontend validation or rejection tests.
+
+When changing allocation, copying, recursion, size arithmetic, or runtime adapters, check resource behavior with representative and boundary inputs as well as returned values. For optimization work, define the benchmark and acceptance criteria before changing the implementation; accept improvements only while behavioral and type-preservation checks still pass.
+
+Report exactly what the evidence establishes and what remains unchecked. Tests cover their exercised cases; proofs cover their stated properties under their assumptions. Neither a clean audit round nor successful compilation establishes complete correctness. Any future formal verification must review the specification and proof statements themselves, including assumptions about compilation and runtime behavior.
+
+## Subagents
+The main session may implement feature code directly. Prefer doing small, well-understood changes inline; delegate when the work is large, parallelisable, or needs a context of its own.
+
+Current work uses Opus 5.5 and Codex models. Do not require every code-writing subagent to use Opus or hard-code a provider-specific model alias. Honor the user's model choice; otherwise use a suitable available model, discovering the current provider/model IDs through the orchestration tools when needed. Review delegated diffs and independently verify the claims that determine correctness.
+
+Limit concurrent Cargo builds to two across the session and its subagents; parallel rustc makes this machine lag. Cargo-free work may run alongside them within the runtime's agent limits. State in each dispatch whether the agent is expected to compile. Builds sharing a worktree's `target/` serialize on Cargo's lock; separate target directories can compile concurrently, so count them toward the same limit.
 
 ## git
 After each feature, push a commit with the changes and a clear description of what was implemented
