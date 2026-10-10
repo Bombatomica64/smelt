@@ -9,7 +9,7 @@ None. Removal step 1 is complete: `ExprKind::ListSort.comparator` and
 `Rvalue::ListSort.comparator` carry a normal closure (`ExprId`/`Operand`) like
 every other callback, and the Rust codegen `callback_expr_text` shadow renderer
 plus its metadata scans have been deleted. `smelt-mir` and `smelt-codegen-rust`
-contain zero `CallbackExpr` references.
+contain no code references to `CallbackExpr`.
 
 ## Transient Uses
 
@@ -33,7 +33,7 @@ contain zero `CallbackExpr` references.
    renderer is deleted.
 2. Replace TypeScript and Python frontend `CallbackExpr` builders with direct
    closure-body builders (the `callback_expr_to_closure` bridge in
-   `builder_part13.rs` and `frontend-py/src/lowering/list.rs` is the remaining
+   `lowering/callbacks/closures.rs` and `frontend-py/src/lowering/list.rs` is the remaining
    transient use).
 3. Delete `CallbackExpr`, `CallbackCallArg`, `CallbackExprKind`, and their
    remaining HIR validation traversals.

@@ -89,6 +89,8 @@ See `specs/architecture.md` for the full picture.
 
 ## Repository Layout
 
+The full workspace member list is in `Cargo.toml`; the crates below are the core transpiler pipeline.
+
 ```
 crates/
   smelt-frontend-ts/    TypeScript parser → HIR
@@ -99,7 +101,7 @@ crates/
   smelt-runtime/        Runtime helpers that transpiled code depends on
   smelt-transpiler/     The `smelt` binary
 specs/                  Design documents
-examples/               Example projects (Express demo, FastAPI demo)
+examples/               Example projects (examples/typescript, examples/python)
 ```
 
 ## License

@@ -70,7 +70,6 @@
         var chars = 0;
         var typer = setInterval(function () {
           chars += 2;
-          terminal.textContent = terminal.textContent.slice(0, terminal.textContent.length - 0);
           terminal.textContent += chunk.slice(chars - 2, chars);
           if (chars >= chunk.length) {
             clearInterval(typer);

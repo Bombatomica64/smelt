@@ -220,7 +220,7 @@ runtime errors.
         when stdout/runtime behavior matters.
   - [ ] Keep generated Rust boring and direct; only introduce runtime helpers when the inline Rust
         would be wrong, unreadable, or repeatedly duplicated.
-- [ ] Batch A, scalar/string/list leaf mappings with no new dependencies:
+- [x] Batch A, scalar/string/list leaf mappings with no new dependencies:
   - [x] String prefix/suffix checks:
     - [x] TypeScript `startsWith` and `endsWith`.
     - [x] Python `str.startswith()` and `str.endswith()`.
@@ -241,7 +241,7 @@ runtime errors.
   - [x] Collection contains parity:
     - [x] Python tuple `in` / `not in`.
     - [x] Python dict key `in` / `not in`.
-- [ ] Batch B, mutation methods with existing place-assignment support:
+- [x] Batch B, mutation methods with existing place-assignment support:
   - [x] TypeScript `Array.prototype.push`.
   - [x] TypeScript `Array.prototype.pop`.
   - [x] TypeScript `Array.prototype.reverse`.
@@ -255,7 +255,7 @@ runtime errors.
   - [x] Python `dict.update`.
   - [x] Python `dict.pop`.
   - [x] Python `dict.clear`.
-- [ ] Batch C, collection projection methods:
+- [x] Batch C, collection projection methods:
   - [x] TypeScript `Object.keys`, `Object.values`, and `Object.entries`.
   - [x] Python `dict.keys`, `dict.values`, and `dict.items`.
   - [x] TypeScript `Array.prototype.join`.
@@ -382,7 +382,7 @@ runtime errors.
     - [x] `String.prototype.substring` with positive and omitted indexes.
   - [x] `String.prototype.replace` for literal strings.
   - [x] `String.prototype.replace` / `replaceAll` with `new RegExp(pattern)` and no flags.
-  - [ ] `String.prototype.charAt`, `charCodeAt`, and `at`.
+  - [x] `String.prototype.charAt`, `charCodeAt`, and `at`.
     - [x] `String.prototype.charAt`.
     - [x] `String.prototype.charCodeAt`.
     - [x] `String.prototype.at`.
@@ -402,7 +402,7 @@ runtime errors.
     - [x] `Math.atan2`.
   - [x] `Math.log`, `log10`, `log2`, and `exp`.
   - [x] `Math.random` with an explicit randomness/backend policy.
-  - [ ] `Number.isFinite`, `Number.isNaN`, `Number.parseInt`, and `Number.parseFloat`.
+  - [x] `Number.isFinite`, `Number.isNaN`, `Number.parseInt`, and `Number.parseFloat`.
     - [x] `Number.isFinite` and `Number.isNaN`.
     - [x] Global `NaN`.
     - [x] `Number.parseFloat` with a string argument.
@@ -426,14 +426,14 @@ runtime errors.
   - [ ] Unsupported replacer/reviver/spacing forms produce targeted diagnostics.
   - [ ] Decide and document how classes/interfaces map to serialized shapes.
 - [ ] TypeScript Map, Set, Date, RegExp, URL, and Error mappings:
-  - [ ] `Map` construction, `get`, `set`, `has`, `delete`, `clear`, `size`, `keys`, `values`,
+  - [x] `Map` construction, `get`, `set`, `has`, `delete`, `clear`, `size`, `keys`, `values`,
         `entries`, and iteration.
     - [x] `Map<K, V>` type reference, annotated empty `new Map()`, `new Map([[key, value], ...])`, `Map.has`, and `Map.get`.
     - [x] `Map.set`, `Map.delete`, and `Map.clear`.
     - [x] `Map.size`.
     - [x] `Map.keys`, `Map.values`, and `Map.entries` as list projections.
     - [x] `for...of` over `Map<K, V>` via entry projection.
-  - [ ] `Set` construction, `add`, `has`, `delete`, `clear`, `size`, `values`, and iteration.
+  - [x] `Set` construction, `add`, `has`, `delete`, `clear`, `size`, `values`, and iteration.
     - [x] `Set<T>` type reference, `new Set([literal values])`, annotated `new Set()`, and `Set.has`.
     - [x] `Set.add`, `Set.delete`, and `Set.clear`.
     - [x] `Set.size`.
@@ -476,7 +476,7 @@ runtime errors.
   - [x] `range(...)` for `for` loops and materialized lists.
   - [x] `enumerate(...)` for list values, dict keys, and set values with default start.
   - [x] `zip(...)` for two list values, dict keys, and set values.
-  - [ ] `sum(...)`, `min(...)`, and `max(...)`.
+  - [x] `sum(...)`, `min(...)`, and `max(...)`.
     - [x] `sum(...)` for int and float lists.
     - [x] `min(...)` and `max(...)` for all-int or all-float fixed argument lists.
   - [x] `all(...)` and `any(...)`.
@@ -530,7 +530,7 @@ runtime errors.
     - [x] `list.reverse`.
     - [x] `list.sort`.
   - [x] Tuple indexing/slicing parity with Python negative indexes for static integer indexes and static slice bounds.
-  - [ ] Dict `get`, `setdefault`, `keys`, `values`, `items`, `update`, `pop`, `clear`, and `copy`.
+  - [x] Dict `get`, `setdefault`, `keys`, `values`, `items`, `update`, `pop`, `clear`, and `copy`.
     - [x] Dict `get`.
     - [x] Dict `setdefault`.
     - [x] Dict `keys`, `values`, and `items`.
@@ -538,7 +538,7 @@ runtime errors.
     - [x] Dict `pop`.
     - [x] Dict `clear`.
     - [x] Dict `copy`.
-  - [ ] Set construction and `add`, `remove`, `discard`, `contains`, `union`, `intersection`,
+  - [x] Set construction and `add`, `remove`, `discard`, `contains`, `union`, `intersection`,
         `difference`, `symmetric_difference`, `isdisjoint`, `issubset`, `issuperset`, and iteration.
     - [x] Set literals and `in` / `not in`.
     - [x] Set `add`, `remove`, `discard`, `clear`, and `copy`.

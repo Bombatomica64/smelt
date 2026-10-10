@@ -14,7 +14,7 @@ Two modes back the two ratchets in `.github/workflows/ci.yml`:
   ``cargo test`` log, sum passed/failed across every test binary, and compare
   to ``baseline.runtime_passed`` / ``baseline.runtime_failed``. This mode is
   advisory by default (exit 0 regardless) because known async hangs make the
-  suite non-deterministic; pass ``--blocking`` to make a regression fail.
+  suite non-deterministic; pass ``--blocking`` to make a regression fail, and the baseline runtime_gate is not advisory.
 
 The comparisons are ``<=`` / ``>=`` so improvements pass without a baseline
 bump; loosening the baseline is a deliberate, PR-reviewed edit.

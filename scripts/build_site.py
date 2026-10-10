@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the smelt documentation site from the repository's Markdown sources.
 
-Reads the checked-in docs (README, docs/, specs/, devlog/, and the root
+Reads the checked-in docs (docs/, specs/, devlog/, and the root
 reference pages), renders them through the shared template in
 site/templates/page.html with the design system in site/assets/, and writes a
 static site to _site/ ready for GitHub Pages.
@@ -44,7 +44,7 @@ MD_EXTENSION_CONFIGS = {
 class Page:
     """One rendered page: where it came from and where it lands."""
 
-    source: Path            # repo-relative markdown source
+    source: Path            # absolute path to the markdown source
     out: str                # site-relative output path (e.g. "specs/hir.html")
     section: str            # top-nav section key
     title: str = ""
@@ -64,7 +64,7 @@ class Section:
 def read_title(path: Path) -> str:
     """Return the first `# ` heading of a markdown file, else a readable stem.
 
-    Falls back through the first `## ` / setext-style heading before giving up
+    Falls back through the first `## ` heading before giving up
     and prettifying the filename, so pages that open with a lower heading level
     still get a meaningful sidebar title instead of a raw slug.
     """
@@ -207,6 +207,7 @@ def rewrite_links(html_text: str, page: Page, all_pages: dict[str, Page]) -> str
     """
 
     def replace(match: re.Match) -> str:
+        """Return the site-relative form of one matched attribute value."""
         attr, value = match.group(1), match.group(2)
         if value.startswith(("http://", "https://", "#", "mailto:", "data:")):
             return match.group(0)
@@ -357,7 +358,7 @@ def build_landing(template: str, sections: list[Section], all_pages: dict[str, P
     """Render index.html from the dedicated landing template.
 
     The landing has its own template (site/templates/landing.html) and its own
-    stylesheet with two switchable visual worlds; this function supplies the
+    stylesheet with a single dark landing palette; this function supplies the
     data: pygments-highlighted demo code (the TypeScript input and the Rust
     that smelt actually emits for it), section cards, and live counts.
     """

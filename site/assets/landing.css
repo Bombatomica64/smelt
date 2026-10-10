@@ -1,7 +1,7 @@
 /* ==========================================================================
    Smelt landing — the FOUNDRY: molten metal poured in the dark.
-   Ember particle field, pour-in logotype, self-drawing pipeline schematic,
-   crucible-framed demo. All motion honors prefers-reduced-motion.
+   Ember particle field, pour-in logotype, and self-drawing schematic. Those
+   animations honor prefers-reduced-motion.
    ========================================================================== */
 
 body.landing {
@@ -371,7 +371,6 @@ body.landing .site-header { background: rgba(12, 13, 17, 0.88); }
   border: 1px solid var(--l-line);
 }
 .install-step p { font-size: 0.85rem; margin: 0.4rem 0 0; color: var(--l-muted); }
-.badge-soon,
 .badge-live {
   font-size: 0.62rem;
   font-weight: 700;
