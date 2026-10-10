@@ -22,6 +22,18 @@ struct ClassBodyLowering {
     property_descriptors: Vec<smelt_hir::Descriptor>,
 }
 
+/// What a class statement's bases and `metaclass=` keyword contribute.
+struct ClassBases {
+    /// Whether an `abc.ABC` base or `abc.ABCMeta` metaclass marks the class abstract.
+    is_abstract: bool,
+    /// Whether the class derives from `enum.IntEnum`.
+    is_int_enum: bool,
+    /// Type parameters declared by a `typing.Generic[...]` marker base.
+    type_params: Vec<TypeParamDef>,
+    /// The single non-marker base class, if any.
+    base: Option<Symbol>,
+}
+
 impl ModuleBuilder<'_> {
     /// Lower a Python class definition into the current HIR module.
     fn class_def(
@@ -39,13 +51,17 @@ impl ModuleBuilder<'_> {
         });
         let materialized = self.materialized_class_definition(class_name_str).cloned();
 
-        // --- Decorator check: only @dataclass is allowed ---
+        // --- Decorator check: only `dataclasses.dataclass` is allowed ---
         let mut kind =
-            Self::class_kind_from_decorators(class, materialized.as_ref(), span, class_name_str)?;
+            self.class_kind_from_decorators(class, materialized.as_ref(), span, class_name_str)?;
 
         // --- Metaclass and base classes ---
-        let (is_abstract_class, type_params, base) =
-            self.resolve_class_bases(class, materialized.as_ref(), span, class_name_str)?;
+        let ClassBases {
+            is_abstract: is_abstract_class,
+            is_int_enum,
+            type_params,
+            base,
+        } = self.resolve_class_bases(class, materialized.as_ref(), span, class_name_str)?;
         if is_abstract_class {
             kind = ClassKind::Abstract;
         }
@@ -63,6 +79,7 @@ impl ModuleBuilder<'_> {
             &target,
             base,
             &type_params,
+            is_int_enum,
             &mut kind,
             hir_module,
         )?;
@@ -82,8 +99,13 @@ impl ModuleBuilder<'_> {
     }
 
     /// Determine the class kind from its decorators, validating that only
-    /// `@dataclass` (or a materialized dataclass) is present.
+    /// `dataclasses.dataclass` (or a materialized dataclass) is present.
+    ///
+    /// A decorator counts as the dataclass decorator when it denotes
+    /// `dataclasses.dataclass` through the module's bindings, called
+    /// (`@dataclass(frozen=True)`) or not, whatever its spelling.
     fn class_kind_from_decorators(
+        &self,
         class: &StmtClassDef,
         materialized: Option<&smelt_specialize::ClassDefinition>,
         span: Span,
@@ -104,19 +126,24 @@ impl ModuleBuilder<'_> {
         } else {
             &[]
         };
+        let scope = EvalScope::Module {
+            at: class.range.start(),
+        };
+        let owner = format!("class '{class_name_str}'");
         for dec in runtime_decorators {
-            match decorator_simple_name(dec) {
-                Some(n @ ("dataclass" | "dataclasses.dataclass")) => {
-                    let frozen = decorator_frozen_kwarg(dec);
-                    kind = ClassKind::DataclassLike { frozen };
-                    let _ = n;
-                }
+            let callee = ruff_python_ast::helpers::map_callable(&dec.expression);
+            if self.denoted_stdlib_name(callee, scope, &owner)? == Some(StdlibName::Dataclass) {
+                kind = ClassKind::DataclassLike {
+                    frozen: decorator_frozen_kwarg(dec),
+                };
+                continue;
+            }
+            match dotted_name(callee) {
                 Some(other) => {
-                    let other_owned = other.to_owned();
                     return Err(SmeltError::unsupported_decorator(
                         span,
                         class_name_str,
-                        &other_owned,
+                        &other,
                     ));
                 }
                 None => {
@@ -134,88 +161,120 @@ impl ModuleBuilder<'_> {
 
     /// Resolve the metaclass abstractness flag, generic type parameters, and the
     /// single supported base class of a class definition.
+    ///
+    /// Each base and the `metaclass=` keyword are matched by what they denote
+    /// through the module's bindings (see [`Self::denoted_stdlib_name`]):
+    /// `builtins.object`, `abc.ABC`, `typing.Generic[...]` and
+    /// `typing.Protocol` are markers that add no base; `abc.ABCMeta` is the only
+    /// supported metaclass; an `enum.IntEnum` base makes the class an integer
+    /// enumeration and is recorded under its own name, `IntEnum`.
     fn resolve_class_bases(
         &mut self,
         class: &StmtClassDef,
         materialized: Option<&smelt_specialize::ClassDefinition>,
         span: Span,
         class_name_str: &str,
-    ) -> Result<(bool, Vec<TypeParamDef>, Option<Symbol>), SmeltError> {
+    ) -> Result<ClassBases, SmeltError> {
+        let scope = EvalScope::Module {
+            at: class.range.start(),
+        };
+        let owner = format!("class '{class_name_str}'");
+        let mut bases = ClassBases {
+            is_abstract: false,
+            is_int_enum: false,
+            type_params: Vec::new(),
+            base: None,
+        };
+        let Some(args) = class.arguments.as_deref() else {
+            return Ok(bases);
+        };
+
         // --- Metaclass check ---
-        let mut is_abstract_class = false;
-        if let Some(args) = class.arguments.as_deref() {
-            for kw in args.keywords.iter() {
-                if kw.arg.as_ref().map(|a| a.as_str()) == Some("metaclass") {
-                    if matches!(expr_simple_name(&kw.value), Some("ABCMeta" | "abc.ABCMeta")) {
-                        is_abstract_class = true;
-                    } else if materialized.is_none() {
-                        return Err(SmeltError::no_metaclass(span, class_name_str));
-                    }
+        for kw in args.keywords.iter() {
+            if kw.arg.as_ref().map(|a| a.as_str()) == Some("metaclass") {
+                if self.denoted_stdlib_name(&kw.value, scope, &owner)? == Some(StdlibName::AbcMeta)
+                {
+                    bases.is_abstract = true;
+                } else if materialized.is_none() {
+                    return Err(SmeltError::no_metaclass(span, class_name_str));
                 }
             }
         }
 
         // --- Base classes ---
-        let mut type_params: Vec<TypeParamDef> = Vec::new();
-        let base: Option<Symbol> = if let Some(args) = class.arguments.as_deref() {
-            let positional: Vec<&Expr> = args
-                .args
-                .iter()
-                .filter(|base_expr| {
-                    let base_name = base_class_name(base_expr);
-                    if matches!(base_name, Some("ABC" | "abc.ABC")) {
-                        is_abstract_class = true;
-                    }
-                    if matches!(base_name, Some("Generic" | "typing.Generic")) {
-                        type_params = self.generic_marker_type_params(base_expr);
-                    }
-                    !matches!(
-                        base_name,
-                        Some(
-                            "object"
-                                | "ABC"
-                                | "abc.ABC"
-                                | "Generic"
-                                | "typing.Generic"
-                                | "Protocol"
-                                | "typing.Protocol"
-                        )
-                    )
-                })
-                .collect();
-            match positional.len() {
-                0 => None,
-                1 => {
-                    let [base_expr] = positional.as_slice() else {
+        let mut positional: Vec<(&Expr, Option<StdlibName>)> = Vec::new();
+        for base_expr in args.args.iter() {
+            let denoted = self.denoted_stdlib_name(
+                ruff_python_ast::helpers::map_subscript(base_expr),
+                scope,
+                &owner,
+            )?;
+            match denoted {
+                Some(StdlibName::Object | StdlibName::Protocol) => {}
+                Some(StdlibName::Abc) => bases.is_abstract = true,
+                Some(StdlibName::Generic) => {
+                    bases.type_params = self.generic_marker_type_params(base_expr);
+                }
+                _ => positional.push((base_expr, denoted)),
+            }
+        }
+        bases.base = match positional.as_slice() {
+            [] => None,
+            [(base_expr, denoted)] => {
+                if is_django_model_base(base_expr) && materialized.is_none() {
+                    return Err(SmeltError::django_unsupported(span, class_name_str));
+                }
+                bases.is_int_enum = *denoted == Some(StdlibName::IntEnum);
+                // A modeled standard-library base is recorded under its own
+                // name whatever its spelling; any other base keeps the bare
+                // name it is spelled with.
+                let base_name =
+                    denoted.map(StdlibName::name).or_else(|| base_class_name(base_expr));
+                match base_name {
+                    Some(name) => Some(self.intern_name(name)),
+                    None => {
                         return Err(SmeltError::unsupported(
                             span,
                             format!(
                                 "class '{class_name_str}': complex base class expression not supported"
                             ),
                         ));
-                    };
-                    if is_django_model_base(base_expr) && materialized.is_none() {
-                        return Err(SmeltError::django_unsupported(span, class_name_str));
-                    }
-                    match base_class_name(base_expr) {
-                        Some("object") => None,
-                        Some(name) => Some(self.intern_name(name)),
-                        None => {
-                            return Err(SmeltError::unsupported(
-                                span,
-                                format!(
-                                    "class '{class_name_str}': complex base class expression not supported"
-                                ),
-                            ));
-                        }
                     }
                 }
-                _ => return Err(SmeltError::no_multiple_inheritance(span, class_name_str)),
             }
-        } else {
-            None
+            _ => return Err(SmeltError::no_multiple_inheritance(span, class_name_str)),
         };
-        Ok((is_abstract_class, type_params, base))
+        Ok(bases)
+    }
+
+    /// Resolve a definition-time expression evaluated in `scope` to the
+    /// modeled standard-library definition it denotes.
+    ///
+    /// Returns `Ok(None)` when `expr` is not a name or attribute chain, or
+    /// when no binding that can reach it denotes a modeled definition. When
+    /// only some reaching bindings do (a conditional or star import), the
+    /// class would lower differently depending on which one runs, so this
+    /// reports [`SmeltError::ambiguous_binding`] instead of guessing. `owner`
+    /// names the class or method for that diagnostic.
+    fn denoted_stdlib_name(
+        &self,
+        expr: &Expr,
+        scope: EvalScope,
+        owner: &str,
+    ) -> Result<Option<StdlibName>, SmeltError> {
+        let Some(resolution) = self.bindings.resolve(expr, scope) else {
+            return Ok(None);
+        };
+        match resolution.stdlib() {
+            StdlibMatch::Exact(name) => Ok(Some(name)),
+            StdlibMatch::NotStdlib => Ok(None),
+            StdlibMatch::Ambiguous => Err(SmeltError::ambiguous_binding(
+                self.span(expr.range()),
+                owner,
+                &dotted_name(expr).unwrap_or_default(),
+                &resolution.describe(),
+            )),
+        }
     }
 
     /// Register the class item stub then walk the class body, collecting fields,
@@ -234,6 +293,7 @@ impl ModuleBuilder<'_> {
         target: &MaterializedClassTarget<'_>,
         base: Option<Symbol>,
         type_params: &[TypeParamDef],
+        is_int_enum: bool,
         kind: &mut ClassKind,
         hir_module: &mut Module,
     ) -> Result<(ClassBodyLowering, ItemId), SmeltError> {
@@ -246,9 +306,6 @@ impl ModuleBuilder<'_> {
         let mut method_ids: Vec<ItemId> = Vec::new();
         let mut static_methods: Vec<ItemId> = Vec::new();
         let mut static_fields_out: Vec<smelt_hir::StaticField> = Vec::new();
-        let is_int_enum = base
-            .and_then(|base_sym| self.ctx.krate.symbols.get(base_sym))
-            .is_some_and(|base_name| base_name == "IntEnum");
         let class_item_id = self.ctx.krate.push_item(Item::Class(Class {
             name: class_sym,
             span,
@@ -358,7 +415,7 @@ impl ModuleBuilder<'_> {
                     {
                         continue;
                     }
-                    if Self::is_abstractmethod(func) {
+                    if self.is_abstractmethod(class, func)? {
                         *kind = ClassKind::Abstract;
                         abstract_methods.push(self.abstract_method_sig(func)?);
                         continue;
@@ -1038,14 +1095,30 @@ impl ModuleBuilder<'_> {
             && matches!(attr.value.as_ref(), Expr::Name(receiver) if receiver.id.as_str() == class_name)
     }
 
-    /// Return whether a Python method is decorated with `@abstractmethod`.
-    fn is_abstractmethod(func: &StmtFunctionDef) -> bool {
-        func.decorator_list.iter().any(|decorator| {
-            matches!(
-                decorator_simple_name(decorator),
-                Some("abstractmethod" | "abc.abstractmethod")
-            )
-        })
+    /// Return whether a method of the module-level `class` is decorated with
+    /// `abc.abstractmethod`.
+    ///
+    /// A method decorator is evaluated in the class body, so a name the class
+    /// body has bound before the method shadows the module's import; see
+    /// [`EvalScope::ClassBody`].
+    fn is_abstractmethod(
+        &self,
+        class: &StmtClassDef,
+        func: &StmtFunctionDef,
+    ) -> Result<bool, SmeltError> {
+        let scope = EvalScope::ClassBody {
+            class_start: class.range.start(),
+            at: func.range.start(),
+        };
+        let owner = format!("method '{}'", func.name);
+        for decorator in &func.decorator_list {
+            if self.denoted_stdlib_name(&decorator.expression, scope, &owner)?
+                == Some(StdlibName::AbstractMethod)
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Return whether a method is decorated with `@staticmethod`.
@@ -1225,7 +1298,7 @@ impl ModuleBuilder<'_> {
             {
                 continue;
             }
-            if Self::is_abstractmethod(func) || self.is_materialized_descriptor_callable(func) {
+            if self.is_abstractmethod(class, func)? || self.is_materialized_descriptor_callable(func) {
                 continue;
             }
             let is_static = Self::is_staticmethod(func);

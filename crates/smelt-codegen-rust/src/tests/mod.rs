@@ -102,3 +102,4 @@ mod function_semantics_tests;
 mod blocker_site_tests;
 mod closure_capture_frame_tests;
 mod erased_runtime_shape_tests;
+mod python_stdlib_spelling_tests;

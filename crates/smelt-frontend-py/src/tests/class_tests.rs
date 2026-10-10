@@ -418,9 +418,16 @@ class Point:
     Ok(())
 }
 
+// The source used to omit `from dataclasses import dataclass`. CPython rejects
+// that module with `NameError: name 'dataclass' is not defined`, and the
+// frontend now resolves decorators through the module's imports, so an
+// unbound `dataclass` no longer counts as the stdlib decorator. The assertion
+// is unchanged: a valid `@dataclass(frozen=True)` lowers as a frozen dataclass.
 #[test]
 fn frozen_dataclass_lowers() -> TestResult {
     let source = py!(r"
+from dataclasses import dataclass
+
 @dataclass(frozen=True)
 class Immutable:
     value: int

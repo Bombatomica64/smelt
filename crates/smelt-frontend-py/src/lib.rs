@@ -254,7 +254,35 @@ impl SmeltError {
             span,
             message: format!("class '{class_name}': decorator '@{decorator}' is not supported"),
             note: Some(
-                "Only '@dataclass' (and 'dataclasses.dataclass') is allowed on classes.".to_owned(),
+                "Only 'dataclasses.dataclass' is allowed on classes, however it is imported."
+                    .to_owned(),
+            ),
+        }
+    }
+
+    /// Error for a definition-time name whose meaning depends on control flow.
+    ///
+    /// `spelled` is the source spelling (`Protocol`, `abc.ABC`) and
+    /// `candidates` lists what the reaching bindings denote. Raised only when
+    /// one of them is a standard-library definition the frontend models, so
+    /// the class would lower differently depending on which binding runs.
+    pub(crate) fn ambiguous_binding(
+        span: Span,
+        owner: &str,
+        spelled: &str,
+        candidates: &str,
+    ) -> Self {
+        Self {
+            code: "smelt::ambiguous-binding",
+            category: DiagnosticCategory::TypeConstraint,
+            span,
+            message: format!(
+                "{owner}: '{spelled}' may denote {candidates}, depending on which binding runs"
+            ),
+            note: Some(
+                "Bind the name with one unconditional import (for example \
+                 `from abc import ABC`) so its meaning is known before the program runs."
+                    .to_owned(),
             ),
         }
     }
@@ -399,6 +427,7 @@ fn is_generated_stub_file(path: &str, source: &str) -> bool {
 
 pub(crate) mod helpers;
 pub(crate) mod lowering;
+pub(crate) mod name_resolution;
 #[doc(hidden)]
 pub mod test_support;
 pub(crate) mod ty_resolve;

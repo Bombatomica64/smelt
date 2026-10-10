@@ -316,6 +316,88 @@ def test_null_file_protocols():
     Ok(())
 }
 
+/// Dotted and aliased spellings of `enum.IntEnum`, `abc.ABC` and
+/// `builtins.object` lower to the same classes as their plain spellings, and
+/// the built program prints what `CPython` prints for the source.
+///
+/// The source has no decorator and no `metaclass=`, so it builds without the
+/// specialization sandbox and the frontend's own name resolution decides every
+/// base.
+#[test]
+fn build_runs_python_classes_with_dotted_stdlib_bases() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "py-dotted-bases"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.py"]
+
+[output]
+target = "./dist"
+crate-name = "py_dotted_bases"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/main.py"),
+        r"
+import enum as e
+from abc import ABC as Base
+import builtins
+
+
+class Color(e.IntEnum):
+    RED = 1
+    GREEN = 2
+
+
+class Status(e.IntEnum):
+    OK = 200
+
+
+class Shape(Base):
+    def sides(self) -> int:
+        return 0
+
+
+class Square(Shape):
+    def __init__(self) -> None:
+        self.n = 4
+
+    def sides(self) -> int:
+        return self.n
+
+
+class Plain(builtins.object):
+    def value(self) -> int:
+        return 7
+
+
+print(Color.GREEN + 1)
+print(Status.OK)
+print(Square().sides())
+print(Plain().value())
+",
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    // CPython 3.12 prints these four lines for the same source.
+    let actual_stdout = common::cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"3\n200\n4\n7\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
 #[test]
 fn build_runs_python_value_returning_or_none() -> TestResult {
     let project = TempProject::new()?;
