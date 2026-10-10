@@ -13,9 +13,10 @@
 //!
 //! These tables are the single answer to "which prototype methods does the
 //! erased runtime implement?". The codegen prelude emits its member lookup from
-//! them, and the TypeScript frontend asks [`is_erased_prototype_method`]
-//! when a name-keyed builtin lowering must not claim an erased receiver (see
-//! its docs). A method absent here reads as `undefined` on an erased receiver —
+//! them, and the TypeScript frontend asks [`is_erased_prototype_call`] (which
+//! wraps [`is_erased_prototype_method`] with the arity check) when a name-keyed
+//! builtin lowering must not claim an erased receiver (see its docs). Codegen's
+//! call runtime calls [`is_erased_prototype_method`] directly. A method absent here reads as `undefined` on an erased receiver —
 //! honest, rather than a callable that does something else.
 
 /// Every `Array.prototype` method an erased array answers.

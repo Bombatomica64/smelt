@@ -1,8 +1,10 @@
 //! Vitest/Jest-style helpers for generated Rust tests.
 //!
 //! Rust cannot expose methods named exactly like `toBe` or `toEqual` in an
-//! idiomatic way, so codegen maps those public source APIs to snake-case helper
-//! methods with matching assertion semantics.
+//! idiomatic way, so the intended design is snake-case helper methods with
+//! matching assertion semantics. This crate is not wired in yet: no codegen or
+//! frontend code references it, and TypeScript matchers are lowered in
+//! `smelt-frontend-ts`'s `lowering/testing/matchers.rs` instead.
 
 use std::fmt;
 

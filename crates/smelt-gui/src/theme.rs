@@ -27,7 +27,7 @@ pub(super) fn bg_surface() -> Hsla {
     rgb(0x1B_1B_23).into()
 }
 
-/// Elevated surface for headers, cards, and the example rail.
+/// Elevated surface for the app header, output tab bar, copy buttons, and panel headers.
 pub(super) fn bg_elevated() -> Hsla {
     rgb(0x22_22_2D).into()
 }

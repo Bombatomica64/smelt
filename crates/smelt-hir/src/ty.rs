@@ -1,3 +1,6 @@
+//! HIR types: the `Type` enum, `FunctionType`, and the `TypeInterner` that
+//! hands out `TypeId`s for them.
+
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{Symbol, TypeId, id_index};

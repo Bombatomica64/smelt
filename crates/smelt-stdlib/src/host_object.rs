@@ -450,7 +450,6 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     host("WeakSet", "__smelt_weakset"),
     host("File", "__smelt_file"),
     host("Blob", "__smelt_blob"),
-    // Fetch API `Request` host object. Source code (es-toolkit's `isPlainObject`
     // The concrete fetch types. Unlike the marker-only entries above, these have
     // real generated runtime types (`SmeltHeaders`, `SmeltUrlSearchParams`) and
     // their structural surface IS read — through typed methods, not through the
@@ -491,13 +490,13 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     host("Server", "__smelt_httpserver"),
     host("IncomingMessage", "__smelt_incomingmessage"),
     host("ServerResponse", "__smelt_serverresponse"),
-    // The two `BodyInit` arms whose surfaces are not modeled yet. They are here
-    // for identity only -- `Object.prototype.toString` tags them, `instanceof`
-    // resolves through them, and `JSON.stringify` answers `{}` because a host
-    // object has no own enumerable properties. `reflected_construct_kind`
-    // excludes both, so no dynamic `new FormData()` builds a record that would
-    // pretend to have `append`.
     host("FormData", "__smelt_formdata"),
+    // `ReadableStream` is identity-only: its stream surface is not modeled yet
+    // (a named blocker). It is here for identity only -- `Object.prototype.toString`
+    // tags it, `instanceof` resolves through it, and `JSON.stringify` answers `{}`
+    // because a host object has no own enumerable properties.
+    // `reflected_construct_kind` excludes it, so no dynamic `new ReadableStream()`
+    // builds a record that would pretend to have stream methods.
     host("ReadableStream", "__smelt_readablestream"),
     host("DOMException", "__smelt_domexception"),
     // ECMA-402 `Intl` namespace constructors. Source code constructs these only
@@ -561,8 +560,9 @@ pub fn reflectively_constructible(class_name: &str) -> bool {
 ///
 /// The generated runtime uses this to hide host records from `for-in` /
 /// `Object.keys` enumeration. It intentionally excludes markers owned by other
-/// subsystems (dates, errors, regexps, abort controllers, namespaces) which the
-/// runtime tracks through their own dedicated helpers.
+/// subsystems (dates, errors, regexps, namespaces) which the runtime tracks
+/// through their own dedicated helpers. Abort controller and abort signal
+/// identities are host-object entries and are yielded here.
 pub fn host_object_markers() -> impl Iterator<Item = &'static str> {
     HOST_OBJECTS.iter().map(|entry| entry.marker)
 }
@@ -617,7 +617,7 @@ pub fn typed_array_element(class_name: &str) -> Option<TypedArrayElement> {
 /// `DataView` does not have (see
 /// [`TypedArrayElement::has_data_view_accessor`]).
 ///
-/// This is a RULE, not a table of eighteen entries: the accessor's name is
+/// This is a RULE, not a table of twenty entries: the accessor's name is
 /// `get`/`set` plus the element's own spelling, so the element table is the
 /// single source of truth and a new element type would get its accessors for
 /// free. The dispatch site asks this instead of matching names itself.

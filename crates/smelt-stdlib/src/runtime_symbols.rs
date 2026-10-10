@@ -9,7 +9,9 @@
 //! reaches `rustc`, far from the codegen change that caused it.
 //!
 //! This module is the single, enumerable source of truth for those names. Each
-//! constant is the literal Rust identifier of one runtime helper. Codegen
+//! constant is the literal Rust identifier of one runtime helper, except the
+//! few that name the shared type, the slot prefix, and the record or marker keys
+//! the helpers use. Codegen
 //! references these constants instead of inlining string literals, so renaming
 //! a helper is a one-line edit here that updates the prelude definition and all
 //! call sites at once.

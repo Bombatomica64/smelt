@@ -866,7 +866,7 @@ fn sandbox_quote(value: &str) -> Result<String, SandboxError> {
     Ok(value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// Finds an executable on the sanitized host `PATH`.
+/// Finds an executable on the host `PATH`.
 fn find_executable(name: &str) -> Option<PathBuf> {
     std::env::var_os("PATH").and_then(|path| {
         std::env::split_paths(&path)

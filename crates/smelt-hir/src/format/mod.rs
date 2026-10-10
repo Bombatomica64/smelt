@@ -26,7 +26,7 @@ fn push_fmt(out: &mut String, args: std::fmt::Arguments<'_>) {
 /// Format one type as the text the HIR dump uses for it.
 ///
 /// The dump's own renderer, exposed so a DIAGNOSTIC can name a type the way a
-/// reader can act on: `String | Dict<String, Float> | Class(ArrayBufferView)`
+/// reader can act on: `String | Dict<String, Float> | ArrayBufferView`
 /// instead of `Union([TypeId(29), TypeId(196), …])`. A blocker that prints
 /// interned ids tells the reader only that something is wrong somewhere, which
 /// is the least actionable form of a true statement — and for a union it hides

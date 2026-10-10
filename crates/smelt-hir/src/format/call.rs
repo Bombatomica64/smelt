@@ -1373,7 +1373,6 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
     }
 }
 
-/// Formats a runtime-backed async operation.
 /// The dump spelling of an `EventEmitter` operation.
 const fn event_emitter_op_name(op: crate::expr::EventEmitterOp) -> &'static str {
     match op {

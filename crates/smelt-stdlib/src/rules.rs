@@ -124,7 +124,7 @@ pub enum RuleId {
     TsStructuredClone,
     /// TypeScript `Object(value)` called as a function (boxes a primitive).
     TsObjectBox,
-    /// TypeScript `Promise.resolve`, `Promise.all`, `Promise.race`, or `Promise.allSettled`.
+    /// TypeScript `Promise.resolve`, `Promise.reject`, `Promise.all`, `Promise.race`, or `Promise.allSettled`.
     TsPromiseStatic,
     /// TypeScript global primitive conversion or numeric parse call.
     TsPrimitiveCast,
@@ -245,7 +245,7 @@ pub enum RuleId {
     /// Separate from [`Self::TsTypedArrayMethod`] because the element kind is
     /// an argument of the CALL rather than a property of the receiver: the
     /// accessor's own name carries the width, the signedness and the
-    /// direction, and the byte order is a parameter. One rule for all eighteen
+    /// direction, and the byte order is a parameter. One rule for all twenty
     /// spellings, resolved through
     /// [`crate::data_view_accessor`](crate::data_view_accessor) rather than an
     /// entry per name.
@@ -253,7 +253,7 @@ pub enum RuleId {
     /// TypeScript `Response` data-property read (`status`, `ok`, `statusText`,
     /// `headers`, `bodyUsed`).
     TsResponseRead,
-    /// TypeScript `Response` body reader (`text`).
+    /// TypeScript `Response` body reader (`text`, `json`, `formData`, `arrayBuffer`, `bytes`).
     ///
     /// Separate from [`Self::TsResponseRead`] because a body reader is `async`
     /// *and* single-use: it answers a `Promise` and consumes the body, so a
@@ -267,7 +267,7 @@ pub enum RuleId {
     /// TypeScript `Request` data-property read (`url`, `method`, `headers`,
     /// `bodyUsed`).
     TsRequestRead,
-    /// TypeScript `Request` body reader (`text`).
+    /// TypeScript `Request` body reader (`text`, `json`, `formData`, `arrayBuffer`, `bytes`).
     TsRequestBodyRead,
     /// TypeScript `Request.prototype.clone`.
     TsRequestClone,
