@@ -159,12 +159,7 @@ impl FunctionEmitter<'_> {
                     // first — so funnel/batch schedulers observe all requests
                     // before any is driven — then flatten each erased promise to
                     // its resolved value.
-                    let item_is_erased = match self.mir.types.get(item_ty) {
-                        Some(Type::Future(output)) => {
-                            matches!(self.mir.types.get(*output), Some(Type::Unknown))
-                        }
-                        _ => false,
-                    };
+                    let item_is_erased = self.is_erased_future_type(item_ty);
                     if item_is_erased {
                         return Ok(format!(
                             "SmeltFuture::from_future(Box::pin(async move {{ let mut __smelt_pending = Vec::new(); for __smelt_future in {list} {{ __smelt_pending.push(__smelt_future.await?); }} let mut __smelt_values = Vec::with_capacity(__smelt_pending.len()); for __smelt_value in __smelt_pending {{ __smelt_values.push(smelt_await_flatten(__smelt_value).await?); }} Ok::<_, Box<dyn std::error::Error>>(SmeltList::from(__smelt_values)) }}))"
@@ -738,16 +733,24 @@ impl FunctionEmitter<'_> {
     /// `SmeltUnknown::Promise` (i.e. the future's `Output` is `Unknown`), so its
     /// awaited result needs flattening through `smelt_await_flatten`.
     fn awaited_operand_is_erased(&self, operand: &Operand) -> bool {
-        match self
-            .operand_ty(operand)
-            .ok()
-            .and_then(|ty| self.mir.types.get(ty))
-        {
-            Some(Type::Future(output)) => {
-                matches!(self.mir.types.get(*output), Some(Type::Unknown))
-            }
-            _ => false,
-        }
+        self.operand_ty(operand)
+            .is_ok_and(|ty| self.is_erased_future_type(ty))
+    }
+
+    /// Whether `ty` is a future whose awaited value is `unknown`.
+    fn is_erased_future_type(&self, ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(ty),
+            Some(Type::Future(output)) if self.mir.types.get(*output) == Some(&Type::Unknown)
+        )
+    }
+
+    /// Whether `ty` is a list of `unknown` elements.
+    fn is_unknown_list_type(&self, ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(ty),
+            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
+        )
     }
 
     /// Return the future item type when the operand is a list of futures.
@@ -1121,18 +1124,12 @@ impl FunctionEmitter<'_> {
                         let Some(first_arg) = args.first() else {
                             return Err(EmitError::new("call is missing first argument"));
                         };
-                        matches!(
-                            self.mir.types.get(self.operand_ty(first_arg)?),
-                            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
-                        )
+                        self.is_unknown_list_type(self.operand_ty(first_arg)?)
                     } else {
                         false
                     };
                     if function.rest == Some(0)
-                        && matches!(
-                            self.mir.types.get(rest_ty),
-                            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
-                        )
+                        && self.is_unknown_list_type(rest_ty)
                         && !single_unknown_list_arg
                     {
                         let items = args
@@ -1152,10 +1149,7 @@ impl FunctionEmitter<'_> {
                     .enumerate()
                     .find_map(|(index, param)| {
                         let ty = self.function_local_decl(function, *param).ok()?.ty;
-                        matches!(
-                            self.mir.types.get(ty),
-                            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
-                        )
+                        self.is_unknown_list_type(ty)
                         .then(|| index.checked_add(1).map(|next_index| (index, next_index)))?
                     })
                     && next_index == function.params.len()
@@ -1622,8 +1616,6 @@ impl FunctionEmitter<'_> {
         Ok(rendered_args.join(", "))
     }
 
-
-
     /// Return the generic type parameters declared by the class that owns
     /// `function`, when `function` is a class method or constructor.
     ///
@@ -1632,22 +1624,7 @@ impl FunctionEmitter<'_> {
     /// parameters `T` directly. Callers use this to detect arguments whose
     /// target parameter is one of those class-level type parameters.
     fn callee_class_type_params(&self, function: &MirFunction) -> HashSet<Symbol> {
-        let class_name = match function.origin {
-            HirOrigin::ClassConstructor { class, .. } | HirOrigin::ClassMethod { class, .. } => {
-                class
-            }
-            // Static methods are emitted as receiver-free associated functions and
-            // do not participate in the receiver's generic instantiation (static
-            // members on generic classes are deferred, see #98), so they carry no
-            // class type parameters relevant to argument pass-through here.
-            HirOrigin::Body(_) | HirOrigin::ClassStaticMethod { .. } => return HashSet::new(),
-        };
-        self.mir
-            .classes
-            .iter()
-            .find(|class| class.name == class_name)
-            .map(|class| class.type_params.iter().map(|param| param.name).collect())
-            .unwrap_or_default()
+        self.callee_class_type_param_names(function).into_iter().collect()
     }
 
     /// The render scope for a value coerced to one of `function`'s **declared**
@@ -1804,6 +1781,10 @@ impl FunctionEmitter<'_> {
             HirOrigin::ClassConstructor { class, .. } | HirOrigin::ClassMethod { class, .. } => {
                 class
             }
+            // Static methods are emitted as receiver-free associated functions and
+            // do not participate in the receiver's generic instantiation (static
+            // members on generic classes are deferred, see #98), so they carry no
+            // class type parameters relevant to argument pass-through here.
             HirOrigin::Body(_) | HirOrigin::ClassStaticMethod { .. } => return Vec::new(),
         };
         self.mir
@@ -2980,10 +2961,7 @@ impl FunctionEmitter<'_> {
     /// Mirrors the `Rvalue::ClosureCall` erased-callee test so both call forms
     /// classify a callee identically.
     pub(super) fn callee_is_dynamically_dispatched(&self, callee_ty: TypeId) -> bool {
-        matches!(
-            self.mir.types.get(callee_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(callee_ty)
+        self.has_dynamic_shape(callee_ty)
     }
 
     /// Bind every argument that reads through a `RefCell` borrow to a local.

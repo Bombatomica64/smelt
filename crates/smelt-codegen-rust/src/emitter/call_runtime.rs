@@ -870,10 +870,7 @@ impl FunctionEmitter<'_> {
                         union::union_name(dest_ty)
                     ));
                 }
-                if matches!(
-                    self.mir.types.get(dest_ty),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(dest_ty)
+                if self.has_dynamic_shape(dest_ty)
                 {
                     let items_text = items
                         .iter()
@@ -936,10 +933,7 @@ impl FunctionEmitter<'_> {
                 if let Some(record_text) = self.record_literal_text_for_dest(entries, dest_ty)? {
                     return Ok(record_text);
                 }
-                if matches!(
-                    self.mir.types.get(dest_ty),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(dest_ty)
+                if self.has_dynamic_shape(dest_ty)
                 {
                     let entries_text = entries
                         .iter()
@@ -1666,10 +1660,7 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::ClosureCall { callee, args } => {
                 let callee_ty = self.operand_ty(callee)?;
-                if matches!(
-                    self.mir.types.get(callee_ty),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(callee_ty)
+                if self.has_dynamic_shape(callee_ty)
                 {
                     // The dynamic dispatch below matches on the ERASED carrier.
                     // A union with concrete members renders as its generated
@@ -2628,10 +2619,7 @@ impl FunctionEmitter<'_> {
         spreads: &[Operand],
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        if matches!(
-            self.mir.types.get(dest_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(dest_ty)
+        if self.has_dynamic_shape(dest_ty)
         {
             let callable_text = self.erase(callable)?;
             let mut entries = vec![format!(

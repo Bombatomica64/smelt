@@ -169,10 +169,7 @@ impl FunctionEmitter<'_> {
         };
         let operand_text = if matches!(self.mir.types.get(operand_ty), Some(Type::Float)) {
             self.operand_text(operand)?
-        } else if matches!(
-            self.mir.types.get(operand_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(operand_ty)
+        } else if self.has_dynamic_shape(operand_ty)
         {
             self.value_at_type(operand, self.type_id(Type::Float)?)?
         } else {
@@ -289,10 +286,7 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(operand_ty),
             Some(Type::Int | Type::Float)
         );
-        let is_erased_operand = matches!(
-            self.mir.types.get(operand_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(operand_ty);
+        let is_erased_operand = self.has_dynamic_shape(operand_ty);
         // `Number.isSafeInteger` performs NO type coercion: ECMAScript returns
         // `false` for every argument whose type is not Number, so `'1'` is not a
         // safe integer even though `Number('1')` is. An erased operand therefore

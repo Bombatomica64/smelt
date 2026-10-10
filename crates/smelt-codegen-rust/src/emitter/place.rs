@@ -18,10 +18,7 @@ impl FunctionEmitter<'_> {
         if self.mir.types.get(key) == Some(&Type::String) {
             return Ok(format!("{field_name:?}.to_owned()"));
         }
-        if matches!(
-            self.mir.types.get(key),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(key)
+        if self.has_dynamic_shape(key)
         {
             return self.erase_value_text(
                 &format!("{field_name:?}.to_owned()"),

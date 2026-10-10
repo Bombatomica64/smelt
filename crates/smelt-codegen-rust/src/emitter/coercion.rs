@@ -263,10 +263,7 @@ impl FunctionEmitter<'_> {
             }
             let operand_ty = self.operand_ty(operand)?;
             if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(source_inner)) if matches!(self.mir.types.get(*source_inner), Some(Type::Unknown)))
-                && (matches!(
-                    self.mir.types.get(*inner),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(*inner))
+                && (self.has_dynamic_shape(*inner))
             {
                 return self.operand_text(operand);
             }
@@ -279,10 +276,7 @@ impl FunctionEmitter<'_> {
             if self.can_coerce_to_optional_inner(operand_ty, *inner) {
                 return Ok(format!("Some({})", self.value_at_type_in(operand, *inner, scope)?));
             }
-            if matches!(
-                self.mir.types.get(*inner),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            ) || self.is_erased_class_type(*inner)
+            if self.has_dynamic_shape(*inner)
             {
                 return Ok(format!("Some({})", self.value_at_type_in(operand, *inner, scope)?));
             }
@@ -332,7 +326,7 @@ impl FunctionEmitter<'_> {
             return Ok(Self::regexp_literal_text(&self.operand_text(operand)?));
         }
         if self.is_match_fn_result_type(self.operand_ty(operand)?)?
-            && !self.is_match_fn_result_class_type(target)?
+            && !self.is_match_fn_result_type(target)?
         {
             return self.extract_value_text(
                 &format!("{}.value.clone()", self.operand_text(operand)?),
@@ -487,10 +481,7 @@ impl FunctionEmitter<'_> {
             // `[undefined, …]` literal must erase to `Undefined` (the type lost
             // the distinction; only the defining constants carry it). Recover it
             // from the def-site so genuine `null` arrays keep the `Null` path.
-            let target_item_is_erased = matches!(
-                self.mir.types.get(*target_item),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            ) || self.is_erased_class_type(*target_item);
+            let target_item_is_erased = self.has_dynamic_shape(*target_item);
             if matches!(self.mir.types.get(*source_item), Some(Type::None))
                 && target_item_is_erased
                 && self.container_local_all_undefined_constants(operand)?
@@ -501,10 +492,7 @@ impl FunctionEmitter<'_> {
                 ));
             }
             let value_text = if matches!(self.mir.types.get(*source_item), Some(Type::List(_)))
-                && (matches!(
-                    self.mir.types.get(*target_item),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(*target_item))
+                && (self.has_dynamic_shape(*target_item))
             {
                 "value.into_smelt_unknown()".to_owned()
             } else {
@@ -1080,10 +1068,7 @@ impl FunctionEmitter<'_> {
             let source_item = *source_item;
             let target_item = *target_item;
             let element_text = if matches!(self.mir.types.get(source_item), Some(Type::List(_)))
-                && (matches!(
-                    self.mir.types.get(target_item),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(target_item))
+                && (self.has_dynamic_shape(target_item))
             {
                 "value.into_smelt_unknown()".to_owned()
             } else {
@@ -1221,7 +1206,7 @@ impl FunctionEmitter<'_> {
             }
             return self.extract_value_text(value_text, target, scope);
         }
-        if self.is_match_fn_result_type(source)? && !self.is_match_fn_result_class_type(target)? {
+        if self.is_match_fn_result_type(source)? && !self.is_match_fn_result_type(target)? {
             let value_ty = match self.match_fn_result_value_type(source)? {
                 Some(value_ty) => value_ty,
                 None => self.type_id(Type::Unknown)?,
@@ -2974,10 +2959,7 @@ impl FunctionEmitter<'_> {
         );
         let source_inner_is_erased = matches!(
             self.mir.types.get(source_ty),
-            Some(Type::Optional(inner)) if matches!(
-                self.mir.types.get(*inner),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            ) || self.is_erased_class_type(*inner)
+            Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner)
         );
         if target_is_primitive
             && matches!(self.mir.types.get(source_ty), Some(Type::Optional(_)))
@@ -3563,10 +3545,7 @@ impl FunctionEmitter<'_> {
         if self.concrete_union_members(inner).is_some() {
             return false;
         }
-        matches!(
-            self.mir.types.get(inner),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(inner)
+        self.has_dynamic_shape(inner)
     }
 
 }

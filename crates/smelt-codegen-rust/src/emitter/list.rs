@@ -260,14 +260,8 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let left_ty = self.operand_ty(left)?;
         let right_ty = self.operand_ty(right)?;
-        let left_erased = matches!(
-            self.mir.types.get(left_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(left_ty);
-        let right_erased = matches!(
-            self.mir.types.get(right_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(right_ty);
+        let left_erased = self.has_dynamic_shape(left_ty);
+        let right_erased = self.has_dynamic_shape(right_ty);
         if left_erased || right_erased {
             // Coerce both operands to the materialized result list type. When one
             // side is a concrete `List<X>` (e.g. the empty `[]` synthesized for an
@@ -474,10 +468,7 @@ impl FunctionEmitter<'_> {
     /// Whether a concat operand erases to a runtime `SmeltUnknown` value, so its
     /// elements must be unwrapped when collected alongside a concrete-typed side.
     fn is_erased_concat_operand(&self, ty: TypeId) -> bool {
-        matches!(
-            self.mir.types.get(ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(ty)
+        self.has_dynamic_shape(ty)
     }
 
     /// Return whether an operand is statically known to be an empty list.
@@ -535,10 +526,7 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
-        if matches!(
-            self.mir.types.get(list_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(list_ty)
+        if self.has_dynamic_shape(list_ty)
         {
             return self.unknown_list_slice_text(list, start, end, dest_ty);
         }
@@ -603,10 +591,7 @@ impl FunctionEmitter<'_> {
                     .map(|text| format!("Some({text})"))
             },
         )?;
-        if matches!(
-            self.mir.types.get(dest_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(dest_ty)
+        if self.has_dynamic_shape(dest_ty)
         {
             // Tag-preserving erased slice: an array receiver yields a fresh
             // `SmeltUnknown::Array` (JS `Array.prototype.slice` returns a new
@@ -857,10 +842,7 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
-        if matches!(
-            self.mir.types.get(list_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(list_ty)
+        if self.has_dynamic_shape(list_ty)
         {
             let Some(Type::List(item_ty)) = self.mir.types.get(dest_ty) else {
                 return Ok("Default::default()".to_owned());

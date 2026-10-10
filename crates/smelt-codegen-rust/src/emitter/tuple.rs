@@ -84,10 +84,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let tuple_ty = self.operand_ty(tuple)?;
         let Some(Type::Tuple(items)) = self.mir.types.get(tuple_ty) else {
-            if matches!(
-                self.mir.types.get(tuple_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            ) || self.is_erased_class_type(tuple_ty)
+            if self.has_dynamic_shape(tuple_ty)
             {
                 let runtime_index = u32::try_from(index).map_err(|err| {
                     EmitError::new(format!("tuple index does not fit in runtime number: {err}"))

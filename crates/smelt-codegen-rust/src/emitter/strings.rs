@@ -925,10 +925,7 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Optional(inner))
-                if matches!(
-                    self.mir.types.get(*inner),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(*inner) =>
+                if self.has_dynamic_shape(*inner) =>
             {
                 let text = self.operand_text(operand)?;
                 // A concrete-union `Option` payload stores a tagged enum, so each

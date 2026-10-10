@@ -262,14 +262,8 @@ impl FunctionEmitter<'_> {
         }
         let lhs_ty = self.operand_ty(lhs)?;
         let rhs_ty = self.operand_ty(rhs)?;
-        let lhs_is_erased = matches!(
-            self.mir.types.get(lhs_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(lhs_ty);
-        let rhs_is_erased = matches!(
-            self.mir.types.get(rhs_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(rhs_ty);
+        let lhs_is_erased = self.has_dynamic_shape(lhs_ty);
+        let rhs_is_erased = self.has_dynamic_shape(rhs_ty);
         let lhs_is_none = self.mir.types.get(lhs_ty) == Some(&Type::None);
         let rhs_is_none = self.mir.types.get(rhs_ty) == Some(&Type::None);
         let strict = matches!(
@@ -1217,17 +1211,9 @@ impl FunctionEmitter<'_> {
             ));
         }
         let lhs_needs_erased = self.type_contains_unknown(lhs_ty)
-            || matches!(
-                self.mir.types.get(lhs_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            )
-            || self.is_erased_class_type(lhs_ty);
+            || self.has_dynamic_shape(lhs_ty);
         let rhs_needs_erased = self.type_contains_unknown(rhs_ty)
-            || matches!(
-                self.mir.types.get(rhs_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            )
-            || self.is_erased_class_type(rhs_ty);
+            || self.has_dynamic_shape(rhs_ty);
         let text = if lhs_needs_erased && !rhs_needs_erased {
             format!(
                 "{} == {}",
@@ -1442,14 +1428,8 @@ impl FunctionEmitter<'_> {
         }
         let lhs_ty = self.operand_ty(lhs)?;
         let rhs_ty = self.operand_ty(rhs)?;
-        let lhs_erased = matches!(
-            self.mir.types.get(lhs_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(lhs_ty);
-        let rhs_erased = matches!(
-            self.mir.types.get(rhs_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(rhs_ty);
+        let lhs_erased = self.has_dynamic_shape(lhs_ty);
+        let rhs_erased = self.has_dynamic_shape(rhs_ty);
         let has_non_add_string = op != smelt_hir::BinOp::Add
             && matches!(
                 (self.mir.types.get(lhs_ty), self.mir.types.get(rhs_ty)),
@@ -1496,10 +1476,7 @@ impl FunctionEmitter<'_> {
     /// param, or an erased class type. Such values must be coerced with
     /// `ToNumber` before an `f64` `<`/`>`/`<=`/`>=` comparison resolves.
     fn is_erased_relational(&self, ty: TypeId) -> bool {
-        matches!(
-            self.mir.types.get(ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(ty)
+        self.has_dynamic_shape(ty)
     }
 
     /// Chooses the Rust scalar type for mixed numeric arithmetic.

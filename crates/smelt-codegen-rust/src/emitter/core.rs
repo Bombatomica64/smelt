@@ -799,10 +799,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// a type parameter, a union, or an erased class) — i.e. one that routes a
     /// value through [`Self::erase`].
     fn target_is_erased(&self, target: TypeId) -> bool {
-        matches!(
-            self.mir.types.get(target),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(target)
+        self.has_dynamic_shape(target)
     }
 
     /// Returns whether a local is read anywhere in the function body.
@@ -957,10 +954,7 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Returns whether `source` can be coerced before wrapping into `Option`.
     pub(super) fn can_coerce_to_optional_inner(&self, source: TypeId, inner: TypeId) -> bool {
-        matches!(
-            self.mir.types.get(inner),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(inner)
+        self.has_dynamic_shape(inner)
             || self.structural_record_adapter_available(source, inner)
             || self.string_dict_record_adapter_available(source, inner)
             || matches!(
@@ -5577,6 +5571,22 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(self.match_class_kind(name)?.is_some())
     }
 
+    /// Whether `ty` has no fixed runtime shape at the MIR level: `unknown`, a
+    /// type parameter, a union, or a class with no concrete generated Rust type
+    /// ([`Self::is_erased_class_type`]).
+    ///
+    /// This is the static test the emitter runs before choosing a runtime-tag
+    /// path. It deliberately does not answer the scope-aware question of
+    /// whether a type parameter or a concrete union renders as `SmeltUnknown`
+    /// at a given position; see `list_items_render_as_unknown` and
+    /// `concrete_union_members` for those.
+    pub(super) fn has_dynamic_shape(&self, ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(ty)
+    }
+
     /// Returns whether a class-shaped type is emitted as `SmeltUnknown`.
     pub(super) fn is_erased_class_type(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
@@ -5751,15 +5761,6 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Return whether a type is Remeda's internal `MatchFnResult` wrapper.
     pub(super) fn is_match_fn_result_type(&self, ty: TypeId) -> Result<bool, EmitError> {
-        Ok(matches!(
-            self.mir.types.get(ty),
-            Some(Type::Class { name, .. }) if smelt_stdlib::typescript_stdlib_class(self.symbol_name(*name)?)
-                == Some(smelt_stdlib::StdlibClass::MatchFnResult)
-        ))
-    }
-
-    /// Return whether a type is the synthetic `MatchFnResult` class without inspecting generics.
-    pub(super) fn is_match_fn_result_class_type(&self, ty: TypeId) -> Result<bool, EmitError> {
         Ok(matches!(
             self.mir.types.get(ty),
             Some(Type::Class { name, .. }) if smelt_stdlib::typescript_stdlib_class(self.symbol_name(*name)?)
