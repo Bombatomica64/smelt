@@ -1036,13 +1036,7 @@ impl ModuleBuilder<'_> {
             for argument in &call.arguments {
                 self.argument(argument, body)?;
             }
-            let none_ty = self.ctx.krate.types.intern(Type::None);
-            let ty = self.ctx.krate.types.intern(Type::Future(none_ty));
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::None),
-                ty,
-                span,
-            })));
+            return Ok(Some(self.vitest_async_void_expr(span, body)));
         };
 
         let did_throw_name = self.intern_source_name("did_throw");
@@ -1143,13 +1137,7 @@ impl ModuleBuilder<'_> {
             body,
         );
 
-        let none_ty = self.ctx.krate.types.intern(Type::None);
-        let ty = self.ctx.krate.types.intern(Type::Future(none_ty));
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::None),
-            ty,
-            span,
-        })))
+        Ok(Some(self.vitest_async_void_expr(span, body)))
     }
 
     /// Lower Sinon fake timer construction and clock methods used by test helpers.

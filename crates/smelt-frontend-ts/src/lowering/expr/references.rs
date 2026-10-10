@@ -63,10 +63,11 @@ impl ModuleBuilder<'_> {
     }
 
     /// Intern a type name symbol.
+    ///
+    /// Type names are case-sensitive, so this is
+    /// [`Self::intern_exact_source_name`] under the name its callers mean.
     pub(in crate::lowering) fn intern_type_name(&mut self, name: &str) -> smelt_hir::Symbol {
-        let symbol = self.ctx.krate.symbols.intern(name);
-        self.ctx.krate.names.record(symbol, name);
-        symbol
+        self.intern_exact_source_name(name)
     }
 
     /// Create an identifier expression from a local variable.

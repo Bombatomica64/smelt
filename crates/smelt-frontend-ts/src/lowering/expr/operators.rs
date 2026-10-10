@@ -3663,20 +3663,12 @@ impl ModuleBuilder<'_> {
                     let mut source =
                         self.expression_with_hint(&spread.argument, body, record_ty)?;
                     let source_ty = Self::expr_ty(body, source);
-                    if self.object_spread_source_erases_to_empty(source_ty) {
-                        let ty = record_ty.unwrap_or_else(|| {
-                            let key_ty = self.ctx.krate.types.intern(Type::String);
-                            let value_ty = self.ctx.krate.types.intern(Type::Unknown);
-                            self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
-                        });
-                        source = body.push_expr(Expr {
-                            kind: ExprKind::DictLit(Vec::new()),
-                            ty,
-                            span: self.span(spread.span.start, spread.span.end),
-                        });
-                    } else if self
-                        .accept_object_spread_source(source_ty, record_ty, spread.span)
-                        .is_err()
+                    // A source that erases to `{}`, or one the record cannot
+                    // accept, contributes an empty record of the result type.
+                    if self.object_spread_source_erases_to_empty(source_ty)
+                        || self
+                            .accept_object_spread_source(source_ty, record_ty, spread.span)
+                            .is_err()
                     {
                         let ty = record_ty.unwrap_or_else(|| {
                             let key_ty = self.ctx.krate.types.intern(Type::String);
