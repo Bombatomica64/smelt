@@ -67,7 +67,9 @@ pub(super) fn urlparse_field_rule(parse_call: &ExprCall) -> Option<RuleId> {
     Some(RuleId::PyUrlparseField)
 }
 
-/// Return the known class constructor name for a module-level constructed constant.
+/// Return the callee name of a direct `NAME(...)` call for a module-level constructed constant.
+///
+/// Callers check the returned name against the module's class items.
 ///
 /// This intentionally accepts only direct `NAME = ClassName(...)` shapes.  The
 /// frontend uses the result as importable package metadata, not as general

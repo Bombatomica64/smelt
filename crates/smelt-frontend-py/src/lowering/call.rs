@@ -212,7 +212,8 @@ impl ModuleBuilder<'_> {
         Ok(None)
     }
 
-    /// Try dict/list/set collection-method call handlers in source order.
+    /// Try dict/list/set collection-method call handlers, and the `requests.get`
+    /// handler, in source order.
     fn collection_call_expression(
         &mut self,
         call: &ruff_python_ast::ExprCall,

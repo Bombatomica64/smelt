@@ -1,3 +1,5 @@
+// Pytest test, fixture and parametrize lowering helpers for `ModuleBuilder`.
+// Included into lowering.rs via include!, so this file uses plain comments.
 impl ModuleBuilder<'_> {
     /// Return the HIR type for a parametrization literal.
     fn pytest_literal_type(
@@ -332,7 +334,8 @@ impl ModuleBuilder<'_> {
         let item = Item::Function(Function {
             name,
             span: func_span,
-            // Synthetic pytest wrapper carries no type params.
+            // Lowered Python functions carry no type params at this stage;
+            // specialized instances are concrete.
             type_params: Vec::new(),
             params,
             rest: None,

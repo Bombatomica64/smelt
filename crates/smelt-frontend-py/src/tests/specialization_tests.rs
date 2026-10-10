@@ -1,3 +1,4 @@
+//! Manifest-driven specialization lowering tests.
 use std::collections::BTreeMap;
 
 use super::*;

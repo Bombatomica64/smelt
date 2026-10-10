@@ -16,6 +16,7 @@ use std::{
 use smelt_frontend_py::{HirCtx, to_hir};
 use smelt_hir::{FileId, format_compact};
 
+/// Lower Python source files to HIR and print them.
 fn main() -> Result<(), String> {
     let mut stdout = io::stdout().lock();
     let mut debug = false;

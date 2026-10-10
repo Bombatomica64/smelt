@@ -1,3 +1,4 @@
+//! Class, method, dataclass, enum and type-declaration lowering tests.
 use super::*;
 
 #[test]

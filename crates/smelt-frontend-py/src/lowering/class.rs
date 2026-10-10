@@ -330,15 +330,15 @@ impl ModuleBuilder<'_> {
                 Stmt::Assign(assign) if is_int_enum => {
                     self.int_enum_member_assign(class_name_str, assign, &mut enum_members)?;
                 }
-                // A bare `NAME = <literal>` in a non-enum class body declares a
-                // class variable (a static member shared by the class). Lower it
-                // to a materialized static field resolvable via `Class.NAME`.
                 // Class-body dunder metadata (`__slots__`, `__match_args__`)
                 // configures `CPython`'s attribute storage and structural-pattern
                 // machinery. It declares no class variable: Smelt derives both
                 // from the class's own lowered shape, exactly as `__all__` is
                 // skipped at module level.
                 Stmt::Assign(assign) if is_class_metadata_assignment(assign) => {}
+                // A bare `NAME = <literal>` in a non-enum class body declares a
+                // class variable (a static member shared by the class). Lower it
+                // to a materialized static field resolvable via `Class.NAME`.
                 Stmt::Assign(assign) if !is_int_enum => {
                     if let Some(static_field) = self.class_var_static_field(assign)? {
                         static_fields_out.push(static_field);
@@ -663,8 +663,12 @@ impl ModuleBuilder<'_> {
     ///   is the source annotation when present and otherwise `ty`'s resolved
     ///   type for that parameter (issue #93).
     ///
-    /// Anything else (a computed value, a literal, a call result) is left
-    /// alone: inferring it would need the constructor body lowered, which has
+    /// Values whose type is knowable without lowering a body are also accepted:
+    /// a reference to an `__init__` parameter, a scalar literal, and a call to a
+    /// class already registered in this module (see `constructor_value_type`).
+    /// Anything else (a computed value, an operator expression, a call to an
+    /// unregistered callee) is left alone: inferring it would need the
+    /// constructor body lowered, which has
     /// not happened yet at this point, and guessing would be worse than the
     /// status quo. Names already declared by a class-level annotation are
     /// skipped so the explicit declaration always wins, and only the *first*
@@ -1337,12 +1341,13 @@ impl ModuleBuilder<'_> {
         Ok(aliases)
     }
 
-    /// Classify typed Python dunder methods for backend trait emission.
+    /// Classify the typed Python `__add__` operator protocol for backend trait emission.
     ///
-    /// Protocol metadata is explicit HIR rather than a backend name check, so a
-    /// TypeScript method that happens to use the same spelling does not acquire
-    /// Python operator semantics. An inherited `__add__` is represented by the
-    /// derived class's typed super alias.
+    /// Only `__add__` and its super alias are classified. Protocol metadata is
+    /// explicit HIR rather than a backend name check, so a TypeScript method
+    /// that happens to use the same spelling does not acquire Python operator
+    /// semantics. An inherited `__add__` is represented by the derived class's
+    /// typed super alias.
     fn python_class_protocols(
         &self,
         methods: &[ItemId],
