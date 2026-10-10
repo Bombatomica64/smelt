@@ -5928,6 +5928,52 @@ function describe(value: string | number[]): string {
 }
 
 #[test]
+fn a_map_union_arm_is_an_object_on_every_runtime_kind_path() {
+    // Regression (haiku audit F0310): four sites mapped a concrete type to its
+    // JavaScript runtime category and the copies had drifted, three of them
+    // leaving `Map` out of "object". All now read `Type::runtime_kind`.
+    let source = source_for(
+        r"
+export function isObj(v: Map<string, number> | string): boolean {
+  return typeof v === 'object';
+}
+export function kindName(v: Map<string, number> | string): string {
+  return typeof v;
+}
+export function fromErased(u: unknown): Map<string, number> | number[] | boolean {
+  return u as Map<string, number> | number[] | boolean;
+}
+",
+    );
+
+    // The frontend no longer folds `typeof v === 'object'` to `false`, and the
+    // concrete-union arm filter keeps the Map arm.
+    let is_obj = source
+        .split("fn is_obj(")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}").next())
+        .unwrap_or_default();
+    assert!(
+        is_obj.contains("matches!(v.clone(), SmeltUnion") && !is_obj.contains("false"),
+        "{source}"
+    );
+    // The union `typeof` string names the Map arm "object", not "undefined".
+    assert!(
+        source.contains("(_) => \"object\" }") && !source.contains("(_) => \"undefined\""),
+        "{source}"
+    );
+    // No member of the reconstructed union is nullish, so a `Null | Undefined`
+    // routing pattern could only be the Map arm misfiled.
+    assert!(
+        source.contains("fn from_smelt_unknown")
+            && !source.contains(
+                "matches!(value, SmeltUnknown::Null | SmeltUnknown::Undefined) { return Self::"
+            ),
+        "{source}"
+    );
+}
+
+#[test]
 fn emits_unknown_index_assignment_as_object_mutation() {
     let source = source_for(
         r"

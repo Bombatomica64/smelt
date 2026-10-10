@@ -639,15 +639,19 @@ impl FunctionEmitter<'_> {
     /// arm whose runtime JavaScript category matches, so each member maps to the
     /// `SmeltUnknown` discriminant its values carry at runtime.
     fn union_member_unknown_pattern(&self, member: TypeId) -> &'static str {
-        match self.mir.types.get(member) {
-            Some(Type::Bool) => "SmeltUnknown::Bool(_)",
-            Some(Type::Int | Type::Float) => "SmeltUnknown::Number(_)",
-            Some(Type::String) => "SmeltUnknown::String(_)",
-            Some(Type::Function(_)) => "SmeltUnknown::Function(_)",
-            Some(Type::List(_) | Type::Tuple(_)) => "SmeltUnknown::Array(_)",
-            Some(Type::Future(_)) => "SmeltUnknown::Promise(_)",
-            Some(Type::Set(_) | Type::Dict(_, _) | Type::Class { .. }) => "SmeltUnknown::Object(_)",
-            _ => "SmeltUnknown::Null | SmeltUnknown::Undefined",
+        use smelt_hir::UnknownKind as Kind;
+
+        match self.mir.types.get(member).and_then(Type::runtime_kind) {
+            Some(Kind::Bool) => "SmeltUnknown::Bool(_)",
+            Some(Kind::Number) => "SmeltUnknown::Number(_)",
+            Some(Kind::String) => "SmeltUnknown::String(_)",
+            Some(Kind::Function) => "SmeltUnknown::Function(_)",
+            Some(Kind::Array) => "SmeltUnknown::Array(_)",
+            Some(Kind::Promise) => "SmeltUnknown::Promise(_)",
+            Some(Kind::Object) => "SmeltUnknown::Object(_)",
+            Some(Kind::Symbol | Kind::Null | Kind::Undefined) | None => {
+                "SmeltUnknown::Null | SmeltUnknown::Undefined"
+            }
         }
     }
 
@@ -1151,38 +1155,24 @@ impl FunctionEmitter<'_> {
             })
     }
 
-    /// Map a concrete HIR type to the JavaScript runtime category used by guards.
+    /// Whether a union arm of type `ty` can hold a value that passes a runtime
+    /// kind test (`typeof`, `Array.isArray`) for `kind`.
+    ///
+    /// A `None` arm is `null`/`undefined` and an optional arm can be absent;
+    /// every other arm answers through the shared concrete-type map
+    /// (`Type::runtime_kind` / `UnknownKind::satisfies`), the same one
+    /// `static_tag_check` uses for a value that is not a union.
     fn union_member_matches_kind(&self, ty: TypeId, kind: smelt_hir::UnknownKind) -> bool {
-        matches!(
-            (self.mir.types.get(ty), kind),
-            (
-                Some(Type::None),
-                smelt_hir::UnknownKind::Null | smelt_hir::UnknownKind::Undefined,
-            ) | (Some(Type::Bool), smelt_hir::UnknownKind::Bool)
-                | (
-                    Some(Type::Int | Type::Float),
-                    smelt_hir::UnknownKind::Number
-                )
-                | (Some(Type::String), smelt_hir::UnknownKind::String)
-                | (Some(Type::Function(_)), smelt_hir::UnknownKind::Function)
-                | (
-                    Some(Type::List(_) | Type::Tuple(_)),
-                    smelt_hir::UnknownKind::Array
-                )
-                | (
-                    Some(
-                        Type::List(_)
-                            | Type::Set(_)
-                            | Type::Dict(_, _)
-                            | Type::Tuple(_)
-                            | Type::Class { .. }
-                            | Type::Future(_),
-                    ),
-                    smelt_hir::UnknownKind::Object,
-                )
-                | (Some(Type::Future(_)), smelt_hir::UnknownKind::Promise)
-                | (Some(Type::Optional(_)), smelt_hir::UnknownKind::Undefined)
-        )
+        use smelt_hir::UnknownKind as Kind;
+
+        match self.mir.types.get(ty) {
+            Some(Type::None) => matches!(kind, Kind::Null | Kind::Undefined),
+            Some(Type::Optional(_)) => kind == Kind::Undefined,
+            Some(member) => member
+                .runtime_kind()
+                .is_some_and(|actual| actual.satisfies(kind)),
+            None => false,
+        }
     }
 }
 

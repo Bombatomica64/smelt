@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::UnknownKind;
 use crate::ids::{Symbol, TypeId, id_index};
 
 /// A HIR type.
@@ -82,6 +83,48 @@ pub enum Type {
         /// Value type when the generator completed.
         return_ty: TypeId,
     },
+}
+
+impl Type {
+    /// The runtime kind every value of this type has, when the type alone
+    /// fixes it.
+    ///
+    /// The one map from a concrete type to its JavaScript runtime category. The
+    /// TypeScript frontend's `typeof` folding and narrowing and Rust codegen's
+    /// static tag checks and union-arm routing all read it, so a `Map` or a
+    /// generator is an object on every path. (Separate copies had drifted: two
+    /// of them left `Map` out of `"object"`, so `typeof v === "object"` on a
+    /// `Map<string, number> | string` folded to `false`.)
+    ///
+    /// Each concrete type answers with the kind its erased value carries:
+    /// collections, records, class instances and generators are objects, a
+    /// list or tuple is an array, a future is a promise. `None` for a type that
+    /// does not fix one: `unknown`, `never`, a type parameter, a union, an
+    /// optional, and `None` (which is `null` or `undefined`). Callers decide
+    /// those themselves, because the answer depends on the question.
+    #[must_use]
+    pub const fn runtime_kind(&self) -> Option<UnknownKind> {
+        match self {
+            Self::Bool => Some(UnknownKind::Bool),
+            Self::Int | Self::Float => Some(UnknownKind::Number),
+            Self::String => Some(UnknownKind::String),
+            Self::Function(_) => Some(UnknownKind::Function),
+            Self::List(_) | Self::Tuple(_) => Some(UnknownKind::Array),
+            Self::Dict(_, _)
+            | Self::JsMap(_, _)
+            | Self::Set(_)
+            | Self::Class { .. }
+            | Self::Generator { .. }
+            | Self::GeneratorResult { .. } => Some(UnknownKind::Object),
+            Self::Future(_) => Some(UnknownKind::Promise),
+            Self::Unknown
+            | Self::Never
+            | Self::TypeParam { .. }
+            | Self::None
+            | Self::Optional(_)
+            | Self::Union(_) => None,
+        }
+    }
 }
 
 /// A function type signature.
@@ -173,5 +216,59 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(types.get(first), Some(&Type::Union(vec![string, float])));
+    }
+
+    /// The shared runtime-kind map: every object-shaped concrete type is an
+    /// `"object"` (a `Map` and a generator included, which drifted copies left
+    /// out), a list is an array, and the types that do not fix a kind answer
+    /// `None` so each caller decides them.
+    #[test]
+    fn runtime_kind_classifies_concrete_types() {
+        let mut types = TypeInterner::default();
+        let string = types.intern(Type::String);
+        let float = types.intern(Type::Float);
+
+        let object = Some(UnknownKind::Object);
+        assert_eq!(Type::JsMap(string, float).runtime_kind(), object);
+        assert_eq!(Type::Dict(string, float).runtime_kind(), object);
+        assert_eq!(Type::Set(float).runtime_kind(), object);
+        assert_eq!(
+            Type::Generator {
+                is_async: false,
+                yield_ty: float,
+                return_ty: float,
+                next_ty: float,
+            }
+            .runtime_kind(),
+            object
+        );
+        assert_eq!(Type::List(float).runtime_kind(), Some(UnknownKind::Array));
+        assert_eq!(Type::Future(float).runtime_kind(), Some(UnknownKind::Promise));
+        assert_eq!(Type::Int.runtime_kind(), Some(UnknownKind::Number));
+        assert_eq!(Type::Union(vec![string, float]).runtime_kind(), None);
+        assert_eq!(Type::Optional(float).runtime_kind(), None);
+        assert_eq!(Type::None.runtime_kind(), None);
+        assert_eq!(Type::Unknown.runtime_kind(), None);
+    }
+
+    /// `typeof x === "object"` holds for arrays, promises and `null` as well as
+    /// objects; every other test is exact.
+    #[test]
+    fn unknown_kind_satisfies_follows_typeof() {
+        for kind in [
+            UnknownKind::Object,
+            UnknownKind::Array,
+            UnknownKind::Promise,
+            UnknownKind::Null,
+        ] {
+            assert!(kind.satisfies(UnknownKind::Object), "{kind:?}");
+            assert_eq!(kind.typeof_name(), "object");
+        }
+        assert!(UnknownKind::Array.satisfies(UnknownKind::Array));
+        assert!(!UnknownKind::Object.satisfies(UnknownKind::Array));
+        assert!(!UnknownKind::Function.satisfies(UnknownKind::Object));
+        assert!(!UnknownKind::Undefined.satisfies(UnknownKind::Object));
+        assert_eq!(UnknownKind::Function.typeof_name(), "function");
+        assert_eq!(UnknownKind::Undefined.typeof_name(), "undefined");
     }
 }
