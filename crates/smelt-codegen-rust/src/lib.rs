@@ -77,6 +77,7 @@ use std::{
     path::Path,
 };
 
+use crate::classes::{NominalStorage, type_holds_function};
 use crate::{rust::erased_string, type_substitution::TypeSubstitution};
 use smelt_hir::{AsyncOp, BodyId, Type, TypeId};
 use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, MirGlobalInit, Rvalue};
@@ -5553,7 +5554,7 @@ fn emit_source_with_free_function_router(
         }
         let has_function_field = fields
             .iter()
-            .any(|field| type_contains_function(mir, field.ty));
+            .any(|field| type_holds_function(mir, field.ty, NominalStorage::Opaque));
         // An interface-backed record is a by-value struct, exactly like a value
         // class, so it supports structural equality (JS `==`/`===`/`toBe`, and
         // derived comparisons in generated specs) under the same rule: every
@@ -6033,7 +6034,7 @@ fn emit_source_with_free_function_router(
         );
         let has_function_field = fields
             .iter()
-            .any(|field| type_contains_function(mir, field.ty));
+            .any(|field| type_holds_function(mir, field.ty, NominalStorage::Opaque));
         // A value class supports structural equality (JS `==`/`===`/`toBe` on the
         // by-value representation, and derived comparisons in generated specs)
         // only when every stored field is itself `PartialEq`. Function fields
@@ -7288,7 +7289,7 @@ fn emit_reference_record_storage(
     let scoped_type_params = type_param_names.iter().copied().collect::<HashSet<_>>();
     let has_function_field = fields
         .iter()
-        .any(|field| type_contains_function(mir, field.ty));
+        .any(|field| type_holds_function(mir, field.ty, NominalStorage::Opaque));
     let record_param_idents = context.type_param_elision().retain_carried(
         *declared_name,
         type_param_names
@@ -7700,7 +7701,7 @@ fn emit_default_impl_for_storage_type(
         // The nested requirement is carried by the impl's own type-parameter
         // bounds instead (`classes::GENERATED_TYPE_PARAM_BOUNDS`), which is what
         // the return type's `Default` impl asks for.
-        let is_callable_slot = type_contains_function(mir, field.ty);
+        let is_callable_slot = type_holds_function(mir, field.ty, NominalStorage::Opaque);
         field_defaults.push((field_name, field_type_text, default_value, is_callable_slot));
     }
     let delegating_field_types = field_defaults
@@ -7916,40 +7917,6 @@ fn emit_partial_eq_impl_for_value_class(
             });
         },
     );
-}
-
-/// Return whether a type contains a callable value in a stored position.
-///
-/// Rust cannot derive `Clone` or `Debug` for `dyn FnMut` trait objects. Class
-/// structs that store function fields therefore opt out of those derives until
-/// callable storage grows an explicit cloneable wrapper.
-fn type_contains_function(mir: &Mir, ty: TypeId) -> bool {
-    match mir.types.get(ty) {
-        Some(Type::Function(_)) => true,
-        Some(Type::Generator { .. }) => false,
-        Some(Type::GeneratorResult { .. }) => false,
-        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
-            type_contains_function(mir, *item)
-        }
-        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
-            type_contains_function(mir, *key) || type_contains_function(mir, *value)
-        }
-        Some(Type::Tuple(items) | Type::Union(items)) => {
-            items.iter().any(|item| type_contains_function(mir, *item))
-        }
-        Some(
-            Type::Bool
-            | Type::Int
-            | Type::Float
-            | Type::String
-            | Type::None
-            | Type::Unknown
-            | Type::Never
-            | Type::TypeParam { .. }
-            | Type::Class { .. },
-        )
-        | None => false,
-    }
 }
 
 /// Return whether a type supports Rust `PartialEq` in generated code.

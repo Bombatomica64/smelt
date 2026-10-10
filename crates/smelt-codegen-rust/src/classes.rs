@@ -1358,6 +1358,100 @@ pub(crate) fn function_impl_generics_list(
         .collect()
 }
 
+/// How [`type_holds_function`] treats a class or interface type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NominalStorage {
+    /// A class or interface is its own Rust type with its own `Clone`, `Debug`
+    /// and `Default` impls, so naming one does not make a struct field "hold a
+    /// function". This is the question a derive or clone decision asks: does
+    /// THIS spelling store an `Rc<dyn Fn..>` that a derive cannot see through?
+    Opaque,
+    /// A class or interface is storage like any container: its struct owns its
+    /// type arguments and its effective (inherited and own) fields, and every
+    /// function-typed field is an owned `'static` handle that no borrowed
+    /// `&dyn Fn` can be placed into. This is the question callback-escape
+    /// analysis asks. A callable-object interface makes it load-bearing: its
+    /// synthetic `__smelt_call` slot IS a function field, and stopping at the
+    /// class left a captured callback parameter borrowed, which then failed
+    /// borrowck ("`'1` must outlive `'static`", es-toolkit `curry`). Reading only
+    /// a class's own fields missed an inherited callback field the same way.
+    Followed,
+}
+
+/// Return whether a value of type `ty` holds a function value: a function
+/// itself, or a list, set, dict, `Map`, optional, future, tuple or union that
+/// holds one, and, under [`NominalStorage::Followed`], a class or interface
+/// whose storage holds one.
+///
+/// The one function-storage walk in codegen. Three copies once existed; they
+/// differed in whether they followed classes (correct per caller, hence the
+/// explicit policy) but also in details that were not policy: the class hop
+/// read a class's own fields instead of [`effective_class_fields`], so a
+/// subclass inheriting a callback field did not retain it, and one copy walked
+/// into generators while the other two did not. A generator is an opaque
+/// handle under both policies: `SmeltGenerator` is `Clone` and `Debug` for any
+/// element type.
+pub(crate) fn type_holds_function(mir: &Mir, ty: TypeId, nominal: NominalStorage) -> bool {
+    type_holds_function_seen(mir, ty, nominal, &mut HashSet::new())
+}
+
+/// [`type_holds_function`] with the cycle guard the class hop needs: a class
+/// may name itself through a field (`interface Node { next: Node }`), and the
+/// type graph is otherwise acyclic.
+fn type_holds_function_seen(
+    mir: &Mir,
+    ty: TypeId,
+    nominal: NominalStorage,
+    seen: &mut HashSet<TypeId>,
+) -> bool {
+    if !seen.insert(ty) {
+        return false;
+    }
+    let mut holds = |inner: TypeId| type_holds_function_seen(mir, inner, nominal, seen);
+    match mir.types.get(ty) {
+        Some(Type::Function(_)) => true,
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
+            holds(*item)
+        }
+        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => holds(*key) || holds(*value),
+        Some(Type::Tuple(items) | Type::Union(items)) => items.iter().any(|item| holds(*item)),
+        // `Type::Class` names either a class or an interface: both emit a Rust
+        // struct that owns its fields.
+        Some(Type::Class { name, args }) if nominal == NominalStorage::Followed => {
+            if args.iter().any(|arg| holds(*arg)) {
+                return true;
+            }
+            let fields = mir
+                .classes
+                .iter()
+                .find(|class| class.name == *name)
+                .map(|class| effective_class_fields(mir, class))
+                .or_else(|| {
+                    mir.interfaces
+                        .iter()
+                        .find(|interface| interface.name == *name)
+                        .map(|interface| effective_interface_fields(mir, interface))
+                })
+                .unwrap_or_default();
+            fields.iter().any(|field| holds(field.ty))
+        }
+        Some(
+            Type::Class { .. }
+            | Type::Generator { .. }
+            | Type::GeneratorResult { .. }
+            | Type::Bool
+            | Type::Int
+            | Type::Float
+            | Type::String
+            | Type::None
+            | Type::Unknown
+            | Type::Never
+            | Type::TypeParam { .. },
+        )
+        | None => false,
+    }
+}
+
 /// Return the flattened field layout for a class.
 ///
 /// Smelt stores subclass values with inherited fields first and own fields

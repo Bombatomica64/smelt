@@ -13430,6 +13430,49 @@ export function wrap(fn: (value: string) => string): Wrapped {
     );
 }
 
+/// A callback stored into an INHERITED field of a returned subclass must enter
+/// its function owned.
+///
+/// Regression (haiku audit F0185): the escape analysis follows a class into its
+/// fields, but read the class's own `fields` rather than its effective layout,
+/// so `Sub extends Handler {}` was storage with no function in it. `cb` stayed
+/// `&dyn Fn` and the `Rc` capture failed borrowck ("`'1` must outlive
+/// `'static`"). The base-class return beside it was already owned.
+#[test]
+fn typescript_callback_stored_into_an_inherited_field_is_owned() {
+    let source = source_for(
+        r"
+class Handler {
+  cb: (x: number) => number;
+  constructor(cb: (x: number) => number) {
+    this.cb = cb;
+  }
+}
+class Sub extends Handler {
+  tag: string = 'sub';
+}
+export function makeBase(cb: (x: number) => number): Handler {
+  return new Handler(cb);
+}
+export function makeSub(cb: (x: number) => number): Sub {
+  return new Sub(cb);
+}
+",
+    );
+
+    for name in ["make_base", "make_sub"] {
+        let signature = source
+            .split(&format!("fn {name}("))
+            .nth(1)
+            .and_then(|rest| rest.split(')').next())
+            .unwrap_or_else(|| panic!("expected a generated `{name}`:\n{source}"));
+        assert!(
+            !signature.contains("&dyn Fn"),
+            "`{name}`: a callback retained by the returned class must not stay borrowed:\n{source}"
+        );
+    }
+}
+
 /// A module-level regex `const` referenced from several functions must compile
 /// its pattern exactly once.
 ///

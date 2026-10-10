@@ -111,6 +111,30 @@ const KNOWN_COMPILE_FAILURES: &[&str] = &[
 fn corpus() -> Vec<Case> {
     vec![
         // --- baseline shapes -------------------------------------------------
+        // A callback stored into an inherited field of a returned subclass is
+        // retained by the class, so it must enter owned; a borrowed `&dyn Fn`
+        // fails borrowck at the `Rc` capture (haiku audit F0185).
+        Case {
+            name: "inherited_callback_field_escapes",
+            area: "callback_escape",
+            source: r"
+class Handler {
+  cb: (x: number) => number;
+  constructor(cb: (x: number) => number) {
+    this.cb = cb;
+  }
+}
+class Sub extends Handler {
+  tag: string = 'sub';
+}
+export function makeSub(cb: (x: number) => number): Sub {
+  return new Sub(cb);
+}
+export function useSub(): number {
+  return makeSub((x) => x * 10).cb(2);
+}
+",
+        },
         Case {
             name: "basic_function",
             area: "baseline",

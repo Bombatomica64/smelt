@@ -765,8 +765,8 @@ impl FunctionEmitter<'_> {
         }
         let lhs_ty = self.operand_ty(lhs)?;
         let rhs_ty = self.operand_ty(rhs)?;
-        let lhs_contains_function = self.type_contains_function(lhs_ty);
-        let rhs_contains_function = self.type_contains_function(rhs_ty);
+        let lhs_contains_function = type_holds_function(self.mir, lhs_ty, NominalStorage::Opaque);
+        let rhs_contains_function = type_holds_function(self.mir, rhs_ty, NominalStorage::Opaque);
         if !lhs_contains_function && !rhs_contains_function {
             return Ok(None);
         }

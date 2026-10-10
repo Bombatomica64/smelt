@@ -1036,7 +1036,7 @@ impl FunctionEmitter<'_> {
                         "array entries destination must contain (int, item) tuples",
                     ));
                 }
-                if self.type_contains_function(*item_ty) {
+                if type_holds_function(self.mir, *item_ty, NominalStorage::Opaque) {
                     Ok(format!(
                         "{list_text}.into_iter().enumerate().map(|(idx, item)| (idx as i64, item)).collect::<Vec<_>>()"
                     ))
