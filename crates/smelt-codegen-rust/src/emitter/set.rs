@@ -103,7 +103,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Validates two same-typed set operands.
     /// Converts a set insertion operation to Rust text.
     pub(super) fn set_add_text(
         &self,
@@ -281,5 +280,4 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    // Converts a list-to-set constructor conversion to Rust text.
 }

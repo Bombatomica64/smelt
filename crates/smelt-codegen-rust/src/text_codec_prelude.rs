@@ -3,11 +3,10 @@
 //! Three generated types, each a real Rust value with typed methods rather than
 //! a marker-bearing `SmeltUnknown` record:
 //!
-//! * `SmeltUint8Array` — a shared `Vec<u8>` with a JS reference identity. This
-//!   is what `TextEncoder.encode` answers, so the bytes a program encodes have
-//!   the type a hand-writing Rust team would give them (`Vec<u8>`), carried all
-//!   the way to runtime, instead of a tagged record whose elements have to be
-//!   re-narrowed one at a time.
+//! * `SmeltUint8Array` — an alias of `SmeltTypedArray` (kind, byte offset, shared
+//!   buffer). This is what `TextEncoder.encode` answers, so the bytes a program
+//!   encodes keep a concrete byte-element type all the way to runtime, instead of
+//!   a tagged record whose elements have to be re-narrowed one at a time.
 //! * `SmeltTextEncoder` — identity plus the `encoding` data property. The spec
 //!   fixes a `TextEncoder` at UTF-8 and gives it no other state, so `encode` is
 //!   `str::as_bytes`.

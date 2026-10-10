@@ -2477,7 +2477,7 @@ impl FunctionEmitter<'_> {
         // VISIBLE to structural equality (so a class instance is not `==` to an
         // equal-shape plain object) but INVISIBLE to key enumeration / JSON via the
         // `__smelt_class` filters, and drives the `"__smelt_proto:class"` sentinel in
-        // `smelt_prototype_sentinel`. See `blocker-logs/plan-class-prototype-2026-06-23.md`.
+        // `smelt_prototype_sentinel`.
         // A user class whose base chain reaches a modeled host object (e.g.
         // `class File extends Blob`) IS an instance of that host in JavaScript, so
         // its erased record carries the host base's identity marker(s). This keeps
@@ -2716,7 +2716,7 @@ impl FunctionEmitter<'_> {
     /// A concrete union stays inline: its arms are decided per member type at
     /// compile time, so there is no shared table to factor out. An erased value
     /// goes to the `smelt_typeof` prelude helper instead -- the arms are the same
-    /// nine tags at every site, so inlining the match once per source `typeof`
+    /// ten variants (seven spellings) at every site, so inlining the match once per source `typeof`
     /// is pure duplication.
     pub(super) fn typeof_str_text(&self, value: &Operand) -> Result<String, EmitError> {
         let value_ty = self.operand_ty(value)?;
@@ -3576,7 +3576,6 @@ impl FunctionEmitter<'_> {
         ) || self.is_erased_class_type(inner)
     }
 
-    // Converts an awaited future operand without cloning it.
 }
 
 /// Scope guard that pops a type pair off
@@ -3590,6 +3589,7 @@ pub(super) struct TypeExpansionGuard<'emit> {
 }
 
 impl Drop for TypeExpansionGuard<'_> {
+    /// Pops this expansion's entry from the shared expansion stack.
     fn drop(&mut self) {
         self.stack.borrow_mut().pop();
     }
@@ -3610,8 +3610,8 @@ fn is_trivial_reeval_expr(text: &str) -> bool {
 /// the `SmeltUnknown`-element and `String`-element forms iterated a source string
 /// into characters while the general form panicked on one, so the same JavaScript
 /// value converted fine in `groupBy`'s adapter and blew up in `map`'s. The arms
-/// mirror what JavaScript's iteration protocol accepts: nullish (empty, as
-/// `Array.from` treats it), an array, a string (by character), a host byte
+/// mirror what JavaScript's iteration protocol accepts: nullish (an empty list by
+/// design, not as `Array.from` does), an array, a string (by character), a host byte
 /// buffer, an `arguments` object, a `Map`/`Set`, and finally any object exposing
 /// `Symbol.iterator`.
 ///

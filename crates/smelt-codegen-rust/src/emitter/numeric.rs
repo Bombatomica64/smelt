@@ -562,5 +562,4 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    // Converts a primitive Python-style cast operation to Rust text.
 }

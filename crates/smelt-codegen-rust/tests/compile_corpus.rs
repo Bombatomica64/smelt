@@ -15,7 +15,7 @@
 //!
 //! ## Cost and how to run it
 //!
-//! Running `cargo check` on many crates is slow, so the whole tier is a single
+//! Running `cargo check` on many crates is slow, so each corpus is one
 //! `#[ignore]`d test. It does not run during a plain `cargo test`. CI runs it
 //! explicitly, and you can too:
 //!
@@ -92,8 +92,7 @@ struct Case {
 
 /// Cases known to emit Rust that does not currently compile.
 ///
-/// Each entry MUST reference an entry in
-/// `blocker-logs/compile-snapshots-findings.md`. These names are skipped by the
+/// Each entry MUST describe a known defect. These names are skipped by the
 /// green tier so it stays passing; the bug is tracked in the log rather than
 /// fixed in this additive change.
 const KNOWN_COMPILE_FAILURES: &[&str] = &[
@@ -678,9 +677,7 @@ export const UPPER_LIMIT = limits.upper;
             // stays concrete. The emitted Rust must compile. (The runtime
             // round-trip is asserted end-to-end by the CLI test
             // `build_round_trips_class_index_signature_keyed_store`.) Value types
-            // here are concrete (`string`/`number`); a union index value type is
-            // subject to the pre-existing union-field `Debug`/`Default` derive
-            // gap that also affects plain union class fields.
+            // here are concrete (`string`/`number`).
             name: "class_index_signature",
             area: "classes",
             source: r"
@@ -1627,8 +1624,8 @@ struct Fixture {
 
 /// A fixture that does not compile at HEAD, recorded rather than deleted.
 ///
-/// These are **pre-existing** defects: each one also reproduces at the
-/// pre-campaign commit, so none of them is a callback-generics regression.
+/// The entries confirmed **pre-existing** reproduce at the pre-campaign commit,
+/// so none of them is a callback-generics regression.
 /// Recording them keeps the shape in the corpus and makes the day someone fixes
 /// it visible — [`callback_generics_fixtures_compile`] fails in *both*
 /// directions, when an expected failure starts passing and when a passing

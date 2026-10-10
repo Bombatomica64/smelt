@@ -120,7 +120,6 @@ mod emitter;
 use classes::{
     class_impl_generics_text, class_name_text, class_type_args_text, class_type_params_text,
     effective_class_fields, effective_class_methods, effective_interface_fields,
-    inherited_trait_methods,
     interface_impl_generics_text, interface_type_params_text, materialized_static_value_text,
 };
 use emitter::{EmitContext, FunctionEmitter};
@@ -1551,7 +1550,7 @@ fn emit_source_with_free_function_router(
         writer.line("    SMELT_FUNCTION_ORIGINS.with(|origins| origins.borrow().get(&smelt_erased_function_key(function)).and_then(|origin| origin.downcast_ref::<T>()).cloned())");
         writer.line("}");
         writer.blank_line();
-        // Pay-for-use. Only the six classes whose state is not a record retain
+        // Pay-for-use. Only the classes whose state is not a record retain
         // their live value, so a program that erases none of them must not carry
         // the registry — sixteen example goldens grew by it before this gate.
         // `Headers`, `URLSearchParams` and `FormData` joined the list in round
@@ -1716,7 +1715,7 @@ fn emit_source_with_free_function_router(
         // plain insertion order: keys that spell a canonical array index come
         // first in ascending numeric order, and only then do the remaining
         // string keys follow in insertion order. `SmeltRecord`/`SmeltObject`
-        // therefore keep `order` in that canonical order at INSERT time — one
+        // therefore keep `entries` (the own-key-ordered vector in `SmeltFieldStore`) in that canonical order at INSERT time — one
         // ordered structure, so `keys()`/`iter()`/`serialize` can read the order
         // as a fact instead of re-deriving (or, as they once did, re-sorting) it.
         writer.line("/// Return the canonical array index a JavaScript property key spells.");
@@ -2016,7 +2015,7 @@ fn emit_source_with_free_function_router(
         // collision costs a comparison and never changes an answer.
         // `unhashed` holds the slots of members that have no hashable identity —
         // erased functions, whose `same_js_key` arm resolves through a mutable
-        // function-identity registry (`smelt_register_function_identity`) that can
+        // function-identity registry (`smelt_link_function_identity_key`) that can
         // be rewritten after a member is inserted, which would leave a stored hash
         // stale. Those members keep the linear scan.
         //
@@ -2049,7 +2048,7 @@ fn emit_source_with_free_function_router(
         // because it only ever handles slot numbers, never the entries themselves.
         // `unhashed` holds the slots of entries with no stable hashable identity —
         // erased functions, whose identity resolves through a registry a later
-        // `smelt_register_function_identity` call can rewrite, so a hash taken at
+        // `smelt_link_function_identity_key` call can rewrite, so a hash taken at
         // insert time is not guaranteed to stay valid. Those keep the linear scan,
         // which cannot go stale.
         // The index is keyed by a value that has ALREADY been hashed:
@@ -2236,7 +2235,7 @@ fn emit_source_with_free_function_router(
         //   would collide needlessly.
         // * `Function` returns `None`: `same_js_key` resolves callables through
         //   `smelt_function_identity_of`, a registry a later
-        //   `smelt_register_function_identity` call can still rewrite, so no hash
+        //   `smelt_link_function_identity_key` call can still rewrite, so no hash
         //   taken at insert time is guaranteed to stay valid. `None` members keep
         //   the linear scan, which cannot go stale.
         // Hash one already-normalized value into the same key space as
@@ -2903,7 +2902,7 @@ fn emit_source_with_free_function_router(
         // constructed future exactly once at construction time, advancing it
         // through its synchronous prefix up to (and not past) the first real
         // suspension. The poll's result is folded into the promise's shared settle
-        // state (see `SmeltPromise::from_future` / `SmeltFuture::from_future`); a
+        // state (see `SmeltFuture::from_future_primed`); a
         // still-`Pending` future is kept and later resumed by `smelt_await` under
         // the real executor waker. Because the no-op waker never schedules a wake,
         // it is only ever valid for this single priming poll.
@@ -3318,7 +3317,7 @@ fn emit_source_with_free_function_router(
         // `Object.prototype.toString` tag arms and `smelt_unbox_primitive` treat
         // both spellings identically.
         // Strings are deliberately NOT boxed, mirroring `new String(x)`, which
-        // lowers to the plain string (see `string_constructor_expression`): a
+        // lowers to the plain string: a
         // string wrapper would have to re-expose the whole `String.prototype`
         // surface — `length`, character indexing, and every string method — on a
         // marker object, and Smelt models a JS string as a Rust `String`. Keeping
@@ -3441,7 +3440,8 @@ fn emit_source_with_free_function_router(
         // spy resolves the same member the program would have called.
         writer.line("/// The synthesized host method a member read resolves to, if the object");
         writer.line("/// carries a host marker and has no OWN member of that name.");
-        // Each modeled host class with an erasure adapter contributes its own
+        // Each of the five modeled host classes with an erasure adapter (Headers,
+        // URLSearchParams, FormData, TextEncoder, TextDecoder) contributes its own
         // resolver, and only when its prelude is emitted at all: the fetch
         // types are pay-for-use, so a crate that never mentions `Headers`
         // carries neither `SmeltHeaders` nor its resolver.
@@ -3993,8 +3993,9 @@ fn emit_source_with_free_function_router(
         }
         // Erased dynamic indexed assignment `target[key] = value`. Mirrors JS:
         // an object gets a string property; an array with a numeric index sets
-        // (and extends) that element; any other value (or an array with a
-        // non-index key) becomes a fresh object holding the single property.
+        // (and extends) that element; a value other than an array or a
+        // function becomes a fresh object holding the single property; an array with a
+        // non-index key keeps its identity and stores that key in the named-property table.
         // Centralizing this keeps each call site a single call instead of an
         // inline `match` that repeats `SmeltUnknown` at every assignment.
         writer.line("fn smelt_index_assign(target: &mut SmeltUnknown, key: String, value: SmeltUnknown) {");
@@ -4704,7 +4705,7 @@ fn emit_source_with_free_function_router(
             writer.blank_line();
             // `clearInterval` cancels by id exactly like `clearTimeout`; both share
             // the single timer queue. Emit it as a thin alias so the generated
-            // `async_clear_interval` call site resolves to a real helper.
+            // `smelt_clear_interval` (the CLEAR_INTERVAL symbol) call site resolves to a real helper.
             writer.line(format!(
                 "fn {clear_interval}<T: IntoSmeltUnknown>(handle: T) {{ {clear_timeout}(handle) }}",
                 clear_interval = smelt_stdlib::runtime_symbols::timers::CLEAR_INTERVAL,
@@ -6008,7 +6009,6 @@ fn emit_source_with_free_function_router(
         }
         let type_params = class_type_params_text(mir, &context, class)?;
         let impl_generics = class_impl_generics_text(mir, &context, class)?;
-        let _inherited_trait_methods = inherited_trait_methods(mir, class);
         let mut field_lines = Vec::new();
         let fields = effective_class_fields(mir, class);
         let scoped_type_params = class
@@ -6637,36 +6637,6 @@ fn insert_after_crate_header(mut root: String, text: &str) -> String {
     root
 }
 
-/// Emit the concrete `SmeltMatch` runtime type for RegExp match results.
-///
-/// `RegExp.prototype.exec` and `String.prototype.matchAll` return a JavaScript
-/// match result: an array-like value whose numbered entries are the capture
-/// groups (entry `0` is the whole match) plus the `index`, `input`, and
-/// `groups` properties. Historically Smelt built this shape inline as a
-/// `SmeltUnknown::Object` property bag, which erased its statically known
-/// structure. `SmeltMatch` models that structure with concrete Rust fields:
-///
-/// * `groups` — numbered capture groups as `Vec<Option<String>>` (an absent
-///   optional group is `None`, matching JavaScript `undefined`).
-/// * `named` — named capture groups keyed by their original name (and a
-///   snake_case alias so generated snake_cased field reads still resolve).
-/// * `match_index` — the zero-based match offset (`.index`).
-/// * `input` — the full searched string (`.input`).
-///
-/// Typed accessors (`group`, `named_group`, `index`, `input`, `len`) let
-/// callers read the shape without any dynamic tagging. When a match value has
-/// to cross a genuinely dynamic boundary (the erased `unknown` result type the
-/// frontend still assigns for `exec`/`matchAll` consumers), it is converted
-/// with the explicit [`IntoSmeltUnknown`] adapter — the single place where the
-/// concrete match is intentionally erased.
-/// Emits the JavaScript replacement-pattern expander used by `String.replace`.
-///
-/// The second argument of `String.prototype.replace` is not literal text: ECMA-262
-/// `GetSubstitution` gives `$$`, `$&`, `` $` ``, `$'`, `$n`/`$nn` and `$<name>`
-/// meanings relative to the current match, and any other `$x` stays literal.
-/// The runtime used to push the replacement verbatim, so `'\\$&'` — the whole
-/// point of a pattern like `escapeRegExp`'s — inserted the two characters `$&`
-/// instead of the matched text.
 /// Emit the live-handle counter and the event loop's exit drain.
 ///
 /// # Why the exit drain is not `sleep(0)`
@@ -6731,6 +6701,14 @@ fn emit_exit_drain_support(writer: &mut CodeWriter) {
     writer.blank_line();
 }
 
+/// Emits the JavaScript replacement-pattern expander used by `String.replace`.
+///
+/// The second argument of `String.prototype.replace` is not literal text: ECMA-262
+/// `GetSubstitution` gives `$$`, `$&`, `` $` ``, `$'`, `$n`/`$nn` and `$<name>`
+/// meanings relative to the current match, and any other `$x` stays literal.
+/// The runtime used to push the replacement verbatim, so `'\\$&'` — the whole
+/// point of a pattern like `escapeRegExp`'s — inserted the two characters `$&`
+/// instead of the matched text.
 fn emit_regex_substitution(writer: &mut CodeWriter) {
     writer.line("/// Expand one JavaScript replacement pattern against a match (ECMA-262 `GetSubstitution`).");
     writer.line("///");
@@ -6897,6 +6875,28 @@ fn emit_own_keys_projection(writer: &mut CodeWriter) {
     writer.line("fn smelt_own_js_map_keys<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for (key, _) in smelt_own_js_map_entries(map) { if matches!(key, SmeltUnknown::Symbol(_)) { symbols.push(key); } else { strings.push(key); } } strings.extend(symbols); strings }");
 }
 
+/// Emit the concrete `SmeltMatch` runtime type for RegExp match results.
+///
+/// `RegExp.prototype.exec` and `String.prototype.matchAll` return a JavaScript
+/// match result: an array-like value whose numbered entries are the capture
+/// groups (entry `0` is the whole match) plus the `index`, `input`, and
+/// `groups` properties. Historically Smelt built this shape inline as a
+/// `SmeltUnknown::Object` property bag, which erased its statically known
+/// structure. `SmeltMatch` models that structure with concrete Rust fields:
+///
+/// * `groups` — numbered capture groups as `Vec<Option<String>>` (an absent
+///   optional group is `None`, matching JavaScript `undefined`).
+/// * `named` — named capture groups keyed by their original name (and a
+///   snake_case alias so generated snake_cased field reads still resolve).
+/// * `match_index` — the zero-based match offset (`.index`).
+/// * `input` — the full searched string (`.input`).
+///
+/// Typed accessors (`group`, `named_group`, `index`, `input`, `len`) let
+/// callers read the shape without any dynamic tagging. When a match value has
+/// to cross a genuinely dynamic boundary (the erased `unknown` result type the
+/// frontend still assigns for `exec`/`matchAll` consumers), it is converted
+/// with the explicit [`IntoSmeltUnknown`] adapter — the single place where the
+/// concrete match is intentionally erased.
 fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool, needs_smelt_list: bool) {
     writer.line("/// A concrete JavaScript RegExp match result (numbered groups, named");
     writer.line("/// groups, `index`, and `input`).");
@@ -7229,8 +7229,7 @@ fn emit_reference_class_storage(
 ///
 /// A reference record is emitted identically whether the source spelled it as a
 /// `class` or as an object *shape* (an `interface`, or an inline object type
-/// literal lowered to a synthetic one — see `shape_object` in the TypeScript
-/// frontend). Both are JavaScript objects, so both need the same handle newtype
+/// literal lowered to a synthetic one). Both are JavaScript objects, so both need the same handle newtype
 /// when a field is written after construction; only where the pieces come from
 /// differs, which is what this struct hides.
 struct ReferenceRecordShape<'a> {
@@ -8138,7 +8137,7 @@ pub(crate) fn type_supports_from_unknown(
         ) => true,
         // A class is recoverable only when *this* program generates it, because
         // that is what now emits `SmeltFromUnknown`. `Type::Class` also spells
-        // the runtime builtins — `TemplateOptions.escape` is a `RegExp`, and
+        // the runtime builtins are excluded because the program does not generate them: `TemplateOptions.escape` is a `RegExp`, and
         // `SmeltRegExp` has no inbound impl — so admitting every class emitted a
         // call that does not compile.
         //
@@ -8247,7 +8246,7 @@ fn emit_record_from_smelt_unknown_impl(
 /// Recovers a value of type `ty` from a `SmeltUnknown` expression.
 ///
 /// The mirror of [`record_field_unknown_text`], and it exists for the same
-/// reason: a Rust TUPLE has no `SmeltFromUnknown` impl, so the blanket
+/// reason: a Rust TUPLE of an arity without an emitted `SmeltFromUnknown` impl has none, so the blanket
 /// `SmeltFromUnknown::smelt_from_unknown(…)` an erased adapter reaches for does
 /// not compile against a tuple parameter. `RegExpRouter#add`'s
 /// `HandlerWithMetadata<T> = [T, Record<string, number>]` parameter reported
@@ -8481,7 +8480,7 @@ fn generated_deps(mir: &Mir) -> Vec<GeneratedDep> {
     deps
 }
 
-/// Helper struct for emitting Rust code from a MirFunction.
+/// Sanitizes an identifier into a Rust-safe spelling.
 pub(crate) fn sanitize_ident(name: &str) -> String {
     RustIdent::new(name).into_string()
 }

@@ -100,7 +100,7 @@ impl FunctionEmitter<'_> {
     ///
     /// The *kind* string is the class's registry marker with its `__smelt_`
     /// prefix stripped, which is the same discriminator
-    /// `smelt_reflected_marker_kind` hands back for a record.
+    /// the emitted `smelt_reflected_marker_class` hands back for a record.
     pub(super) fn host_construct_text(
         &self,
         class_name: &str,
@@ -170,7 +170,6 @@ impl FunctionEmitter<'_> {
         self.value_at_type_text(&call, unknown_ty, dest_ty, &self.render_scope())
     }
 
-    /// Converts a set insertion operation to Rust text.
     /// Converts a blocking HTTP GET operation to Rust text.
     pub(super) fn http_get_text(&self, url: &Operand) -> Result<String, EmitError> {
         if !matches!(

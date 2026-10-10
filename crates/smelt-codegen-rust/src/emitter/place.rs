@@ -727,8 +727,7 @@ impl FunctionEmitter<'_> {
             // mutation the temporary received is already visible in the owner,
             // and there is no setter for it to be committed through in the first
             // place. Emitting the read-only note keeps the reason in the
-            // generated source instead of failing the whole crate. Covered by
-            // `writeback_through_a_getter_only_accessor_is_a_no_op`.
+            // generated source instead of failing the whole crate.
             return Ok(Some(format!(
                 "// `{}.{}` is a getter-only accessor: the projected write already landed through the handle it returns.",
                 self.symbol_name(owner.name).unwrap_or("<class>"),
@@ -996,7 +995,6 @@ impl FunctionEmitter<'_> {
         Ok(value)
     }
 
-    /// Gets the type of a place.
     /// Converts an element index into a Rust `usize` expression for a WRITE.
     ///
     /// Negative indexes are offset from the collection length. An index that is
@@ -1318,7 +1316,7 @@ impl FunctionEmitter<'_> {
     /// TypeScript generic and unknown receivers may still be strings, arrays,
     /// or objects at runtime. Returning `Null` here hides lowering bugs and
     /// breaks later casts, so the generated Rust dispatches on `SmeltUnknown`
-    /// and panics only when the runtime value is not indexable.
+    /// and answers `SmeltUnknown::Undefined` when the runtime value is not indexable.
     ///
     /// An out-of-range ELEMENT read on a string or array runtime value answers
     /// `SmeltUnknown::Undefined`, not `Null` — the same rule the typed reads use
@@ -1405,7 +1403,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    // Unknown/runtime type helpers continue in `unknown.rs`.
 }
 
 /// Converts a statically materialized descriptor literal to Rust source.

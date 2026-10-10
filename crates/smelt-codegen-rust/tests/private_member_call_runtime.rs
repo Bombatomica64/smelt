@@ -307,7 +307,7 @@ fn a_class_field_arrow_reaches_this_through_a_private_name() {
     // compiled and silently lost every write.
     //
     // All four private-name positions inside a field arrow are asserted: a
-    // write, a compound write, a read, and an optional-chained read, plus a
+    // write, a compound write, a read, and a nullish-guarded read, plus a
     // private METHOD call from the same place.
     let source = r"
 import { test, expect } from 'vitest';

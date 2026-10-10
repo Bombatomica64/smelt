@@ -354,5 +354,4 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    // Checks that every operand has string type.
 }

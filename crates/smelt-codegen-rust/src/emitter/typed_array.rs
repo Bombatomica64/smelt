@@ -1,8 +1,8 @@
 //! Rust emission for the concrete typed-array family.
 //!
-//! Two rvalues live here: [`ModuleEmitter::typed_array_new_text`], which turns
+//! Two rvalues live here: [`FunctionEmitter::typed_array_new_text`], which turns
 //! a source `new Uint8Array(..)` / `new ArrayBuffer(n)` into a concrete
-//! constructor call, and [`ModuleEmitter::byte_array_op_text`]'s method arms
+//! constructor call, and [`FunctionEmitter::byte_array_op_text`]'s method arms
 //! (in `text_codec`), which render a member as the spec member of the same
 //! name on the generated `SmeltTypedArray` / `SmeltArrayBuffer`.
 //!
@@ -152,9 +152,9 @@ impl FunctionEmitter<'_> {
     ///
     /// The storage half interprets no bytes, so its only argument is a byte
     /// count. A name that is neither a view nor `ArrayBuffer` cannot reach
-    /// here: the frontend only builds this node for the twelve registered
-    /// spellings, so anything else is a lowering bug rather than a source
-    /// error.
+    /// here: the frontend only builds this node for the registered spellings
+    /// (including `SharedArrayBuffer` and `DataView`), so anything else is a
+    /// lowering bug rather than a source error.
     fn array_buffer_new_text(
         &self,
         class_name: &str,

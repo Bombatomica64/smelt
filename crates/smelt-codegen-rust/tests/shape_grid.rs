@@ -79,7 +79,7 @@
 //!   PR plus the whole grid nightly keeps both honest.
 //! * [`grid_is_enumerable`] — not `#[ignore]`d and compiles nothing: it asserts
 //!   the size of the space, that names are unique, and that the fast tier
-//!   really is a pairwise cover. It runs in a plain `cargo test`, so a change
+//!   covers every value of each axis. It runs in a plain `cargo test`, so a change
 //!   to the pruning rules shows up as a diff in an asserted number rather than
 //!   as a silently smaller grid.
 //!
@@ -276,7 +276,7 @@ enum Sites {
     TwoDiff,
 }
 
-/// One cell of the grid: a full point in the seven-axis space.
+/// One cell of the grid: a full point in the eight-axis space.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct Shape {
     generics: Generics,
@@ -670,8 +670,8 @@ impl Shape {
             (Generics::One, TPos::Nested) => Some(format!("{cb}((v: T) => v)")),
             // `One`/`Value`: the callback yields `number`, not `T`.
             // `*`/`CbParam`: no `T` value exists, so it cannot even be called.
-            // `Two`/`CbReturn` and `Two`/`Nested` are pruned as illegal, but
-            // `illegal_because` calls this before pruning, so they are listed.
+            // `Two`/`CbReturn` and `Two`/`Nested` are pruned as illegal; they are
+            // listed so the match stays exhaustive.
             (Generics::One, TPos::Value | TPos::CbParam)
             | (Generics::Two, TPos::CbParam | TPos::CbReturn | TPos::Nested) => None,
         }
@@ -1013,7 +1013,7 @@ const ALL_CALLER: [Caller; 2] = [Caller::Concrete, Caller::Generic];
 
 /// A named sub-cross-product of the space.
 ///
-/// The full 7-way product is 20 250 cells; each block is a full product over
+/// The full 8-way product is 47 250 cells; each block is a full product over
 /// the axes named in `varies`, with every other axis pinned to the block's
 /// base. See the module docs for why the space is blocked rather than
 /// truncated.
@@ -1151,7 +1151,7 @@ fn blocks() -> Vec<Block> {
     });
 
     // Caller genericity against what the call site hands over and how generic
-    // the callee is. Every other block builds its callback argument *inside*
+    // the callee is. Each block defined before this one builds its callback argument *inside*
     // the call site, where the closure has a known concrete type, and pins the
     // call site itself to non-generic — so no other block can produce a
     // callback that reaches the callee already behind the caller's own
@@ -1321,8 +1321,8 @@ fn pairwise_cover(shapes: &[Shape]) -> Vec<Shape> {
 /// **Every entry here is a live defect, not accepted behaviour.** The table
 /// exists so the tier can be green in CI while the defects are triaged and
 /// fixed separately; the grid still fails when a *new* shape breaks, when a
-/// recorded one starts compiling, or when the set of rustc error codes it
-/// produces changes.
+/// recorded one starts compiling. A changed set of rustc error codes is printed
+/// as drift and does not fail the tier.
 struct GridExpected {
     /// [`Shape::name`] of the failing shape.
     name: &'static str,
@@ -1551,8 +1551,7 @@ fn run_grid(shapes: &[Shape], full: bool) {
 /// One `(axis name, axis value)` label, as [`Shape::axis_values`] yields them.
 type AxisValue = (&'static str, &'static str);
 
-/// Asserts the shape of the space itself: its size, the pruning tally, unique
-/// names, and that the fast tier is a genuine pairwise cover.
+/// Asserts the shape of the space itself: its size and unique names.
 ///
 /// Compiles nothing, so it runs in a plain `cargo test`. The asserted sizes are
 /// deliberate locks: changing a pruning rule or a block must show up as a diff

@@ -734,7 +734,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Return the future item type when an async combinator operand is a list of futures.
     /// Whether awaiting this operand yields an erased value that may itself be a
     /// `SmeltUnknown::Promise` (i.e. the future's `Output` is `Unknown`), so its
     /// awaited result needs flattening through `smelt_await_flatten`.
@@ -768,7 +767,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts an operand for len() to its Rust text representation.
     /// Converts a function call to its Rust text representation.
     pub(super) fn call_text(&self, callee: &Callee, args: &[Operand]) -> Result<String, EmitError> {
         match callee {
@@ -1389,14 +1387,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Render the invocation of a promise-continuation callback (`.then`/`.catch`
-    /// handler) applied to a single already-erased `SmeltUnknown` argument
-    /// expression.
-    ///
-    /// An untyped callback (e.g. a `vi.fn()` spy passed as `then(spy)`) lowers to
-    /// `SmeltErasedFunction`, whose call ABI is `.call(vec![..])` rather than a
-    /// direct `(f)(arg)` invocation. Detect that shape and route accordingly; all
-    /// other callbacks keep the direct call.
     /// Render a `.then`/`.catch` callback invocation using an explicit callback
     /// expression `callback_text` (e.g. a hoisted clone binding) rather than the
     /// operand's own place text. The operand is still consulted for its function
@@ -1921,7 +1911,8 @@ impl FunctionEmitter<'_> {
     /// 3. no parameter position that mentions a type parameter is left to the
     ///    trailing default-argument loop, which renders the *erased* default and
     ///    would pin the parameter to `SmeltUnknown`;
-    /// 4. every declared type parameter is `Concrete`. An `Unbound` parameter is
+    /// 4. every liftable type parameter (see `liftable_type_params`) is
+    ///    `Concrete`. An `Unbound` parameter is
     ///    precisely "rustc has nothing to infer from" — passing through anyway
     ///    is E0282/E0283, so the site demotes instead;
     /// 5. every parameter position mentioning a type parameter is *exactly* its
@@ -2150,7 +2141,6 @@ impl FunctionEmitter<'_> {
         )))
     }
 
-    /// Converts a function call to Rust text and coerces it to the destination type.
     /// Builds a convert-in-place adapter block for a static call that forwards
     /// a `&mut` list argument whose element type differs from the callee's
     /// emitted parameter element type.
@@ -2168,9 +2158,9 @@ impl FunctionEmitter<'_> {
     ///      caller's element type, and
     ///   4. converts the callee's returned value to the destination type.
     ///
-    /// Returns `None` when the call has no `&mut` list argument that is both a
-    /// forwarded mutable-reference parameter of the current function and needs
-    /// element conversion, leaving the ordinary call path untouched.
+    /// Returns `None` when the call has no writable local list argument passed
+    /// to a `&mut` parameter of the callee that needs element conversion,
+    /// leaving the ordinary call path untouched.
     pub(super) fn static_call_mut_list_adapter_text(
         &self,
         func: FuncId,
@@ -3157,7 +3147,6 @@ impl FunctionEmitter<'_> {
             })
     }
 
-    /// Returns the Rust suffix needed when calling a throwing function.
     /// Converts an operand to console.log argument format and returns format string and value.
     pub(super) fn console_arg_text(
         &self,
@@ -3314,14 +3303,6 @@ impl FunctionEmitter<'_> {
         Ok(format!("format!(\"{{}}\", {erased})"))
     }
 
-    /// Converts a match scrutinee operand to its Rust text representation.
-    /// Emit a class-instance test.
-    ///
-    /// Smelt keeps this as an MIR rvalue instead of folding it in the
-    /// TypeScript frontend so future dynamic representations can swap this
-    /// implementation for a runtime tag check. With today's concrete class
-    /// lowering, the operand type is statically known, so codegen emits a
-    /// boolean after the operand has already been evaluated by MIR lowering.
     /// Whether an `instanceof` operand's identity is a RUNTIME fact.
     ///
     /// True for the erased shapes — `unknown`, an unscoped type parameter, a
@@ -3338,6 +3319,13 @@ impl FunctionEmitter<'_> {
         )
     }
 
+    /// Emit a class-instance test.
+    ///
+    /// Smelt keeps this as an MIR rvalue instead of folding it in the
+    /// TypeScript frontend so future dynamic representations can swap this
+    /// implementation for a runtime tag check. With today's concrete class
+    /// lowering, the operand type is statically known, so codegen emits a
+    /// boolean after the operand has already been evaluated by MIR lowering.
     pub(super) fn instance_of_text(
         &self,
         value: &Operand,
@@ -3531,8 +3519,8 @@ impl FunctionEmitter<'_> {
         // / `SmeltUnknown::String` (never an `Object`), so the marker check is the
         // correct `false`, while a boxed wrapper object carrying the dedicated
         // marker resolves to `true`.
-        // AbortController/AbortSignal keep their own markers (they are runtime
-        // primitives, not host-object registry entries). Every other modeled host
+        // AbortController and AbortSignal are helper-backed host-object registry
+        // entries (they are runtime primitives with their own markers). Every other modeled host
         // object and boxed primitive wrapper resolves its marker through the
         // shared `smelt_stdlib::host_object` registry, so this `instanceof` path
         // cannot drift from the frontend construction path or the runtime for-in
@@ -3788,5 +3776,4 @@ impl FunctionEmitter<'_> {
         false
     }
 
-    // Finds the type ID for a given type.
 }

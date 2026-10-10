@@ -370,13 +370,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Build shared list-iteration text for closure-backed array callbacks.
-    ///
-    /// Most callbacks only consume `(item)` or `(item, index)`, so the emitter
-    /// can borrow the original receiver and clone each item as it is passed.
-    /// JavaScript's optional third callback argument observes the whole source
-    /// array; only that ABI needs a stable cloned snapshot named
-    /// `smelt_array`.
     /// Renders an invocation of the `smelt_callback` binding used by the array
     /// callback lowerings.
     ///
@@ -405,6 +398,14 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Build shared list-iteration text for closure-backed array callbacks.
+    ///
+    /// Most callbacks only consume `(item)` or `(item, index)`, so the emitter
+    /// can borrow the original receiver and clone each item as it is passed.
+    /// JavaScript's optional third callback argument observes the whole source
+    /// array; only that ABI needs a stable cloned snapshot named
+    /// `smelt_array`.
+    ///
     /// Builds the shared iteration scaffolding (receiver prefix, iterator text,
     /// and per-element call arguments) for an array callback lowering.
     ///
@@ -829,12 +830,8 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a list slice operation to Rust text.
-    /// Converts a list slice operation to Rust text.
     /// Converts a list count operation to Rust text.
     /// Converts a list count operation to Rust text.
-    /// Converts a list slice operation to Rust text.
-    /// Converts a list slice operation to Rust text.
     /// Converts a list count operation to Rust text.
     /// Converts a list count operation to Rust text.
     pub(super) fn list_count_text(

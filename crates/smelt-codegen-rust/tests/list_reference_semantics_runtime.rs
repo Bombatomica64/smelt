@@ -15,7 +15,7 @@
 //! assertions, and this tier lowers the program to a crate and runs `cargo test`
 //! on it: a green run means the semantics held at runtime.
 //!
-//! The last test is the one that catches *over*-sharing, which is the way a move
+//! The sixth of the thirteen tests is the one that catches *over*-sharing, which is the way a move
 //! towards a shared backing buffer breaks correctness silently: `[...a]` and
 //! `a.slice()` are genuine copies in JavaScript and must NOT alias. A change that
 //! makes every handle share one buffer without keeping the copy operations

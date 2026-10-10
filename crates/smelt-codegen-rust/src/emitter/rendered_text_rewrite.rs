@@ -1,4 +1,4 @@
-//! Identifier-rewriting mini-lexer over already-rendered Rust closure text: shadow-aware substitution of shared-capture uses without touching struct fields, path segments, or shadowing inner closures.
+//! Identifier-rewriting mini-lexer over already-rendered Rust closure text: shadow-aware substitution of shared-capture uses without touching struct fields or shadowing inner closures; path segments follow the identifier-boundary rule.
 
 /// Extracts the bare shared-capture cell identifier from an already-rendered
 /// shared-capture access.

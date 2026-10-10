@@ -1399,7 +1399,7 @@ impl FunctionEmitter<'_> {
                     Some(Type::String) => "__smelt_error".to_owned(),
                     // The recovered panic message is presented through the
                     // shared exception-payload record (see
-                    // `thrown::panic_payload_record_expr` for why this is a real
+                    // `caught_panic_error_value_expr` for why this is a real
                     // dynamic boundary rather than avoidable erasure).
                     // The class comes from the panic payload, not a hard-coded
                     // `Error`: a `URIError` routed through the panic channel
@@ -1465,7 +1465,7 @@ impl FunctionEmitter<'_> {
             let exception_decl = self.local_decl(exception_local)?;
             // This arm is the real Smelt error channel, so an erased catch
             // binding recovers the thrown payload rather than a rebuilt message
-            // record. (The two `Err(__smelt_panic)` arms below stay text-only: a
+            // record. (The `Err(__smelt_panic)` arm below stays text-only: a
             // Rust panic never carried a JavaScript value in the first place.)
             let value = self.caught_error_value_text(exception_decl.ty, "__smelt_error")?;
             out.push_str(&format!("            let {exception_name} = {value};\n"));
@@ -2943,13 +2943,13 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Emits a recognized compound `while` loop and returns its exit block.
+    /// Emits a recognized compound `while` loop; the caller continues at its exit block.
     ///
     /// Emits `loop { <condition region>; if <decision> { <body> } else { break }
     /// }` (with the arms swapped when the body is the decision's else branch) so
     /// the body's back-edge to the header becomes a natural loop iteration that
-    /// re-evaluates the full compound condition. The returned block is the loop
-    /// exit continuation, which the caller emits next.
+    /// re-evaluates the full compound condition. The caller continues at
+    /// `exit_entry`, the loop exit continuation, which it emits next.
     fn emit_compound_while(
         &self,
         block: &BasicBlock,
@@ -2996,7 +2996,6 @@ impl FunctionEmitter<'_> {
         Ok(())
     }
 
-    /// Emits a match expression.
     /// Emits a block's statements until reaching a goto to the stop target.
     pub(super) fn emit_block_until_goto(
         &self,
@@ -3791,7 +3790,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    // Converts an rvalue to its Rust text representation.
 }
 
 /// Returns the prefix and final local assignment for branch bodies that end by

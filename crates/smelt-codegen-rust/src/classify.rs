@@ -27,6 +27,10 @@
 //! - its instances are compared by identity (`===`/`!==` against a
 //!   non-literal), which only a handle can answer (see
 //!   [`collect_identity_comparison_triggers`]), or
+//! - its instances are installed as a callee's `this` in a program that writes
+//!   properties through erased values (see [`collect_bound_receiver_triggers`]), or
+//! - a collection method mutates one of its instance fields in place (see
+//!   [`collect_field_mutation_triggers`]), or
 //! - it INHERITS from a reference class, or a class inheriting from it is one
 //!   (see [`close_over_heritage`]).
 //!

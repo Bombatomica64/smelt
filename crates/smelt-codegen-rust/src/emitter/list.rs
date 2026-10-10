@@ -178,9 +178,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a set containment operation to Rust text.
-    /// Converts a list-to-set constructor conversion to Rust text.
-    /// Converts a set containment operation to Rust text.
     /// Converts a list-to-set constructor conversion to Rust text.
     pub(super) fn list_to_set_text(
         &self,
@@ -528,8 +525,6 @@ impl FunctionEmitter<'_> {
         Ok(None)
     }
 
-    /// Converts a list search operation to Rust text.
-    /// Converts a list search operation to Rust text.
     /// Converts a list slice operation to Rust text.
     /// Converts a list slice operation to Rust text.
     pub(super) fn list_slice_text(
@@ -802,9 +797,7 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a list push operation to Rust text.
     /// Converts a list copy operation to Rust text.
-    /// Converts a list push operation to Rust text.
     /// Converts a list copy operation to Rust text.
     pub(super) fn list_copy_text(
         &self,
@@ -1079,9 +1072,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a list count operation to Rust text.
-    /// Converts a list count operation to Rust text.
-    /// Converts a tuple containment operation to Rust text.
     /// Converts a list-to-tuple constructor conversion to Rust text.
     pub(super) fn list_to_tuple_text(
         &self,
@@ -1116,5 +1106,4 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    // Converts a homogeneous tuple-to-set constructor conversion to Rust text.
 }

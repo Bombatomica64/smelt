@@ -285,8 +285,8 @@ pub(crate) fn needs_http_server_runtime(mir: &Mir) -> bool {
 ///
 /// `SmeltBody` has no source spelling of its own — no program says `new
 /// Body()` — so its gate is exactly "some type that HAS a body is present".
-/// `Response` and `Request` are those types today; `IncomingMessage` joins this
-/// list rather than growing its own copy of the body.
+/// `Response` and `Request` are those types today; `IncomingMessage` is not in
+/// this gate and holds its own pending_body buffer.
 pub(crate) fn needs_body_runtime(mir: &Mir) -> bool {
     needs_response_runtime(mir) || needs_request_runtime(mir)
 }
@@ -944,7 +944,8 @@ pub(crate) fn needs_prim_set(mir: &Mir) -> bool {
 /// Mirrors [`FunctionEmitter::type_is_hash_set_key_safe`] at module scope so
 /// the `needs_unknown` gate can decide whether a `Set` forces the `SmeltJsSet`
 /// runtime (and therefore the unknown carrier) on. Only value-equality
-/// primitives back a `HashSet`; everything else uses `SmeltJsSet`.
+/// primitives, plus optionals, futures and unions whose members all qualify, back
+/// a `HashSet`; everything else uses `SmeltJsSet`.
 fn module_hash_set_key_safe(mir: &Mir, ty: smelt_hir::TypeId) -> bool {
     match mir.types.get(ty) {
         Some(Type::Bool | Type::Int | Type::String) => true,
@@ -956,7 +957,6 @@ fn module_hash_set_key_safe(mir: &Mir, ty: smelt_hir::TypeId) -> bool {
     }
 }
 
-/// Returns true when generated Rust needs the opaque `unknown` carrier type.
 #[must_use]
 /// Answers whether the crate needs the panic-route support items.
 ///
@@ -1021,6 +1021,7 @@ fn mir_catches_a_call(mir: &Mir) -> bool {
     })
 }
 
+/// Returns true when generated Rust needs the opaque `unknown` carrier type.
 pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
     // `Type::Union` values are emitted as `SmeltUnknown` (see the type-text
     // helper) and their members are erased into that carrier, so a union

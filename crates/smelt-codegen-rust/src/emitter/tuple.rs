@@ -176,7 +176,6 @@ impl FunctionEmitter<'_> {
         Ok(format!("vec![{items_text}]"))
     }
 
-    /// Converts a list-to-tuple constructor conversion to Rust text.
     /// Converts a homogeneous tuple-to-set constructor conversion to Rust text.
     pub(super) fn tuple_to_set_text(
         &self,
@@ -225,5 +224,4 @@ impl FunctionEmitter<'_> {
         Ok((items.as_slice(), first_ty))
     }
 
-    // Converts a dictionary key containment operation to Rust text.
 }

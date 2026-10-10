@@ -18,7 +18,7 @@
 //! 3. **It answers the SAME object**, so `getRandomValues(view) === view`, and
 //!    a zero-length view stays legal and empty.
 //! 4. **`subtle.digest` matches the published vectors** for SHA-1, SHA-256,
-//!    SHA-384 and SHA-512 — of `"abc"` and of the empty input — so a wrong
+//!    SHA-384 and SHA-512 — of `"abc"`, and for SHA-1 and SHA-256 of the empty input — so a wrong
 //!    algorithm choice or a truncated digest cannot pass.
 //! 5. **The algorithm name is case-insensitive** (`"sha-256"` is `"SHA-256"`)
 //!    but not hyphen-insensitive: Node rejects `"SHA256"` as readily as

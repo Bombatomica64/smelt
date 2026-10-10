@@ -129,7 +129,7 @@ test("encode answers the UTF-8 byte length, not the character count", () => {
   expect(encoder.encode("日本語").length).toBe(9);
   expect(encoder.encode("").length).toBe(0);
 });
-test("an astral-plane character is four bytes and one string iteration step", () => {
+test("an astral-plane character is four bytes", () => {
   const bytes = new TextEncoder().encode("😀");
   expect(bytes.length).toBe(4);
   expect(bytes.byteLength).toBe(4);

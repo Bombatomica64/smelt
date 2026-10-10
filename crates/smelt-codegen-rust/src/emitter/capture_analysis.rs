@@ -393,8 +393,7 @@ impl FunctionEmitter<'_> {
     /// as `SmeltList<T>` and `SmeltList<SmeltUnknown>`. Every pass-through that
     /// keys on `TypeId` equality has to consult this first — the `&mut` path
     /// ([`FunctionEmitter::mutable_reference_argument_text`], where the failure
-    /// is invariance) and the by-value static-call path
-    /// (`call::static_call_argument_demotion_text`, where the failure is a
+    /// is invariance) and the by-value static-call path (where the failure is a
     /// lifted caller statically calling a demoted callee whose type parameters
     /// share names).
     ///

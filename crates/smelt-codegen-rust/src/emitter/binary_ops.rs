@@ -544,12 +544,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Emits numeric comparisons after coercing both operands to a shared scalar.
-    ///
-    /// HIR preserves TypeScript numeric intent even when one side has been
-    /// inferred as `number` and the other as an integer-like literal. Rust does
-    /// not compare `i64` and `f64` directly, so this keeps generated assertions
-    /// and branch predicates type-directed instead of relying on literal shape.
     /// Emits a JS relational comparison (`<`, `<=`, `>`, `>=`) where at least one
     /// bare (non-optional) operand is erased for relational purposes — an
     /// `unknown`, a concrete/erased union (e.g. `string | number`), a type param,
@@ -646,6 +640,11 @@ impl FunctionEmitter<'_> {
     /// Emits an equality or relational comparison between two statically numeric
     /// operands, coercing both to a shared scalar type (`i64`/`f64`) first so Rust
     /// does not reject a mixed `i64`-vs-`f64` comparison.
+    ///
+    /// HIR preserves TypeScript numeric intent even when one side has been
+    /// inferred as `number` and the other as an integer-like literal. Rust does
+    /// not compare `i64` and `f64` directly, so this keeps generated assertions
+    /// and branch predicates type-directed instead of relying on literal shape.
     pub(super) fn numeric_comparison_text(
         &self,
         op: smelt_hir::BinOp,

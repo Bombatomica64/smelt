@@ -365,13 +365,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a list remove operation to Rust text.
-    /// Validates that an optional slice index is numeric.
-    /// Converts a list remove operation to Rust text.
-    /// Validates that an optional slice index is numeric.
-    /// Converts a list remove operation to Rust text.
-    /// Validates that an optional slice index is numeric.
-    /// Converts a list remove operation to Rust text.
     /// Validates that an optional slice index is numeric.
     pub(super) fn validate_optional_numeric_index(
         &self,

@@ -119,10 +119,8 @@ fn an_awaiting_retry_loop_iterates_until_it_succeeds() {
     // returned value were both whatever the recursion cap happened to allow.
     //
     // Every function here is declared at module scope on purpose: a function
-    // nested inside the test body lowers to a closure, and the closure-body
-    // emitter structures neither loops nor `try`/`catch` at all (a separate,
-    // wider gap this change does not touch). Module scope is what exercises the
-    // block emitter under test.
+    // nested inside the test body lowers to a closure. Module scope is what
+    // exercises the block emitter under test.
     let source = r#"
 import { test, expect } from "vitest";
 

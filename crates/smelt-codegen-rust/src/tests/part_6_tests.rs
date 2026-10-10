@@ -1391,7 +1391,7 @@ fn injects_genawaiter_dependency_for_generator_emission() {
 
 /// A closure field on a *type-alias* object receiver must stay a closure call
 /// even inside callback-migrated bodies. Regression for PR #178: the new
-/// `callback_receiver_declares_method` treated `type_alias_fields` entries as
+/// `receiver_declares_method` treated `type_alias_fields` entries as
 /// class methods, but that map also stores genuine alias fields (remeda's
 /// `Funnel.flush`), which have no class item — MIR method resolution then
 /// failed with "class method `flush` is not resolvable".

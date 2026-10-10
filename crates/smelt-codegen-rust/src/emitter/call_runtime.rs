@@ -93,10 +93,11 @@ impl FunctionEmitter<'_> {
     /// `__smelt_call` function member (a callable object). This snippet clones the
     /// callee value, coerces the argument expression into a `Vec<SmeltUnknown>`,
     /// extracts whichever callable form is present, invokes it (propagating a
-    /// thrown error via `panic!`), and throws JavaScript's
-    /// `TypeError: <callee> is not a function` when the value is not callable —
-    /// which is what an erased method call on a receiver whose runtime value has
-    /// no such method (`(5 as any).map(f)`) must do.
+    /// thrown error via `smelt_panic_throw`), and, when the value is not callable,
+    /// throws JavaScript's `TypeError: <callee> is not a function` only when
+    /// `not_callable` names the callee (`Some`), which is what an erased method
+    /// call on a receiver whose runtime value has no such method
+    /// (`(5 as any).map(f)`) must do.
     ///
     /// `callee_text` is the expression producing the callee value. `args_expr` is
     /// the expression fed to `Into::into` to build the argument vector; callers
@@ -324,7 +325,6 @@ impl FunctionEmitter<'_> {
         self.rvalue_text_for_dest(value, self.none_ty)
     }
 
-    /// Converts an rvalue to Rust text using the destination type when it affects emission.
     /// Converts an rvalue to Rust text using the destination type when it affects emission.
     pub(super) fn rvalue_text_for_dest(
         &self,
@@ -2256,11 +2256,6 @@ impl FunctionEmitter<'_> {
                     .join(", "),
                 last
             )),
-            // Both operands are erased first: an asymmetric matcher is a
-            // marker-bearing record, so the comparison is a runtime walk over
-            // the dynamic carrier -- deliberately NOT `SmeltUnknown`'s own
-            // `PartialEq`, which library code observes and which must stay
-            // blind to the test harness's markers.
             Rvalue::VitestRestoreAllMocks => {
                 Ok("smelt_vitest_restore_all_mocks()".to_owned())
             }
@@ -2269,6 +2264,11 @@ impl FunctionEmitter<'_> {
                 self.value_at_type(target, self.type_id(Type::Unknown)?)?,
                 self.value_at_type(name, self.type_id(Type::String)?)?
             )),
+            // Both operands are erased first: an asymmetric matcher is a
+            // marker-bearing record, so the comparison is a runtime walk over
+            // the dynamic carrier -- deliberately NOT `SmeltUnknown`'s own
+            // `PartialEq`, which library code observes and which must stay
+            // blind to the test harness's markers.
             Rvalue::VitestAsymmetricEqual { actual, expected } => Ok(format!(
                 "smelt_vitest_asymmetric_equals(&({}), &({}), &mut ::std::collections::HashSet::new())",
                 self.value_at_type(actual, self.type_id(Type::Unknown)?)?,
@@ -2353,7 +2353,6 @@ impl FunctionEmitter<'_> {
 
 
 
-    /// Converts a runtime-backed async operation to Rust.
     /// Validates two same-typed set operands.
     pub(super) fn validate_set_pair_operands(
         &self,
@@ -2377,7 +2376,6 @@ impl FunctionEmitter<'_> {
 
 
 
-    /// Converts a function call to its Rust text representation.
     /// Converts an awaited future operand without cloning it.
     pub(super) fn await_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
         match operand {
@@ -2614,9 +2612,13 @@ impl FunctionEmitter<'_> {
     /// Emits `Object.assign` when the target is a callable JavaScript value.
     ///
     /// JavaScript functions can carry own properties, but Rust closures cannot.
-    /// The current Rust representation keeps the callable value as the runtime
-    /// value and relies on MIR operands to preserve evaluation of the property
-    /// expressions before this rvalue is emitted. This gives the frontend and
+    /// Three representations are emitted: an erased object path (the callable is
+    /// kept as the `__smelt_call` entry of a runtime object, with each property
+    /// value erased), a typed struct path for a concrete callable-interface
+    /// destination (the callable fills `__smelt_call` and each property fills its
+    /// like-named field), and a bare-callable fallback otherwise. MIR operands
+    /// preserve evaluation of the property expressions before this rvalue is
+    /// emitted. This gives the frontend and
     /// MIR a distinct operation for callable object assignment without making
     /// closure calls or function returns stop compiling.
     fn callable_object_assign_text(
@@ -3262,5 +3264,4 @@ impl FunctionEmitter<'_> {
 
 
 
-    // Converts an operand to console.log argument format and returns format string and value.
 }

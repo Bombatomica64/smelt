@@ -673,7 +673,6 @@ impl FunctionEmitter<'_> {
         Ok(format!("{{ {collection_text}.clear(); () }}"))
     }
 
-    /// Converts a list copy operation to Rust text.
     /// Converts a list remove operation to Rust text.
     pub(super) fn list_remove_text(
         &self,
@@ -980,5 +979,4 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    // Validates that an optional slice index is numeric.
 }

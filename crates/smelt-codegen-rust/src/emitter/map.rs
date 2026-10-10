@@ -1180,5 +1180,4 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    // Returns whether a type is supported by the current JSON serializer path.
 }

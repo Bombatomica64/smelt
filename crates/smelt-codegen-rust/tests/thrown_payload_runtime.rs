@@ -10,7 +10,7 @@
 //! The `throw` *operand* was the hole. Two independent lowering paths narrowed
 //! it before it ever reached the payload ABI:
 //!
-//! 1. the throw statement (`throw_message_expression`) replaced a thrown
+//! 1. the throw statement (a historical lowering path) replaced a thrown
 //!    `new Error(m)` with `m`;
 //! 2. the reduced callback expression language (`callback_throw_message`) did
 //!    the same for `Error`/`TypeError`/`RangeError` inside an arrow, and

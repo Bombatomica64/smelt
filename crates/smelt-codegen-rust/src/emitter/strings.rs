@@ -56,8 +56,8 @@ impl FunctionEmitter<'_> {
     /// The encoders are total. The decoders return `None` for input ECMA-262
     /// rejects with a `URIError`, and that failure is currently rendered as an
     /// `.expect(...)` — a PANIC, not a catchable throw. That is deliberate and
-    /// matches the existing `JSON.parse` emission
-    /// Only the INFALLIBLE direction reaches this rvalue path.
+    /// matches the existing `JSON.parse` emission. Only the INFALLIBLE direction
+    /// reaches this rvalue path; the decoders lower through the terminator path below.
     /// `decodeURI`/`decodeURIComponent` lower to
     /// `Terminator::Call { Callee::Builtin(BuiltinFn::UriDecode(op)), unwind }`
     /// so their `URIError` is catchable — a fallible rvalue has no unwind edge,
@@ -747,7 +747,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a timestamp in milliseconds to an RFC 3339 timestamp string.
     /// Checks that every operand has string type.
     pub(super) fn require_string_operands(
         &self,
@@ -1039,8 +1038,7 @@ impl FunctionEmitter<'_> {
     /// the empty needle, which `str::contains` handles for free.
     ///
     /// The erased-value fast paths only apply when no `position` is given; the
-    /// frontend coerces an erased haystack to a concrete string before attaching
-    /// a `from_index`, so the positional form always sees `Type::String` operands.
+    /// positional form coerces a non-String haystack to a string before matching.
     pub(super) fn string_contains_text(
         &self,
         haystack: &Operand,
@@ -1341,5 +1339,4 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    // JSON and IO string helpers continue in `strings_io.rs`.
 }

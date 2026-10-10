@@ -51,7 +51,7 @@ fn capture_names(mir: &Mir, closure: &MirClosure) -> Vec<String> {
         .collect()
 }
 
-/// Assert that every capture names a local of the frame that encloses it.
+/// Return whether no two captures of one closure record different values under one source local id.
 ///
 /// The enclosing frame of `ClosureId(n)` is whichever body holds the
 /// `Rvalue::Closure` that builds it; rather than rediscover that here, the

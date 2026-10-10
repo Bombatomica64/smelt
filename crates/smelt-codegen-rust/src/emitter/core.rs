@@ -332,8 +332,7 @@ impl<'mir> FunctionEmitter<'mir> {
     ///
     /// Split out from [`FunctionEmitter::emit`] so a generic free function can
     /// trial-render its body to decide whether real generics are safe (the body
-    /// must keep each type parameter opaque). The `main` and test-preamble paths
-    /// do not use this helper.
+    /// must keep each type parameter opaque).
     fn emit_body(&self, out: &mut String) -> Result<(), EmitError> {
         self.emit_shared_parameter_preludes(out)?;
         if self.function.is_test && self.context.needs_date_now_runtime {
@@ -2627,8 +2626,8 @@ impl<'mir> FunctionEmitter<'mir> {
     ///
     /// This is used for class and interface storage emission, where MIR has
     /// already retained the declaring type parameter list. Other contexts keep
-    /// falling back to `SmeltUnknown` for type parameters until function-level
-    /// generic declarations are represented in MIR.
+    /// falling back to `SmeltUnknown` for type parameters, because function-level
+    /// generic declarations are not represented in MIR.
     pub(crate) fn type_text_for_with_scoped_type_params(
         mir: &Mir,
         context: &EmitContext,
@@ -2673,55 +2672,6 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         .rust_type(ty, false, substitution)
         .map(RustType::into_string)
-    }
-
-    /// Converts a type ID to a Rust default expression using an existing context.
-    #[expect(
-        dead_code,
-        reason = "kept for non-generic storage default callers outside the current parse work"
-    )]
-    pub(crate) fn default_value_for_with_context(
-        mir: &Mir,
-        context: &EmitContext,
-        ty: TypeId,
-    ) -> Result<String, EmitError> {
-        FunctionEmitter {
-            mir,
-            context,
-            function: mir
-                .functions
-                .first()
-                .ok_or_else(|| EmitError::new("MIR has no functions"))?,
-            names: HashMap::new(),
-            mutable_locals: HashSet::new(),
-            declared_locals: RefCell::new(HashSet::new()),
-            predeclared_locals: HashSet::new(),
-            static_typeof_str_locals: HashSet::new(),
-            folded_throw_payloads: HashSet::new(),
-            termination_cache: RefCell::new(HashMap::new()),
-            loop_exit_cache: RefCell::new(HashMap::new()),
-            borrowed_callback_names: HashSet::new(),
-            by_reference_param_locals: HashSet::new(),
-            record_conversion_stack: RefCell::new(Vec::new()),
-            type_expansion_stack: RefCell::new(Vec::new()),
-            none_ty: ty,
-            unknown_local: LocalDecl {
-                ty,
-                kind: LocalKind::Temp,
-                span: Span {
-                    file: FileId(0),
-                    start: 0,
-                    end: 0,
-                },
-            },
-            suppress_type_params: RefCell::new(false),
-            enclosing_type_params: HashSet::new(),
-            hoisted_module_item: std::cell::Cell::new(false),
-            emitting_inherited_copy: false,
-            base_initializer_owner: None,
-            base_initializer_receivers: HashSet::new(),
-        }
-        .default_value(ty)
     }
 
     /// Converts a type ID to a default expression with scoped type parameters.
@@ -2770,7 +2720,6 @@ impl<'mir> FunctionEmitter<'mir> {
         .default_value_with_scoped_type_params(ty, substitution)
     }
 
-    /// Emits a basic block's statements and terminator.
     /// Returns the Rust suffix needed when calling a throwing function.
     pub(super) fn throwing_call_suffix(&self, callee: &MirFunction) -> &'static str {
         if callee.can_throw
@@ -2871,22 +2820,6 @@ impl<'mir> FunctionEmitter<'mir> {
         ))
     }
 
-    /// Converts an operand to Rust text for a read whose every use is a `&self`
-    /// receiver — `.len()`, `.iter()`, `.chars()`, indexing.
-    ///
-    /// `operand_text` conservatively clones a `Copy` read, because in general the
-    /// caller wants an owned value it can move on. When the caller only ever
-    /// *borrows* the result, that clone is a whole-collection copy for nothing, and
-    /// inside a loop it changes the algorithm's complexity class rather than adding a
-    /// constant: `chunk`'s `data.slice(start, start + size)` lowered to
-    /// `data.clone().iter().skip(.. data.clone().len() ..)`, deep-copying every
-    /// element on each of `ceil(n / size)` iterations. A hand-written Rust
-    /// implementation would borrow, so the emitted code should too.
-    ///
-    /// Only call this when the emitted expression cannot move or mutate through the
-    /// text: `&self` methods qualify, `into_*`/`push`/assignment do not. `Move`
-    /// operands already elide the clone in `operand_text`, so this only changes
-    /// `Copy` reads.
     /// Render one argument for a parameter the callee takes by shared reference.
     ///
     /// When the argument already has the parameter's type the place is borrowed
@@ -2931,6 +2864,22 @@ impl<'mir> FunctionEmitter<'mir> {
         )
     }
 
+    /// Converts an operand to Rust text for a read whose every use is a `&self`
+    /// receiver — `.len()`, `.iter()`, `.chars()`, indexing.
+    ///
+    /// `operand_text` conservatively clones a `Copy` read, because in general the
+    /// caller wants an owned value it can move on. When the caller only ever
+    /// *borrows* the result, that clone is a whole-collection copy for nothing, and
+    /// inside a loop it changes the algorithm's complexity class rather than adding a
+    /// constant: `chunk`'s `data.slice(start, start + size)` lowered to
+    /// `data.clone().iter().skip(.. data.clone().len() ..)`, deep-copying every
+    /// element on each of `ceil(n / size)` iterations. A hand-written Rust
+    /// implementation would borrow, so the emitted code should too.
+    ///
+    /// Only call this when the emitted expression cannot move or mutate through the
+    /// text: `&self` methods qualify, `into_*`/`push`/assignment do not. `Move`
+    /// operands already elide the clone in `operand_text`, so this only changes
+    /// `Copy` reads.
     pub(super) fn operand_borrow_text(&self, operand: &Operand) -> Result<String, EmitError> {
         // A folded throw payload is rendered as the expression it was assigned
         // rather than as a place, so there is no clone to elide; defer to the
@@ -3720,7 +3669,6 @@ impl<'mir> FunctionEmitter<'mir> {
         )))
     }
 
-    /// Render conversion from a JavaScript property-key value to an owned Rust string.
     /// A `RegExp` rendered the way JavaScript stringifies one: `/source/flags`.
     ///
     /// `String(/foo/u)` and `/foo/u.toString()` are `"/foo/u"`, not the bare
@@ -3732,6 +3680,7 @@ impl<'mir> FunctionEmitter<'mir> {
         format!("format!(\"/{{}}/{{}}\", {receiver_text}.source, {receiver_text}.flags)")
     }
 
+    /// Render conversion from a JavaScript property-key value to an owned Rust string.
     pub(super) fn property_key_to_string_text(
         &self,
         value_text: &str,
@@ -4046,18 +3995,6 @@ impl<'mir> FunctionEmitter<'mir> {
         }))
     }
 
-    /// Render concrete callback arguments extracted from an erased JS argument vector.
-    ///
-    /// `target_abi` says which ABI the callee behind `smelt_callback` was
-    /// rendered with, and it is not always the one `function` declares. A
-    /// callback reached through a DECLARED function type follows
-    /// [`Self::callback_param_is_shared_reference`], so a by-shared-reference
-    /// parameter is handed `&(..)`. A callback that is a closure this emitter
-    /// just rendered against a different contextual type — the erased-rest
-    /// wrapper in `closures.rs` synthesizes a `FunctionType` purely to describe
-    /// the closure's own parameter list — was rendered by value, and packing
-    /// `&(..)` for it would not type-check (E0308). The two sites disagree about
-    /// the callee, not about the rule, so the caller states which callee it has.
     /// Render one erased argument at a callee parameter's declared type.
     ///
     /// The ordinary answer is [`Self::extract_value_text`] at the ambient render
@@ -4107,6 +4044,18 @@ impl<'mir> FunctionEmitter<'mir> {
         self.extract_value_text(item, param_ty, &scope)
     }
 
+    /// Render concrete callback arguments extracted from an erased JS argument vector.
+    ///
+    /// `target_abi` says which ABI the callee behind `smelt_callback` was
+    /// rendered with, and it is not always the one `function` declares. A
+    /// callback reached through a DECLARED function type follows
+    /// [`Self::callback_param_is_shared_reference`], so a by-shared-reference
+    /// parameter is handed `&(..)`. A callback that is a closure this emitter
+    /// just rendered against a different contextual type — the erased-rest
+    /// wrapper in `closures.rs` synthesizes a `FunctionType` purely to describe
+    /// the closure's own parameter list — was rendered by value, and packing
+    /// `&(..)` for it would not type-check (E0308). The two sites disagree about
+    /// the callee, not about the rule, so the caller states which callee it has.
     pub(super) fn function_args_from_smelt_args_text(
         &self,
         function: &FunctionType,
@@ -4160,7 +4109,6 @@ impl<'mir> FunctionEmitter<'mir> {
             .map(|args| args.join(", "))
     }
 
-    /// Adapt a callback to a compatible target callback shape.
     /// Resolve a callee parameter type through this call site's bindings.
     ///
     /// The adapter renders each parameter twice: once as a declaration
@@ -4236,6 +4184,7 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok((substituted != erased).then_some(substituted))
     }
 
+    /// Adapt a callback to a compatible target callback shape.
     pub(super) fn function_shape_adapter_text(
         &self,
         operand: &Operand,
@@ -4940,13 +4889,13 @@ impl<'mir> FunctionEmitter<'mir> {
         } else if matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_))) {
             let value = self.erase_value_text(&call, source.return_ty)?;
             format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+        } else if self.is_erased_class_type(source.return_ty) {
             // A return value skips erasure only when its Rust
             // representation already IS `SmeltUnknown`
             // (`is_erased_class_type`), not merely when the class declares no
             // fields: a MODELED host class such as `Request` or `ArrayBuffer`
             // declares none here yet renders as its own concrete struct. See
             // the same seam in `coercion::erase_value_text`.
-        } else if self.is_erased_class_type(source.return_ty) {
             if source.may_throw {
                 call
             } else {
@@ -5069,13 +5018,13 @@ impl<'mir> FunctionEmitter<'mir> {
         } else if matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_))) {
             let value = self.erase_value_text(&call, source.return_ty)?;
             format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+        } else if self.is_erased_class_type(source.return_ty) {
             // A return value skips erasure only when its Rust
             // representation already IS `SmeltUnknown`
             // (`is_erased_class_type`), not merely when the class declares no
             // fields: a MODELED host class such as `Request` or `ArrayBuffer`
             // declares none here yet renders as its own concrete struct. See
             // the same seam in `coercion::erase_value_text`.
-        } else if self.is_erased_class_type(source.return_ty) {
             if source.may_throw {
                 call
             } else {
@@ -5093,7 +5042,6 @@ impl<'mir> FunctionEmitter<'mir> {
         )))
     }
 
-    /// Converts a statically typed operand into a tagged `SmeltUnknown` value.
     /// Gets the type of an operand.
     pub(super) fn operand_ty(&self, operand: &Operand) -> Result<TypeId, EmitError> {
         match operand {
@@ -5702,7 +5650,6 @@ impl<'mir> FunctionEmitter<'mir> {
         )
     }
 
-    /// Converts a place to its Rust text representation.
     /// Gets the entry block of the function.
     pub(super) fn entry_block(&self) -> Result<&BasicBlock, EmitError> {
         self.block(self.function.entry)
@@ -5777,13 +5724,7 @@ impl<'mir> FunctionEmitter<'mir> {
             .map_or(Ok("SmeltUnknown::Null"), Ok)
     }
 
-    /// Gets the Rust-facing rendering of a symbol.
-    ///
-    /// A source name that is not a valid Rust spelling is case-folded when it is
-    /// interned (`camelCase` -> `camel_case`), so this is the *generated* name,
-    /// not the one the source wrote. Use [`Self::symbol_source_name`] whenever
-    /// the answer is compared against a JavaScript key.
-     /// How the source language of the body being emitted spells an absent value.
+    /// How the source language of the body being emitted spells an absent value.
     ///
     /// Decided during MIR lowering from the body's own file (`MirFunction::
     /// absent`), because a crate can mix TypeScript and Python modules and the
@@ -5795,7 +5736,13 @@ impl<'mir> FunctionEmitter<'mir> {
         self.function.absent
     }
 
-   pub(super) fn symbol_name(&self, symbol: Symbol) -> Result<&str, EmitError> {
+    /// Gets the Rust-facing rendering of a symbol.
+    ///
+    /// A source name that is not a valid Rust spelling is case-folded when it is
+    /// interned (`camelCase` -> `camel_case`), so this is the *generated* name,
+    /// not the one the source wrote. Use [`Self::symbol_source_name`] whenever
+    /// the answer is compared against a JavaScript key.
+    pub(super) fn symbol_name(&self, symbol: Symbol) -> Result<&str, EmitError> {
         self.mir
             .symbols
             .get(symbol)
@@ -5868,10 +5815,9 @@ fn unique_local_name(base_name: String, used: &mut HashSet<String>) -> String {
     }
 }
 
-/// Return whether an operand reads a specific local.
 /// Return whether a function type is represented as an erased JS rest callable.
 ///
-/// Free-function form of `Emitter::is_erased_unknown_rest_function`, so the
+/// Free-function form of `FunctionEmitter::is_erased_unknown_rest_function`, so the
 /// pre-emission ownership analysis in `emitter::mod` (which runs before any
 /// `Emitter` exists) asks the exact same question the type renderer does. The
 /// method delegates here; the predicate has one definition.
@@ -5898,6 +5844,7 @@ pub(crate) fn is_erased_unknown_rest_function_in(
     )
 }
 
+/// Return whether an operand reads a specific local.
 pub(super) fn operand_uses_local(operand: &Operand, local: LocalId) -> bool {
     match operand {
         Operand::Copy(place) | Operand::Move(place) => place_reads_local(place, local),

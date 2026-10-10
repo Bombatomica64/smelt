@@ -1491,7 +1491,7 @@ export function firstA(names: string[]): string | undefined {
         source.contains("let _smelt_tmp_3: bool = closure_arg_0.clone().starts_with("),
         "{source}"
     );
-    // Scoped to the emitted function: the runtime prelude legitimately spells
+    // Scoped to the source after the signature: the runtime prelude legitimately spells
     // both `SmeltUnknown::Bool(..)` and the truthiness match.
     let body = source
         .split_once("fn first_a(")
@@ -3810,8 +3810,8 @@ function hasLength(value: unknown): boolean {
         "an array's `length` and named keys are own properties:\n{source}"
     );
     // The `hasOwn` lowering must inspect the erased value directly, not cast it
-    // into a typed record. Scope the check to the emitted `has_length` function
-    // body: `SmeltRecord::with_id_from_entries` also legitimately appears in the
+    // into a typed record. Scope the check to the source after the emitted
+    // `has_length` signature: `SmeltRecord::with_id_from_entries` also legitimately appears in the
     // runtime prelude's `SmeltFromUnknown for SmeltRecord` impl, which is
     // unrelated to this program's behavior.
     let function_body = source
@@ -5715,7 +5715,7 @@ function select(value: unknown, context?: (value: unknown) => unknown): unknown 
 
     assert!(source.contains(".map_or_else("), "{source}");
     assert!(source.contains("SmeltUnknown::Function"), "{source}");
-    // Scoped to the emitted function: the runtime prelude's own-property
+    // Scoped to the source after `fn select`: the runtime prelude's own-property
     // authority spells its own `.is_some() ||` for the byte-view element probe,
     // which is unrelated to this program's selection.
     let function_body = source
@@ -12659,7 +12659,7 @@ export function copy(b: string[], n: number[], i: number): void {
     // The subject is that the read stays TOTAL (`.cloned().unwrap_or(default)`,
     // not a fallible read). The trailing `.clone()` these once carried was the
     // redundant second copy of an already-owned index read, removed by
-    // `index_place_read_is_owned`, and is asserted absent below.
+    // `index_place_read_is_owned`.
     assert!(
         source.contains(".cloned().unwrap_or_else(|| String::new())"),
         "a concrete `string` slot keeps the total read:\n{source}"

@@ -286,7 +286,9 @@ pub(crate) fn class_impl_generics_text(
 /// falls back to full erasure (all its type parameters render as
 /// `SmeltUnknown`), matching pre-#99 behavior.
 ///
-/// A function emits real generics only when EVERY declared type parameter is:
+/// A type parameter is emitted as a real Rust generic only when EVERY condition
+/// below holds for it. A function emits real generics when at least one of its
+/// declared type parameters qualifies; any remaining type parameters stay erased:
 /// - **unconstrained** — a bounded parameter (`<D extends Date>`, `<O extends {
 ///   ... }>`) still needs method/property dispatch through the erased boundary
 ///   that this increment does not model;
@@ -1228,6 +1230,9 @@ fn callback_occurrences_are_liftable(
 ///   erased-unknown-rest callback type is still a perfectly liftable parameter.)
 /// * **borrowed** — `owned` is the emitter's `compute_owned_callback_params`
 ///   fixpoint; an owned parameter lowers to `Rc<dyn Fn(..)>`, not to a borrow.
+/// * **mentions a type parameter** — the parameter's type must mention a declared
+///   type parameter of the function; otherwise there is nothing to carry into the
+///   emitted signature.
 pub(crate) fn callback_param_shape_is_liftable(
     mir: &Mir,
     function: &MirFunction,
@@ -1381,37 +1386,6 @@ pub(crate) fn function_impl_generics_list(
         .collect()
 }
 
-/// Render the Rust trait name for a class inheritance surface.
-///
-/// Trait names currently match the source class name because Rust permits a
-/// trait and struct with the same identifier in the type namespace only when
-/// separated by context is not possible, so callers should avoid emitting both
-/// for the same concrete class until trait emission is expanded.
-pub(crate) fn class_trait_name_text(mir: &Mir, class: &MirClass) -> Result<String, EmitError> {
-    class_name_text(mir, class)
-}
-
-/// Render an owned trait-object type for a class surface.
-///
-/// This is reserved for base-typed polymorphic storage and parameters. Current
-/// emission remains concrete unless a later lowering stage marks trait objects
-/// as required.
-#[expect(
-    dead_code,
-    reason = "trait-object lowering is only emitted for later polymorphic cases"
-)]
-pub(crate) fn class_trait_object_type_text(
-    mir: &Mir,
-    context: &EmitContext,
-    class: &MirClass,
-) -> Result<String, EmitError> {
-    Ok(format!(
-        "Box<dyn {}{}>",
-        class_trait_name_text(mir, class)?,
-        class_type_args_text(mir, context, class)?
-    ))
-}
-
 /// Return the flattened field layout for a class.
 ///
 /// Smelt stores subclass values with inherited fields first and own fields
@@ -1552,43 +1526,3 @@ pub(crate) fn effective_interface_fields(mir: &Mir, interface: &MirInterface) ->
     fields
 }
 
-/// Return inherited abstract method signatures required by a class.
-///
-/// The list walks base classes first so generated trait surfaces have stable,
-/// deterministic ordering that matches the flattened field layout.
-pub(crate) fn inherited_trait_methods(mir: &Mir, class: &MirClass) -> Vec<smelt_hir::MethodSig> {
-    let mut methods = class
-        .base
-        .and_then(|base| mir.classes.iter().find(|candidate| candidate.name == base))
-        .map(|base| inherited_trait_methods(mir, base))
-        .unwrap_or_default();
-    methods.extend(class.abstract_methods.clone());
-    methods
-}
-
-/// Render a HIR class type with its Rust generic arguments.
-#[expect(
-    dead_code,
-    reason = "standalone class type rendering is reserved for trait objects"
-)]
-pub(crate) fn class_type_text(
-    mir: &Mir,
-    class_name: Symbol,
-    class_args: &[TypeId],
-) -> Result<String, EmitError> {
-    let name_text = RustIdent::new(
-        mir.symbols
-            .get(class_name)
-            .ok_or_else(|| EmitError::new("class type has unknown symbol"))?,
-    )
-    .into_string();
-    if class_args.is_empty() {
-        return Ok(name_text);
-    }
-    let args_text = class_args
-        .iter()
-        .map(|arg| FunctionEmitter::type_text_for(mir, *arg))
-        .collect::<Result<Vec<_>, _>>()?
-        .join(", ");
-    Ok(format!("{name_text}<{args_text}>"))
-}

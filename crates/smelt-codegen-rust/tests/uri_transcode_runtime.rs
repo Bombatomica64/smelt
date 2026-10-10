@@ -20,7 +20,7 @@
 //! string, which is exactly the defect class only a runtime tier catches: every
 //! fixture below is chosen so the two variants of a pair disagree.
 //!
-//! **Known gap, deliberately not asserted here.** Both decoders throw a
+//! **Known gap, deliberately not asserted here (see `uri_decode_throw_runtime.rs`).** Both decoders throw a
 //! `URIError` on malformed input, and Smelt renders that as an `.expect(...)`
 //! panic rather than a catchable throw — the same shape as the existing
 //! `JSON.parse` emission, because a fallible stdlib *rvalue* has no throwing
