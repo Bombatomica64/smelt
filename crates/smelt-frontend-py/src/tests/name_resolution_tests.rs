@@ -642,14 +642,22 @@ class Color(IntEnum):
 }
 
 #[test]
-fn protocol_marker_adds_no_base_for_every_import_spelling() -> TestResult {
+fn protocol_base_is_rejected_for_every_import_spelling() -> TestResult {
+    // Structural subtyping is not modeled. Lowering the protocol as a plain
+    // class (what the bare spelling used to do) made `x: HasArea = Square()`
+    // emit a Rust type mismatch and `def f() -> HasArea` emit `-> Square`.
     for (import, spelled) in spellings("typing", "Protocol") {
         let source = format!(
             "{import}\n\nclass HasArea({spelled}):\n    def area(self) -> float:\n        pass\n"
         );
         let mut ctx = HirCtx::new();
-        lower_module(&source, &mut ctx)?;
-        ensure_eq(&base_name(&ctx, class_named(&ctx, "HasArea")?)?, &None, &source)?;
+        let errors = lower_errors(&source, &mut ctx)?;
+        let error = first_error(&errors)?;
+        ensure_eq(&error.code, &"smelt::no-protocol", &source)?;
+        ensure(
+            error.message.contains("class 'HasArea' derives from typing.Protocol"),
+            format!("unexpected message: {}", error.message),
+        )?;
     }
     Ok(())
 }

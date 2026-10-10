@@ -215,6 +215,29 @@ impl SmeltError {
         }
     }
 
+    /// Error for a class deriving from `typing.Protocol`.
+    ///
+    /// A protocol declares a structural type: any class with matching members
+    /// conforms without naming it. Smelt types classes nominally, so lowering
+    /// the protocol as an ordinary class would make every structural use
+    /// either fail to type-check in Rust or silently take the conforming
+    /// class's type instead of the declared one.
+    pub(crate) fn protocol_unsupported(span: Span, class_name: &str) -> Self {
+        Self {
+            code: "smelt::no-protocol",
+            category: DiagnosticCategory::UnsupportedLowering,
+            span,
+            message: format!(
+                "class '{class_name}' derives from typing.Protocol: structural subtyping is not supported"
+            ),
+            note: Some(
+                "smelt has no structural (duck-typed) class conformance yet; \
+                 a protocol cannot stand for the classes that match it."
+                    .to_owned(),
+            ),
+        }
+    }
+
     /// Error for Django model inheritance, which is not supported.
     pub(crate) fn django_unsupported(span: Span, class_name: &str) -> Self {
         Self {

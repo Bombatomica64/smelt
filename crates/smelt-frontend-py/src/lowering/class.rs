@@ -164,10 +164,11 @@ impl ModuleBuilder<'_> {
     ///
     /// Each base and the `metaclass=` keyword are matched by what they denote
     /// through the module's bindings (see [`Self::denoted_stdlib_name`]):
-    /// `builtins.object`, `abc.ABC`, `typing.Generic[...]` and
-    /// `typing.Protocol` are markers that add no base; `abc.ABCMeta` is the only
-    /// supported metaclass; an `enum.IntEnum` base makes the class an integer
-    /// enumeration and is recorded under its own name, `IntEnum`.
+    /// `builtins.object`, `abc.ABC` and `typing.Generic[...]` are markers that
+    /// add no base; `abc.ABCMeta` is the only supported metaclass; an
+    /// `enum.IntEnum` base makes the class an integer enumeration and is
+    /// recorded under its own name, `IntEnum`. A `typing.Protocol` base is
+    /// rejected (see [`SmeltError::protocol_unsupported`]).
     fn resolve_class_bases(
         &mut self,
         class: &StmtClassDef,
@@ -210,7 +211,10 @@ impl ModuleBuilder<'_> {
                 &owner,
             )?;
             match denoted {
-                Some(StdlibName::Object | StdlibName::Protocol) => {}
+                Some(StdlibName::Object) => {}
+                Some(StdlibName::Protocol) => {
+                    return Err(SmeltError::protocol_unsupported(span, class_name_str));
+                }
                 Some(StdlibName::Abc) => bases.is_abstract = true,
                 Some(StdlibName::Generic) => {
                     bases.type_params = self.generic_marker_type_params(base_expr);
