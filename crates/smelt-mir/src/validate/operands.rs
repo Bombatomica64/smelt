@@ -1934,8 +1934,9 @@ pub(super) fn validate_place_exists(
             validate_operand_exists(function, index, errors);
         }
         // There is no base local to check for existence. The global index is
-        // validated against `Mir::globals` where the statement is checked, and
-        // the index operand is checked here like any other.
+        // not bounds-checked against `Mir::globals` anywhere in the validator (a
+        // separate semantic change would be needed to add that check); the index
+        // operand is checked here like any other.
         Place::Global { projection, .. } => {
             if let GlobalProjection::Index { index, .. } = projection {
                 validate_operand_exists(function, index, errors);
