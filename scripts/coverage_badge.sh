@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# Render coverage SVG badges from an lcov tracefile.
+#
+# Usage: coverage_badge.sh <lcov.info> <output.svg>
+# Inputs:  <lcov.info>, the LCOV tracefile to summarise; <output.svg>, the badge
+#          path for the "coverage" (line coverage) badge.
+# Outputs: <output.svg>, plus coverage-functions.svg, coverage-lines.svg,
+#          coverage-regions.svg and coverage-branches.svg in the current directory.
 set -euo pipefail
 
 if [[ $# -lt 2 ]]; then
@@ -14,6 +21,7 @@ if [[ ! -f "$LCOV_FILE" ]]; then
   exit 1
 fi
 
+# Print hit/found as a two-decimal percentage, or 0.00 when nothing was found.
 percent() {
   local hit="$1"
   local found="$2"
@@ -24,6 +32,7 @@ percent() {
   fi
 }
 
+# Map a percentage to a shields-style hex colour.
 pick_color() {
   local p_int
   p_int="${1%.*}"
@@ -35,6 +44,7 @@ pick_color() {
   echo "#e05d44"
 }
 
+# Write an SVG badge with the given label and percentage to the file argument.
 make_badge() {
   local label="$1"
   local pct="$2"
@@ -66,6 +76,7 @@ make_badge() {
 SVG
 }
 
+# Sum one LCOV summary key (e.g. LF, LH) across every record in the tracefile.
 sum_value() {
   local key="$1"
   awk -F: -v k="$key" '$1 == k { s += $2 } END { print s + 0 }' "$LCOV_FILE"

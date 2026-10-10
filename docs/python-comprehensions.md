@@ -77,10 +77,10 @@ mis-lowered:
 
 - `smelt-frontend-py/src/lowering/list.rs` — `list_comprehension`,
   `set_comprehension`, `dict_comprehension`, `generator_expression`, and the
-  shared `comprehension_block` loop builder.
+  shared `comprehension` / `comprehension_impl` loop builder.
 - `smelt-frontend-py/src/lowering/literals.rs` — routes `Expr::ListComp`,
   `Expr::SetComp`, `Expr::DictComp`, and `Expr::Generator`.
-- `smelt-mir/src/lower.rs` — `ExprKind::Block` lowering (executes block
+- `crates/smelt-mir/src/lower/expr.rs` — `ExprKind::Block` lowering (executes block
   statements, then yields the block tail operand).
 </content>
 </invoke>

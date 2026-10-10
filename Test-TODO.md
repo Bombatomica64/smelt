@@ -110,13 +110,13 @@ Current build status:
 | File | Unsupported feature | Current error shape |
 |---|---|---|
 | Full manifest, `[output] build = false` | None in source emission. | After match closure body emission, release emission-only `smelt build` completes in about `3.0s`. |
-| Full manifest, `[output] build = true` | Superseded historical probe. | The optional callable context and Date setter return-cast failures no longer reproduce in the fresh 2026-05-25 native-test probe below. |
+| Full manifest, `[output] build = true` | Superseded historical probe. | The optional callable context and Date setter return-cast failures no longer reproduce in the fresh 2026-05-25 native-test probe above. |
 
 Probe commands:
 
 ```bash
-cargo run -q -p smelt-cli -- --manifest-path /tmp/smelt_date_fns_full_check_BLgUAn/Smelt.toml check
-cargo run -q -p smelt-cli -- --manifest-path /tmp/smelt_date_fns_full_check_BLgUAn/Smelt.toml build
+cargo run -q -p smelt-transpiler -- --manifest-path /tmp/smelt_date_fns_full_check_BLgUAn/Smelt.toml check
+cargo run -q -p smelt-transpiler -- --manifest-path /tmp/smelt_date_fns_full_check_BLgUAn/Smelt.toml build
 ```
 
 ### External Probe: 2026-05-14 Current Rerun
@@ -341,7 +341,7 @@ Python:
   - `test_*.py`
   - `*_test.py` if needed later
 - [x] In pytest mode, allow top-level `def test_*():` with no return annotation and treat it as `-> None`.
-- [ ] Recognize pytest APIs and marks:
+- [x] Recognize pytest APIs and marks:
   - [x] `pytest.raises`
   - [x] `pytest.mark.parametrize`
   - [x] `pytest.fixture`
@@ -562,7 +562,7 @@ TypeScript:
 - [ ] `symbol` type annotations (`TSSymbolKeyword`), required by the TanStack Query Angular slice.
 - [ ] Callback binary operators and multi-statement callbacks in array/object helper calls, required
       by Ky.
-- [ ] Replace the Ky full-manifest internal panic in `builder_part17.rs` (“local id should point to
+- [ ] Replace the Ky full-manifest internal panic in `crates/smelt-frontend-ts/src/lowering/ty/interface_lookup.rs` (“local id should point to
       an existing local”) with a normal diagnostic and regression test.
 - [x] Manifest import cycles should not be rejected by the dependency sorter. Unsupported cycle
       semantics should surface as normal lowering/codegen diagnostics.

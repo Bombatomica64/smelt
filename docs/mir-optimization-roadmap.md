@@ -52,14 +52,14 @@ skip the clone). So the first wins need *no codegen change* — only flipping
 
 ## Machinery to reuse
 
-- **CFG successors** — `validate::successors(&Terminator)` handles every
-  terminator (Goto / Call+unwind / Await+unwind / Switch / Match+default /
-  Return / Throw / Unreachable). Promote to `pub(crate)`.
+- **CFG successors** — `Terminator::successors` (`crates/smelt-mir/src/types.rs`)
+  handles every terminator (Goto / Call+unwind / Await+unwind / Switch / Match+default /
+  Return / Throw / Unreachable).
 - **Read-side operand visitor** — `Rvalue::for_each_operand(|&Operand|)` in
-  `validate.rs` is the documented single source of truth; it visits every
-  operand of all ~150 `Rvalue` variants in evaluation order. Use it for GEN
-  sets. Add a symmetric `for_each_operand_mut` (compiler-checked exhaustive)
-  for the rewrite step; later passes reuse it too.
+  `validate/operands.rs` is the documented single source of truth; it visits every
+  operand of all `Rvalue` variants in evaluation order. Use it for GEN
+  sets. The symmetric `for_each_operand_mut` (compiler-checked exhaustive)
+  already exists and serves the rewrite step; later passes reuse it too.
 - **Escape analysis** — `lower::closures::mark_escaping_closures` plus
   `MirClosureCapture` track which closures/locals escape; reusable to forbid
   moving captured-by-ref locals (Pass 3 especially).
@@ -70,12 +70,12 @@ skip the clone). So the first wins need *no codegen change* — only flipping
 
 ## What is missing
 
-1. **Liveness dataflow** — none today. The existing `CopyPropagation` uses only
+1. **Liveness dataflow** — implemented by Pass 1 (below). The existing `CopyPropagation` uses only
    whole-function *counts*, never CFG-aware live-in/live-out. Move-on-last-use
    requires real backward liveness: a use is "last" only if its local is not
    live-out along *any* successor (loop back-edges make a textually-last use
    non-final).
-2. **Mutable operand visitor** (`for_each_operand_mut`) for the rewrite.
+2. **Mutable operand visitor** (`for_each_operand_mut`) for the rewrite — implemented in `validate/operands.rs`.
 3. `Statement::StorageDead` is emitted but ignored by codegen, and is not a
    reliable liveness oracle — compute liveness rather than trust it.
 
@@ -103,12 +103,10 @@ allocations rustc cannot (e.g. `counter = _smelt_tmp_1;` moving an owned struct,
 - A move *before* a later reassignment of the same local is fine — liveness
   already accounts for it (the local is dead between move and re-def). This is
   what lets accumulator patterns move.
-- **`Switch`/`Match` scrutinees are left as `Copy`.** The Rust emitter rebuilds
-  structured loops by pattern-matching a header of the exact shape
-  `switch copy %local` (`emitter/control_flow.rs`); a `move` scrutinee silently
-  fails that match and flattens nested loops. Scrutinees are always `bool`/tag
-  (`Copy`) values, so this costs nothing at runtime. A future cleanup could make
-  the emitter accept `Copy | Move` and drop this exclusion.
+- **`Switch`/`Match` scrutinees may move on last use.** The Rust emitter's
+  structured-loop reconstruction accepts both `switch copy %local` and
+  `switch move %local` headers, so a moved scrutinee does not flatten nested
+  loops.
 
 **Dataflow specifics:**
 

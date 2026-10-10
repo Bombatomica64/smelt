@@ -28,7 +28,7 @@ order, because each unblocks the feature work queued behind it.
 | 3 | One expression emitter — stop writing it twice | **Landed** | `list_query.rs` 1,764 → 771 lines; `callback_expr` now referenced from one file |
 | 6 | Drive MIR validation from the `Rvalue` algebra | **Landed** | `for_each_operand` / `for_each_operand_mut` in `validate/operands.rs` |
 | 1 | A stdlib-lowering registry behind one seam | **Half** | The registry captured *recognition*, not *lowering* — see finding E |
-| 4 | Split `ModuleBuilder` by concern | **Files only** | 63 fields, 944 methods, one `impl` across 33 files — see finding C |
+| 4 | Split `ModuleBuilder` by concern | Done 2026-08-19 (section 2C) | 63 fields, 944 methods, one `impl` across 33 files — see finding C |
 | 5 | Make emitted source the test surface | **Barely** | `insta` is a dev-dependency with 25 snapshots, against 1,867 surviving `.contains()` assertions |
 
 Three landed, one half, one files-only, one barely started.

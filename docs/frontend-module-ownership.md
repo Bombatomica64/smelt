@@ -1,12 +1,14 @@
 # TypeScript Frontend Numbered Module Ownership Map
 
+> Superseded: for the current layout see `lowering/state/` and `lowering/stdlib/`.
+
 This inventory records every function owned by `builder_part01.rs` through
 `builder_part18.rs` immediately before the first concern-named module move. It
 is the baseline for incremental regrouping.
 
 The first migration moves the type lowering and resolution functions listed under
 `builder_part16.rs`, from `ts_type_to_hir` through `future_inner_type`, into
-`lowering/types.rs`. The remaining `builder_part16.rs` functions continue to own
+`lowering/ty.rs` and `lowering/ty/`. The remaining `builder_part16.rs` functions continue to own
 identifier, constant-expression, and source-span helpers.
 
 The first extraction that *shrinks* a numbered part moves the `Map`/`Set`
@@ -18,7 +20,7 @@ collection-method lowering family into `lowering/collections.rs`. From
 formerly named `collection_method_call` in `lowering/call.rs` (plus its
 `is_collection_method_name` predicate) also moves there and is renamed
 `dispatch_collection_method`, which is the module's narrow entry point alongside
-`map_projection_call`. Shared helpers stay put: `map_key_type_compatible`
+`map_projection_call`. At the pre-move baseline, shared helpers stayed put: `map_key_type_compatible`
 (used by `builder_part14.rs`), `array_item_type_compatible` (in `stdlib.rs`),
 `object_keys_compatible_type` (in `builder_part11.rs`), `numeric_type_compatible`,
 and `is_numeric_like_type`.
@@ -429,7 +431,7 @@ Current concern: type assignability and string methods.
 - `list_contains_call`
 - `list_surface_type`
 
-Moved out to `lowering/collections.rs` (Map/Set collection-method concern):
+Moved out to `lowering/stdlib/collections.rs` (Map/Set collection-method concern):
 `set_contains_call`, `set_mutation_call`, `map_has_call`, `map_get_call`,
 `map_mutation_call`, and the exclusive helper `map_value_type_compatible`.
 
@@ -517,7 +519,7 @@ Current concern: callbacks, collection callbacks, and list operations.
 - `list_entries_call`
 - `collection_at_call`
 
-Moved out to `lowering/collections.rs` (Map/Set collection-method concern):
+Moved out to `lowering/stdlib/collections.rs` (Map/Set collection-method concern):
 `map_projection_call`, `static_dict_projection_utility_call`, and
 `set_projection_call`.
 

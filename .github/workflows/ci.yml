@@ -111,8 +111,7 @@ jobs:
       # stop anyone merging through it, which makes a genuine regression
       # indistinguishable from the backlog. So the step reports and does not gate:
       # the full list stays visible in the job log, and the ratchet becomes real
-      # once the cleanup lands. See blocker-logs/ci-optimization.md for the
-      # phased plan.
+      # once the cleanup lands.
       - name: Clippy (all targets, warnings are errors)
         continue-on-error: true
         run: cargo clippy --all-targets -- -D warnings
@@ -281,7 +280,7 @@ jobs:
       #
       # Re-adding a cache here only pays off together with a *pinned* nightly
       # (e.g. `nightly-YYYY-MM-DD`), which was considered and rejected to avoid
-      # the recurring manual toolchain bump. See blocker-logs/ci-optimization.md.
+      # the recurring manual toolchain bump.
 
       - name: Install coverage tool
         uses: taiki-e/install-action@v2
@@ -292,7 +291,7 @@ jobs:
       # and `smelt-specialize` reports ~50% line / ~36% branch coverage for code
       # that never ran. `SMELT_REQUIRE_SANDBOX` is deliberately NOT set here: a
       # runner-side sandbox quirk should not blank the coverage badge. The
-      # `sandbox` job below is the one that enforces non-skipping.
+      # `sandbox` job above is the one that enforces non-skipping.
       - name: Install sandbox prerequisites
         run: |
           sudo apt-get update
@@ -355,13 +354,13 @@ jobs:
 
   # Regression gate: transpile the Remeda library at a pinned ref with the smelt
   # built from THIS commit, then compile and run its generated Rust test suite.
-  # The whole corpus currently passes (1789 tests); this job fails if a codegen,
+  # The corpus currently has 1789 tests with exactly two pinned failures; this job fails if a codegen,
   # frontend, or MIR change regresses any of them. Builds smelt from source (not
   # the smelt-nightly asset) so pull requests are gated against their own code.
   # ==========================================================================
   # OPT-IN ON PULL REQUESTS — READ THIS BEFORE MERGING A CODEGEN CHANGE
   #
-  # The three library regression gates below (remeda / radash / es-toolkit) do
+  # The four library regression gates below (remeda / radash / es-toolkit / hono) do
   # NOT run on a pull request unless the PR carries the `run-regressions` label.
   # They DO run unconditionally on every push to main.
   #

@@ -58,6 +58,7 @@ def checkout(dest: str, lib: dict) -> None:
 
 
 def main() -> int:
+    """Clone or reuse each configured library checkout; return 1 if any stays unusable."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default=".github/compat/libraries.json")
     ap.add_argument("--work-dir", default=".library-probes")
