@@ -471,8 +471,12 @@ impl FunctionEmitter<'_> {
         {
             // Distinct MIR item types can already share the same erased Rust
             // representation. Keep the buffer when no element adapter is needed.
-            if self.list_items_render_as_unknown(self.operand_ty(operand)?)
-                && self.list_items_render_as_unknown(target)
+            // The two sides answer to different scopes: the operand is a value
+            // of the item being emitted, so its type was rendered at that item's
+            // own lexical scope, while the target is rendered at `scope`, which a
+            // callee argument narrows to what the callee also spells.
+            if self.list_items_render_as_unknown(self.operand_ty(operand)?, &self.render_scope())
+                && self.list_items_render_as_unknown(target, scope)
             {
                 return Ok(format!(
                     "Into::<SmeltList<_>>::into({})",
@@ -1066,8 +1070,10 @@ impl FunctionEmitter<'_> {
         {
             // Match operand coercion: an erased generic and unknown have the
             // same element representation, so conversion must preserve aliases.
-            if self.list_items_render_as_unknown(source)
-                && self.list_items_render_as_unknown(target)
+            // As there, the source value was rendered at the emitted item's own
+            // scope and the target at the position's `scope`.
+            if self.list_items_render_as_unknown(source, &self.render_scope())
+                && self.list_items_render_as_unknown(target, scope)
             {
                 return Ok(format!("Into::<SmeltList<_>>::into({smelt_owned_value})"));
             }
@@ -1580,7 +1586,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({text})")),
             Some(Type::Int | Type::Float) => Ok(format!("SmeltUnknown::Number({text} as f64)")),
             Some(Type::String) => Ok(crate::rust::erased_string(&text)),
-            Some(Type::List(_)) if self.list_items_render_as_unknown(ty) => {
+            Some(Type::List(_)) if self.list_items_render_as_unknown(ty, &self.render_scope()) => {
                 // An out-of-scope generic element also renders as SmeltUnknown.
                 // Use its existing representation; this creates no new erasure.
                 // In-scope Rust generics still need the per-element path below.
@@ -2061,7 +2067,7 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::String) => Ok(crate::rust::erased_string(value_text)),
-            Some(Type::List(_)) if self.list_items_render_as_unknown(ty) => {
+            Some(Type::List(_)) if self.list_items_render_as_unknown(ty, &self.render_scope()) => {
                 // Keep the rendered-value and operand erasure paths in agreement:
                 // an already-erased generic array aliases the same backing buffer.
                 // Method receiver: wrap a loose operand before `.into()`.
@@ -3502,22 +3508,23 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Whether `list_ty` is a list whose elements render as `SmeltUnknown` in
-    /// the *current* emission scope.
+    /// Whether `list_ty` is a list whose elements render as `SmeltUnknown` at
+    /// `scope`.
     ///
-    /// `Type::Unknown` is that outright. A `Type::TypeParam` is too whenever the
-    /// enclosing Rust item does not declare it: `rust_type` resolves such a name
-    /// to [`crate::type_substitution::Resolved::Erased`], so `List<T>` is
-    /// emitted as `SmeltList<SmeltUnknown>` and the per-element conversion the
-    /// general path would run is `into_smelt_unknown()` on a value that already
-    /// IS a `SmeltUnknown` — the identity impl. An *in-scope* `T` is a real Rust
+    /// `Type::Unknown` is that outright. A `Type::TypeParam` is too whenever
+    /// `scope` does not spell it: `rust_type` resolves such a name to
+    /// [`crate::type_substitution::Resolved::Erased`], so `List<T>` is emitted
+    /// as `SmeltList<SmeltUnknown>` and the per-element conversion the general
+    /// path would run is `into_smelt_unknown()` on a value that already IS a
+    /// `SmeltUnknown` — the identity impl. An *in-scope* `T` is a real Rust
     /// generic and must keep going through the general path, which converts each
     /// element through the corresponding inbound or outbound boundary adapter.
     ///
-    /// Scope-aware rather than unconditional, and deliberately so: every
-    /// destination Rust type is rendered by `type_text` under
-    /// `TypeSubstitution::lexical(self.current_function_type_params())`, so this
-    /// asks exactly the question that renderer answers.
+    /// Scope-aware rather than unconditional, and deliberately so: pass the
+    /// scope the asked-about type was (or will be) rendered at. A value of the
+    /// item being emitted was rendered at `&self.render_scope()`; a coercion
+    /// target is rendered at the scope its render position threads, which a
+    /// callee argument narrows (`callee_parameter_render_scope`).
     pub(super) fn list_items_render_as_unknown(
         &self,
         list_ty: TypeId,

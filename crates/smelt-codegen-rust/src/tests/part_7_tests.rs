@@ -38,6 +38,48 @@ fn concrete_list_erasure_still_converts_elements() {
     );
 }
 
+/// A list argument coerced into an erased callee's `T[]` slot is judged on two
+/// scopes: the operand at the caller's own scope, the slot at the callee seam's.
+///
+/// `Holder<T>` declares a `T` and so does `eraseArray<T>`; type parameters are
+/// name-interned, so the caller's scope spells the callee's `T` even though the
+/// erased callee's slot is `SmeltList<SmeltUnknown>`. Judging the slot at the
+/// caller's scope rebuilds an array that already has the slot's representation
+/// (and loses its identity); judging the operand at the callee's scope would
+/// alias a real `SmeltList<T>` into a `SmeltList<SmeltUnknown>` slot.
+#[test]
+fn erased_generic_list_argument_judges_each_side_at_its_own_scope() {
+    let source = source_for(include_str!("../../tests/fixtures/erased_generic_list.ts"));
+    let method_body = |signature: &str| {
+        let start = source
+            .find(signature)
+            .unwrap_or_else(|| panic!("generated source declares `{signature}`:\n{source}"));
+        let rest = source.get(start..).unwrap_or_default();
+        let end = rest
+            .find("\n    }\n")
+            .map_or(rest.len(), |offset| offset.saturating_add(7));
+        rest.get(..end).unwrap_or(rest).to_owned()
+    };
+    let share = method_body("fn share(");
+    assert!(
+        share.contains("Into::<SmeltList<_>>::into("),
+        "an erased array already has the erased slot's representation: {share}"
+    );
+    assert!(
+        !share.contains("collect::<Vec<_>>()"),
+        "an erased array must reach an erased slot without a rebuild: {share}"
+    );
+    let share_own = method_body("fn share_own(");
+    assert!(
+        !share_own.contains("Into::<SmeltList<_>>::into("),
+        "the class's own `SmeltList<T>` is not the erased slot's representation: {share_own}"
+    );
+    assert!(
+        share_own.contains("into_smelt_unknown()"),
+        "each `T` element must be converted into the erased slot: {share_own}"
+    );
+}
+
 /// Erasing an async callback into an unknown-rest function must wrap its
 /// returned future directly. Throws from an async body live inside that future;
 /// the callback invocation itself does not return a `Result` to unwrap.
