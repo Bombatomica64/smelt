@@ -22,10 +22,12 @@
 //! makes every handle share one buffer without keeping the copy operations
 //! copying passes every other test in this file and is still wrong.
 //!
-//! What these tests deliberately do NOT assert is `===` between two typed
-//! arrays; see the comment on `a_spread_and_a_slice_are_independent_copies` for
-//! the pre-existing `===` lowering gap that makes it unreliable independently
-//! of how the elements are stored.
+//! What these tests deliberately do NOT assert is that two SEPARATE typed
+//! arrays are `!==`; see the comment on
+//! `a_spread_and_a_slice_are_independent_copies` for the pre-existing `===`
+//! lowering gap (structural equality) that makes equal-contents arrays compare
+//! `===`. A positive `a === b` on two handles of one array, as in
+//! `a_local_alias_shares_the_array`, holds either way and proves no identity.
 //!
 //! The tier is `#[ignore]`d because it compiles and executes real crates. Run it
 //! explicitly:

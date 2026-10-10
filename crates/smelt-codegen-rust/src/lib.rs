@@ -8117,9 +8117,11 @@ fn emit_record_into_smelt_unknown_impl(
 /// The whitelist behind [`emit_record_from_smelt_unknown_impl`]. Recoverable
 /// shapes are the primitives, the erased carrier itself, the generated
 /// containers, and generated records/unions (which now emit their own
-/// `SmeltFromUnknown`). Everything else — callbacks, compiled regexes, futures,
-/// generators — has no inbound impl in the prelude, so the field keeps the
-/// record's `Default` rather than emitting a call that would not compile.
+/// `SmeltFromUnknown`). Everything else keeps the record's `Default`: callbacks,
+/// futures and generators have no inbound impl in the prelude, and runtime
+/// builtin classes (a compiled `RegExp` among them, even though the prelude does
+/// emit `SmeltFromUnknown for SmeltRegExp`) are left out of this whitelist
+/// because the program does not generate them.
 pub(crate) fn type_supports_from_unknown(
     mir: &Mir,
     context: &emitter::EmitContext,
