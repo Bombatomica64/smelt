@@ -257,6 +257,20 @@ every list-typed rvalue, so it would hide real avoidable erasure. Options:
 
 Re-snapshotting the baseline upward is not an option under CLAUDE.md.
 
+**Resolved: option 1, narrowed** (branch `fix/smelt-unknown-alias-boundary`).
+The helpers are `smelt_alias_erased_generic_list` and
+`smelt_alias_erased_generic_array` (`crates/smelt-codegen-rust/src/erased_list_alias.rs`).
+They are used only where the SOURCE element is an erased type parameter. A
+first version that covered every list rendering as `SmeltList<SmeltUnknown>`
+measured 24,698 avoidable (−726 against the baseline), because a source
+`unknown[]` carried no marker before #250 either: erased into `unknown` it was
+already `SmeltUnknown::Array(x.into())`, and passed to an erased `T[]` slot it
+was an identity-map rebuild. Marking those would have broadened the
+classification instead of restoring it, so they keep their plain spelling. With
+the narrowed rule es-toolkit measures 25,424 avoidable, 35,592 legitimate, and
+2,808 prelude (+2, the helper signature). Both category totals equal the
+baseline, and every avoidable shape that moved is the same line respelled.
+
 ### 3.2 Examples invariant
 
 `smelt smelt-unknown-report examples --baseline

@@ -1449,6 +1449,12 @@ impl<'smelt_array> IntoIterator for &'smelt_array SmeltArray { type Item = Smelt
 
 impl From<SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_storage(list.id(), list.storage()) } }
 impl From<&SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: &SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_storage(list.id(), list.storage()) } }
+/// Hand an erased generic list to an erased-list slot: the same array, never a copy.
+#[inline]
+fn smelt_alias_erased_generic_list(list: impl Into<SmeltList<SmeltUnknown>>) -> SmeltList<SmeltUnknown> { list.into() }
+/// Hand an erased generic list to an `unknown` slot: the same array, never a copy.
+#[inline]
+fn smelt_alias_erased_generic_array(list: impl Into<SmeltArray>) -> SmeltArray { list.into() }
 impl<T: Clone> From<&SmeltList<T>> for Vec<T> { fn from(list: &SmeltList<T>) -> Self { list.to_vec() } }
 type SmeltPromiseFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<SmeltUnknown, Box<dyn std::error::Error>>>>>;
 

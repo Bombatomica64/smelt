@@ -20,7 +20,25 @@ fn erased_generic_list_arguments_and_returns_do_not_copy_elements() {
             !body.contains("let smelt_values: Vec<_>"),
             "an already-erased array must share storage rather than copy every element: {body}"
         );
+        assert!(
+            body.contains(&format!("SmeltUnknown::Array({ERASED_GENERIC_ARRAY_ALIAS_FN}(")),
+            "the alias goes through the named boundary helper the SmeltUnknown report keys on: {body}"
+        );
     }
+    // The helpers pin `SmeltUnknown` elements, so a crate that reached them
+    // with any other element type would not compile.
+    assert!(
+        source.contains(&format!(
+            "fn {ERASED_GENERIC_LIST_ALIAS_FN}(list: impl Into<SmeltList<SmeltUnknown>>) -> SmeltList<SmeltUnknown>"
+        )),
+        "{source}"
+    );
+    assert!(
+        source.contains(&format!(
+            "fn {ERASED_GENERIC_ARRAY_ALIAS_FN}(list: impl Into<SmeltArray>) -> SmeltArray"
+        )),
+        "{source}"
+    );
 }
 
 /// A concrete numeric list cannot share storage with a list of tagged values.
@@ -35,6 +53,58 @@ fn concrete_list_erasure_still_converts_elements() {
     assert!(
         body.contains("collect::<Vec<_>>()"),
         "different element representations require a new buffer: {body}"
+    );
+    assert!(
+        !body.contains(ERASED_GENERIC_ARRAY_ALIAS_FN),
+        "a concrete list is not already erased, so it must not take the alias boundary: {body}"
+    );
+}
+
+/// A source `unknown[]` erased into `unknown` keeps its direct wrap: only an
+/// erased generic list leaving the erased-generic ABI takes the named alias
+/// helper the SmeltUnknown report counts as a boundary. A program with no
+/// generic list carries no helper.
+#[test]
+fn source_unknown_list_erasure_keeps_its_direct_wrap() {
+    let source = source_for(
+        r"
+export function eraseUnknown(data: unknown[]): unknown {
+  return data
+}
+",
+    );
+    let body = emitted_function_body(&source, "fn erase_unknown");
+    assert!(
+        body.contains("SmeltUnknown::Array(") && body.contains(".into())"),
+        "an `unknown[]` already has the erased representation: {body}"
+    );
+    assert!(
+        !body.contains("collect::<Vec<_>>()"),
+        "an `unknown[]` must share its storage, not rebuild it: {body}"
+    );
+    assert!(!source.contains(ERASED_GENERIC_LIST_ALIAS_FN), "{source}");
+    assert!(!source.contains(ERASED_GENERIC_ARRAY_ALIAS_FN), "{source}");
+}
+
+/// An erased generic `T[]` leaving the erased-generic ABI into an `unknown[]`
+/// slot takes the named list alias helper: same buffer, no per-element copy.
+#[test]
+fn erased_generic_list_into_unknown_list_takes_the_alias_helper() {
+    let source = source_for(
+        r"
+export function forward<T>(data: T[]): unknown[] {
+  return data
+}
+",
+    );
+    let body = emitted_function_body(&source, "fn forward");
+    assert!(
+        body.contains(&format!("{ERASED_GENERIC_LIST_ALIAS_FN}(")),
+        "an erased `T[]` already has the `unknown[]` representation: {body}"
+    );
+    assert!(
+        !body.contains("collect::<Vec<_>>()"),
+        "an erased `T[]` must reach an `unknown[]` slot without a rebuild: {body}"
     );
 }
 
@@ -71,7 +141,8 @@ fn erased_generic_list_argument_judges_each_side_at_its_own_scope() {
     );
     let share_own = method_body("fn share_own(");
     assert!(
-        !share_own.contains("Into::<SmeltList<_>>::into("),
+        !share_own.contains("Into::<SmeltList<_>>::into(")
+            && !share_own.contains(ERASED_GENERIC_LIST_ALIAS_FN),
         "the class's own `SmeltList<T>` is not the erased slot's representation: {share_own}"
     );
     assert!(
