@@ -89,6 +89,7 @@ mod byte_buffer_prelude;
 mod event_emitter_prelude;
 mod host_value_erasure;
 mod number_format_prelude;
+mod string_to_number_prelude;
 mod blob_prelude;
 mod fetch_types_prelude;
 mod crypto_prelude;
@@ -725,6 +726,10 @@ fn emit_source_with_free_function_router(
     // reach it, so it leads the prelude rather than sitting behind a gate that
     // would have to name all of them.
     number_format_prelude::emit(&mut writer);
+    // Its inverse, `StringToNumber`, for the same reason: `Number(s)`, `+s`,
+    // relational and arithmetic coercion and every erased-to-number conversion
+    // of a string reach it.
+    string_to_number_prelude::emit(&mut writer);
     // The panic route is the error channel for every generated body that cannot
     // propagate a `Result`, and both of its ends -- the throw adapter and the
     // `catch_unwind` recovery helpers -- are needed wherever a `try` or a
@@ -4994,7 +4999,7 @@ fn emit_source_with_free_function_router(
                 fn_writer.line("let timestamp_ms = match self {");
                 fn_writer.line("    Self::Number(value) => *value,");
                 fn_writer.line("    Self::Object(value) => match value.get(\"__smelt_date\") { Some(Self::Number(value)) => value, _ => f64::NAN },");
-                fn_writer.line("    Self::String(value) => value.parse::<f64>().unwrap_or(f64::NAN),");
+                fn_writer.line("    Self::String(value) => smelt_string_to_number(value),");
                 fn_writer.line("    Self::Bool(value) => if *value { 1.0 } else { 0.0 },");
                 fn_writer.line("    Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Function(_) | Self::Promise(_) => f64::NAN,");
                 fn_writer.line("};");
@@ -5139,7 +5144,7 @@ fn emit_source_with_free_function_router(
                 |fn_writer| {
                     fn_writer.block("match self", |match_writer| {
                         match_writer.line("Self::Number(value) => value.partial_cmp(other),");
-                        match_writer.line("Self::String(value) => value.parse::<f64>().ok().and_then(|number| number.partial_cmp(other)),");
+                        match_writer.line("Self::String(value) => smelt_string_to_number(value).partial_cmp(other),");
                         match_writer.line("Self::Bool(value) => (if *value { 1.0 } else { 0.0 }).partial_cmp(other),");
                         match_writer.line("Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Object(_) | Self::Function(_) | Self::Promise(_) => None,");
                     });
@@ -5235,7 +5240,7 @@ fn emit_source_with_free_function_router(
                 fn_writer.block("match value", |match_writer| {
                     match_writer.line("SmeltUnknown::Number(value) => *value,");
                     match_writer.line("SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN },");
-                    match_writer.line("SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN),");
+                    match_writer.line("SmeltUnknown::String(value) => smelt_string_to_number(value),");
                     match_writer.line("SmeltUnknown::Bool(value) => if *value { 1.0 } else { 0.0 },");
                     match_writer.line("SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN,");
                 });
@@ -5320,7 +5325,7 @@ fn emit_source_with_free_function_router(
             impl_writer.block(
                 "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
                 |fn_writer| {
-                    fn_writer.line("match value { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }");
+                    fn_writer.line("match value { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }");
                 },
             );
         });
@@ -5329,7 +5334,7 @@ fn emit_source_with_free_function_router(
             impl_writer.block(
                 "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
                 |fn_writer| {
-                    fn_writer.line("match value { SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value { 1_i64 } else { 0_i64 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }");
+                    fn_writer.line("match value { SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }, SmeltUnknown::String(value) => smelt_string_to_number(&value) as i64, SmeltUnknown::Bool(value) => if value { 1_i64 } else { 0_i64 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }");
                 },
             );
         });

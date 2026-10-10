@@ -38,6 +38,34 @@ fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
 /// `console.log`'s number formatting: the spec's rule, but `-0` prints `-0`.
 fn smelt_console_number<N: ::std::borrow::Borrow<f64>>(value: N) -> String { let value = *value.borrow(); if value == 0.0 && value.is_sign_negative() { return "-0".to_owned(); } smelt_number_to_string(value) }
 
+/// ECMA-262 `StringToNumber`: the number JavaScript's `Number(text)` answers.
+#[allow(dead_code)]
+fn smelt_string_to_number(text: &str) -> f64 {
+    let text = text.trim_matches(|ch: char| matches!(ch, '\u{9}'..='\u{d}' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'));
+    if text.is_empty() { return 0.0; }
+    let radix = match text.get(..2) { Some("0x" | "0X") => 16, Some("0o" | "0O") => 8, Some("0b" | "0B") => 2, _ => 10 };
+    if radix != 10 {
+        let digits = &text[2..];
+        if digits.is_empty() || !digits.chars().all(|ch| ch.is_digit(radix)) { return f64::NAN; }
+        return digits.chars().fold(0.0, |value, ch| value * f64::from(radix) + f64::from(ch.to_digit(radix).unwrap_or(0)));
+    }
+    let (sign, unsigned) = match text.as_bytes()[0] { b'+' => (1.0, &text[1..]), b'-' => (-1.0, &text[1..]), _ => (1.0, text) };
+    if unsigned == "Infinity" { return sign * f64::INFINITY; }
+    let bytes = unsigned.as_bytes();
+    let digits_from = |mut at: usize| { while at < bytes.len() && bytes[at].is_ascii_digit() { at += 1; } at };
+    let int_end = digits_from(0);
+    let (frac_start, frac_end) = if bytes.get(int_end) == Some(&b'.') { (int_end + 1, digits_from(int_end + 1)) } else { (int_end, int_end) };
+    if int_end == 0 && frac_end == frac_start { return f64::NAN; }
+    let mut end = frac_end;
+    if matches!(bytes.get(end), Some(b'e' | b'E')) {
+        let exp_start = if matches!(bytes.get(end + 1), Some(b'+' | b'-')) { end + 2 } else { end + 1 };
+        end = digits_from(exp_start);
+        if end == exp_start { return f64::NAN; }
+    }
+    if end != bytes.len() { return f64::NAN; }
+    unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Point {
     x: f64,

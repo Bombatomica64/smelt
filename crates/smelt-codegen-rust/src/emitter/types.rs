@@ -372,7 +372,7 @@ impl FunctionEmitter<'_> {
                 ) || self.is_erased_class_type(*inner) =>
             {
                 Ok(format!(
-                    "{operand_text}.map_or(f64::NAN, |value| match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }})"
+                    "{operand_text}.map_or(f64::NAN, |value| match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }})"
                 ))
             }
             (
@@ -380,13 +380,13 @@ impl FunctionEmitter<'_> {
                 Type::Float,
                 Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never,
             ) => Ok(format!(
-                "match {operand_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
+                "match {operand_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
             )),
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Class { .. })
                 if self.is_erased_class_type(operand_ty) =>
             {
                 Ok(format!(
-                    "match {operand_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
+                    "match {operand_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
                 ))
             }
             (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Bool) => {
@@ -496,11 +496,11 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Emit JavaScript numeric conversion for a Rust string expression.
+    /// Emit JavaScript numeric conversion for a Rust string expression: the
+    /// shared `smelt_string_to_number` runtime helper (ECMA-262
+    /// `StringToNumber`), the one string-to-number rule every emit site uses.
     fn js_number_from_string_text(&self, operand_text: &str) -> String {
-        format!(
-            "{{ let smelt_value = {operand_text}; let smelt_text = smelt_value.trim(); if smelt_text.is_empty() {{ 0.0 }} else {{ smelt_text.parse::<f64>().unwrap_or(f64::NAN) }} }}"
-        )
+        crate::string_to_number_prelude::string_to_number_call(operand_text)
     }
 
     /// Emit JavaScript numeric conversion for an erased runtime value.

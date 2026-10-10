@@ -1287,8 +1287,14 @@ const asBool = Boolean("");
     );
 
     assert!(source.contains("smelt_number_to_string(value)"));
-    assert!(source.contains("smelt_text.is_empty() { 0.0 }"));
-    assert!(source.contains(".parse::<f64>().unwrap_or(f64::NAN)"));
+    // `Number(s)` is the shared ECMA-262 `StringToNumber` helper (empty text
+    // is 0, whitespace trims, radix literals parse, Rust-only spellings such as
+    // "inf" are NaN), not an inline `parse::<f64>()` with an empty-string
+    // special case; the helper's values are pinned by
+    // `js_value_semantics_runtime`.
+    assert!(source.contains("smelt_string_to_number(&(digits))"), "{source}");
+    assert!(source.contains("smelt_string_to_number(&(\"\".to_owned()))"), "{source}");
+    assert!(source.contains("fn smelt_string_to_number(text: &str) -> f64"), "{source}");
     assert!(!source.contains("float() parse failed"));
     assert!(source.contains(".is_empty()"));
 }
@@ -1315,7 +1321,7 @@ export function lexicalRelational(a: string, b: string): boolean {
 
     // The string side of a string-vs-number comparison is ToNumber-coerced.
     assert!(
-        source.contains(").parse::<f64>().unwrap_or(f64::NAN)) >= (0.0)"),
+        source.contains("smelt_string_to_number(&(key.clone()))) >= (0.0)"),
         "string >= number must ToNumber-coerce the string side: {source}"
     );
     // A raw, non-coerced `String >= 0.0` must never be emitted.

@@ -782,8 +782,10 @@ const bag: Record<string, unknown> = value as Record<string, unknown>;
         source.contains("SmeltUnknown::Null | SmeltUnknown::Undefined => false"),
         "{source}"
     );
+    // The numeric extraction of an erased string is the shared
+    // `StringToNumber` helper rather than a bare `parse::<f64>()`.
     assert!(
-        source.contains("value.parse::<f64>().unwrap_or(f64::NAN)"),
+        source.contains("SmeltUnknown::String(value) => smelt_string_to_number(&value)"),
         "{source}"
     );
     assert!(source.contains("_ => SmeltRecord::new()"), "{source}");
@@ -1454,7 +1456,12 @@ const number = +value;
         "{source}"
     );
     assert!(source.contains("SmeltUnknown::Null => 0.0"), "{source}");
-    assert!(source.contains("smelt_text.is_empty() { 0.0 }"), "{source}");
+    // A string goes through the shared `StringToNumber` helper (empty text is
+    // 0 there), not an inline trim-and-parse.
+    assert!(
+        source.contains("SmeltUnknown::String(value) => smelt_string_to_number(&(value))"),
+        "{source}"
+    );
     assert!(
         source.contains(
             "SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN"

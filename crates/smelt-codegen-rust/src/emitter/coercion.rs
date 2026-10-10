@@ -388,9 +388,8 @@ impl FunctionEmitter<'_> {
         if self.mir.types.get(target) == Some(&Type::Float)
             && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::String)
         {
-            return Ok(format!(
-                "{}.parse::<f64>().unwrap_or(0.0)",
-                self.operand_text(operand)?
+            return Ok(crate::string_to_number_prelude::string_to_number_call(
+                &self.operand_text(operand)?,
             ));
         }
         if matches!(self.mir.types.get(target), Some(Type::Function(_)))
@@ -1243,7 +1242,7 @@ impl FunctionEmitter<'_> {
         if self.mir.types.get(target) == Some(&Type::Float)
             && self.mir.types.get(source) == Some(&Type::String)
         {
-            return Ok(format!("{value_text}.parse::<f64>().unwrap_or(0.0)"));
+            return Ok(crate::string_to_number_prelude::string_to_number_call(value_text));
         }
         if self.mir.types.get(target) == Some(&Type::String)
             && matches!(
@@ -3023,10 +3022,10 @@ impl FunctionEmitter<'_> {
                 "match {smelt_owned_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}"
             )),
             Some(Type::Float) => Ok(format!(
-                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
+                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
             )),
             Some(Type::Int) => Ok(format!(
-                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}"
+                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => smelt_string_to_number(&value) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}"
             )),
             // Reading an erased value out into a `String` slot is not the JS
             // `String(x)` CONVERSION -- nothing in the source asked for one; the

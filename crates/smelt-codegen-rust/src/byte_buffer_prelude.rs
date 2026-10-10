@@ -298,7 +298,7 @@ fn emit_element_codec(writer: &mut CodeWriter) {
     writer.line("/// which is why an `Int8Array` holding `-1` and a `Uint8Array` holding `255`");
     writer.line("/// have byte-identical buffers. `Uint8ClampedArray` saturates instead.");
     writer.line(format!(
-        "fn smelt_host_buffer_encode_element(kind: &str, value: &SmeltUnknown) -> Vec<SmeltUnknown> {{ let number = match value {{ SmeltUnknown::Number(value) => *value, SmeltUnknown::Bool(value) => if *value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::String(text) => text.trim().parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Null => 0.0, _ => f64::NAN }}; let raw: Vec<u8> = match kind {{ {encode_arms} }}; raw.into_iter().map(|byte| SmeltUnknown::Number(f64::from(byte))).collect() }}"
+        "fn smelt_host_buffer_encode_element(kind: &str, value: &SmeltUnknown) -> Vec<SmeltUnknown> {{ let number = match value {{ SmeltUnknown::Number(value) => *value, SmeltUnknown::Bool(value) => if *value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::String(text) => smelt_string_to_number(text), SmeltUnknown::Null => 0.0, _ => f64::NAN }}; let raw: Vec<u8> = match kind {{ {encode_arms} }}; raw.into_iter().map(|byte| SmeltUnknown::Number(f64::from(byte))).collect() }}"
     ));
 }
 
