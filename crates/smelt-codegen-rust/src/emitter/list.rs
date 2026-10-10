@@ -2,6 +2,12 @@
 
 use super::*;
 
+/// The block-local recursive flattener both erased `flat` renderings emit.
+///
+/// Flattens nested `SmeltUnknown::Array` values up to the remaining depth and
+/// keeps every other value as a leaf.
+const SMELT_FLAT_VALUES_FN: &str = "fn smelt_flat_values(values: Vec<SmeltUnknown>, smelt_remaining_depth: i64) -> Vec<SmeltUnknown> { if smelt_remaining_depth <= 0 { return values; } values.into_iter().flat_map(|value| match value { SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), smelt_remaining_depth - 1), value => vec![value] }).collect::<Vec<_>>() }";
+
 impl FunctionEmitter<'_> {
     /// Drains a statically typed synchronous generator into a fresh `SmeltList`.
     ///
@@ -856,7 +862,7 @@ impl FunctionEmitter<'_> {
             // E0507.
             let list_text = self.operand_borrow_text(list)?;
             return Ok(format!(
-                "{{ fn smelt_flat_values(values: Vec<SmeltUnknown>, smelt_remaining_depth: i64) -> Vec<SmeltUnknown> {{ if smelt_remaining_depth <= 0 {{ return values; }} values.into_iter().flat_map(|value| match value {{ SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), smelt_remaining_depth - 1), value => vec![value] }}).collect::<Vec<_>>() }} let smelt_flat_depth = (({depth_text}) as f64).max(0.0).floor() as i64; let smelt_flat_input = match &({list_text}) {{ SmeltUnknown::Array(values) => values.clone().into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string().into())).collect::<Vec<_>>(), _ => Vec::new() }}; smelt_flat_values(smelt_flat_input, smelt_flat_depth) }}"
+                "{{ {SMELT_FLAT_VALUES_FN} let smelt_flat_depth = (({depth_text}) as f64).max(0.0).floor() as i64; let smelt_flat_input = match &({list_text}) {{ SmeltUnknown::Array(values) => values.clone().into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string().into())).collect::<Vec<_>>(), _ => Vec::new() }}; smelt_flat_values(smelt_flat_input, smelt_flat_depth) }}"
             ));
         }
         let Some(Type::List(nested_ty)) = self.mir.types.get(list_ty) else {
@@ -867,7 +873,7 @@ impl FunctionEmitter<'_> {
         {
             let depth_text = self.flat_depth_text(depth)?;
             return Ok(format!(
-                "{{ fn smelt_flat_values(values: Vec<SmeltUnknown>, smelt_remaining_depth: i64) -> Vec<SmeltUnknown> {{ if smelt_remaining_depth <= 0 {{ return values; }} values.into_iter().flat_map(|value| match value {{ SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), smelt_remaining_depth - 1), value => vec![value] }}).collect::<Vec<_>>() }} let smelt_flat_depth = (({depth_text}) as f64).max(0.0).floor() as i64; smelt_flat_values({}.clone().into_vec(), smelt_flat_depth) }}",
+                "{{ {SMELT_FLAT_VALUES_FN} let smelt_flat_depth = (({depth_text}) as f64).max(0.0).floor() as i64; smelt_flat_values({}.clone().into_vec(), smelt_flat_depth) }}",
                 self.operand_text(list)?
             ));
         }
