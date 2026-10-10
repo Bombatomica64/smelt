@@ -420,6 +420,7 @@ impl QuietPanics {
 }
 
 impl Drop for QuietPanics {
+    /// Restore the panic hook that was active before install().
     fn drop(&mut self) {
         if let Some(previous) = self.previous.take() {
             std::panic::set_hook(previous);
@@ -755,7 +756,6 @@ fn glob_segment_match(path: &str, pattern: &str) -> bool {
     true
 }
 
-/// Lowers already ordered manifest files into one shared HIR crate.
 /// Seed the crate-level host-global override set from every TypeScript source.
 ///
 /// The scan runs once before per-file lowering so a `globalThis.<Name> =` write

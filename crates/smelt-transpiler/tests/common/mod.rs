@@ -100,6 +100,7 @@ impl TempProject {
 }
 
 impl Drop for TempProject {
+    /// Remove the temporary project directory, ignoring errors.
     fn drop(&mut self) {
         drop(fs::remove_dir_all(&self.path));
     }
@@ -193,7 +194,7 @@ where
 /// The HIR golden exists because the `smelt-hir` formatter was otherwise almost
 /// unexercised: `dump-hir` ran in exactly two CLI tests, one of them over a
 /// one-line file, which left `format/call.rs` at 1.9% line coverage and
-/// `format/map.rs` at 0% while `ExprKind` carries 178 variants. The formatter is
+/// `format/map.rs` at 0% while `ExprKind` has many variants. The formatter is
 /// what `skills/smelt-debug-workflow` and every human or agent debugging a
 /// lowering issue reads, so a `todo!()` or a silently wrong arm in it is
 /// expensive and was invisible.

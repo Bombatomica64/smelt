@@ -5,7 +5,7 @@
 //!
 //! - on success, optionally runs the generated test suite and reports how many
 //!   `cargo test` cases pass/fail;
-//! - on failure, performs recoverable manifest-aware lowering and enumerates
+//! - performs recoverable manifest-aware lowering and enumerates
 //!   the distinct blocker classes grouped by [`DiagnosticCategory`].
 //!
 //! Because each diagnostic now carries a category decided in the frontend, the
@@ -287,7 +287,7 @@ fn scan_files(
     })
 }
 
-/// Build then run the generated test suite, extracting pass/fail counts.
+/// Run the generated test suite and extract pass/fail counts.
 fn measure_tests(config: &Config, manifest_dir: &Path) -> CliResult<TestOutcome> {
     let cargo_manifest = manifest_dir
         .join(config.output_target())
@@ -542,8 +542,8 @@ fn render_blocker_details(out: &mut String, blockers: &[BlockerGroup]) {
             for line in detail.lines() {
                 let _ = writeln!(out, "    {line}");
             }
-            // Debug dumps often have no trailing newline; ensure the single-line
-            // case still emits its content.
+            // `lines()` yields nothing for an empty string, so an empty detail
+            // is written as one blank-content line instead of being dropped.
             if detail.lines().next().is_none() {
                 let _ = writeln!(out, "    {detail}");
             }
@@ -554,7 +554,7 @@ fn render_blocker_details(out: &mut String, blockers: &[BlockerGroup]) {
     let _ = writeln!(out);
 }
 
-/// Escape backticks in inline text so it survives inside Markdown emphasis.
+/// Flatten newlines so inline text stays on one Markdown line.
 fn escape_inline(text: &str) -> String {
     text.replace(['\n', '\r'], " ")
 }

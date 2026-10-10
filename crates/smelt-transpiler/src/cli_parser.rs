@@ -38,14 +38,15 @@ pub enum Command {
         #[arg(long = "hir-debug")]
         hir_debug: bool,
     },
-    /// Type-check and validate without emitting any output
+    /// Type-check and validate. Writes `.d.ts` and `.pyi` declaration stubs but no Rust output;
+    /// only the `json` format writes nothing to disk.
     Check {
         /// Diagnostic output: `human` (default, fail-fast) or `json` (collect
         /// every module's categorized diagnostics in one recoverable pass).
         #[arg(long = "message-format", default_value = "human")]
         message_format: String,
     },
-    /// Scaffold a new smelt project
+    /// Scaffold a new smelt project (not implemented yet)
     New {
         /// Project name
         name: String,
@@ -233,7 +234,7 @@ pub enum Command {
         output: Option<String>,
     },
 
-    /// Remove the output target directory
+    /// Remove the output target directory (not implemented yet)
     Clean,
     /// Print the JSON Schema for Smelt.toml
     DumpSchema,

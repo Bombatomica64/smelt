@@ -169,7 +169,7 @@ impl Category {
 struct ShapeGroup {
     /// Category the shape belongs to.
     category: Category,
-    /// Normalized line pattern (identifiers/literals collapsed) so distinct call
+    /// Normalized line pattern (string and char literals and digit runs collapsed, identifiers kept) so distinct call
     /// sites with the same structure share one group.
     shape: String,
     /// Total `SmeltUnknown` occurrences across all lines in this shape.
@@ -573,7 +573,7 @@ fn opens_more_braces_than_it_closes(line: &str) -> bool {
 ///    - `IntoSmeltUnknown` / `into_smelt_unknown` / `to_smelt_unknown` — explicit
 ///      boundary adapters, exactly the sanctioned way to cross into erasure.
 ///    - runtime narrowing helpers (`js_typeof`, `smelt_typeof(`, `tag_check`,
-///      `smelt_unknown_is_`, `as_smelt_`, `.expect_`) — inspecting an
+///      `smelt_unknown_is_`) — inspecting an
 ///      already-dynamic value.
 /// 3. **Avoidable erasure** — everything else. This deliberately captures
 ///    `SmeltUnknown` in program function signatures, `Vec<SmeltUnknown>` storage,
@@ -613,7 +613,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // Recovering a symbol VALUE from the property key it indexed:
         // `Object.getOwnPropertySymbols`, `Reflect.ownKeys` and erased-Map
         // enumeration hand a stored key back to the program AS A SYMBOL, and
-        // `smelt_symbol_keys::own_symbol_key_value` is the one inverse that does
+        // The emitted prelude helper `smelt_own_symbol_key_value` is the one inverse that does
         // it (round 10; see `blocker-logs/remeda-symbol-key-regression.md`).
         // The value it produces is a `SmeltUnknown::Symbol` -- the marker
         // directly above -- for exactly the reason given there: a fresh runtime
@@ -1024,7 +1024,8 @@ fn render_markdown(report: &UnknownReport, baseline: Option<&UnknownReport>) -> 
 /// Render the advisory baseline-delta section.
 ///
 /// Deltas are informational: a positive avoidable-erasure delta is flagged as a
-/// regression to review, but the command still exits successfully so intentional
+/// regression to review. The default run is advisory and exits successfully;
+/// only `--fail-on-regression` turns an avoidable-erasure rise into a nonzero exit, so intentional
 /// boundary additions (which raise the legitimate-boundary count) never block a
 /// build or CI step.
 fn render_baseline_delta(out: &mut String, report: &UnknownReport, baseline: &UnknownReport) {
@@ -1109,16 +1110,6 @@ fn escape_cell(text: &str) -> String {
 mod tests {
     use super::*;
 
-    /// The panic-recovery exception payload is a dynamic boundary, and the
-    /// marker does not swallow ordinary error-record construction.
-    ///
-    /// A `catch` binding has no static type — TypeScript types it `unknown` —
-    /// and the payload is rebuilt from a recovered panic message, so no concrete
-    /// struct, generated union arm, or scoped generic can represent it: the
-    /// branch that produced the panic is only known at run time. Only the
-    /// recovery site's `__smelt_error` *message binding* is matched, so an
-    /// `Error` record built from program values keeps whatever classification it
-    /// had.
     /// A callable interface's erased `__smelt_call` slot is a boundary.
     ///
     /// An overloaded callable interface stores every overload in one slot, so
@@ -1197,23 +1188,6 @@ mod tests {
         );
     }
 
-    /// `instanceof HostClass` over an erased operand is a boundary.
-    ///
-    /// The guard reads a `__smelt_*` brand key back off a value whose static
-    /// type says only "some erased value" — the canonical case being a `catch`
-    /// binding, which TypeScript types `unknown` by its own rule. That is
-    /// runtime narrowing, the same edge `tag_check` and `smelt_unknown_is_`
-    /// name for the primitive tags; the host brands were the one family whose
-    /// guard was still inlined at the call site.
-    ///
-    /// The marker is the guard's own shape, so it covers both spellings the
-    /// emitter produces (plain and `Option` receiver) while an erased local, an
-    /// erased parameter, and a brand probe that is NOT a narrowing guard all
-    /// stay avoidable.
-    /// `instanceof` a SOURCE class over an erased operand probes the hidden
-    /// `__smelt_class` marker — runtime narrowing of a value whose static type
-    /// says nothing (a `catch` binding), so it is a boundary; an erased local
-    /// holding the same value stays avoidable.
     /// The erased-view write-through setter converts an erased write back to
     /// a field's declared type; its erased parameter is that boundary.
     #[test]
@@ -1252,6 +1226,10 @@ mod tests {
         );
     }
 
+    /// `instanceof` a SOURCE class over an erased operand probes the hidden
+    /// `__smelt_class` marker — runtime narrowing of a value whose static type
+    /// says nothing (a `catch` binding), so it is a boundary; an erased local
+    /// holding the same value stays avoidable.
     #[test]
     fn user_class_instanceof_guard_is_a_boundary() {
         let guard = "    _smelt_tmp_7 = matches!(e.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get(\"__smelt_class\"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, \"UnsupportedPathError\")));";
@@ -1273,6 +1251,19 @@ mod tests {
         );
     }
 
+    /// `instanceof HostClass` over an erased operand is a boundary.
+    ///
+    /// The guard reads a `__smelt_*` brand key back off a value whose static
+    /// type says only "some erased value" — the canonical case being a `catch`
+    /// binding, which TypeScript types `unknown` by its own rule. That is
+    /// runtime narrowing, the same edge `tag_check` and `smelt_unknown_is_`
+    /// name for the primitive tags; the host brands were the one family whose
+    /// guard was still inlined at the call site.
+    ///
+    /// The marker is the guard's own shape, so it covers both spellings the
+    /// emitter produces (plain and `Option` receiver) while an erased local, an
+    /// erased parameter, and a brand probe that is NOT a narrowing guard all
+    /// stay avoidable.
     #[test]
     fn host_brand_instanceof_guard_is_a_boundary() {
         let guard = "    _smelt_tmp_3 = matches!(error.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_domexception\"));";
@@ -1471,6 +1462,16 @@ mod tests {
         );
     }
 
+    /// The panic-recovery exception payload is a dynamic boundary, and the
+    /// marker does not swallow ordinary error-record construction.
+    ///
+    /// A `catch` binding has no static type — TypeScript types it `unknown` —
+    /// and the payload is rebuilt from a recovered panic message, so no concrete
+    /// struct, generated union arm, or scoped generic can represent it: the
+    /// branch that produced the panic is only known at run time. Only the
+    /// recovery site's `__smelt_error` *message binding* is matched, so an
+    /// `Error` record built from program values keeps whatever classification it
+    /// had.
     #[test]
     fn panic_recovery_payload_is_a_boundary() {
         let recovery = "            let e = SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".into())), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error.into()))])));";
