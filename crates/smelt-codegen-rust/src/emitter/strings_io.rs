@@ -301,7 +301,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a parsed URL field access to Rust text using the `url` crate.
-    /// Converts a parsed URL field access to Rust text using the `url` crate.
     pub(super) fn url_field_text(
         &self,
         field: smelt_hir::UrlField,
@@ -330,7 +329,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a text-file read to Rust text.
-    /// Converts a text-file read to Rust text.
     pub(super) fn file_read_text(&self, path: &Operand) -> Result<String, EmitError> {
         self.require_string_operands(&[path], "file read")?;
         Ok(format!(
@@ -339,7 +337,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a text-file write to Rust text, returning bytes written.
     /// Converts a text-file write to Rust text, returning bytes written.
     pub(super) fn file_write_text(
         &self,

@@ -365,7 +365,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a list extend operation to Rust text.
-    /// Converts a list extend operation to Rust text.
     pub(super) fn list_extend_text(
         &self,
         list: &Operand,
@@ -421,11 +420,6 @@ impl FunctionEmitter<'_> {
     /// Python accepts negative indexes with insertion-before-end behavior. This
     /// direct mapping intentionally rejects negative indexes at runtime until
     /// Python-compatible negative-index lowering is modeled explicitly.
-    /// Converts a list insert operation to Rust text.
-    ///
-    /// Python accepts negative indexes with insertion-before-end behavior. This
-    /// direct mapping intentionally rejects negative indexes at runtime until
-    /// Python-compatible negative-index lowering is modeled explicitly.
     pub(super) fn list_insert_text(
         &self,
         list: &Operand,
@@ -462,7 +456,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a list unshift operation to Rust text.
     /// Converts a list unshift operation to Rust text.
     pub(super) fn list_unshift_text(
         &self,
@@ -503,7 +496,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a list reverse operation to Rust text.
-    /// Converts a list reverse operation to Rust text.
     pub(super) fn list_reverse_text(
         &self,
         list: &Operand,
@@ -536,7 +528,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a list pop operation to Rust text.
     /// Converts a list pop operation to Rust text.
     pub(super) fn list_pop_text(
         &self,
@@ -578,7 +569,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a list shift operation to Rust text.
     /// Converts a list shift operation to Rust text.
     pub(super) fn list_shift_text(
         &self,
@@ -633,7 +623,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a collection clear operation to Rust text.
     /// Converts a collection clear operation to Rust text.
     pub(super) fn collection_clear_text(
         &self,

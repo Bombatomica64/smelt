@@ -832,8 +832,6 @@ impl FunctionEmitter<'_> {
 
     /// Converts a list count operation to Rust text.
     /// Converts a list count operation to Rust text.
-    /// Converts a list count operation to Rust text.
-    /// Converts a list count operation to Rust text.
     pub(super) fn list_count_text(
         &self,
         list: &Operand,
@@ -875,10 +873,6 @@ impl FunctionEmitter<'_> {
     /// Converts a numeric list sum operation to Rust text.
     /// Converts a numeric list sum operation to Rust text.
     /// Converts a numeric list sum operation to Rust text.
-    /// Converts a numeric list sum operation to Rust text.
-    /// Converts a numeric list sum operation to Rust text.
-    /// Converts a numeric list sum operation to Rust text.
-    /// Converts a numeric list sum operation to Rust text.
     pub(super) fn list_sum_text(
         &self,
         list: &Operand,
@@ -906,10 +900,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a boolean list fold operation to Rust text.
-    /// Converts a boolean list fold operation to Rust text.
-    /// Converts a boolean list fold operation to Rust text.
-    /// Converts a boolean list fold operation to Rust text.
     /// Converts a boolean list fold operation to Rust text.
     /// Converts a boolean list fold operation to Rust text.
     /// Converts a boolean list fold operation to Rust text.

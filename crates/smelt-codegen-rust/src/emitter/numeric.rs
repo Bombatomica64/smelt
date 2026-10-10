@@ -127,7 +127,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a numeric absolute-value operation to Rust text.
-    /// Converts a numeric absolute-value operation to Rust text.
     pub(super) fn numeric_abs_text(&self, operand: &Operand) -> Result<String, EmitError> {
         if !matches!(
             self.mir.types.get(self.operand_ty(operand)?),
@@ -138,7 +137,6 @@ impl FunctionEmitter<'_> {
         Ok(format!("{}.abs()", self.operand_text(operand)?))
     }
 
-    /// Converts a numeric rounding operation to Rust text.
     /// Converts a numeric rounding operation to Rust text.
     pub(super) fn numeric_round_text(
         &self,
@@ -189,7 +187,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a numeric extrema operation to Rust text.
     /// Converts a numeric extrema operation to Rust text.
     pub(super) fn numeric_extrema_text(
         &self,
@@ -258,7 +255,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a numeric hypot operation to Rust text.
-    /// Converts a numeric hypot operation to Rust text.
     pub(super) fn numeric_hypot_text(&self, args: &[Operand]) -> Result<String, EmitError> {
         for arg in args {
             if !matches!(
@@ -324,7 +320,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a direct unary numeric function to Rust text.
-    /// Converts a direct unary numeric function to Rust text.
     pub(super) fn numeric_unary_func_text(
         &self,
         op: smelt_hir::NumericUnaryFuncOp,
@@ -361,7 +356,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a numeric power operation to Rust text.
-    /// Converts a numeric power operation to Rust text.
     pub(super) fn numeric_pow_text(
         &self,
         base: &Operand,
@@ -382,7 +376,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a two-argument arctangent operation to Rust text.
-    /// Converts a two-argument arctangent operation to Rust text.
     pub(super) fn numeric_atan2_text(
         &self,
         y_operand: &Operand,
@@ -402,7 +395,6 @@ impl FunctionEmitter<'_> {
         Ok(format!("{y_text}.atan2({x_text})"))
     }
 
-    /// Converts an inclusive integer random operation to Rust text.
     /// Converts an inclusive integer random operation to Rust text.
     pub(super) fn numeric_random_int_text(
         &self,
@@ -542,7 +534,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a numeric operand to text usable as an `f64` receiver or argument.
     /// Converts a numeric operand to text usable as an `f64` receiver or argument.
     pub(super) fn float_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
         let operand_text = self.operand_text(operand)?;

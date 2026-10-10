@@ -69,7 +69,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a set disjointness predicate to Rust text.
-    /// Converts a set disjointness predicate to Rust text.
     pub(super) fn set_disjoint_text(
         &self,
         left: &Operand,
@@ -83,7 +82,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a set relation predicate to Rust text.
     /// Converts a set relation predicate to Rust text.
     pub(super) fn set_relation_text(
         &self,
@@ -139,7 +137,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a set removal operation to Rust text.
-    /// Converts a set removal operation to Rust text.
     pub(super) fn set_remove_text(
         &self,
         op: smelt_hir::SetRemoveOp,
@@ -187,7 +184,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a set copy operation to Rust text.
-    /// Converts a set copy operation to Rust text.
     pub(super) fn set_copy_text(
         &self,
         set: &Operand,
@@ -205,7 +201,6 @@ impl FunctionEmitter<'_> {
         Ok(format!("{}.clone()", self.operand_text(set)?))
     }
 
-    /// Converts a set algebra operation to Rust text.
     /// Converts a set algebra operation to Rust text.
     pub(super) fn set_binary_text(
         &self,
@@ -242,7 +237,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a set projection operation to Rust text.
     /// Converts a set projection operation to Rust text.
     pub(super) fn set_projection_text(
         &self,

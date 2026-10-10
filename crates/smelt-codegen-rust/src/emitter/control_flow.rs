@@ -365,7 +365,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Emits a single statement.
-    /// Emits a single statement.
     pub(super) fn emit_statement(
         &self,
         statement: &Statement,
@@ -504,7 +503,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Emits an assignment to a local, field, or index place.
     /// Emits an assignment to a local, field, or index place.
     pub(super) fn emit_assign_place_statement(
         &self,
@@ -920,7 +918,6 @@ impl FunctionEmitter<'_> {
         Ok(())
     }
 
-    /// Emits a block terminator.
     /// Emits a block terminator.
     pub(super) fn emit_terminator(
         &self,
@@ -1581,7 +1578,6 @@ impl FunctionEmitter<'_> {
         Ok(())
     }
 
-    /// Emits an if/else or while loop from a switch terminator.
     /// Emits an if/else or while loop from a switch terminator.
     pub(super) fn emit_switch(
         &self,
@@ -2349,7 +2345,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Checks if a block starts a while loop and returns loop details.
-    /// Checks if a block starts a while loop and returns loop details.
     pub(super) fn while_header(
         &self,
         block: &BasicBlock,
@@ -2476,7 +2471,6 @@ impl FunctionEmitter<'_> {
         Ok(*cond_local)
     }
 
-    /// Checks if a block eventually exits to a loop target.
     /// Checks if a block eventually exits to a loop target.
     pub(super) fn block_exits_to_loop(
         &self,
@@ -2642,7 +2636,6 @@ impl FunctionEmitter<'_> {
             .any(|successor| self.block_reaches_target_avoiding(successor, target, avoid, visited))
     }
 
-    /// Checks if a block starts a while loop with a latch block.
     /// Checks if a block starts a while loop with a latch block.
     pub(super) fn while_header_with_latch(
         &self,
@@ -3207,7 +3200,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Emits a branch inside a loop.
     /// Emits a branch inside a loop.
     pub(super) fn emit_loop_branch(
         &self,

@@ -141,7 +141,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a string affix operation to Rust text.
-    /// Converts a string affix operation to Rust text.
     pub(super) fn string_affix_text(
         &self,
         op: smelt_hir::StringAffixOp,
@@ -157,7 +156,6 @@ impl FunctionEmitter<'_> {
         Ok(format!("{haystack_text}.{method_name}(&{needle_text})"))
     }
 
-    /// Converts a string search operation to Rust text.
     /// Converts a string search operation to Rust text.
     pub(super) fn string_search_text(
         &self,
@@ -224,7 +222,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a string replacement operation to Rust text.
-    /// Converts a string replacement operation to Rust text.
     pub(super) fn string_replace_text(
         &self,
         op: smelt_hir::StringReplaceOp,
@@ -256,7 +253,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a string remove-prefix/remove-suffix operation to Rust text.
-    /// Converts a string remove-prefix/remove-suffix operation to Rust text.
     pub(super) fn string_remove_affix_text(
         &self,
         op: smelt_hir::StringAffixOp,
@@ -274,7 +270,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a string repeat operation to Rust text.
     /// Converts a string repeat operation to Rust text.
     pub(super) fn string_repeat_text(
         &self,
@@ -299,10 +294,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a string padding operation to Rust text.
-    ///
-    /// The generated code counts Rust `char`s rather than JavaScript UTF-16 code units.
-    /// Exact Unicode indexing parity is tracked separately with the other string APIs.
     /// Converts a string padding operation to Rust text.
     ///
     /// The generated code counts Rust `char`s rather than JavaScript UTF-16 code units.
@@ -340,7 +331,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a string character predicate operation to Rust text.
     /// Converts a string character predicate operation to Rust text.
     pub(super) fn string_predicate_text(
         &self,
@@ -404,7 +394,6 @@ impl FunctionEmitter<'_> {
         })
     }
 
-    /// Converts a regex replacement operation to Rust text using the `regex` crate.
     /// Converts a regex replacement operation to Rust text using the `regex` crate.
     pub(super) fn regex_replace_text(
         &self,
@@ -972,7 +961,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a string character lookup operation to Rust text.
-    /// Converts a string character lookup operation to Rust text.
     pub(super) fn string_char_at_text(
         &self,
         operand: &Operand,
@@ -996,7 +984,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a string character-code lookup operation to Rust text.
     /// Converts a string character-code lookup operation to Rust text.
     pub(super) fn string_char_code_at_text(
         &self,
@@ -1117,7 +1104,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a string slice operation to Rust text.
     /// Converts a string slice operation to Rust text.
     pub(super) fn string_slice_text(
         &self,
@@ -1270,7 +1256,6 @@ impl FunctionEmitter<'_> {
         Ok(text)
     }
 
-    /// Converts a string join operation to Rust text.
     /// Converts a string join operation to Rust text.
     pub(super) fn string_join_text(
         &self,

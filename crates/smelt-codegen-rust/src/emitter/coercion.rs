@@ -2611,7 +2611,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Emits a runtime tag check for `SmeltUnknown`.
-    /// Emits a runtime tag check for `SmeltUnknown`.
     pub(super) fn tag_check(
         &self,
         value: &Operand,

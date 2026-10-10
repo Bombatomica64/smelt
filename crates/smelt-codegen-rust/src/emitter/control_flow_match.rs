@@ -237,7 +237,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a constant to its match label text.
-    /// Converts a constant to its match label text.
     pub(super) fn match_label_text(&self, constant: &Constant) -> String {
         match constant {
             Constant::String(value) => format!("{value:?}"),

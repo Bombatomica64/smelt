@@ -214,8 +214,6 @@ impl FunctionEmitter<'_> {
 
     /// Converts a list of key/value pair tuples to a Rust `HashMap`.
     /// Converts a list of key/value pair tuples to a Rust `HashMap`.
-    /// Converts a list of key/value pair tuples to a Rust `HashMap`.
-    /// Converts a list of key/value pair tuples to a Rust `HashMap`.
     pub(super) fn list_pairs_to_dict_text(
         &self,
         list: &Operand,
@@ -249,8 +247,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a list concatenation operation to Rust text.
-    /// Converts a list concatenation operation to Rust text.
     /// Converts a list concatenation operation to Rust text.
     /// Converts a list concatenation operation to Rust text.
     pub(super) fn list_concat_text(
@@ -517,7 +513,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a list slice operation to Rust text.
-    /// Converts a list slice operation to Rust text.
     pub(super) fn list_slice_text(
         &self,
         list: &Operand,
@@ -782,7 +777,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a list copy operation to Rust text.
     /// Converts a list copy operation to Rust text.
     pub(super) fn list_copy_text(
         &self,

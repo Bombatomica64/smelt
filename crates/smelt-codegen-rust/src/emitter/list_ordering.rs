@@ -13,16 +13,6 @@ impl FunctionEmitter<'_> {
     /// Integer, boolean, and string lists use Rust's total `Ord` sort. Floating
     /// lists use `partial_cmp` and panic on unordered values such as `NaN`
     /// until Python-compatible edge semantics are modeled explicitly.
-    /// Converts a list sorted-copy operation to Rust text.
-    ///
-    /// Integer, boolean, and string lists use Rust's total `Ord` sort. Floating
-    /// lists use `partial_cmp` and panic on unordered values such as `NaN`
-    /// until Python-compatible edge semantics are modeled explicitly.
-    /// Converts a list sorted-copy operation to Rust text.
-    ///
-    /// Integer, boolean, and string lists use Rust's total `Ord` sort. Floating
-    /// lists use `partial_cmp` and panic on unordered values such as `NaN`
-    /// until Python-compatible edge semantics are modeled explicitly.
     pub(super) fn list_sorted_text(
         &self,
         list: &Operand,
@@ -137,10 +127,6 @@ impl FunctionEmitter<'_> {
     /// Converts a reversed-copy list operation to Rust text.
     /// Converts a reversed-copy list operation to Rust text.
     /// Converts a reversed-copy list operation to Rust text.
-    /// Converts a reversed-copy list operation to Rust text.
-    /// Converts a reversed-copy list operation to Rust text.
-    /// Converts a reversed-copy list operation to Rust text.
-    /// Converts a reversed-copy list operation to Rust text.
     pub(super) fn list_reversed_text(
         &self,
         list: &Operand,
@@ -217,10 +203,6 @@ impl FunctionEmitter<'_> {
     /// Converts Python `zip(left, right)` materialization to Rust text.
     /// Converts Python `zip(left, right)` materialization to Rust text.
     /// Converts Python `zip(left, right)` materialization to Rust text.
-    /// Converts Python `zip(left, right)` materialization to Rust text.
-    /// Converts Python `zip(left, right)` materialization to Rust text.
-    /// Converts Python `zip(left, right)` materialization to Rust text.
-    /// Converts Python `zip(left, right)` materialization to Rust text.
     pub(super) fn list_zip_text(
         &self,
         left: &Operand,
@@ -260,10 +242,6 @@ impl FunctionEmitter<'_> {
     /// Converts a Python `range(...)` materialization to Rust text.
     /// Converts a Python `range(...)` materialization to Rust text.
     /// Converts a Python `range(...)` materialization to Rust text.
-    /// Converts a Python `range(...)` materialization to Rust text.
-    /// Converts a Python `range(...)` materialization to Rust text.
-    /// Converts a Python `range(...)` materialization to Rust text.
-    /// Converts a Python `range(...)` materialization to Rust text.
     pub(super) fn list_range_text(
         &self,
         start: &Operand,
@@ -293,10 +271,6 @@ impl FunctionEmitter<'_> {
     /// Converts a Python `random.choice(list)` operation to Rust text.
     /// Converts a Python `random.choice(list)` operation to Rust text.
     /// Converts a Python `random.choice(list)` operation to Rust text.
-    /// Converts a Python `random.choice(list)` operation to Rust text.
-    /// Converts a Python `random.choice(list)` operation to Rust text.
-    /// Converts a Python `random.choice(list)` operation to Rust text.
-    /// Converts a Python `random.choice(list)` operation to Rust text.
     pub(super) fn list_random_choice_text(
         &self,
         list: &Operand,
@@ -320,10 +294,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a list index operation to Rust text.
-    /// Converts a list index operation to Rust text.
-    /// Converts a list index operation to Rust text.
-    /// Converts a list index operation to Rust text.
     /// Converts a list index operation to Rust text.
     /// Converts a list index operation to Rust text.
     /// Converts a list index operation to Rust text.
@@ -405,10 +375,6 @@ impl FunctionEmitter<'_> {
     /// Converts an optional Python-style slice start to a clamped Rust `usize` expression.
     /// Converts an optional Python-style slice start to a clamped Rust `usize` expression.
     /// Converts an optional Python-style slice start to a clamped Rust `usize` expression.
-    /// Converts an optional Python-style slice start to a clamped Rust `usize` expression.
-    /// Converts an optional Python-style slice start to a clamped Rust `usize` expression.
-    /// Converts an optional Python-style slice start to a clamped Rust `usize` expression.
-    /// Converts an optional Python-style slice start to a clamped Rust `usize` expression.
     pub(super) fn slice_start_text(
         &self,
         maybe_start: Option<&Operand>,
@@ -420,10 +386,6 @@ impl FunctionEmitter<'_> {
         )
     }
 
-    /// Converts optional Python-style slice bounds to a Rust `take` length expression.
-    /// Converts optional Python-style slice bounds to a Rust `take` length expression.
-    /// Converts optional Python-style slice bounds to a Rust `take` length expression.
-    /// Converts optional Python-style slice bounds to a Rust `take` length expression.
     /// Converts optional Python-style slice bounds to a Rust `take` length expression.
     /// Converts optional Python-style slice bounds to a Rust `take` length expression.
     /// Converts optional Python-style slice bounds to a Rust `take` length expression.

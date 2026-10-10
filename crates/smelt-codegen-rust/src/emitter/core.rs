@@ -2727,7 +2727,6 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Converts an operand to its Rust text representation.
-    /// Converts an operand to its Rust text representation.
     pub(super) fn operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
         // A throw-payload temporary is rendered as the expression it was
         // assigned, at the point that consumes it; the staging statement and
@@ -5666,7 +5665,6 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Gets a basic block by ID.
-    /// Gets a basic block by ID.
     pub(super) fn block(&self, block: smelt_mir::BlockId) -> Result<&BasicBlock, EmitError> {
         self.function
             .blocks
@@ -5674,7 +5672,6 @@ impl<'mir> FunctionEmitter<'mir> {
             .ok_or_else(|| EmitError::new("terminator references an unknown block"))
     }
 
-    /// Gets the declaration of a local by ID.
     /// Gets the declaration of a local by ID.
     pub(super) fn local_decl(&self, local: LocalId) -> Result<&LocalDecl, EmitError> {
         Ok(self
@@ -5725,7 +5722,6 @@ impl<'mir> FunctionEmitter<'mir> {
             .ok_or_else(|| EmitError::new("callee local reference out of bounds"))
     }
 
-    /// Gets the generated variable name for a local.
     /// Gets the generated variable name for a local.
     pub(super) fn local_name(&self, local: LocalId) -> Result<&str, EmitError> {
         self.names

@@ -75,7 +75,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a statically-known tuple index operation to Rust text.
-    /// Converts a statically-known tuple index operation to Rust text.
     pub(super) fn tuple_index_text(
         &self,
         tuple: &Operand,
@@ -112,7 +111,6 @@ impl FunctionEmitter<'_> {
         Ok(format!("{}.{}.clone()", self.operand_text(tuple)?, index))
     }
 
-    /// Converts a statically-known tuple slice operation to Rust text.
     /// Converts a statically-known tuple slice operation to Rust text.
     pub(super) fn tuple_slice_text(
         &self,
@@ -151,7 +149,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a homogeneous tuple-to-list constructor conversion to Rust text.
     /// Converts a homogeneous tuple-to-list constructor conversion to Rust text.
     pub(super) fn tuple_to_list_text(
         &self,
@@ -194,7 +191,6 @@ impl FunctionEmitter<'_> {
         Ok(format!("SmeltPrimSet::from([{items_text}])"))
     }
 
-    /// Returns tuple fields and their shared item type for homogeneous tuple conversions.
     /// Returns tuple fields and their shared item type for homogeneous tuple conversions.
     pub(super) fn homogeneous_tuple_conversion_parts(
         &self,

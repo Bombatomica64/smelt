@@ -2258,7 +2258,6 @@ pub enum GeneratorResumeKind {
 }
 
 /// A MIR statement.
-/// A MIR statement.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Statement {
     /// Assign to a local.

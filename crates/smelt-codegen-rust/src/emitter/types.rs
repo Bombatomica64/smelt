@@ -1145,7 +1145,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a type ID to its Rust text representation.
-    /// Converts a type ID to its Rust text representation.
     pub(super) fn type_text(&self, ty: TypeId) -> Result<String, EmitError> {
         self.type_text_with_impl_trait(ty, true)
     }
@@ -1771,7 +1770,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a function return type to Rust, including uncaught exception wrapping.
     /// Converts a function return type to Rust, including uncaught exception wrapping.
     pub(super) fn return_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
         let inner = self.type_text_with_impl_trait(ty, false)?;

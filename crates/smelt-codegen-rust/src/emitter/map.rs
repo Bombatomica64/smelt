@@ -144,7 +144,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a dictionary get operation to Rust text.
-    /// Converts a dictionary get operation to Rust text.
     pub(super) fn dict_get_text(
         &self,
         dict: &Operand,
@@ -236,11 +235,6 @@ impl FunctionEmitter<'_> {
     /// This mapping supports the explicit-default form only, so generated Rust
     /// can preserve the dictionary value type without inventing a `None`
     /// default for non-optional values.
-    /// Converts a dictionary setdefault operation to Rust text.
-    ///
-    /// This mapping supports the explicit-default form only, so generated Rust
-    /// can preserve the dictionary value type without inventing a `None`
-    /// default for non-optional values.
     pub(super) fn dict_setdefault_text(
         &self,
         dict: &Operand,
@@ -289,7 +283,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a dictionary insertion operation to Rust text.
     /// Converts a dictionary insertion operation to Rust text.
     pub(super) fn dict_set_text(
         &self,
@@ -447,7 +440,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a dictionary key removal operation to Rust text.
-    /// Converts a dictionary key removal operation to Rust text.
     pub(super) fn dict_remove_key_text(
         &self,
         dict: &Operand,
@@ -521,7 +513,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a dictionary pop operation to Rust text.
-    /// Converts a dictionary pop operation to Rust text.
     pub(super) fn dict_pop_text(
         &self,
         dict: &Operand,
@@ -569,7 +560,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a dictionary update operation to Rust text.
     /// Converts a dictionary update operation to Rust text.
     pub(super) fn dict_update_text(
         &self,
@@ -772,7 +762,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a dictionary copy operation to Rust text.
-    /// Converts a dictionary copy operation to Rust text.
     pub(super) fn dict_copy_text(
         &self,
         dict: &Operand,
@@ -816,7 +805,6 @@ impl FunctionEmitter<'_> {
         Ok(format!("{}.clone()", self.operand_borrow_text(dict)?))
     }
 
-    /// Converts a dictionary projection operation to Rust text.
     /// Converts a dictionary projection operation to Rust text.
     pub(super) fn dict_projection_text(
         &self,
@@ -1092,11 +1080,6 @@ impl FunctionEmitter<'_> {
     /// The Serde JSON backend is intentionally confined to this helper and
     /// Cargo dependency injection, making it replaceable without changing HIR
     /// or frontend lowering.
-    /// Converts a JSON serialization operation to Rust text.
-    ///
-    /// The Serde JSON backend is intentionally confined to this helper and
-    /// Cargo dependency injection, making it replaceable without changing HIR
-    /// or frontend lowering.
     pub(super) fn json_stringify_text(
         &self,
         value: &Operand,
@@ -1137,10 +1120,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a JSON parse operation to Rust text.
-    ///
-    /// Serde stays behind this helper so future backend changes do not affect
-    /// the frontend lowering shape.
     /// Converts a JSON parse operation to Rust text.
     ///
     /// Serde stays behind this helper so future backend changes do not affect
