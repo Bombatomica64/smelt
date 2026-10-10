@@ -111,7 +111,7 @@ impl ModuleBuilder<'_> {
     /// Only registers when every folded member shares one primitive literal
     /// kind (all numeric or all string); a mixed or heterogeneous enum keeps its
     /// opaque type so no incorrect concrete type leaks. The alias mirrors an
-    /// ordinary `type EnumName = number | string`-style declaration and is
+    /// ordinary `type EnumName = number`-style declaration and is
     /// pushed into the shared crate so later modules resolve the imported enum's
     /// type identically.
     fn register_enum_underlying_type(

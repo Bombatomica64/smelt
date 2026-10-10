@@ -105,7 +105,6 @@ impl<'builder> ModuleBuilder<'builder> {
         }
     }
 
-    /// Lower call expressions, including stdlib shims and direct function/method invokes.
     /// Lower a call expression whose result has a contextual type.
     ///
     /// Only the immediately-invoked function form consumes that context today
@@ -3656,7 +3655,7 @@ impl<'builder> ModuleBuilder<'builder> {
         self.receiver_has_callable_storage_field(base_ty, field)
     }
 
-    /// Lower Promise/Future `.then(...)` and `.catch(...)` continuation calls.
+    /// Lower a generator `next`, `return`, or `throw` call, resuming the generator.
     pub(in crate::lowering) fn generator_next_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -4852,8 +4851,6 @@ impl<'builder> ModuleBuilder<'builder> {
             })
     }
 
-    /// Return whether an overload parameter contributes useful shape
-    /// information beyond accepting any value.
     /// Return whether a call argument is a syntactically empty array literal `[]`.
     pub(in crate::lowering) fn argument_is_empty_array_literal(argument: &Argument<'_>) -> bool {
         matches!(argument, Argument::ArrayExpression(array) if array.elements.is_empty())
@@ -5138,12 +5135,6 @@ impl<'builder> ModuleBuilder<'builder> {
         })
     }
 
-    /// Return whether a generic bound still depends on contextual type inference.
-    ///
-    /// TypeScript can select a data-last overload such as
-    /// `<T, K extends Keys<T>>(key: K) => (data: T) => ...` before `T` is
-    /// known; the later callable context provides it. Enforcing `K`'s bound
-    /// while `T` is still present rejects valid curried calls.
     /// Peel the wrappers that do not decide a return's identity, then report
     /// the type parameter the leaf names, if it is one.
     fn return_leaf_type_param(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::Symbol> {
@@ -5156,6 +5147,12 @@ impl<'builder> ModuleBuilder<'builder> {
         }
     }
 
+    /// Return whether a generic bound still depends on contextual type inference.
+    ///
+    /// TypeScript can select a data-last overload such as
+    /// `<T, K extends Keys<T>>(key: K) => (data: T) => ...` before `T` is
+    /// known; the later callable context provides it. Enforcing `K`'s bound
+    /// while `T` is still present rejects valid curried calls.
     pub(in crate::lowering) fn overload_constraint_contains_unresolved_type_param(
         &self,
         constraint: smelt_hir::TypeId,

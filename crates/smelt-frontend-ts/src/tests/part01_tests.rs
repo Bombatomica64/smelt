@@ -1,3 +1,6 @@
+//! TypeScript lowering regression tests for test-framework imports, exported namespace
+//! objects, and assert and expect matchers.
+
 use super::*;
 
 #[test]

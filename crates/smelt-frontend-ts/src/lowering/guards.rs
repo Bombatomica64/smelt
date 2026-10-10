@@ -1784,9 +1784,9 @@ impl ModuleBuilder<'_> {
 
     /// Lower supported `new Promise<T>(executor)` expressions to future values.
     ///
-    /// Timer executors keep their timeout duration. Other executor forms are
-    /// represented as zero-delay futures with the explicit `Promise<T>` output
-    /// type so async batching helpers can keep their type surface.
+    /// Timer executors keep their timeout duration. Other executor forms lower
+    /// to `AsyncOp::Promise` with the explicit `Promise<T>` output type so async
+    /// batching helpers can keep their type surface.
     pub(super) fn promise_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
@@ -2318,7 +2318,8 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Return targeted diagnostics for deferred object and collection APIs.
+    /// Placeholder hook for targeted diagnostics on deferred object and collection
+    /// APIs; it currently never diagnoses.
     ///
     /// `replaceAll` is handled by `regex_replace_call` (regex pattern) and
     /// `string_replace_call` (literal string pattern), so it is no longer
@@ -2975,6 +2976,4 @@ impl ModuleBuilder<'_> {
             "Date method receiver must be a timestamp or Date-like value",
         ))
     }
-
-    // Continued in the next split builder file.
 }

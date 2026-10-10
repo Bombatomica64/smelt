@@ -17,6 +17,7 @@ use oxc::semantic::{Semantic, SemanticBuilder};
 use oxc::span::SourceType;
 use pico_args::Arguments;
 
+/// Parses one TypeScript file, printing diagnostics and optionally the AST (`--ast`) and comments (`--comments`).
 fn main() -> Result<(), String> {
     let mut stdout = io::stdout().lock();
     let mut args = Arguments::from_env();

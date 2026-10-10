@@ -351,7 +351,8 @@ impl ModuleBuilder<'_> {
     /// Lower `Object.keys`/`values`/`entries`/`Reflect.ownKeys` on a view.
     ///
     /// `None` when the receiver is not a concrete view, so the caller keeps its
-    /// ordinary record path. `Reflect.ownKeys` answers the same list as
+    /// ordinary record path. An `ArrayBuffer` or `DataView` receiver is the
+    /// empty-projection case. `Reflect.ownKeys` answers the same list as
     /// `Object.keys` here: a view has no symbol-keyed own properties and no
     /// non-enumerable own ones.
     pub(in crate::lowering) fn typed_array_projection(

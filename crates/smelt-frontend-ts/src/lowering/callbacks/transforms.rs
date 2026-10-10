@@ -488,7 +488,7 @@ impl ModuleBuilder<'_> {
             BinaryOperator::Division => Ok(BinOp::Div),
             BinaryOperator::Remainder => Ok(BinOp::Rem),
             // `===`/`!==` keep JS reference semantics (`JsStrictEq`); `==`/`!=`
-            // stay structural (`Eq`). See builder_part08's mapping.
+            // stay structural (`Eq`). See `binary_expression` in `expr/operators.rs`.
             BinaryOperator::StrictEquality => Ok(BinOp::JsStrictEq),
             BinaryOperator::Equality => Ok(BinOp::Eq),
             BinaryOperator::StrictInequality => Ok(BinOp::JsStrictNotEq),
@@ -677,8 +677,9 @@ impl ModuleBuilder<'_> {
     /// numeric type-parameter constraint, or a union whose arms are all numeric),
     /// or an optional-numeric surface (`number | undefined`), is converted with a
     /// JS `Number(...)` cast so the emitted normalized-index arithmetic sees a
-    /// concrete `f64`. Anything else stays an explicit error: `.at` on a genuinely
-    /// non-numeric index (a string, object, or opaque `unknown`) is unsupported.
+    /// concrete `f64`. Erased (`unknown`), class, and type-parameter indexes are
+    /// coerced with the same JS `Number(...)` cast; only other non-numeric types
+    /// (a string or object, for example) are unsupported.
     fn coerce_at_index_operand(
         &mut self,
         index: smelt_hir::ExprId,

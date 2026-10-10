@@ -13,6 +13,7 @@ use std::{
 use smelt_frontend_ts::{HirCtx, to_hir};
 use smelt_hir::{FileId, format_compact};
 
+/// Lowers each source file named on the command line and prints its HIR.
 fn main() -> Result<(), String> {
     let mut stdout = io::stdout().lock();
     let mut debug = false;
@@ -68,6 +69,7 @@ fn main() -> Result<(), String> {
 struct DebugOutput<'a, T>(&'a T);
 
 impl<T: Debug> Display for DebugOutput<'_, T> {
+    /// Writes the wrapped value using its `Debug` representation.
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         Debug::fmt(self.0, formatter)
     }

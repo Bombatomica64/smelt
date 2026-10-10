@@ -1,4 +1,4 @@
-//! TypeScript AST lowering methods for `ModuleBuilder` (part 01).
+//! TypeScript AST lowering methods for `ModuleBuilder`.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -34,14 +34,6 @@ use smelt_hir::{
     Language, Literal, Module, ModuleId, Param, SourceFile, Span, Type, Visibility,
 };
 
-/// Collects the names of every binding that is reassigned or `++`/`--` updated
-/// anywhere in a program, used to decide which module-level `let`/`var`
-/// bindings must be lifted to mutable globals.
-///
-/// Overriding [`oxc::ast_visit::Visit::visit_simple_assignment_target`] catches
-/// both assignment left-hand sides and increment/decrement arguments, since the
-/// default traversal routes both through a simple assignment target. Walking
-/// continues into nested nodes so function and method bodies are covered.
 /// Collects the identifiers READ inside a hoisted item body that the item does
 /// not bind itself.
 ///
@@ -83,6 +75,7 @@ impl ReadNameCollector {
 }
 
 impl<'a> oxc::ast_visit::Visit<'a> for ReadNameCollector {
+    /// Records the name of each identifier reference.
     fn visit_identifier_reference(
         &mut self,
         identifier: &oxc::ast::ast::IdentifierReference<'a>,
@@ -352,7 +345,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
-    /// Return whether a source path is a declaration-only type-test module.
+    /// Return whether a source path is a type-test module (`*.test-d.ts` or `*.test.ts`).
     pub(super) fn is_declaration_type_test_path(path: &str) -> bool {
         path.ends_with(".test-d.ts") || path.ends_with(".test.ts")
     }
@@ -1265,7 +1258,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
-    /// Register annotated module-level variables for later function-body lookup.
+    /// Register annotated and inferred module-level variables for later function-body lookup.
     pub(super) fn collect_module_global_decl(&mut self, decl: &oxc::ast::ast::VariableDeclaration<'_>) {
         // `declare let process: …` says the HOST provides `process`. The
         // declaration still contributes the name's TYPE — that is all a
@@ -1521,8 +1514,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// [`MutatedNameCollector`] scan). Lifted bindings register a HIR item so
     /// reads lower to `GlobalGet` and writes to `GlobalSet`; the item is added
     /// to the module's item list so exported globals are visible cross-module.
-    /// V1 constraints — literal initializer and primitive type — are enforced
-    /// here with named blocker errors; a violating binding is not lifted.
+    /// The current rules are enforced here with named blocker errors: a declaration
+    /// with no initializer is a blocker, a non-literal initializer is recorded as
+    /// Pending, a nested write is a blocker, and writes through a binding lift it.
     pub(super) fn collect_mutable_globals(
         &mut self,
         program: &Program<'_>,
@@ -3504,7 +3498,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
-    /// Lower `export { name } from "module"` metadata and local aliases.
     /// Alias locally declared items re-exported by name: `export { a, b as c }`.
     ///
     /// Since oxc 0.147 this node carries no `source`; the `... from "module"`
@@ -4073,7 +4066,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
-    /// Lower exported literal `const` declarations into importable HIR constant items.
+    /// Lower exported const declarations into importable HIR items by initializer shape.
     pub(super) fn const_item_declarations(
         &mut self,
         decl: &oxc::ast::ast::VariableDeclaration<'_>,
@@ -4343,16 +4336,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
             || self.module_globals.contains_key(root)
     }
 
-    /// Return whether an exported-const initializer is a static or computed
-    /// member access, unwrapping `as` / `satisfies` / non-null / parenthesized
-    /// wrappers.
-    ///
-    /// Used to route non-foldable member expressions on builtin/global roots
-    /// (`Array.prototype`, `Array.prototype.slice`, `Object.prototype`, ...)
-    /// through general expression lowering. Module-local member references are
-    /// handled earlier by [`Self::is_resolvable_module_reference`]; this catches
-    /// the remaining statically resolvable member expressions that the
-    /// well-known Number/Math folder would otherwise reject.
     /// The name of a bare-identifier initializer, unwrapping the type-level
     /// wrappers that never change the value (`as`, `satisfies`, `!`,
     /// parentheses).
@@ -4891,8 +4874,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .collect()
     }
 
-    /// Drop from `candidates` every arrow whose body reads a module-level
-    /// binding that has reference identity.
+    /// Drop from `candidates` every arrow whose body reads a written, non-slot
+    /// module-level binding that has reference identity.
     ///
     /// Lifting a module-level `const` arrow turns it into a named MIR function,
     /// which has no capture environment: a module binding it reads is resolved
@@ -5091,7 +5074,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
-    /// Return an object initializer after removing TypeScript-only wrappers.
     /// Capture a module-level `const NAME = new Map([[key, value], ...])`
     /// initializer whose keys are static string literals into reusable
     /// object-constant metadata.
@@ -5170,7 +5152,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
-    /// Lower an exported object constant that only groups existing exports into namespace metadata.
+    /// Lower an exported object constant into namespace metadata: each member is either
+    /// an existing export or a new method item lowered from a function-valued property.
     pub(super) fn object_namespace_const_declaration(
         &mut self,
         name_text: &str,
@@ -5773,8 +5756,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }),
         }
     }
-
-    // Continued in the next split builder file.
 }
 
 /// Forward-referenced top-level arrow consts still to be lowered as items.

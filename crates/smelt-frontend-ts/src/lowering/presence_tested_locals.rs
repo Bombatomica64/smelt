@@ -147,6 +147,7 @@ fn is_keyed_read(expression: &Expression<'_>) -> bool {
 }
 
 impl<'a> Visit<'a> for PresenceTestedLocalCollector {
+    /// Visits a function to collect presence-tested locals.
     fn visit_function(
         &mut self,
         function: &oxc::ast::ast::Function<'a>,
@@ -157,6 +158,7 @@ impl<'a> Visit<'a> for PresenceTestedLocalCollector {
         self.pop_frame();
     }
 
+    /// Visits a arrow function to collect presence-tested locals.
     fn visit_arrow_function_expression(
         &mut self,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'a>,
@@ -166,6 +168,7 @@ impl<'a> Visit<'a> for PresenceTestedLocalCollector {
         self.pop_frame();
     }
 
+    /// Visits a variable declarator to collect presence-tested locals.
     fn visit_variable_declarator(&mut self, declarator: &VariableDeclarator<'a>) {
         if let BindingPattern::BindingIdentifier(binding) = &declarator.id {
             let name = binding.name.to_string();
@@ -184,6 +187,7 @@ impl<'a> Visit<'a> for PresenceTestedLocalCollector {
         oxc::ast_visit::walk::walk_variable_declarator(self, declarator);
     }
 
+    /// Visits a assignment expression to collect presence-tested locals.
     fn visit_assignment_expression(&mut self, assign: &AssignmentExpression<'a>) {
         if let AssignmentTarget::AssignmentTargetIdentifier(identifier) = &assign.left
             && is_keyed_read(&assign.right)
@@ -195,6 +199,7 @@ impl<'a> Visit<'a> for PresenceTestedLocalCollector {
         oxc::ast_visit::walk::walk_assignment_expression(self, assign);
     }
 
+    /// Visits a unary expression to collect presence-tested locals.
     fn visit_unary_expression(&mut self, unary: &UnaryExpression<'a>) {
         if unary.operator == UnaryOperator::LogicalNot {
             self.record_test(&unary.argument, PresenceTest::Truthiness);
@@ -202,26 +207,31 @@ impl<'a> Visit<'a> for PresenceTestedLocalCollector {
         oxc::ast_visit::walk::walk_unary_expression(self, unary);
     }
 
+    /// Visits a if statement to collect presence-tested locals.
     fn visit_if_statement(&mut self, statement: &IfStatement<'a>) {
         self.record_test(&statement.test, PresenceTest::Truthiness);
         oxc::ast_visit::walk::walk_if_statement(self, statement);
     }
 
+    /// Visits a while statement to collect presence-tested locals.
     fn visit_while_statement(&mut self, statement: &WhileStatement<'a>) {
         self.record_test(&statement.test, PresenceTest::Truthiness);
         oxc::ast_visit::walk::walk_while_statement(self, statement);
     }
 
+    /// Visits a conditional expression to collect presence-tested locals.
     fn visit_conditional_expression(&mut self, conditional: &ConditionalExpression<'a>) {
         self.record_test(&conditional.test, PresenceTest::Truthiness);
         oxc::ast_visit::walk::walk_conditional_expression(self, conditional);
     }
 
+    /// Visits a logical expression to collect presence-tested locals.
     fn visit_logical_expression(&mut self, logical: &LogicalExpression<'a>) {
         self.record_test(&logical.left, PresenceTest::Truthiness);
         oxc::ast_visit::walk::walk_logical_expression(self, logical);
     }
 
+    /// Visits a binary expression to collect presence-tested locals.
     fn visit_binary_expression(&mut self, binary: &BinaryExpression<'a>) {
         // `x === undefined`, `x == null`, and their negations test presence
         // just as `!x` does.

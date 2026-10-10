@@ -1,3 +1,6 @@
+//! TypeScript lowering regression tests for vitest suites, Date and logical builtins,
+//! and iterator and match shapes.
+
 use super::*;
 
 #[test]
@@ -1544,8 +1547,8 @@ fn lowers_module_mutable_default_options_accessors() -> Result<(), String> {
     // a named blocker. Both are lifted: the initializer becomes a synthesized
     // nullary function the cell calls lazily, and the non-`Copy` value is held
     // in a `RefCell`. Every write here is a whole-value reassignment, which is
-    // the shape that is lowered (a write THROUGH the binding is still a named
-    // blocker — see `module_globals_tests`).
+    // the shape that is lowered (only a nested write through a non-primitive module
+    // global is still a named blocker — see `module_globals_tests`).
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r"
@@ -4076,7 +4079,7 @@ function read(parsers: Record<string, Parser>, key: string): number {
     Ok(())
 }
 
-/// Collect the source-level names of every test function item in a module.
+/// Collect the lowered symbol names of every test function item in a module.
 fn test_function_names(ctx: &HirCtx, module: &smelt_hir::Module) -> Vec<String> {
     let mut names = Vec::new();
     for index in 0..module.items.len() {

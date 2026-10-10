@@ -683,6 +683,4 @@ Type::Optional(_)) => {
         }
         Ok(lowered)
     }
-
-    // Continued in the next split builder file.
 }

@@ -238,9 +238,9 @@ impl ModuleBuilder<'_> {
             ));
         }
         let span = self.span(call.span.start, call.span.end);
-        // `ListFromLength` emits a `list[unknown]` fill, so the destination type
-        // must match `List<Unknown>`; the buffer's byte-count reads only observe
-        // the list length, not the element type.
+        // `ListFromLength` emits a `list[unknown]` fill, so the item type is
+        // `Unknown` to match it; the buffer's byte-count reads only observe the
+        // list length.
         let item_ty = self.ctx.krate.types.intern(Type::Unknown);
         let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
         let bytes = body.push_expr(Expr {

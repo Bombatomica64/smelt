@@ -1,3 +1,6 @@
+//! TypeScript lowering regression tests for Set mutation methods and string bracket
+//! reads.
+
 use super::*;
 
 #[test]

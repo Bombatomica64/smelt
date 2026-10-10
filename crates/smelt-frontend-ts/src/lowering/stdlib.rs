@@ -1521,7 +1521,7 @@ impl ModuleBuilder<'_> {
         };
         // A STATELESS regex asks a yes/no question, and `is_match` is that
         // question. The `exec`-and-compare path below exists for the stateful
-        // one: `test` on a `/g` or `/y` regex reads and advances `lastIndex`
+        // one (stateful receivers route here through the `RegexTest` runtime test path): `test` on a `/g` or `/y` regex reads and advances `lastIndex`
         // (`/a/g` over `"aa"` answers true, true, then FALSE and resets), so it
         // has to run the same search `exec` does. Without a flag Node leaves
         // `lastIndex` at 0 and the two are indistinguishable — except in the
@@ -1914,7 +1914,8 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Extract a pattern string from a supported TypeScript RegExp-producing expression.
+    /// Lower a `new RegExp(...)` construction to a RegExp-typed value, using `New` for a
+    /// literal pattern and flags and `RegExpCompile` otherwise.
     pub(super) fn regexp_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,

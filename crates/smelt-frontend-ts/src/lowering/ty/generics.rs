@@ -116,7 +116,7 @@ impl ModuleBuilder<'_> {
     ///   routinely lowers a consumer before the module that declares the class
     ///   it references, and such a reference must still take the declaration's
     ///   type-parameter DEFAULTS;
-    /// * per module, from `ModuleBuilder::module`, so a standalone lowering
+    /// * per module, from `ModuleBuilder::program`, so a standalone lowering
     ///   (`dump-hir`, the frontend's own tests) that never runs the crate-wide
     ///   pass still sees its own classes. TypeScript hoists class TYPES, and the
     ///   forward-function-type and predeclaration passes lower signatures before

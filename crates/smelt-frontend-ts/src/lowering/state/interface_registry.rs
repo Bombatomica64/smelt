@@ -107,8 +107,8 @@ impl InterfaceRegistry {
     ///
     /// This is the only way to mark an interface as locally lowered, which is
     /// what keeps `implements` resolution, `validate_implements` and structural
-    /// field lookup in agreement (see the module docs). Empty signature lists
-    /// and an absent index value are simply not recorded, matching the previous
+    /// field lookup in agreement (see the module docs). Only construct signatures
+    /// and index values are skipped when empty or absent, matching the previous
     /// per-map conditionals.
     pub(in crate::lowering) fn register_lowered(&mut self, lowered: LoweredInterface) {
         let LoweredInterface {

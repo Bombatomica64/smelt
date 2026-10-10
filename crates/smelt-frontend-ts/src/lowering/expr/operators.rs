@@ -1,6 +1,7 @@
-//! Collection constructors, projections, and object/class-shape lowering.
+//! Operator and collection-shaped lowering for `ModuleBuilder`.
 //!
-//! This split of the lowering builder lowers the remaining collection-shaped
+//! This split of the lowering builder lowers operator expressions (binary, unary,
+//! `in`, `instanceof`, and comparison forms) and the remaining collection-shaped
 //! surfaces: `Array.from` and other list/set/dict constructors, set and dict
 //! projection operations, and the object-literal and class-member shapes that
 //! feed construction. The helpers classify receiver and argument types and
@@ -257,7 +258,8 @@ impl ModuleBuilder<'_> {
         ))
     }
 
-    /// Lower `new Array<T>(length)` to an empty list with item metadata.
+    /// Lower `new Array<T>(length)` through the shared `Array(...)` construction,
+    /// which emits `ListFromLength` with item metadata.
     ///
     /// JavaScript creates a sparse array here; Smelt models the later indexed
     /// writes and only needs the list container type at construction time.
@@ -1277,7 +1279,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         // `instanceof` and `in` are not arithmetic/comparison operators that map
         // onto a `BinOp`; they have dedicated lowering (predicate and key-membership
-        // respectively) shared with the hinted expression path in builder_part08.
+        // respectively).
         if binary.operator == BinaryOperator::Instanceof {
             return self.instanceof_expression(binary, body);
         }
@@ -1301,7 +1303,8 @@ impl ModuleBuilder<'_> {
             BinaryOperator::Division => BinOp::Div,
             BinaryOperator::Remainder => BinOp::Rem,
             // `===`/`!==` keep JS reference semantics (`JsStrictEq`); `==`/`!=`
-            // stay structural (`Eq`). See builder_part08's mapping.
+            // stay structural (`Eq`). See the `BinaryOperator` to `BinOp` mapping in
+            // `binary_expression` in this file.
             BinaryOperator::StrictEquality => BinOp::JsStrictEq,
             BinaryOperator::Equality => BinOp::Eq,
             BinaryOperator::StrictInequality => BinOp::JsStrictNotEq,
@@ -2907,7 +2910,6 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower an array expression.
     /// Project a UNION hint to the arm an array literal can be lowered at.
     ///
     /// Answers the hint unchanged when it is not a union, and `None` -> `None`.
@@ -2948,6 +2950,7 @@ impl ModuleBuilder<'_> {
         Some(arm)
     }
 
+    /// Lower an array expression.
     pub(in crate::lowering) fn array_expression(
         &mut self,
         array: &oxc::ast::ast::ArrayExpression<'_>,
@@ -3404,8 +3407,7 @@ impl ModuleBuilder<'_> {
         // `T extends IterableContainer = readonly unknown[]`) would otherwise hit
         // the `Type::List` arm below and be returned UNCHANGED — an alias that keeps
         // the erased type. That alias defeats typed list operations: a later
-        // `[...items].sort(cmp)` stays dynamic and the sort result is discarded
-        // (see blocker-logs/plan-sort-sortby-2026-06-23.md, Family 1, Option B).
+        // `[...items].sort(cmp)` stays dynamic and the sort result is discarded.
         let raw_value_ty = Self::expr_ty(body, value);
         let value_ty = self.type_param_constraint_or_self(raw_value_ty);
         match self.ctx.krate.types.get(value_ty).cloned() {
@@ -4846,6 +4848,4 @@ impl ModuleBuilder<'_> {
             }
         }
     }
-
-    // Continued in the next split builder file.
 }

@@ -1,5 +1,4 @@
-//! Lowering helpers for regular-expression replacement, string, and related
-//! JavaScript call forms.
+//! Lowering helpers for numeric, `Math`, `Number`, and `Intl` JavaScript call forms.
 
 use crate::lowering::{ModuleBuilder, stdlib_dispatch};
 use crate::SmeltError;
@@ -1461,7 +1460,8 @@ impl ModuleBuilder<'_> {
             )
     }
 
-    /// Return whether this expression constructs/calls `Intl.DateTimeFormat`.
+    /// Return whether this expression constructs/calls `Intl.DateTimeFormat` or
+    /// `Intl.RelativeTimeFormat`.
     pub(in crate::lowering) fn is_intl_formatter_receiver(receiver: &Expression<'_>) -> bool {
         match receiver {
             Expression::CallExpression(call) => Self::is_intl_formatter_call(call),
@@ -1579,6 +1579,4 @@ impl ModuleBuilder<'_> {
             span: self.span(call.span.start, call.span.end),
         })))
     }
-
-    // Continued in the next split builder file.
 }

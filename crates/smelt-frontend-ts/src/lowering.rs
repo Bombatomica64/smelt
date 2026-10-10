@@ -131,15 +131,6 @@ impl ConstLiteral {
         }
     }
 
-    /// Return the synthetic member key a symbol *value* spelling indexes.
-    ///
-    /// Two spellings fold, for the same reason: they name a globally fixed
-    /// symbol. A `Symbol.for(<description>)` registry symbol maps through
-    /// `registry_symbol_key`, and a well-known `Symbol.<name>` value maps
-    /// through the shared well-known table — so `const s = Symbol.iterator;
-    /// ({ [s]: 1 })` declares the very member an inline `[Symbol.iterator]` key
-    /// declares. A unique `Symbol('d')` carries a span-tagged spelling and has
-    /// fresh identity per evaluation, so it never folds.
     /// Return the member key a unique `Symbol(...)` bound to a const names.
     ///
     /// Separate from [`Self::symbol_literal_member_name`] because it is only
@@ -153,6 +144,15 @@ impl ConstLiteral {
         }
     }
 
+    /// Return the synthetic member key a symbol *value* spelling indexes.
+    ///
+    /// Two spellings fold, for the same reason: they name a globally fixed
+    /// symbol. A `Symbol.for(<description>)` registry symbol maps through
+    /// `registry_symbol_key`, and a well-known `Symbol.<name>` value maps
+    /// through the shared well-known table — so `const s = Symbol.iterator;
+    /// ({ [s]: 1 })` declares the very member an inline `[Symbol.iterator]` key
+    /// declares. A unique `Symbol('d')` carries a span-tagged spelling and has
+    /// fresh identity per evaluation, so it never folds.
     fn symbol_literal_member_name(spelling: &str) -> Option<String> {
         if let Some(description) =
             ty::computed_key_symbols::registry_description_of_symbol_literal(spelling)
@@ -909,7 +909,7 @@ struct GeneratorYieldAccumulator {
     is_async: bool,
 }
 
-// Lowering builder implementation split into small include files.
+// The lowering builder is split into child modules declared below.
 mod callbacks;
 mod decls;
 mod expr;

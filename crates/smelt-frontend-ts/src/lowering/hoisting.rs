@@ -42,6 +42,7 @@ struct ReferencedNameCollector<'name> {
 }
 
 impl<'a> oxc::ast_visit::Visit<'a> for ReferencedNameCollector<'_> {
+    /// Sets `found` when an identifier reference matches the searched name.
     fn visit_identifier_reference(
         &mut self,
         identifier: &oxc::ast::ast::IdentifierReference<'a>,

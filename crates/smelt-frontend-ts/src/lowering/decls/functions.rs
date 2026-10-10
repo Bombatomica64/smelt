@@ -108,6 +108,7 @@ struct ThisMethodAssignmentCollector<'names> {
 }
 
 impl<'a> oxc::ast_visit::Visit<'a> for ThisMethodAssignmentCollector<'_> {
+    /// Records the member name when an assignment writes through `this`.
     fn visit_assignment_expression(&mut self, assign: &oxc::ast::ast::AssignmentExpression<'a>) {
         if let Some(name) = assignment_target_this_member_name(&assign.left) {
             self.names.insert(name.to_owned());
@@ -963,11 +964,6 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Lower a function expression into a module-owned HIR function item.
-    ///
-    /// Exported object namespace constants can contain method syntax, as in
-    /// date-fns formatter tables. Each method is represented as a private
-    /// module function and referenced from the namespace metadata.
     /// Lower a synthetic object-table function while preserving exact key spelling.
     pub(in crate::lowering) fn function_expression_item_with_source_name(
         &mut self,
@@ -1921,7 +1917,7 @@ impl ModuleBuilder<'_> {
         // concrete). It is added to the class field list here, so it flows
         // through MIR, struct emission, the `Default`/`Clone` derives, and the
         // constructor's default struct literal automatically; codegen only has
-        // to route keyed access to it. The field is `Private` so it is excluded
+        // to route keyed access to it. The field is `Hidden` so it is excluded
         // from erased object projection. Number-keyed signatures still use a
         // string-keyed store because JavaScript object property keys are strings.
         //
@@ -3208,7 +3204,8 @@ impl ModuleBuilder<'_> {
         // source-declared class: `smelt_stdlib::host_object` gives it a concrete
         // constructed identity, so `class File extends Blob {}` resolves the same
         // way the error/collection builtins below do. Keying on the shared registry
-        // keeps this a general rule rather than a per-name allowlist.
+        // covers modeled host constructors; the error and collection builtins below
+        // are a hard-coded name list kept alongside it.
         let allowed_builtin = smelt_stdlib::host_object_by_class(name).is_some()
             || matches!(
                 name,
@@ -3337,7 +3334,6 @@ impl ModuleBuilder<'_> {
         Ok(sig)
     }
 
-    /// Lower a class method or constructor to HIR.
     /// Lower a `static NAME: T = <literal>` class field to a static field.
     ///
     /// Returns `None` when the initializer is missing or is not a concrete
@@ -3833,8 +3829,6 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn statement(&mut self, statement: &Statement<'_>, body: &mut Body) -> Result<(), SmeltError> {
         self.statement_in_block(statement, body, body.root)
     }
-
-    // Continued in the next split builder file.
 }
 
 /// Return the source identifier a parameter pattern binds, if it binds one.

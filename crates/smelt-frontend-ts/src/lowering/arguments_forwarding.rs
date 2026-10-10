@@ -82,12 +82,14 @@ struct ArgumentsReferenceScanner {
 }
 
 impl<'a> oxc::ast_visit::Visit<'a> for ArgumentsReferenceScanner {
+    /// Marks the scan as found when an identifier reference named `arguments` appears.
     fn visit_identifier_reference(&mut self, identifier: &oxc::ast::ast::IdentifierReference<'a>) {
         if identifier.name == "arguments" {
             self.found = true;
         }
     }
 
+    /// Stops descending into nested functions, whose `arguments` references belong to them.
     fn visit_function(
         &mut self,
         _function: &oxc::ast::ast::Function<'a>,
