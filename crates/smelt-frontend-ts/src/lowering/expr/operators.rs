@@ -1303,8 +1303,7 @@ impl ModuleBuilder<'_> {
             BinaryOperator::Division => BinOp::Div,
             BinaryOperator::Remainder => BinOp::Rem,
             // `===`/`!==` keep JS reference semantics (`JsStrictEq`); `==`/`!=`
-            // stay structural (`Eq`). See the `BinaryOperator` to `BinOp` mapping in
-            // `binary_expression` in this file.
+            // stay structural (`Eq`).
             BinaryOperator::StrictEquality => BinOp::JsStrictEq,
             BinaryOperator::Equality => BinOp::Eq,
             BinaryOperator::StrictInequality => BinOp::JsStrictNotEq,

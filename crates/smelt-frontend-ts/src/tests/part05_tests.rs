@@ -1,5 +1,6 @@
-//! TypeScript lowering regression tests for Set mutation methods and string bracket
-//! reads.
+//! TypeScript lowering regression tests for Map and Set methods, generators,
+//! control flow, tuple and negative bracket indexing, interface conformance, and
+//! Vitest suite lowering (`describe` / `test` titles, `expect` matchers).
 
 use super::*;
 

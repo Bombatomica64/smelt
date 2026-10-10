@@ -1,4 +1,5 @@
-//! TypeScript lowering regression tests for math and string builtin calls.
+//! TypeScript lowering regression tests for math, string and array builtin calls,
+//! including array callback methods and their captures.
 
 use super::*;
 
