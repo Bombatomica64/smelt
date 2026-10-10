@@ -2,7 +2,8 @@
  * Shared benchmark harness for the TypeScript (Node) side of the
  * "hand-written TS vs Smelt-generated Rust" comparison.
  *
- * Everything in this file has a byte-for-byte twin in `benchmarks/rust/smelt_bench_harness.rs`.
+ * This file and `benchmarks/rust/smelt_bench_harness.rs` implement the same PRNG, datasets,
+ * checksum fold, and timing protocol.
  * The two must stay in lockstep, because the comparison is only meaningful if both
  * sides see *identical* input data, do *identical* work, and are measured with an
  * *identical* protocol. Any divergence shows up as a checksum mismatch, which the
@@ -82,18 +83,29 @@ export function mix(h, x) {
   return (Math.imul(h ^ (x >>> 0), 0x01000193) >>> 0);
 }
 
+/**
+ * Folds a number, truncated and wrapped to 32 bits, into the running hash `h`.
+ * Twin of `hash_number` in `smelt_bench_harness.rs`.
+ */
 export function hashNumber(h, v) {
   // Values in these workloads are integral and small; truncate to u32 so the
   // Rust side (which holds them as f64 too) folds the identical bits.
   return mix(h, Math.trunc(v) >>> 0);
 }
 
+/**
+ * Folds a string one UTF-16 code unit (`charCodeAt`) at a time, then its length.
+ * Twin of `hash_string` in `smelt_bench_harness.rs`.
+ */
 export function hashString(h, s) {
   let acc = h;
   for (let i = 0; i < s.length; i++) acc = mix(acc, s.charCodeAt(i));
   return mix(acc, s.length);
 }
 
+/**
+ * Folds a boolean as `1` or `0` into the running hash `h`.
+ */
 export function hashBool(h, b) {
   return mix(h, b ? 1 : 0);
 }

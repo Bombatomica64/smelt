@@ -7,8 +7,8 @@ fully-green Remeda corpus — i.e. beyond "does it compile and pass", how close 
 output to what a human porting Remeda to Rust by hand would write? It feeds a later
 dedicated codegen-quality phase.
 
-- Raw diagnostics: [`blocker-logs/remeda-codegen-quality.md`](../blocker-logs/remeda-codegen-quality.md)
-- Cross-references: [`blocker-logs/remeda-after-move-on-last-use.md`](../blocker-logs/remeda-after-move-on-last-use.md),
+- Raw diagnostics: `blocker-logs/remeda-codegen-quality.md`
+- Cross-references: `blocker-logs/remeda-after-move-on-last-use.md`,
   memory `mir-opt-move-on-last-use.md`, `move-on-last-use-unsound.md`.
 
 ## TL;DR

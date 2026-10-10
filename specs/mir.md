@@ -133,6 +133,7 @@ pub enum Terminator {
         target: BlockId,
     },
     Return  (Operand),
+    Throw   (Operand),
     Unreachable,
 }
 

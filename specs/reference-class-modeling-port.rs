@@ -32,6 +32,7 @@ struct SemaphoreInner {
 struct Semaphore(Rc<RefCell<SemaphoreInner>>);
 
 impl Semaphore {
+    /// Creates a semaphore with `capacity` permits, all initially available.
     fn new(capacity: f64) -> Self {
         Semaphore(Rc::new(RefCell::new(SemaphoreInner {
             capacity,

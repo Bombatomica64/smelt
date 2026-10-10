@@ -3,7 +3,7 @@
 **Status:** productionized for **function/method return-type resolution**
 (issue #93). The spike below proved feasibility; the working integration now
 lives in `crates/smelt-py-types` and is consumed by `smelt-frontend-py` behind
-its optional `ty` feature. See "Productionization (issue #93)" at the end.
+its `ty` feature. See "Productionization (issue #93)" at the end.
 
 The original spike crate `crates/smelt-py-ty-spike` **has been removed**; this
 document is kept as the design record. It was the last consumer of `ty_project`,
@@ -247,12 +247,12 @@ return-type resolution** for functions and methods.
   unstable) — it hands the frontend strings, which the frontend's existing
   `annotation_to_hir` already parses. Kept **out of `default-members`** so lean
   builds never pay for `ty`.
-- **`smelt-frontend-py`** — new optional `ty` feature (`dep:smelt-py-types`).
+- **`smelt-frontend-py`** — new `ty` feature (`dep:smelt-py-types`).
   The `ty_resolve` module is a `#[cfg]` seam presenting the same API with or
   without the feature (a zero-cost stub when off). At each former
   "must have an explicit ... annotation" site, lowering now consults the
   resolver; only genuinely unresolved cases fall through to the (unchanged)
-  error. `smelt-codegen-rust` and `smelt-cli` forward the feature.
+  error. `smelt-codegen-rust` and `smelt-transpiler` forward the feature.
 
 ### What it resolves — and the actual-vs-declared rule
 
@@ -286,5 +286,5 @@ return-type resolution** for functions and methods.
 ### Build note
 
 The `ty` tree is large (first build ~3 min in this environment; cached
-afterwards). It is only compiled when a crate is built with `--features ty`
+afterwards). `ty` is on by default; building with `--no-default-features` removes it. The `ty` tree is compiled only in builds that keep the feature
 (CI probes, the compile corpus's Python case, and an explicitly ty-built CLI).

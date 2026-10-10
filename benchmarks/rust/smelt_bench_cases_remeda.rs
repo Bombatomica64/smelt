@@ -7,9 +7,9 @@
 //! Remeda's public surface is built on `purry`, the runtime data-first/data-last
 //! dispatcher: `R.chunk(data, size)` and `R.chunk(size)(data)` are the same export,
 //! told apart at runtime by inspecting `arguments`. Smelt lowers that faithfully, so
-//! every entry point here has the shape
-//! `fn(args: SmeltList<SmeltUnknown>) -> Result<SmeltUnknown, _>` -- the arguments
-//! are erased because in the source they genuinely are. That is a property of
+//! entry points here take erased arguments and do not share a single signature,
+//! because the purry dispatch accepts different argument shapes per call
+//! -- the arguments are erased because in the source they genuinely are. That is a property of
 //! remeda's API design, not a Smelt lowering choice, and it is why the remeda rows
 //! and the es-toolkit rows are not directly comparable to each other.
 
@@ -17,7 +17,7 @@ use super::smelt_bench_harness::*;
 use super::smelt_bench_entry::*;
 use super::*;
 
-/// Fold an erased array-valued result.
+/// Fold an erased result of any shape.
 fn hash_result(h: u32, value: &SmeltUnknown) -> u32 {
     hash_unknown(h, value)
 }
