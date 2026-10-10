@@ -102,8 +102,8 @@ Relevant codegen:
 - `AsyncOp::Then` / `AsyncOp::Catch` (emitter/call.rs ~150/165) — wrap the
   receiver future in `Box::pin(async { v = fut.await?; (cb)(v); … })`.
 - `AsyncOp::SpawnLocal` (emitter/call.rs ~182) — a `Future`-typed expression
-  statement is spawned via `smelt_spawn_promise_task` (see builder_part04.rs
-  ~451, which wraps a `Future`-typed expr-statement in `SpawnLocal`). This is how
+  statement is spawned via `smelt_spawn_promise_task` (see `lowering/decls/types_iface.rs`,
+  which wraps a `Future`-typed expr-statement in `SpawnLocal`). This is how
   the fire-and-forget `callback().then().catch()` chain gets queued.
 - `Promise.all` (emitter/call.rs ~22, `AsyncOp::All`) over a homogeneous list
   awaits each future **sequentially** in a `for` loop.
@@ -121,9 +121,9 @@ The three tests prove this chain does **not** deliver values (results come back
 ## Confirmed sub-problems (from probing)
 
 1. **Single-`setTimeout` Promise-executor drops the resolved value.**
-   `promise_constructor_expression` (builder_part09.rs ~1118) special-cases an
+   `promise_constructor_expression` (`lowering/guards.rs`) special-cases an
    executor whose body is exactly one `setTimeout(fn, ms)` call
-   (`promise_executor_timer_call`, ~1221) and lowers the **whole** Promise to
+   (`promise_executor_timer_call`) and lowers the **whole** Promise to
    `AsyncOp::Sleep(ms)` — discarding `resolve(value)` and returning the output
    type's default. Verified: `new Promise<number>(r => setTimeout(() => r(42), 0))`
    generated `smelt_sleep_ms(0); Ok(0.0)`.

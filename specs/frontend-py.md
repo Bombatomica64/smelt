@@ -45,7 +45,7 @@ Failures at this phase produce `SmeltError`s with file:line:col spans from `ty`'
 
 ### Phase 2: smelt rules
 
-Visitor over the `tree-sitter-python` parse tree (already type-annotated by phase 1's binding to ty's symbol table). Each rule produces zero or more `SmeltError`s.
+Visitor over the `ruff_python_parser` AST (already type-annotated by phase 1's binding to ty's symbol table). Each rule produces zero or more `SmeltError`s.
 
 | Rule code                          | Rejects                                                      |
 |------------------------------------|--------------------------------------------------------------|
@@ -125,7 +125,7 @@ Python is already snake_case. Class names stay PascalCase. No conversion at the 
 | `TypeVar('T')`                     | `Type::TypeVar(id)`                       |
 | `Callable[[A], R]`                 | `Type::Function(FunctionType)`            |
 
-Open question: `set[T]` — does HIR get a dedicated `Type::Set`, or do we lower it to `List` with set-semantics encoded via the stdlib mapping? Decide during M8 implementation; default to a dedicated `Type::Set` and update the HIR spec.
+Decision: `set[T]` lowers to a dedicated `Type::Set` in HIR (see `Type::Set` in `smelt-hir/src/ty.rs`), not to `List` with set-semantics encoded via the stdlib mapping.
 
 ## Cross-Frontend Equivalence
 
@@ -145,17 +145,17 @@ Same `SmeltError` type as the TS frontend. Errors carry file/line/col from `ty`'
 
 ## Current Gaps
 
-- `lib.rs` is one comment line. Nothing exists yet.
+- No `check()` entry point yet.
 - No decision recorded on embed-vs-shell-out for `ty`.
 - No `with` desugarer, no rule visitor, no walker.
-- No `tree-sitter-python` integration even though the dep is in `Cargo.toml`.
+- The `ruff_python_parser` dep is in `Cargo.toml` and used by `lib.rs`, but no smelt-rules visitor runs on it.
 
 ## TODO (concrete, ordered)
 
 ### Foundation
 
-- [ ] Wire `tree-sitter` and `tree-sitter-python` into a parsing helper that returns a tree + source bytes.
-- [ ] Decide embed-vs-shell-out for `ty`. Default to embed; record the decision in `specs/check-pipeline.md`.
+- [ ] Wrap `ruff_python_parser` in a parsing helper that returns the module AST + source text.
+- [x] Decide embed-vs-shell-out for `ty` (see `specs/python-type-checking-with-ty.md`).
 - [ ] Add a `PyTypeInfo` struct (or use `ty`'s native types directly) that lets the walker look up the inferred type at any tree-sitter node.
 - [ ] Reuse the `SmeltError` and `Span` types from the TS frontend.
 
@@ -175,7 +175,7 @@ Same `SmeltError` type as the TS frontend. Errors carry file/line/col from `ty`'
 - [ ] Write the walker: module → items → bodies → statements → expressions. Mirror the TS walker's structure.
 - [ ] Set `is_async = true` on `async def`s; treat `await` as `ExprKind::Await`.
 - [ ] List/dict/set comprehensions and generator expressions → `ExprKind::Comprehension`.
-- [ ] Class inheritance: capture `bases`; reject if more than one non-`Protocol`.
+- [x] Class inheritance: capture `bases`; reject if more than one non-`Protocol`.
 
 ### Tests
 

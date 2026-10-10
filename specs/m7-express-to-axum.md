@@ -28,7 +28,7 @@ It must use:
 - A logging middleware
 - An error-handling middleware that catches thrown errors and returns 500
 
-The full source for the demo lives in `examples/express-demo/`.
+A demo for this mapping is planned; `examples/express-demo/` does not exist yet.
 
 ## Express → Axum Mapping
 

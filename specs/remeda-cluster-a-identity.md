@@ -2,8 +2,7 @@
 
 ## Phase 2 implementation status (2026-06-26) — WIP on branch `wip/smelt-list-cluster-a`
 Phase 0 (function singletons → mergeDeep) is **landed** on main. Phase 2 (the
-`SmeltList<T>` switch for the 6 array tests) was **started and parked on the
-branch `wip/smelt-list-cluster-a`** (pushed). That branch has the `SmeltList<T>`
+`SmeltList<T>` switch for the 6 array tests) **landed on main** via the branch `wip/smelt-list-cluster-a`. The remaining-work list below is kept as history. That branch has the `SmeltList<T>`
 prelude type (the simpler `{id, Vec}` + `Deref<Vec<T>>` design, see below) and the
 `Type::List → SmeltList<T>` lowering switch in `types.rs`. The codegen crate
 compiles; the **generated remeda crate does not** — measured **571 errors**
@@ -35,7 +34,7 @@ Target tests:
 ## Verified root causes (5 mechanisms)
 
 1. **Comparison at the typed `Vec` level with no id** (tap ×2, isShallowEqual ×2).
-   `strict_identity_text` (`crates/smelt-codegen-rust/src/emitter/call_runtime.rs:1634-1637`)
+   `strict_identity_text` (`crates/smelt-codegen-rust/src/emitter/binary_ops.rs`, where list operands now emit the `.id()` comparison; originally `call_runtime.rs:1634-1637`)
    emits the literal `"false"` for two `Type::List` operands — contrast the Dict
    arm (`:1617-1626`) which emits `.id == .id`. Lists have no id, so codegen gives up.
 2. **Library ABI strips the id: `SmeltUnknown::Array → Vec → SmeltUnknown::Array`**
@@ -88,14 +87,14 @@ replacing `Type::List(item) → Vec<{item}>` at `emitter/types.rs:588`.
 - Mutation: `list_mutation.rs`, `place.rs` AssignPlace{Index} → `borrow_mut()`. `Rvalue::ListCopy` (`opt.rs:516`) must produce a **fresh-id snapshot** (`to_vec()`), not a shared clone — honors Remeda's no-mutation contract.
 - erase: `coercion.rs:761-797, 1088-1101` → id lives on the value; the `smelt_list_identity` thread-local (`lib.rs:432-440`) + `list_local_identity_key` (`coercion.rs:923-944`) can be **deleted** for the list path (simplification).
 - extract (id-drop fix): `coercion.rs:1507-1522` → `SmeltList::from_unknown_list(value)` preserving `value.id`. This is what lets forEach/reduce forward the original id.
-- Comparison: `call_runtime.rs:1634-1637` → `{lhs}.id() == {rhs}.id()` (frontend already routes list `toBe` to strict identity at `builder_part06.rs:175-231`); also `function_bearing_equality_text` `:1569-1575`.
+- Comparison: `call_runtime.rs:1634-1637` → `{lhs}.id() == {rhs}.id()` (frontend already routes list `toBe` to strict identity); also `function_bearing_equality_text` `:1569-1575`.
 
 ### MIR ownership interactions
-- CopyPropagation (`crates/smelt-mir/src/opt.rs`, the only pass present today — memory's "Pass 2 borrow `&T`" is NOT in tree): shared-ref clone keeps alias-collapse sound; `ListCopy` is a distinct Rvalue so not alias-collapsed. No pass change.
+- CopyPropagation (`crates/smelt-mir/src/opt/mod.rs` — memory's "Pass 2 borrow `&T`" is NOT in tree): shared-ref clone keeps alias-collapse sound; `ListCopy` is a distinct Rvalue so not alias-collapsed. No pass change.
 - `parameter_needs_mutable_reference` (`core.rs:736-815`): interior mutability makes `&mut SmeltList` redundant but not incorrect; leave it.
 
 ## Function singleton (mechanism 4) — CHEAPEST WIN, do first
-Per `blocker-logs/plan-function-constant-identity-2026-06-23.md`:
+Per the function-constant identity plan:
 - **1b:** `core.rs::erased_rest_function_value_text` (~L2425) — if source is already a
   `SmeltErasedFunction` (`is_erased_unknown_rest_function && !may_throw`), return `None`
   so `value_at_type` emits `{text}.clone()` (shares inner `Rc`) instead of re-wrapping.

@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import pathlib
 import re
 import shutil
@@ -57,6 +56,7 @@ LIBRARIES = {
 
 
 def run(cmd, **kw):
+    """Echo a command to stderr and run it, raising on a non-zero exit."""
     print("$", " ".join(str(c) for c in cmd), file=sys.stderr)
     subprocess.run(cmd, check=True, **kw)
 
@@ -225,6 +225,7 @@ def bundle_typescript(name: str, repo: pathlib.Path) -> None:
 
 
 def main() -> int:
+    """Prepare each selected library's benchmark crate, optionally stopping before cargo."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", choices=sorted(LIBRARIES))
     ap.add_argument("--skip-build", action="store_true",

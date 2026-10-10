@@ -1,5 +1,7 @@
 # Remeda deep-failure clusters — refactor plans
 
+> Superseded in part: see `specs/remeda-cluster-a-identity.md` (Cluster A) and `specs/remeda-funnel-async-completion-plan.md` (async clusters). The cluster write-ups below are kept as history.
+
 The 14 Remeda failures that predate (and are independent of) the distinct-`undefined`
 work. Each is a structural/representation gap, not a bounded patch. Grouped into
 five clusters with root cause + approach + risk. Baseline: these are the residual

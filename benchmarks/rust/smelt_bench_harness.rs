@@ -20,9 +20,11 @@ use super::*;
 pub struct Rng(u32);
 
 impl Rng {
+    /// Seeds the generator. A zero seed is replaced with `0x9e37_79b9`, because xorshift never leaves zero.
     pub fn new(seed: u32) -> Self {
         Rng(if seed == 0 { 0x9e37_79b9 } else { seed })
     }
+    /// Advances one xorshift32 step and returns the new state.
     pub fn next(&mut self) -> u32 {
         let mut s = self.0;
         s ^= s << 13;
@@ -86,18 +88,22 @@ pub fn records(n: usize, seed: u32) -> Vec<SmeltUnknown> {
 // Checksums. 32-bit wrapping FNV-style folding, identical to the JS side.
 // ---------------------------------------------------------------------------
 
+/// One 32-bit FNV-style fold step: XOR the value in, then multiply by the FNV prime. Twin of `mix` in `harness.mjs`.
 pub fn mix(h: u32, x: u32) -> u32 {
     (h ^ x).wrapping_mul(0x0100_0193)
 }
 
+/// Folds a number, truncated toward zero and wrapped to 32 bits, matching the JS `>>> 0`.
+///
+/// `as u32` on f64 saturates in Rust while JS `>>> 0` wraps modulo 2^32.
+/// Every value these workloads produce is a small non-negative integer, so
+/// the two agree; `trunc` first keeps the comparison honest for any that
+/// arrive with a fractional part.
 pub fn hash_number(h: u32, v: f64) -> u32 {
-    // `as u32` on f64 saturates in Rust while JS `>>> 0` wraps modulo 2^32.
-    // Every value these workloads produce is a small non-negative integer, so
-    // the two agree; `trunc` first keeps the comparison honest for any that
-    // arrive with a fractional part.
     mix(h, v.trunc() as i64 as u32)
 }
 
+/// Folds a string one UTF-16 code unit at a time, matching JS `charCodeAt`, then folds its length.
 pub fn hash_string(h: u32, s: &str) -> u32 {
     let mut acc = h;
     // JS `charCodeAt` yields UTF-16 code units, so fold code units, not chars.
@@ -107,6 +113,7 @@ pub fn hash_string(h: u32, s: &str) -> u32 {
     mix(acc, s.encode_utf16().count() as u32)
 }
 
+/// Folds a boolean as `1` or `0`.
 pub fn hash_bool(h: u32, b: bool) -> u32 {
     mix(h, if b { 1 } else { 0 })
 }
@@ -142,6 +149,7 @@ pub fn hash_unknown(h: u32, value: &SmeltUnknown) -> u32 {
 // Process-level footprint, read from the same procfs fields as the JS harness.
 // ---------------------------------------------------------------------------
 
+/// Reads a `/proc/self/status` field such as `VmHWM:` and returns it in kB, or `-1` if unavailable.
 fn proc_status_kb(field: &str) -> i64 {
     let Ok(status) = std::fs::read_to_string("/proc/self/status") else { return -1 };
     for line in status.lines() {

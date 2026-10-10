@@ -105,7 +105,7 @@ All IDs are newtype wrappers around `u32`. The point is that `ExprId(3)` and `Lo
 ```rust
 pub enum Type {
     // Primitives
-    Bool, Int, Float, String, None,
+    Bool, Int, Float, String, None, Unknown, Never,
 
     // Composites
     List(TypeId),
@@ -116,8 +116,8 @@ pub enum Type {
     Union(Vec<TypeId>),                  // discriminated unions only
 
     // User-defined
-    Class { id: ClassId, args: Vec<TypeId> },
-    TypeVar(TypeVarId),
+    Class { name: Symbol, args: Vec<TypeId> },
+    TypeParam { name: Symbol },
     Function(FunctionType),
 
     // Async
@@ -135,7 +135,7 @@ pub struct FunctionType {
 
 **Composites:** `List` is a typed homogeneous sequence. `Set` is a typed homogeneous uniqueness collection. `Dict` is a key→value map (both keys and values are typed). `Tuple` is a fixed-length heterogeneous product. `Optional(T)` is `T | null` — it lowers to `Option<T>` in Rust. `Union` is *only* for discriminated unions (a tagged sum type where a literal field tells you which variant you're in); untagged unions are rejected by the frontends.
 
-**User-defined:** `Class` references a `ClassId` plus any type arguments for generic instantiation. `TypeVar` is an unresolved generic parameter (e.g. `T` in `fn foo<T>(x: T)`). `Function` is a first-class function type (used when a function is passed as a value).
+**User-defined:** `Class` names the class by `Symbol` plus any type arguments for generic instantiation. `TypeParam` is an unresolved generic parameter (e.g. `T` in `fn foo<T>(x: T)`). `Function` is a first-class function type (used when a function is passed as a value).
 
 **Async:** `Future(T)` represents `Promise<T>` (TS) or `Awaitable[T]` (Python). A function with `is_async: true` returns `Future(its_return_type)`.
 
@@ -309,7 +309,7 @@ The HIR canonical form is `snake_case`. The TypeScript frontend converts `camelC
 
 ## Validation
 
-`smelt-hir::validate(&Crate) -> Result<(), Vec<ValidationError>>` checks:
+`smelt-hir::validate(&Crate) -> Vec<ValidationError>` checks (an empty vector means the crate is valid):
 
 - Every `ExprId` resolves to an `Expr` with a defined `TypeId`.
 - Every `LocalId` referenced by an `Expr` is declared in the same `Body`.

@@ -41,6 +41,8 @@ For executable `unknown` values, especially `JSON.parse`, plugin boundaries, or 
 `typeof value`, `Array.isArray(value)`, `value === null`, or user assertion functions, the carrier
 must become tagged:
 
+The sketch below is historical. The emitted `SmeltUnknown` enum is the current definition.
+
 ```rust
 #[derive(Clone, Debug)]
 pub enum SmeltUnknown {

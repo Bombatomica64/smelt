@@ -53,7 +53,8 @@ Current rejections (v1.0):
 
 | Construct | Reason |
 |---|---|
-| `any`, `unknown`, `never` | No HIR type representation |
+| `any` | Rejected by oxclint (`no-explicit-any`) before HIR construction |
+| `unknown`, `never` | Lower to `Type::Unknown` and `Type::Never` in HIR |
 | Conditional types (`T extends U ? X : Y`) | Not lowerable |
 | Mapped types (`{ [K in T]: U }`) | Not lowerable |
 | Index signatures (`[key: string]: T`) | No MIR equivalent |

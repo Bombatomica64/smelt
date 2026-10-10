@@ -42,6 +42,7 @@ def human_ops(v: float) -> str:
 
 
 def mib(v: float | int | None) -> str:
+    """Format a byte count as MiB for the report, or an em dash when unknown."""
     if v is None or v < 0:
         return "—"
     return f"{v / (1024 * 1024):.1f}"
@@ -90,6 +91,7 @@ def spread(observations: list[float] | None) -> str:
 
 
 def library_section(lib: str, rows: list[dict], baselines: dict) -> list[str]:
+    """Render the Markdown section for one library from its result rows and baselines."""
     out: list[str] = [f"### {lib}", ""]
 
     base_ts = (baselines.get(lib, {}).get("ts") or {}).get("peak_rss_bytes")
@@ -171,6 +173,7 @@ def library_section(lib: str, rows: list[dict], baselines: dict) -> list[str]:
 
 
 def main() -> int:
+    """Render results.json into the Markdown report at --out (RESULTS.md by default)."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--in", dest="src", default=str(BENCH / "results/results.json"))
     ap.add_argument("--out", default=str(BENCH / "RESULTS.md"))

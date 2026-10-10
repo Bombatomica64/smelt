@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
-import statistics
 import subprocess
 import sys
 import time
@@ -54,11 +53,13 @@ def run_json(cmd: list[str], env_extra: dict[str, str], cwd: pathlib.Path) -> di
 
 
 def ts_cases(lib: str) -> list[str]:
+    """List the case names the TypeScript runner exposes for lib."""
     out = subprocess.run([NODE, "run.mjs", "list", lib], capture_output=True, text=True, cwd=TS_DIR)
     return out.stdout.split()
 
 
 def rust_cases(lib: str) -> list[str]:
+    """List the case names the generated Rust bench binary for lib exposes."""
     out = subprocess.run([str(RUST_BIN[lib]), "list"], capture_output=True, text=True)
     return out.stdout.split()
 
@@ -67,6 +68,7 @@ NODE = "node"
 
 
 def main() -> int:
+    """Run the TypeScript and Rust benchmark cases selected by the command-line flags."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--repeats", type=int, default=3)
     ap.add_argument("--only", choices=sorted(RUST_BIN))

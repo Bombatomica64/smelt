@@ -1,6 +1,6 @@
 //! es-toolkit benchmark cases, Rust side.
 //!
-//! Each case here is the exact twin of a case in the es-toolkit entry of `benchmarks/ts/cases.mjs`:
+//! Every non-`_typed` case here has a twin in the es-toolkit entry of `benchmarks/ts/cases.mjs`; the `_typed` rows are Rust-only instantiations:
 //! same input data, same library call, same checksum fold. Inputs are built once,
 //! outside the timed closure, so what is measured is the library call and nothing else.
 //!
@@ -40,6 +40,7 @@ fn hash_map_of_lists(h: u32, map: &SmeltJsMap<SmeltUnknown, SmeltList<SmeltUnkno
     acc
 }
 
+/// Folds a JS `Map` with `f64` values in insertion order.
 fn hash_map_of_numbers(h: u32, map: &SmeltJsMap<SmeltUnknown, f64>) -> u32 {
     let mut acc = mix(h, map.len() as u32);
     for (k, v) in map.iter() {

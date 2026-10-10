@@ -27,8 +27,7 @@ python3 benchmarks/run.py --repeats 3
 python3 benchmarks/report.py
 ```
 
-`prepare.py` also refreshes the bundled TypeScript in `benchmarks/ts/vendor/` if it is
-missing; regenerate it manually with:
+`prepare.py` also rebuilds the bundled TypeScript in `benchmarks/ts/vendor/` on every run when `bun` is available (without `bun` it leaves the existing bundle as-is). To regenerate it by hand:
 
 ```sh
 bun build target/compat-repos/remeda/packages/remeda/src/index.ts \
@@ -108,8 +107,7 @@ a generated symbol directly.
 
 ## Reading the results
 
-`RESULTS.md` reports **Rust / TS**, so `2.00×` means the generated Rust does twice the
-throughput and `0.10×` means it does a tenth.
+`RESULTS.md` reports **Rust / TS** as `N× slower` or `**N× faster**`, the forms `report.py` prints. So `**2.00× faster**` means the generated Rust does twice the throughput, and `10× slower` means it does a tenth.
 
 Two structural caveats:
 
