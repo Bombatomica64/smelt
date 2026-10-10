@@ -1,3 +1,5 @@
+// Member access and qualified call lowering helpers for `ModuleBuilder`.
+// Included into lowering.rs via include!, so this file uses plain comments.
 impl ModuleBuilder<'_> {
     /// Lower a qualified static method call `Class.staticMethod(args)`.
     ///

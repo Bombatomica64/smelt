@@ -1,3 +1,5 @@
+// Manifest-driven specialization lowering helpers.
+// Included into lowering.rs via include!, so this file uses plain comments.
 /// Returns the manifest module record corresponding to `path`.
 pub(crate) fn specialization_for_path(
     path: &str,
@@ -664,7 +666,7 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Returns whether a local function is used only as a materialized
+    /// Returns whether a local function is used as a materialized
     /// definition-time decorator factory in this module.
     fn is_materialized_decorator_factory(
         &self,
@@ -683,7 +685,7 @@ impl ModuleBuilder<'_> {
             })
     }
 
-    /// Returns whether a source class is used only as a build-time metaclass.
+    /// Returns whether a source class is used as a build-time metaclass.
     fn is_materialized_metaclass_definition(
         &self,
         candidate: &StmtClassDef,

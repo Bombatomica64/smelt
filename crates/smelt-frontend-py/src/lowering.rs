@@ -8,7 +8,6 @@ mod stdlib;
 mod stdlib_dispatch;
 
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::path::Path;
 
 use ruff_python_ast::{

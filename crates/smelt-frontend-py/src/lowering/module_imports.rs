@@ -1,3 +1,5 @@
+// Module import and constructed-constant lowering for `ModuleBuilder`.
+// Included into lowering.rs via include!, so this file uses plain comments.
 impl ModuleBuilder<'_> {
 
     /// Lower a Python `import module [as alias]` statement to HIR metadata.
@@ -191,7 +193,9 @@ impl ModuleBuilder<'_> {
         Ok(())
     }
 
-    /// Return whether a module statement was already captured as a constructed constant.
+    /// Return whether a module statement is a direct `NAME = ClassName(...)`
+    /// assignment whose callee is a class item. Pass 2 uses this predicate to
+    /// skip constructed-constant statements.
     fn is_constructed_constant_assignment(&self, stmt: &Stmt) -> bool {
         let Stmt::Assign(assign) = stmt else {
             return false;

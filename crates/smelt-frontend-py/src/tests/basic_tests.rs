@@ -515,7 +515,7 @@ def doubles(xs: list[int]) -> list[int]:
 #[test]
 fn list_comprehension_if_clause_lowers() -> TestResult {
     // The `if` guard lowers to an `If` statement inside the loop; we assert the
-    // overall comprehension still lowers to a block with a push.
+    // overall comprehension still lowers to a block.
     let source = py!(r"
 def evens(xs: list[int]) -> list[int]:
     return [x for x in xs if x > 0]

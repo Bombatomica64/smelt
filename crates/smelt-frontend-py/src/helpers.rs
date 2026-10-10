@@ -124,6 +124,7 @@ pub(crate) fn expr_kind_name(expr: &Expr) -> &'static str {
 ///
 /// Returns `None` for anything more complex.
 pub(crate) fn decorator_simple_name(dec: &Decorator) -> Option<&str> {
+    /// Return the simple name of a decorator expression, recursing through calls.
     fn inner(expr: &Expr) -> Option<&str> {
         match expr {
             Expr::Name(n) => Some(n.id.as_str()),

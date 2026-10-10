@@ -1,3 +1,5 @@
+// Numeric and arithmetic lowering helpers for `ModuleBuilder`.
+// Included into lowering.rs via include!, so this file uses plain comments.
 impl ModuleBuilder<'_> {
     /// Return the shared item type for a tuple that must be non-empty and homogeneous.
     fn homogeneous_tuple_item_ty(items: &[TypeId], span: Span) -> Result<TypeId, SmeltError> {

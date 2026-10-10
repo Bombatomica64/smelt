@@ -1,3 +1,4 @@
+//! Package-namespace, class-member and unsupported-library diagnostic tests.
 use super::*;
 
 #[test]
