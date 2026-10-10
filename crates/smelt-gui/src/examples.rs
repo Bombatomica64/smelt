@@ -1,7 +1,8 @@
 //! Built-in showcase examples.
 //!
-//! Each [`ShowcaseExample`] is a self-contained TypeScript/Python pair that
-//! lowers cleanly through the Smelt pipeline today. The set is intentionally
+//! Each [`ShowcaseExample`] ships TypeScript, Python, or both, matching its
+//! `has_ts` and `has_py` flags, and lowers cleanly through the Smelt pipeline
+//! today. The set is intentionally
 //! conservative — every example is asserted to compile by a test in
 //! [`crate::compiler`] — so the gallery only ever advertises working code.
 
@@ -12,7 +13,7 @@ pub(super) enum ShowcaseFocus {
     CrossLanguage,
     /// A typed, library-inspired utility helper.
     LibraryUtility,
-    /// Python driving logic that also reaches into shared code.
+    /// Python driving its own self-contained logic.
     PythonInterop,
 }
 

@@ -1,3 +1,6 @@
+//! HIR expression kinds: the `ExprKind` enum, one variant per lowered
+//! expression form, with the per-subsystem operation enums it carries.
+
 use super::{
     AsyncOp, BinOp, BoolFoldOp, ClosureExpr, DatePart, DictProjectionOp,
     ListCallbackOp, ListProjectionOp, ListSearchOp, Literal, NumericExtremaOp, NumericPredicateOp,
@@ -66,7 +69,7 @@ pub struct ListSpliceItem {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[expect(
     missing_docs,
-    reason = "Variant docs remain in formatter and lowering code; compact enum layout keeps this file under 600 LOC"
+    reason = "Variant docs remain in formatter and lowering code"
 )]
 pub enum ExprKind {
     Literal(Literal),
@@ -568,7 +571,7 @@ pub enum ExprKind {
     /// A `DataView` element accessor: `getInt16(offset, littleEndian?)` or
     /// `setFloat64(offset, value, littleEndian?)`.
     ///
-    /// One node for all eighteen accessors, carrying the DIRECTION and the
+    /// One node for all twenty accessors, carrying the DIRECTION and the
     /// element type the registry resolved from the source member name. A
     /// variant per accessor would be eighteen ways to say one operation, and
     /// the element type is named rather than copied

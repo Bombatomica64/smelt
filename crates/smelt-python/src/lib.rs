@@ -47,8 +47,8 @@ impl<T, Args> PyConstruct<Args> for T where T: PyInit<Args> + Default {}
 ///
 /// `Rhs` and [`Self::Output`] remain independent so heterogeneous operations
 /// such as `Vector + Scalar -> Vector` do not require dynamic dispatch or type
-/// erasure. Implementations borrow both operands, matching Python object
-/// semantics even when the generated type is not cheaply copyable.
+/// erasure. The trait signature borrows both operands, matching Python object
+/// semantics; the blanket impl clones them through its `Clone` bound.
 pub trait PyAdd<Rhs = Self> {
     /// Concrete result produced by the Python addition protocol.
     type Output;

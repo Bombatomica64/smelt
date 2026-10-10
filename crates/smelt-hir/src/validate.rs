@@ -1,3 +1,5 @@
+//! Structural validation of HIR.
+
 use serde::{Deserialize, Serialize};
 
 use crate::Type;

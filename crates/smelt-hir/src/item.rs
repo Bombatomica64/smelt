@@ -65,8 +65,8 @@ impl Visibility {
 /// Distinguishes how a class gets its shape.
 ///
 /// Used by the Python frontend (and by codegen) to pick the right derived
-/// traits and constructor strategy.  TypeScript classes always produce
-/// `ClassKind::Plain`.
+/// traits and constructor strategy.  TypeScript classes are `ClassKind::Plain`
+/// unless declared `abstract`, in which case they are `ClassKind::Abstract`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClassKind {
     /// A plain class with an explicit constructor (`__init__` / `constructor`).
@@ -347,17 +347,6 @@ pub struct ParamSig {
     pub span: Span,
 }
 
-/// A module-level mutable binding lifted to a "mutable global".
-///
-/// Created by the TypeScript frontend's classification pass for a module-level
-/// `let`/`var` binding that is mutated somewhere in the crate (direct
-/// reassignment, `++`/`--`, or a compound assignment). Reads of the binding
-/// lower to [`crate::ExprKind::GlobalGet`] and writes to
-/// [`crate::ExprKind::GlobalSet`], both referencing this item's
-/// [`crate::ItemId`]. MIR lowering collects these items into `Mir::globals`,
-/// and codegen emits one thread-local cell per global. Non-mutated module
-/// bindings keep the existing inline/const-item path and never become a
-/// `MutableGlobalItem`.
 /// How a mutable global's initial value is produced.
 ///
 /// A literal is the simple case and is stored inline. Anything else — a call, a
@@ -386,6 +375,17 @@ pub enum MutableGlobalInit {
     Pending,
 }
 
+/// A module-level mutable binding lifted to a "mutable global".
+///
+/// Created by the TypeScript frontend's classification pass for a module-level
+/// `let`/`var` binding that is mutated somewhere in the crate (direct
+/// reassignment, `++`/`--`, or a compound assignment). Reads of the binding
+/// lower to [`crate::ExprKind::GlobalGet`] and writes to
+/// [`crate::ExprKind::GlobalSet`], both referencing this item's
+/// [`crate::ItemId`]. MIR lowering collects these items into `Mir::globals`,
+/// and codegen emits one thread-local cell per global. Non-mutated module
+/// bindings keep the existing inline/const-item path and never become a
+/// `MutableGlobalItem`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MutableGlobalItem {
     /// The name of the binding.
