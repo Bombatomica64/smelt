@@ -55,7 +55,7 @@ impl ModuleBuilder<'_> {
     /// point is what makes that unrepresentable rather than merely fixed in the
     /// paths someone remembered.
     ///
-    /// `argument()` carries a debug assertion that it never sees a spread, so a
+    /// `lower_call_arg` carries a debug assertion that it never sees a spread, so a
     /// future path that forgets to come through here trips in test builds
     /// instead of silently padding.
     pub(in crate::lowering) fn expanded_call_arguments<'a>(
@@ -132,8 +132,9 @@ impl ModuleBuilder<'_> {
     /// catchable exactly like a source `throw`. Per-element defaults would be
     /// the same silent-wrong-answer failure this whole family is about.
     ///
-    /// Anything else -- a list, an erased value, an OPTIONAL tuple -- has no
-    /// statically known width here and stays a named blocker. A list's home is
+    /// Optional tuples are expanded, with an absent operand throwing as above.
+    /// Anything else -- a list or an erased value -- has no statically known
+    /// width here and stays a named blocker. A list's home is
     /// the packed-vector call path (`ClosureCallSpread`), which an erased callee
     /// already takes; a fixed-arity callee has nowhere to put a runtime-length
     /// argument list.

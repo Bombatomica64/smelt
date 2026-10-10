@@ -236,7 +236,8 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Inserts ordered instance initializer calls at constructor entry.
+    /// Inserts ordered instance initializer calls at constructor entry, after the
+    /// field assignments.
     pub(super) fn prepend_materialized_initializer_calls(
         &mut self,
         constructor: smelt_hir::ItemId,

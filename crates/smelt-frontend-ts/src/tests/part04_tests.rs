@@ -1,3 +1,6 @@
+//! TypeScript lowering regression tests for calls, argument packing, object builtins,
+//! and callable shapes.
+
 use super::*;
 
 #[test]
@@ -8927,7 +8930,7 @@ fn lowers_string_includes_inside_filter_callback_body() -> Result<(), String> {
     // did not model: only the array-receiver `includes` arm existed, so a string
     // (or erased) receiver surfaced "callback method `includes` is not lowered
     // into closure bodies yet". The closure-body path now mirrors the direct
-    // `string_includes` lowering, emitting a `StringContains`. This is the
+    // `string_contains_call` lowering, emitting a `StringContains`. This is the
     // dominant callback blocker across the quicktype/knip probes.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

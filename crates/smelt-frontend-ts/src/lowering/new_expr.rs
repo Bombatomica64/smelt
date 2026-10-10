@@ -254,11 +254,9 @@ impl ModuleBuilder<'_> {
         if callee.name == "AbortController" && !self.classes.contains("AbortController") {
             return self.abort_controller_constructor_expression(new_expr, body);
         }
-        // The typed-array views are byte-backed host objects: they share the one
-        // byte-buffer construction path with `ArrayBuffer`/`DataView`/`Buffer`, and
-        // their element type (resolved at runtime from the marker the class name
-        // selects) is what decides whether a source argument is re-viewed
-        // byte-for-byte or converted element-by-element.
+        // The numeric typed-array views are byte-backed host objects. The family
+        // dispatch above routes them to `typed_array_constructor_expression`, so
+        // this branch is not the live path for them.
         if Self::is_numeric_typed_array_constructor(callee.name.as_str())
             && !self.classes.contains(callee.name.as_str())
         {
@@ -528,10 +526,10 @@ impl ModuleBuilder<'_> {
         )
     }
 
-    /// Lower `new ctor(args)` where `ctor` is a callable value (a binding whose
-    /// type is a constructor/function type), returning `None` when the callee is
-    /// not such a value so the caller can fall through to the stdlib/class
-    /// dispatch.
+    /// Lower `new ctor(args)` where `ctor` is a local binding. A binding with a
+    /// function type lowers statically; any other bound name takes the dynamic
+    /// `Construct` path, and `None` is returned only when the name is not a local
+    /// binding, so the caller can fall through to the stdlib/class dispatch.
     ///
     /// A constructor-type annotation lowers to an ordinary `Type::Function` (see
     /// `constructor_type_to_hir`), so the callee is reached as a VALUE — but
@@ -542,8 +540,8 @@ impl ModuleBuilder<'_> {
     /// own; none of that happens for a plain call. So this lowers to
     /// `ExprKind::Construct`, not `ExprKind::ClosureCall`, in both the
     /// concretely-typed and the dynamic case. When the binding is present but
-    /// is *not* a callable value, `None` is returned and the caller reports the
-    /// existing "unresolved class" / non-callable error.
+    /// is *not* a callable value, it takes the dynamic `Construct` path and returns
+    /// `unknown`.
     ///
     /// The result type stays the callable's declared return type where there is
     /// one, and that type also decides WHICH operation this is: see
@@ -938,8 +936,8 @@ impl ModuleBuilder<'_> {
     /// `BigUint64Array`, which the previous inline `matches!` omitted and which
     /// therefore aborted the es-toolkit build as an "unresolved class" — are
     /// recognized from one registry. Every view is a byte-backed host object with
-    /// its own element type, so all eleven share the one byte-buffer construction
-    /// path.
+    /// its own element type; the family dispatch builds them through
+    /// `typed_array_constructor_expression`.
     pub(super) fn is_numeric_typed_array_constructor(name: &str) -> bool {
         smelt_stdlib::is_typed_array_class_name(name)
     }
@@ -1075,8 +1073,9 @@ impl ModuleBuilder<'_> {
     /// even though they share the registry.
     pub(crate) fn marker_only_builtin_marker(name: &str) -> Option<&'static str> {
         match name {
-            // `Request` joins the marker-only set: es-toolkit constructs it only
-            // to probe host identity (`isPlainObject(new Request(url))`), reading
+            // `Request` joins the marker-only set and is reachable only via
+            // `host_override`, not plain `new`; es-toolkit uses it only to probe host
+            // identity (`isPlainObject(new Request(url))`), reading
             // none of its structural surface, exactly like the other entries here.
             "WeakMap" | "WeakSet" | "Request" => smelt_stdlib::host_object_marker(name),
             _ => None,
@@ -2852,7 +2851,6 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower a TypeScript conditional expression when it appears outside normal expression nodes.
     /// Lower one arm of a conditional expression, capturing any statement-level
     /// side effects it produces into a per-arm block so they run only when that
     /// arm is taken.
@@ -2890,6 +2888,7 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Lower a TypeScript conditional expression when it appears outside normal expression nodes.
     pub(super) fn conditional_expression(
         &mut self,
         conditional: &oxc::ast::ast::ConditionalExpression<'_>,
@@ -3892,6 +3891,4 @@ impl ModuleBuilder<'_> {
         }
         Ok(acc)
     }
-
-    // Continued in the next split builder file.
 }

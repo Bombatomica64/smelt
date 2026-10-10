@@ -107,7 +107,6 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Lower either an inline arrow callback or a local closure callback value.
     /// Lower a callback argument that NAMES its callable: a local, an item, a
     /// recognized global builtin, an imported predicate, or an inlined local
     /// callback literal.
@@ -342,6 +341,7 @@ impl ModuleBuilder<'_> {
     fn callback_argument_asserted_identifier<'src>(
         argument: &'src Argument<'src>,
     ) -> Option<(&'src str, u32, u32)> {
+        /// Strips type assertions and parentheses to reach a plain identifier, returning its name and span.
         fn peel<'src>(expression: &'src Expression<'src>) -> Option<(&'src str, u32, u32)> {
             match expression {
                 Expression::Identifier(identifier) => Some((
@@ -369,6 +369,10 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Lower either an inline arrow callback or a local closure callback value.
+    ///
+    /// Routes a bare identifier, an asserted identifier, a direct value, or an
+    /// inline arrow to its matching lowering path.
     pub(in crate::lowering) fn callback_argument(
         &mut self,
         argument: &Argument<'_>,

@@ -1050,7 +1050,8 @@ impl ModuleBuilder<'_> {
                 (_, None) => self.ctx.krate.types.intern(Type::Unknown),
             };
             // An optional parameter (`x?: T`) has type `T | undefined` inside the
-            // body, matching the function-type lowering in `types.rs`. Without
+            // body, matching the function-type lowering in `function_type_to_hir`
+            // (`lowering/ty/annotations.rs`). Without
             // this the param looks non-nullable, so an `x === undefined` guard
             // constant-folds to `false`.
             let ty = if param.optional
@@ -1744,9 +1745,10 @@ impl ModuleBuilder<'_> {
     /// The fallback-eligible error for a callback that throws from a
     /// CONDITIONALLY evaluated position.
     ///
-    /// [`CallbackExprKind::Throw`] is the one callback expression kind that
-    /// lowers to a body STATEMENT (`Stmt::Throw`) rather than to a value, so it
-    /// runs where it is *emitted*, not where its value is *used*. Inside a
+    /// [`CallbackExprKind::Throw`] and `CallbackExprKind::AssignCapture` are the
+    /// two callback expression kinds that lower to body STATEMENTS (`Stmt::Throw`)
+    /// rather than to values, so each runs where it is *emitted*, not where its
+    /// value is *used*. Inside a
     /// ternary arm those two places differ: the statement hoists out of the
     /// guard and the throw becomes unconditional.
     /// `(e) => { if (shouldGuard(e)) { throw e } return undefined }` lowered to

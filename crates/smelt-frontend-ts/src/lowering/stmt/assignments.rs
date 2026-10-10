@@ -3448,6 +3448,4 @@ impl ModuleBuilder<'_> {
             span: self.span(span.start, span.end),
         }))
     }
-
-    // Continued in the next split builder file.
 }

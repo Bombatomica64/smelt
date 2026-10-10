@@ -77,13 +77,6 @@ pub(super) fn typeof_identifier_name<'a>(expression: &'a Expression<'a>) -> Opti
     }
 }
 
-/// The constant value a `typeof <global-alias> <op> "<kind>"` probe folds to.
-///
-/// In the non-DOM profile every recognized global alias is a present object, so
-/// `typeof globalThis === "undefined"` is `false`, `!== "undefined"` is `true`,
-/// `=== "object"` is `true`, and `!== "object"` is `false`. Returns `None` when
-/// the comparison is not a recognized global-existence probe so the caller leaves
-/// the expression to ordinary lowering.
 /// Names that denote the ambient global object but are *absent* in the non-DOM
 /// profile.
 ///
@@ -116,6 +109,14 @@ pub(super) fn global_alias_object_presence(name: &str) -> Option<bool> {
 #[must_use]
 /// Fold a `typeof <global-alias> === <kind>` probe when the alias presence is
 /// known from the active ambient-global profile.
+///
+/// The constant value a `typeof <global-alias> <op> "<kind>"` probe folds to.
+///
+/// In the non-DOM profile every recognized global alias is a present object, so
+/// `typeof globalThis === "undefined"` is `false`, `!== "undefined"` is `true`,
+/// `=== "object"` is `true`, and `!== "object"` is `false`. Returns `None` when
+/// the comparison is not a recognized global-existence probe so the caller leaves
+/// the expression to ordinary lowering.
 pub(super) fn global_typeof_probe_value(
     operand_is_global_alias: bool,
     compared_kind: &str,

@@ -97,7 +97,8 @@ impl ModuleBuilder<'_> {
     /// constructor into a [`ExprKind::HostGlobalWrite`].
     ///
     /// Handles the plain `=` assignment only (a compound `globalThis.X += ...`
-    /// is not a whole-global reassignment and is left to ordinary lowering). The
+    /// is not a whole-global reassignment and returns an unsupported-construct
+    /// error). The
     /// stored value is classified at runtime by the write helper; only
     /// `undefined`, a class/function constructor value, or a saved native handle
     /// are v1-supported, so any other concrete value is a named blocker rather
@@ -304,8 +305,9 @@ impl ModuleBuilder<'_> {
             // The concrete family first: an overridden global that names any
             // of the family's spellings — the eleven views,
             // `ArrayBuffer`/`SharedArrayBuffer`, `DataView` — constructs the
-            // Rust value. What is left for the erased record below is Node's
-            // `Buffer` and the non-byte hosts.
+            // Rust value. The remaining hosts (Blob, File, Buffer, byte-buffer hosts, and
+            // marker-only builtins) are matched by the explicit arms below; the
+            // erased record is the fallback.
             _ if self.is_typed_array_family_name(name) => {
                 self.typed_array_constructor_expression(new_expr, name, body)?
             }
@@ -364,7 +366,8 @@ impl ModuleBuilder<'_> {
             span,
         });
         // Both branches evaluate to the erased dynamic value; the native
-        // construction is already `unknown`-typed.
+        // construction is erased to `unknown` only when its type is not already
+        // `unknown`.
         let native_unknown = self.coerce_to_unknown(native, span, body);
         Ok(body.push_expr(Expr {
             kind: ExprKind::Conditional {

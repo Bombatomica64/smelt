@@ -1,3 +1,5 @@
+//! TypeScript lowering regression tests for math and string builtin calls.
+
 use super::*;
 
 #[test]

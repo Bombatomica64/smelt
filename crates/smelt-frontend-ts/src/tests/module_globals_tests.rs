@@ -4,8 +4,9 @@
 //! to an `Item::MutableGlobal`: reads lower to `ExprKind::GlobalGet` and writes
 //! desugar to `ExprKind::GlobalSet` (whose value is the stored value, so
 //! `++`/`+=` compose). Non-mutated module `let`s keep the existing inline
-//! paths, and the V1 constraints (literal initializer, primitive type) are
-//! explicit named blockers.
+//! paths, and the current blockers are explicit named errors: a declaration with no
+//! initializer, an unannotated non-literal initializer, and a nested write through a
+//! non-primitive module global.
 
 use super::*;
 

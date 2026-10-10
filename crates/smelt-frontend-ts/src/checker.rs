@@ -4,7 +4,7 @@
 
 use std::process::Command;
 
-/// Runs the TypeScript and Oxlint checks for a generated file.
+/// Runs `tsc --noEmit` on the given path.
 fn run_tsc(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let output = Command::new("npx")
         .arg("tsc")

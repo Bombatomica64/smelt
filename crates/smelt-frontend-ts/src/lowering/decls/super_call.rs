@@ -49,7 +49,7 @@ use smelt_hir::{
 /// boundaries" rule in `AGENTS.md`). So three of these four slots are ordinary
 /// strings, not dynamic boundaries, and Smelt's own `Error.name`/`.message`/
 /// `.stack` read-path resolver already types them exactly this way
-/// (`error_builtin_field_type` in `lowering/ty/annotations.rs`).
+/// (`builtin_class_field_type` in `lowering/ty/annotations.rs`).
 ///
 /// `cause` is the one real boundary: ES2022 types it `unknown` because it
 /// carries an arbitrary thrown value, so it — and only it — stays
@@ -283,7 +283,7 @@ impl ModuleBuilder<'_> {
     /// `cause` from the ES2022 options argument's `cause` property, `name` is the
     /// base constructor's own name — exactly what `Error.prototype.name` /
     /// `DOMException.prototype.name` yield for a subclass that does not override
-    /// it — and `stack` is the host-attached string.
+    /// it — and `stack` is set to the empty string when the constructor supplies nothing.
     ///
     /// A slot the subclass redeclares keeps its declared type; otherwise the slot
     /// keeps the shape [`ERROR_MARKER_FIELDS`] declares for it. `name`, `message`,
@@ -292,7 +292,7 @@ impl ModuleBuilder<'_> {
     /// carries an arbitrary thrown value.
     #[expect(
         clippy::too_many_arguments,
-        reason = "one emit site threading the resolved base, the receiver, and the call span"
+        reason = "call sites threading the resolved base, the receiver, and the call span"
     )]
     pub(in crate::lowering) fn lower_error_base_super_call(
         &mut self,

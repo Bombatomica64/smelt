@@ -39,7 +39,7 @@ impl ModuleBuilder<'_> {
     /// collected in a prepass so [`Self::synthesize_constructor_function_class`]
     /// can run instead of ordinary function-item lowering, and so `new Foo()`
     /// sites lowered before the synthesis still resolve nominally through
-    /// `pending_class_names`.
+    /// `ClassRegistry::is_pending`.
     pub(in crate::lowering) fn module_constructor_function_names(
         program: &Program<'_>,
     ) -> HashSet<String> {
@@ -351,7 +351,7 @@ impl ModuleBuilder<'_> {
 
     /// Find a `const Foo = function (…) { … }` constructor binding in a
     /// declarator: a variable initialized with a function expression whose name
-    /// is used as a constructor in `body_statements`.
+    /// is used as a constructor. The caller checks constructor usage.
     ///
     /// Returns the binding name and the function expression. The function
     /// expression's own optional `id` is ignored; the binding name is what `new`

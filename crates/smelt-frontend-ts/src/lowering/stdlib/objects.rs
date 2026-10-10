@@ -225,7 +225,7 @@ impl ModuleBuilder<'_> {
     /// symbol-keyed property IS stored (under the `__smelt_symbol:` key form),
     /// so it is not interchangeable with `Object.keys`. Its declared result is
     /// `(string | symbol)[]`, which is why that arm alone yields
-    /// `List<Unknown>`; see [`Lowering::dict_projection_result_ty`].
+    /// `List<Unknown>`; see `dict_projection_result_ty`.
     pub(in crate::lowering) fn object_projection_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -2205,6 +2205,4 @@ return_ty,
             span: self.span(call.span.start, call.span.end),
         })))
     }
-
-    // Continued in the next split builder file.
 }

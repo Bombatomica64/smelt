@@ -1167,7 +1167,8 @@ impl ModuleBuilder<'_> {
     /// opaque to this module — an imported function value or a module-level
     /// function/const callable declared elsewhere in the source.
     ///
-    /// Such names resolve like a direct call would (see `call.rs`), so when one
+    /// Such names resolve like a direct call would (see `call_expression` in
+    /// `stdlib/call_dispatch.rs`), so when one
     /// is handed to an array method as a named-local callback we can lower it to
     /// an opaque closure that calls the value, rather than rejecting it for not
     /// being an inline arrow. The name must not shadow a local binding, because a

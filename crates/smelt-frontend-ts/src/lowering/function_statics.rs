@@ -101,8 +101,9 @@ impl ModuleBuilder<'_> {
         if member.optional || !self.name_is_static_property_owner(owner.name.as_str()) {
             return None;
         }
-        // `f.prototype.m = …` is the constructor-function idiom, which class
-        // synthesis claims; only a direct property on the function is a static.
+        // A direct `f.prototype = …` assignment is the constructor-function idiom,
+        // which class synthesis claims; the check below excludes it, so only other
+        // direct properties on the function are statics.
         if member.property.name == "prototype" {
             return None;
         }
