@@ -1,0 +1,75 @@
+{
+  "meta": {
+    "repeats": 3,
+    "quick": false,
+    "node": "v22.22.2",
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+    "generated_at": "2026-09-06T14:50:50Z"
+  },
+  "baselines": {
+    "remeda": {
+      "ts": {
+        "kind": "baseline",
+        "peak_rss_bytes": 56188928,
+        "rss_bytes": 56193024,
+        "cpu_user_s": 0.04,
+        "cpu_sys_s": 0.03
+      },
+      "rust": {
+        "kind": "baseline",
+        "peak_rss_bytes": 6279168,
+        "rss_bytes": 6279168,
+        "cpu_user_s": 0,
+        "cpu_sys_s": 0.01
+      }
+    }
+  },
+  "rows": [
+    {
+      "lib": "remeda",
+      "case": "unique_by",
+      "has_ts": true,
+      "ts_observations": [
+        2245.92673113225,
+        2490.815119247774,
+        2425.5007446287286
+      ],
+      "ts": {
+        "kind": "result",
+        "case": "unique_by",
+        "ns_per_op_median": 401475,
+        "ns_per_op_best": 336787.5,
+        "ops_per_sec": 2490.815119247774,
+        "samples": 3430,
+        "iterations": 6860,
+        "checksum": 3475094833,
+        "peak_rss_bytes": 98598912,
+        "rss_bytes": 97107968,
+        "cpu_user_s": 3.57,
+        "cpu_sys_s": 0.15
+      },
+      "rust_observations": [
+        0.8645763629295693,
+        0.8635003148050145,
+        0.8678643700069827
+      ],
+      "rust": {
+        "kind": "result",
+        "case": "unique_by",
+        "ns_per_op_median": 1152253779,
+        "ns_per_op_best": 1113051839,
+        "ops_per_sec": 0.8678643700069827,
+        "samples": 10,
+        "iterations": 10,
+        "checksum": 3475094833,
+        "peak_rss_bytes": 27918336,
+        "rss_bytes": 18288640,
+        "cpu_user_s": 13.79,
+        "cpu_sys_s": 0.09,
+        "identity_lists": 0,
+        "identity_promises": 0,
+        "identity_functions": 12
+      }
+    }
+  ]
+}
