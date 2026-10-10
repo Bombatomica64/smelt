@@ -1859,7 +1859,15 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Return whether `ty` mentions any of `names`.
+    /// Return whether `ty` mentions any of `names` anywhere in its structure,
+    /// including generic class arguments, `Map` keys and values, and generator
+    /// yields (see [`type_param_occurs`]).
+    ///
+    /// This function's one "mentions a type parameter" walk. A narrower copy
+    /// that stopped at class arguments once decided the mutable-list adapter's
+    /// return: `takeHeld<T>(arr: T[]): Holder<T>` called on a `number[]` was
+    /// treated as a concrete return and rebuilt field by field through a bogus
+    /// `SmeltUnknown` extraction against the already-concrete `Holder<f64>`.
     fn type_mentions_any(&self, ty: TypeId, names: &HashSet<Symbol>) -> bool {
         names
             .iter()
@@ -2355,7 +2363,7 @@ impl FunctionEmitter<'_> {
             // carries the substituted type from the frontend (the same reasoning
             // `call_emitted_source_ty` applies to type-parameter returns), so the
             // value passes through unchanged.
-            Some(_) if self.type_mentions_type_params(return_ty, &callee_generics) => {
+            Some(_) if self.type_mentions_any(return_ty, &callee_generics) => {
                 "smelt_mut_call_result".to_owned()
             }
             // A fully concrete return position from a generic callee needs the
@@ -2579,54 +2587,6 @@ impl FunctionEmitter<'_> {
                 assign_target: text.clone(),
                 mut_borrow: Some(text),
             }),
-        }
-    }
-
-    /// Returns whether `ty` mentions any of `params` anywhere in its structure.
-    ///
-    /// Used to decide whether a callee's return position is monomorphized at a
-    /// call site. The walk is structural and bounded by `depth` so a
-    /// pathologically nested type cannot recurse without end.
-    fn type_mentions_type_params(&self, ty: TypeId, params: &HashSet<Symbol>) -> bool {
-        self.type_mentions_type_params_at_depth(ty, params, 16)
-    }
-
-    /// Depth-limited worker for [`Self::type_mentions_type_params`].
-    fn type_mentions_type_params_at_depth(
-        &self,
-        ty: TypeId,
-        params: &HashSet<Symbol>,
-        depth: usize,
-    ) -> bool {
-        if depth == 0 || params.is_empty() {
-            return false;
-        }
-        let next = depth.saturating_sub(1);
-        match self.mir.types.get(ty) {
-            Some(Type::TypeParam { name }) => params.contains(name),
-            Some(
-                Type::List(item)
-                | Type::Set(item)
-                | Type::Optional(item)
-                | Type::Future(item),
-            ) => self.type_mentions_type_params_at_depth(*item, params, next),
-            Some(Type::Dict(key, value)) => {
-                self.type_mentions_type_params_at_depth(*key, params, next)
-                    || self.type_mentions_type_params_at_depth(*value, params, next)
-            }
-            Some(Type::Tuple(items) | Type::Union(items)) => items
-                .iter()
-                .any(|item| self.type_mentions_type_params_at_depth(*item, params, next)),
-            Some(Type::Function(function)) => {
-                self.type_mentions_type_params_at_depth(function.return_ty, params, next)
-                    || function
-                        .params
-                        .iter()
-                        .any(|param| {
-                            self.type_mentions_type_params_at_depth(*param, params, next)
-                        })
-            }
-            _ => false,
         }
     }
 

@@ -9025,6 +9025,47 @@ export function useDropStrings(): string[] {
 }
 
 #[test]
+fn generic_class_return_of_a_monomorphized_mut_list_call_passes_through() {
+    // Regression (haiku audit F0044): the adapter decides whether the callee's
+    // return mentions the generics it monomorphized, and a narrower private
+    // walk answered that by stopping at class arguments. `Holder<T>` therefore
+    // read as a fully concrete return, and the already-`Holder<f64>` result was
+    // rebuilt field by field through a `SmeltUnknown` extraction of an `f64`
+    // field (E0308). Rust binds `T` from the borrowed `SmeltList<f64>`, so the
+    // result is the destination's type and passes through unchanged.
+    let source = source_for(
+        r"
+class Holder<T> {
+  value: T;
+  constructor(value: T) {
+    this.value = value;
+  }
+}
+function takeHeld<T>(arr: T[]): Holder<T> {
+  return new Holder(arr.splice(0, 1)[0]);
+}
+export function useTake(): number {
+  const ys: number[] = [4, 5];
+  const held = takeHeld(ys);
+  return held.value + ys.length;
+}
+",
+    );
+    assert!(
+        source.contains("fn take_held<T"),
+        "the mutating callee must stay generic: {source}"
+    );
+    assert!(
+        source.contains("let smelt_mut_call_result = take_held(&mut ys); smelt_mut_call_result }"),
+        "the monomorphized class return must pass through unchanged: {source}"
+    );
+    assert!(
+        !source.contains("smelt_struct_value"),
+        "the concrete result must not be rebuilt field by field: {source}"
+    );
+}
+
+#[test]
 fn plain_local_mut_list_argument_to_erased_callee_converts_in_place() {
     // Regression (es-toolkit pull/remove): an ordinary caller passes a concrete
     // local list into a callee whose mutable list parameter is erased
