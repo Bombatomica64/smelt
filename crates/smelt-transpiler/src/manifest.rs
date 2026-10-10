@@ -227,7 +227,7 @@ struct DependencyCollector {
     excludes: Vec<String>,
     /// Manifest directory the exclude globs are relative to.
     ///
-    /// Canonical and absolute (see [`manifest_directory`]): the paths this is
+    /// Canonical and absolute (see [`exclusion_base`]): the paths this is
     /// stripped from are canonicalized by the resolver, so anything else makes
     /// the strip a no-op and silently disables every exclude.
     manifest_dir: PathBuf,
@@ -250,7 +250,7 @@ impl DependencyCollector {
     /// Returns whether a resolved dependency path is excluded by the manifest.
     ///
     /// Resolved paths are canonicalized, and `manifest_dir` is canonical too
-    /// ([`manifest_directory`]), so the exclude globs — which are written
+    /// ([`exclusion_base`]), so the exclude globs — which are written
     /// relative to the manifest directory — are matched against the path the
     /// manifest's author wrote. A manifest reached through a symlink, or named
     /// without a directory component so that its parent is `""`, both used to
@@ -396,10 +396,11 @@ impl DependencyCollector {
 
     /// Resolves named imports from an `index.ts` barrel to their source files.
     ///
-    /// A consuming application only needs modules that supply its named
-    /// imports. Including the barrel itself causes its unrelated `export *`
-    /// edges to expand the entire package, including runtime surfaces not used
-    /// by the consumer.
+    /// The named targets are returned alongside the barrel, which callers still
+    /// prepend to the dependency list. The barrel is kept because renamed
+    /// re-exports define the aliases importers use, but its `export *` edges
+    /// are then followed by the collector and can pull in modules the consumer
+    /// does not import by name.
     fn resolve_barrel_import_targets(
         &mut self,
         candidate: &Path,
