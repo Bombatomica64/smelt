@@ -420,7 +420,7 @@ impl QuietPanics {
 }
 
 impl Drop for QuietPanics {
-    /// Restore the panic hook that was active before install().
+    /// Restore the panic hook that was active before `install()`.
     fn drop(&mut self) {
         if let Some(previous) = self.previous.take() {
             std::panic::set_hook(previous);
