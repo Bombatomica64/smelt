@@ -49,9 +49,8 @@ fn new_unresolved_builtin_class_is_missing_stdlib() -> Result<(), String> {
 /// These are the host objects with *no* retained structural surface. The ones that
 /// do retain fields have their own construction: `File`/`Blob` through
 /// `BlobFromParts` (see `new_file_lowers_to_blob_from_parts_with_name`) and the
-/// byte buffers through `HostConstruct` (see
-/// `new_byte_buffer_host_lowers_to_the_concrete_family`), and the typed-array family
-/// through `TypedArrayNew`.
+/// byte buffers and typed-array views through `TypedArrayNew` (see
+/// `new_byte_buffer_host_lowers_to_the_concrete_family`).
 #[test]
 fn new_marker_only_host_builtins_lower_to_concrete_marker_records() -> Result<(), String> {
     for (source, marker) in [

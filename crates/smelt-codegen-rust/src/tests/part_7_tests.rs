@@ -1533,8 +1533,8 @@ export function firstA(names: string[]): string | undefined {
         source.contains("let _smelt_tmp_3: bool = closure_arg_0.clone().starts_with("),
         "{source}"
     );
-    // Scoped to the source after the signature: the runtime prelude legitimately spells
-    // both `SmeltUnknown::Bool(..)` and the truthiness match.
+    // Scoped to the source from `fn first_a(` onward: the runtime prelude
+    // legitimately spells both `SmeltUnknown::Bool(..)` and the truthiness match.
     let body = source
         .split_once("fn first_a(")
         .map_or("", |(_, tail)| tail);
@@ -3852,10 +3852,10 @@ function hasLength(value: unknown): boolean {
         "an array's `length` and named keys are own properties:\n{source}"
     );
     // The `hasOwn` lowering must inspect the erased value directly, not cast it
-    // into a typed record. Scope the check to the source after the emitted
-    // `has_length` signature: `SmeltRecord::with_id_from_entries` also legitimately appears in the
-    // runtime prelude's `SmeltFromUnknown for SmeltRecord` impl, which is
-    // unrelated to this program's behavior.
+    // into a typed record. Scope the check to the source from the emitted
+    // `fn has_length` onward: `SmeltRecord::with_id_from_entries` also
+    // legitimately appears in the runtime prelude's `SmeltFromUnknown for
+    // SmeltRecord` impl, which is unrelated to this program's behavior.
     let function_body = source
         .split("fn has_length")
         .nth(1)
