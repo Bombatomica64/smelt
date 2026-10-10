@@ -1112,7 +1112,7 @@ fn typed_array_name_resolves_as_bare_value() -> Result<(), String> {
 /// `number[]`, `false` for anything else — because the numeric-list model left no
 /// view identity to test at runtime, so a plain `number[]` was reported as a typed
 /// array and a real erased view was not. Now the erased operand emits a real
-/// `InstanceOf` (the marker probe). Only Date and RegExp targets fold a concrete
+/// `InstanceOf` (the marker probe). Only `Date` and `RegExp` targets fold a concrete
 /// operand to `false`, and the typed-array target raises the blocker.
 #[test]
 fn instanceof_typed_array_resolves_through_the_view_marker() -> Result<(), String> {
