@@ -298,3 +298,47 @@ test("the clone idiom over an unknown rebuilds an equal blob", async () => {
 "#;
     run_blob_fixture(source, "blob_erased");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_blob_part_contributes_the_same_bytes_concrete_or_erased() {
+    // A blob part contributes its bytes whichever path builds the new blob
+    // (haiku audit F0001). A `Blob[]` parts array takes the concrete
+    // `from_blob_parts`, which reads the part's bytes; a mixed array
+    // (`(Blob | string)[]`, `(Blob | Uint8Array)[]`) and the clone idiom over an
+    // `unknown` take the erased walk, which read the erased record's `content`
+    // string, a LOSSY decoding. So a blob holding the byte 0xFF contributed
+    // 0xFF on the concrete path and the three bytes of U+FFFD (239,191,189) on
+    // the erased one. Expected values are node's.
+    let source = r#"
+import { test, expect } from "vitest";
+test("a binary blob part keeps its bytes in a concrete parts array", async () => {
+  const raw = new Blob([new Uint8Array([255])]);
+  const twice = new Blob([raw, raw]);
+  expect(twice.size).toBe(2);
+  expect(Array.from(await twice.bytes()).join(",")).toBe("255,255");
+});
+test("a binary blob part keeps its bytes in a mixed parts array", async () => {
+  const raw = new Blob([new Uint8Array([255])]);
+  const withText = new Blob([raw, "x"]);
+  expect(withText.size).toBe(2);
+  expect(Array.from(await withText.bytes()).join(",")).toBe("255,120");
+  const withBytes = new Blob([raw, new Uint8Array([1])]);
+  expect(withBytes.size).toBe(2);
+  expect(Array.from(await withBytes.bytes()).join(",")).toBe("255,1");
+});
+test("the clone idiom over an unknown keeps a binary blob's bytes", async () => {
+  const source: unknown = new Blob([new Uint8Array([255, 0, 104])]);
+  const cloned = source instanceof Blob ? new Blob([source]) : new Blob([]);
+  expect(cloned.size).toBe(3);
+  expect(Array.from(await cloned.bytes()).join(",")).toBe("255,0,104");
+});
+test("a UTF-8 blob still round-trips its text through the erased walk", async () => {
+  const inner = new Blob(["héllo"]);
+  const outer = new Blob([inner, "!"]);
+  expect(outer.size).toBe(7);
+  expect(await outer.text()).toBe("héllo!");
+});
+"#;
+    run_blob_fixture(source, "blob_part_bytes");
+}

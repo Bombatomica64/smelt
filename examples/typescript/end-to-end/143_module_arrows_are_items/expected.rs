@@ -1717,7 +1717,8 @@ impl Clone for SmeltUnknown {
 /// A `BlobPart` is `Blob | BufferSource | string` — a heterogeneous host
 /// union whose arm is a runtime fact — which is why the parts array is
 /// erased and walked here. Strings contribute their UTF-8 bytes; a nested
-/// `Blob`/`File` record contributes its stored `content`; a byte-backed
+/// `Blob`/`File` record contributes its exact bytes (`smelt_blob_record_bytes`,
+/// the same bytes a concrete `SmeltBlob` part contributes); a byte-backed
 /// host record (`Uint8Array`, `ArrayBuffer`, `DataView`, ...) contributes
 /// its raw `bytes`, which the pre-byte-backed version stringified and so
 /// corrupted; anything else stringifies the way JavaScript does.
@@ -1732,7 +1733,7 @@ fn smelt_blob_parts_bytes(parts: SmeltUnknown) -> Vec<u8> {
             match item {
                 SmeltUnknown::String(text) => bytes.extend_from_slice(text.as_bytes()),
                 SmeltUnknown::Object(map) if map.contains_key("__smelt_blob") => {
-                    if let Some(SmeltUnknown::String(text)) = map.get("content") { bytes.extend_from_slice(text.as_bytes()); }
+                    bytes.extend_from_slice(&smelt_blob_record_bytes(&map));
                 }
                 SmeltUnknown::Object(map) if matches!(map.get("bytes"), Some(SmeltUnknown::Array(_))) => {
                     if let Some(SmeltUnknown::Array(elements)) = map.get("bytes") {
@@ -1752,9 +1753,11 @@ fn smelt_blob_parts_bytes(parts: SmeltUnknown) -> Vec<u8> {
 /// `smelt_blob_record_from_parts`) and by `impl IntoSmeltUnknown for
 /// SmeltBlob`, so a concrete blob crossing a dynamic boundary and a
 /// reflectively-constructed one are the same record. `content` is the
-/// UTF-8 decoding of the bytes, which is what every existing consumer of an
-/// erased blob reads; the concrete `SmeltBlob` is the value that carries
-/// the bytes losslessly.
+/// UTF-8 decoding of the bytes, which is what consumers of an erased blob's
+/// text read. When the bytes are not valid UTF-8 that decoding is lossy, so
+/// the record also carries them exactly in the hidden `__smelt_blob_bytes`
+/// list (a host-marked record shows no keys to enumeration); a UTF-8 blob's
+/// record is unchanged. `smelt_blob_record_bytes` reads them back.
 ///
 /// A file name stamps `__smelt_file` on top of `__smelt_blob`, so
 /// `file instanceof Blob` observes the host subtype relationship.
@@ -1767,12 +1770,30 @@ fn smelt_blob_record(id: usize, bytes: &[u8], blob_type: &str, file_name: Option
         ("content".to_owned(), SmeltUnknown::String(content.into())),
     ]);
     let record = SmeltObject::with_id(id, record);
+    if ::std::str::from_utf8(bytes).is_err() {
+        let exact = bytes.iter().map(|byte| SmeltUnknown::Number(f64::from(*byte))).collect::<Vec<_>>();
+        record.insert("__smelt_blob_bytes".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), exact)));
+    }
     if let Some(name) = file_name {
         record.insert("__smelt_file".to_owned(), SmeltUnknown::Bool(true));
         record.insert("name".to_owned(), SmeltUnknown::String(name.into()));
         record.insert("lastModified".to_owned(), SmeltUnknown::Number(last_modified));
     }
     SmeltUnknown::Object(record)
+}
+
+/// The exact bytes of an erased `Blob`/`File` record: the hidden byte list
+/// `smelt_blob_record` stores when `content` is a lossy decoding, else the
+/// UTF-8 bytes of `content`.
+///
+/// The one reader of an erased blob's bytes, shared by the `BlobPart` walk
+/// and by `SmeltFromUnknown for SmeltBlob`, so a blob that crossed a dynamic
+/// boundary contributes the same bytes as the concrete blob it came from.
+fn smelt_blob_record_bytes(map: &SmeltObject) -> Vec<u8> {
+    if let Some(SmeltUnknown::Array(elements)) = map.get("__smelt_blob_bytes") {
+        return elements.iter().filter_map(|element| match element { SmeltUnknown::Number(value) => Some(value as u8), _ => None }).collect();
+    }
+    match map.get("content") { Some(SmeltUnknown::String(text)) => text.as_bytes().to_vec(), _ => Vec::new() }
 }
 
 /// Build the erased `Blob`/`File` record for the reflected constructor.
