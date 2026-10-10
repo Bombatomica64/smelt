@@ -13,7 +13,7 @@ use smelt_mir::{
 };
 
 use crate::{
-    EmitError, emitter::EmitContext, emitter::FunctionEmitter, generic_bindings, id_index,
+    EmitError, emitter::EmitContext, generic_bindings, id_index,
     rust::RustIdent,
 };
 
