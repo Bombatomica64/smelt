@@ -1395,10 +1395,10 @@ const withArg = new StringBox("value");
 #[test]
 fn a_host_base_keeps_the_erased_forwarded_constructor_argument() {
     let source = source_for(
-        r#"
+        r"
 class Stamp extends Date {}
 const stamp = new Stamp(0);
-"#,
+",
     );
 
     assert!(

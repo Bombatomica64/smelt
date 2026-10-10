@@ -614,7 +614,7 @@ describe("add", () => {
 }
 
 /// `toThrow(expected)` compares the thrown error with vitest's rules: a string
-/// is a substring of the message, a RegExp tests it, a class is an
+/// is a substring of the message, a `RegExp` tests it, a class is an
 /// `instanceof`. The `.not` forms only pass when the comparison really runs:
 /// a matcher that accepted any throw would fail every `.not.toThrow(other)`
 /// below, because each callback does throw.

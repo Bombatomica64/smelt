@@ -159,14 +159,25 @@ use types::MutablePrefix;
 pub(crate) use union::emit_union_definitions;
 pub(crate) use core::is_erased_unknown_rest_function_in;
 
+/// Process-wide runtime state an emitted native test resets before its body,
+/// so mock state one test installs does not leak into the next.
+///
+/// Each flag is set only when the program uses the matching runtime, so a
+/// crate that never touches it emits no reset.
+#[derive(Clone, Copy)]
+struct TestRuntimeResets {
+    /// Mutable `Date.now()` mock state.
+    date_now: bool,
+    /// Virtual timer runtime state.
+    timers: bool,
+}
+
 /// Precomputed crate-level codegen facts shared by all function emitters.
 pub(crate) struct EmitContext {
     /// The type ID of the None type.
     pub(crate) none_ty: TypeId,
-    /// Whether emitted native tests must isolate mutable `Date.now()` mock state.
-    needs_date_now_runtime: bool,
-    /// Whether emitted native tests must isolate virtual timer runtime state.
-    needs_timer_helpers: bool,
+    /// Runtime state every emitted native test resets before its body.
+    test_runtime_resets: TestRuntimeResets,
     /// Rust function names keyed by MIR function ID.
     pub(crate) function_names: HashMap<FuncId, String>,
     /// Emitted parameter types keyed by Rust function name.
@@ -314,8 +325,10 @@ impl EmitContext {
 
         Ok(Self {
             none_ty,
-            needs_date_now_runtime: crate::stdlib::needs_date_now_runtime(mir),
-            needs_timer_helpers: crate::needs_timer_helpers(mir),
+            test_runtime_resets: TestRuntimeResets {
+                date_now: crate::stdlib::needs_date_now_runtime(mir),
+                timers: crate::needs_timer_helpers(mir),
+            },
             function_names,
             function_param_types,
             function_return_types,

@@ -335,10 +335,10 @@ impl<'mir> FunctionEmitter<'mir> {
     /// must keep each type parameter opaque).
     fn emit_body(&self, out: &mut String) -> Result<(), EmitError> {
         self.emit_shared_parameter_preludes(out)?;
-        if self.function.is_test && self.context.needs_date_now_runtime {
+        if self.function.is_test && self.context.test_runtime_resets.date_now {
             out.push_str("    SMELT_DATE_NOW.with(|value| value.set(None));\n");
         }
-        if self.function.is_test && self.context.needs_timer_helpers {
+        if self.function.is_test && self.context.test_runtime_resets.timers {
             out.push_str(&format!(
                 "    {reset_timers}();\n",
                 reset_timers = smelt_stdlib::runtime_symbols::timers::RESET_TIMERS,

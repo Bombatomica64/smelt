@@ -2070,7 +2070,7 @@ fn a_closure_inside_a_statement_block_does_not_inherit_its_block_id() -> Result<
     // the crate's diagnostics down with them.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export const createPool = (concurrency: number) => {
   const pool: Set<{}> = new Set()
   const run = async <T>(
@@ -2091,7 +2091,7 @@ export const createPool = (concurrency: number) => {
   }
   return { run }
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
