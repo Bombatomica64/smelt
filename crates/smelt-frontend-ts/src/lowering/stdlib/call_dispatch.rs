@@ -2253,24 +2253,6 @@ impl<'builder> ModuleBuilder<'builder> {
         Ok(self.node_process_version_match_call(call, body))
     }
 
-    /// Adapter for the unsupported-object-collection probe.
-    ///
-    /// The original guard turned a positive match into an immediate `Err`, never
-    /// a handled expression, so this surfaces the probe's error and otherwise
-    /// reports "not handled".
-    #[expect(
-        clippy::unused_self,
-        reason = "uniform BuiltinCallHandler dispatch-table signature; this stub probe needs no receiver state"
-    )]
-    pub(in crate::lowering) fn unsupported_object_collection_call_entry(
-        &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        _body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        Self::unsupported_object_collection_call(call)
-            .map_or(Ok(None), Err)
-    }
-
     /// Ordered builtin/stdlib call lowering handlers.
     ///
     /// The order is load-bearing: earlier handlers win when two could match the
@@ -2296,7 +2278,6 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::uri_encode_call,
         Self::base64_call,
         Self::object_prototype_to_string_call,
-        Self::unsupported_object_collection_call_entry,
         Self::exact_stdlib_call,
         Self::array_constructor_call,
         Self::generator_next_call,

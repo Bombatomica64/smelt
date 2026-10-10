@@ -1346,15 +1346,6 @@ impl FunctionEmitter<'_> {
                 self.default_value(target)?
             ));
         }
-        if let (Some(Type::List(source_item)), Some(Type::List(target_item))) =
-            (self.mir.types.get(source), self.mir.types.get(target))
-            && source_item != target_item
-        {
-            let item_text = self.value_at_type_text("value", *source_item, *target_item, scope)?;
-            return Ok(format!(
-                "{smelt_owned_value}.into_iter().map(|value| {item_text}).collect::<SmeltList<_>>()"
-            ));
-        }
         // A fixed-arity tuple flowing into a list target (`[T, U] -> V[]`, as
         // when a `zip` result of tuples is passed to `unzipWith`'s
         // `readonly T[][]` parameter with `T` erased). Each tuple field is
@@ -2107,11 +2098,6 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
                 let value_wrap = self.erase_value_text("value", *item)?;
-                if self.mir.types.get(*item) == Some(&Type::Float) {
-                    return Ok(format!(
-                        "{{ let smelt_record = {smelt_owned_value}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
-                    ));
-                }
                 Ok(format!(
                     "{{ let smelt_record = {smelt_owned_value}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
                 ))
@@ -3341,7 +3327,7 @@ impl FunctionEmitter<'_> {
                     "<{target_text} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
                 ))
             }
-            Some(Type::Set(_) | Type::Dict(_, _) | Type::Class { .. }) => {
+            Some(Type::Set(_) | Type::Class { .. }) => {
                 Ok("Default::default()".to_owned())
             }
             Some(Type::Function(function)) => {

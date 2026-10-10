@@ -72,25 +72,7 @@ impl ModuleBuilder<'_> {
         if stdlib_dispatch::call_rule(call) != Some(RuleId::PyRequestsGet) {
             return Ok(None);
         }
-        let Expr::Attribute(attr) = call.func.as_ref() else {
-            return Ok(None);
-        };
-        if attr.attr.as_str() != "get" {
-            return Ok(None);
-        }
-        let Expr::Name(module) = attr.value.as_ref() else {
-            return Ok(None);
-        };
-        if module.id.as_str() != "requests" {
-            return Ok(None);
-        }
         let span = self.span(call.range());
-        if call.arguments.args.len() != 1 {
-            return Err(SmeltError::unsupported(
-                span,
-                "requests.get() supports exactly one string URL argument",
-            ));
-        }
         let [url_expr] = call.arguments.args.as_ref() else {
             return Err(SmeltError::unsupported(
                 span,

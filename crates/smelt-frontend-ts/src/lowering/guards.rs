@@ -2318,22 +2318,6 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Placeholder hook for targeted diagnostics on deferred object and collection
-    /// APIs; it currently never diagnoses.
-    ///
-    /// `replaceAll` is handled by `regex_replace_call` (regex pattern) and
-    /// `string_replace_call` (literal string pattern), so it is no longer
-    /// rejected here. The hook is kept as the place to surface future
-    /// deferred object/collection method diagnostics.
-    pub(super) fn unsupported_object_collection_call(
-        call: &oxc::ast::ast::CallExpression<'_>,
-    ) -> Option<SmeltError> {
-        let Expression::StaticMemberExpression(_) = &call.callee else {
-            return None;
-        };
-        None
-    }
-
     /// Lower TypeScript `fetch(url[, options])` into an async HTTP fetch.
     pub(super) fn fetch_call(
         &mut self,
