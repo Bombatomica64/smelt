@@ -227,9 +227,11 @@ struct DependencyCollector {
     excludes: Vec<String>,
     /// Manifest directory the exclude globs are relative to.
     ///
-    /// Canonical and absolute (see [`exclusion_base`]): the paths this is
-    /// stripped from are canonicalized by the resolver, so anything else makes
-    /// the strip a no-op and silently disables every exclude.
+    /// Stored as the caller gave it (the manifest path's raw parent, possibly
+    /// `""` or relative). Each comparison passes it through [`exclusion_base`],
+    /// which canonicalizes it best-effort: the paths it is stripped from are
+    /// canonicalized by the resolver, so a non-canonical base would make the
+    /// strip a no-op and silently disable every exclude.
     manifest_dir: PathBuf,
 }
 
@@ -249,8 +251,9 @@ impl DependencyCollector {
 
     /// Returns whether a resolved dependency path is excluded by the manifest.
     ///
-    /// Resolved paths are canonicalized, and `manifest_dir` is canonical too
-    /// ([`exclusion_base`]), so the exclude globs — which are written
+    /// Resolved paths are canonicalized, and `manifest_dir` is canonicalized
+    /// best-effort here at each comparison ([`exclusion_base`]), so the exclude
+    /// globs — which are written
     /// relative to the manifest directory — are matched against the path the
     /// manifest's author wrote. A manifest reached through a symlink, or named
     /// without a directory component so that its parent is `""`, both used to

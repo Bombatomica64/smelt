@@ -527,9 +527,11 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `new ctor(args)` where `ctor` is a local binding. A binding with a
-    /// function type lowers statically; any other bound name takes the dynamic
-    /// `Construct` path, and `None` is returned only when the name is not a local
-    /// binding, so the caller can fall through to the stdlib/class dispatch.
+    /// function type whose return type is concrete lowers statically (a
+    /// `ClosureCall`); one whose return type is `unknown` or a type parameter,
+    /// and any other bound name, takes the dynamic `Construct` path. `None` is
+    /// returned only when the name is not a local binding, so the caller can
+    /// fall through to the stdlib/class dispatch.
     ///
     /// A constructor-type annotation lowers to an ordinary `Type::Function` (see
     /// `constructor_type_to_hir`), so the callee is reached as a VALUE — but
@@ -537,11 +539,12 @@ impl ModuleBuilder<'_> {
     /// calling it. JavaScript `[[Construct]]` allocates an object linked to the
     /// callee's `prototype`, runs the callee with that object as its receiver,
     /// and keeps the allocated object unless the callee returned one of its
-    /// own; none of that happens for a plain call. So this lowers to
-    /// `ExprKind::Construct`, not `ExprKind::ClosureCall`, in both the
-    /// concretely-typed and the dynamic case. When the binding is present but
-    /// is *not* a callable value, it takes the dynamic `Construct` path and returns
-    /// `unknown`.
+    /// own; none of that happens for a plain call. So a callee whose declared
+    /// return type is erased (`unknown`, a type parameter) lowers to
+    /// `ExprKind::Construct`, while a callee with a concrete return type is a
+    /// typed constructor slot and lowers to `ExprKind::ClosureCall`. When the
+    /// binding is present but is *not* a callable value, it takes the dynamic
+    /// `Construct` path and returns `unknown`.
     ///
     /// The result type stays the callable's declared return type where there is
     /// one, and that type also decides WHICH operation this is: see
@@ -1073,10 +1076,12 @@ impl ModuleBuilder<'_> {
     /// even though they share the registry.
     pub(crate) fn marker_only_builtin_marker(name: &str) -> Option<&'static str> {
         match name {
-            // `Request` joins the marker-only set and is reachable only via
-            // `host_override`, not plain `new`; es-toolkit uses it only to probe host
-            // identity (`isPlainObject(new Request(url))`), reading
-            // none of its structural surface, exactly like the other entries here.
+            // `Request` joins the marker-only set. A plain `new Request(url)` (the
+            // spelling es-toolkit uses to probe host identity, as in
+            // `isPlainObject(new Request(url))`) is lowered earlier by
+            // `request_constructor_expression`; this entry serves the
+            // `host_override` native-construction fallback and the guard
+            // recognizers in `guards.rs`.
             "WeakMap" | "WeakSet" | "Request" => smelt_stdlib::host_object_marker(name),
             _ => None,
         }

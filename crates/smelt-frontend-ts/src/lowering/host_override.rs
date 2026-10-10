@@ -305,9 +305,9 @@ impl ModuleBuilder<'_> {
             // The concrete family first: an overridden global that names any
             // of the family's spellings — the eleven views,
             // `ArrayBuffer`/`SharedArrayBuffer`, `DataView` — constructs the
-            // Rust value. The remaining hosts (Blob, File, Buffer, byte-buffer hosts, and
-            // marker-only builtins) are matched by the explicit arms below; the
-            // erased record is the fallback.
+            // Rust value. Blob, File and Buffer are matched by the explicit arms
+            // above; the byte-buffer hosts and the marker-only builtins by the
+            // arms below. A name none of them recognizes answers `Ok(None)`.
             _ if self.is_typed_array_family_name(name) => {
                 self.typed_array_constructor_expression(new_expr, name, body)?
             }

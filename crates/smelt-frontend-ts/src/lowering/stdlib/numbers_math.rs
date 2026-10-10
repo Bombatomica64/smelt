@@ -1,4 +1,8 @@
-//! Lowering helpers for numeric, `Math`, `Number`, and `Intl` JavaScript call forms.
+//! Lowering helpers for numeric, `Math`, `Number`, and `Intl` JavaScript call
+//! forms, plus regular-expression replacement (`.replace(re, ..)`), the
+//! `new URL(..)` field and `toString` helpers, `String.fromCharCode` /
+//! `String.fromCodePoint`, and the `process.version.match(..)` /
+//! `process.cwd()` helpers.
 
 use crate::lowering::{ModuleBuilder, stdlib_dispatch};
 use crate::SmeltError;

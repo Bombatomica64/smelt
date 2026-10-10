@@ -664,9 +664,11 @@ fn run_finalization_passes(mir: &mut Mir) {
 ///
 /// Such builtins include `JSON.parse`, whose result is a dynamic
 /// JavaScript value (`Type::Unknown`) regardless of the destination it is
-/// asserted into, and the URI decoders, which answer a `String`. Collecting the
-/// types first and interning afterwards keeps this a scan rather than a
-/// hard-coded pair, so a third fallible builtin needs only its own arm.
+/// asserted into; the URI decoders and the base64 builtins, which answer a
+/// `String`; and the `DataView` accessors, which answer a number (read) or
+/// `undefined` (write). Collecting the types first and interning afterwards
+/// keeps this one scan over every call terminator, so another fallible
+/// builtin needs only its own arm.
 fn intern_fallible_builtin_return_types(mir: &mut Mir) {
     let mut needed = Vec::new();
     for terminator in mir

@@ -1508,19 +1508,18 @@ impl ModuleBuilder<'_> {
             ));
         };
         // A STATELESS regex asks a yes/no question, and `is_match` is that
-        // question. The `exec`-and-compare path below exists for the stateful
-        // one (stateful receivers route here through the `RegexTest` runtime test path): `test` on a `/g` or `/y` regex reads and advances `lastIndex`
-        // (`/a/g` over `"aa"` answers true, true, then FALSE and resets), so it
-        // has to run the same search `exec` does. Without a flag Node leaves
-        // `lastIndex` at 0 and the two are indistinguishable — except in the
-        // generated Rust, where `exec` builds a match object and then erases it
-        // to `SmeltUnknown` purely to compare it against null. That is two
-        // avoidable erasures per call site in the commonest regex shape in
-        // JavaScript. See `blocker-logs/regex-literal-test-erases-match.md`.
+        // question. A stateful one is lowered below to `ExprKind::RegexTest`,
+        // the runtime's own `test`: `test` on a `/g` or `/y` regex reads and
+        // advances `lastIndex` (`/a/g` over `"aa"` answers true, true, then
+        // FALSE and resets), so it has to run the same search `exec` does.
+        // Without a flag Node leaves `lastIndex` at 0 and the two are
+        // indistinguishable, so the stateless spelling takes the cheaper
+        // `RegexIsMatch`. See `blocker-logs/regex-literal-test-erases-match.md`.
         //
         // Only a spelling whose flags are VISIBLE here can take the fast path.
-        // A regex reached through a variable keeps `exec`, because its flags are
-        // a runtime property of the value and a `/g` regex must stay stateful.
+        // A `RegExp` receiver reached through a variable takes `RegexTest`,
+        // because its flags are a runtime property of the value and a `/g`
+        // regex must stay stateful.
         if Self::regexp_test_is_stateless(&member.object) {
             let Some(pattern) = self.regexp_pattern_expression(&member.object, body, true)? else {
                 return Ok(None);

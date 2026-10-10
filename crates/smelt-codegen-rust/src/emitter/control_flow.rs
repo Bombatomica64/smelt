@@ -1397,10 +1397,11 @@ impl FunctionEmitter<'_> {
                 let exception_decl = self.local_decl(exception_local)?;
                 let value = match self.mir.types.get(exception_decl.ty) {
                     Some(Type::String) => "__smelt_error".to_owned(),
-                    // The recovered panic message is presented through the
-                    // shared exception-payload record (see
-                    // `caught_panic_error_value_expr` for why this is a real
-                    // dynamic boundary rather than avoidable erasure).
+                    // The recovered panic is presented through the shared
+                    // exception-payload record, built by
+                    // `caught_panic_error_value_expr`; see
+                    // `thrown::panic_payload_record_expr` for why this is a real
+                    // dynamic boundary rather than avoidable erasure.
                     // The class comes from the panic payload, not a hard-coded
                     // `Error`: a `URIError` routed through the panic channel
                     // must still answer `error.name === 'URIError'`. See
@@ -1465,8 +1466,10 @@ impl FunctionEmitter<'_> {
             let exception_decl = self.local_decl(exception_local)?;
             // This arm is the real Smelt error channel, so an erased catch
             // binding recovers the thrown payload rather than a rebuilt message
-            // record. (The `Err(__smelt_panic)` arm below stays text-only: a
-            // Rust panic never carried a JavaScript value in the first place.)
+            // record. (The `Err(__smelt_panic)` arm below binds an `unknown`
+            // catch variable through `smelt_panic_error_value`, which answers the
+            // value a panic-routed throw parked in `SMELT_PANIC_VALUE`, and a
+            // class-and-message record only for a panic with no parked value.)
             let value = self.caught_error_value_text(exception_decl.ty, "__smelt_error")?;
             out.push_str(&format!("            let {exception_name} = {value};\n"));
             self.mark_local_declared(exception_local);

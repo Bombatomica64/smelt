@@ -187,8 +187,9 @@ impl ModuleBuilder<'_> {
         // generated Rust interface struct stores the ordinary data/method
         // fields, but it also needs a slot for the underlying callable so a
         // value typed as this interface can be invoked. Append a synthetic
-        // `__smelt_call` storage field whose type comes from
-        // `overloaded_call_signature_slot_type`,
+        // `__smelt_call` storage field whose type is the first call signature's
+        // `Type::Function` (for a single signature or same-shape overloads), or
+        // else what `overloaded_call_signature_slot_type` answers for the set,
         // so the struct def, `Default`, `into_smelt_unknown`, and struct-literal
         // construction all pick it up through the existing field machinery. The
         // erased callable is what `into_smelt_unknown` writes under the matching
@@ -288,8 +289,11 @@ impl ModuleBuilder<'_> {
     /// (`interface F { (x: T): R; … }`) describes a value that is invoked like a
     /// function while still carrying its declared data/method fields. The
     /// generated Rust interface struct cannot itself be a closure, so the
-    /// underlying callable is kept in a dedicated `__smelt_call` field whose type
-    /// comes from `overloaded_call_signature_slot_type`. Call routing invokes a value of this
+    /// underlying callable is kept in a dedicated `__smelt_call` field. Its type
+    /// is `Type::Function` of the first signature when there is one signature
+    /// or every overload has the same shape (`overloaded_call_signature_slot_type`
+    /// answers `None`), and that helper's merged or erased slot type otherwise.
+    /// Call routing invokes a value of this
     /// interface by erasing it (`into_smelt_unknown`, which writes this field
     /// under the `"__smelt_call"` object key) and extracting that callable.
     ///

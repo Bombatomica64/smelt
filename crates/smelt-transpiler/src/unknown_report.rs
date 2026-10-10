@@ -611,10 +611,13 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // `symbol_value_is_a_boundary` below.
         "SmeltUnknown::Symbol",
         // Recovering a symbol VALUE from the property key it indexed:
-        // `Object.getOwnPropertySymbols`, `Reflect.ownKeys` and erased-Map
-        // enumeration hand a stored key back to the program AS A SYMBOL, and
-        // The emitted prelude helper `smelt_own_symbol_key_value` is the one inverse that does
-        // it (round 10; see `blocker-logs/remeda-symbol-key-regression.md`).
+        // `Object.getOwnPropertySymbols` and erased-Map enumeration hand a
+        // stored key back to the program AS A SYMBOL through the emitted
+        // prelude helper `smelt_own_symbol_key_value`, the inverse whose call
+        // sites appear in program code (round 10; see
+        // `blocker-logs/remeda-symbol-key-regression.md`). `Reflect.ownKeys`
+        // uses the wider prelude helper `smelt_key_symbol_value` instead, which
+        // also maps well-known keys and is called only inside the prelude.
         // The value it produces is a `SmeltUnknown::Symbol` -- the marker
         // directly above -- for exactly the reason given there: a fresh runtime
         // identity has no static carrier. The tag now sits INSIDE the helper, so
@@ -1262,8 +1265,10 @@ mod tests {
     ///
     /// The marker is the guard's own shape, so it covers both spellings the
     /// emitter produces (plain and `Option` receiver) while an erased local, an
-    /// erased parameter, and a brand probe that is NOT a narrowing guard all
-    /// stay avoidable.
+    /// erased parameter, and a `contains_key` that is not a `value`-bound brand
+    /// guard all stay avoidable. A brand probe that is NOT a narrowing guard is
+    /// not what classifies its line: where the line also carries a boundary
+    /// adapter (`into_smelt_unknown`), the adapter does, so it is not avoidable.
     #[test]
     fn host_brand_instanceof_guard_is_a_boundary() {
         let guard = "    _smelt_tmp_3 = matches!(error.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_domexception\"));";

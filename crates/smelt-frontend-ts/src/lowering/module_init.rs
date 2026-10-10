@@ -1515,8 +1515,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// reads lower to `GlobalGet` and writes to `GlobalSet`; the item is added
     /// to the module's item list so exported globals are visible cross-module.
     /// The current rules are enforced here with named blocker errors: a declaration
-    /// with no initializer is a blocker, a non-literal initializer is recorded as
-    /// Pending, a nested write is a blocker, and writes through a binding lift it.
+    /// with no initializer is a blocker; a non-literal initializer is recorded as
+    /// `Pending` when the binding carries a type annotation and is a blocker
+    /// without one; a nested write (`x[a][b] = v`) is a blocker only for a
+    /// non-`Copy` global; and writes through a binding lift it.
     pub(super) fn collect_mutable_globals(
         &mut self,
         program: &Program<'_>,

@@ -236,8 +236,12 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Inserts ordered instance initializer calls at constructor entry, after the
-    /// field assignments.
+    /// Inserts ordered instance initializer calls into a constructor body.
+    ///
+    /// A field or accessor initializer goes right after the assignment to its own
+    /// field, or at the end of the original body when there is no such
+    /// assignment; every other initializer goes at constructor entry (position
+    /// 0). Calls at the same position keep their given order.
     pub(super) fn prepend_materialized_initializer_calls(
         &mut self,
         constructor: smelt_hir::ItemId,

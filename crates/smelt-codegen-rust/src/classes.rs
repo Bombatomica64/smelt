@@ -251,10 +251,12 @@ pub(crate) fn class_impl_generics_text(
 ///
 /// This increment lowers a free function to real Rust generics
 /// (`fn identity<T>(x: T) -> T`) only when doing so is provably sound for Rust's
-/// type inference at every call site. It is an all-or-nothing decision per
-/// function: if any type parameter fails a safety check, the whole function
-/// falls back to full erasure (all its type parameters render as
-/// `SmeltUnknown`), matching pre-#99 behavior.
+/// type inference at every call site. Lifting is decided per type parameter
+/// (see [`liftable_type_params`]): a parameter that fails a per-parameter check
+/// erases alone while its siblings can still lift. Only the two function-wide
+/// gates — `called_with_erased_type_param_argument` and
+/// `callback_only_params_are_pinned_at_every_call_site` — erase every type
+/// parameter at once (all of them render as `SmeltUnknown`).
 ///
 /// A type parameter is emitted as a real Rust generic only when EVERY condition
 /// below holds for it. A function emits real generics when at least one of its

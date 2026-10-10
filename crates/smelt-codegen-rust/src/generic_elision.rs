@@ -341,9 +341,10 @@ fn declare(carried: &mut HashMap<Symbol, Vec<bool>>, name: Symbol, arity: usize)
 
 /// Returns whether position `index` of `name` is carried in the working map.
 ///
-/// A name the map does not know is excluded: a declared non-generic class keeps
-/// whatever arguments it is written with and counts, while an undeclared name (a
-/// stdlib class, an imported class) does not.
+/// The map holds only generic declarations. A name absent from it counts only
+/// if the crate declares it: a declared non-generic class keeps whatever
+/// arguments it is written with and counts, while an undeclared name (a stdlib
+/// class, an imported class) does not.
 fn position_is_carried(
     carried: &HashMap<Symbol, Vec<bool>>,
     declared: &HashSet<Symbol>,

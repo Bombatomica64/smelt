@@ -127,11 +127,11 @@ impl FunctionEmitter<'_> {
 
     /// Whether a value of this type is a `HeadersInit` the spec's conversion models.
     ///
-    /// The predicate half of [`Self::headers_conversion_text`]: it admits the Dict
-    /// and List shapes of `HeadersInit`, so a coercion seam can ask whether the
-    /// conversion exists
-    /// before committing to it and the two cannot disagree about which shapes
-    /// `HeadersInit` admits. A value that already IS a `Headers` is excluded —
+    /// The predicate half of [`Self::headers_conversion_text`]: it admits only the
+    /// Dict and List shapes of `HeadersInit`, a subset of what the conversion
+    /// accepts (the conversion also takes union and optional initializers), so a
+    /// coercion seam can ask whether a conversion exists before committing to
+    /// it. A value that already IS a `Headers` is excluded —
     /// there is nothing to convert, and the ordinary identity path answers it.
     pub(super) fn is_headers_init_type(&self, ty: TypeId) -> Result<bool, EmitError> {
         if self.is_headers_class_type(ty)? {
@@ -1117,11 +1117,17 @@ impl FunctionEmitter<'_> {
     /// Render the `body` init key as a `SmeltBody`.
     ///
     /// `default_text` carries the absent meaning for the same reason
-    /// [`Self::init_headers_text`]'s does. For the body it is load-bearing: an
-    /// absent `body` in `new Request(source, init)` takes the `default_text`
-    /// (take_from_source) default, and the source's HANDLE is shared rather than
-    /// copied only for an init body that is itself a `Request`, so consuming the
-    /// copy's body is observable on the source.
+    /// [`Self::init_headers_text`]'s does. For the body it is load-bearing, and
+    /// there are two separate cases:
+    ///
+    /// - An absent `body` in `new Request(source, init)` takes `default_text`,
+    ///   which for a `Request` source is
+    ///   `SmeltBody::take_from_source(&source.body())`: the copy shares the
+    ///   source's payload under a fresh used flag, and the source is marked
+    ///   used at once.
+    /// - An init `body` that is itself a `Request` (with `shares_a_request_body`
+    ///   set) shares that request's body HANDLE (`{body}.body()`), so consuming
+    ///   the copy's body is observable on that request.
     fn init_body_text(
         &self,
         operand: Option<&Operand>,

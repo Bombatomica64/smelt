@@ -3300,10 +3300,13 @@ impl FunctionEmitter<'_> {
     /// Emit a class-instance test.
     ///
     /// Smelt keeps this as an MIR rvalue instead of folding it in the
-    /// TypeScript frontend so future dynamic representations can swap this
-    /// implementation for a runtime tag check. With today's concrete class
-    /// lowering, the operand type is statically known, so codegen emits a
-    /// boolean after the operand has already been evaluated by MIR lowering.
+    /// TypeScript frontend, and codegen picks the check from the operand's
+    /// storage. A concrete operand answers from its static type. An erased
+    /// operand (see `instanceof_operand_is_dynamic`) answers at runtime from
+    /// the identity markers on the value (`__smelt_error`, the
+    /// `host_instance_markers` probe, ...). A host constructor the crate
+    /// reassigns answers by reading its override slot. In every case the
+    /// operand has already been evaluated by MIR lowering.
     pub(super) fn instance_of_text(
         &self,
         value: &Operand,
@@ -3497,10 +3500,9 @@ impl FunctionEmitter<'_> {
         // / `SmeltUnknown::String` (never an `Object`), so the marker check is the
         // correct `false`, while a boxed wrapper object carrying the dedicated
         // marker resolves to `true`.
-        // AbortController and AbortSignal are helper-backed host-object registry
-        // entries (they are runtime primitives with their own markers). Every other modeled host
-        // object and boxed primitive wrapper resolves its marker through the
-        // shared `smelt_stdlib::host_object` registry, so this `instanceof` path
+        // Every modeled host object and boxed primitive wrapper — including the
+        // helper-backed AbortController/AbortSignal entries — resolves its marker
+        // through the shared `smelt_stdlib::host_object` registry, so this `instanceof` path
         // cannot drift from the frontend construction path or the runtime for-in
         // filter. (`ArrayBuffer`/`Blob`/`Number` are already handled by dedicated
         // branches above; sourcing them here too is harmless since those

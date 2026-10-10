@@ -145,7 +145,8 @@ test('the array branch of a recursive converter runs', () => {
 fn arrow_predicate_typeof_narrowing_answers_at_runtime() {
     // The `countBy` predicate fixture is the shape of es-toolkit's `omitBy`/`pickBy`:
     // a union-typed arrow predicate decides each entry. A predicate folded to a
-    // constant keeps everything or nothing, which both fixtures catch.
+    // constant counts every entry or none, which the three tests (expecting 3,
+    // 3 and 2 of the five entries) catch.
     let source = r"
 import { test, expect } from 'vitest';
 

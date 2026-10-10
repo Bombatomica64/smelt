@@ -367,8 +367,9 @@ fn emit_multipart_helpers(writer: &mut CodeWriter) {
     // occur in the payload. The JS reference implementations mint a random one;
     // this uses the same monotonic object-id counter the runtime already has,
     // so it is unique within the program without pulling in a random source a
-    // program might not otherwise pay for. The `----SmeltFormBoundary` prefix
-    // is the shape every runtime uses and keeps it out of ordinary text.
+    // program might not otherwise pay for. The leading `----` is the shape
+    // runtimes commonly use; `SmeltFormBoundary` is Smelt's own token. Together
+    // they keep the boundary out of ordinary text.
     writer.line("/// A fresh `multipart/form-data` boundary, unique in this program.");
     writer.line("#[allow(dead_code)]");
     writer.line(

@@ -1746,8 +1746,9 @@ impl ModuleBuilder<'_> {
     /// CONDITIONALLY evaluated position.
     ///
     /// [`CallbackExprKind::Throw`] and `CallbackExprKind::AssignCapture` are the
-    /// two callback expression kinds that lower to body STATEMENTS (`Stmt::Throw`)
-    /// rather than to values, so each runs where it is *emitted*, not where its
+    /// two callback expression kinds that push a body STATEMENT — `Throw` pushes
+    /// `Stmt::Throw`, `AssignCapture` pushes `Stmt::Assign` (and then answers the
+    /// assigned value) — so each runs where it is *emitted*, not where its
     /// value is *used*. Inside a
     /// ternary arm those two places differ: the statement hoists out of the
     /// guard and the throw becomes unconditional.

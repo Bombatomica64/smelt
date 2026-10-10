@@ -677,9 +677,11 @@ impl ModuleBuilder<'_> {
     /// numeric type-parameter constraint, or a union whose arms are all numeric),
     /// or an optional-numeric surface (`number | undefined`), is converted with a
     /// JS `Number(...)` cast so the emitted normalized-index arithmetic sees a
-    /// concrete `f64`. Erased (`unknown`), class, and type-parameter indexes are
-    /// coerced with the same JS `Number(...)` cast; only other non-numeric types
-    /// (a string or object, for example) are unsupported.
+    /// concrete `f64`. Erased (`unknown`), class (which includes a typed object
+    /// or interface), and type-parameter indexes, and unions or optionals with
+    /// such an arm, are coerced with the same JS `Number(...)` cast; only other
+    /// non-numeric types (a string, a list or a `Record`, for example) are
+    /// unsupported.
     fn coerce_at_index_operand(
         &mut self,
         index: smelt_hir::ExprId,

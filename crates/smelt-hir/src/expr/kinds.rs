@@ -573,7 +573,7 @@ pub enum ExprKind {
     ///
     /// One node for all twenty accessors, carrying the DIRECTION and the
     /// element type the registry resolved from the source member name. A
-    /// variant per accessor would be eighteen ways to say one operation, and
+    /// variant per accessor would be twenty ways to say one operation, and
     /// the element type is named rather than copied
     /// ([`smelt_stdlib::TypedArrayElement`]) so the accessor rule, the emitted
     /// kind enum and the view classes keep one element table.

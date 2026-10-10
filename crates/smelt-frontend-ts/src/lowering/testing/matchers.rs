@@ -2096,8 +2096,8 @@ impl ModuleBuilder<'_> {
     /// `actual != null && contains(actual!, expected)`: the presence test
     /// guards a `TypeAssert` to the inner type, and the inner containment is
     /// whatever [`Self::contains_expr`] picks for that type — the typed string,
-    /// list, set or tuple path, never an erased one; an erased inner type takes
-    /// `erased_contains_expr`. The `Conditional` keeps
+    /// list, set or tuple path, or `erased_contains_expr` for an erased inner
+    /// type. The `Conditional` keeps
     /// the unwrap from running when the value is absent.
     fn optional_contains_expr(
         &mut self,

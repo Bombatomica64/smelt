@@ -553,7 +553,7 @@ pub fn typescript_call_rule(receiver: Option<&str>, member: &str) -> Option<Rule
 #[must_use]
 pub fn typescript_method_rule(receiver: TypeScriptReceiverKind, member: &str) -> Option<RuleId> {
     // `DataView`'s twenty accessors are a RULE over the element table, not
-    // eighteen entries: `crate::data_view_accessor` reads the direction and
+    // twenty entries: `crate::data_view_accessor` reads the direction and
     // the width straight off the name, so adding an element type would add its
     // accessors without touching this table.
     if receiver == TypeScriptReceiverKind::DataView

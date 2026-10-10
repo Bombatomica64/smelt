@@ -1,6 +1,6 @@
 //! TypeScript lowering for `node:http`'s server surface.
 //!
-//! Four entry points, registered where the other modeled receivers are:
+//! Five entry points, registered where the other modeled receivers are:
 //!
 //! * [`ModuleBuilder::http_create_server_call`] in the builtin call-handler
 //!   chain, for `createServer(handler)`;

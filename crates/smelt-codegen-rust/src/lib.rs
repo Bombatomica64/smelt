@@ -3440,7 +3440,7 @@ fn emit_source_with_free_function_router(
         // spy resolves the same member the program would have called.
         writer.line("/// The synthesized host method a member read resolves to, if the object");
         writer.line("/// carries a host marker and has no OWN member of that name.");
-        // Each of the five modeled host classes with an erasure adapter (Headers,
+        // Each of the five host classes with a run-time member resolver (Headers,
         // URLSearchParams, FormData, TextEncoder, TextDecoder) contributes its own
         // resolver, and only when its prelude is emitted at all: the fetch
         // types are pay-for-use, so a crate that never mentions `Headers`
@@ -6893,9 +6893,8 @@ fn emit_own_keys_projection(writer: &mut CodeWriter) {
 ///
 /// Typed accessors (`group`, `named_group`, `index`, `input`, `len`) let
 /// callers read the shape without any dynamic tagging. When a match value has
-/// to cross a genuinely dynamic boundary (the erased `unknown` result type the
-/// frontend still assigns for `exec`/`matchAll` consumers), it is converted
-/// with the explicit [`IntoSmeltUnknown`] adapter — the single place where the
+/// to cross a genuinely dynamic boundary (an `unknown`-typed sink), it is
+/// converted with the explicit [`IntoSmeltUnknown`] adapter — the single place where the
 /// concrete match is intentionally erased.
 fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool, needs_smelt_list: bool) {
     writer.line("/// A concrete JavaScript RegExp match result (numbered groups, named");
@@ -8136,10 +8135,9 @@ pub(crate) fn type_supports_from_unknown(
             | Type::TypeParam { .. },
         ) => true,
         // A class is recoverable only when *this* program generates it, because
-        // that is what now emits `SmeltFromUnknown`. `Type::Class` also spells
-        // the runtime builtins are excluded because the program does not generate them: `TemplateOptions.escape` is a `RegExp`, and
-        // `SmeltRegExp` has no inbound impl — so admitting every class emitted a
-        // call that does not compile.
+        // that is what now emits `SmeltFromUnknown`. `Type::Class` also names
+        // runtime builtins, which this program does not generate, so they are
+        // excluded.
         //
         // A *reference* class is generated too, as an `Rc<RefCell<Inner>>`
         // newtype by `emit_reference_class_storage`. It now carries an inbound

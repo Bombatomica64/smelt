@@ -45,8 +45,8 @@
 //!
 //! When `cargo check` exposes a real bug in emitted code, the offending case is
 //! excluded from the green corpus (see [`KNOWN_COMPILE_FAILURES`]) with a
-//! reference to `blocker-logs/compile-snapshots-findings.md`, rather than the
-//! emitter being patched here. This test tier is additive only.
+//! comment describing the defect, rather than the emitter being patched here.
+//! This test tier is additive only.
 
 #![expect(
     clippy::similar_names,
@@ -93,12 +93,11 @@ struct Case {
 /// Cases known to emit Rust that does not currently compile.
 ///
 /// Each entry MUST describe a known defect. These names are skipped by the
-/// green tier so it stays passing; the bug is tracked in the log rather than
-/// fixed in this additive change.
+/// green tier so it stays passing; the bug is described at the entry rather
+/// than fixed in this additive change.
 const KNOWN_COMPILE_FAILURES: &[&str] = &[
     // async function bodies emit a bare `return <expr>` against a synthesized
     // `Result<..>` return type instead of `return Ok(<expr>)`.
-    // See blocker-logs/compile-snapshots-findings.md (finding 1).
     "async_await",
 ];
 

@@ -383,9 +383,12 @@ pub enum MutableGlobalInit {
 /// lower to [`crate::ExprKind::GlobalGet`] and writes to
 /// [`crate::ExprKind::GlobalSet`], both referencing this item's
 /// [`crate::ItemId`]. MIR lowering collects these items into `Mir::globals`,
-/// and codegen emits one thread-local cell per global. Non-mutated module
-/// bindings keep the existing inline/const-item path and never become a
-/// `MutableGlobalItem`.
+/// and codegen emits one thread-local cell per global. A non-mutated module
+/// binding (a `const` included) also becomes a `MutableGlobalItem` when an item
+/// body reads it and it has no folded value, so its storage is shared rather
+/// than its initializer re-run per use site (the frontend's
+/// `collect_class_value_globals`); other non-mutated bindings keep the existing
+/// inline/const-item path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MutableGlobalItem {
     /// The name of the binding.

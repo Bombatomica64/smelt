@@ -225,7 +225,8 @@ impl ModuleBuilder<'_> {
     /// symbol-keyed property IS stored (under the `__smelt_symbol:` key form),
     /// so it is not interchangeable with `Object.keys`. Its declared result is
     /// `(string | symbol)[]`, which is why that arm alone yields
-    /// `List<Unknown>`; see `dict_projection_result_ty`.
+    /// `List<Unknown>`; see the `DictProjectionOp::OwnKeys` arm of the
+    /// result-type match below.
     pub(in crate::lowering) fn object_projection_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,

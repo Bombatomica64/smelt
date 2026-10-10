@@ -2619,9 +2619,9 @@ impl<'mir> FunctionEmitter<'mir> {
     /// type-parameter environment.
     ///
     /// This is used for class and interface storage emission, where MIR has
-    /// already retained the declaring type parameter list. Other contexts keep
-    /// falling back to `SmeltUnknown` for type parameters, because function-level
-    /// generic declarations are not represented in MIR.
+    /// already retained the declaring type parameter list. A type parameter
+    /// outside the supplied scope renders as `SmeltUnknown`. Function bodies
+    /// render under their own lexical scope (`MirFunction::type_params`).
     pub(crate) fn type_text_for_with_scoped_type_params(
         mir: &Mir,
         context: &EmitContext,

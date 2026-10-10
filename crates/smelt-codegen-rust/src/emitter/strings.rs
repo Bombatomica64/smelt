@@ -53,12 +53,9 @@ impl FunctionEmitter<'_> {
     /// Converts one of the four JavaScript URI transcoding globals to a call to
     /// its runtime helper.
     ///
-    /// The encoders are total. The decoders return `None` for input ECMA-262
-    /// rejects with a `URIError`, and that failure is currently rendered as an
-    /// `.expect(...)` — a PANIC, not a catchable throw. That is deliberate and
-    /// matches the existing `JSON.parse` emission. Only the INFALLIBLE direction
-    /// reaches this rvalue path; the decoders lower through the terminator path below.
-    /// `decodeURI`/`decodeURIComponent` lower to
+    /// The encoders are total, and only that INFALLIBLE direction reaches this
+    /// rvalue path. The decoders never do: ECMA-262 rejects malformed input
+    /// with a `URIError`, so `decodeURI`/`decodeURIComponent` lower to
     /// `Terminator::Call { Callee::Builtin(BuiltinFn::UriDecode(op)), unwind }`
     /// so their `URIError` is catchable — a fallible rvalue has no unwind edge,
     /// which used to leave a `try`/`catch` around a decode with no predecessor

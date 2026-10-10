@@ -12,7 +12,8 @@ impl FunctionEmitter<'_> {
     /// Emit one `WebCrypto` call.
     ///
     /// `dest_ty` is threaded through `randomUUID`, the one member whose result a
-    /// caller can coerce (it answers a `String`); `digest` answers a byte view; the
+    /// caller can coerce (it answers a `String`); `digest` answers a promise of an
+    /// `ArrayBuffer` (a `SmeltFuture` resolving to a `SmeltArrayBuffer`); the
     /// in-place fill answers the view it was handed, whose type the source
     /// already fixed, so there is nothing to coerce it to.
     pub(super) fn crypto_op_text(

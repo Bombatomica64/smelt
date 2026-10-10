@@ -1151,11 +1151,11 @@ fn blocks() -> Vec<Block> {
     });
 
     // Caller genericity against what the call site hands over and how generic
-    // the callee is. Each block defined before this one builds its callback argument *inside*
-    // the call site, where the closure has a known concrete type, and pins the
-    // call site itself to non-generic — so no other block can produce a
-    // callback that reaches the callee already behind the caller's own
-    // `F{n}: ?Sized` bound. That shape shipped: it is the `E0277` the rescued
+    // the callee is. Every block defined before this one pins the calling
+    // function to `Caller::Concrete` (the `BASE` caller), even where it sweeps
+    // `ArgKind::CallerParam` — so no other block puts the call site in a
+    // generic frame, where a callback reaches the callee already behind the
+    // caller's own `F{n}: ?Sized` bound. That shape shipped: it is the `E0277` the rescued
     // fixtures `concrete_callback_sunk_into_method` and
     // `generic_maker_forwarded_into_sink` were kept for, and the cell that
     // reproduces it is `g0_val_req_rbare_m0_cparam_s1_cgen` — a concrete
@@ -1551,7 +1551,9 @@ fn run_grid(shapes: &[Shape], full: bool) {
 /// One `(axis name, axis value)` label, as [`Shape::axis_values`] yields them.
 type AxisValue = (&'static str, &'static str);
 
-/// Asserts the shape of the space itself: its size and unique names.
+/// Asserts the shape of the space itself: unique shape names, a fast tier that
+/// is a subset of the grid and covers every axis value the grid contains, and
+/// the locked `GRID_SIZE` and `FAST_TIER_SIZE` counts.
 ///
 /// Compiles nothing, so it runs in a plain `cargo test`. The asserted sizes are
 /// deliberate locks: changing a pruning rule or a block must show up as a diff

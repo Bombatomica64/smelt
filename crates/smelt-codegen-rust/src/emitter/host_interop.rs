@@ -99,8 +99,8 @@ impl FunctionEmitter<'_> {
     /// lowerings in sync.
     ///
     /// The *kind* string is the class's registry marker with its `__smelt_`
-    /// prefix stripped, which is the same discriminator
-    /// the emitted `smelt_reflected_marker_class` hands back for a record.
+    /// prefix stripped (`"dataview"` for `__smelt_dataview`), which is the key
+    /// the emitted `smelt_reflected_construct` dispatches on.
     pub(super) fn host_construct_text(
         &self,
         class_name: &str,
