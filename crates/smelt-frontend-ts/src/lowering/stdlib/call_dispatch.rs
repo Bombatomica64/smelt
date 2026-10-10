@@ -1771,30 +1771,24 @@ impl<'builder> ModuleBuilder<'builder> {
         // kept its rest parameter in the emitted closure while the call site lost
         // the argument (E0057). A nullary callee is the shape the hint fits
         // exactly, and it is the shape contextual typing is for.
-        let skip_hint = match &call.callee {
-            Expression::FunctionExpression(function) => Some(
-                function.return_type.is_some()
-                    || !function.params.items.is_empty()
-                    || function.params.rest.is_some(),
-            ),
-            Expression::ArrowFunctionExpression(arrow) => Some(
-                arrow.return_type.is_some()
-                    || !arrow.params.items.is_empty()
-                    || arrow.params.rest.is_some(),
-            ),
-            Expression::ParenthesizedExpression(paren) => match &paren.expression {
-                Expression::FunctionExpression(function) => Some(
-                    function.return_type.is_some()
-                        || !function.params.items.is_empty()
-                        || function.params.rest.is_some(),
-                ),
-                Expression::ArrowFunctionExpression(arrow) => Some(
-                    arrow.return_type.is_some()
-                        || !arrow.params.items.is_empty()
-                        || arrow.params.rest.is_some(),
-                ),
-                _ => None,
-            },
+        // One level of parentheses is looked through, as `(function () {})()`
+        // is written.
+        let unparenthesized_callee = match &call.callee {
+            Expression::ParenthesizedExpression(paren) => &paren.expression,
+            other => other,
+        };
+        let declares_signature =
+            |has_return_type: bool, params: &oxc::ast::ast::FormalParameters<'_>| {
+                has_return_type || !params.items.is_empty() || params.rest.is_some()
+            };
+        let skip_hint = match unparenthesized_callee {
+            Expression::FunctionExpression(function) => Some(declares_signature(
+                function.return_type.is_some(),
+                &function.params,
+            )),
+            Expression::ArrowFunctionExpression(arrow) => {
+                Some(declares_signature(arrow.return_type.is_some(), &arrow.params))
+            }
             _ => None,
         };
         let Some(skip_hint) = skip_hint else {
@@ -2629,34 +2623,50 @@ impl<'builder> ModuleBuilder<'builder> {
         if self.scope.is_bound(name) || self.items.contains_key(name) {
             return Ok(None);
         }
+        let operand = self.single_string_operand(name, call, body)?;
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Base64Transcode { op, operand },
+            ty: string_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower the only argument of a one-string builtin call (`btoa(s)`,
+    /// `encodeURI(s)`) to a `string` operand.
+    ///
+    /// A `string` passes through; a string-compatible or erased operand is
+    /// asserted to `string`; anything else, or any arity but one, is rejected
+    /// under the builtin's `name`.
+    fn single_string_operand(
+        &mut self,
+        name: &str,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         let [value_arg] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 format!("{name} requires exactly one string argument"),
             ));
         };
-        let string_ty = self.ctx.krate.types.intern(Type::String);
         let value = self.argument(value_arg, body)?;
         let value_ty = Self::expr_ty(body, value);
-        let operand = if self.ctx.krate.types.get(value_ty) == Some(&Type::String) {
-            value
-        } else if self.is_string_compatible_type(value_ty) || self.type_contains_unknown(value_ty) {
-            body.push_expr(Expr {
+        if self.ctx.krate.types.get(value_ty) == Some(&Type::String) {
+            return Ok(value);
+        }
+        if self.is_string_compatible_type(value_ty) || self.type_contains_unknown(value_ty) {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value },
                 ty: string_ty,
                 span: self.span(value_arg.span().start, value_arg.span().end),
-            })
-        } else {
-            return Err(SmeltError::unsupported(
-                self.span(value_arg.span().start, value_arg.span().end),
-                format!("{name} argument must be a string"),
-            ));
-        };
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Base64Transcode { op, operand },
-            ty: string_ty,
-            span: self.span(call.span.start, call.span.end),
-        })))
+            }));
+        }
+        Err(SmeltError::unsupported(
+            self.span(value_arg.span().start, value_arg.span().end),
+            format!("{name} argument must be a string"),
+        ))
     }
 
     /// Which of the four ECMA-262 URI transcoding globals `name` is, if any.
@@ -2699,32 +2709,8 @@ impl<'builder> ModuleBuilder<'builder> {
         if self.scope.is_bound(callee.name.as_str()) {
             return Ok(None);
         }
-        let name = callee.name.as_str();
-        let [value_arg] = call.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                format!("{name} requires exactly one string argument"),
-            ));
-        };
+        let operand = self.single_string_operand(callee.name.as_str(), call, body)?;
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let value = self.argument(value_arg, body)?;
-        let operand = if self.ctx.krate.types.get(Self::expr_ty(body, value)) == Some(&Type::String)
-        {
-            value
-        } else if self.is_string_compatible_type(Self::expr_ty(body, value))
-            || self.type_contains_unknown(Self::expr_ty(body, value))
-        {
-            body.push_expr(Expr {
-                kind: ExprKind::TypeAssert { value },
-                ty: string_ty,
-                span: self.span(value_arg.span().start, value_arg.span().end),
-            })
-        } else {
-            return Err(SmeltError::unsupported(
-                self.span(value_arg.span().start, value_arg.span().end),
-                format!("{name} argument must be a string"),
-            ));
-        };
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::UriTranscode { op, operand },
             ty: string_ty,
