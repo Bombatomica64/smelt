@@ -69,7 +69,7 @@ impl ConstRegistry {
         }
     }
 
-    /// Return whether `name` resolves to any folded constant value.
+    /// Return whether `name` resolves to a folded literal, object, or collection constant.
     ///
     /// Used both to decide that an import alias already has concrete metadata
     /// and to recognize a resolvable module reference.

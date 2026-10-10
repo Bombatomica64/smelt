@@ -20,7 +20,7 @@ use smelt_stdlib::RuleId;
 ///
 /// # Interface
 ///
-/// Two entry points are registered in the call-lowering chain in `call.rs`:
+/// Two entry points are registered in the call-lowering chain in `stdlib/call_dispatch.rs`:
 ///
 /// * [`Self::dispatch_collection_method`] is the primary entry. It recognizes
 ///   receiver/member pairs through `smelt-stdlib` method metadata and routes
@@ -40,7 +40,7 @@ impl ModuleBuilder<'_> {
     /// The frontend still owns typed HIR construction, but recognition of which
     /// receiver/member pairs are standard-library collection methods lives in
     /// `smelt-stdlib`. This is the primary collection-method entry registered in
-    /// `call.rs`'s builtin handler chain.
+    /// `stdlib/call_dispatch.rs`'s builtin handler chain.
     pub(in crate::lowering) fn dispatch_collection_method(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -538,7 +538,7 @@ impl ModuleBuilder<'_> {
 
     /// Lower supported `Map` projection calls into HIR collection operations.
     ///
-    /// Registered directly in `call.rs` in addition to being dispatched by
+    /// Registered directly in `stdlib/call_dispatch.rs` in addition to being dispatched by
     /// [`Self::dispatch_collection_method`], because the single-argument utility
     /// form (`keys(value)` etc.) reaches this function with a non-`Map` receiver.
     pub(in crate::lowering) fn map_projection_call(

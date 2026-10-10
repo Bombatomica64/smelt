@@ -4,18 +4,11 @@
 //! to an `Item::MutableGlobal`: reads lower to `ExprKind::GlobalGet` and writes
 //! desugar to `ExprKind::GlobalSet` (whose value is the stored value, so
 //! `++`/`+=` compose). Non-mutated module `let`s keep the existing inline
-//! paths, and the V1 constraints (literal initializer, primitive type) are
-//! explicit named blockers.
+//! paths, and the current blockers are explicit named errors: a declaration with no
+//! initializer, an unannotated non-literal initializer, and a nested write through a
+//! non-primitive module global.
 
 use super::*;
-
-/// Return whether any body in the crate contains an expression matching `pred`.
-fn crate_has(ctx: &HirCtx, pred: impl Fn(&ExprKind) -> bool) -> bool {
-    ctx.krate
-        .bodies
-        .iter()
-        .any(|body| body.exprs.iter().any(|expr| pred(&expr.kind)))
-}
 
 /// Return whether the crate contains a lifted mutable-global item.
 fn crate_has_mutable_global(ctx: &HirCtx) -> bool {
@@ -47,11 +40,11 @@ export function current(): number {
         "mutated module let should lift to an Item::MutableGlobal",
     );
     ensure!(
-        crate_has(&ctx, |kind| matches!(kind, ExprKind::GlobalGet { .. })),
+        crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::GlobalGet { .. })),
         "reads of a lifted binding should lower to GlobalGet",
     );
     ensure!(
-        crate_has(&ctx, |kind| matches!(kind, ExprKind::GlobalSet { .. })),
+        crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::GlobalSet { .. })),
         "`++` of a lifted binding should lower to GlobalSet",
     );
     Ok(())
@@ -218,7 +211,7 @@ export function toggle(): boolean {
         "mutated module var should lift like let",
     );
     ensure!(
-        crate_has(&ctx, |kind| matches!(kind, ExprKind::GlobalSet { .. })),
+        crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::GlobalSet { .. })),
         "assignment to a lifted var should lower to GlobalSet",
     );
     Ok(())
@@ -242,7 +235,7 @@ export function greet(): string {
         "non-mutated module let must not lift to a mutable global",
     );
     ensure!(
-        !crate_has(&ctx, |kind| matches!(
+        !crate_has_expr(&ctx, |kind| matches!(
             kind,
             ExprKind::GlobalGet { .. } | ExprKind::GlobalSet { .. }
         )),

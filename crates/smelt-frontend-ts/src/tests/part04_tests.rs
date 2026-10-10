@@ -1,3 +1,6 @@
+//! TypeScript lowering regression tests for calls, argument packing, object builtins,
+//! and callable shapes.
+
 use super::*;
 
 #[test]
@@ -1086,17 +1089,9 @@ const no = Array.isArray(1);
     Ok(())
 }
 
-/// Return whether any body in the crate holds an expression matching `pred`.
-fn any_expr_kind(ctx: &HirCtx, pred: impl Fn(&ExprKind) -> bool) -> bool {
-    ctx.krate
-        .bodies
-        .iter()
-        .any(|body| body.exprs.iter().any(|expr| pred(&expr.kind)))
-}
-
 /// Return whether any body in the crate holds a runtime array probe.
 fn any_array_probe(ctx: &HirCtx) -> bool {
-    any_expr_kind(ctx, |kind| {
+    crate_has_expr(ctx, |kind| {
         matches!(
             kind,
             ExprKind::UnknownIs {
@@ -1109,7 +1104,7 @@ fn any_array_probe(ctx: &HirCtx) -> bool {
 
 /// Return whether any body in the crate holds the folded boolean `value`.
 fn any_bool_literal(ctx: &HirCtx, value: bool) -> bool {
-    any_expr_kind(
+    crate_has_expr(
         ctx,
         |kind| matches!(kind, ExprKind::Literal(Literal::Bool(found)) if *found == value),
     )
@@ -1215,7 +1210,7 @@ export function isString(value: number | string): boolean {
     ] {
         let mut ctx = HirCtx::new();
         lower_ok(source, &mut ctx)?;
-        ensure!(any_expr_kind(&ctx, |kind| matches!(
+        ensure!(crate_has_expr(&ctx, |kind| matches!(
             kind,
             ExprKind::UnknownIs {
                 kind: smelt_hir::UnknownKind::String,
@@ -1244,7 +1239,7 @@ export function run(values: string[]): number {
 "),
         &mut ctx,
     )?;
-    ensure!(!any_expr_kind(&ctx, |kind| matches!(
+    ensure!(!crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::UnknownIs {
             kind: smelt_hir::UnknownKind::String,
@@ -2067,7 +2062,7 @@ fn a_closure_inside_a_statement_block_does_not_inherit_its_block_id() -> Result<
     // the crate's diagnostics down with them.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export const createPool = (concurrency: number) => {
   const pool: Set<{}> = new Set()
   const run = async <T>(
@@ -2088,7 +2083,7 @@ export const createPool = (concurrency: number) => {
   }
   return { run }
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -5703,7 +5698,7 @@ const resourcePath = path.resolve('/srv', '../resources/key.pub');
         &mut ctx,
     )?;
     ensure!(
-        any_expr_kind(&ctx, |kind| matches!(
+        crate_has_expr(&ctx, |kind| matches!(
             kind,
             ExprKind::HostModuleCall {
                 op: smelt_hir::HostModuleOp::Path(smelt_hir::PathOp::Resolve),
@@ -8927,7 +8922,7 @@ fn lowers_string_includes_inside_filter_callback_body() -> Result<(), String> {
     // did not model: only the array-receiver `includes` arm existed, so a string
     // (or erased) receiver surfaced "callback method `includes` is not lowered
     // into closure bodies yet". The closure-body path now mirrors the direct
-    // `string_includes` lowering, emitting a `StringContains`. This is the
+    // `string_contains_call` lowering, emitting a `StringContains`. This is the
     // dominant callback blocker across the quicktype/knip probes.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

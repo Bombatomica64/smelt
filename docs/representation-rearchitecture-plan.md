@@ -164,6 +164,8 @@ High — touches every Null handling path. The compiler's exhaustive matches hel
 typeof, JSON) must be reasoned per site. Full-suite gating each step.
 
 ### STATUS 2026-06-23 — ATTEMPTED, REVERTED (net-negative when partial)
+
+Later landings on B1 are recorded in the B1 STATUS entries above (function identity in `d1f2c7e0`, list identity binding-level in `ade26b59`); this B2 attempt is still reverted.
 Implemented the variant + all match arms (HIR `Literal::Undefined` → MIR
 `Constant::Undefined` → `SmeltUnknown::Undefined`, the full prelude impls, typeof,
 and ~25 emitter coercion templates — the generated remeda crate compiled). But it
@@ -194,7 +196,8 @@ nullish helpers, gating on the full suite each step. Not a single focused pass.
 ---
 
 ## Sequencing recommendation
-Do **B1 step 1 (function identity)** first — smallest, unblocks ~3-4 tests, proves
-the identity-memoization mechanism. Then **B2** (distinct undefined) as a focused
-pass. Then **B1 step 2 (list identity)** last, as the largest change. Each is its
-own branch + review, gated on the full generated suite and `cargo test`.
+Completed: **B1 step 1 (function identity)**, commit `d1f2c7e0`, and **B1 step 2
+(list identity, binding-level `x === x` cases)**, commit `ade26b59`. Remaining
+order: **B2** (distinct undefined) as a focused pass, which was attempted and
+reverted on 2026-06-23. Each remaining step is its own branch + review, gated on
+the full generated suite and `cargo test`.

@@ -245,9 +245,9 @@ impl ModuleBuilder<'_> {
 
     /// Dispatch `update`/`digest` on a concrete `Hash` receiver.
     ///
-    /// Registered in the builtin call-handler chain; keyed on the RECEIVER's
-    /// lowered type (the modeled `Hash` class), never on the member name, since
-    /// `update` and `digest` are ordinary user method names.
+    /// Registered in the builtin call-handler chain. The receiver's lowered type
+    /// (the modeled `Hash` class) decides whether the call is a Hash, and the member
+    /// name selects `update` or `digest`.
     pub(in crate::lowering) fn dispatch_node_hash_method(
         &mut self,
         call: &CallExpression<'_>,

@@ -1,7 +1,9 @@
 //! The concrete typed-array family: byte storage and element views.
 //!
 //! Increment 1 of `blocker-logs/standards-typed-array-views-plan.md`. Two
-//! runtime types, both with a JavaScript reference identity:
+//! runtime types, both with a JavaScript reference identity, plus the
+//! `SmeltDataView` record, the `SmeltTypedArrayKind` enum and the `SmeltUint8Array`
+//! alias:
 //!
 //! * [`emit_array_buffer`] — `SmeltArrayBuffer`, byte storage that owns its
 //!   bytes and interprets none of them (`ArrayBuffer`);
@@ -947,8 +949,8 @@ fn kind_table() -> Vec<(String, &'static str, &'static str, usize)> {
 /// The Rust enum variant spelling for one element type.
 ///
 /// The registry's element tag is lowercase (`"uint8clamped"`), and the emitted
-/// enum wants `Uint8Clamped`; mapping here keeps the tag as the single source
-/// of the set while the generated code stays idiomatic Rust.
+/// enum wants `Uint8Clamped`; the spelling is delegated to `TypedArrayElement::element_name`, which keeps
+/// the tag as the single source of the set while the generated code stays idiomatic Rust.
 fn variant_name(element: smelt_stdlib::TypedArrayElement) -> String {
     element.element_name().to_owned()
 }

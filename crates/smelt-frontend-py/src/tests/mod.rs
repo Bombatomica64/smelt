@@ -8,7 +8,6 @@ use smelt_hir::{
     SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp, Stmt, StringAffixOp, StringCaseOp,
     StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type,
 };
-use std::convert::TryFrom;
 
 type TestResult = Result<(), String>;
 

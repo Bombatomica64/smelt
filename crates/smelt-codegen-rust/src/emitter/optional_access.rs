@@ -330,10 +330,7 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let optional_ty = self.operand_ty(optional)?;
-        if matches!(
-            self.mir.types.get(optional_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(optional_ty)
+        if self.has_dynamic_shape(optional_ty)
         {
             // The nullish `match` operates on the erased `SmeltUnknown` form. A
             // concrete-union operand stores a tagged enum, so both the scrutinee
@@ -351,10 +348,7 @@ impl FunctionEmitter<'_> {
             );
             if matches!(
                 self.mir.types.get(dest_ty),
-                Some(Type::Optional(inner)) if matches!(
-                    self.mir.types.get(*inner),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(*inner)
+                Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner)
             ) {
                 return Ok(format!("Some({coalesced})"));
             }
@@ -396,10 +390,7 @@ impl FunctionEmitter<'_> {
         }
         match self.mir.types.get(optional_ty) {
             Some(Type::Optional(inner)) => {
-                if matches!(
-                    self.mir.types.get(dest_ty),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(dest_ty)
+                if self.has_dynamic_shape(dest_ty)
                 {
                     let optional_text = self.operand_text(optional)?;
                     let present_text = self.value_at_type_text("value", *inner, dest_ty, &self.render_scope())?;
@@ -409,10 +400,7 @@ impl FunctionEmitter<'_> {
                     ));
                 }
                 let fallback_ty = self.operand_ty(fallback)?;
-                if matches!(
-                    self.mir.types.get(fallback_ty),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(fallback_ty)
+                if self.has_dynamic_shape(fallback_ty)
                 {
                     let optional_text = self.operand_text(optional)?;
                     let fallback_text = self.value_at_type(fallback, fallback_ty)?;
@@ -543,10 +531,7 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
             | Some(Type::Class { .. })
-                if matches!(
-                    self.mir.types.get(receiver_ty),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(receiver_ty) =>
+                if self.has_dynamic_shape(receiver_ty) =>
             {
                 let index_ty = self.operand_ty(index)?;
                 let index_text = self.operand_text(index)?;

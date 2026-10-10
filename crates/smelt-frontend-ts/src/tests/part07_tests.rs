@@ -16,14 +16,6 @@ fn crate_has_bool_literal(ctx: &HirCtx, value: bool) -> bool {
     })
 }
 
-/// Return whether any body in the crate contains an expression matching `pred`.
-fn crate_has_expr(ctx: &HirCtx, pred: impl Fn(&ExprKind) -> bool) -> bool {
-    ctx.krate
-        .bodies
-        .iter()
-        .any(|body| body.exprs.iter().any(|expr| pred(&expr.kind)))
-}
-
 #[test]
 fn folds_typeof_globalthis_not_undefined_to_true() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -1341,8 +1333,8 @@ fn first_throw_expr_kind(ctx: &HirCtx) -> Option<(ExprKind, usize)> {
 
 /// Return whether a HIR expression is the erased `Error` record.
 ///
-/// The record is a `DictLit` whose first entry is the `__smelt_error` class
-/// marker, optionally wrapped in the `UnknownCast` that erases it for the
+/// The record is a `DictLit` with an entry keyed `__smelt_error` (the class
+/// marker), optionally wrapped in the `UnknownCast` that erases it for the
 /// exception channel.
 fn is_error_record(body: &smelt_hir::Body, kind: &ExprKind) -> bool {
     let kind = match kind {

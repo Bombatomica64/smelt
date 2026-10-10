@@ -263,10 +263,7 @@ impl FunctionEmitter<'_> {
             }
             let operand_ty = self.operand_ty(operand)?;
             if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(source_inner)) if matches!(self.mir.types.get(*source_inner), Some(Type::Unknown)))
-                && (matches!(
-                    self.mir.types.get(*inner),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(*inner))
+                && (self.has_dynamic_shape(*inner))
             {
                 return self.operand_text(operand);
             }
@@ -279,10 +276,7 @@ impl FunctionEmitter<'_> {
             if self.can_coerce_to_optional_inner(operand_ty, *inner) {
                 return Ok(format!("Some({})", self.value_at_type_in(operand, *inner, scope)?));
             }
-            if matches!(
-                self.mir.types.get(*inner),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            ) || self.is_erased_class_type(*inner)
+            if self.has_dynamic_shape(*inner)
             {
                 return Ok(format!("Some({})", self.value_at_type_in(operand, *inner, scope)?));
             }
@@ -332,7 +326,7 @@ impl FunctionEmitter<'_> {
             return Ok(Self::regexp_literal_text(&self.operand_text(operand)?));
         }
         if self.is_match_fn_result_type(self.operand_ty(operand)?)?
-            && !self.is_match_fn_result_class_type(target)?
+            && !self.is_match_fn_result_type(target)?
         {
             return self.extract_value_text(
                 &format!("{}.value.clone()", self.operand_text(operand)?),
@@ -471,8 +465,12 @@ impl FunctionEmitter<'_> {
         {
             // Distinct MIR item types can already share the same erased Rust
             // representation. Keep the buffer when no element adapter is needed.
-            if self.list_items_render_as_unknown(self.operand_ty(operand)?)
-                && self.list_items_render_as_unknown(target)
+            // The two sides answer to different scopes: the operand is a value
+            // of the item being emitted, so its type was rendered at that item's
+            // own lexical scope, while the target is rendered at `scope`, which a
+            // callee argument narrows to what the callee also spells.
+            if self.list_items_render_as_unknown(self.operand_ty(operand)?, &self.render_scope())
+                && self.list_items_render_as_unknown(target, scope)
             {
                 return Ok(format!(
                     "Into::<SmeltList<_>>::into({})",
@@ -483,10 +481,7 @@ impl FunctionEmitter<'_> {
             // `[undefined, …]` literal must erase to `Undefined` (the type lost
             // the distinction; only the defining constants carry it). Recover it
             // from the def-site so genuine `null` arrays keep the `Null` path.
-            let target_item_is_erased = matches!(
-                self.mir.types.get(*target_item),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            ) || self.is_erased_class_type(*target_item);
+            let target_item_is_erased = self.has_dynamic_shape(*target_item);
             if matches!(self.mir.types.get(*source_item), Some(Type::None))
                 && target_item_is_erased
                 && self.container_local_all_undefined_constants(operand)?
@@ -497,10 +492,7 @@ impl FunctionEmitter<'_> {
                 ));
             }
             let value_text = if matches!(self.mir.types.get(*source_item), Some(Type::List(_)))
-                && (matches!(
-                    self.mir.types.get(*target_item),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(*target_item))
+                && (self.has_dynamic_shape(*target_item))
             {
                 "value.into_smelt_unknown()".to_owned()
             } else {
@@ -1066,18 +1058,17 @@ impl FunctionEmitter<'_> {
         {
             // Match operand coercion: an erased generic and unknown have the
             // same element representation, so conversion must preserve aliases.
-            if self.list_items_render_as_unknown(source)
-                && self.list_items_render_as_unknown(target)
+            // As there, the source value was rendered at the emitted item's own
+            // scope and the target at the position's `scope`.
+            if self.list_items_render_as_unknown(source, &self.render_scope())
+                && self.list_items_render_as_unknown(target, scope)
             {
                 return Ok(format!("Into::<SmeltList<_>>::into({smelt_owned_value})"));
             }
             let source_item = *source_item;
             let target_item = *target_item;
             let element_text = if matches!(self.mir.types.get(source_item), Some(Type::List(_)))
-                && (matches!(
-                    self.mir.types.get(target_item),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(target_item))
+                && (self.has_dynamic_shape(target_item))
             {
                 "value.into_smelt_unknown()".to_owned()
             } else {
@@ -1215,7 +1206,7 @@ impl FunctionEmitter<'_> {
             }
             return self.extract_value_text(value_text, target, scope);
         }
-        if self.is_match_fn_result_type(source)? && !self.is_match_fn_result_class_type(target)? {
+        if self.is_match_fn_result_type(source)? && !self.is_match_fn_result_type(target)? {
             let value_ty = match self.match_fn_result_value_type(source)? {
                 Some(value_ty) => value_ty,
                 None => self.type_id(Type::Unknown)?,
@@ -1338,15 +1329,6 @@ impl FunctionEmitter<'_> {
             return Ok(format!(
                 "{smelt_owned_value}.map_or({}, |value| {mapped_value})",
                 self.default_value(target)?
-            ));
-        }
-        if let (Some(Type::List(source_item)), Some(Type::List(target_item))) =
-            (self.mir.types.get(source), self.mir.types.get(target))
-            && source_item != target_item
-        {
-            let item_text = self.value_at_type_text("value", *source_item, *target_item, scope)?;
-            return Ok(format!(
-                "{smelt_owned_value}.into_iter().map(|value| {item_text}).collect::<SmeltList<_>>()"
             ));
         }
         // A fixed-arity tuple flowing into a list target (`[T, U] -> V[]`, as
@@ -1580,7 +1562,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({text})")),
             Some(Type::Int | Type::Float) => Ok(format!("SmeltUnknown::Number({text} as f64)")),
             Some(Type::String) => Ok(crate::rust::erased_string(&text)),
-            Some(Type::List(_)) if self.list_items_render_as_unknown(ty) => {
+            Some(Type::List(_)) if self.list_items_render_as_unknown(ty, &self.render_scope()) => {
                 // An out-of-scope generic element also renders as SmeltUnknown.
                 // Use its existing representation; this creates no new erasure.
                 // In-scope Rust generics still need the per-element path below.
@@ -2061,7 +2043,7 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::String) => Ok(crate::rust::erased_string(value_text)),
-            Some(Type::List(_)) if self.list_items_render_as_unknown(ty) => {
+            Some(Type::List(_)) if self.list_items_render_as_unknown(ty, &self.render_scope()) => {
                 // Keep the rendered-value and operand erasure paths in agreement:
                 // an already-erased generic array aliases the same backing buffer.
                 // Method receiver: wrap a loose operand before `.into()`.
@@ -2101,11 +2083,6 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
                 let value_wrap = self.erase_value_text("value", *item)?;
-                if self.mir.types.get(*item) == Some(&Type::Float) {
-                    return Ok(format!(
-                        "{{ let smelt_record = {smelt_owned_value}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
-                    ));
-                }
                 Ok(format!(
                     "{{ let smelt_record = {smelt_owned_value}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
                 ))
@@ -2477,7 +2454,7 @@ impl FunctionEmitter<'_> {
         // VISIBLE to structural equality (so a class instance is not `==` to an
         // equal-shape plain object) but INVISIBLE to key enumeration / JSON via the
         // `__smelt_class` filters, and drives the `"__smelt_proto:class"` sentinel in
-        // `smelt_prototype_sentinel`. See `blocker-logs/plan-class-prototype-2026-06-23.md`.
+        // `smelt_prototype_sentinel`.
         // A user class whose base chain reaches a modeled host object (e.g.
         // `class File extends Blob`) IS an instance of that host in JavaScript, so
         // its erased record carries the host base's identity marker(s). This keeps
@@ -2634,7 +2611,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Emits a runtime tag check for `SmeltUnknown`.
-    /// Emits a runtime tag check for `SmeltUnknown`.
     pub(super) fn tag_check(
         &self,
         value: &Operand,
@@ -2716,7 +2692,7 @@ impl FunctionEmitter<'_> {
     /// A concrete union stays inline: its arms are decided per member type at
     /// compile time, so there is no shared table to factor out. An erased value
     /// goes to the `smelt_typeof` prelude helper instead -- the arms are the same
-    /// nine tags at every site, so inlining the match once per source `typeof`
+    /// ten variants (seven spellings) at every site, so inlining the match once per source `typeof`
     /// is pure duplication.
     pub(super) fn typeof_str_text(&self, value: &Operand) -> Result<String, EmitError> {
         let value_ty = self.operand_ty(value)?;
@@ -2982,10 +2958,7 @@ impl FunctionEmitter<'_> {
         );
         let source_inner_is_erased = matches!(
             self.mir.types.get(source_ty),
-            Some(Type::Optional(inner)) if matches!(
-                self.mir.types.get(*inner),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            ) || self.is_erased_class_type(*inner)
+            Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner)
         );
         if target_is_primitive
             && matches!(self.mir.types.get(source_ty), Some(Type::Optional(_)))
@@ -3335,7 +3308,7 @@ impl FunctionEmitter<'_> {
                     "<{target_text} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
                 ))
             }
-            Some(Type::Set(_) | Type::Dict(_, _) | Type::Class { .. }) => {
+            Some(Type::Set(_) | Type::Class { .. }) => {
                 Ok("Default::default()".to_owned())
             }
             Some(Type::Function(function)) => {
@@ -3502,22 +3475,23 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Whether `list_ty` is a list whose elements render as `SmeltUnknown` in
-    /// the *current* emission scope.
+    /// Whether `list_ty` is a list whose elements render as `SmeltUnknown` at
+    /// `scope`.
     ///
-    /// `Type::Unknown` is that outright. A `Type::TypeParam` is too whenever the
-    /// enclosing Rust item does not declare it: `rust_type` resolves such a name
-    /// to [`crate::type_substitution::Resolved::Erased`], so `List<T>` is
-    /// emitted as `SmeltList<SmeltUnknown>` and the per-element conversion the
-    /// general path would run is `into_smelt_unknown()` on a value that already
-    /// IS a `SmeltUnknown` — the identity impl. An *in-scope* `T` is a real Rust
+    /// `Type::Unknown` is that outright. A `Type::TypeParam` is too whenever
+    /// `scope` does not spell it: `rust_type` resolves such a name to
+    /// [`crate::type_substitution::Resolved::Erased`], so `List<T>` is emitted
+    /// as `SmeltList<SmeltUnknown>` and the per-element conversion the general
+    /// path would run is `into_smelt_unknown()` on a value that already IS a
+    /// `SmeltUnknown` — the identity impl. An *in-scope* `T` is a real Rust
     /// generic and must keep going through the general path, which converts each
     /// element through the corresponding inbound or outbound boundary adapter.
     ///
-    /// Scope-aware rather than unconditional, and deliberately so: every
-    /// destination Rust type is rendered by `type_text` under
-    /// `TypeSubstitution::lexical(self.current_function_type_params())`, so this
-    /// asks exactly the question that renderer answers.
+    /// Scope-aware rather than unconditional, and deliberately so: pass the
+    /// scope the asked-about type was (or will be) rendered at. A value of the
+    /// item being emitted was rendered at `&self.render_scope()`; a coercion
+    /// target is rendered at the scope its render position threads, which a
+    /// callee argument narrows (`callee_parameter_render_scope`).
     pub(super) fn list_items_render_as_unknown(
         &self,
         list_ty: TypeId,
@@ -3570,13 +3544,9 @@ impl FunctionEmitter<'_> {
         if self.concrete_union_members(inner).is_some() {
             return false;
         }
-        matches!(
-            self.mir.types.get(inner),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(inner)
+        self.has_dynamic_shape(inner)
     }
 
-    // Converts an awaited future operand without cloning it.
 }
 
 /// Scope guard that pops a type pair off
@@ -3590,6 +3560,7 @@ pub(super) struct TypeExpansionGuard<'emit> {
 }
 
 impl Drop for TypeExpansionGuard<'_> {
+    /// Pops this expansion's entry from the shared expansion stack.
     fn drop(&mut self) {
         self.stack.borrow_mut().pop();
     }
@@ -3610,8 +3581,8 @@ fn is_trivial_reeval_expr(text: &str) -> bool {
 /// the `SmeltUnknown`-element and `String`-element forms iterated a source string
 /// into characters while the general form panicked on one, so the same JavaScript
 /// value converted fine in `groupBy`'s adapter and blew up in `map`'s. The arms
-/// mirror what JavaScript's iteration protocol accepts: nullish (empty, as
-/// `Array.from` treats it), an array, a string (by character), a host byte
+/// mirror what JavaScript's iteration protocol accepts: nullish (an empty list by
+/// design, not as `Array.from` does), an array, a string (by character), a host byte
 /// buffer, an `arguments` object, a `Map`/`Set`, and finally any object exposing
 /// `Symbol.iterator`.
 ///

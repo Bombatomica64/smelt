@@ -1,6 +1,6 @@
 # Cluster B (Promise) — what's actually blocking it
 
-Short problem statement. Full design + attempt log: `specs/remeda-cluster-b-promise.md`.
+Short problem statement, as of the 2026-06-26 state. Full design + attempt log: `specs/remeda-cluster-b-promise.md`.
 
 ## The 4 failing tests
 - `isStrictEqual_test::test_built_ins_promises_1273`

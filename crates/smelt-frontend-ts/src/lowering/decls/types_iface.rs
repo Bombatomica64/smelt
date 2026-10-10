@@ -1,5 +1,5 @@
-//! `ModuleBuilder` lowering methods (part 04): type-declaration name qualification
-//! and related HIR construction helpers split out of `lowering.rs`.
+//! `ModuleBuilder` lowering methods for statement, loop, generator, type-declaration,
+//! and test-framework lowering, split out of `lowering.rs`.
 
 use crate::SmeltError;
 use crate::lowering::support::statement_terminates;
@@ -187,7 +187,9 @@ impl ModuleBuilder<'_> {
         // generated Rust interface struct stores the ordinary data/method
         // fields, but it also needs a slot for the underlying callable so a
         // value typed as this interface can be invoked. Append a synthetic
-        // `__smelt_call` storage field typed from the (first) call signature,
+        // `__smelt_call` storage field whose type is the first call signature's
+        // `Type::Function` (for a single signature or same-shape overloads), or
+        // else what `overloaded_call_signature_slot_type` answers for the set,
         // so the struct def, `Default`, `into_smelt_unknown`, and struct-literal
         // construction all pick it up through the existing field machinery. The
         // erased callable is what `into_smelt_unknown` writes under the matching
@@ -287,15 +289,18 @@ impl ModuleBuilder<'_> {
     /// (`interface F { (x: T): R; … }`) describes a value that is invoked like a
     /// function while still carrying its declared data/method fields. The
     /// generated Rust interface struct cannot itself be a closure, so the
-    /// underlying callable is kept in a dedicated `__smelt_call` field typed
-    /// from the first call signature. Call routing invokes a value of this
+    /// underlying callable is kept in a dedicated `__smelt_call` field. Its type
+    /// is `Type::Function` of the first signature when there is one signature
+    /// or every overload has the same shape (`overloaded_call_signature_slot_type`
+    /// answers `None`), and that helper's merged or erased slot type otherwise.
+    /// Call routing invokes a value of this
     /// interface by erasing it (`into_smelt_unknown`, which writes this field
     /// under the `"__smelt_call"` object key) and extracting that callable.
     ///
     /// The name matches the object key produced by `CallableObjectAssign`
     /// construction (`callable_object_assign_text`) and read by the erased-call
     /// coercion. A pre-existing field named `__smelt_call` (which user source
-    /// cannot legally declare) is left untouched. Interfaces with no call
+    /// can legally declare) is left untouched. Interfaces with no call
     /// signature are unchanged.
     pub(in crate::lowering) fn add_interface_call_signature_field(
         &mut self,
@@ -426,7 +431,7 @@ impl ModuleBuilder<'_> {
         result
     }
 
-    /// Lower exported type declarations from a namespace body.
+    /// Lower type declarations from a namespace body.
     pub(in crate::lowering) fn type_namespace_body(
         &mut self,
         body: &TSNamespaceDeclarationBody<'_>,
@@ -1725,7 +1730,6 @@ impl ModuleBuilder<'_> {
         Ok(true)
     }
 
-    /// Lower a statement inside a `forEach` callback body.
     /// Lower a `forEach` callback body, whichever form the arrow uses.
     ///
     /// Since oxc 0.147 a concise arrow (`value => total += value`) carries its

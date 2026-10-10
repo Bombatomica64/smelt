@@ -61,7 +61,7 @@ Tests follow the same philosophy. Source-language tests should eventually lower 
 
 ### `smelt-frontend-py`
 
-- Parses Python via `tree-sitter-python`.
+- Parses Python via `ruff_python_parser` (ruff's AST).
 - Embeds or shells out to `ty` for type-checking and inferred types.
 - Walks the AST and produces HIR nodes — the **same** HIR types as the TS frontend.
 - Rejects untyped or dynamic code.
@@ -97,7 +97,7 @@ Tests follow the same philosophy. Source-language tests should eventually lower 
 - Provides assertion helpers and limited pytest/Vitest/Jest compatibility glue.
 - Does not embed pytest, Vitest, Node, or CPython; frontends lower supported test APIs into native Rust tests.
 
-### `smelt-cli`
+### `smelt-transpiler`
 
 - Reads `Smelt.toml`.
 - Discovers source files.

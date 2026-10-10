@@ -35,7 +35,7 @@ clone-strategy = "aggressive"
     // First file references an unknown user symbol; second references a known
     // builtin Smelt does not model. A fail-fast pass would only report the first.
     // (`Reflect`/`Math`/`JSON` now resolve as namespace values, so this uses
-    // `structuredClone`, which has no runtime implementation yet.)
+    // `structuredClone`, whose bare value reference is not lowered yet.)
     fs::write(project_path.join("src/a.ts"), "console.log(missingAlpha);\n")?;
     fs::write(project_path.join("src/b.ts"), "const f = structuredClone;\n")?;
 
@@ -70,8 +70,7 @@ clone-strategy = "aggressive"
 /// a *value* imported from an excluded module reports the exclusion by name.
 ///
 /// This is the shape root-only filtering cannot express: `src/main.ts` reaches
-/// the excluded module both directly and through a barrel that re-exports its
-/// types. Before closure pruning the excluded module was pulled in
+/// the excluded module directly. Before closure pruning the excluded module was pulled in
 /// transitively and lowered as if it were in scope, which is why an exclusion
 /// could be written in the manifest and silently have no effect.
 #[test]

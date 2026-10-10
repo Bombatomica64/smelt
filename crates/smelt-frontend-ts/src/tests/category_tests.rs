@@ -49,8 +49,8 @@ fn new_unresolved_builtin_class_is_missing_stdlib() -> Result<(), String> {
 /// These are the host objects with *no* retained structural surface. The ones that
 /// do retain fields have their own construction: `File`/`Blob` through
 /// `BlobFromParts` (see `new_file_lowers_to_blob_from_parts_with_name`) and the
-/// byte buffers through `HostConstruct` (see
-/// `new_byte_buffer_host_lowers_to_the_shared_host_constructor`).
+/// byte buffers and typed-array views through `TypedArrayNew` (see
+/// `new_byte_buffer_host_lowers_to_the_concrete_family`).
 #[test]
 fn new_marker_only_host_builtins_lower_to_concrete_marker_records() -> Result<(), String> {
     for (source, marker) in [
@@ -1111,8 +1111,8 @@ fn typed_array_name_resolves_as_bare_value() -> Result<(), String> {
 /// `number[]`, `false` for anything else — because the numeric-list model left no
 /// view identity to test at runtime, so a plain `number[]` was reported as a typed
 /// array and a real erased view was not. Now the erased operand emits a real
-/// `InstanceOf` (the marker probe), and only a statically concrete operand that
-/// cannot carry a marker still folds to `false`.
+/// `InstanceOf` (the marker probe). Only `Date` and `RegExp` targets fold a concrete
+/// operand to `false`, and the typed-array target raises the blocker.
 #[test]
 fn instanceof_typed_array_resolves_through_the_view_marker() -> Result<(), String> {
     let mut ctx = HirCtx::new();

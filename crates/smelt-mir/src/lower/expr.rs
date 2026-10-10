@@ -1437,7 +1437,7 @@ impl LoweringCtx<'_> {
                 // rvalue form could never reach an enclosing `try` — the catch
                 // block would have no predecessor and be dropped, turning a
                 // JavaScript-catchable error into an abort. Route it through
-                // the call terminator, exactly as `JSON.parse` above does, so
+                // the call terminator, exactly as `JSON.parse` below does, so
                 // the handler (or, with none active, the throwing-function
                 // propagation pass) sees the throwing edge. See
                 // `blocker-logs/standards-throwing-rvalue.md`.

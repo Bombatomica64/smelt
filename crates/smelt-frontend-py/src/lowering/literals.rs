@@ -276,8 +276,8 @@ impl ModuleBuilder<'_> {
             Expr::Generator(c) => self.generator_expression(c, body),
 
             // `lambda a, b: expr` — a first-class closure value. Parameter types
-            // come from an expected `Callable`/function `type_hint`; without one
-            // the parameters must be individually annotated.
+            // come from an expected `Callable`/function `type_hint`; a lambda
+            // without a hint is rejected.
             Expr::Lambda(lambda) => self.lambda_expression(lambda, body, type_hint),
 
             Expr::Named(_)
@@ -505,7 +505,7 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower a binary arithmetic/comparison operator expression.
+    /// Lower a binary arithmetic operator expression (`+`, `-`, `*`, `/`).
     fn binop_expression(
         &mut self,
         b: &ruff_python_ast::ExprBinOp,
@@ -750,7 +750,8 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower Python containment comparisons for strings and lists.
+    /// Lower Python containment comparisons (`in` and `not in`) for strings,
+    /// lists, sets, tuples and dicts.
     fn contains_compare(
         &mut self,
         c: &ruff_python_ast::ExprCompare,

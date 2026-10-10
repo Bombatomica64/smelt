@@ -18,6 +18,7 @@ use pico_args::Arguments;
 use smelt_frontend_py::parse_module;
 use smelt_hir::FileId;
 
+/// Parse a Python source file and print its AST.
 fn main() -> Result<(), String> {
     let mut stdout = io::stdout().lock();
     let mut args = Arguments::from_env();

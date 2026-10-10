@@ -14,6 +14,14 @@ use rendered_text_rewrite::{
 };
 
 impl FunctionEmitter<'_> {
+    /// The MIR closure an `Rvalue::Closure` names.
+    fn mir_closure(&self, id: smelt_mir::ClosureId) -> Result<&MirClosure, EmitError> {
+        self.mir
+            .closures
+            .get(id_index(id.0, "closure id does not fit usize")?)
+            .ok_or_else(|| EmitError::new("closure rvalue references an unknown closure"))
+    }
+
     /// Converts a non-escaping MIR closure into a Rust closure literal.
     pub(super) fn closure_text(&self, id: smelt_mir::ClosureId) -> Result<String, EmitError> {
         self.closure_text_with_extra_params(id, &[], &[], None, None)
@@ -69,13 +77,7 @@ impl FunctionEmitter<'_> {
         };
         let extra_param_tys: Vec<TypeId> = match self.mir.types.get(dest_ty) {
             Some(Type::Function(function)) => {
-                let closure = self
-                    .mir
-                    .closures
-                    .get(id_index(id.0, "closure id does not fit usize")?)
-                    .ok_or_else(|| {
-                        EmitError::new("closure rvalue references an unknown closure")
-                    })?;
+                let closure = self.mir_closure(id)?;
                 function
                     .params
                     .iter()
@@ -85,18 +87,10 @@ impl FunctionEmitter<'_> {
             }
             _ => Vec::new(),
         };
-        let has_captures = !self
-            .mir
-            .closures
-            .get(id_index(id.0, "closure id does not fit usize")?)
-            .ok_or_else(|| EmitError::new("closure rvalue references an unknown closure"))?
+        let has_captures = !self.mir_closure(id)?
             .captures
             .is_empty();
-        let captures_borrowed_callback = self
-            .mir
-            .closures
-            .get(id_index(id.0, "closure id does not fit usize")?)
-            .ok_or_else(|| EmitError::new("closure rvalue references an unknown closure"))?
+        let captures_borrowed_callback = self.mir_closure(id)?
             .captures
             .iter()
             .any(|capture| {
@@ -107,11 +101,7 @@ impl FunctionEmitter<'_> {
                         .unwrap_or(false)
             });
         if captures_borrowed_callback
-            && self
-                .mir
-                .closures
-                .get(id_index(id.0, "closure id does not fit usize")?)
-                .ok_or_else(|| EmitError::new("closure rvalue references an unknown closure"))?
+            && self.mir_closure(id)?
                 .escapes
             && matches!(self.mir.types.get(dest_ty), Some(Type::Function(_)))
         {
@@ -130,13 +120,7 @@ impl FunctionEmitter<'_> {
         // the body rebinds each param back to its own local type.
         let target_param_tys: Vec<TypeId> = match self.mir.types.get(dest_ty) {
             Some(Type::Function(function)) => {
-                let closure = self
-                    .mir
-                    .closures
-                    .get(id_index(id.0, "closure id does not fit usize")?)
-                    .ok_or_else(|| {
-                        EmitError::new("closure rvalue references an unknown closure")
-                    })?;
+                let closure = self.mir_closure(id)?;
                 function
                     .params
                     .iter()
@@ -160,13 +144,7 @@ impl FunctionEmitter<'_> {
             {
                 closure
             } else {
-                let source_closure = self
-                    .mir
-                    .closures
-                    .get(id_index(id.0, "closure id does not fit usize")?)
-                    .ok_or_else(|| {
-                        EmitError::new("closure rvalue references an unknown closure")
-                    })?;
+                let source_closure = self.mir_closure(id)?;
                 let mut cloned_captures = HashSet::new();
                 let mut shared_replacements = Vec::new();
                 let capture_prelude = source_closure
@@ -256,13 +234,7 @@ impl FunctionEmitter<'_> {
                 && self.is_erased_unknown_rest_function(function)
                 && !function.may_throw
             {
-                let source_closure = self
-                    .mir
-                    .closures
-                    .get(id_index(id.0, "closure id does not fit usize")?)
-                    .ok_or_else(|| {
-                        EmitError::new("closure rvalue references an unknown closure")
-                    })?;
+                let source_closure = self.mir_closure(id)?;
                 let params = source_closure
                     .params
                     .iter()
@@ -441,11 +413,7 @@ impl FunctionEmitter<'_> {
                 _ => "",
             }
         };
-        let closure = self
-            .mir
-            .closures
-            .get(usize::try_from(id.0).unwrap_or(usize::MAX))
-            .ok_or_else(|| EmitError::new("closure rvalue references an unknown closure"))?;
+        let closure = self.mir_closure(id)?;
         if closure.escapes
             && closure.captures.iter().any(|capture| {
                 self.capture_is_borrowed_callback_param(capture.source_local)

@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use smelt_hir::{Crate, FileId, ItemId, ModuleId};
 
-use crate::lowering::{FileDiagnostic, LoweredCrate, ManifestDiagnostic};
+use crate::lowering::{LoweredCrate, ManifestDiagnostic};
 use crate::manifest::ManifestImport;
 
 /// Cross-file Python module/package namespaces threaded between manifest entries.
@@ -78,25 +78,6 @@ pub(crate) fn lower_files(files: &[String]) -> Result<LoweredCrate, Box<dyn std:
     }
 
     Ok((ctx.krate, modules))
-}
-
-/// Lowers one Python file for isolated diagnostics collection.
-#[cfg(feature = "python")]
-pub(crate) fn diagnostics_for(source: &str, file: &str) -> Vec<FileDiagnostic> {
-    let mut ctx = smelt_frontend_py::HirCtx::new();
-    smelt_frontend_py::to_hir_with_path(source, FileId(0), file, &mut ctx)
-        .err()
-        .map(|errors| {
-            errors
-                .into_iter()
-                .map(|error| FileDiagnostic {
-                    category: error.category,
-                    code: error.code,
-                    message: error.message,
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default()
 }
 
 /// Lowers one Python manifest entry, threading cross-file Python state through.
@@ -224,16 +205,6 @@ pub(crate) fn dump_ast(_file: &str) -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(not(feature = "python"))]
 pub(crate) fn lower_files(_files: &[String]) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     Err(PYTHON_NOT_COMPILED_MESSAGE.into())
-}
-
-/// Returns a single diagnostic explaining Python support is not compiled in.
-#[cfg(not(feature = "python"))]
-pub(crate) fn diagnostics_for(_source: &str, _file: &str) -> Vec<FileDiagnostic> {
-    vec![FileDiagnostic {
-        category: smelt_stdlib::DiagnosticCategory::Internal,
-        code: PYTHON_NOT_COMPILED_CODE,
-        message: PYTHON_NOT_COMPILED_MESSAGE.to_owned(),
-    }]
 }
 
 /// Returns the Python state unchanged with a "not compiled in" diagnostic.

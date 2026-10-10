@@ -17,6 +17,7 @@ pub struct NormalizeOptions {
 }
 
 impl Default for NormalizeOptions {
+    /// The default options: flatten optional layers and `None` unions, and do not preserve observable absence.
     fn default() -> Self {
         Self {
             flatten_optional: true,

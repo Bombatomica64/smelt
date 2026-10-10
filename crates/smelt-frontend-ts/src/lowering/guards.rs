@@ -296,14 +296,36 @@ impl ModuleBuilder<'_> {
             || smelt_stdlib::byte_buffer_role(name).is_some()
     }
 
+    /// Answer a `typeof x === '…'` / `!==` comparison from its equality-form
+    /// `check`: the check itself for `===` and `==`, its negation for `!==` and
+    /// `!=`.
+    fn typeof_comparison_result(
+        &mut self,
+        operator: BinaryOperator,
+        check: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        if matches!(
+            operator,
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality
+        ) {
+            self.unary_bool_expr(UnaryOp::Not, check, span, body)
+        } else {
+            check
+        }
+    }
+
     /// Return true for builtin targets represented by non-class HIR values today.
     ///
     /// `Map` and `Set` are intentionally absent: each source value erases to a
     /// marker object (`{ __smelt_map: [...] }` / `{ __smelt_set: [...] }`), so
     /// `value instanceof Map`/`instanceof Set` resolves through that marker in
-    /// `instance_of_text` rather than folding to a constant `false`. `Date`/`RegExp`
-    /// are timestamp/marker values whose `instanceof` remains a deliberate `false`
-    /// fold for erased operands.
+    /// `instance_of_text` rather than folding to a constant `false`. For `Date`
+    /// and `RegExp` the `false` fold applies only to a concrete operand, whose
+    /// storage carries no marker; an erased operand keeps its marker and is
+    /// probed at runtime (see `operand_keeps_marker_identity` in the
+    /// `instanceof` lowering).
     pub(super) fn instanceof_fold_false_builtin_target(target: &str) -> bool {
         matches!(
             smelt_stdlib::typescript_stdlib_class(target),
@@ -535,18 +557,7 @@ impl ModuleBuilder<'_> {
                     ty: bool_ty,
                     span: self.span(binary.span.start, binary.span.end),
                 });
-                if matches!(
-                    binary.operator,
-                    BinaryOperator::StrictInequality | BinaryOperator::Inequality
-                ) {
-                    return Ok(Some(self.unary_bool_expr(
-                        UnaryOp::Not,
-                        check,
-                        binary.span,
-                        body,
-                    )));
-                }
-                return Ok(Some(check));
+                return Ok(Some(self.typeof_comparison_result(binary.operator, check, binary.span, body)));
             }
             // A statically *erased* operand has no known `typeof` answer, so the
             // presence question has to survive to runtime. `type_matches_typeof`
@@ -567,18 +578,7 @@ impl ModuleBuilder<'_> {
                     ty: bool_ty,
                     span: self.span(binary.span.start, binary.span.end),
                 });
-                if matches!(
-                    binary.operator,
-                    BinaryOperator::StrictInequality | BinaryOperator::Inequality
-                ) {
-                    return Ok(Some(self.unary_bool_expr(
-                        UnaryOp::Not,
-                        check,
-                        binary.span,
-                        body,
-                    )));
-                }
-                return Ok(Some(check));
+                return Ok(Some(self.typeof_comparison_result(binary.operator, check, binary.span, body)));
             }
             let matches_kind = self.type_matches_typeof(value_ty, "undefined");
             let result = if matches!(
@@ -653,18 +653,7 @@ impl ModuleBuilder<'_> {
             ty: bool_ty,
             span: self.span(binary.span.start, binary.span.end),
         });
-        if matches!(
-            binary.operator,
-            BinaryOperator::StrictInequality | BinaryOperator::Inequality
-        ) {
-            return Ok(Some(self.unary_bool_expr(
-                UnaryOp::Not,
-                check,
-                binary.span,
-                body,
-            )));
-        }
-        Ok(Some(check))
+        Ok(Some(self.typeof_comparison_result(binary.operator, check, binary.span, body)))
     }
 
     /// Fold a `typeof <global-alias> ===/!== "<kind>"` feature probe to a literal.
@@ -1784,9 +1773,9 @@ impl ModuleBuilder<'_> {
 
     /// Lower supported `new Promise<T>(executor)` expressions to future values.
     ///
-    /// Timer executors keep their timeout duration. Other executor forms are
-    /// represented as zero-delay futures with the explicit `Promise<T>` output
-    /// type so async batching helpers can keep their type surface.
+    /// Timer executors keep their timeout duration. Other executor forms lower
+    /// to `AsyncOp::Promise` with the explicit `Promise<T>` output type so async
+    /// batching helpers can keep their type surface.
     pub(super) fn promise_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
@@ -2316,21 +2305,6 @@ impl ModuleBuilder<'_> {
             }
             _ => Ok(None),
         }
-    }
-
-    /// Return targeted diagnostics for deferred object and collection APIs.
-    ///
-    /// `replaceAll` is handled by `regex_replace_call` (regex pattern) and
-    /// `string_replace_call` (literal string pattern), so it is no longer
-    /// rejected here. The hook is kept as the place to surface future
-    /// deferred object/collection method diagnostics.
-    pub(super) fn unsupported_object_collection_call(
-        call: &oxc::ast::ast::CallExpression<'_>,
-    ) -> Option<SmeltError> {
-        let Expression::StaticMemberExpression(_) = &call.callee else {
-            return None;
-        };
-        None
     }
 
     /// Lower TypeScript `fetch(url[, options])` into an async HTTP fetch.
@@ -2975,6 +2949,4 @@ impl ModuleBuilder<'_> {
             "Date method receiver must be a timestamp or Date-like value",
         ))
     }
-
-    // Continued in the next split builder file.
 }

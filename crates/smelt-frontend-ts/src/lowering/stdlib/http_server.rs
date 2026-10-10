@@ -1,6 +1,6 @@
 //! TypeScript lowering for `node:http`'s server surface.
 //!
-//! Four entry points, registered where the other modeled receivers are:
+//! Five entry points, registered where the other modeled receivers are:
 //!
 //! * [`ModuleBuilder::http_create_server_call`] in the builtin call-handler
 //!   chain, for `createServer(handler)`;
@@ -8,7 +8,9 @@
 //!   [`ModuleBuilder::dispatch_server_response_method`] in the same chain, for
 //!   the two receivers with methods;
 //! * [`ModuleBuilder::http_property_read`] in the static-member read path, for
-//!   `req.method`/`req.url`/`req.headers` and `res.statusCode`.
+//!   `req.method`/`req.url`/`req.headers` and `res.statusCode`;
+//! * [`ModuleBuilder::try_server_response_assignment_expression`] for plain
+//!   assignment to `res.statusCode`.
 //!
 //! `IncomingMessage` has no method dispatch of its own: everything it does
 //! besides those three reads is an `EventEmitter` operation, and it reaches

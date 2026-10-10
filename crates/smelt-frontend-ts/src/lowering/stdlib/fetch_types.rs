@@ -12,7 +12,7 @@
 //!
 //! * [`Self::headers_constructor_expression`] is called from `new_expr.rs` when
 //!   the constructor names `Headers` and no user class shadows it.
-//! * [`Self::dispatch_headers_method`] is registered in the `call.rs` builtin
+//! * [`Self::dispatch_headers_method`] is registered in the `stdlib/call_dispatch.rs` builtin
 //!   handler chain; it recognizes receiver/member pairs through the shared
 //!   `smelt-stdlib` method metadata (`TypeScriptReceiverKind::Headers`), never
 //!   by matching a member name here.
@@ -626,14 +626,7 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower a `Response` data-property read on a concrete receiver.
-    ///
-    /// `status`/`ok`/`statusText`/`headers`/`bodyUsed` are properties in the
-    /// source but operations on a concrete receiver here, which is why they
-    /// share [`ResponseOp`] with the methods rather than going through the
-    /// generic field-read path — there is no struct field to read; the value is
-    /// computed by the runtime type (`ok` is derived from `status`).
-     /// Unwrap a receiver whose DECLARED type is still optional at a member read.
+    /// Unwrap a receiver whose DECLARED type is still optional at a member read.
     ///
     /// `if (this.res) { this.res.headers }` — Hono's `HTTPException.getResponse`
     /// — reads a member off a field typed `Response | undefined` that the source
@@ -665,7 +658,14 @@ impl ModuleBuilder<'_> {
         (receiver, receiver_ty)
     }
 
-   pub(in crate::lowering) fn response_property_read(
+    /// Lower a `Response` data-property read on a concrete receiver.
+    ///
+    /// `status`/`ok`/`statusText`/`headers`/`bodyUsed` are properties in the
+    /// source but operations on a concrete receiver here, which is why they
+    /// share [`ResponseOp`] with the methods rather than going through the
+    /// generic field-read path — there is no struct field to read; the value is
+    /// computed by the runtime type (`ok` is derived from `status`).
+    pub(in crate::lowering) fn response_property_read(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
@@ -680,15 +680,9 @@ impl ModuleBuilder<'_> {
             "statusText" => Some(ResponseOp::StatusText),
             "headers" => Some(ResponseOp::Headers),
             "bodyUsed" => Some(ResponseOp::BodyUsed),
-            // `body` is a `ReadableStream | null`, which Smelt does not model
-            // (the same surface the Hono probe manifest excludes by name). It
-            // used to fall through to the erased field read, whose emitted text
-            // read the generated struct's own `body` field: the HIR claimed an
-            // erased value while the Rust was an `Option<SmeltBody>`, so the
-            // generated crate failed to compile with an E0308 that named
-            // neither the source line nor the reason. A named blocker says what
-            // is missing, and the modeled ways to move a body still work --
-            // `await res.text()`, or passing the response itself at the body
+            // `body` is a `ReadableStream | null` that Smelt models as a body
+            // handle: `ResponseOp::Body` reads it. A body is moved through
+            // `await res.text()`, or by passing the response itself at the body
             // position, which takes its handle.
             "body" => Some(ResponseOp::Body),
             _ => return Ok(None),
@@ -1083,8 +1077,8 @@ impl ModuleBuilder<'_> {
     /// no declared keys to read, and inventing them at run time is exactly the
     /// tagged-record path modeling these types exists to avoid.
     ///
-    /// `keys` is the modeled key set, so an unmodeled key is named rather than
-    /// silently dropped — `redirect` and `signal` change what a request does.
+    /// For a literal init, `keys` is the modeled key set, so an unmodeled key is
+    /// named rather than silently dropped — `redirect` and `signal` change what a request does.
     fn lower_fetch_init(
         &mut self,
         init_argument: &oxc::ast::ast::Argument<'_>,

@@ -1543,10 +1543,12 @@ impl ModuleBuilder<'_> {
     /// Lower a `Function.prototype.apply` call inside a closure body.
     ///
     /// `fn.apply(thisArg, argsArray)` invokes `fn` with the elements of
-    /// `argsArray` as positional arguments. Smelt erases the JavaScript `this`
-    /// binding for these callables (the source callbacks are written with
-    /// `function (this: any, ...)`), so the leading `thisArg` operand is dropped
-    /// and the trailing array is spread through `ClosureCallSpread`, mirroring the
+    /// `argsArray` as positional arguments. A plain function or closure has no
+    /// receiver parameter, so the leading `thisArg` is not passed positionally;
+    /// it is installed as the callee's `this` for this one call via `BindThis`
+    /// (see [`Self::bind_this_receiver`], which elides the bind for a
+    /// null/undefined receiver and for a concrete callable-object callee), and
+    /// the trailing array is spread through `ClosureCallSpread`, mirroring the
     /// spread branch of [`Self::callback_call_method_to_body_expr`]. This
     /// generalizes the closure-body method table to the `apply` form the same way
     /// `call` is already supported, without special-casing any particular library

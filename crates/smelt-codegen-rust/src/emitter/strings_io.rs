@@ -13,16 +13,14 @@ impl FunctionEmitter<'_> {
             Some(Type::Float) => Ok(format!(
                 "{{ let timestamp_ms = ({text}) as f64; if !timestamp_ms.is_finite() || timestamp_ms == i64::MIN as f64 {{ f64::NAN }} else {{ timestamp_ms }} }}"
             )),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => Ok(format!(
+            // An erased destination holds the Date as its marker record.
+            _ if self.has_dynamic_shape(dest_ty) => Ok(format!(
                 "{{ let timestamp_ms = ({text}) as f64; let timestamp_ms = if !timestamp_ms.is_finite() || timestamp_ms == i64::MIN as f64 {{ f64::NAN }} else {{ timestamp_ms }}; SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_date\".to_owned(), SmeltUnknown::Number(timestamp_ms))]))) }}"
             )),
             Some(Type::Optional(inner)) => {
                 let inner_text = self.date_timestamp_result_text(text, *inner)?;
                 Ok(format!("Some({inner_text})"))
             }
-            _ if self.is_erased_class_type(dest_ty) => Ok(format!(
-                "{{ let timestamp_ms = ({text}) as f64; let timestamp_ms = if !timestamp_ms.is_finite() || timestamp_ms == i64::MIN as f64 {{ f64::NAN }} else {{ timestamp_ms }}; SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_date\".to_owned(), SmeltUnknown::Number(timestamp_ms))]))) }}"
-            )),
             _ => Ok(text.to_owned()),
         }
     }
@@ -301,7 +299,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a parsed URL field access to Rust text using the `url` crate.
-    /// Converts a parsed URL field access to Rust text using the `url` crate.
     pub(super) fn url_field_text(
         &self,
         field: smelt_hir::UrlField,
@@ -330,7 +327,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a text-file read to Rust text.
-    /// Converts a text-file read to Rust text.
     pub(super) fn file_read_text(&self, path: &Operand) -> Result<String, EmitError> {
         self.require_string_operands(&[path], "file read")?;
         Ok(format!(
@@ -339,7 +335,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a text-file write to Rust text, returning bytes written.
     /// Converts a text-file write to Rust text, returning bytes written.
     pub(super) fn file_write_text(
         &self,
@@ -354,5 +349,4 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    // Checks that every operand has string type.
 }

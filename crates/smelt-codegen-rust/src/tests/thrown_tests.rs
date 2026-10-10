@@ -483,7 +483,7 @@ export function reject(flag: boolean): number {
 }
 
 /// Names of the panic-route helpers whose call sites the emitter spells
-/// literally, paired with the prelude item that defines each one.
+/// literally.
 ///
 /// `emit_throwing_call_terminator` renders a `catch_unwind` recovery for every
 /// caught call, and the prelude emits the helpers behind

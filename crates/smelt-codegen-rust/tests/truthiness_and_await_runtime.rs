@@ -1,4 +1,4 @@
-//! Runtime execution tests for four lowering rules whose defects produced Rust
+//! Runtime execution tests for lowering rules whose defects produced Rust
 //! that compiled cleanly and computed the wrong value.
 //!
 //! 1. **JavaScript truthiness of an erased or type-parameter value.** A
@@ -157,10 +157,10 @@ test("a generic value in boolean position uses JavaScript truthiness", () => {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn negating_an_erased_value_inside_a_callback_uses_truthiness_not_a_tag_check() {
-    // `entry.enabled` is read off a `Record<string, unknown>`, so the operand is
+    // `row.enabled` is read off a `Record<string, unknown>`, so the operand is
     // genuinely erased — the record's values are dynamic, which is why the
     // boundary is legitimate here. The old tag check answered `true` for the
-    // stored `false`, i.e. the exact inverse of `!entry.enabled` on the value
+    // stored `false`, i.e. the exact inverse of `!row.enabled` on the value
     // that matters.
     let source = r#"
 import { test, expect } from "vitest";

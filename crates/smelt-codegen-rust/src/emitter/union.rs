@@ -389,8 +389,8 @@ impl FunctionEmitter<'_> {
     /// Used to inject a structurally-compatible value (such as an empty list
     /// default whose element type erased to `SmeltUnknown`) into a concrete
     /// union arm by coercing its elements, rather than requiring an exact type
-    /// match. Only collection shapes are considered so that unrelated scalar
-    /// members are never selected.
+    /// match. Only collection, object, callback and promise shapes are considered so
+    /// that unrelated scalar members are never selected.
     fn union_member_shape_matches_source(&self, source: TypeId, member: TypeId) -> bool {
         if source == member {
             return false;
@@ -1252,8 +1252,9 @@ pub(crate) fn emit_union_definitions(
         // carried discarded, and `T` uninferable at any construction site
         // (E0282). `declaration_generics` is derived from exactly these
         // parameters, so spelling them here is what makes the declaration and its
-        // members agree. This closes the "known gap" recorded on
-        // `FunctionEmitter::rust_type`.
+        // members agree. The enum declaration members now use the enum's own
+        // environment; the "known gap" recorded on `FunctionEmitter::rust_type`
+        // stays open.
         let member_scope: ::std::collections::HashSet<Symbol> = params.iter().copied().collect();
         let member_substitution = crate::type_substitution::TypeSubstitution::callee_emission(&member_scope);
         output.push_str("#[derive(Clone)]\n");

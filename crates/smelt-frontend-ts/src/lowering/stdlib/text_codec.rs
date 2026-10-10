@@ -27,7 +27,7 @@
 //!   data properties (`encoding` on either codec, `length`/`byteLength` on a
 //!   byte view).
 //!
-//! # Why the byte view has a synthetic class name
+//! # Why the byte view is spelled `Uint8Array`
 //!
 //! `TextEncoder.encode` returns a `Uint8Array` in the source types, but the
 //! spelling `Uint8Array` still means the byte-backed HOST RECORD that the

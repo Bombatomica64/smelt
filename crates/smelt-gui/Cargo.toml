@@ -3,7 +3,7 @@
 # transpiler pipeline. It consumes the published smelt-* crates from crates.io
 # rather than path deps, so building the main workspace never touches gpui.
 #
-# Build it explicitly from this directory:
+# Build it explicitly from the repository root:
 #   cargo run --manifest-path crates/smelt-gui/Cargo.toml
 [workspace]
 

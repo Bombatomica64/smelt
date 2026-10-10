@@ -10,14 +10,6 @@
 
 use super::*;
 
-/// Return whether any body in the crate contains an expression matching `pred`.
-fn crate_has_expr(ctx: &HirCtx, pred: impl Fn(&ExprKind) -> bool) -> bool {
-    ctx.krate
-        .bodies
-        .iter()
-        .any(|body| body.exprs.iter().any(|expr| pred(&expr.kind)))
-}
-
 #[test]
 fn lowers_array_element_function_expression_to_closure() -> Result<(), String> {
     let mut ctx = HirCtx::new();

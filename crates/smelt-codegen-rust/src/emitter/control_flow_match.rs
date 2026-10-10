@@ -203,7 +203,6 @@ impl FunctionEmitter<'_> {
         Ok(join)
     }
 
-    /// Emits a block's statements until reaching a goto to the stop target.
     /// Converts a match scrutinee operand to its Rust text representation.
     pub(super) fn match_scrutinee_text(&self, operand: &Operand) -> Result<String, EmitError> {
         let operand_ty = self.operand_ty(operand)?;
@@ -238,7 +237,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a constant to its match label text.
-    /// Converts a constant to its match label text.
     pub(super) fn match_label_text(&self, constant: &Constant) -> String {
         match constant {
             Constant::String(value) => format!("{value:?}"),
@@ -258,5 +256,4 @@ impl FunctionEmitter<'_> {
         self.match_label_text(constant)
     }
 
-    // Gets the type of an operand.
 }

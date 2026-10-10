@@ -39,7 +39,7 @@ impl ModuleBuilder<'_> {
     /// collected in a prepass so [`Self::synthesize_constructor_function_class`]
     /// can run instead of ordinary function-item lowering, and so `new Foo()`
     /// sites lowered before the synthesis still resolve nominally through
-    /// `pending_class_names`.
+    /// `ClassRegistry::is_pending`.
     pub(in crate::lowering) fn module_constructor_function_names(
         program: &Program<'_>,
     ) -> HashSet<String> {
@@ -351,7 +351,7 @@ impl ModuleBuilder<'_> {
 
     /// Find a `const Foo = function (…) { … }` constructor binding in a
     /// declarator: a variable initialized with a function expression whose name
-    /// is used as a constructor in `body_statements`.
+    /// is used as a constructor. The caller checks constructor usage.
     ///
     /// Returns the binding name and the function expression. The function
     /// expression's own optional `id` is ignored; the binding name is what `new`
@@ -362,22 +362,29 @@ impl ModuleBuilder<'_> {
         let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
             return None;
         };
-        let mut init = declarator.init.as_ref()?;
-        // Unwrap `as`/`satisfies`/parenthesized wrappers around the function
-        // expression (constructor functions are frequently cast, e.g.
-        // `const Foo = function () {} as any as FooConstructor`).
+        // Constructor functions are frequently cast, e.g.
+        // `const Foo = function () {} as any as FooConstructor`.
+        let Expression::FunctionExpression(function) =
+            Self::peel_cast_wrappers(declarator.init.as_ref()?)
+        else {
+            return None;
+        };
+        Some((binding.name.as_str(), function.as_ref()))
+    }
+
+    /// Strip the `as`, `satisfies` and parenthesized wrappers around a
+    /// constructor function or class expression.
+    ///
+    /// Narrower than `peel_transparent_expression`: a non-null assertion is not
+    /// peeled here.
+    fn peel_cast_wrappers<'a>(mut expression: &'a Expression<'a>) -> &'a Expression<'a> {
         loop {
-            match init {
-                Expression::TSAsExpression(as_expr) => init = &as_expr.expression,
-                Expression::TSSatisfiesExpression(satisfies) => init = &satisfies.expression,
-                Expression::ParenthesizedExpression(parenthesized) => {
-                    init = &parenthesized.expression;
-                }
-                Expression::FunctionExpression(function) => {
-                    return Some((binding.name.as_str(), function.as_ref()));
-                }
-                _ => return None,
-            }
+            expression = match expression {
+                Expression::TSAsExpression(as_expr) => &as_expr.expression,
+                Expression::TSSatisfiesExpression(satisfies) => &satisfies.expression,
+                Expression::ParenthesizedExpression(parenthesized) => &parenthesized.expression,
+                _ => return expression,
+            };
         }
     }
 
@@ -399,20 +406,12 @@ impl ModuleBuilder<'_> {
         let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
             return None;
         };
-        let mut init = declarator.init.as_ref()?;
-        loop {
-            match init {
-                Expression::TSAsExpression(as_expr) => init = &as_expr.expression,
-                Expression::TSSatisfiesExpression(satisfies) => init = &satisfies.expression,
-                Expression::ParenthesizedExpression(parenthesized) => {
-                    init = &parenthesized.expression;
-                }
-                Expression::ClassExpression(class) => {
-                    return Some((binding.name.as_str(), class.as_ref()));
-                }
-                _ => return None,
-            }
-        }
+        let Expression::ClassExpression(class) =
+            Self::peel_cast_wrappers(declarator.init.as_ref()?)
+        else {
+            return None;
+        };
+        Some((binding.name.as_str(), class.as_ref()))
     }
 
     /// Synthesize classes for `const Foo = function () { … }` constructor

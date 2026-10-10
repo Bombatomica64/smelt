@@ -23,7 +23,7 @@
 //!   neither the checks, the argument set-up, nor the `Debug`/`Eq` derives that
 //!   exist only for their messages.
 //! * **Cheap.** Comparisons are on `TypeId`s and decision values, never on
-//!   rendered type *text* — rendering a type twice to compare the strings would
+//!   rendered type *text* (seam 5 is the one justified text comparison) — rendering a type twice to compare the strings would
 //!   double the cost of the very path being checked. Type text appears only
 //!   inside assertion messages, which `debug_assert!` formats only when the
 //!   check has already failed.

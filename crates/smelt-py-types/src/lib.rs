@@ -24,7 +24,7 @@
 //! there is no public way to walk a function's inferred signature struct. The
 //! one stable, public capability `ty` exposes is
 //! [`ty_python_semantic::HasType::inferred_type`] on AST nodes, plus
-//! `Type::display(db)`, which renders a resolved type in **canonical Python
+//! `Type::display(db, environment)`, which renders a resolved type in **canonical Python
 //! spelling** (`int`, `list[int]`, `int | float`, `str | None`, …). That
 //! spelling is exactly the grammar the frontend's existing
 //! `annotation_to_hir` already parses. So this crate's contract is

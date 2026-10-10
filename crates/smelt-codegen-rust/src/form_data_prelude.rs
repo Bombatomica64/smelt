@@ -300,9 +300,8 @@ fn emit_inherent_impl(writer: &mut CodeWriter) {
                                 arm_writer.line("bytes.extend_from_slice(text.as_bytes());");
                             });
                             // A file part carries its `filename` and its type.
-                            // An empty type becomes the spec's default rather
-                            // than an empty header, which is what the parser
-                            // assumes when a part has no `Content-Type`.
+                            // An empty type becomes `application/octet-stream` rather
+                            // than an empty header; the parser's missing-type default is `text/plain`.
                             match_writer.block("SmeltFormDataValue::File(file) =>", |arm_writer| {
                                 arm_writer.line("let file_name = file.file_name();");
                                 arm_writer.line("let content_type = if file.blob_type().is_empty() { \"application/octet-stream\".to_owned() } else { file.blob_type() };");
@@ -368,8 +367,9 @@ fn emit_multipart_helpers(writer: &mut CodeWriter) {
     // occur in the payload. The JS reference implementations mint a random one;
     // this uses the same monotonic object-id counter the runtime already has,
     // so it is unique within the program without pulling in a random source a
-    // program might not otherwise pay for. The `-----------------------------`
-    // prefix is the shape every runtime uses and keeps it out of ordinary text.
+    // program might not otherwise pay for. The leading `----` is the shape
+    // runtimes commonly use; `SmeltFormBoundary` is Smelt's own token. Together
+    // they keep the boundary out of ordinary text.
     writer.line("/// A fresh `multipart/form-data` boundary, unique in this program.");
     writer.line("#[allow(dead_code)]");
     writer.line(

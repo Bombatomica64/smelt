@@ -1,3 +1,4 @@
+//! Rejected dict, builtin and slice forms and string replace/predicate/join lowering tests.
 use super::*;
 
 #[test]

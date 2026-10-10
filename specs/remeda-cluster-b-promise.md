@@ -1,6 +1,6 @@
 # Cluster B — Awaitable + inspectable `SmeltUnknown::Promise`
 
-Design plan (read-only investigation, 2026-06-26). Target tests:
+Design plan (read-only investigation, 2026-06-26). Superseded in part by `specs/remeda-funnel-async-completion-plan.md`: the decisive-finding and reverted-attempt sections describe the 2026-06-26 state. Target tests:
 - `isStrictEqual_test::test_built_ins_promises_1273`
 - `funnel_reference_batch_test::{test_showcase_error_handling, test_showcase_results_as_array, test_showcase_results_as_object}`
 
@@ -59,7 +59,7 @@ Single root edit: the `Type::Future` erasure arm (`coercion.rs:906`) wraps the l
 1. `new Promise` (`AsyncOp::Promise`, `call.rs:127-148`): hand its existing `smelt_promise_result`
    cell to `SmeltPromise::from_state` (don't rebuild+drop a throwaway future). Fixes the funnel `.call()` line.
 2. `async fn` / `async move {}` (`core.rs:106-155`): `from_future(fut)` (self-driving task fills cell).
-3. `Promise.resolve(x)` (`builder_part09.rs:937-995`, today `AsyncOp::Sleep(0)`): `from_future` w/ pre-settled `Some(Ok(x))`.
+3. `Promise.resolve(x)` (the Promise.resolve lowering, today `AsyncOp::Sleep(0)`): `from_future` w/ pre-settled `Some(Ok(x))`.
 4. Funnel batching: with (1), `.call()`'s promise shares the cell that the flush's `resolve(result)`/
    `reject(error)` writes (`funnel_reference_batch_test.rs:73-74, 117-119`).
 **No MIR/HIR/frontend structural change** — `Type::Future`, `AsyncOp::Promise`, `ExprKind::Await`,

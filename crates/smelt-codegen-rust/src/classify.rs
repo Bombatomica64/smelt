@@ -27,6 +27,10 @@
 //! - its instances are compared by identity (`===`/`!==` against a
 //!   non-literal), which only a handle can answer (see
 //!   [`collect_identity_comparison_triggers`]), or
+//! - its instances are installed as a callee's `this` in a program that writes
+//!   properties through erased values (see [`collect_bound_receiver_triggers`]), or
+//! - a collection method mutates one of its instance fields in place (see
+//!   [`collect_field_mutation_triggers`]), or
 //! - it INHERITS from a reference class, or a class inheriting from it is one
 //!   (see [`close_over_heritage`]).
 //!
@@ -196,10 +200,7 @@ fn collect_field_write_triggers(
     function: &MirFunction,
     references: &mut HashSet<Symbol>,
 ) {
-    let constructing_class = match function.origin {
-        HirOrigin::ClassConstructor { class, .. } => Some(class),
-        _ => None,
-    };
+    let constructing_class = crate::base_init::constructor_class(function);
     for block in &function.blocks {
         for statement in &block.statements {
             let Statement::AssignPlace { place, .. } = statement else {
@@ -358,10 +359,7 @@ fn collect_field_mutation_triggers(
     function: &MirFunction,
     references: &mut HashSet<Symbol>,
 ) {
-    let constructing_class = match function.origin {
-        HirOrigin::ClassConstructor { class, .. } => Some(class),
-        _ => None,
-    };
+    let constructing_class = crate::base_init::constructor_class(function);
     for block in &function.blocks {
         for statement in &block.statements {
             let Statement::Assign { value, .. } = statement else {
@@ -488,15 +486,7 @@ fn class_name_of_local(mir: &Mir, function: &MirFunction, local: LocalId) -> Opt
         // value class, and is just as wrong by value once a field is written:
         // `const b = a; b.x = 1` must be visible through `a`. Shapes therefore
         // classify on the same rule as classes.
-        Some(Type::Class { name, .. })
-            if mir.classes.iter().any(|class| class.name == *name)
-                || mir
-                    .interfaces
-                    .iter()
-                    .any(|interface| interface.name == *name) =>
-        {
-            Some(*name)
-        }
+        Some(Type::Class { name, .. }) if is_record_type_symbol(mir, *name) => Some(*name),
         _ => None,
     }
 }

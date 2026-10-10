@@ -122,9 +122,7 @@ impl Mir {
 
     /// Returns the next available function ID.
     ///
-    /// # Panics
-    ///
-    /// Panics if the number of functions does not fit in `u32`.
+    /// The id saturates to `u32::MAX` if the count does not fit in `u32`.
     #[must_use]
     pub fn next_function_id(&self) -> FuncId {
         FuncId(len_to_u32(self.functions.len(), "MIR function count"))
@@ -132,9 +130,7 @@ impl Mir {
 
     /// Adds a function to the MIR and returns its ID.
     ///
-    /// # Panics
-    ///
-    /// Panics if the number of functions does not fit in `u32`.
+    /// The id saturates to `u32::MAX` if the count does not fit in `u32`.
     pub fn push_function(&mut self, function: MirFunction) -> FuncId {
         let id = FuncId(len_to_u32(self.functions.len(), "MIR function count"));
         debug_assert_eq!(
@@ -147,9 +143,7 @@ impl Mir {
 
     /// Adds a closure to the MIR and returns its ID.
     ///
-    /// # Panics
-    ///
-    /// Panics if the number of closures does not fit in `u32`.
+    /// The id saturates to `u32::MAX` if the count does not fit in `u32`.
     pub fn push_closure(&mut self, closure: MirClosure) -> ClosureId {
         let id = ClosureId(len_to_u32(self.closures.len(), "MIR closure count"));
         debug_assert_eq!(closure.id, id, "MIR closure IDs must be insertion ordered");
@@ -419,9 +413,7 @@ impl MirFunction {
 
     /// Adds a local variable to the function and returns its ID.
     ///
-    /// # Panics
-    ///
-    /// Panics if the number of locals does not fit in `u32`.
+    /// The id saturates to `u32::MAX` if the count does not fit in `u32`.
     pub(crate) fn push_local(&mut self, local: LocalDecl) -> LocalId {
         let id = LocalId(len_to_u32(self.locals.len(), "MIR local count"));
         self.locals.push(local);
@@ -430,9 +422,7 @@ impl MirFunction {
 
     /// Adds a basic block to the function and returns its ID.
     ///
-    /// # Panics
-    ///
-    /// Panics if the number of basic blocks does not fit in `u32`.
+    /// The id saturates to `u32::MAX` if the count does not fit in `u32`.
     pub(crate) fn push_block(&mut self, span: Span) -> BlockId {
         let id = BlockId(len_to_u32(self.blocks.len(), "MIR block count"));
         self.blocks.push(BasicBlock {
@@ -1347,7 +1337,6 @@ pub enum Rvalue {
         /// Set value to project.
         set: Operand,
     },
-    /// Construct a WHATWG `URLSearchParams` value.
     /// Build an empty `EventEmitter`.
     EventEmitterNew,
     /// An `EventEmitter` member operation on a concrete emitter receiver.
@@ -2165,7 +2154,6 @@ pub enum Rvalue {
         /// Text content to write.
         text: Operand,
     },
-    /// Construct a modeled host `Blob`/`File` marker record from constructor parts.
     /// Apply a `Blob`/`File` member to a concrete receiver.
     BlobOp {
         /// Member to read or call.
@@ -2269,7 +2257,6 @@ pub enum GeneratorResumeKind {
     Throw,
 }
 
-/// A MIR statement.
 /// A MIR statement.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Statement {

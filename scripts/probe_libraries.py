@@ -78,6 +78,7 @@ def normalize(msg: str) -> str:
 # --- smelt invocation -----------------------------------------------------
 
 def run(cmd, **kw):
+    """Run cmd with captured text output and return the CompletedProcess."""
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
@@ -96,6 +97,7 @@ def dump_hir(smelt_bin: str, smelt_root: str, path: str):
 
 
 def list_source_files(root: str, lang: str):
+    """Return every file under root with the extension for lang (.py or .ts)."""
     exts = (".py",) if lang == "py" else (".ts",)
     out = []
     for dp, _dn, fn in os.walk(root):
@@ -196,11 +198,13 @@ CAT_LABEL = {
 
 
 def visible_classes(res, limit=14):
+    """Return (top rows, all rows) of a probe result's non-noise blocker classes."""
     rows = [c for c in res.get("classes", []) if classify(c["class"]) != "noise"]
     return rows[:limit], rows
 
 
 def render(results, date_str):
+    """Render the probe results as the Markdown report."""
     L = []
     w = L.append
     w("# Bug-library transpile probes (TypeScript + Python)")
@@ -343,6 +347,7 @@ def degenerate_probes(results, missing, expected):
 # --- main -----------------------------------------------------------------
 
 def main():
+    """Probe every configured library and write the Markdown report to --output."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default=".github/compat/libraries.json")
     ap.add_argument("--fixtures", default=".github/compat")

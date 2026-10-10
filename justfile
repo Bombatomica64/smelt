@@ -63,8 +63,8 @@ dump-shape-grid dir:
 
 # Run the focused module-linking and stub-generation tests
 test-modules:
-	cargo test -p smelt-transpiler --test hir_cli check_emits_typescript_declaration_stubs_for_linked_modules
-	cargo test -p smelt-transpiler --test hir_cli check_emits_python_stubs_for_linked_modules
+	cargo test -p smelt-transpiler --test hir_cli_core_tests check_emits_typescript_declaration_stubs_for_linked_modules
+	cargo test -p smelt-transpiler --test hir_cli_core_tests check_emits_python_stubs_for_linked_modules
 
 # Try mixed TypeScript -> Python module linking, build the generated crate, and run it
 try-modules:

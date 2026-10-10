@@ -11,14 +11,6 @@
 use super::*;
 use smelt_hir::{DictProjectionOp, Literal, UnknownKind};
 
-/// Return whether any body in the crate contains an expression matching `pred`.
-fn crate_has(ctx: &HirCtx, pred: impl Fn(&ExprKind) -> bool) -> bool {
-    ctx.krate
-        .bodies
-        .iter()
-        .any(|body| body.exprs.iter().any(|expr| pred(&expr.kind)))
-}
-
 /// Return whether any body in the crate contains a string literal `text`.
 fn crate_has_string_literal(ctx: &HirCtx, text: &str) -> bool {
     ctx.krate.bodies.iter().any(|body| {
@@ -86,7 +78,7 @@ export function make() {
         &mut ctx,
     )?;
     ensure!(
-        crate_has(&ctx, |kind| matches!(
+        crate_has_expr(&ctx, |kind| matches!(
             kind,
             ExprKind::New { .. }
         )),
@@ -126,7 +118,7 @@ export function run(): Record<string, number> {
     )?;
     // The function value must NOT be cast to a record for key projection: a
     // closure has no `SmeltUnknown` view, so that would emit non-compiling Rust.
-    ensure!(!crate_has(&ctx, |kind| matches!(
+    ensure!(!crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::DictProjection {
             op: DictProjectionOp::ForInKeys,
@@ -134,7 +126,7 @@ export function run(): Record<string, number> {
         }
     )));
     // `Object.hasOwn(fn, key)` folds to a constant `false`.
-    ensure!(crate_has(&ctx, |kind| matches!(
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::Literal(Literal::Bool(false))
     )));
@@ -159,12 +151,12 @@ export function check(values: number[]): boolean {
 "),
         &mut ctx,
     )?;
-    ensure!(crate_has(&ctx, |kind| matches!(
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::Literal(Literal::Bool(true))
     )));
     // It must NOT emit a nominal `InstanceOf` node for the built-in `Array`.
-    ensure!(!crate_has(&ctx, |kind| matches!(
+    ensure!(!crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::InstanceOf { .. }
     )));
@@ -182,7 +174,7 @@ export function check(value: unknown): boolean {
 "),
         &mut ctx,
     )?;
-    ensure!(crate_has(&ctx, |kind| matches!(
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::UnknownIs {
             kind: UnknownKind::Array,
@@ -262,7 +254,7 @@ export function make() {
         &mut ctx,
     )?;
     // The always-true probe is folded away: no conditional node survives.
-    ensure!(!crate_has(&ctx, |kind| matches!(
+    ensure!(!crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::Conditional { .. }
     )));

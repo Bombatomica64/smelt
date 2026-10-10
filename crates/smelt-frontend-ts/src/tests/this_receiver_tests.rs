@@ -3,14 +3,6 @@
 
 use super::*;
 
-/// Whether any body in the crate contains an expression matching `pred`.
-fn any_expr(ctx: &HirCtx, pred: impl Fn(&ExprKind) -> bool) -> bool {
-    ctx.krate
-        .bodies
-        .iter()
-        .any(|body| body.exprs.iter().any(|expr| pred(&expr.kind)))
-}
-
 /// Whether some `try/catch` binds the caught value.
 fn any_bound_catch(ctx: &HirCtx) -> bool {
     ctx.krate.bodies.iter().any(|body| {
@@ -103,7 +95,7 @@ test("throws", () => {
     lower_path_ok(source, "src/to-throw-message.test.ts", &mut ctx)?;
     ensure!(any_bound_catch(&ctx), "the caught value must be bound");
     ensure!(
-        any_expr(&ctx, |kind| matches!(kind, ExprKind::StringContains { .. })),
+        crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::StringContains { .. })),
         "a string argument is a substring test on the thrown message"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -126,7 +118,7 @@ test("throws", () => {
     let mut ctx = HirCtx::new();
     lower_path_ok(source, "src/to-throw-regexp.test.ts", &mut ctx)?;
     ensure!(
-        any_expr(&ctx, |kind| matches!(kind, ExprKind::RegexTest { .. })),
+        crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::RegexTest { .. })),
         "a RegExp argument tests the thrown message"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -152,7 +144,7 @@ test("throws", () => {
     lower_path_ok(source, "src/to-throw-class.test.ts", &mut ctx)?;
     let my_error = ctx.krate.symbols.intern("MyError");
     ensure!(
-        any_expr(&ctx, |kind| matches!(kind, ExprKind::InstanceOf { class, .. } if *class == my_error)),
+        crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::InstanceOf { class, .. } if *class == my_error)),
         "a class argument is an instanceof test on the thrown value"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -175,7 +167,7 @@ test("throws", () => {
     let mut ctx = HirCtx::new();
     lower_path_ok(source, "src/to-throw-any.test.ts", &mut ctx)?;
     ensure!(
-        !any_expr(&ctx, |kind| matches!(
+        !crate_has_expr(&ctx, |kind| matches!(
             kind,
             ExprKind::StringContains { .. } | ExprKind::RegexTest { .. } | ExprKind::InstanceOf { .. }
         )),
@@ -209,7 +201,7 @@ console.log(b.items?.length);
         &mut ctx,
     )?;
     ensure!(
-        any_expr(&ctx, |kind| matches!(kind, ExprKind::ListPush { .. })),
+        crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::ListPush { .. })),
         "the push must survive as a list mutation"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());

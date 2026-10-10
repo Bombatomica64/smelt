@@ -1004,7 +1004,7 @@ export function groupBy<T, K extends string>(xs: T[], key: (x: T) => K): K[] {
 
 #[test]
 fn erased_callable_argument_keeps_the_definition_generic() {
-    // The counterpart to `callback_only_type_param_still_demotes`: when `T` IS
+    // The counterpart to `callback_only_type_param_survives_an_erased_callable_argument`: when `T` IS
     // pinned by a direct value parameter, an erased callable in the callback
     // position is harmless. Nothing has to infer `T` from the callback, so the
     // definition stays generic and only the call site erases — the same

@@ -406,7 +406,7 @@ pub(crate) const REGEXP_COMPILE_FN: &str = "smelt_regexp_compile";
 /// The messages follow V8's spelling (`Invalid regular expression: /src/flags:
 /// ...`, `Invalid flags supplied to RegExp constructor '..'`); the engine's
 /// own reason for rejecting a pattern is not V8's, so the reason is the
-/// generic `Invalid pattern`.
+/// generic `Invalid pattern` when the engine rejects it.
 pub(crate) fn emit_regexp_compile_support(writer: &mut CodeWriter) {
     let flags_error = error_payload_record_expr(
         "SyntaxError",
@@ -564,7 +564,7 @@ pub(crate) fn caught_panic_error_value_expr(panic_text: &str) -> String {
 /// a declared non-throwing callback parameter type — still has to report a
 /// `throw`. It does so by panicking, and an enclosing `try` catches it with
 /// `std::panic::catch_unwind`. That route is why the generated `Cargo.toml` must
-/// never set `panic = "abort"`; `emitted_manifest_never_aborts_on_panic` pins it.
+/// never set `panic = "abort"`.
 ///
 /// # Why the panic payload is a class plus a message
 ///

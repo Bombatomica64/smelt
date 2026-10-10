@@ -10,6 +10,7 @@
 // case's memory to all of them. The Node runner has the same one-case-per-process
 // rule for the same reason.
 
+/// Escapes a string for embedding in the JSON object printed by `run` and `baseline`.
 fn json_escape(s: &str) -> String {
     s.chars()
         .flat_map(|c| match c {
@@ -21,6 +22,7 @@ fn json_escape(s: &str) -> String {
         .collect()
 }
 
+/// Benchmark runner entry point: dispatches `list`, `run <case>`, and `baseline`.
 fn main() {
     let argv: Vec<String> = std::env::args().collect();
     let cmd = argv.get(1).map(String::as_str).unwrap_or("list");

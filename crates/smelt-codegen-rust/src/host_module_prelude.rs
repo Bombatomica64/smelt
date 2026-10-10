@@ -20,9 +20,11 @@
 //!   RustCrypto crates a Rust team would pick (`md-5`, `sha1`, `sha2`, which
 //!   share one `digest::Digest` trait).
 //!
-//! The hasher's three failure modes are Node's own catchable errors
-//! (`Digest method not supported`, `Digest already called`, and an odd-length
-//! `hex` input), raised through the same error channel a source `throw` uses.
+//! The hasher has four catchable failure modes: `Digest method not supported`,
+//! `Digest already called`, an odd-length `hex` input, and a `digest` encoding
+//! with no text form. The first three carry Node's own messages; the fourth is
+//! a Smelt-written `TypeError`. All four are raised through the same error
+//! channel a source `throw` uses.
 
 use crate::rust::CodeWriter;
 
@@ -395,7 +397,7 @@ pub const HASH_DIGEST_BYTES_FN: &str = "smelt_hash_digest_bytes";
 
 /// The `SmeltHash` runtime type and its helpers, minus the error payloads.
 ///
-/// `{not_supported}`, `{finalized}` and `{bad_hex}` are replaced by the
+/// `{not_supported}`, `{finalized}`, `{bad_hex}` and `{bad_encoding}` are replaced by the
 /// thrown-value expressions (`thrown::error_payload_record_expr`) so the
 /// hasher's errors are the branded `Error` records a source `catch` reads.
 const HASH_HELPERS: &str = r#"/// The algorithms `createHash` accepts, by their normalized OpenSSL name.

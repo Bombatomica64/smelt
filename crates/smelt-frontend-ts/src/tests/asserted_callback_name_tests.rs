@@ -20,14 +20,6 @@
 
 use super::*;
 
-/// Whether any body in the crate holds an expression matching `pred`.
-fn crate_has_expr(ctx: &HirCtx, pred: impl Fn(&ExprKind) -> bool) -> bool {
-    ctx.krate
-        .bodies
-        .iter()
-        .any(|body| body.exprs.iter().any(|expr| pred(&expr.kind)))
-}
-
 /// Whether the crate performs the given primitive cast anywhere.
 fn crate_has_cast(ctx: &HirCtx, op: PrimitiveCastOp) -> bool {
     crate_has_expr(ctx, |kind| {

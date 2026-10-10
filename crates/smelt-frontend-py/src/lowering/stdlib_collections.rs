@@ -325,7 +325,7 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower Python set mutation methods with direct `HashSet` semantics.
+    /// Lower Python set methods (mutations, algebra and relation queries) with direct `HashSet` semantics.
     pub(super) fn set_method_call_expression(
         &mut self,
         call: &ruff_python_ast::ExprCall,

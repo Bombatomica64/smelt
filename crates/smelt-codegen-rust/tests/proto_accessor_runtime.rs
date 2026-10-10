@@ -174,11 +174,12 @@ test("merge skips the unsafe key, so the result keeps Object.prototype", () => {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn ordinary_objects_keep_their_key_semantics() {
-    // The accessor must not invent a `__proto__` key. Enumeration, spread, JSON
-    // and structural equality on objects that never mention `__proto__` are
-    // unchanged. (`JSON.stringify` is deliberately not asserted here: it emits
-    // keys in insertion-reversed order and renders integers as `2.0`, both
-    // pre-existing and unrelated to the accessor.), and two structurally equal objects stay equal.
+    // The accessor must not invent a `__proto__` key. Enumeration, spread and
+    // structural equality on objects that never mention `__proto__` are
+    // unchanged, and two structurally equal objects stay equal.
+    // (`JSON.stringify` is deliberately not asserted here: it emits keys in
+    // insertion-reversed order and renders integers as `2.0`, both pre-existing
+    // and unrelated to the accessor.)
     let source = r#"
 import { test, expect } from "vitest";
 test("objects without a __proto__ write are untouched", () => {

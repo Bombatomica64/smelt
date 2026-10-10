@@ -4,7 +4,7 @@
 //! `any`-typed field, a JSON-shaped bag — becomes a marker-bearing record. Its
 //! data properties were readable from the record, but its METHODS were not:
 //! the member read answered `undefined`, the optional-call adapter substituted
-//! a no-op default callback, and the call produced `null`. Eight of nine probes
+//! a no-op default callback, and the call produced `null`. Seven of eight probes
 //! were wrong against Node 22 before this tier existed:
 //!
 //! | read | Node | Smelt (before) |

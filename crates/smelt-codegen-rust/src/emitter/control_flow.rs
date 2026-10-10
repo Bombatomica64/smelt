@@ -365,7 +365,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Emits a single statement.
-    /// Emits a single statement.
     pub(super) fn emit_statement(
         &self,
         statement: &Statement,
@@ -504,7 +503,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Emits an assignment to a local, field, or index place.
     /// Emits an assignment to a local, field, or index place.
     pub(super) fn emit_assign_place_statement(
         &self,
@@ -920,7 +918,6 @@ impl FunctionEmitter<'_> {
         Ok(())
     }
 
-    /// Emits a block terminator.
     /// Emits a block terminator.
     pub(super) fn emit_terminator(
         &self,
@@ -1397,10 +1394,11 @@ impl FunctionEmitter<'_> {
                 let exception_decl = self.local_decl(exception_local)?;
                 let value = match self.mir.types.get(exception_decl.ty) {
                     Some(Type::String) => "__smelt_error".to_owned(),
-                    // The recovered panic message is presented through the
-                    // shared exception-payload record (see
+                    // The recovered panic is presented through the shared
+                    // exception-payload record, built by
+                    // `caught_panic_error_value_expr`; see
                     // `thrown::panic_payload_record_expr` for why this is a real
-                    // dynamic boundary rather than avoidable erasure).
+                    // dynamic boundary rather than avoidable erasure.
                     // The class comes from the panic payload, not a hard-coded
                     // `Error`: a `URIError` routed through the panic channel
                     // must still answer `error.name === 'URIError'`. See
@@ -1465,8 +1463,10 @@ impl FunctionEmitter<'_> {
             let exception_decl = self.local_decl(exception_local)?;
             // This arm is the real Smelt error channel, so an erased catch
             // binding recovers the thrown payload rather than a rebuilt message
-            // record. (The two `Err(__smelt_panic)` arms below stay text-only: a
-            // Rust panic never carried a JavaScript value in the first place.)
+            // record. (The `Err(__smelt_panic)` arm below binds an `unknown`
+            // catch variable through `smelt_panic_error_value`, which answers the
+            // value a panic-routed throw parked in `SMELT_PANIC_VALUE`, and a
+            // class-and-message record only for a panic with no parked value.)
             let value = self.caught_error_value_text(exception_decl.ty, "__smelt_error")?;
             out.push_str(&format!("            let {exception_name} = {value};\n"));
             self.mark_local_declared(exception_local);
@@ -1578,7 +1578,6 @@ impl FunctionEmitter<'_> {
         Ok(())
     }
 
-    /// Emits an if/else or while loop from a switch terminator.
     /// Emits an if/else or while loop from a switch terminator.
     pub(super) fn emit_switch(
         &self,
@@ -2346,7 +2345,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Checks if a block starts a while loop and returns loop details.
-    /// Checks if a block starts a while loop and returns loop details.
     pub(super) fn while_header(
         &self,
         block: &BasicBlock,
@@ -2473,7 +2471,6 @@ impl FunctionEmitter<'_> {
         Ok(*cond_local)
     }
 
-    /// Checks if a block eventually exits to a loop target.
     /// Checks if a block eventually exits to a loop target.
     pub(super) fn block_exits_to_loop(
         &self,
@@ -2639,7 +2636,6 @@ impl FunctionEmitter<'_> {
             .any(|successor| self.block_reaches_target_avoiding(successor, target, avoid, visited))
     }
 
-    /// Checks if a block starts a while loop with a latch block.
     /// Checks if a block starts a while loop with a latch block.
     pub(super) fn while_header_with_latch(
         &self,
@@ -2943,13 +2939,13 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Emits a recognized compound `while` loop and returns its exit block.
+    /// Emits a recognized compound `while` loop; the caller continues at its exit block.
     ///
     /// Emits `loop { <condition region>; if <decision> { <body> } else { break }
     /// }` (with the arms swapped when the body is the decision's else branch) so
     /// the body's back-edge to the header becomes a natural loop iteration that
-    /// re-evaluates the full compound condition. The returned block is the loop
-    /// exit continuation, which the caller emits next.
+    /// re-evaluates the full compound condition. The caller continues at
+    /// `exit_entry`, the loop exit continuation, which it emits next.
     fn emit_compound_while(
         &self,
         block: &BasicBlock,
@@ -2996,7 +2992,6 @@ impl FunctionEmitter<'_> {
         Ok(())
     }
 
-    /// Emits a match expression.
     /// Emits a block's statements until reaching a goto to the stop target.
     pub(super) fn emit_block_until_goto(
         &self,
@@ -3205,7 +3200,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Emits a branch inside a loop.
     /// Emits a branch inside a loop.
     pub(super) fn emit_loop_branch(
         &self,
@@ -3791,7 +3785,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    // Converts an rvalue to its Rust text representation.
 }
 
 /// Returns the prefix and final local assignment for branch bodies that end by

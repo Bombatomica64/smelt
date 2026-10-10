@@ -6,8 +6,8 @@
 //! | source | HIR type |
 //! | --- | --- |
 //! | `crypto.randomUUID()` | `String` |
-//! | `crypto.getRandomValues(view)` | `Uint8Array` (the argument, filled) |
-//! | `crypto.subtle.digest(name, data)` | `Promise<Uint8Array>` |
+//! | `crypto.getRandomValues(view)` | the argument's own type (the argument, filled) |
+//! | `crypto.subtle.digest(name, data)` | `Promise<ArrayBuffer>` |
 //!
 //! # Two spellings, one rule
 //!
@@ -198,13 +198,9 @@ impl ModuleBuilder<'_> {
     ///
     /// The spec accepts `"SHA-256"` and `{ name: "SHA-256" }` interchangeably,
     /// and normalizing here is what lets the emitted helper take a `&str`. A
-    /// string argument passes through; a record argument becomes a field read
-    /// of `name`, which is an ordinary lowering rather than a new node.
-    ///
-    /// Anything else is refused rather than erased: an algorithm the compiler
-    /// cannot see the *name* of would have to be inspected at run time through
-    /// the dynamic boundary, and a value that reaches a hash function is
-    /// exactly where a silent erasure is worst.
+    /// string argument passes through; any other argument becomes a field read
+    /// of `name` typed `String`, which is an ordinary lowering rather than a new
+    /// node. Nothing is refused here.
     fn crypto_algorithm_name(
         &mut self,
         algorithm: smelt_hir::ExprId,

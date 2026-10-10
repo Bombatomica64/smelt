@@ -15,7 +15,7 @@
 //!
 //! ## Cost and how to run it
 //!
-//! Running `cargo check` on many crates is slow, so the whole tier is a single
+//! Running `cargo check` on many crates is slow, so each corpus is one
 //! `#[ignore]`d test. It does not run during a plain `cargo test`. CI runs it
 //! explicitly, and you can too:
 //!
@@ -45,8 +45,8 @@
 //!
 //! When `cargo check` exposes a real bug in emitted code, the offending case is
 //! excluded from the green corpus (see [`KNOWN_COMPILE_FAILURES`]) with a
-//! reference to `blocker-logs/compile-snapshots-findings.md`, rather than the
-//! emitter being patched here. This test tier is additive only.
+//! comment describing the defect, rather than the emitter being patched here.
+//! This test tier is additive only.
 
 #![expect(
     clippy::similar_names,
@@ -92,14 +92,12 @@ struct Case {
 
 /// Cases known to emit Rust that does not currently compile.
 ///
-/// Each entry MUST reference an entry in
-/// `blocker-logs/compile-snapshots-findings.md`. These names are skipped by the
-/// green tier so it stays passing; the bug is tracked in the log rather than
-/// fixed in this additive change.
+/// Each entry MUST describe a known defect. These names are skipped by the
+/// green tier so it stays passing; the bug is described at the entry rather
+/// than fixed in this additive change.
 const KNOWN_COMPILE_FAILURES: &[&str] = &[
     // async function bodies emit a bare `return <expr>` against a synthesized
     // `Result<..>` return type instead of `return Ok(<expr>)`.
-    // See blocker-logs/compile-snapshots-findings.md (finding 1).
     "async_await",
 ];
 
@@ -678,9 +676,7 @@ export const UPPER_LIMIT = limits.upper;
             // stays concrete. The emitted Rust must compile. (The runtime
             // round-trip is asserted end-to-end by the CLI test
             // `build_round_trips_class_index_signature_keyed_store`.) Value types
-            // here are concrete (`string`/`number`); a union index value type is
-            // subject to the pre-existing union-field `Debug`/`Default` derive
-            // gap that also affects plain union class fields.
+            // here are concrete (`string`/`number`).
             name: "class_index_signature",
             area: "classes",
             source: r"
@@ -1627,8 +1623,8 @@ struct Fixture {
 
 /// A fixture that does not compile at HEAD, recorded rather than deleted.
 ///
-/// These are **pre-existing** defects: each one also reproduces at the
-/// pre-campaign commit, so none of them is a callback-generics regression.
+/// The entries confirmed **pre-existing** reproduce at the pre-campaign commit,
+/// so none of them is a callback-generics regression.
 /// Recording them keeps the shape in the corpus and makes the day someone fixes
 /// it visible — [`callback_generics_fixtures_compile`] fails in *both*
 /// directions, when an expected failure starts passing and when a passing

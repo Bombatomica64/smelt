@@ -2,6 +2,12 @@
 
 use super::*;
 
+/// The block-local recursive flattener both erased `flat` renderings emit.
+///
+/// Flattens nested `SmeltUnknown::Array` values up to the remaining depth and
+/// keeps every other value as a leaf.
+const SMELT_FLAT_VALUES_FN: &str = "fn smelt_flat_values(values: Vec<SmeltUnknown>, smelt_remaining_depth: i64) -> Vec<SmeltUnknown> { if smelt_remaining_depth <= 0 { return values; } values.into_iter().flat_map(|value| match value { SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), smelt_remaining_depth - 1), value => vec![value] }).collect::<Vec<_>>() }";
+
 impl FunctionEmitter<'_> {
     /// Drains a statically typed synchronous generator into a fresh `SmeltList`.
     ///
@@ -178,9 +184,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a set containment operation to Rust text.
-    /// Converts a list-to-set constructor conversion to Rust text.
-    /// Converts a set containment operation to Rust text.
     /// Converts a list-to-set constructor conversion to Rust text.
     pub(super) fn list_to_set_text(
         &self,
@@ -215,8 +218,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a list of key/value pair tuples to a Rust `HashMap`.
-    /// Converts a list of key/value pair tuples to a Rust `HashMap`.
     /// Converts a list of key/value pair tuples to a Rust `HashMap`.
     /// Converts a list of key/value pair tuples to a Rust `HashMap`.
     pub(super) fn list_pairs_to_dict_text(
@@ -254,8 +255,6 @@ impl FunctionEmitter<'_> {
 
     /// Converts a list concatenation operation to Rust text.
     /// Converts a list concatenation operation to Rust text.
-    /// Converts a list concatenation operation to Rust text.
-    /// Converts a list concatenation operation to Rust text.
     pub(super) fn list_concat_text(
         &self,
         left: &Operand,
@@ -263,14 +262,8 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let left_ty = self.operand_ty(left)?;
         let right_ty = self.operand_ty(right)?;
-        let left_erased = matches!(
-            self.mir.types.get(left_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(left_ty);
-        let right_erased = matches!(
-            self.mir.types.get(right_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(right_ty);
+        let left_erased = self.has_dynamic_shape(left_ty);
+        let right_erased = self.has_dynamic_shape(right_ty);
         if left_erased || right_erased {
             // Coerce both operands to the materialized result list type. When one
             // side is a concrete `List<X>` (e.g. the empty `[]` synthesized for an
@@ -477,10 +470,7 @@ impl FunctionEmitter<'_> {
     /// Whether a concat operand erases to a runtime `SmeltUnknown` value, so its
     /// elements must be unwrapped when collected alongside a concrete-typed side.
     fn is_erased_concat_operand(&self, ty: TypeId) -> bool {
-        matches!(
-            self.mir.types.get(ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(ty)
+        self.has_dynamic_shape(ty)
     }
 
     /// Return whether an operand is statically known to be an empty list.
@@ -528,9 +518,6 @@ impl FunctionEmitter<'_> {
         Ok(None)
     }
 
-    /// Converts a list search operation to Rust text.
-    /// Converts a list search operation to Rust text.
-    /// Converts a list slice operation to Rust text.
     /// Converts a list slice operation to Rust text.
     pub(super) fn list_slice_text(
         &self,
@@ -540,10 +527,7 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
-        if matches!(
-            self.mir.types.get(list_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(list_ty)
+        if self.has_dynamic_shape(list_ty)
         {
             return self.unknown_list_slice_text(list, start, end, dest_ty);
         }
@@ -608,10 +592,7 @@ impl FunctionEmitter<'_> {
                     .map(|text| format!("Some({text})"))
             },
         )?;
-        if matches!(
-            self.mir.types.get(dest_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(dest_ty)
+        if self.has_dynamic_shape(dest_ty)
         {
             // Tag-preserving erased slice: an array receiver yields a fresh
             // `SmeltUnknown::Array` (JS `Array.prototype.slice` returns a new
@@ -802,9 +783,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a list push operation to Rust text.
-    /// Converts a list copy operation to Rust text.
-    /// Converts a list push operation to Rust text.
     /// Converts a list copy operation to Rust text.
     pub(super) fn list_copy_text(
         &self,
@@ -864,10 +842,7 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
-        if matches!(
-            self.mir.types.get(list_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(list_ty)
+        if self.has_dynamic_shape(list_ty)
         {
             let Some(Type::List(item_ty)) = self.mir.types.get(dest_ty) else {
                 return Ok("Default::default()".to_owned());
@@ -887,7 +862,7 @@ impl FunctionEmitter<'_> {
             // E0507.
             let list_text = self.operand_borrow_text(list)?;
             return Ok(format!(
-                "{{ fn smelt_flat_values(values: Vec<SmeltUnknown>, smelt_remaining_depth: i64) -> Vec<SmeltUnknown> {{ if smelt_remaining_depth <= 0 {{ return values; }} values.into_iter().flat_map(|value| match value {{ SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), smelt_remaining_depth - 1), value => vec![value] }}).collect::<Vec<_>>() }} let smelt_flat_depth = (({depth_text}) as f64).max(0.0).floor() as i64; let smelt_flat_input = match &({list_text}) {{ SmeltUnknown::Array(values) => values.clone().into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string().into())).collect::<Vec<_>>(), _ => Vec::new() }}; smelt_flat_values(smelt_flat_input, smelt_flat_depth) }}"
+                "{{ {SMELT_FLAT_VALUES_FN} let smelt_flat_depth = (({depth_text}) as f64).max(0.0).floor() as i64; let smelt_flat_input = match &({list_text}) {{ SmeltUnknown::Array(values) => values.clone().into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string().into())).collect::<Vec<_>>(), _ => Vec::new() }}; smelt_flat_values(smelt_flat_input, smelt_flat_depth) }}"
             ));
         }
         let Some(Type::List(nested_ty)) = self.mir.types.get(list_ty) else {
@@ -898,7 +873,7 @@ impl FunctionEmitter<'_> {
         {
             let depth_text = self.flat_depth_text(depth)?;
             return Ok(format!(
-                "{{ fn smelt_flat_values(values: Vec<SmeltUnknown>, smelt_remaining_depth: i64) -> Vec<SmeltUnknown> {{ if smelt_remaining_depth <= 0 {{ return values; }} values.into_iter().flat_map(|value| match value {{ SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), smelt_remaining_depth - 1), value => vec![value] }}).collect::<Vec<_>>() }} let smelt_flat_depth = (({depth_text}) as f64).max(0.0).floor() as i64; smelt_flat_values({}.clone().into_vec(), smelt_flat_depth) }}",
+                "{{ {SMELT_FLAT_VALUES_FN} let smelt_flat_depth = (({depth_text}) as f64).max(0.0).floor() as i64; smelt_flat_values({}.clone().into_vec(), smelt_flat_depth) }}",
                 self.operand_text(list)?
             ));
         }
@@ -1079,9 +1054,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a list count operation to Rust text.
-    /// Converts a list count operation to Rust text.
-    /// Converts a tuple containment operation to Rust text.
     /// Converts a list-to-tuple constructor conversion to Rust text.
     pub(super) fn list_to_tuple_text(
         &self,
@@ -1116,5 +1088,4 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    // Converts a homogeneous tuple-to-set constructor conversion to Rust text.
 }

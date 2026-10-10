@@ -17,6 +17,10 @@ use oxc::semantic::{Semantic, SemanticBuilder};
 use oxc::span::SourceType;
 use pico_args::Arguments;
 
+/// Parses one TypeScript file and prints its parse or semantic diagnostics, or,
+/// when there are none, a semantic summary of symbols and resolved references,
+/// optionally preceded by its comments (`--comments`). `--ast` prints only a
+/// placeholder line in this example build.
 fn main() -> Result<(), String> {
     let mut stdout = io::stdout().lock();
     let mut args = Arguments::from_env();

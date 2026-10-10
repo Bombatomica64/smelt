@@ -65,12 +65,14 @@ mod tests {
     use smelt_hir::FileId;
     use std::convert::TryFrom;
 
+    /// Unwraps `result`, resuming a panic that carries `context` and the error on failure.
     fn ok_or_panic<T, E: std::fmt::Debug>(result: Result<T, E>, context: &str) -> T {
         result.unwrap_or_else(|error| {
             std::panic::resume_unwind(Box::new(format!("{context}: {error:?}")))
         })
     }
 
+    /// Returns the block with id `block` in `function`, panicking if the id does not fit `usize`.
     fn block_mut(function: &mut MirFunction, block: BlockId) -> &mut BasicBlock {
         let index = usize::try_from(block.0).ok().unwrap_or_else(|| {
             std::panic::resume_unwind(Box::new(format!(

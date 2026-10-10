@@ -63,10 +63,11 @@ impl ModuleBuilder<'_> {
     }
 
     /// Intern a type name symbol.
+    ///
+    /// Type names are case-sensitive, so this is
+    /// [`Self::intern_exact_source_name`] under the name its callers mean.
     pub(in crate::lowering) fn intern_type_name(&mut self, name: &str) -> smelt_hir::Symbol {
-        let symbol = self.ctx.krate.symbols.intern(name);
-        self.ctx.krate.names.record(symbol, name);
-        symbol
+        self.intern_exact_source_name(name)
     }
 
     /// Create an identifier expression from a local variable.
@@ -1181,28 +1182,6 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower a bare reference to the ambient global object (`globalThis` /
-    /// `global` / `self`, when not shadowed) *used as a value* into a concrete
-    /// marker-bearing host-object record.
-    ///
-    /// Most ambient-global usage is feature-detection that Phase-1 erasure folds
-    /// before this point (`typeof globalThis`, `"Map" in globalThis`,
-    /// `globalThis.Object.keys(x)` namespace normalization). This path handles
-    /// the residual escaping-identity case where the global object itself flows
-    /// as a value — e.g. es-toolkit's `_internal/globalThis.ts` shim
-    /// `(typeof globalThis === 'object' && globalThis) || ...`, whose result is
-    /// re-exported and later read as `globalThis.Buffer` (an absent member that
-    /// resolves to `undefined`). Modeling it as a record carrying a dedicated
-    /// `__smelt_global_object` marker keeps a concrete host-object value instead
-    /// of leaving an unresolved identifier or erasing it to a shapeless object.
-    ///
-    /// This is the pragmatic first step toward the plan's full Phase-2/3 runtime
-    /// `SmeltGlobalObject` (shared identity + dynamic property store). es-toolkit's
-    /// in-scope residual usage never compares global-object identity, writes a
-    /// dynamic property onto the global, or reads a user-defined dynamic slot, so
-    /// a per-read marker record is sufficient and faithful here; the shared-handle
-    /// runtime object remains the correct model once identity or dynamic mutation
-    /// becomes observable.
     /// Fold the global-object detection chain
     /// `(typeof X === 'object' && X) || (typeof Y === 'object' && Y) || ...`
     /// to the global-object value, short-circuiting per JavaScript semantics.
@@ -1499,9 +1478,8 @@ impl ModuleBuilder<'_> {
     /// function type, or the propagation pass gives the indirect call no unwind
     /// edge and the backend renders the fallible call as a panicking unwrap —
     /// so `tryDecode(str, decodeURIComponent)` would abort where the source
-    /// wrote a `catch`. Separate from the plain constructor because five of its
-    /// six callers are infallible and threading a `false` through each of them
-    /// reads as noise.
+    /// wrote a `catch`. Separate from the plain constructor so that infallible
+    /// callers do not have to thread a `false` through the call.
     pub(in crate::lowering) fn builtin_unary_closure_expression_with_throw(
         &mut self,
         param_ty: smelt_hir::TypeId,
@@ -2198,7 +2176,7 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Ensure a console.log item exists in the HIR.
+    /// Creates a new `console_log` stub item in the HIR on each call.
     pub(in crate::lowering) fn ensure_console_log_item(&mut self, span: Span) -> smelt_hir::ItemId {
         let name = self.ctx.krate.symbols.intern(smelt_hir::CONSOLE_LOG_SYMBOL);
         let none = self.ctx.krate.types.intern(Type::None);
@@ -2319,6 +2297,4 @@ impl ModuleBuilder<'_> {
             span,
         }))
     }
-
-    // Continued in the next split builder file.
 }

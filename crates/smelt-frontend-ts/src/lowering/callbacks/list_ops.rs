@@ -9,7 +9,7 @@ use crate::lowering::{
 use oxc::span::GetSpan;
 
 impl ModuleBuilder<'_> {
-    /// Lower direct TypeScript `Array.prototype.concat` for one same-typed array argument.
+    /// Lower direct TypeScript `Array.prototype.concat` calls with any number of arguments, widening element types.
     ///
     /// Two shapes reach this rule. `ns.concat(collection, ...values)` on a utility
     /// *namespace* object (a `import * as _` star import or a registered object

@@ -1,3 +1,5 @@
+// Statement lowering for `ModuleBuilder`.
+// Included into lowering.rs via include!, so this file uses plain comments.
 impl ModuleBuilder<'_> {
     // -----------------------------------------------------------------------
     // Statement lowering

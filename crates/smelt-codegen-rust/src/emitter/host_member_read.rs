@@ -1,6 +1,6 @@
 //! Reading a member off a MODELED HOST class from rendered text.
 //!
-//! `emitter::place` answers `x.member` from a [`smelt_hir::Place`], whose base
+//! `emitter::place` answers `x.member` from a [`smelt_mir::Place`], whose base
 //! is a MIR local. A coercion seam has no local: it holds a rendered expression
 //! and the type that expression has. Structural assignability needs exactly
 //! that — "a value whose type exposes every member of a target record type

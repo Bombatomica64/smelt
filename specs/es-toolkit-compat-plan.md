@@ -12,7 +12,7 @@ suite, like Remeda (1789/0), then add it as a second CI regression gate.
   the lodash-compat `src/compat/**` layer is intentionally out of scope).
 - Local checkout: `third_party/es-toolkit` (untracked, like `third_party/remeda`).
 - Probe: `smelt probe --manifest-path third_party/es-toolkit/Smelt.toml` (scans
-  all files, does not abort). Baseline report: `blocker-logs/estk-baseline.md`.
+  all files, does not abort).
 
 ## Baseline (2026-06-29)
 
@@ -25,8 +25,7 @@ suite, like Remeda (1789/0), then add it as a second CI regression gate.
 
 ## Batch 1 (2026-06-29) — landed on main (6 parallel agents)
 
-Files with blockers **419 → 333** (−86). unsupported-lowering 317 → 226; missing-stdlib 79 → 67. (unresolved-reference rose 35 → 51 — newly-surfaced downstream `compat/**` function-as-constructor cases, out of scope.) Whole-crate `smelt build` abort moved `array/at.spec.ts` → `array/chunk.spec.ts`. Remeda gate stayed 1789/0; smelt suite 1246/0. Fresh report: `blocker-logs/estk-after-batch1.md`.
-
+Files with blockers **419 → 333** (−86). unsupported-lowering 317 → 226; missing-stdlib 79 → 67. (unresolved-reference rose 35 → 51 — newly-surfaced downstream `compat/**` function-as-constructor cases, out of scope.) Whole-crate `smelt build` abort moved `array/at.spec.ts` → `array/chunk.spec.ts`. Remeda gate stayed 1789/0; smelt suite 1246/0.
 Landed: named-local array callbacks 54→0 · object-value rest params 31→0 · `arguments` in non-arrow fn expressions 28→0 · array methods in callback bodies 12→9 · bare `Array(n)` call 57→41 · `new Object()`→concrete record (struct-backed builtins ArrayBuffer/AbortController/Number/Blob/Proxy left as honest `missing-stdlib` blockers, NOT erased).
 
 ## Batch 2 (2026-06-29) — stdlib + globals, landed on main

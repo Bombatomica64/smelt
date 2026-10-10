@@ -9,10 +9,12 @@
 //!   separate grammar), so `annotation_to_hir` pattern-matches on `Expr` shape.
 //! * `print(...)` is mapped to the same `CONSOLE_LOG_SYMBOL` item as TS's
 //!   `console.log(...)` — both compile down to `println!` in codegen.
-//! * Strict annotation policy mirrors TS: function params and return types must
-//!   have explicit type hints; new local variables require annotated assignment
-//!   (`x: int = 5`), bare assignment (`x = 5`) is only allowed to an already-
-//!   declared local.
+//! * Local declarations: an annotated assignment (`x: int = 5`) declares a
+//!   local at its annotated type; a bare assignment (`x = 5`) to an undeclared
+//!   name declares a new local typed from its value, and to an already-declared
+//!   local is an ordinary assignment. Function params and return types must have explicit
+//!   type hints when the `ty` feature is disabled; with `ty` enabled, missing
+//!   parameter and return types are resolved where `ty` can.
 
 #![expect(
     clippy::many_single_char_names,

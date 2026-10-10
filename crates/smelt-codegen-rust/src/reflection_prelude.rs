@@ -42,8 +42,8 @@ use crate::rust::CodeWriter;
 
 /// Markers, in match order, whose prototype exposes a reflected constructor.
 ///
-/// Each entry is `(marker, kind, class_name)`. Order matters: a `File` record
-/// also carries `__smelt_blob`, so the more specific marker must win.
+/// Each entry is `(marker, kind, class_name)`. Order matters: the more specific
+/// marker must win (see `constructor_class_markers`).
 ///
 /// This is intentionally *not* the whole host registry. Handing a marker a
 /// reflected prototype object replaces its `"__smelt_proto:object"` string
@@ -126,9 +126,10 @@ fn constructor_class_markers() -> Vec<(&'static str, &'static str)> {
 /// The reflected-construct *kind* string for a host constructor class name.
 ///
 /// The kind is the class's registry marker with the shared `__smelt_` prefix
-/// stripped, which is exactly what `smelt_reflected_marker_kind` hands back for a
-/// record of that identity — so a class name and a live record agree on which
-/// constructor to run. `None` for names that are not modeled host objects.
+/// stripped (`"dataview"` for `__smelt_dataview`), which is the key the emitted
+/// `smelt_reflected_construct` dispatches on. `None` for names that are not
+/// modeled host objects, and for the ones that must not be reflectively
+/// constructed as marker records.
 pub fn reflected_construct_kind(class_name: &str) -> Option<&'static str> {
     // A class backed by a generated runtime type must not be reflectively
     // constructed as a marker record: the record would answer `instanceof`

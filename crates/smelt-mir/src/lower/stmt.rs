@@ -738,7 +738,7 @@ impl LoweringCtx<'_> {
         // treats a `goto` to a lower-id block as a loop back-edge (following it
         // only when the target provably terminates, else emitting a fallthrough
         // return). The join is a forward continuation, never a back-edge; giving
-        // it the highest id keeps every `goto join` a forward edge so the
+        // it an id higher than every arm target and the default keeps every `goto join` a forward edge so the
         // post-`switch` tail is always emitted. Allocating it first (as before)
         // made the tail of a no-`default` switch whose arms end in a call/branch
         // (so no join can be hoisted) look like an unterminating back-edge, and

@@ -1682,7 +1682,8 @@ return_ty: function.return_ty,
         Some(self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty)))
     }
 
-    /// Collapse unions that only differ by an empty tuple branch into a list type.
+    /// Collapse unions of list-like arms, which differ by an empty tuple branch or by
+    /// element type, into a list type.
     pub(in crate::lowering) fn list_union_type(&mut self, items: &[smelt_hir::TypeId]) -> Option<smelt_hir::TypeId> {
         let mut element_tys = Vec::new();
         for item in items {
@@ -3451,12 +3452,12 @@ return_ty: function.return_ty,
 
     /// Resolve a field on one of the ambient fetch **init** interfaces.
     ///
-    /// `ResponseInit`, `RequestInit` and `HeadersInit` are declared in
+    /// `ResponseInit` and `RequestInit` are declared in
     /// lib.dom/undici, which Smelt does not import, so a value annotated with
     /// one is an opaque class with no declared fields and `init.status`
     /// resolved to `Unknown`. The field types are statically known all the
     /// same, so they are declared here — the same reason `SmeltMatch`'s and
-    /// `URLSearchParams.size`'s entries exist in this function.
+    /// `URLSearchParams.size`'s entries exist in `builtin_class_field_type`.
     ///
     /// Every key is **optional** (`status?: number`), so each resolves to an
     /// `Optional<T>`; that is what makes the absent case fall back to the
@@ -4079,7 +4080,6 @@ return_ty: function.return_ty,
         }
     }
 
-    /// Return the HIR type used for JavaScript `RegExp` values.
     /// Resolve a data-property read on a builtin `RegExp` receiver to its
     /// concrete field type, or `None` when `name` is not the `RegExp` class or
     /// the field is not a modeled `RegExp` data property.
@@ -4155,11 +4155,6 @@ return_ty: function.return_ty,
         })
     }
 
-    /// Return whether a class symbol names a synthetic match-result class.
-    ///
-    /// Both `__SmeltMatch` (the match value) and `__SmeltMatchGroups` (its
-    /// named-group accessor) answer `true`; callers that need to distinguish the
-    /// two inspect the resolved [`smelt_stdlib::StdlibClass`] directly.
     /// Resolve a class symbol to its shared stdlib class identity, if any.
     pub(in crate::lowering) fn stdlib_class_of_symbol(
         &self,
@@ -4385,7 +4380,7 @@ return_ty: function.return_ty,
     /// `headers` keeps the union WHATWG gives it (`HeadersInit`) rather than
     /// being narrowed to the `Headers` arm alone.
     ///
-    /// A source declaration of the same name always wins: Hono declares its own
+    /// A source declaration of the same name wins for the bare spelling: Hono declares its own
     /// `interface ResponseInit<T extends StatusCode>` and refers to the ambient
     /// one as `globalThis.ResponseInit` precisely to escape it. The source probe
     /// is the same one `source_contains_class` uses for the sibling shadowing
@@ -4399,9 +4394,9 @@ return_ty: function.return_ty,
                 ("statusText", AmbientInitKey::Text),
                 ("headers", AmbientInitKey::HeadersInit),
             ],
-            // The stored members are appended from `RequestInitMember`, the
-            // same table the request keeps them in, so the dictionary's key set
-            // and the getter surface cannot drift apart.
+            // The stored members are a literal table, not derived from
+            // `RequestInitMember`; the key set and the getter surface are kept in step
+            // by hand.
             "RequestInit" => &[
                 ("method", AmbientInitKey::Text),
                 ("headers", AmbientInitKey::HeadersInit),
@@ -4511,12 +4506,6 @@ return_ty: function.return_ty,
             .intern(Type::Union(vec![pair_list_ty, record_ty, headers_ty]))
     }
 
-    /// Whether the source text declares a type of this name.
-    ///
-    /// The same textual probe as [`Self::source_contains_class`], and for the
-    /// same reason: a declaration can appear after the reference that needs to
-    /// know about it, so the interface registry is not yet populated when the
-    /// question is asked.
     /// Whether a type reference names a declaration of the current module that
     /// shadows a same-spelled global lib type.
     ///
@@ -4540,6 +4529,12 @@ return_ty: function.return_ty,
         self.types.module_declares_type_name(name.name.as_str())
     }
 
+    /// Whether the source text declares a type of this name.
+    ///
+    /// The same textual probe as [`Self::source_contains_class`], and for the
+    /// same reason: a declaration can appear after the reference that needs to
+    /// know about it, so the interface registry is not yet populated when the
+    /// question is asked.
     /// Whether the module's source text spells a declaration of the type `name`.
     fn source_declares_type(&self, name: &str) -> bool {
         [

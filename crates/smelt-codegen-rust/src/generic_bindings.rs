@@ -85,9 +85,10 @@ pub(crate) struct CalleeTypeParamBindings {
 impl CalleeTypeParamBindings {
     /// Build a binding map declaring `names`, every entry left `Unbound`.
     ///
-    /// Test-only: production maps are always produced by [`collect_bindings`]
-    /// from a real callee signature. This exists so consumers of the binding
-    /// map (notably [`crate::type_substitution`]) can be unit-tested against
+    /// Production maps are built by the collectors ([`collect_bindings`],
+    /// `collect_bindings_from_types`, `bind_class_type_params`) from a real callee
+    /// signature. Only the test constructors are test-only: they let consumers of
+    /// the binding map (notably [`crate::type_substitution`]) be unit-tested against
     /// every binding state without standing up a whole MIR.
     #[cfg(test)]
     pub(crate) fn unbound(names: impl IntoIterator<Item = Symbol>) -> Self {

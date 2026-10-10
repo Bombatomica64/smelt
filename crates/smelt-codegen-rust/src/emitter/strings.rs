@@ -53,12 +53,9 @@ impl FunctionEmitter<'_> {
     /// Converts one of the four JavaScript URI transcoding globals to a call to
     /// its runtime helper.
     ///
-    /// The encoders are total. The decoders return `None` for input ECMA-262
-    /// rejects with a `URIError`, and that failure is currently rendered as an
-    /// `.expect(...)` — a PANIC, not a catchable throw. That is deliberate and
-    /// matches the existing `JSON.parse` emission
-    /// Only the INFALLIBLE direction reaches this rvalue path.
-    /// `decodeURI`/`decodeURIComponent` lower to
+    /// The encoders are total, and only that INFALLIBLE direction reaches this
+    /// rvalue path. The decoders never do: ECMA-262 rejects malformed input
+    /// with a `URIError`, so `decodeURI`/`decodeURIComponent` lower to
     /// `Terminator::Call { Callee::Builtin(BuiltinFn::UriDecode(op)), unwind }`
     /// so their `URIError` is catchable — a fallible rvalue has no unwind edge,
     /// which used to leave a `try`/`catch` around a decode with no predecessor
@@ -144,7 +141,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a string affix operation to Rust text.
-    /// Converts a string affix operation to Rust text.
     pub(super) fn string_affix_text(
         &self,
         op: smelt_hir::StringAffixOp,
@@ -160,7 +156,6 @@ impl FunctionEmitter<'_> {
         Ok(format!("{haystack_text}.{method_name}(&{needle_text})"))
     }
 
-    /// Converts a string search operation to Rust text.
     /// Converts a string search operation to Rust text.
     pub(super) fn string_search_text(
         &self,
@@ -227,7 +222,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a string replacement operation to Rust text.
-    /// Converts a string replacement operation to Rust text.
     pub(super) fn string_replace_text(
         &self,
         op: smelt_hir::StringReplaceOp,
@@ -259,7 +253,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a string remove-prefix/remove-suffix operation to Rust text.
-    /// Converts a string remove-prefix/remove-suffix operation to Rust text.
     pub(super) fn string_remove_affix_text(
         &self,
         op: smelt_hir::StringAffixOp,
@@ -277,7 +270,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a string repeat operation to Rust text.
     /// Converts a string repeat operation to Rust text.
     pub(super) fn string_repeat_text(
         &self,
@@ -302,10 +294,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a string padding operation to Rust text.
-    ///
-    /// The generated code counts Rust `char`s rather than JavaScript UTF-16 code units.
-    /// Exact Unicode indexing parity is tracked separately with the other string APIs.
     /// Converts a string padding operation to Rust text.
     ///
     /// The generated code counts Rust `char`s rather than JavaScript UTF-16 code units.
@@ -343,7 +331,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a string character predicate operation to Rust text.
     /// Converts a string character predicate operation to Rust text.
     pub(super) fn string_predicate_text(
         &self,
@@ -407,7 +394,6 @@ impl FunctionEmitter<'_> {
         })
     }
 
-    /// Converts a regex replacement operation to Rust text using the `regex` crate.
     /// Converts a regex replacement operation to Rust text using the `regex` crate.
     pub(super) fn regex_replace_text(
         &self,
@@ -747,7 +733,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a timestamp in milliseconds to an RFC 3339 timestamp string.
     /// Checks that every operand has string type.
     pub(super) fn require_string_operands(
         &self,
@@ -926,10 +911,7 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Optional(inner))
-                if matches!(
-                    self.mir.types.get(*inner),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(*inner) =>
+                if self.has_dynamic_shape(*inner) =>
             {
                 let text = self.operand_text(operand)?;
                 // A concrete-union `Option` payload stores a tagged enum, so each
@@ -979,7 +961,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a string character lookup operation to Rust text.
-    /// Converts a string character lookup operation to Rust text.
     pub(super) fn string_char_at_text(
         &self,
         operand: &Operand,
@@ -1003,7 +984,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a string character-code lookup operation to Rust text.
     /// Converts a string character-code lookup operation to Rust text.
     pub(super) fn string_char_code_at_text(
         &self,
@@ -1039,8 +1019,7 @@ impl FunctionEmitter<'_> {
     /// the empty needle, which `str::contains` handles for free.
     ///
     /// The erased-value fast paths only apply when no `position` is given; the
-    /// frontend coerces an erased haystack to a concrete string before attaching
-    /// a `from_index`, so the positional form always sees `Type::String` operands.
+    /// positional form coerces a non-String haystack to a string before matching.
     pub(super) fn string_contains_text(
         &self,
         haystack: &Operand,
@@ -1125,7 +1104,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a string slice operation to Rust text.
     /// Converts a string slice operation to Rust text.
     pub(super) fn string_slice_text(
         &self,
@@ -1279,7 +1257,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a string join operation to Rust text.
-    /// Converts a string join operation to Rust text.
     pub(super) fn string_join_text(
         &self,
         items: &Operand,
@@ -1341,5 +1318,4 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    // JSON and IO string helpers continue in `strings_io.rs`.
 }

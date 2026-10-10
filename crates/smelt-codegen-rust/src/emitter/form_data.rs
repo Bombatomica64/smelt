@@ -264,12 +264,6 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Find the interned `string | File` entry value union.
-    ///
-    /// Structural rather than by symbol: the frontend interns this union in one
-    /// place (`form_data_value_type`) whenever a form member is lowered, so a
-    /// two-member union of a string and the blob runtime class identifies it
-    /// without the emitter having to reconstruct the `File` symbol.
     /// The `(name, value)` pair type an entries projection answers, and the
     /// value type inside it.
     ///
@@ -290,6 +284,12 @@ impl FunctionEmitter<'_> {
         Ok((pair_ty, value_ty))
     }
 
+    /// Find the interned `string | File` entry value union.
+    ///
+    /// Structural rather than by symbol: the frontend interns this union in one
+    /// place (`form_data_value_type`) whenever a form member is lowered, so a
+    /// two-member union of a string and the blob runtime class identifies it
+    /// without the emitter having to reconstruct the `File` symbol.
     fn form_data_value_type_id(&self) -> Result<TypeId, EmitError> {
         for (index, ty) in self.mir.types.all().iter().enumerate() {
             let Type::Union(members) = ty else { continue };

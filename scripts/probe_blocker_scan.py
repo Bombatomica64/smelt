@@ -2,7 +2,7 @@
 """Scan every source/test file of a probed library through `smelt dump-hir`
 to aggregate the distinct unsupported-construct blocker classes per library.
 
-Used to probe third-party "bug libraries" (see blocker-logs/bug-library-probes-*.md):
+Used to probe third-party "bug libraries" (see blocker-logs/library-probes.md):
 when `smelt build` aborts a whole-crate transpile at the first unsupported file,
 this scanner runs every file independently to enumerate the *full* set of distinct
 blocker classes so the report can categorize them (missing-stdlib vs non-working Rust).
@@ -29,6 +29,7 @@ SMELT = os.environ.get("SMELT_BIN", os.path.join(SMELT_ROOT, "target/debug/smelt
 MSG_RE = re.compile(r'message: \\"(.*?)\\"')
 
 def scan_file(path):
+    """Run `smelt dump-hir` on one file and return (abs path, blocker messages)."""
     path = os.path.abspath(path)
     try:
         r = subprocess.run([SMELT, "dump-hir", path], capture_output=True, text=True,
@@ -41,13 +42,12 @@ def scan_file(path):
 
 def normalize(msg):
     """Collapse a message to its blocker class, keeping stdlib symbol names."""
-    # keep the symbol for unresolved/unsupported builtin references
-    m = re.search(r"(unresolved (?:callback )?(?:identifier|class|name)|unsupported.*?target|instanceof target) [`']([^`']+)[`']", msg)
     s = re.sub(r"'[^']*'", "'X'", msg)
     s = re.sub(r"`[^`]*`", "`X`", s)
     return s
 
 def categorize(msg):
+    """Return the category for a blocker message: stdlib when it names a builtin symbol."""
     stdlib_syms = ("Array","Number","String","Boolean","Object","Reflect","Math","Map","Set",
         "TextEncoder","TextDecoder","Promise","Date","JSON","RegExp","Symbol","BigInt","Error",
         "WeakMap","WeakSet","Proxy","Intl","ArrayBuffer","DataView","Iterator")
@@ -62,6 +62,7 @@ def categorize(msg):
     return "transpiler-limitation"
 
 def list_files(root, exts):
+    """Return every file under root whose name ends with one of exts."""
     out = []
     for dp, dn, fn in os.walk(root):
         if "node_modules" in dp or "/dist-" in dp or "/.git" in dp:
@@ -72,6 +73,7 @@ def list_files(root, exts):
     return out
 
 def main():
+    """Scan the library directory in argv[1] (argv[2] is py or ts) and report blocker classes."""
     lib_dir = sys.argv[1]
     exts = [".py"] if sys.argv[2] == "py" else [".ts"]
     # restrict to source roots passed as remaining args
@@ -83,7 +85,6 @@ def main():
     files = sorted(set(files))
     cls_counter = Counter()      # blocker class -> count of occurrences
     cls_files = {}               # blocker class -> set of files
-    cat_counter = Counter()      # category -> distinct classes
     failing_files = set()
     with ThreadPoolExecutor(max_workers=8) as ex:
         for path, msgs in ex.map(scan_file, files):

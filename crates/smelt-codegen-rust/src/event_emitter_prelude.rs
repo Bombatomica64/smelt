@@ -34,7 +34,7 @@ use crate::rust::CodeWriter;
 
 /// Emit the `SmeltEventEmitter` runtime type.
 ///
-/// Gated on `needs_unknown` as well as on its own use: the listener store is
+/// Gated on its own use (`stdlib::needs_event_emitter_runtime`): the listener store is
 /// the erased callable ABI, so an emitter cannot exist without the carrier.
 pub fn emit(writer: &mut CodeWriter) {
     emit_struct(writer);

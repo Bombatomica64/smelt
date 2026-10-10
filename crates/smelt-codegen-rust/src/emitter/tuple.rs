@@ -75,7 +75,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a statically-known tuple index operation to Rust text.
-    /// Converts a statically-known tuple index operation to Rust text.
     pub(super) fn tuple_index_text(
         &self,
         tuple: &Operand,
@@ -84,10 +83,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let tuple_ty = self.operand_ty(tuple)?;
         let Some(Type::Tuple(items)) = self.mir.types.get(tuple_ty) else {
-            if matches!(
-                self.mir.types.get(tuple_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            ) || self.is_erased_class_type(tuple_ty)
+            if self.has_dynamic_shape(tuple_ty)
             {
                 let runtime_index = u32::try_from(index).map_err(|err| {
                     EmitError::new(format!("tuple index does not fit in runtime number: {err}"))
@@ -115,7 +111,6 @@ impl FunctionEmitter<'_> {
         Ok(format!("{}.{}.clone()", self.operand_text(tuple)?, index))
     }
 
-    /// Converts a statically-known tuple slice operation to Rust text.
     /// Converts a statically-known tuple slice operation to Rust text.
     pub(super) fn tuple_slice_text(
         &self,
@@ -155,7 +150,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a homogeneous tuple-to-list constructor conversion to Rust text.
-    /// Converts a homogeneous tuple-to-list constructor conversion to Rust text.
     pub(super) fn tuple_to_list_text(
         &self,
         tuple: &Operand,
@@ -176,7 +170,6 @@ impl FunctionEmitter<'_> {
         Ok(format!("vec![{items_text}]"))
     }
 
-    /// Converts a list-to-tuple constructor conversion to Rust text.
     /// Converts a homogeneous tuple-to-set constructor conversion to Rust text.
     pub(super) fn tuple_to_set_text(
         &self,
@@ -198,7 +191,6 @@ impl FunctionEmitter<'_> {
         Ok(format!("SmeltPrimSet::from([{items_text}])"))
     }
 
-    /// Returns tuple fields and their shared item type for homogeneous tuple conversions.
     /// Returns tuple fields and their shared item type for homogeneous tuple conversions.
     pub(super) fn homogeneous_tuple_conversion_parts(
         &self,
@@ -225,5 +217,4 @@ impl FunctionEmitter<'_> {
         Ok((items.as_slice(), first_ty))
     }
 
-    // Converts a dictionary key containment operation to Rust text.
 }

@@ -36,8 +36,9 @@ use std::{
 
 /// Environment variable that forbids skipping sandbox-backed tests.
 ///
-/// Set it to any value other than `0`, `false`, `no`, or the empty string to
-/// make a missing prerequisite fail instead of skip.
+/// Set it to any value other than `0`, `false`, `no`, `off`, or the empty string
+/// to make a missing prerequisite fail instead of skip. The value is matched
+/// case-insensitively, ignoring surrounding whitespace.
 pub const REQUIRE_SANDBOX_ENV: &str = "SMELT_REQUIRE_SANDBOX";
 
 /// Reports whether sandbox-backed tests are forbidden from skipping.

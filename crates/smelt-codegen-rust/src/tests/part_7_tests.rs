@@ -38,6 +38,48 @@ fn concrete_list_erasure_still_converts_elements() {
     );
 }
 
+/// A list argument coerced into an erased callee's `T[]` slot is judged on two
+/// scopes: the operand at the caller's own scope, the slot at the callee seam's.
+///
+/// `Holder<T>` declares a `T` and so does `eraseArray<T>`; type parameters are
+/// name-interned, so the caller's scope spells the callee's `T` even though the
+/// erased callee's slot is `SmeltList<SmeltUnknown>`. Judging the slot at the
+/// caller's scope rebuilds an array that already has the slot's representation
+/// (and loses its identity); judging the operand at the callee's scope would
+/// alias a real `SmeltList<T>` into a `SmeltList<SmeltUnknown>` slot.
+#[test]
+fn erased_generic_list_argument_judges_each_side_at_its_own_scope() {
+    let source = source_for(include_str!("../../tests/fixtures/erased_generic_list.ts"));
+    let method_body = |signature: &str| {
+        let start = source
+            .find(signature)
+            .unwrap_or_else(|| panic!("generated source declares `{signature}`:\n{source}"));
+        let rest = source.get(start..).unwrap_or_default();
+        let end = rest
+            .find("\n    }\n")
+            .map_or(rest.len(), |offset| offset.saturating_add(7));
+        rest.get(..end).unwrap_or(rest).to_owned()
+    };
+    let share = method_body("fn share(");
+    assert!(
+        share.contains("Into::<SmeltList<_>>::into("),
+        "an erased array already has the erased slot's representation: {share}"
+    );
+    assert!(
+        !share.contains("collect::<Vec<_>>()"),
+        "an erased array must reach an erased slot without a rebuild: {share}"
+    );
+    let share_own = method_body("fn share_own(");
+    assert!(
+        !share_own.contains("Into::<SmeltList<_>>::into("),
+        "the class's own `SmeltList<T>` is not the erased slot's representation: {share_own}"
+    );
+    assert!(
+        share_own.contains("into_smelt_unknown()"),
+        "each `T` element must be converted into the erased slot: {share_own}"
+    );
+}
+
 /// Erasing an async callback into an unknown-rest function must wrap its
 /// returned future directly. Throws from an async body live inside that future;
 /// the callback invocation itself does not return a `Result` to unwrap.
@@ -1353,10 +1395,10 @@ const withArg = new StringBox("value");
 #[test]
 fn a_host_base_keeps_the_erased_forwarded_constructor_argument() {
     let source = source_for(
-        r#"
+        r"
 class Stamp extends Date {}
 const stamp = new Stamp(0);
-"#,
+",
     );
 
     assert!(
@@ -1491,8 +1533,8 @@ export function firstA(names: string[]): string | undefined {
         source.contains("let _smelt_tmp_3: bool = closure_arg_0.clone().starts_with("),
         "{source}"
     );
-    // Scoped to the emitted function: the runtime prelude legitimately spells
-    // both `SmeltUnknown::Bool(..)` and the truthiness match.
+    // Scoped to the source from `fn first_a(` onward: the runtime prelude
+    // legitimately spells both `SmeltUnknown::Bool(..)` and the truthiness match.
     let body = source
         .split_once("fn first_a(")
         .map_or("", |(_, tail)| tail);
@@ -3810,10 +3852,10 @@ function hasLength(value: unknown): boolean {
         "an array's `length` and named keys are own properties:\n{source}"
     );
     // The `hasOwn` lowering must inspect the erased value directly, not cast it
-    // into a typed record. Scope the check to the emitted `has_length` function
-    // body: `SmeltRecord::with_id_from_entries` also legitimately appears in the
-    // runtime prelude's `SmeltFromUnknown for SmeltRecord` impl, which is
-    // unrelated to this program's behavior.
+    // into a typed record. Scope the check to the source from the emitted
+    // `fn has_length` onward: `SmeltRecord::with_id_from_entries` also
+    // legitimately appears in the runtime prelude's `SmeltFromUnknown for
+    // SmeltRecord` impl, which is unrelated to this program's behavior.
     let function_body = source
         .split("fn has_length")
         .nth(1)
@@ -5715,7 +5757,7 @@ function select(value: unknown, context?: (value: unknown) => unknown): unknown 
 
     assert!(source.contains(".map_or_else("), "{source}");
     assert!(source.contains("SmeltUnknown::Function"), "{source}");
-    // Scoped to the emitted function: the runtime prelude's own-property
+    // Scoped to the source after `fn select`: the runtime prelude's own-property
     // authority spells its own `.is_some() ||` for the byte-view element probe,
     // which is unrelated to this program's selection.
     let function_body = source
@@ -12659,9 +12701,10 @@ export function copy(b: string[], n: number[], i: number): void {
     // The subject is that the read stays TOTAL (`.cloned().unwrap_or(default)`,
     // not a fallible read). The trailing `.clone()` these once carried was the
     // redundant second copy of an already-owned index read, removed by
-    // `index_place_read_is_owned`, and is asserted absent below.
+    // `index_place_read_is_owned`; the `;` that ends each expected read below
+    // asserts it stays absent.
     assert!(
-        source.contains(".cloned().unwrap_or_else(|| String::new())"),
+        source.contains(".cloned().unwrap_or_else(|| String::new());"),
         "a concrete `string` slot keeps the total read:\n{source}"
     );
     assert!(

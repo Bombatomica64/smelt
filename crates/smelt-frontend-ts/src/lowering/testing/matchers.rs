@@ -256,6 +256,7 @@ impl ModuleBuilder<'_> {
     /// namespaced one. Anything else (a call, a literal, an arbitrary
     /// expression) is `None` and lowers as an ordinary value.
     fn constructor_reference_text(argument: &Argument<'_>) -> Option<String> {
+        /// Returns the dotted source text of a bare or namespaced reference, or `None`.
         fn reference_text(expression: &Expression<'_>) -> Option<String> {
             match expression {
                 Expression::Identifier(ident) => Some(ident.name.as_str().to_owned()),
@@ -1613,7 +1614,6 @@ impl ModuleBuilder<'_> {
         )
     }
 
-    /// Build the boolean expression that means a supported matcher has failed.
     /// Route a DEEP-equality comparison of class-typed operands through the
     /// erased structural comparison.
     ///
@@ -1666,6 +1666,7 @@ impl ModuleBuilder<'_> {
         (actual, expected)
     }
 
+    /// Build the boolean expression that means a supported matcher has failed.
     pub(in crate::lowering) fn expect_matcher_failure_expr(
         &mut self,
         matcher: TestMatcher,
@@ -2095,7 +2096,8 @@ impl ModuleBuilder<'_> {
     /// `actual != null && contains(actual!, expected)`: the presence test
     /// guards a `TypeAssert` to the inner type, and the inner containment is
     /// whatever [`Self::contains_expr`] picks for that type — the typed string,
-    /// list, set or tuple path, never an erased one. The `Conditional` keeps
+    /// list, set or tuple path, or `erased_contains_expr` for an erased inner
+    /// type. The `Conditional` keeps
     /// the unwrap from running when the value is absent.
     fn optional_contains_expr(
         &mut self,
@@ -2165,7 +2167,8 @@ impl ModuleBuilder<'_> {
     /// * otherwise → `false`, so the assertion fails as vitest's does.
     ///
     /// A statically typed actual never reaches this: string/list/set/tuple and
-    /// optional actuals keep their typed paths in [`Self::contains_expr`].
+    /// optional actuals keep their typed paths in [`Self::contains_expr`]; an erased
+    /// inner type of an optional actual takes this path.
     fn erased_contains_expr(
         &mut self,
         actual: smelt_hir::ExprId,
@@ -2769,8 +2772,8 @@ impl ModuleBuilder<'_> {
 
     /// Collect the identifier names assigned at the top level of a branch.
     ///
-    /// Only unconditionally reached `name = <expr>` statements are gathered
-    /// (assignments nested inside a further branch are excluded), so callers
+    /// Only unconditionally reached assignments to an identifier (plain or compound)
+    /// are gathered (assignments nested inside a further branch are excluded), so callers
     /// can reason about facts that hold on every path through the branch. Used
     /// with [`branch_reassigns_to_nonnull`] to compute branch-join narrowing.
     pub(in crate::lowering) fn branch_top_level_assigned_names(

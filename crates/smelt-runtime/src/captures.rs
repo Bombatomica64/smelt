@@ -10,8 +10,9 @@
 //! The key is `(scope, slot)`: `scope` is a fresh id minted per scope
 //! instantiation by [`smelt_next_capture_scope`], and `slot` is the address of
 //! the captured local, which distinguishes the variables within one scope. The
-//! registry holds `Weak` handles, so a cell is dropped with its closures instead
-//! of leaking for the process lifetime.
+//! registry holds `Weak` handles, so it never keeps a cell alive once its
+//! closures drop it. A dead entry is overwritten on re-lookup of its key rather
+//! than removed when the cell drops.
 
 // @smelt:item SMELT_NEXT_CAPTURE_SCOPE
 thread_local! {
@@ -102,7 +103,8 @@ mod tests {
         );
     }
 
-    /// Entries are weak: dropping every handle releases the registry slot.
+    /// Entries are weak: dropping every handle lets the cell be freed, and a dead
+/// entry is overwritten when its key is looked up again.
     ///
     /// The initial value proves it — a fresh lookup after the drop re-runs the
     /// initializer instead of resurrecting the old cell.

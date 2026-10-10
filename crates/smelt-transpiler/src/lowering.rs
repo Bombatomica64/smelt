@@ -324,67 +324,6 @@ fn ordered_dependency_paths(target: PathBuf) -> Option<Vec<PathBuf>> {
     )
 }
 
-/// One categorized frontend diagnostic from lowering a single file.
-///
-/// Flattens the per-frontend `SmeltError` types into a shared shape so probe
-/// reporting can group diagnostics without depending on either frontend's
-/// concrete error type.
-#[derive(Debug, Clone)]
-#[expect(dead_code, reason = "retained for focused single-file diagnostics outside manifest probes")]
-pub(crate) struct FileDiagnostic {
-    /// Coarse classification used for grouping.
-    pub(crate) category: DiagnosticCategory,
-    /// Stable per-site diagnostic code.
-    pub(crate) code: &'static str,
-    /// Human-readable message.
-    pub(crate) message: String,
-}
-
-/// Lower one source file in isolation and return its categorized diagnostics.
-///
-/// Single-file lowering does not resolve cross-file imports, so unresolved
-/// references to other project modules surface here; probe reporting accounts
-/// for that by reading each diagnostic's [`DiagnosticCategory`]. Returns an
-/// empty vector when the file lowers cleanly.
-#[expect(dead_code, reason = "retained for focused single-file diagnostics outside manifest probes")]
-pub(crate) fn collect_file_diagnostics(
-    file: &str,
-) -> Result<Vec<FileDiagnostic>, Box<dyn std::error::Error>> {
-    let source = fs::read_to_string(file)?;
-    let lang = SourceLang::from_path(file)?;
-    // A frontend panic on one file must not abort the whole probe; treat it as
-    // its own reportable blocker. `catch_unwind` is safe here because the HIR
-    // context is created and dropped entirely inside the closure.
-    let lowered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match lang {
-        SourceLang::TypeScript | SourceLang::TypeScriptDeclaration => {
-            let mut ctx = smelt_frontend_ts::HirCtx::new();
-            smelt_frontend_ts::to_hir_with_path(&source, FileId(0), file, &mut ctx)
-                .err()
-                .map(|errors| {
-                    errors
-                        .into_iter()
-                        .map(|error| FileDiagnostic {
-                            category: error.category,
-                            code: error.code,
-                            message: error.message,
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
-        }
-        SourceLang::Python | SourceLang::PythonDeclaration => {
-            crate::python::diagnostics_for(&source, file)
-        }
-    }));
-    Ok(lowered.unwrap_or_else(|_| {
-        vec![FileDiagnostic {
-            category: DiagnosticCategory::Internal,
-            code: "smelt::frontend-panic",
-            message: "frontend panicked while lowering this file".to_owned(),
-        }]
-    }))
-}
-
 /// One categorized diagnostic from a whole-crate recoverable lowering, tagged
 /// with the file it came from. Serializes directly for `--message-format json`.
 #[derive(Debug, Clone, Serialize)]
@@ -420,6 +359,7 @@ impl QuietPanics {
 }
 
 impl Drop for QuietPanics {
+    /// Restore the panic hook that was active before `install()`.
     fn drop(&mut self) {
         if let Some(previous) = self.previous.take() {
             std::panic::set_hook(previous);
@@ -755,7 +695,6 @@ fn glob_segment_match(path: &str, pattern: &str) -> bool {
     true
 }
 
-/// Lowers already ordered manifest files into one shared HIR crate.
 /// Seed the crate-level host-global override set from every TypeScript source.
 ///
 /// The scan runs once before per-file lowering so a `globalThis.<Name> =` write

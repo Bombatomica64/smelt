@@ -1,7 +1,7 @@
 //! Lvalue (place) lowering for assignment targets.
 //!
 //! Only a handful of expression kinds denote assignable MIR [`Place`]s: locals,
-//! field and index projections, tuple indexing, and the transparent
+//! field, optional-field and index, optional-index projections, tuple indexing, and the transparent
 //! `TypeAssert`/`UnknownCast` wrappers. [`LoweringCtx::lower_place`] handles
 //! those; every other [`ExprKind`] is a value expression and is rejected by
 //! [`LoweringCtx::place_unsupported`], whose wildcard-free exhaustive `match`
@@ -287,8 +287,9 @@ impl LoweringCtx<'_> {
 
     /// Builds the rejection error for expression kinds that cannot form a place.
     ///
-    /// Only [`ExprKind::Local`], [`ExprKind::Field`], [`ExprKind::Index`],
-    /// [`ExprKind::TupleIndex`], and the transparent [`ExprKind::TypeAssert`] /
+    /// Only [`ExprKind::Local`], [`ExprKind::Field`], [`ExprKind::OptionalField`],
+    /// [`ExprKind::Index`], [`ExprKind::OptionalIndex`], [`ExprKind::TupleIndex`],
+    /// and the transparent [`ExprKind::TypeAssert`] /
     /// [`ExprKind::UnknownCast`] wrappers lower to assignable places; every other
     /// kind is a value expression and is rejected here.
     ///

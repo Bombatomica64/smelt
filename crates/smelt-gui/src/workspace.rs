@@ -165,6 +165,7 @@ impl SmeltWorkspace {
 }
 
 impl Render for SmeltWorkspace {
+    /// Builds the workspace element tree for the current frame.
     #[expect(clippy::too_many_lines, reason = "single top-level GPUI element tree")]
     fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         self.sync_output_input(window, cx);

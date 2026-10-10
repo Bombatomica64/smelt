@@ -1,4 +1,4 @@
-//! Runtime execution tests for four stdlib seams whose defects produced Rust
+//! Runtime execution tests for stdlib seams whose defects produced Rust
 //! that compiled cleanly and then did the wrong thing at run time.
 //!
 //! 1. **A fallible stdlib operation must be catchable.** `JSON.parse` was

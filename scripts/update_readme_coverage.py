@@ -37,6 +37,7 @@ def load_workspace_summary(path: Path) -> dict[str, float]:
     totals = data.get("data", [{}])[0].get("totals", {})
 
     def pct(key: str) -> float:
+        """Return the percent for one summary key, or 0.0 when the bucket has none."""
         bucket = totals.get(key, {})
         value = bucket.get("percent")
         if value is None:

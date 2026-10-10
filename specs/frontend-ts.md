@@ -141,10 +141,9 @@ Phases collect errors into a `Vec<SmeltError>`; the CLI prints them in source or
 
 ## Current Gaps
 
-- `lib.rs::to_hir` is a stub that creates a parser but never produces HIR.
 - `checker.rs` shells to `tsc` and `oxlint` via `npx`. Spec mandates `tsgo` and `oxclint`.
 - `examples/parser.rs` is a useful exploration of `oxc`'s semantic API; mine it for the HIR walker.
-- No `SmeltError` type yet; everything is `Box<dyn Error>` and loses spans.
+- `SmeltError` exists in `error.rs`; `checker.rs` still returns `Box<dyn Error>`, and `camel_to_snake` exists in `ident.rs`.
 - No smelt rules implemented.
 - No naming normalizer.
 - No oxc-type → HIR-type translator.
@@ -153,9 +152,9 @@ Phases collect errors into a `Vec<SmeltError>`; the CLI prints them in source or
 
 ### Foundation
 
-- [ ] Add `SmeltError` type (shared with CLI; consider a `smelt-errors` crate or keep in `smelt-cli` and depend on it).
+- [x] Add `SmeltError` type (now in `error.rs`; shared with CLI; consider a `smelt-errors` crate or keep in `smelt-cli` and depend on it).
 - [ ] Add `Span = (FileId, ByteRange)`; map oxc `Span` → `Span` via the file id.
-- [ ] Add a `HirCtx` struct that owns `&mut smelt_hir::Crate` arenas and exposes `intern_type`, `intern_symbol`, `alloc_expr`, etc.
+- [ ] Extend the existing `HirCtx` (in `context.rs`) with any intern and alloc helpers that lowering still needs.
 
 ### Pipeline migration
 
@@ -182,4 +181,4 @@ Phases collect errors into a `Vec<SmeltError>`; the CLI prints them in source or
 - [ ] 50+ snapshot tests covering the supported subset (literals, control flow, classes, generics, async, comprehensions-equivalent patterns).
 - [ ] 20+ negative tests asserting each smelt rule fires on a minimal example.
 - [ ] HIR validator (from M2) runs on every snapshot output and must pass.
-- [ ] Performance probe: parse `examples/typescript/base.ts` × 100 in < 50 s on a developer laptop. Single-file budget per spec: 500 ms for 500 lines.
+- [ ] Performance probe: parse an existing `examples/typescript` fixture (e.g. `examples/typescript/math_library/input.ts`) × 100 in < 50 s on a developer laptop. Single-file budget per spec: 500 ms for 500 lines.

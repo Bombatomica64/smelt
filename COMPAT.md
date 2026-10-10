@@ -6,6 +6,9 @@ The workflow is intentionally off by default. Run it from the Actions tab with
 `run_compat=true` when an external compatibility sweep should clone pinned
 source repositories, build generated Rust crates, run their tests, and publish
 the resulting status here.
+The table below is a dated snapshot. It predates the pinned failures recorded in
+`.github/workflows/ci.yml`, so it does not reflect them.
+
 <!-- compat-results:start -->
 | Repo | Ref | Status | Failing tests | Result | Updated | Run |
 | --- | --- | --- | ---: | --- | --- | --- |

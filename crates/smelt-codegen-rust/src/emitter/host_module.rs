@@ -182,7 +182,7 @@ impl FunctionEmitter<'_> {
         Ok(self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::DataView))
     }
 
-    /// The static result type of a fallible host-module call.
+    /// The static result type of a host-module call.
     ///
     /// The builtin callee carries only its op, so the type is found in the
     /// table the frontend filled when it typed the node: the `Hash` class for

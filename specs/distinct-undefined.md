@@ -100,9 +100,9 @@ These helpers may land before Phase 2 if they are behavior-neutral. The producer
 flip still lands atomically behind the report gate.
 
 Producers (each must yield `Undefined`, not `Null`):
-1. `undefined` literal/identifier (`builder_part16.rs`) → `Literal::Undefined`;
-   all-types provider `undefined` shorthand (`builder_part01.rs`),
-   callback-body (`builder_part13.rs`), const-expr (`builder_part16.rs`).
+1. `undefined` literal/identifier (`lowering/expr/references.rs`) → `Literal::Undefined`;
+   all-types provider `undefined` shorthand (`lowering/guards.rs`),
+   callback-body (`lowering/callbacks.rs`), const-expr (`lowering/module_init.rs`).
 2. missing property access (`smelt_get_object_field` in `lib.rs`; `place.rs`
    field-access fallbacks).
 3. out-of-bounds index; optional-absent erasure; optional-chaining `?.`
@@ -127,7 +127,7 @@ nullish, but distinct for *strict*):
   with bodies that check the specific tag (`x !== undefined` ⇒ not `Undefined`;
   `x !== null` ⇒ not `Null`). Today both are `Optional<T>` + `!= none`
   (byte-identical) — split via the comparison keyword in `unknown_null_comparison`
-  (`builder_part09.rs`), adding `UnknownKind::Undefined` and a loose-nullish (both)
+  (`lowering/guards.rs`), adding `UnknownKind::Undefined` and a loose-nullish (both)
   check distinct from the two strict-tag checks.
 
 Conversion authority:
@@ -164,8 +164,8 @@ Golden / focused test checklist for Phase 2:
 ## State / pointers
 
 - Full attempt-2 working tree preserved on branch `wip/distinct-undefined-grind`.
-- Investigation: `blocker-logs/plan-nullish-promise-2026-06-23.md` (producer/site map).
-- Baseline: 21 failing (`blocker-logs/remeda-after-jsstricteq-2026-06-23.md`).
+- Investigation: producer/site map (2026-06-23 plan; the log is no longer tracked).
+- Baseline: 21 failing (2026-06-23 run).
 
 ## Remaining regression tail (9, after `c4d6b257`/`b8250c64` — at 23 failing)
 
@@ -175,7 +175,7 @@ interaction. Root-cause analysis for follow-up:
 
 1. **`clone::edge_cases_undefined`** — matcher-lowering, not a producer.
    `expect(clone(undefined)).toBeUndefined()`: `clone(undefined)` is `None`-typed,
-   and `expect_to_be_none_statement` (builder_part06) lowers `actual !== undefined`
+   and `expect_to_be_none_statement` (`lowering/testing/matchers.rs`) lowers `actual !== undefined`
    via `BinOp::JsStrictNotEq` against a `Literal::Undefined`. For a `None`-typed
    actual the comparison collapses to a wrong constant (`!(false)` in generated),
    and the actual is discarded (`let _ = clone(...); ()`). Fix: in

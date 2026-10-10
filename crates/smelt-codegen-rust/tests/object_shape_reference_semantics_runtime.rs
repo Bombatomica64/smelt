@@ -1,7 +1,7 @@
 //! Runtime execution tests for JavaScript object *reference* semantics.
 //!
 //! An object whose shape is statically known lowers to a generated Rust struct
-//! with typed fields (see `smelt_frontend_ts::lowering::decls::shape_object`).
+//! with typed fields (see the `smelt_frontend_ts` lowering of object type literals).
 //! That is the right *representation* — `row.group` becomes a field load instead
 //! of a string hash — but it is only a correct one while the struct keeps the
 //! semantics a JavaScript object has:
@@ -82,7 +82,7 @@ fn scratch_root() -> PathBuf {
     std::env::temp_dir().join(format!("smelt-object-runtime-{}-{seq}", std::process::id()))
 }
 
-/// Run `source` and return whether its generated assertions all held.
+/// Run `cargo test` on the already-emitted crate at `crate_dir` and return whether that passed.
 fn generated_tests_pass(crate_dir: &Path, target_dir: &Path) -> bool {
     Command::new(env!("CARGO"))
         .arg("test")

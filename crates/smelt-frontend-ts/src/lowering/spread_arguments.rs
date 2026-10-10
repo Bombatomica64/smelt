@@ -55,7 +55,7 @@ impl ModuleBuilder<'_> {
     /// point is what makes that unrepresentable rather than merely fixed in the
     /// paths someone remembered.
     ///
-    /// `argument()` carries a debug assertion that it never sees a spread, so a
+    /// `lower_call_arg` carries a debug assertion that it never sees a spread, so a
     /// future path that forgets to come through here trips in test builds
     /// instead of silently padding.
     pub(in crate::lowering) fn expanded_call_arguments<'a>(
@@ -132,22 +132,16 @@ impl ModuleBuilder<'_> {
     /// catchable exactly like a source `throw`. Per-element defaults would be
     /// the same silent-wrong-answer failure this whole family is about.
     ///
-    /// Anything else -- a list, an erased value, an OPTIONAL tuple -- has no
-    /// statically known width here and stays a named blocker. A list's home is
+    /// Optional tuples are expanded, with an absent operand throwing as above;
+    /// Hono reaches that case with `router.add(...routes[i])`, where the element
+    /// read of an optional private field is an optional tuple (see
+    /// `hono-h46-spread-arguments.md`). Anything else -- a list or an erased
+    /// value -- has no statically known width here, so it is handed back
+    /// unexpanded (`Ok(None)`, see `CallArg::UnexpandedSpread`) rather than
+    /// rejected. A list's home is
     /// the packed-vector call path (`ClosureCallSpread`), which an erased callee
     /// already takes; a fixed-arity callee has nowhere to put a runtime-length
     /// argument list.
-    ///
-    /// The optional case deserves a note, because the obvious lowering is a
-    /// throw: spreading `undefined` is a `TypeError` in JavaScript. It is a
-    /// blocker instead because no source shape reaches here with an optional
-    /// operand -- every route resolves the optional FIRST. A cast (`...x as T`)
-    /// lowers to `.expect(..)` through the narrowing path, and a list element
-    /// read (`...xs[i]`, which is how Hono's `router.add(...routes[i])` is
-    /// spelled) lowers to `.unwrap_or_else(|| default)` through the array-hole
-    /// path. Both were tried in the runtime fixture. Writing the throw anyway
-    /// would have added an untestable branch, so the shape is rejected here and
-    /// the finding is recorded in `hono-h46-spread-arguments.md` instead.
     fn spread_argument_elements(
         &mut self,
         spread: &oxc::ast::ast::SpreadElement<'_>,

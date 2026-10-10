@@ -2,8 +2,10 @@
 //!
 //! A host module is a module specifier whose implementation is not lowered from
 //! TypeScript source but reimplemented in Rust — the Bun model. `node:*`
-//! builtins are the obvious case; a handful of npm packages (`@date-fns/tz`,
-//! the Vitest-compatible test frameworks) are modeled the same way.
+//! builtins are the obvious case; a handful of npm packages (`@date-fns/tz`)
+//! are modeled the same way. Vitest-compatible test frameworks are recognized
+//! by `is_vitest_compatible_module` in `smelt-frontend-ts`'s `test_support.rs`,
+//! not through this registry.
 //!
 //! # Why this registry exists
 //!

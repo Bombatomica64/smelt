@@ -12,7 +12,7 @@
  */
 
 import { buildCases, hashValue } from "./cases.mjs";
-import { measure, records, peakRssBytes, currentRssBytes, cpuSeconds, mix } from "./harness.mjs";
+import { measure, records, peakRssBytes, currentRssBytes, cpuSeconds } from "./harness.mjs";
 
 /** Shared case id -> each library's spelling of the same operation. */
 const NAMES = {
@@ -54,6 +54,10 @@ function sortByCase(libName, lib) {
   return measure(() => lib.sortBy(data, ["value"]), (out) => hashValue(0, out));
 }
 
+/**
+ * Dispatches the three subcommands: `list <lib>` prints case names, `run <lib> <case>`
+ * runs one case and prints its JSON result, and `baseline <lib>` reports footprint only.
+ */
 async function main() {
   const [cmd, libName, caseName] = process.argv.slice(2);
   if (!VENDOR[libName]) {

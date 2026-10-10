@@ -4,12 +4,12 @@
 
 ## Regression gates
 
-The Remeda / Radash / es-toolkit regression jobs are **opt-in on pull requests**.
+The Remeda / Radash / es-toolkit / Hono regression jobs are **opt-in on pull requests**.
 They run automatically on pushes to `main`, but a PR only runs them if it carries
 the **`run-regressions`** label.
 
 - [ ] This PR does **not** touch transpilation behaviour (docs, CI, comments only), **or**
-- [ ] I added the **`run-regressions`** label and the three regression jobs passed.
+- [ ] I added the **`run-regressions`** label and the four regression jobs passed.
 
 Add the label if you touched any of:
 
@@ -23,7 +23,7 @@ Add the label if you touched any of:
 
 Without the label these gates are simply absent — not passing. `main` is not
 branch-protected, so a green check on an unlabelled codegen PR is not evidence
-that Remeda's 1789 tests, Radash's 84 tests, or the es-toolkit ratchet still
+that Remeda's 1789 tests, Radash's 387 tests, or the es-toolkit ratchet still
 hold.
 
 ## Ratchets and baselines

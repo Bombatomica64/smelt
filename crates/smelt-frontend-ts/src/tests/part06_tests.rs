@@ -1,3 +1,5 @@
+//! TypeScript lowering regression tests for class, async, switch, and vitest lowering.
+
 use super::*;
 
 /// Generic implementation arguments instantiate both interface fields and
@@ -1451,7 +1453,8 @@ it("configures a chain", () => {
     // Interceptor probing re-lowers receiver subexpressions and discards the
     // results, so `body.exprs` holds dangling duplicates; only the exprs
     // referenced by statements reach MIR (single mock construction per chain
-    // is pinned on the generated Rust by the codegen snapshot test).
+    // is pinned on the generated Rust by `vitest_mock_chain_constructs_one_stateful_mock`
+    // in `crates/smelt-codegen-rust/src/tests/part_7_tests.rs`).
     ensure!(
         body.exprs
             .iter()

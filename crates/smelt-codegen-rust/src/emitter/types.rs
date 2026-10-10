@@ -655,7 +655,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a string trim operation to Rust text.
     /// Returns whether a type is supported by the current JSON serializer path.
     pub(super) fn is_json_serializable_type(&self, ty: TypeId) -> bool {
         // A value whose EMITTED Rust type is already the erased carrier has
@@ -1145,7 +1144,6 @@ impl FunctionEmitter<'_> {
         Some(TypeId(compact))
     }
 
-    /// Converts a type ID to its Rust text representation.
     /// Converts a type ID to its Rust text representation.
     pub(super) fn type_text(&self, ty: TypeId) -> Result<String, EmitError> {
         self.type_text_with_impl_trait(ty, true)
@@ -1773,7 +1771,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a function return type to Rust, including uncaught exception wrapping.
-    /// Converts a function return type to Rust, including uncaught exception wrapping.
     pub(super) fn return_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
         let inner = self.type_text_with_impl_trait(ty, false)?;
         if (self.function.is_async || self.function.can_throw)
@@ -1785,8 +1782,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Gets the default value for a given type.
-    /// Gets the default value for a given type.
     /// The filler JavaScript leaves in an array hole when an index write grows it.
     ///
     /// `arr[2] = 3` on a one-element array creates a hole at index 1, and reading
@@ -1802,6 +1797,7 @@ impl FunctionEmitter<'_> {
         self.default_value(item_ty)
     }
 
+    /// Gets the default value for a given type.
     pub(super) fn default_value(&self, ty: TypeId) -> Result<String, EmitError> {
         match self
             .mir

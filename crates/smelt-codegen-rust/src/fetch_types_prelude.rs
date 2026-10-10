@@ -206,8 +206,8 @@ fn emit_params_inherent_impl(writer: &mut CodeWriter) {
 
 /// Emit the `URLSearchParams` dynamic-boundary adapters.
 ///
-/// Same boundary shape as `SmeltHeaders`: an erased value is the marker record
-/// `{ "__smelt_urlsearchparams": true, "entries": [[name, value], ..] }`. A
+/// An erased value is the marker record
+/// `{ "__smelt_urlsearchparams": true, "size": n, "entries": [[name, value], ..] }`. A
 /// DYNAMIC BOUNDARY adapter only — the internal representation stays concrete.
 fn emit_params_traits(writer: &mut CodeWriter, needs_unknown: bool) {
     if !needs_unknown {
@@ -1024,9 +1024,10 @@ fn emit_request_inherent_impl(writer: &mut CodeWriter) {
 /// concrete struct; this is the boundary, not the storage.
 ///
 /// The es-toolkit gate tests
-/// (`estk_transpile_gate_tests::request_construction_stamps_marker_record`)
-/// pin the marker, which is exactly the `isPlainObject` probe es-toolkit's own
-/// spec performs.
+/// (`estk_transpile_gate_tests::request_construction_carries_no_marker_record`,
+/// `fetch_types_tests::request_erasure_stamps_the_host_identity_marker`)
+/// pin the marker, which is stamped at erasure and is exactly the `isPlainObject`
+/// probe es-toolkit's own spec performs.
 ///
 /// The body is carried as its TEXT rather than as a handle, because an erased
 /// record cannot hold a single-use cell: a body that round-tripped through the

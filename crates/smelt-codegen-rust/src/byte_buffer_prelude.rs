@@ -49,7 +49,7 @@
 //! are recomputed whenever the helpers mint a new record, so a slice never reports
 //! its source's size.
 //!
-//! ## Deliberate limit: no write-through aliasing
+//! ## Deliberate limit: sibling views do not share a byte window
 //!
 //! Two views over one `ArrayBuffer` share the buffer *record* (so
 //! `view.buffer === buffer` holds and clone specs that assert it pass), but each

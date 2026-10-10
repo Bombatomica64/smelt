@@ -28,7 +28,7 @@ Constraints:
 - Logging configured via `logging` (not Python's `print`).
 - Exception handlers registered for HTTP errors.
 
-Source lives in `examples/fastapi-demo/`.
+The closest existing example is `examples/python/end-to-end`.
 
 ## Pydantic → Rust Struct Mapping
 

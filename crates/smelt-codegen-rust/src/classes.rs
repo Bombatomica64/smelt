@@ -13,7 +13,7 @@ use smelt_mir::{
 };
 
 use crate::{
-    EmitError, emitter::EmitContext, emitter::FunctionEmitter, generic_bindings, id_index,
+    EmitError, emitter::EmitContext, generic_bindings, id_index,
     rust::RustIdent,
 };
 
@@ -56,26 +56,49 @@ pub(crate) fn class_type_params_text(
     context: &EmitContext,
     class: &MirClass,
 ) -> Result<String, EmitError> {
-    if class.type_params.is_empty() {
-        return Ok(String::new());
-    }
-    let params = context.type_param_elision().retain_carried(
-        class.name,
-        class
-            .type_params
-            .iter()
-            .map(|param| {
-                mir.symbols
-                    .get(param.name)
-                    .map(|name| RustIdent::new(name).into_string())
-                    .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
-            })
-            .collect::<Result<Vec<_>, _>>()?,
-    );
+    let params = type_param_idents(mir, &class.type_params, "class")?
+        .into_iter()
+        .map(|(_, ident)| ident)
+        .collect();
+    Ok(carried_generics_text(context, class.name, params))
+}
+
+/// Pair every declared type parameter with its Rust identifier, in
+/// declaration order.
+///
+/// `owner_kind` names the declaring item (`class`, `interface`) in the error a
+/// parameter with no interned name produces.
+fn type_param_idents(
+    mir: &Mir,
+    type_params: &[smelt_hir::TypeParamDef],
+    owner_kind: &str,
+) -> Result<Vec<(Symbol, String)>, EmitError> {
+    type_params
+        .iter()
+        .map(|param| {
+            mir.symbols
+                .get(param.name)
+                .map(|name| (param.name, RustIdent::new(name).into_string()))
+                .ok_or_else(|| {
+                    EmitError::new(format!("{owner_kind} type parameter has unknown symbol"))
+                })
+        })
+        .collect()
+}
+
+/// Wrap the rendered parameters `owner`'s emitted Rust still carries in `<..>`.
+///
+/// `params` holds one entry per declared type parameter, in declaration order.
+/// The positions [`crate::generic_elision`] drops for `owner` are removed
+/// first, so the declaration and every reference agree on arity. The result is
+/// empty when no parameter is left, so a caller can append it directly after a
+/// struct, trait, or impl target name.
+fn carried_generics_text(context: &EmitContext, owner: Symbol, params: Vec<String>) -> String {
+    let params = context.type_param_elision().retain_carried(owner, params);
     if params.is_empty() {
-        return Ok(String::new());
+        return String::new();
     }
-    Ok(format!("<{}>", params.join(", ")))
+    format!("<{}>", params.join(", "))
 }
 
 /// Render the generic parameter declaration suffix for an interface.
@@ -89,26 +112,11 @@ pub(crate) fn interface_type_params_text(
     context: &EmitContext,
     interface: &MirInterface,
 ) -> Result<String, EmitError> {
-    if interface.type_params.is_empty() {
-        return Ok(String::new());
-    }
-    let params = context.type_param_elision().retain_carried(
-        interface.name,
-        interface
-            .type_params
-            .iter()
-            .map(|param| {
-                mir.symbols
-                    .get(param.name)
-                    .map(|name| RustIdent::new(name).into_string())
-                    .ok_or_else(|| EmitError::new("interface type parameter has unknown symbol"))
-            })
-            .collect::<Result<Vec<_>, _>>()?,
-    );
-    if params.is_empty() {
-        return Ok(String::new());
-    }
-    Ok(format!("<{}>", params.join(", ")))
+    let params = type_param_idents(mir, &interface.type_params, "interface")?
+        .into_iter()
+        .map(|(_, ident)| ident)
+        .collect();
+    Ok(carried_generics_text(context, interface.name, params))
 }
 
 /// Render bounded generic parameters for interface impl blocks.
@@ -117,31 +125,11 @@ pub(crate) fn interface_impl_generics_text(
     context: &EmitContext,
     interface: &MirInterface,
 ) -> Result<String, EmitError> {
-    if interface.type_params.is_empty() {
-        return Ok(String::new());
-    }
-    let params = context.type_param_elision().retain_carried(
-        interface.name,
-        interface
-            .type_params
-            .iter()
-            .map(|param| {
-                mir.symbols
-                    .get(param.name)
-                    .map(|name| {
-                        format!(
-                            "{}: {GENERATED_TYPE_PARAM_BOUNDS}",
-                            RustIdent::new(name).into_string()
-                        )
-                    })
-                    .ok_or_else(|| EmitError::new("interface type parameter has unknown symbol"))
-            })
-            .collect::<Result<Vec<_>, _>>()?,
-    );
-    if params.is_empty() {
-        return Ok(String::new());
-    }
-    Ok(format!("<{}>", params.join(", ")))
+    let params = type_param_idents(mir, &interface.type_params, "interface")?
+        .into_iter()
+        .map(|(_, ident)| format!("{ident}: {GENERATED_TYPE_PARAM_BOUNDS}"))
+        .collect();
+    Ok(carried_generics_text(context, interface.name, params))
 }
 
 /// Render the generic argument suffix for a class, such as `<T>`.
@@ -246,47 +234,33 @@ pub(crate) fn class_impl_generics_text(
     context: &EmitContext,
     class: &MirClass,
 ) -> Result<String, EmitError> {
-    if class.type_params.is_empty() {
-        return Ok(String::new());
-    }
-    let params = class
-        .type_params
-        .iter()
-        .map(|param| {
-            mir.symbols
-                .get(param.name)
-                .map(|name| {
-                    let mut bound = format!(
-                        "{}: {GENERATED_TYPE_PARAM_BOUNDS}",
-                        RustIdent::new(name).into_string()
-                    );
-                    if class_type_param_used_as_map_key(mir, class, param.name) {
-                        bound.push_str(" + SmeltJsKeyEq");
-                    }
-                    bound
-                })
-                .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
+    let params = type_param_idents(mir, &class.type_params, "class")?
+        .into_iter()
+        .map(|(name, ident)| {
+            let mut bound = format!("{ident}: {GENERATED_TYPE_PARAM_BOUNDS}");
+            if class_type_param_used_as_map_key(mir, class, name) {
+                bound.push_str(" + SmeltJsKeyEq");
+            }
+            bound
         })
-        .collect::<Result<Vec<_>, _>>()?;
-    let params = context
-        .type_param_elision()
-        .retain_carried(class.name, params);
-    if params.is_empty() {
-        return Ok(String::new());
-    }
-    Ok(format!("<{}>", params.join(", ")))
+        .collect();
+    Ok(carried_generics_text(context, class.name, params))
 }
 
 /// Return whether a free function's signature should emit real Rust generics.
 ///
 /// This increment lowers a free function to real Rust generics
 /// (`fn identity<T>(x: T) -> T`) only when doing so is provably sound for Rust's
-/// type inference at every call site. It is an all-or-nothing decision per
-/// function: if any type parameter fails a safety check, the whole function
-/// falls back to full erasure (all its type parameters render as
-/// `SmeltUnknown`), matching pre-#99 behavior.
+/// type inference at every call site. Lifting is decided per type parameter
+/// (see [`liftable_type_params`]): a parameter that fails a per-parameter check
+/// erases alone while its siblings can still lift. Only the two function-wide
+/// gates — `called_with_erased_type_param_argument` and
+/// `callback_only_params_are_pinned_at_every_call_site` — erase every type
+/// parameter at once (all of them render as `SmeltUnknown`).
 ///
-/// A function emits real generics only when EVERY declared type parameter is:
+/// A type parameter is emitted as a real Rust generic only when EVERY condition
+/// below holds for it. A function emits real generics when at least one of its
+/// declared type parameters qualifies; any remaining type parameters stay erased:
 /// - **unconstrained** — a bounded parameter (`<D extends Date>`, `<O extends {
 ///   ... }>`) still needs method/property dispatch through the erased boundary
 ///   that this increment does not model;
@@ -1228,6 +1202,9 @@ fn callback_occurrences_are_liftable(
 ///   erased-unknown-rest callback type is still a perfectly liftable parameter.)
 /// * **borrowed** — `owned` is the emitter's `compute_owned_callback_params`
 ///   fixpoint; an owned parameter lowers to `Rc<dyn Fn(..)>`, not to a borrow.
+/// * **mentions a type parameter** — the parameter's type must mention a declared
+///   type parameter of the function; otherwise there is nothing to carry into the
+///   emitted signature.
 pub(crate) fn callback_param_shape_is_liftable(
     mir: &Mir,
     function: &MirFunction,
@@ -1381,37 +1358,6 @@ pub(crate) fn function_impl_generics_list(
         .collect()
 }
 
-/// Render the Rust trait name for a class inheritance surface.
-///
-/// Trait names currently match the source class name because Rust permits a
-/// trait and struct with the same identifier in the type namespace only when
-/// separated by context is not possible, so callers should avoid emitting both
-/// for the same concrete class until trait emission is expanded.
-pub(crate) fn class_trait_name_text(mir: &Mir, class: &MirClass) -> Result<String, EmitError> {
-    class_name_text(mir, class)
-}
-
-/// Render an owned trait-object type for a class surface.
-///
-/// This is reserved for base-typed polymorphic storage and parameters. Current
-/// emission remains concrete unless a later lowering stage marks trait objects
-/// as required.
-#[expect(
-    dead_code,
-    reason = "trait-object lowering is only emitted for later polymorphic cases"
-)]
-pub(crate) fn class_trait_object_type_text(
-    mir: &Mir,
-    context: &EmitContext,
-    class: &MirClass,
-) -> Result<String, EmitError> {
-    Ok(format!(
-        "Box<dyn {}{}>",
-        class_trait_name_text(mir, class)?,
-        class_type_args_text(mir, context, class)?
-    ))
-}
-
 /// Return the flattened field layout for a class.
 ///
 /// Smelt stores subclass values with inherited fields first and own fields
@@ -1421,9 +1367,7 @@ pub(crate) fn class_trait_object_type_text(
 /// class, the subclass field replaces the inherited slot so Rust struct storage
 /// stays valid and matches the effective source member surface.
 pub(crate) fn effective_class_fields(mir: &Mir, class: &MirClass) -> Vec<MirField> {
-    let mut fields = class
-        .base
-        .and_then(|base| mir.classes.iter().find(|candidate| candidate.name == base))
+    let mut fields = base_class(mir, class)
         .map(|base| effective_class_fields(mir, base))
         .unwrap_or_default();
     for field in &class.fields {
@@ -1460,9 +1404,7 @@ pub(crate) fn effective_class_fields(mir: &Mir, class: &MirClass) -> Vec<MirFiel
 /// base body touches exists on the subclass, and any sibling method it calls is
 /// itself inherited by the same rule.
 pub(crate) fn effective_class_methods(mir: &Mir, class: &MirClass) -> Vec<FuncId> {
-    let mut methods = class
-        .base
-        .and_then(|base| mir.classes.iter().find(|candidate| candidate.name == base))
+    let mut methods = base_class(mir, class)
         .map(|base| effective_class_methods(mir, base))
         .unwrap_or_default();
     for method in &class.methods {
@@ -1475,6 +1417,12 @@ pub(crate) fn effective_class_methods(mir: &Mir, class: &MirClass) -> Vec<FuncId
         }
     }
     methods
+}
+
+/// The class `class` directly extends, when it extends one this crate declares.
+fn base_class<'mir>(mir: &'mir Mir, class: &MirClass) -> Option<&'mir MirClass> {
+    let base = class.base?;
+    mir.classes.iter().find(|candidate| candidate.name == base)
 }
 
 /// Whether two method functions declare the same method name, i.e. one
@@ -1552,43 +1500,3 @@ pub(crate) fn effective_interface_fields(mir: &Mir, interface: &MirInterface) ->
     fields
 }
 
-/// Return inherited abstract method signatures required by a class.
-///
-/// The list walks base classes first so generated trait surfaces have stable,
-/// deterministic ordering that matches the flattened field layout.
-pub(crate) fn inherited_trait_methods(mir: &Mir, class: &MirClass) -> Vec<smelt_hir::MethodSig> {
-    let mut methods = class
-        .base
-        .and_then(|base| mir.classes.iter().find(|candidate| candidate.name == base))
-        .map(|base| inherited_trait_methods(mir, base))
-        .unwrap_or_default();
-    methods.extend(class.abstract_methods.clone());
-    methods
-}
-
-/// Render a HIR class type with its Rust generic arguments.
-#[expect(
-    dead_code,
-    reason = "standalone class type rendering is reserved for trait objects"
-)]
-pub(crate) fn class_type_text(
-    mir: &Mir,
-    class_name: Symbol,
-    class_args: &[TypeId],
-) -> Result<String, EmitError> {
-    let name_text = RustIdent::new(
-        mir.symbols
-            .get(class_name)
-            .ok_or_else(|| EmitError::new("class type has unknown symbol"))?,
-    )
-    .into_string();
-    if class_args.is_empty() {
-        return Ok(name_text);
-    }
-    let args_text = class_args
-        .iter()
-        .map(|arg| FunctionEmitter::type_text_for(mir, *arg))
-        .collect::<Result<Vec<_>, _>>()?
-        .join(", ");
-    Ok(format!("{name_text}<{args_text}>"))
-}

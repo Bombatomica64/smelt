@@ -301,7 +301,8 @@ impl LocalScope {
     /// Consume the collected property writes for a callable local.
     ///
     /// Returns `None` when the local collected no writes, which leaves the
-    /// ordinary identifier-read path in charge.
+    /// ordinary identifier-read path in charge. A local with only a declared
+    /// interface recorded returns `Some` with an empty list.
     pub(in crate::lowering) fn take_callable_props(
         &mut self,
         local: LocalId,

@@ -324,7 +324,7 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Lower `urllib.parse.urlparse(url).field` for common string fields.
+    /// Lower `urllib.parse.urlparse(url).geturl()`.
     pub(super) fn urlparse_call_expression(
         &mut self,
         call: &ruff_python_ast::ExprCall,

@@ -1,3 +1,5 @@
+//! Class, method, dataclass, enum and type-declaration lowering tests, plus set,
+//! tuple, dict-membership and string-split method lowering.
 use super::*;
 
 #[test]

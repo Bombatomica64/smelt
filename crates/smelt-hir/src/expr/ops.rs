@@ -443,7 +443,7 @@ pub enum RequestOp {
     /// in nothing a dispatch site cares about: each is a scalar the constructor
     /// stored and the getter answers unchanged. [`RequestInitMember`] carries
     /// which one, the same way `DataView`'s accessor name carries its element
-    /// kind instead of eighteen rules.
+    /// kind instead of twenty rules.
     Init(RequestInitMember),
 }
 
@@ -534,7 +534,8 @@ impl RequestInitMember {
     ///
     /// These are the values Node 22 answers for `new Request(url)`, which are
     /// the spec's own: a request constructed from a URL is `"cors"`/`"follow"`/
-    /// `"same-origin"`, its referrer is the client, and the rest are empty.
+    /// `"same-origin"`, its referrer is the client, `cache` is `default`,
+    /// `keepalive` is `false`, and `integrity` and `referrerPolicy` are empty.
     #[must_use]
     pub const fn default_rust_literal(self) -> &'static str {
         match self {
