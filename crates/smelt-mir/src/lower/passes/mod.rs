@@ -5,8 +5,9 @@
 //!
 //! Closure-specific analyses (escape analysis and throwing-closure type
 //! widening) live in [`super::closures`], which owns the closure ABI end to
-//! end. This module keeps only the general function-throwing propagation in
-//! [`throwing`], whose `can_throw` results the closure widening consumes.
+//! end. This module hosts the general function-throwing propagation in
+//! [`throwing`], whose `can_throw` results the closure widening consumes, as well
+//! as the [`generic_records`] pass and the shared `operand_local` helper.
 
 pub(super) mod generic_records;
 pub(super) mod throwing;

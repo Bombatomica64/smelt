@@ -82,9 +82,10 @@ fn promote_body(
 ) {
     let mut mutated: HashSet<LocalId> = HashSet::new();
     let mut erased: HashSet<LocalId> = HashSet::new();
-    // Undirected copy edges between locals (`dest = copy/move src`). Erasure or
-    // mutation of either endpoint should promote the whole alias component so a
-    // record literal feeding a binding is promoted alongside the binding.
+    // Undirected copy edges between locals (`dest = copy/move src`). A local that
+    // is both mutated and erased seeds promotion, and its copy-edge component is
+    // promoted with it so a record literal feeding a binding is promoted alongside
+    // the binding.
     let mut copy_edges: Vec<(LocalId, LocalId)> = Vec::new();
 
     let note_erased_operand = |erased_set: &mut HashSet<LocalId>, operand: &Operand| {

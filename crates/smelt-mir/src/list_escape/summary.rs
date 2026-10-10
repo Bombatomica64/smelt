@@ -179,7 +179,7 @@ impl FunctionSummary {
 pub(super) struct CallSummaries {
     /// One entry per `mir.functions` slot, in the same order.
     summaries: Vec<FunctionSummary>,
-    /// How many body summarizations the fixpoint performed, for cost reporting.
+    /// How many body summarizations the fixpoint performed; read only by the test-only `analyses()` accessor.
     analyses: usize,
 }
 

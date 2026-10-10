@@ -24,10 +24,6 @@ fn push_fmt(out: &mut String, args: std::fmt::Arguments<'_>) {
 }
 
 /// Formats a MIR module into a human-readable compact string representation.
-///
-/// # Panics
-///
-/// Panics if a local index does not fit in `u32`.
 #[must_use]
 pub fn format_compact(mir: &Mir) -> String {
     let mut out = String::new();

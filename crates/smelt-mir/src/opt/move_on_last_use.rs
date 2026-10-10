@@ -46,10 +46,12 @@ use super::Pass;
 pub struct MoveOnLastUse;
 
 impl Pass for MoveOnLastUse {
+    /// Returns the stable identifier of this pass.
     fn name(&self) -> &'static str {
         "move-on-last-use"
     }
 
+    /// Applies the pass to `mir`, returning true if it was modified.
     fn run(&self, mir: &mut Mir) -> bool {
         let mut changed = false;
         for function in &mut mir.functions {
@@ -248,10 +250,9 @@ fn compute_block_live_out(function: &MirFunction) -> Vec<HashSet<LocalId>> {
     let mut live_in = vec![HashSet::new(); block_count];
     let mut live_out = vec![HashSet::new(); block_count];
 
-    // Phi edges are intentionally ignored: every phi-related local is excluded
-    // from conversion, and omitting their edge-uses only ever *adds* liveness
-    // elsewhere, which keeps the analysis sound (conservative) for the locals
-    // we do convert.
+    // Phi edges are intentionally ignored: phi operands and phi destinations are
+    // excluded from conversion (see `convertible_locals`), so their liveness is
+    // approximated but never acted on. The converted locals are not phi-related.
     let mut changed = true;
     while changed {
         changed = false;

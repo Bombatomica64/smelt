@@ -503,9 +503,9 @@ impl Groups {
         }
     }
 
-    /// Record that `local`'s whole group escapes. The first reason recorded
-    /// wins, so a genuine escape seen before a conservative one is what the
-    /// report shows.
+    /// Record that `local`'s whole group escapes. A genuine reason replaces a
+    /// conservative one; otherwise the first recorded reason is kept, so a
+    /// genuine escape seen before a conservative one is what the report shows.
     fn escape(&mut self, local: u32, reason: EscapeReason) {
         let root = self.find(local);
         Self::record(&mut self.escaped, root, reason);
@@ -1188,7 +1188,7 @@ pub const fn rvalue_mints_fresh_list(value: &Rvalue) -> bool {
 
 /// The role of each operand this rvalue reads, for operands the analysis models.
 ///
-/// Returned as `(&Operand, role)` pairs so [`apply_rvalue`] can match them
+/// Returned as `(&Operand, role)` pairs so [`BodyWalk::visit_rvalue`] can match them
 /// against [`Rvalue::for_each_operand`] by pointer identity — that keeps the
 /// canonical operand walk as the single enumeration point while still letting
 /// positions differ in role. **Any operand not named here gets

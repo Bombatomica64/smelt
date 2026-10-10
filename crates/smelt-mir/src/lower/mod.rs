@@ -50,11 +50,7 @@ mod passes;
 use context::{FunctionSpec, LoweringCtx, LoweringShared};
 use generics::lower_effective_interface_fields;
 
-/// Converts a `usize` into `u32`, panicking if it does not fit.
-///
-/// # Panics
-///
-/// Panics when `value` does not fit in `u32`.
+/// Converts a `usize` into `u32`, returning a `LowerError` if it does not fit.
 fn u32_from_usize(value: usize, context: &str) -> Result<u32, LowerError> {
     u32::try_from(value).map_err(|error| LowerError {
         message: format!("{context}: {error}"),
@@ -62,11 +58,7 @@ fn u32_from_usize(value: usize, context: &str) -> Result<u32, LowerError> {
     })
 }
 
-/// Converts a `u32` into `usize`, panicking if it does not fit.
-///
-/// # Panics
-///
-/// Panics when `value` does not fit in `usize`.
+/// Converts a `u32` into `usize`, returning a `LowerError` if it does not fit.
 fn usize_from_u32(value: u32, context: &str) -> Result<usize, LowerError> {
     usize::try_from(value).map_err(|error| LowerError {
         message: format!("{context}: {error}"),
@@ -670,7 +662,7 @@ fn run_finalization_passes(mir: &mut Mir) {
 /// leave that type absent from the table — and the backend, which asks for the
 /// callee's return type to coerce the call result, would find nothing.
 ///
-/// There are two such builtins: `JSON.parse`, whose result is a dynamic
+/// Such builtins include `JSON.parse`, whose result is a dynamic
 /// JavaScript value (`Type::Unknown`) regardless of the destination it is
 /// asserted into, and the URI decoders, which answer a `String`. Collecting the
 /// types first and interning afterwards keeps this a scan rather than a

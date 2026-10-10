@@ -24,10 +24,12 @@ use crate::{Mir, Rvalue, Statement, opt::Pass};
 pub struct UnobservedReceiverBind;
 
 impl Pass for UnobservedReceiverBind {
+    /// Returns the stable identifier of this pass.
     fn name(&self) -> &'static str {
         "unobserved-receiver-bind"
     }
 
+    /// Applies the pass to `mir`, returning true if it was modified.
     fn run(&self, mir: &mut Mir) -> bool {
         if program_reads_this(mir) {
             return false;
