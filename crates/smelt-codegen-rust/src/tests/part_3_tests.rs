@@ -62,6 +62,28 @@ coord_set: set[int] = set(coords)
     assert!(source.contains("SmeltPrimSet::from(["));
 }
 
+/// `set(tuple)` builds the container its `set[...]` slot declares. A tuple of
+/// `float` is a `set[float]`, which is `SmeltJsSet<f64>` (an `f64` has no
+/// `Eq + Hash`, so it cannot key the hashed `SmeltPrimSet`); the tuple
+/// conversion once always built `SmeltPrimSet::from(..)`, so the generated
+/// `let` did not compile (E0308/E0433). The `str` tuple beside it keeps the
+/// hashed container, so the check is the shared choice, not a blanket switch.
+#[test]
+fn python_set_of_tuple_builds_the_declared_set_container() {
+    let source = source_for_py(
+        r#"
+coords: tuple[float, float] = (1.5, 2.5)
+coord_set: set[float] = set(coords)
+names: tuple[str, str] = ("a", "b")
+name_set: set[str] = set(names)
+"#,
+    );
+
+    assert!(source.contains("SmeltJsSet::from([coords"), "{source}");
+    assert!(source.contains("SmeltPrimSet::from([names"), "{source}");
+    assert!(!source.contains("SmeltPrimSet::from([coords"), "{source}");
+}
+
 #[test]
 fn emits_python_list_count_method() {
     let source = source_for_py(

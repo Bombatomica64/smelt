@@ -1654,16 +1654,13 @@ impl FunctionEmitter<'_> {
             // An insertion-ORDERED set, because JavaScript specifies `Set`
             // iteration as insertion order and a Rust `HashSet` has none (H52).
             // `SmeltPrimSet` keeps a `Vec` of entries beside a hash index, so
-            // membership stays hashed; the sibling `SmeltJsSet` below is ordered
-            // too but erases each element for SameValueZero membership, which
-            // would drag the whole `SmeltUnknown` carrier into any program
-            // holding a `Set<string>`.
-            Type::Set(item) if self.type_is_hash_set_key_safe(*item) => Ok(RustType::raw(format!(
-                "SmeltPrimSet<{}>",
-                self.rust_type(*item, false, substitution)?
-            ))),
+            // membership stays hashed; the sibling `SmeltJsSet` is ordered too
+            // but erases each element for SameValueZero membership, which would
+            // drag the whole `SmeltUnknown` carrier into any program holding a
+            // `Set<string>`. `set_container_name` picks between the two.
             Type::Set(item) => Ok(RustType::raw(format!(
-                "SmeltJsSet<{}>",
+                "{}<{}>",
+                self.set_container_name(*item),
                 self.rust_type(*item, false, substitution)?
             ))),
             Type::Dict(key, value) if self.dict_uses_smelt_record(*key) => Ok(RustType::raw(format!(
@@ -1819,10 +1816,7 @@ impl FunctionEmitter<'_> {
                 "SmeltList::new(Vec::<{}>::new())",
                 self.type_text_with_impl_trait(*item, false)?
             )),
-            Type::Set(item) if self.type_is_hash_set_key_safe(*item) => {
-                Ok("SmeltPrimSet::new()".to_owned())
-            }
-            Type::Set(_) => Ok("SmeltJsSet::new()".to_owned()),
+            Type::Set(item) => Ok(format!("{}::new()", self.set_container_name(*item))),
             Type::Dict(key, _) if self.dict_uses_smelt_record(*key) => {
                 Ok("SmeltRecord::new()".to_owned())
             }

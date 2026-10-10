@@ -901,18 +901,17 @@ impl FunctionEmitter<'_> {
                 Ok(format!("vec![{items_text}]"))
             }
             Rvalue::Set(items) => {
-                let set_uses_js_set = matches!(self.mir.types.get(dest_ty), Some(Type::Set(item)) if !self.type_is_hash_set_key_safe(*item));
-                if items.is_empty() {
-                    return Ok(if set_uses_js_set {
-                        "SmeltJsSet::new()".to_owned()
-                    } else {
-                        "SmeltPrimSet::new()".to_owned()
-                    });
-                }
                 let item_ty = match self.mir.types.get(dest_ty) {
                     Some(Type::Set(item_ty)) => Some(*item_ty),
                     _ => None,
                 };
+                // A destination that is not a `Set` keeps the hashed
+                // container, as it always has.
+                let container =
+                    item_ty.map_or("SmeltPrimSet", |set_item_ty| self.set_container_name(set_item_ty));
+                if items.is_empty() {
+                    return Ok(format!("{container}::new()"));
+                }
                 let items_text = items
                     .iter()
                     .map(|item| {
@@ -924,10 +923,7 @@ impl FunctionEmitter<'_> {
                     })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
-                if set_uses_js_set {
-                    return Ok(format!("SmeltJsSet::from([{items_text}])"));
-                }
-                Ok(format!("SmeltPrimSet::from([{items_text}])"))
+                Ok(format!("{container}::from([{items_text}])"))
             }
             Rvalue::Dict(entries) => {
                 if let Some(record_text) = self.record_literal_text_for_dest(entries, dest_ty)? {

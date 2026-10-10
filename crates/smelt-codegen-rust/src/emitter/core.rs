@@ -5208,6 +5208,24 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
+    /// Names the generated container that backs a source `Set` of `item_ty`:
+    /// `SmeltPrimSet` when [`Self::type_is_hash_set_key_safe`] holds, else
+    /// `SmeltJsSet`.
+    ///
+    /// The single owner of that choice. The `Set` type spelling, its default
+    /// value, a set literal, and every conversion into a set (`new Set(list)`,
+    /// Python `set(list)` / `set(tuple)`) name the container through this, so a
+    /// constructed set always has the type its slot declares; a site that
+    /// picked on its own once built `SmeltPrimSet::from(..)` into a
+    /// `SmeltJsSet<f64>` slot.
+    pub(super) fn set_container_name(&self, item_ty: TypeId) -> &'static str {
+        if self.type_is_hash_set_key_safe(item_ty) {
+            "SmeltPrimSet"
+        } else {
+            "SmeltJsSet"
+        }
+    }
+
     /// Returns whether a dictionary must use JavaScript `Map` key equality.
     ///
     /// Rust `HashMap` is correct for primitive key spaces, but JavaScript Map

@@ -188,7 +188,10 @@ impl FunctionEmitter<'_> {
                 "tuple-to-set destination must be set of the tuple item type",
             ));
         }
-        Ok(format!("SmeltPrimSet::from([{items_text}])"))
+        Ok(format!(
+            "{}::from([{items_text}])",
+            self.set_container_name(item_ty)
+        ))
     }
 
     /// Returns tuple fields and their shared item type for homogeneous tuple conversions.

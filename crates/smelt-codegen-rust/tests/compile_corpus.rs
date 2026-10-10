@@ -1494,6 +1494,28 @@ def guarded(value: int) -> int:
         print("done")
 "#,
         },
+        Case {
+            name: "py_tuple_to_set_container",
+            area: "py_set_conversions",
+            // `set(t)` of a `float` tuple is a `set[float]`, which the slot
+            // spells `SmeltJsSet<f64>`; the tuple conversion once built a
+            // `SmeltPrimSet` there and the crate did not compile. The list and
+            // literal spellings beside it pick the container through the same
+            // rule, so all three must agree with the declared slot.
+            source: r"
+def from_tuple(t: tuple[float, float, float]) -> set[float]:
+    return set(t)
+
+def from_list(values: list[float]) -> set[float]:
+    return set(values)
+
+def literal() -> set[float]:
+    return {1.5, 2.5}
+
+def has_first(t: tuple[float, float, float]) -> bool:
+    return 1.5 in from_tuple(t)
+",
+        },
     ]
 }
 
