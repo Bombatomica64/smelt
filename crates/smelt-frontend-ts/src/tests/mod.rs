@@ -187,6 +187,17 @@ fn function_body<'a>(
         .ok_or_else(|| format!("missing body {body_id:?} in lowered crate"))
 }
 
+/// Whether any body in the crate holds an expression matching `pred`.
+///
+/// Lowering emits expressions into whichever body owns them, so a test that
+/// only cares that a shape was produced scans every body.
+fn crate_has_expr(ctx: &HirCtx, pred: impl Fn(&ExprKind) -> bool) -> bool {
+    ctx.krate
+        .bodies
+        .iter()
+        .any(|body| body.exprs.iter().any(|expr| pred(&expr.kind)))
+}
+
 /// Assert that the first lowering error is an unsupported TS diagnostic containing `needle`.
 fn assert_unsupported_ts(errors: &[SmeltError], needle: &str) -> Result<(), String> {
     let error = errors

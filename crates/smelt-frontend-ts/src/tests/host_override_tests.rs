@@ -3,16 +3,6 @@
 use super::*;
 use smelt_hir::ExprKind;
 
-/// Return whether any lowered body in the crate contains an expression matching
-/// `predicate`. Host-override lowering emits its rvalues into whichever body
-/// owns the write/read/guard, so tests scan every body.
-fn any_expr(ctx: &HirCtx, predicate: impl Fn(&ExprKind) -> bool) -> bool {
-    ctx.krate
-        .bodies
-        .iter()
-        .any(|body| body.exprs.iter().any(|expr| predicate(&expr.kind)))
-}
-
 /// Seed the crate-level written-host-global set exactly as the pre-pass would.
 fn seed(ctx: &mut HirCtx, names: &[&str]) {
     for name in names {
@@ -40,13 +30,13 @@ fn write_lowers_class_expression_and_undefined() -> Result<(), String> {
         &mut ctx,
     )?;
     ensure!(
-        any_expr(&ctx, |kind| matches!(kind, ExprKind::HostGlobalWrite { .. })),
+        crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::HostGlobalWrite { .. })),
         "expected a HostGlobalWrite for the globalThis writes"
     );
     // The class-expression write stores a constructor closure so `new File(...)`
     // dispatch can tell a `Ctor` override from a `Native` slot at runtime.
     ensure!(
-        any_expr(&ctx, |kind| matches!(kind, ExprKind::Closure(_))),
+        crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::Closure(_))),
         "expected the class-expression override to lower to a constructor closure"
     );
     Ok(())
@@ -65,7 +55,7 @@ fn presence_guard_dynamic_only_for_written_names() -> Result<(), String> {
     seed(&mut written, &["Blob"]);
     lower_ok(SOURCE, &mut written)?;
     ensure!(
-        any_expr(&written, |kind| matches!(
+        crate_has_expr(&written, |kind| matches!(
             kind,
             ExprKind::HostGlobalPresent { .. }
         )),
@@ -77,14 +67,14 @@ fn presence_guard_dynamic_only_for_written_names() -> Result<(), String> {
     let mut unwritten = HirCtx::new();
     lower_ok(SOURCE, &mut unwritten)?;
     ensure!(
-        !any_expr(&unwritten, |kind| matches!(
+        !crate_has_expr(&unwritten, |kind| matches!(
             kind,
             ExprKind::HostGlobalPresent { .. }
         )),
         "an unwritten host global must NOT emit a HostGlobalPresent probe"
     );
     ensure!(
-        any_expr(&unwritten, |kind| matches!(
+        crate_has_expr(&unwritten, |kind| matches!(
             kind,
             ExprKind::Literal(Literal::Bool(true))
         )),
@@ -110,11 +100,11 @@ fn save_restore_round_trip_lowers_read_and_write() -> Result<(), String> {
         &mut ctx,
     )?;
     ensure!(
-        any_expr(&ctx, |kind| matches!(kind, ExprKind::HostGlobalRead { .. })),
+        crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::HostGlobalRead { .. })),
         "the saved read must lower to HostGlobalRead"
     );
     ensure!(
-        any_expr(&ctx, |kind| matches!(kind, ExprKind::HostGlobalWrite { .. })),
+        crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::HostGlobalWrite { .. })),
         "the restore must lower to HostGlobalWrite"
     );
     Ok(())
@@ -130,11 +120,11 @@ fn unwritten_new_keeps_native_construction() -> Result<(), String> {
         &mut ctx,
     )?;
     ensure!(
-        any_expr(&ctx, |kind| matches!(kind, ExprKind::BlobFromParts { .. })),
+        crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::BlobFromParts { .. })),
         "an unwritten `new Blob(...)` must lower to native BlobFromParts"
     );
     ensure!(
-        !any_expr(&ctx, |kind| matches!(kind, ExprKind::HostGlobalRead { .. })),
+        !crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::HostGlobalRead { .. })),
         "an unwritten `new Blob(...)` must not emit override-slot dispatch"
     );
     Ok(())

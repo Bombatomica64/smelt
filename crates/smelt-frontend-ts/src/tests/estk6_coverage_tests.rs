@@ -21,14 +21,6 @@ fn module_body_has(
     Ok(body.exprs.iter().any(|expr| pred(&expr.kind)))
 }
 
-/// Return whether any body in the crate contains an expression matching `pred`.
-fn crate_has(ctx: &HirCtx, pred: impl Fn(&ExprKind) -> bool) -> bool {
-    ctx.krate
-        .bodies
-        .iter()
-        .any(|body| body.exprs.iter().any(|expr| pred(&expr.kind)))
-}
-
 // ---------------------------------------------------------------------------
 // Equality kinds.
 //
@@ -358,7 +350,7 @@ const allBig = xs.every((x) => x > 0);
         ListCallbackOp::Every,
     ] {
         ensure!(
-            crate_has(&ctx, |kind| matches!(
+            crate_has_expr(&ctx, |kind| matches!(
                 kind,
                 ExprKind::ListCallback { op, .. } if *op == expected
             )),
@@ -434,14 +426,14 @@ export function projectEntries(x: Record<string, number>): [string, number][] {
 "),
         &mut ctx,
     )?;
-    ensure!(crate_has(&ctx, |kind| matches!(
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::DictProjection {
             op: DictProjectionOp::Values,
             ..
         }
     )));
-    ensure!(crate_has(&ctx, |kind| matches!(
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::DictProjection {
             op: DictProjectionOp::Entries,
@@ -463,7 +455,7 @@ export function build(pairs: [string, number][]): Record<string, number> {
 "),
         &mut ctx,
     )?;
-    ensure!(crate_has(&ctx, |kind| matches!(
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::DictProjection {
             op: DictProjectionOp::FromEntries,
@@ -493,15 +485,15 @@ export function run(): boolean {
 "),
         &mut ctx,
     )?;
-    ensure!(crate_has(&ctx, |kind| matches!(
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::SetAdd { .. }
     )));
-    ensure!(crate_has(&ctx, |kind| matches!(
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::SetContains { .. }
     )));
-    ensure!(crate_has(&ctx, |kind| matches!(
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::SetRemove {
             op: SetRemoveOp::Delete,
@@ -527,7 +519,7 @@ export function check(value: unknown): boolean {
 "),
         &mut ctx,
     )?;
-    ensure!(crate_has(&ctx, |kind| matches!(
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::UnknownIs {
             kind: smelt_hir::UnknownKind::Array,
@@ -554,7 +546,7 @@ export function check(x: unknown): boolean {
     )?;
     // A user-class `instanceof` must stay a class-identity `InstanceOf`, not a
     // primitive runtime-kind probe.
-    ensure!(crate_has(&ctx, |kind| matches!(
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::InstanceOf { .. }
     )));
@@ -579,7 +571,7 @@ export function readName(o: Outer): string | undefined {
 "),
         &mut ctx,
     )?;
-    ensure!(crate_has(&ctx, |kind| matches!(
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::OptionalField { .. }
     )));
@@ -598,7 +590,7 @@ export function withDefault(value: number | undefined): number {
 "),
         &mut ctx,
     )?;
-    ensure!(crate_has(&ctx, |kind| matches!(
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::OptionalCoalesce { .. }
     )));
@@ -622,11 +614,11 @@ export function roundTrip(x: Record<string, number>): unknown {
 "),
         &mut ctx,
     )?;
-    ensure!(crate_has(&ctx, |kind| matches!(
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::JsonStringify { .. }
     )));
-    ensure!(crate_has(&ctx, |kind| matches!(
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::JsonParse { .. }
     )));
@@ -662,7 +654,7 @@ export function pluck(): unknown {
         &mut ctx,
     )?;
     // The value read lowers to a plain field access; it must not be rejected.
-    ensure!(crate_has(&ctx, |kind| matches!(
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::Field { .. }
     )));
@@ -686,7 +678,7 @@ export function check(): unknown {
     )?;
     // The shadowing binding is called; the numeric-global predicate op must not
     // be synthesized for the shadowed name.
-    ensure!(!crate_has(&ctx, |kind| matches!(
+    ensure!(!crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::NumericPredicate {
             op: NumericPredicateOp::IsNaN,
@@ -709,7 +701,7 @@ const flag = isNaN(value);
 "),
         &mut ctx,
     )?;
-    ensure!(crate_has(&ctx, |kind| matches!(
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::NumericPredicate {
             op: NumericPredicateOp::IsNaN,
@@ -736,11 +728,11 @@ export function pi(): unknown {
     )?;
     // Neither the radix parse op nor the bare `ToInt` cast may be synthesized for
     // the shadowed name.
-    ensure!(!crate_has(&ctx, |kind| matches!(
+    ensure!(!crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::ParseIntRadix { .. }
     )));
-    ensure!(!crate_has(&ctx, |kind| matches!(
+    ensure!(!crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::PrimitiveCast {
             op: PrimitiveCastOp::ToInt,
@@ -770,7 +762,7 @@ export function useNs(value: unknown): unknown {
     )?;
     // The string-includes op (which would demand a numeric position) must not
     // fire on the namespace free-function call.
-    ensure!(!crate_has(&ctx, |kind| matches!(
+    ensure!(!crate_has_expr(&ctx, |kind| matches!(
         kind,
         ExprKind::StringContains { .. }
     )));
@@ -910,7 +902,7 @@ export function run(): unknown {
     // list, so any `ExprKind::ListLit` in the crate is the spurious rest array
     // packed from the compat overload — the regression this guards.
     ensure!(
-        !crate_has(&ctx, |kind| matches!(kind, ExprKind::ListLit(_))),
+        !crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::ListLit(_))),
         "relative-imported two-param `merge` must not pack `source` into a rest array",
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());

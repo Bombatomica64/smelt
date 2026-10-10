@@ -16,14 +16,6 @@ fn crate_has_bool_literal(ctx: &HirCtx, value: bool) -> bool {
     })
 }
 
-/// Return whether any body in the crate contains an expression matching `pred`.
-fn crate_has_expr(ctx: &HirCtx, pred: impl Fn(&ExprKind) -> bool) -> bool {
-    ctx.krate
-        .bodies
-        .iter()
-        .any(|body| body.exprs.iter().any(|expr| pred(&expr.kind)))
-}
-
 #[test]
 fn folds_typeof_globalthis_not_undefined_to_true() -> Result<(), String> {
     let mut ctx = HirCtx::new();
