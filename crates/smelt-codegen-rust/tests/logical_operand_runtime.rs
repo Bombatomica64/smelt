@@ -267,3 +267,37 @@ test("a keyed logical assignment in a comma statement stores", () => {
     run_fixture(source, "logical_assignment_in_comma");
 }
 
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_ternary_argument_yields_the_taken_arm() {
+    // A ternary passed as an argument has the type the same ternary has in a
+    // `const`: TypeScript's `typeof a | typeof b`. The argument path asked a
+    // different, union-free join (haiku audit F0794), so these calls did not
+    // lower at all. The values below are node's.
+    let source = r#"
+import { test, expect } from "vitest";
+class Doc {
+  title = "doc";
+}
+function show(v: unknown): string {
+  return typeof v === "string" ? v : "obj";
+}
+function count(r: Record<string, number> | Record<string, string>): number {
+  return Object.keys(r).length;
+}
+function describe(v: number | string): string {
+  return typeof v === "number" ? "n" + v : "s" + v;
+}
+test("a ternary argument with unrelated arms yields the taken arm", () => {
+  const r1: Record<string, number> = { a: 1 };
+  const r2: Record<string, string> = { b: "x", c: "y" };
+  for (const flag of [true, false]) {
+    expect(show(flag ? new Doc() : "text")).toBe(flag ? "obj" : "text");
+    expect(count(flag ? r1 : r2)).toBe(flag ? 1 : 2);
+    expect(describe(flag ? 1 : "a")).toBe(flag ? "n1" : "sa");
+  }
+});
+"#;
+    run_fixture(source, "ternary_argument_join");
+}
+

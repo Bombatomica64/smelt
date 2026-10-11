@@ -262,6 +262,15 @@ impl ModuleBuilder<'_> {
     /// It then forwards to the shared reconciler with no contextual type hint,
     /// so a callback branch mismatch that the general path cannot merge surfaces
     /// there instead of through a callback-specific error.
+    ///
+    /// That reconciler is NOT the ternary's own join (`ternary_branch_type`,
+    /// which joins two unrelated concrete arms to a union): a callback ternary
+    /// such as `xs.map((x) => (x > 1 ? x : "small"))` answers `Err` here and
+    /// does not lower. Switching to the ternary join is not safe yet. The `Err`
+    /// currently sends such callbacks to closure-body lowering, and the compact
+    /// IR's `if`/`else`-return lowering hoists statements out of the branch:
+    /// remeda's lazy `drop` evaluator (`if (left > 0) { left -= 1; return
+    /// SKIP_ITEM; } return {...}`) decremented `left` before testing it.
     pub(in crate::lowering) fn callback_conditional_type(
         &mut self,
         then_ty: smelt_hir::TypeId,

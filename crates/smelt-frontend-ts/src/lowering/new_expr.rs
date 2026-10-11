@@ -2351,206 +2351,7 @@ impl ModuleBuilder<'_> {
                 }))
             }
             Expression::ConditionalExpression(conditional) => {
-                // Fold `Ctor ? new Ctor(...) : fallback` where `Ctor` is a host
-                // constructor Smelt always models as present (see
-                // `identifier_is_always_present_global_constructor`): the probe is
-                // always true, so the ternary yields its consequent and keeps its
-                // concrete shape instead of forcing the mismatched branches to
-                // reconcile through `SmeltUnknown`.
-                if let Expression::Identifier(test) = &conditional.test
-                    && self.identifier_is_always_present_global_constructor(test.name.as_str())
-                {
-                    return self.expression_with_hint(&conditional.consequent, body, type_hint);
-                }
-                let cond = self.condition_expression(&conditional.test, body)?;
-                let arm_span = self.span(conditional.span.start, conditional.span.end);
-                let then_narrowing = self.guard_narrowing(&conditional.test, body);
-                if let Some(narrowing) = then_narrowing.clone() {
-                    self.scope.push_narrowing_scope(narrowing);
-                }
-                let then_expr = self.lower_conditional_arm(body, arm_span, |slf, body| {
-                    slf.expression_with_hint(&conditional.consequent, body, type_hint)
-                })?;
-                if then_narrowing.is_some() {
-                    self.scope.pop_narrowing_scope();
-                }
-                let branch_hint = Some(Self::expr_ty(body, then_expr));
-                let else_narrowing = self.inverse_guard_narrowing(&conditional.test, body);
-                if let Some(narrowing) = else_narrowing.clone() {
-                    self.scope.push_narrowing_scope(narrowing);
-                }
-                let else_expr = self.lower_conditional_arm(body, arm_span, |slf, body| {
-                    slf.expression_with_hint(&conditional.alternate, body, branch_hint)
-                })?;
-                if else_narrowing.is_some() {
-                    self.scope.pop_narrowing_scope();
-                }
-                let then_ty = Self::expr_ty(body, then_expr);
-                let else_ty = Self::expr_ty(body, else_expr);
-                let ty = if then_ty == else_ty {
-                    then_ty
-                } else if self.numeric_type_compatible(then_ty, else_ty) {
-                    self.ctx.krate.types.intern(Type::Float)
-                } else if matches!(
-                    (
-                        self.ctx.krate.types.get(then_ty),
-                        self.ctx.krate.types.get(else_ty)
-                    ),
-                    (Some(Type::TypeParam { .. }), Some(Type::TypeParam { .. }))
-                ) {
-                    then_ty
-                } else if self.date_runtime_float_matches_type_param(then_ty, else_ty) {
-                    else_ty
-                } else if self.date_runtime_float_matches_type_param(else_ty, then_ty) {
-                    then_ty
-                } else if Self::is_empty_list_expr(body, then_expr) {
-                    else_ty
-                } else if Self::is_empty_list_expr(body, else_expr) {
-                    then_ty
-                } else if self.ctx.krate.types.get(then_ty) == Some(&Type::None) {
-                    self.ctx.krate.types.intern(Type::Optional(else_ty))
-                } else if self.ctx.krate.types.get(else_ty) == Some(&Type::None) {
-                    self.ctx.krate.types.intern(Type::Optional(then_ty))
-                } else if let Some(unified) =
-                    self.unify_optional_conditional_branches(then_ty, else_ty)
-                {
-                    // One arm is `Optional<inner>` and the other unifies with
-                    // `inner`, so the TypeScript union `inner | undefined` IS
-                    // `Optional<inner>`, which is a closer answer than anything
-                    // below. This arm used to sit AFTER the string-compatible
-                    // test, and that test accepts any `Type::Class` — the
-                    // variant also spells an opaque unresolved name — so a
-                    // `Headers`/`Headers | undefined` join unified to `String`
-                    // and a `SmeltHeaders` value was assigned into a `String`
-                    // local. It answers the same question `Optional<Float>` vs
-                    // `Float` asked (Hono's `utils/url.ts`), so the two are one
-                    // arm, here, where the closer answer belongs.
-                    unified
-                } else if self.compatible_function_branch_types(then_ty, else_ty) {
-                    then_ty
-                } else if let Some(function_ty) = self.single_function_branch_type(then_ty, else_ty) {
-                    function_ty
-                } else if matches!(self.ctx.krate.types.get(then_ty), Some(Type::Union(items)) if items.contains(&else_ty)) {
-                    then_ty
-                } else if matches!(self.ctx.krate.types.get(else_ty), Some(Type::Union(items)) if items.contains(&then_ty)) {
-                    else_ty
-                } else if type_hint
-                    .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::Unknown))
-                    || self.ctx.krate.types.get(then_ty) == Some(&Type::Unknown)
-                    || self.ctx.krate.types.get(else_ty) == Some(&Type::Unknown)
-                {
-                    self.ctx.krate.types.intern(Type::Unknown)
-                } else if self.declared_class_type(then_ty) || self.declared_class_type(else_ty) {
-                    // A *declared* class arm has no common Rust shape with
-                    // anything but itself, and it does have a concrete join: the
-                    // generated tagged union. Every closer answer has already
-                    // been tried above — same type, numeric, `None`, a function
-                    // pair, a union that already contains the other arm — so
-                    // reaching here with a declared class means the two arms are
-                    // genuinely two members, which is what TypeScript types
-                    // `c ? a : b` as.
-                    //
-                    // Without this arm the branches fall into the
-                    // string-compatible test below, and that test accepts ANY
-                    // `Type::Class` — the variant also spells an opaque
-                    // unresolved name — so the conditional unified to `String`
-                    // and emitted a `String` local that the class values were
-                    // then assigned into. `flag ? new Doc("d") : "text"` at a
-                    // `string | Doc` return type produced
-                    // `let mut _smelt_tmp: String;` and `_smelt_tmp = <Doc>`,
-                    // which does not compile.
-                    //
-                    // This used to require BOTH arms to be declared classes,
-                    // which fixed `Doc : Other` and left `Doc : "text"` — the
-                    // commoner shape, since a union of a class and a primitive
-                    // is how an optional-payload result is usually spelled —
-                    // still unifying to `String`.
-                    self.ctx
-                        .krate
-                        .types
-                        .intern(Type::Union(vec![then_ty, else_ty]))
-                } else if self.is_string_compatible_type(then_ty)
-                    && (self.is_string_compatible_type(else_ty)
-                        || self.union_has_string_compatible_member(else_ty))
-                    || self.is_string_compatible_type(else_ty)
-                        && self.union_has_string_compatible_member(then_ty)
-                {
-                    self.ctx.krate.types.intern(Type::String)
-                } else if matches!(self.ctx.krate.types.get(then_ty), Some(Type::Dict(_, _)))
-                    && matches!(self.ctx.krate.types.get(else_ty), Some(Type::Dict(_, _)))
-                {
-                    self.ctx
-                        .krate
-                        .types
-                        .intern(Type::Union(vec![then_ty, else_ty]))
-                } else if let (Some(Type::List(then_item)), Some(Type::List(else_item))) = (
-                    self.ctx.krate.types.get(then_ty).cloned(),
-                    self.ctx.krate.types.get(else_ty).cloned(),
-                ) {
-                    // Both branches are arrays whose element types differ. Unify
-                    // the element types with the same branch rules and keep an
-                    // array shape, falling back to a list of the union of the
-                    // element types when they have no closer common shape.
-                    let item_ty = self.unify_conditional_list_item_type(then_item, else_item);
-                    self.ctx.krate.types.intern(Type::List(item_ty))
-                } else if self.type_contains_unknown(then_ty) || self.type_contains_unknown(else_ty)
-                {
-                    self.ctx.krate.types.intern(Type::Unknown)
-                } else if let Some(hint) = type_hint
-                    && !self.concrete_type_requires_never_value(hint)
-                {
-                    hint
-                } else if self.erased_or_union_surface(then_ty)
-                    || self.erased_or_union_surface(else_ty)
-                    || matches!(self.ctx.krate.types.get(then_ty), Some(Type::Union(_)))
-                    || matches!(self.ctx.krate.types.get(else_ty), Some(Type::Union(_)))
-                    || matches!(
-                        (
-                            self.ctx.krate.types.get(then_ty),
-                            self.ctx.krate.types.get(else_ty)
-                        ),
-                        (Some(Type::Function(_)), Some(Type::Function(_)))
-                    )
-                {
-                    // One branch keeps a union/erased surface with no single
-                    // concrete Rust shape (e.g. `isArrayLike(source) ? source :
-                    // Object.values(source)` where `source` stays `ArrayLike<T>
-                    // | Record<string, T>`): the merged value is a genuine
-                    // dynamic boundary and widens to `unknown`.
-                    self.ctx.krate.types.intern(Type::Unknown)
-                } else if !self.concrete_type_requires_never_value(then_ty)
-                    && !self.concrete_type_requires_never_value(else_ty)
-                {
-                    // Two concrete, unrelated arms. TypeScript types `c ? a : b`
-                    // as `typeof a | typeof b`, and that union is the join — the
-                    // same rule `??` applies (see
-                    // `nullish_coalescing_expression`'s concrete-arms branch).
-                    // Blocking here refused well-typed TypeScript; picking one
-                    // arm's type would emit that arm's type carrying the other
-                    // arm's value.
-                    self.ctx
-                        .krate
-                        .types
-                        .intern(Type::Union(vec![then_ty, else_ty]))
-                } else {
-                    return Err(SmeltError::unsupported(
-                        self.span(conditional.span.start, conditional.span.end),
-                        format!(
-                            "conditional expression branches must have the same lowered type (then: {:?}, else: {:?})",
-                            self.ctx.krate.types.get(then_ty),
-                            self.ctx.krate.types.get(else_ty)
-                        ),
-                    ));
-                };
-                Ok(body.push_expr(Expr {
-                    kind: ExprKind::Conditional {
-                        cond,
-                        then_expr,
-                        else_expr,
-                    },
-                    ty,
-                    span: self.span(conditional.span.start, conditional.span.end),
-                }))
+                self.conditional_expression(conditional, body, type_hint)
             }
             Expression::UnaryExpression(unary) => {
                 if unary.operator == UnaryOperator::Typeof {
@@ -2945,11 +2746,10 @@ impl ModuleBuilder<'_> {
             self.scope.pop_narrowing_scope();
         }
         let else_expr = else_expr?;
-        let then_ty = Self::expr_ty(body, then_expr);
-        let else_ty = Self::expr_ty(body, else_expr);
-        let ty = self.conditional_branch_type(
-            then_ty,
-            else_ty,
+        let ty = self.ternary_branch_type(
+            body,
+            then_expr,
+            else_expr,
             type_hint,
             conditional.span.start,
             conditional.span.end,
@@ -2963,6 +2763,194 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(conditional.span.start, conditional.span.end),
         }))
+    }
+
+    /// The type of a ternary `c ? a : b` whose arms lowered to `then_expr`
+    /// and `else_expr`: the conditional expression's own join, in value and
+    /// argument position alike.
+    ///
+    /// TypeScript types `c ? a : b` as `typeof a | typeof b`, so after every
+    /// closer common shape (same type, numeric widening, `None`/optional,
+    /// functions, an empty-list arm, a union already holding the other arm,
+    /// strings, lists) two concrete unrelated arms join to a generated union
+    /// rather than failing. The empty-list arms read the arm EXPRESSIONS, which
+    /// is why this takes them and not just their types.
+    ///
+    /// Not [`Self::conditional_branch_type`], which is a shared "do these two
+    /// types reconcile?" query for `reduce`, callback returns and the logical
+    /// operators, and answers `Err` where a ternary joins to a union. A
+    /// ternary in argument position once asked that query, so
+    /// `console.log(c ? 1 : "a")` and `f(c ? recordA : recordB)` failed to
+    /// lower while the same ternary assigned to a `const` was a union. The
+    /// compact callback IR still asks it; `callback_conditional_type` records
+    /// why that copy cannot move here yet.
+    fn ternary_branch_type(
+        &mut self,
+        body: &Body,
+        then_expr: smelt_hir::ExprId,
+        else_expr: smelt_hir::ExprId,
+        type_hint: Option<smelt_hir::TypeId>,
+        start: u32,
+        end: u32,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        let then_ty = Self::expr_ty(body, then_expr);
+        let else_ty = Self::expr_ty(body, else_expr);
+        let ty = if then_ty == else_ty {
+            then_ty
+        } else if self.numeric_type_compatible(then_ty, else_ty) {
+            self.ctx.krate.types.intern(Type::Float)
+        } else if matches!(
+            (
+                self.ctx.krate.types.get(then_ty),
+                self.ctx.krate.types.get(else_ty)
+            ),
+            (Some(Type::TypeParam { .. }), Some(Type::TypeParam { .. }))
+        ) {
+            then_ty
+        } else if self.date_runtime_float_matches_type_param(then_ty, else_ty) {
+            else_ty
+        } else if self.date_runtime_float_matches_type_param(else_ty, then_ty) {
+            then_ty
+        } else if Self::is_empty_list_expr(body, then_expr) {
+            else_ty
+        } else if Self::is_empty_list_expr(body, else_expr) {
+            then_ty
+        } else if self.ctx.krate.types.get(then_ty) == Some(&Type::None) {
+            self.ctx.krate.types.intern(Type::Optional(else_ty))
+        } else if self.ctx.krate.types.get(else_ty) == Some(&Type::None) {
+            self.ctx.krate.types.intern(Type::Optional(then_ty))
+        } else if let Some(unified) =
+            self.unify_optional_conditional_branches(then_ty, else_ty)
+        {
+            // One arm is `Optional<inner>` and the other unifies with
+            // `inner`, so the TypeScript union `inner | undefined` IS
+            // `Optional<inner>`, which is a closer answer than anything
+            // below. This arm used to sit AFTER the string-compatible
+            // test, and that test accepts any `Type::Class` — the
+            // variant also spells an opaque unresolved name — so a
+            // `Headers`/`Headers | undefined` join unified to `String`
+            // and a `SmeltHeaders` value was assigned into a `String`
+            // local. It answers the same question `Optional<Float>` vs
+            // `Float` asked (Hono's `utils/url.ts`), so the two are one
+            // arm, here, where the closer answer belongs.
+            unified
+        } else if self.compatible_function_branch_types(then_ty, else_ty) {
+            then_ty
+        } else if let Some(function_ty) = self.single_function_branch_type(then_ty, else_ty) {
+            function_ty
+        } else if matches!(self.ctx.krate.types.get(then_ty), Some(Type::Union(items)) if items.contains(&else_ty)) {
+            then_ty
+        } else if matches!(self.ctx.krate.types.get(else_ty), Some(Type::Union(items)) if items.contains(&then_ty)) {
+            else_ty
+        } else if type_hint
+            .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::Unknown))
+            || self.ctx.krate.types.get(then_ty) == Some(&Type::Unknown)
+            || self.ctx.krate.types.get(else_ty) == Some(&Type::Unknown)
+        {
+            self.ctx.krate.types.intern(Type::Unknown)
+        } else if self.declared_class_type(then_ty) || self.declared_class_type(else_ty) {
+            // A *declared* class arm has no common Rust shape with
+            // anything but itself, and it does have a concrete join: the
+            // generated tagged union. Every closer answer has already
+            // been tried above — same type, numeric, `None`, a function
+            // pair, a union that already contains the other arm — so
+            // reaching here with a declared class means the two arms are
+            // genuinely two members, which is what TypeScript types
+            // `c ? a : b` as.
+            //
+            // Without this arm the branches fall into the
+            // string-compatible test below, and that test accepts ANY
+            // `Type::Class` — the variant also spells an opaque
+            // unresolved name — so the conditional unified to `String`
+            // and emitted a `String` local that the class values were
+            // then assigned into. `flag ? new Doc("d") : "text"` at a
+            // `string | Doc` return type produced
+            // `let mut _smelt_tmp: String;` and `_smelt_tmp = <Doc>`,
+            // which does not compile.
+            //
+            // This used to require BOTH arms to be declared classes,
+            // which fixed `Doc : Other` and left `Doc : "text"` — the
+            // commoner shape, since a union of a class and a primitive
+            // is how an optional-payload result is usually spelled —
+            // still unifying to `String`.
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Union(vec![then_ty, else_ty]))
+        } else if self.is_string_compatible_type(then_ty)
+            && (self.is_string_compatible_type(else_ty)
+                || self.union_has_string_compatible_member(else_ty))
+            || self.is_string_compatible_type(else_ty)
+                && self.union_has_string_compatible_member(then_ty)
+        {
+            self.ctx.krate.types.intern(Type::String)
+        } else if matches!(self.ctx.krate.types.get(then_ty), Some(Type::Dict(_, _)))
+            && matches!(self.ctx.krate.types.get(else_ty), Some(Type::Dict(_, _)))
+        {
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Union(vec![then_ty, else_ty]))
+        } else if let (Some(Type::List(then_item)), Some(Type::List(else_item))) = (
+            self.ctx.krate.types.get(then_ty).cloned(),
+            self.ctx.krate.types.get(else_ty).cloned(),
+        ) {
+            // Both branches are arrays whose element types differ. Unify
+            // the element types with the same branch rules and keep an
+            // array shape, falling back to a list of the union of the
+            // element types when they have no closer common shape.
+            let item_ty = self.unify_conditional_list_item_type(then_item, else_item);
+            self.ctx.krate.types.intern(Type::List(item_ty))
+        } else if self.type_contains_unknown(then_ty) || self.type_contains_unknown(else_ty)
+        {
+            self.ctx.krate.types.intern(Type::Unknown)
+        } else if let Some(hint) = type_hint
+            && !self.concrete_type_requires_never_value(hint)
+        {
+            hint
+        } else if self.erased_or_union_surface(then_ty)
+            || self.erased_or_union_surface(else_ty)
+            || matches!(self.ctx.krate.types.get(then_ty), Some(Type::Union(_)))
+            || matches!(self.ctx.krate.types.get(else_ty), Some(Type::Union(_)))
+            || matches!(
+                (
+                    self.ctx.krate.types.get(then_ty),
+                    self.ctx.krate.types.get(else_ty)
+                ),
+                (Some(Type::Function(_)), Some(Type::Function(_)))
+            )
+        {
+            // One branch keeps a union/erased surface with no single
+            // concrete Rust shape (e.g. `isArrayLike(source) ? source :
+            // Object.values(source)` where `source` stays `ArrayLike<T>
+            // | Record<string, T>`): the merged value is a genuine
+            // dynamic boundary and widens to `unknown`.
+            self.ctx.krate.types.intern(Type::Unknown)
+        } else if !self.concrete_type_requires_never_value(then_ty)
+            && !self.concrete_type_requires_never_value(else_ty)
+        {
+            // Two concrete, unrelated arms. TypeScript types `c ? a : b`
+            // as `typeof a | typeof b`, and that union is the join — the
+            // same rule `??` applies (see
+            // `nullish_coalescing_expression`'s concrete-arms branch).
+            // Blocking here refused well-typed TypeScript; picking one
+            // arm's type would emit that arm's type carrying the other
+            // arm's value.
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Union(vec![then_ty, else_ty]))
+        } else {
+            return Err(SmeltError::unsupported(
+                self.span(start, end),
+                format!(
+                    "conditional expression branches must have the same lowered type (then: {:?}, else: {:?})",
+                    self.ctx.krate.types.get(then_ty),
+                    self.ctx.krate.types.get(else_ty)
+                ),
+            ));
+        };
+        Ok(ty)
     }
 
     /// Return whether a bare identifier names a host constructor that Smelt
@@ -3897,3 +3885,4 @@ impl ModuleBuilder<'_> {
         Ok(acc)
     }
 }
+

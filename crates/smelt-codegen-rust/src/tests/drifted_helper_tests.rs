@@ -83,3 +83,37 @@ export function fill(d: number | undefined, rec: Record<string, number>): number
         "{source}"
     );
 }
+
+/// F0794. A ternary in argument position joins its arms the way the same
+/// ternary does in value position: two concrete unrelated arms are a union.
+/// The argument path (`conditional_expression`) asked the shared
+/// reconcilability query `conditional_branch_type` instead of the ternary's
+/// own join, so `console.log(c ? 1 : "a")` and `count(c ? recordA : recordB)`
+/// failed to lower ("branches must have the same lowered type") and a
+/// class/string pair was erased to `SmeltUnknown`, while `const v = c ? 1 :
+/// "a"` was already a union.
+#[test]
+fn an_argument_position_ternary_joins_like_a_value_position_one() {
+    let source = source_for(
+        r#"
+class Doc {
+  title = "doc";
+}
+function show(v: unknown): string {
+  return typeof v === "string" ? v : "obj";
+}
+function count(r: Record<string, number> | Record<string, string>): number {
+  return Object.keys(r).length;
+}
+export function run(flag: boolean, r1: Record<string, number>, r2: Record<string, string>): string {
+  console.log(flag ? 1 : "a");
+  return show(flag ? new Doc() : "text") + count(flag ? r1 : r2);
+}
+"#,
+    );
+
+    // `1 | "a"` and the two records: generated unions built at the ternary.
+    assert!(source.matches("= if flag { SmeltUnion").count() >= 2, "{source}");
+    // `Doc | "text"`: the string arm is a union variant, not an erased value.
+    assert!(source.contains("::M0(\"text\".to_owned());"), "{source}");
+}
