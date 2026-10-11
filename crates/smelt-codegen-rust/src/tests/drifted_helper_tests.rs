@@ -48,3 +48,38 @@ export function holes(xs: number[]): number {
 
     assert!(source.contains("fn holes("), "{source}");
 }
+
+/// F0684. A logical assignment that is one element of a statement-position
+/// comma expression stores conditionally, like the same assignment standing
+/// alone. The comma elements went through a copy of the expression-statement
+/// dispatch that lacked the logical-assignment branch, so they reached the
+/// plain assignment path: `(rec["k"] ??= 2, ..)` read a default and never
+/// stored, and `(d ??= side(), ..)` evaluated `side()` unconditionally.
+#[test]
+fn a_logical_assignment_in_a_comma_statement_stores_conditionally() {
+    let source = source_for(
+        r#"
+function side(): number {
+  return 5;
+}
+export function fill(d: number | undefined, rec: Record<string, number>): number {
+  let b = 0;
+  (d ??= side(), b = 6);
+  (rec["k"] ??= 2, b = 7);
+  return (d ?? 0) + b;
+}
+"#,
+    );
+
+    // The conditional store temporaries `lower_logical_assignment` emits, one
+    // per logical assignment, and the record write inside the guard.
+    assert_eq!(
+        source.matches("let __smelt_logical_value_").count(),
+        2,
+        "{source}"
+    );
+    assert!(
+        source.contains("rec.insert(\"k\".to_owned(), __smelt_logical_value_"),
+        "{source}"
+    );
+}

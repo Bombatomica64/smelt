@@ -526,126 +526,7 @@ impl ModuleBuilder<'_> {
             }
             Statement::TSNamespaceDeclaration(_) => Ok(()),
             Statement::ExpressionStatement(expr_stmt) => {
-                if let Expression::SequenceExpression(sequence) =
-                    Self::unparenthesized_expression(&expr_stmt.expression)
-                {
-                    for expression in &sequence.expressions {
-                        self.sequence_expression_statement(
-                            expression,
-                            expression.span(),
-                            body,
-                            block,
-                        )?;
-                    }
-                    return Ok(());
-                }
-                // `Foo.prototype.x = …` assignments for a constructor function
-                // were folded into the synthesized class during the block
-                // prepass, so the assignment statement itself is dropped.
-                if self.is_synthesized_prototype_assignment(&expr_stmt.expression) {
-                    return Ok(());
-                }
-                if self.inline_runtime_lifecycle_setup(&expr_stmt.expression, body, block)? {
-                    return Ok(());
-                }
-                if self.is_test_framework_statement(&expr_stmt.expression) {
-                    return Ok(());
-                }
-                if Self::is_vitest_mock_statement(&expr_stmt.expression)
-                    || Self::is_top_level_dynamic_import_await(&expr_stmt.expression)
-                {
-                    return Ok(());
-                }
-                if let Expression::CallExpression(call) = &expr_stmt.expression
-                    && self.for_each_statement(call, body, block)?
-                {
-                    return Ok(());
-                }
-                if let Expression::CallExpression(call) = &expr_stmt.expression
-                    && self.expect_matcher_statement(call, body)?
-                {
-                    return Ok(());
-                }
-                if let Expression::CallExpression(call) = &expr_stmt.expression
-                    && self.node_assert_statement(call, body)?
-                {
-                    return Ok(());
-                }
-                if let Expression::AssignmentExpression(assign) = &expr_stmt.expression {
-                    // A write to a lifted mutable global desugars to a
-                    // `GlobalSet` expression statement; it must intercept before
-                    // the discard-only module-global path below.
-                    if let Some(set) = self.try_global_assignment_expression(assign, body)? {
-                        body.push_stmt_to_block(block, Stmt::Expr(set));
-                        return Ok(());
-                    }
-                    if block == body.root
-                        && self.module_global_assignment_statement(assign, body, block)?
-                    {
-                        return Ok(());
-                    }
-                    if self.try_lower_negative_bracket_write_statement(assign, body, block)? {
-                        return Ok(());
-                    }
-                    if self.try_lower_list_length_assignment_statement(assign, body, block)? {
-                        return Ok(());
-                    }
-                    if self.array_destructuring_assignment_statement(assign, body, block)? {
-                        return Ok(());
-                    }
-                    if self.try_collect_callable_local_prop(assign, body, block)? {
-                        return Ok(());
-                    }
-                    // A logical assignment stores conditionally; in statement
-                    // position its value is discarded, so it needs neither a
-                    // result temporary nor an else arm.
-                    if Self::is_logical_assignment_operator(assign.operator) {
-                        self.lower_logical_assignment(assign, body, Some(block), false)?;
-                        return Ok(());
-                    }
-                    let (target, value) = self.assignment_parts(assign, body)?;
-                    body.push_stmt_to_block(block, Stmt::Assign { target, value });
-                    return Ok(());
-                }
-                if let Expression::UpdateExpression(update) = &expr_stmt.expression {
-                    // Statement-position `++`/`--` of a lifted mutable global
-                    // discards its result, so the old-value temp is skipped.
-                    if let Some(set) = self.try_global_update_expression(update, body, false)? {
-                        body.push_stmt_to_block(block, Stmt::Expr(set));
-                        return Ok(());
-                    }
-                    let (target, value) = self.update_parts(update, body)?;
-                    body.push_stmt_to_block(block, Stmt::Assign { target, value });
-                    return Ok(());
-                }
-                if let Expression::YieldExpression(yield_expr) = &expr_stmt.expression
-                    && self.generator_yield_statement(yield_expr, body, block)?
-                {
-                    return Ok(());
-                }
-                let assertion_narrowing = self.assertion_call_narrowing(&expr_stmt.expression, body);
-                let expr = self.expression(&expr_stmt.expression, body)?;
-                let expr = if matches!(
-                    self.ctx.krate.types.get(Self::expr_ty(body, expr)),
-                    Some(Type::Future(_))
-                ) {
-                    let none_ty = self.ctx.krate.types.intern(Type::None);
-                    body.push_expr(Expr {
-                        kind: ExprKind::AsyncOp {
-                            op: AsyncOp::SpawnLocal,
-                            args: vec![expr],
-                        },
-                        ty: none_ty,
-                        span: self.span(expr_stmt.span.start, expr_stmt.span.end),
-                    })
-                } else {
-                    expr
-                };
-                body.push_stmt_to_block(block, Stmt::Expr(expr));
-                if let Some((name, target)) = assertion_narrowing {
-                    self.apply_narrowing(name, target);
-                }
-                Ok(())
+                self.expression_statement(&expr_stmt.expression, expr_stmt.span, body, block)
             }
             Statement::ReturnStatement(return_stmt) => {
                 // Inside an `async` function the declared return type is
@@ -1166,13 +1047,21 @@ impl ModuleBuilder<'_> {
         result
     }
 
-    /// Lower one element of a statement-position comma expression.
+    /// Lower an expression in statement position: an expression statement, or
+    /// one element of a statement-position comma expression.
     ///
-    /// Every element is a complete JavaScript expression statement for side-effect
-    /// purposes. Route it through the same interceptors as an ordinary expression
-    /// statement so assignments, updates, test assertions, async spawning, and
-    /// narrowing retain their normal semantics and source order.
-    fn sequence_expression_statement(
+    /// The one definition of the expression-statement dispatch. Each element of
+    /// a comma expression is a complete JavaScript expression statement for
+    /// side-effect purposes, so it takes the same interceptors as an ordinary
+    /// statement: assignments, updates, test assertions, async spawning and
+    /// narrowing keep their normal semantics and source order. A copy of this
+    /// dispatch for comma elements once lacked the logical-assignment branch,
+    /// so `(d ??= side(), b = 1)` ran `side()` even when `d` was set and
+    /// `(rec[k] ??= 2, b = 1)` never stored.
+    ///
+    /// `expression_span` locates the statement (the whole expression statement
+    /// at top level, the element inside a comma expression).
+    fn expression_statement(
         &mut self,
         expression: &Expression<'_>,
         expression_span: oxc::span::Span,
@@ -1182,10 +1071,13 @@ impl ModuleBuilder<'_> {
         let expression = Self::unparenthesized_expression(expression);
         if let Expression::SequenceExpression(sequence) = expression {
             for child in &sequence.expressions {
-                self.sequence_expression_statement(child, child.span(), body, block)?;
+                self.expression_statement(child, child.span(), body, block)?;
             }
             return Ok(());
         }
+        // `Foo.prototype.x = …` assignments for a constructor function were
+        // folded into the synthesized class during the block prepass, so the
+        // assignment statement itself is dropped.
         if self.is_synthesized_prototype_assignment(expression)
             || self.inline_runtime_lifecycle_setup(expression, body, block)?
             || self.is_test_framework_statement(expression)
@@ -1203,6 +1095,9 @@ impl ModuleBuilder<'_> {
             }
         }
         if let Expression::AssignmentExpression(assign) = expression {
+            // A write to a lifted mutable global desugars to a `GlobalSet`
+            // expression statement; it must intercept before the discard-only
+            // module-global path below.
             if let Some(set) = self.try_global_assignment_expression(assign, body)? {
                 body.push_stmt_to_block(block, Stmt::Expr(set));
                 return Ok(());
@@ -1217,11 +1112,20 @@ impl ModuleBuilder<'_> {
             {
                 return Ok(());
             }
+            // A logical assignment stores conditionally; in statement position
+            // its value is discarded, so it needs neither a result temporary nor
+            // an else arm.
+            if Self::is_logical_assignment_operator(assign.operator) {
+                self.lower_logical_assignment(assign, body, Some(block), false)?;
+                return Ok(());
+            }
             let (target, value) = self.assignment_parts(assign, body)?;
             body.push_stmt_to_block(block, Stmt::Assign { target, value });
             return Ok(());
         }
         if let Expression::UpdateExpression(update) = expression {
+            // Statement-position `++`/`--` of a lifted mutable global discards
+            // its result, so the old-value temp is skipped.
             if let Some(set) = self.try_global_update_expression(update, body, false)? {
                 body.push_stmt_to_block(block, Stmt::Expr(set));
                 return Ok(());

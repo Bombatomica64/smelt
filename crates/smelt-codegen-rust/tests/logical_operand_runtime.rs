@@ -222,3 +222,48 @@ test("a logical condition does not evaluate the right operand eagerly", () => {
 "#;
     run_fixture(source, "smelt_logical_condition_short_circuit");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_logical_assignment_inside_a_comma_statement_stores_conditionally() {
+    // A comma-expression statement's elements are lowered one by one as
+    // expression statements. That dispatch was a copy that lacked the
+    // logical-assignment branch (haiku audit F0684), so an element `x ??= y`
+    // took the plain-assignment path: its right side was evaluated even when
+    // `x` was already set, and a keyed `rec[k] ??= v` never stored. The values
+    // below are node's.
+    let source = r#"
+import { test, expect } from "vitest";
+let calls = 0;
+function side(): number {
+  calls++;
+  return 5;
+}
+test("a logical assignment in a comma statement short-circuits", () => {
+  let b = 0;
+  let a = 1;
+  (a ||= side(), b = 4);
+  expect(a).toBe(1);
+  expect(calls).toBe(0);
+  expect(b).toBe(4);
+  let c = 0;
+  (c ||= side(), b = 5);
+  expect(c).toBe(5);
+  expect(calls).toBe(1);
+  let d: number | undefined = 1;
+  (d ??= side(), b = 6);
+  expect(d).toBe(1);
+  expect(calls).toBe(1);
+  expect(b).toBe(6);
+});
+test("a keyed logical assignment in a comma statement stores", () => {
+  const rec: Record<string, number> = {};
+  let b = 0;
+  (rec["k"] ??= 2, b = 1);
+  expect(rec["k"]).toBe(2);
+  expect(b).toBe(1);
+});
+"#;
+    run_fixture(source, "logical_assignment_in_comma");
+}
+
