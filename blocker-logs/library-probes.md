@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-10-09 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-10-11 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -20,7 +20,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `src/result.ts` | 5 | non-working Rust (4r/1s) |
 | [immer](https://github.com/immerjs/immer) | TS | **no** | n/a | `__tests__/spec_ts.ts` | 6 | non-working Rust (6r/0s) |
 | [rxjs](https://github.com/ReactiveX/rxjs) | TS | **no** | n/a | `packages/observable/src/types.ts` | 16 | non-working Rust (16r/0s) |
-| [returns](https://github.com/dry-python/returns) | PY | **no** | n/a | `(unknown)` | 27 | non-working Rust (27r/0s) |
+| [returns](https://github.com/dry-python/returns) | PY | **no** | n/a | `(unknown)` | 28 | non-working Rust (28r/0s) |
 | [result](https://github.com/rustedpy/result) | PY | **no** | n/a | `(unknown)` | 6 | non-working Rust (6r/0s) |
 | [more-itertools](https://github.com/more-itertools/more-itertools) | PY | **no** | n/a | `(unknown)` | 23 | non-working Rust (23r/0s) |
 | [funcy](https://github.com/Suor/funcy) | PY | **no** | n/a | `(unknown)` | 16 | non-working Rust (16r/0s) |
@@ -274,9 +274,9 @@ Lowering gaps blocking more than one probed library; fixing these unlocks the mo
 | 2 (funcy, returns) | 10 | pytest.mark.parametrize supports only bool, number, string, None, tuple, and list literals |
 | 2 (immer, valibot) | 8 | module-level mutable binding initializer must be a literal for now |
 | 2 (funcy, returns) | 5 | attribute access is only supported on class instances |
-| 2 (more-itertools, returns) | 4 | method 'X' must have an explicit return type annotation |
 | 2 (ts-pattern, valibot) | 3 | too many generic type arguments |
 | 2 (more-itertools, returns) | 3 | class 'X': decorator 'X' is not supported |
+| 2 (more-itertools, returns) | 3 | method 'X' must have an explicit return type annotation |
 | 2 (more-itertools, returns) | 3 | class 'X': unsupported class body statement 'X' |
 | 2 (immer, rxjs) | 2 | asserted call callee must be a function |
 | 2 (more-itertools, toolz) | 2 | binary operator 'X' is not supported |
