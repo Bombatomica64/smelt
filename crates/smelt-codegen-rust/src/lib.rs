@@ -77,6 +77,7 @@ use std::{
     path::Path,
 };
 
+use crate::classes::{NominalStorage, type_holds_function};
 use crate::{rust::erased_string, type_substitution::TypeSubstitution};
 use smelt_hir::{AsyncOp, BodyId, Type, TypeId};
 use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, MirGlobalInit, Rvalue};
@@ -88,6 +89,7 @@ mod byte_buffer_prelude;
 mod event_emitter_prelude;
 mod host_value_erasure;
 mod number_format_prelude;
+mod string_to_number_prelude;
 mod blob_prelude;
 mod fetch_types_prelude;
 mod crypto_prelude;
@@ -724,6 +726,10 @@ fn emit_source_with_free_function_router(
     // reach it, so it leads the prelude rather than sitting behind a gate that
     // would have to name all of them.
     number_format_prelude::emit(&mut writer);
+    // Its inverse, `StringToNumber`, for the same reason: `Number(s)`, `+s`,
+    // relational and arithmetic coercion and every erased-to-number conversion
+    // of a string reach it.
+    string_to_number_prelude::emit(&mut writer);
     // The panic route is the error channel for every generated body that cannot
     // propagate a `Result`, and both of its ends -- the throw adapter and the
     // `catch_unwind` recovery helpers -- are needed wherever a `try` or a
@@ -3919,7 +3925,8 @@ fn emit_source_with_free_function_router(
             writer.line("/// A `BlobPart` is `Blob | BufferSource | string` — a heterogeneous host");
             writer.line("/// union whose arm is a runtime fact — which is why the parts array is");
             writer.line("/// erased and walked here. Strings contribute their UTF-8 bytes; a nested");
-            writer.line("/// `Blob`/`File` record contributes its stored `content`; a byte-backed");
+            writer.line("/// `Blob`/`File` record contributes its exact bytes (`smelt_blob_record_bytes`,");
+            writer.line("/// the same bytes a concrete `SmeltBlob` part contributes); a byte-backed");
             writer.line("/// host record (`Uint8Array`, `ArrayBuffer`, `DataView`, ...) contributes");
             writer.line("/// its raw `bytes`, which the pre-byte-backed version stringified and so");
             writer.line("/// corrupted; anything else stringifies the way JavaScript does.");
@@ -3934,7 +3941,7 @@ fn emit_source_with_free_function_router(
             writer.line("            match item {");
             writer.line("                SmeltUnknown::String(text) => bytes.extend_from_slice(text.as_bytes()),");
             writer.line("                SmeltUnknown::Object(map) if map.contains_key(\"__smelt_blob\") => {");
-            writer.line("                    if let Some(SmeltUnknown::String(text)) = map.get(\"content\") { bytes.extend_from_slice(text.as_bytes()); }");
+            writer.line("                    bytes.extend_from_slice(&smelt_blob_record_bytes(&map));");
             writer.line("                }");
             writer.line("                SmeltUnknown::Object(map) if matches!(map.get(\"bytes\"), Some(SmeltUnknown::Array(_))) => {");
             writer.line("                    if let Some(SmeltUnknown::Array(elements)) = map.get(\"bytes\") {");
@@ -3954,9 +3961,11 @@ fn emit_source_with_free_function_router(
             writer.line("/// `smelt_blob_record_from_parts`) and by `impl IntoSmeltUnknown for");
             writer.line("/// SmeltBlob`, so a concrete blob crossing a dynamic boundary and a");
             writer.line("/// reflectively-constructed one are the same record. `content` is the");
-            writer.line("/// UTF-8 decoding of the bytes, which is what every existing consumer of an");
-            writer.line("/// erased blob reads; the concrete `SmeltBlob` is the value that carries");
-            writer.line("/// the bytes losslessly.");
+            writer.line("/// UTF-8 decoding of the bytes, which is what consumers of an erased blob's");
+            writer.line("/// text read. When the bytes are not valid UTF-8 that decoding is lossy, so");
+            writer.line("/// the record also carries them exactly in the hidden `__smelt_blob_bytes`");
+            writer.line("/// list (a host-marked record shows no keys to enumeration); a UTF-8 blob's");
+            writer.line("/// record is unchanged. `smelt_blob_record_bytes` reads them back.");
             writer.line("///");
             writer.line("/// A file name stamps `__smelt_file` on top of `__smelt_blob`, so");
             writer.line("/// `file instanceof Blob` observes the host subtype relationship.");
@@ -3969,12 +3978,30 @@ fn emit_source_with_free_function_router(
             writer.line("        (\"content\".to_owned(), SmeltUnknown::String(content.into())),");
             writer.line("    ]);");
             writer.line("    let record = SmeltObject::with_id(id, record);");
+            writer.line("    if ::std::str::from_utf8(bytes).is_err() {");
+            writer.line("        let exact = bytes.iter().map(|byte| SmeltUnknown::Number(f64::from(*byte))).collect::<Vec<_>>();");
+            writer.line("        record.insert(\"__smelt_blob_bytes\".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), exact)));");
+            writer.line("    }");
             writer.line("    if let Some(name) = file_name {");
             writer.line("        record.insert(\"__smelt_file\".to_owned(), SmeltUnknown::Bool(true));");
             writer.line("        record.insert(\"name\".to_owned(), SmeltUnknown::String(name.into()));");
             writer.line("        record.insert(\"lastModified\".to_owned(), SmeltUnknown::Number(last_modified));");
             writer.line("    }");
             writer.line("    SmeltUnknown::Object(record)");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// The exact bytes of an erased `Blob`/`File` record: the hidden byte list");
+            writer.line("/// `smelt_blob_record` stores when `content` is a lossy decoding, else the");
+            writer.line("/// UTF-8 bytes of `content`.");
+            writer.line("///");
+            writer.line("/// The one reader of an erased blob's bytes, shared by the `BlobPart` walk");
+            writer.line("/// and by `SmeltFromUnknown for SmeltBlob`, so a blob that crossed a dynamic");
+            writer.line("/// boundary contributes the same bytes as the concrete blob it came from.");
+            writer.line("fn smelt_blob_record_bytes(map: &SmeltObject) -> Vec<u8> {");
+            writer.line("    if let Some(SmeltUnknown::Array(elements)) = map.get(\"__smelt_blob_bytes\") {");
+            writer.line("        return elements.iter().filter_map(|element| match element { SmeltUnknown::Number(value) => Some(value as u8), _ => None }).collect();");
+            writer.line("    }");
+            writer.line("    match map.get(\"content\") { Some(SmeltUnknown::String(text)) => text.as_bytes().to_vec(), _ => Vec::new() }");
             writer.line("}");
             writer.blank_line();
             writer.line("/// Build the erased `Blob`/`File` record for the reflected constructor.");
@@ -4972,7 +4999,7 @@ fn emit_source_with_free_function_router(
                 fn_writer.line("let timestamp_ms = match self {");
                 fn_writer.line("    Self::Number(value) => *value,");
                 fn_writer.line("    Self::Object(value) => match value.get(\"__smelt_date\") { Some(Self::Number(value)) => value, _ => f64::NAN },");
-                fn_writer.line("    Self::String(value) => value.parse::<f64>().unwrap_or(f64::NAN),");
+                fn_writer.line("    Self::String(value) => smelt_string_to_number(value),");
                 fn_writer.line("    Self::Bool(value) => if *value { 1.0 } else { 0.0 },");
                 fn_writer.line("    Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Function(_) | Self::Promise(_) => f64::NAN,");
                 fn_writer.line("};");
@@ -5117,7 +5144,7 @@ fn emit_source_with_free_function_router(
                 |fn_writer| {
                     fn_writer.block("match self", |match_writer| {
                         match_writer.line("Self::Number(value) => value.partial_cmp(other),");
-                        match_writer.line("Self::String(value) => value.parse::<f64>().ok().and_then(|number| number.partial_cmp(other)),");
+                        match_writer.line("Self::String(value) => smelt_string_to_number(value).partial_cmp(other),");
                         match_writer.line("Self::Bool(value) => (if *value { 1.0 } else { 0.0 }).partial_cmp(other),");
                         match_writer.line("Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Object(_) | Self::Function(_) | Self::Promise(_) => None,");
                     });
@@ -5213,7 +5240,7 @@ fn emit_source_with_free_function_router(
                 fn_writer.block("match value", |match_writer| {
                     match_writer.line("SmeltUnknown::Number(value) => *value,");
                     match_writer.line("SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN },");
-                    match_writer.line("SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN),");
+                    match_writer.line("SmeltUnknown::String(value) => smelt_string_to_number(value),");
                     match_writer.line("SmeltUnknown::Bool(value) => if *value { 1.0 } else { 0.0 },");
                     match_writer.line("SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN,");
                 });
@@ -5298,7 +5325,7 @@ fn emit_source_with_free_function_router(
             impl_writer.block(
                 "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
                 |fn_writer| {
-                    fn_writer.line("match value { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }");
+                    fn_writer.line("match value { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }");
                 },
             );
         });
@@ -5307,7 +5334,7 @@ fn emit_source_with_free_function_router(
             impl_writer.block(
                 "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
                 |fn_writer| {
-                    fn_writer.line("match value { SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value { 1_i64 } else { 0_i64 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }");
+                    fn_writer.line("match value { SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }, SmeltUnknown::String(value) => smelt_string_to_number(&value) as i64, SmeltUnknown::Bool(value) => if value { 1_i64 } else { 0_i64 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }");
                 },
             );
         });
@@ -5553,7 +5580,7 @@ fn emit_source_with_free_function_router(
         }
         let has_function_field = fields
             .iter()
-            .any(|field| type_contains_function(mir, field.ty));
+            .any(|field| type_holds_function(mir, field.ty, NominalStorage::Opaque));
         // An interface-backed record is a by-value struct, exactly like a value
         // class, so it supports structural equality (JS `==`/`===`/`toBe`, and
         // derived comparisons in generated specs) under the same rule: every
@@ -6033,7 +6060,7 @@ fn emit_source_with_free_function_router(
         );
         let has_function_field = fields
             .iter()
-            .any(|field| type_contains_function(mir, field.ty));
+            .any(|field| type_holds_function(mir, field.ty, NominalStorage::Opaque));
         // A value class supports structural equality (JS `==`/`===`/`toBe` on the
         // by-value representation, and derived comparisons in generated specs)
         // only when every stored field is itself `PartialEq`. Function fields
@@ -7288,7 +7315,7 @@ fn emit_reference_record_storage(
     let scoped_type_params = type_param_names.iter().copied().collect::<HashSet<_>>();
     let has_function_field = fields
         .iter()
-        .any(|field| type_contains_function(mir, field.ty));
+        .any(|field| type_holds_function(mir, field.ty, NominalStorage::Opaque));
     let record_param_idents = context.type_param_elision().retain_carried(
         *declared_name,
         type_param_names
@@ -7700,7 +7727,7 @@ fn emit_default_impl_for_storage_type(
         // The nested requirement is carried by the impl's own type-parameter
         // bounds instead (`classes::GENERATED_TYPE_PARAM_BOUNDS`), which is what
         // the return type's `Default` impl asks for.
-        let is_callable_slot = type_contains_function(mir, field.ty);
+        let is_callable_slot = type_holds_function(mir, field.ty, NominalStorage::Opaque);
         field_defaults.push((field_name, field_type_text, default_value, is_callable_slot));
     }
     let delegating_field_types = field_defaults
@@ -7916,40 +7943,6 @@ fn emit_partial_eq_impl_for_value_class(
             });
         },
     );
-}
-
-/// Return whether a type contains a callable value in a stored position.
-///
-/// Rust cannot derive `Clone` or `Debug` for `dyn FnMut` trait objects. Class
-/// structs that store function fields therefore opt out of those derives until
-/// callable storage grows an explicit cloneable wrapper.
-fn type_contains_function(mir: &Mir, ty: TypeId) -> bool {
-    match mir.types.get(ty) {
-        Some(Type::Function(_)) => true,
-        Some(Type::Generator { .. }) => false,
-        Some(Type::GeneratorResult { .. }) => false,
-        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
-            type_contains_function(mir, *item)
-        }
-        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
-            type_contains_function(mir, *key) || type_contains_function(mir, *value)
-        }
-        Some(Type::Tuple(items) | Type::Union(items)) => {
-            items.iter().any(|item| type_contains_function(mir, *item))
-        }
-        Some(
-            Type::Bool
-            | Type::Int
-            | Type::Float
-            | Type::String
-            | Type::None
-            | Type::Unknown
-            | Type::Never
-            | Type::TypeParam { .. }
-            | Type::Class { .. },
-        )
-        | None => false,
-    }
 }
 
 /// Return whether a type supports Rust `PartialEq` in generated code.

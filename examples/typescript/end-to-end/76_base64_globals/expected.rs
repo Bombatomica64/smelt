@@ -43,6 +43,34 @@ fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
 /// `console.log`'s number formatting: the spec's rule, but `-0` prints `-0`.
 fn smelt_console_number<N: ::std::borrow::Borrow<f64>>(value: N) -> String { let value = *value.borrow(); if value == 0.0 && value.is_sign_negative() { return "-0".to_owned(); } smelt_number_to_string(value) }
 
+/// ECMA-262 `StringToNumber`: the number JavaScript's `Number(text)` answers.
+#[allow(dead_code)]
+fn smelt_string_to_number(text: &str) -> f64 {
+    let text = text.trim_matches(|ch: char| matches!(ch, '\u{9}'..='\u{d}' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'));
+    if text.is_empty() { return 0.0; }
+    let radix = match text.get(..2) { Some("0x" | "0X") => 16, Some("0o" | "0O") => 8, Some("0b" | "0B") => 2, _ => 10 };
+    if radix != 10 {
+        let digits = &text[2..];
+        if digits.is_empty() || !digits.chars().all(|ch| ch.is_digit(radix)) { return f64::NAN; }
+        return digits.chars().fold(0.0, |value, ch| value * f64::from(radix) + f64::from(ch.to_digit(radix).unwrap_or(0)));
+    }
+    let (sign, unsigned) = match text.as_bytes()[0] { b'+' => (1.0, &text[1..]), b'-' => (-1.0, &text[1..]), _ => (1.0, text) };
+    if unsigned == "Infinity" { return sign * f64::INFINITY; }
+    let bytes = unsigned.as_bytes();
+    let digits_from = |mut at: usize| { while at < bytes.len() && bytes[at].is_ascii_digit() { at += 1; } at };
+    let int_end = digits_from(0);
+    let (frac_start, frac_end) = if bytes.get(int_end) == Some(&b'.') { (int_end + 1, digits_from(int_end + 1)) } else { (int_end, int_end) };
+    if int_end == 0 && frac_end == frac_start { return f64::NAN; }
+    let mut end = frac_end;
+    if matches!(bytes.get(end), Some(b'e' | b'E')) {
+        let exp_start = if matches!(bytes.get(end + 1), Some(b'+' | b'-')) { end + 2 } else { end + 1 };
+        end = digits_from(exp_start);
+        if end == exp_start { return f64::NAN; }
+    }
+    if end != bytes.len() { return f64::NAN; }
+    unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
+}
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -975,7 +1003,7 @@ fn smelt_host_buffer_kind_width(kind: &str) -> usize { match kind { "int8" => 1,
 /// Integer views wrap modulo their width (ECMAScript `ToInt8`/`ToUint16`/...),
 /// which is why an `Int8Array` holding `-1` and a `Uint8Array` holding `255`
 /// have byte-identical buffers. `Uint8ClampedArray` saturates instead.
-fn smelt_host_buffer_encode_element(kind: &str, value: &SmeltUnknown) -> Vec<SmeltUnknown> { let number = match value { SmeltUnknown::Number(value) => *value, SmeltUnknown::Bool(value) => if *value { 1.0 } else { 0.0 }, SmeltUnknown::String(text) => text.trim().parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Null => 0.0, _ => f64::NAN }; let raw: Vec<u8> = match kind { "int8" => vec![smelt_host_buffer_to_integer(number) as i8 as u8], "uint8" => vec![smelt_host_buffer_to_integer(number) as u8], "uint8clamped" => vec![if number.is_nan() { 0u8 } else { number.round_ties_even().clamp(0.0, 255.0) as u8 }], "int16" => (smelt_host_buffer_to_integer(number) as i16).to_le_bytes().to_vec(), "uint16" => (smelt_host_buffer_to_integer(number) as u16).to_le_bytes().to_vec(), "int32" => (smelt_host_buffer_to_integer(number) as i32).to_le_bytes().to_vec(), "uint32" => (smelt_host_buffer_to_integer(number) as u32).to_le_bytes().to_vec(), "float32" => (number as f32).to_le_bytes().to_vec(), "float64" => number.to_le_bytes().to_vec(), "bigint64" => smelt_host_buffer_to_integer(number).to_le_bytes().to_vec(), "biguint64" => (smelt_host_buffer_to_integer(number) as u64).to_le_bytes().to_vec(), _ => vec![smelt_host_buffer_to_integer(number) as u8] }; raw.into_iter().map(|byte| SmeltUnknown::Number(f64::from(byte))).collect() }
+fn smelt_host_buffer_encode_element(kind: &str, value: &SmeltUnknown) -> Vec<SmeltUnknown> { let number = match value { SmeltUnknown::Number(value) => *value, SmeltUnknown::Bool(value) => if *value { 1.0 } else { 0.0 }, SmeltUnknown::String(text) => smelt_string_to_number(text), SmeltUnknown::Null => 0.0, _ => f64::NAN }; let raw: Vec<u8> = match kind { "int8" => vec![smelt_host_buffer_to_integer(number) as i8 as u8], "uint8" => vec![smelt_host_buffer_to_integer(number) as u8], "uint8clamped" => vec![if number.is_nan() { 0u8 } else { number.round_ties_even().clamp(0.0, 255.0) as u8 }], "int16" => (smelt_host_buffer_to_integer(number) as i16).to_le_bytes().to_vec(), "uint16" => (smelt_host_buffer_to_integer(number) as u16).to_le_bytes().to_vec(), "int32" => (smelt_host_buffer_to_integer(number) as i32).to_le_bytes().to_vec(), "uint32" => (smelt_host_buffer_to_integer(number) as u32).to_le_bytes().to_vec(), "float32" => (number as f32).to_le_bytes().to_vec(), "float64" => number.to_le_bytes().to_vec(), "bigint64" => smelt_host_buffer_to_integer(number).to_le_bytes().to_vec(), "biguint64" => (smelt_host_buffer_to_integer(number) as u64).to_le_bytes().to_vec(), _ => vec![smelt_host_buffer_to_integer(number) as u8] }; raw.into_iter().map(|byte| SmeltUnknown::Number(f64::from(byte))).collect() }
 /// Build a byte-backed host record of `marker` identity over `bytes`.
 ///
 /// `byteLength` is the byte count and `length` is the *element* count, so a
@@ -1635,7 +1663,8 @@ impl Clone for SmeltUnknown {
 /// A `BlobPart` is `Blob | BufferSource | string` — a heterogeneous host
 /// union whose arm is a runtime fact — which is why the parts array is
 /// erased and walked here. Strings contribute their UTF-8 bytes; a nested
-/// `Blob`/`File` record contributes its stored `content`; a byte-backed
+/// `Blob`/`File` record contributes its exact bytes (`smelt_blob_record_bytes`,
+/// the same bytes a concrete `SmeltBlob` part contributes); a byte-backed
 /// host record (`Uint8Array`, `ArrayBuffer`, `DataView`, ...) contributes
 /// its raw `bytes`, which the pre-byte-backed version stringified and so
 /// corrupted; anything else stringifies the way JavaScript does.
@@ -1650,7 +1679,7 @@ fn smelt_blob_parts_bytes(parts: SmeltUnknown) -> Vec<u8> {
             match item {
                 SmeltUnknown::String(text) => bytes.extend_from_slice(text.as_bytes()),
                 SmeltUnknown::Object(map) if map.contains_key("__smelt_blob") => {
-                    if let Some(SmeltUnknown::String(text)) = map.get("content") { bytes.extend_from_slice(text.as_bytes()); }
+                    bytes.extend_from_slice(&smelt_blob_record_bytes(&map));
                 }
                 SmeltUnknown::Object(map) if matches!(map.get("bytes"), Some(SmeltUnknown::Array(_))) => {
                     if let Some(SmeltUnknown::Array(elements)) = map.get("bytes") {
@@ -1670,9 +1699,11 @@ fn smelt_blob_parts_bytes(parts: SmeltUnknown) -> Vec<u8> {
 /// `smelt_blob_record_from_parts`) and by `impl IntoSmeltUnknown for
 /// SmeltBlob`, so a concrete blob crossing a dynamic boundary and a
 /// reflectively-constructed one are the same record. `content` is the
-/// UTF-8 decoding of the bytes, which is what every existing consumer of an
-/// erased blob reads; the concrete `SmeltBlob` is the value that carries
-/// the bytes losslessly.
+/// UTF-8 decoding of the bytes, which is what consumers of an erased blob's
+/// text read. When the bytes are not valid UTF-8 that decoding is lossy, so
+/// the record also carries them exactly in the hidden `__smelt_blob_bytes`
+/// list (a host-marked record shows no keys to enumeration); a UTF-8 blob's
+/// record is unchanged. `smelt_blob_record_bytes` reads them back.
 ///
 /// A file name stamps `__smelt_file` on top of `__smelt_blob`, so
 /// `file instanceof Blob` observes the host subtype relationship.
@@ -1685,12 +1716,30 @@ fn smelt_blob_record(id: usize, bytes: &[u8], blob_type: &str, file_name: Option
         ("content".to_owned(), SmeltUnknown::String(content.into())),
     ]);
     let record = SmeltObject::with_id(id, record);
+    if ::std::str::from_utf8(bytes).is_err() {
+        let exact = bytes.iter().map(|byte| SmeltUnknown::Number(f64::from(*byte))).collect::<Vec<_>>();
+        record.insert("__smelt_blob_bytes".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), exact)));
+    }
     if let Some(name) = file_name {
         record.insert("__smelt_file".to_owned(), SmeltUnknown::Bool(true));
         record.insert("name".to_owned(), SmeltUnknown::String(name.into()));
         record.insert("lastModified".to_owned(), SmeltUnknown::Number(last_modified));
     }
     SmeltUnknown::Object(record)
+}
+
+/// The exact bytes of an erased `Blob`/`File` record: the hidden byte list
+/// `smelt_blob_record` stores when `content` is a lossy decoding, else the
+/// UTF-8 bytes of `content`.
+///
+/// The one reader of an erased blob's bytes, shared by the `BlobPart` walk
+/// and by `SmeltFromUnknown for SmeltBlob`, so a blob that crossed a dynamic
+/// boundary contributes the same bytes as the concrete blob it came from.
+fn smelt_blob_record_bytes(map: &SmeltObject) -> Vec<u8> {
+    if let Some(SmeltUnknown::Array(elements)) = map.get("__smelt_blob_bytes") {
+        return elements.iter().filter_map(|element| match element { SmeltUnknown::Number(value) => Some(value as u8), _ => None }).collect();
+    }
+    match map.get("content") { Some(SmeltUnknown::String(text)) => text.as_bytes().to_vec(), _ => Vec::new() }
 }
 
 /// Build the erased `Blob`/`File` record for the reflected constructor.
@@ -2373,7 +2422,7 @@ impl SmeltUnknown {
         let timestamp_ms = match self {
             Self::Number(value) => *value,
             Self::Object(value) => match value.get("__smelt_date") { Some(Self::Number(value)) => value, _ => f64::NAN },
-            Self::String(value) => value.parse::<f64>().unwrap_or(f64::NAN),
+            Self::String(value) => smelt_string_to_number(value),
             Self::Bool(value) => if *value { 1.0 } else { 0.0 },
             Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Function(_) | Self::Promise(_) => f64::NAN,
         };
@@ -2509,7 +2558,7 @@ impl PartialOrd<f64> for SmeltUnknown {
     fn partial_cmp(&self, other: &f64) -> Option<::std::cmp::Ordering> {
         match self {
             Self::Number(value) => value.partial_cmp(other),
-            Self::String(value) => value.parse::<f64>().ok().and_then(|number| number.partial_cmp(other)),
+            Self::String(value) => smelt_string_to_number(value).partial_cmp(other),
             Self::Bool(value) => (if *value { 1.0 } else { 0.0 }).partial_cmp(other),
             Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Object(_) | Self::Function(_) | Self::Promise(_) => None,
         }
@@ -2567,7 +2616,7 @@ fn smelt_unknown_to_number(value: &SmeltUnknown) -> f64 {
     match value {
         SmeltUnknown::Number(value) => *value,
         SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN },
-        SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN),
+        SmeltUnknown::String(value) => smelt_string_to_number(value),
         SmeltUnknown::Bool(value) => if *value { 1.0 } else { 0.0 },
         SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN,
     }
@@ -2635,13 +2684,13 @@ impl SmeltFromUnknown for bool {
 
 impl SmeltFromUnknown for f64 {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        match value { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }
+        match value { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }
     }
 }
 
 impl SmeltFromUnknown for i64 {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        match value { SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value { 1_i64 } else { 0_i64 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }
+        match value { SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }, SmeltUnknown::String(value) => smelt_string_to_number(&value) as i64, SmeltUnknown::Bool(value) => if value { 1_i64 } else { 0_i64 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }
     }
 }
 

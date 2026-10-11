@@ -430,3 +430,40 @@ test("a local alias of an erased object field stays one array across pushes", ()
 "#;
     run_list_fixture(source, "list_erased_field_alias_writeback");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_generic_callee_that_splices_returns_a_class_of_the_callers_element() {
+    // A callee emitted with real Rust generics borrows the caller's list
+    // (`take_held(&mut ys)`), mutates it in place, and returns `Holder<T>`.
+    // Rust binds `T` from the caller's list, so the result already is a
+    // `Holder<number>`. The adapter once asked a narrower walk whether the
+    // return mentioned `T`, which stopped at class arguments, and then
+    // "converted" the concrete result through a `SmeltUnknown` extraction of
+    // its field: the crate did not compile (haiku audit F0044). Two element
+    // types, so the result cannot be right by one rendering's accident.
+    let source = r#"
+import { test, expect } from "vitest";
+class Holder<T> {
+  value: T;
+  constructor(value: T) {
+    this.value = value;
+  }
+}
+function takeHeld<T>(arr: T[]): Holder<T> {
+  return new Holder(arr.splice(0, 1)[0]);
+}
+test("a generic splicing callee returns a class of the caller's element", () => {
+  const ys: number[] = [4, 5];
+  const held = takeHeld(ys);
+  expect(held.value).toBe(4);
+  expect(ys.length).toBe(1);
+  expect(ys[0]).toBe(5);
+  const zs: string[] = ["p", "q", "r"];
+  const word = takeHeld(zs);
+  expect(word.value).toBe("p");
+  expect(zs.join(",")).toBe("q,r");
+});
+"#;
+    run_list_fixture(source, "list_generic_splice_class_return");
+}

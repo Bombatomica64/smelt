@@ -111,6 +111,30 @@ const KNOWN_COMPILE_FAILURES: &[&str] = &[
 fn corpus() -> Vec<Case> {
     vec![
         // --- baseline shapes -------------------------------------------------
+        // A callback stored into an inherited field of a returned subclass is
+        // retained by the class, so it must enter owned; a borrowed `&dyn Fn`
+        // fails borrowck at the `Rc` capture (haiku audit F0185).
+        Case {
+            name: "inherited_callback_field_escapes",
+            area: "callback_escape",
+            source: r"
+class Handler {
+  cb: (x: number) => number;
+  constructor(cb: (x: number) => number) {
+    this.cb = cb;
+  }
+}
+class Sub extends Handler {
+  tag: string = 'sub';
+}
+export function makeSub(cb: (x: number) => number): Sub {
+  return new Sub(cb);
+}
+export function useSub(): number {
+  return makeSub((x) => x * 10).cb(2);
+}
+",
+        },
         Case {
             name: "basic_function",
             area: "baseline",
@@ -1493,6 +1517,28 @@ def guarded(value: int) -> int:
     finally:
         print("done")
 "#,
+        },
+        Case {
+            name: "py_tuple_to_set_container",
+            area: "py_set_conversions",
+            // `set(t)` of a `float` tuple is a `set[float]`, which the slot
+            // spells `SmeltJsSet<f64>`; the tuple conversion once built a
+            // `SmeltPrimSet` there and the crate did not compile. The list and
+            // literal spellings beside it pick the container through the same
+            // rule, so all three must agree with the declared slot.
+            source: r"
+def from_tuple(t: tuple[float, float, float]) -> set[float]:
+    return set(t)
+
+def from_list(values: list[float]) -> set[float]:
+    return set(values)
+
+def literal() -> set[float]:
+    return {1.5, 2.5}
+
+def has_first(t: tuple[float, float, float]) -> bool:
+    return 1.5 in from_tuple(t)
+",
         },
     ]
 }

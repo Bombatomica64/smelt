@@ -173,3 +173,89 @@ test('the negated predicate is the complement, not another constant', () => {
 ";
     run_fixture(source, "smelt_arrow_typeof_narrowing");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn typeof_object_answers_for_map_and_generator_values() {
+    // A `Map` and a generator are objects to `typeof`, and every site that
+    // answers a runtime-kind question about a concrete type now reads one map
+    // (`Type::runtime_kind`). Before, separate copies disagreed (haiku audit
+    // F0310): the frontend's `typeof` fold and narrowing, the concrete-union
+    // arm filter, the union `typeof` string match and the union's erased
+    // reconstruction all left `Map` out of "object". So:
+    //
+    // * `typeof v === 'object'` on `Map | string` folded to `false` and the
+    //   Map branch was dead (`describe(m)` answered "str:[object Object]");
+    // * `switch (typeof v)` matched the Map arm against "undefined";
+    // * `typeof g === 'object'` on a generator folded to `false`.
+    //
+    // `fromErased` routes an erased Map back into a union whose Map arm is
+    // not the last (fallback) arm, which is where a wrong reconstruction
+    // pattern for that arm is visible. Expected values are node's.
+    let source = r"
+import { test, expect } from 'vitest';
+
+function describe(v: Map<string, number> | string): string {
+  if (typeof v === 'object') {
+    return 'map:' + v.size;
+  }
+  return 'str:' + v;
+}
+
+function viaSwitch(v: Map<string, number> | string): string {
+  switch (typeof v) {
+    case 'object':
+      return 'map:' + v.size;
+    default:
+      return 'other';
+  }
+}
+
+function kindOf(v: Map<string, number> | number[] | boolean): string {
+  if (typeof v === 'boolean') {
+    return 'bool';
+  }
+  if (Array.isArray(v)) {
+    return 'arr:' + v.length;
+  }
+  return 'map:' + v.size;
+}
+
+function fromErased(u: unknown): string {
+  return kindOf(u as Map<string, number> | number[] | boolean);
+}
+
+function* counter(): Generator<number> {
+  yield 1;
+}
+
+test('typeof a Map union arm is object', () => {
+  const m = new Map<string, number>();
+  m.set('a', 1);
+  m.set('b', 2);
+  expect(describe(m)).toBe('map:2');
+  expect(describe('x')).toBe('str:x');
+  expect(typeof m === 'object').toBe(true);
+});
+test('switch on typeof selects the Map arm', () => {
+  const m = new Map<string, number>();
+  m.set('a', 1);
+  expect(viaSwitch(m)).toBe('map:1');
+  expect(viaSwitch('x')).toBe('other');
+});
+test('an erased Map is reconstructed into the Map arm', () => {
+  const m = new Map<string, number>();
+  m.set('a', 1);
+  m.set('b', 2);
+  expect(fromErased(m)).toBe('map:2');
+  expect(fromErased([1, 2, 3])).toBe('arr:3');
+  expect(fromErased(true)).toBe('bool');
+});
+test('typeof a generator is object', () => {
+  const g = counter();
+  expect(typeof g === 'object').toBe(true);
+  expect(typeof g).toBe('object');
+});
+";
+    run_fixture(source, "smelt_typeof_object_map_generator");
+}

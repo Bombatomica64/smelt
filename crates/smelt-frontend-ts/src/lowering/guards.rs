@@ -937,32 +937,17 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the JavaScript `typeof` string represented by a lowered type.
+    ///
+    /// Concrete types answer through the shared map, [`Type::runtime_kind`].
+    /// `None` is `"undefined"`, and an optional keeps its long-standing
+    /// `"object"`. A future is not folded (`static_typeof_match` declines it
+    /// too) and stays a runtime `typeof`.
     pub(super) fn typeof_type_name(&self, ty: smelt_hir::TypeId) -> Option<&'static str> {
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Bool) => Some("boolean"),
-            Some(Type::Int | Type::Float) => Some("number"),
-            Some(Type::String) => Some("string"),
-            Some(Type::Function(_)) => Some("function"),
             Some(Type::None) => Some("undefined"),
-            Some(
-                Type::List(_)
-                | Type::Set(_)
-                | Type::Dict(_, _)
-                | Type::JsMap(_, _)
-                | Type::Tuple(_)
-                | Type::Class { .. }
-                | Type::Optional(_)
-                | Type::Generator { .. }
-                | Type::GeneratorResult { .. },
-            ) => Some("object"),
-            Some(
-                Type::Unknown
-                | Type::Never
-                | Type::Union(_)
-                | Type::Future(_)
-                | Type::TypeParam { .. },
-            )
-            | None => None,
+            Some(Type::Optional(_)) => Some("object"),
+            Some(Type::Future(_)) | None => None,
+            Some(concrete) => concrete.runtime_kind().map(UnknownKind::typeof_name),
         }
     }
 

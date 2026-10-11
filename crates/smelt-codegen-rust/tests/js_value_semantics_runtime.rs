@@ -191,3 +191,70 @@ test("concat spreads a multi-element erased array argument", () => {
 "#;
     run_fixture(source, "smelt_concat_is_concat_spreadable");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn every_string_to_number_path_follows_string_to_number() {
+    // ECMA-262 `StringToNumber` on every path that converts a string (haiku
+    // audit F0023). The generated code once had about fifteen inline copies of
+    // this rule with three different wrappers around Rust's
+    // `str::parse::<f64>()`, a different grammar: `Number(s)` trimmed and
+    // mapped "" to 0 but read "0x10" as NaN and "inf" as Infinity, while the
+    // erased paths (`any` arithmetic, a `string | number` comparison) also gave
+    // NaN for "" and " 1 ". All of them now call one runtime helper.
+    // Expected values are node's.
+    let source = r#"
+import { test, expect } from "vitest";
+function viaNumber(s: string): number {
+  return Number(s);
+}
+function viaPlus(s: string): number {
+  return +s;
+}
+function viaUnknown(u: unknown): number {
+  return Number(u);
+}
+function lt(a: string | number, b: string | number): boolean {
+  return a < b;
+}
+function times2(a: any): number {
+  return a * 2;
+}
+const numeric: [string, number][] = [
+  ["", 0], [" 1 ", 1], ["\n2\t", 2], ["0x10", 16], ["0o17", 15], ["0b11", 3],
+  ["+1", 1], [".5", 0.5], ["5.", 5], ["1e3", 1000], ["1E-2", 0.01],
+  ["Infinity", Infinity], ["-Infinity", -Infinity], ["﻿7", 7],
+];
+const notNumeric: string[] = ["-0x10", "inf", "nan", "1_000", "abc", "\u00857", "1e", "0x", "."];
+test("Number(s) and +s follow StringToNumber", () => {
+  for (const [text, value] of numeric) {
+    expect(viaNumber(text)).toBe(value);
+    expect(viaPlus(text)).toBe(value);
+  }
+  for (const text of notNumeric) {
+    expect(Number.isNaN(viaNumber(text))).toBe(true);
+    expect(Number.isNaN(viaPlus(text))).toBe(true);
+  }
+});
+test("an erased string converts by the same rule", () => {
+  for (const [text, value] of numeric) {
+    expect(viaUnknown(text)).toBe(value);
+    expect(times2(text)).toBe(value * 2);
+  }
+  for (const text of notNumeric) {
+    expect(Number.isNaN(viaUnknown(text))).toBe(true);
+    expect(Number.isNaN(times2(text))).toBe(true);
+  }
+});
+test("a mixed relational comparison converts the string side", () => {
+  expect(lt("0x10", 17)).toBe(true);
+  expect(lt(" 1 ", 2)).toBe(true);
+  expect(lt("", 1)).toBe(true);
+  expect(lt(0.5, "")).toBe(false);
+  expect(lt(1, "inf")).toBe(false);
+  expect(lt("inf", 1)).toBe(false);
+  expect(lt("b", "a")).toBe(false);
+});
+"#;
+    run_fixture(source, "js_string_to_number_paths");
+}

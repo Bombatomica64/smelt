@@ -5062,51 +5062,6 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
-    /// Returns whether a type contains a non-cloneable function value.
-    pub(super) fn type_contains_function(&self, ty: TypeId) -> bool {
-        match self.mir.types.get(ty) {
-            Some(Type::Function(_)) => true,
-            Some(Type::Generator {
-                yield_ty,
-                return_ty,
-                next_ty,
-                ..
-            }) => {
-                self.type_contains_function(*yield_ty)
-                    || self.type_contains_function(*return_ty)
-                    || self.type_contains_function(*next_ty)
-            }
-            Some(Type::GeneratorResult {
-                yield_ty,
-                return_ty,
-            }) => {
-                self.type_contains_function(*yield_ty)
-                    || self.type_contains_function(*return_ty)
-            }
-            Some(
-                Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
-            ) => self.type_contains_function(*item),
-            Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
-                self.type_contains_function(*key) || self.type_contains_function(*value)
-            }
-            Some(Type::Tuple(items) | Type::Union(items)) => {
-                items.iter().any(|item| self.type_contains_function(*item))
-            }
-            Some(
-                Type::None
-                | Type::Bool
-                | Type::Int
-                | Type::Float
-                | Type::String
-                | Type::Unknown
-                | Type::Never
-                | Type::TypeParam { .. }
-                | Type::Class { .. },
-            )
-            | None => false,
-        }
-    }
-
     /// Returns whether a type contains values that cannot be cloned by the
     /// generated Rust representation.
     pub(super) fn type_contains_noncloneable(&self, ty: TypeId) -> bool {
@@ -5205,6 +5160,24 @@ impl<'mir> FunctionEmitter<'mir> {
                 .iter()
                 .all(|item| self.type_is_hash_set_key_safe(*item)),
             _ => false,
+        }
+    }
+
+    /// Names the generated container that backs a source `Set` of `item_ty`:
+    /// `SmeltPrimSet` when [`Self::type_is_hash_set_key_safe`] holds, else
+    /// `SmeltJsSet`.
+    ///
+    /// The single owner of that choice. The `Set` type spelling, its default
+    /// value, a set literal, and every conversion into a set (`new Set(list)`,
+    /// Python `set(list)` / `set(tuple)`) name the container through this, so a
+    /// constructed set always has the type its slot declares; a site that
+    /// picked on its own once built `SmeltPrimSet::from(..)` into a
+    /// `SmeltJsSet<f64>` slot.
+    pub(super) fn set_container_name(&self, item_ty: TypeId) -> &'static str {
+        if self.type_is_hash_set_key_safe(item_ty) {
+            "SmeltPrimSet"
+        } else {
+            "SmeltJsSet"
         }
     }
 

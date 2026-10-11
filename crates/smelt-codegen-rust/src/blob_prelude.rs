@@ -35,14 +35,19 @@
 //!
 //! ## The erased form
 //!
-//! Unchanged from the record the runtime helper used to build:
+//! The record the runtime helper used to build:
 //! `{ "__smelt_blob": true, "type": .., "size": .., "content": ..,
-//! ("__smelt_file": true, "name": .., "lastModified": ..) }`. Keeping it
-//! byte-identical is what leaves `instanceof Blob` on an erased value, the
+//! ("__smelt_file": true, "name": .., "lastModified": ..) }`. Keeping that
+//! shape is what leaves `instanceof Blob` on an erased value, the
 //! `clone`/`cloneDeepWith` paths that rebuild a blob from those fields, and
 //! `Object.prototype.toString` all working exactly as before. `content` stays a
-//! STRING there because that is what the existing consumers read; the concrete
-//! type is the one that carries the bytes losslessly.
+//! STRING because that is what text consumers read. It is a lossy decoding
+//! when the bytes are not UTF-8, so only then the record also carries the exact
+//! bytes in a hidden `__smelt_blob_bytes` list, and every reader of an erased
+//! blob's bytes goes through `smelt_blob_record_bytes`. Without it a blob
+//! erased and rebuilt (`new Blob([u])` over an `unknown`, or a mixed
+//! `[blob, "x"]` parts array) turned a `0xFF` byte into the three bytes of
+//! U+FFFD.
 
 use crate::rust::CodeWriter;
 
@@ -118,9 +123,11 @@ fn emit_inherent_impl(writer: &mut CodeWriter) {
             "pub fn file_from_bytes(bytes: Vec<u8>, blob_type: String, name: String, last_modified: f64) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(bytes), blob_type, file_name: Some(name), last_modified } }",
         );
         // The two concrete `BlobPart` arms. A string part contributes its UTF-8
-        // bytes and a blob part its own bytes — exactly what the erased walk
+        // bytes and a blob part its own bytes — what the erased walk
         // (`smelt_blob_parts_bytes`) does for the same values, so a concretely
-        // typed parts array and an erased one build the same blob.
+        // typed parts array and an erased one build the same blob. For a blob
+        // part that holds because the erased record keeps non-UTF-8 bytes
+        // exactly (`smelt_blob_record_bytes`); it once read the lossy `content`.
         impl_writer.line("/// A blob from string parts, with optional `File` metadata.");
         impl_writer.line(
             "pub fn from_string_parts(parts: Vec<String>, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> Self { let mut bytes: Vec<u8> = Vec::new(); for part in &parts { bytes.extend_from_slice(part.as_bytes()); } Self::with_metadata(bytes, blob_type, file_name, last_modified) }",
@@ -214,9 +221,7 @@ fn emit_traits(writer: &mut CodeWriter, needs_unknown: bool) {
             "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
             |fn_writer| {
                 fn_writer.line("let SmeltUnknown::Object(map) = value else { return Self::new() };");
-                fn_writer.line(
-                    "let content = match map.get(\"content\") { Some(SmeltUnknown::String(text)) => text.to_string(), _ => String::new() };",
-                );
+                fn_writer.line("let bytes = smelt_blob_record_bytes(&map);");
                 fn_writer.line(
                     "let blob_type = match map.get(\"type\") { Some(SmeltUnknown::String(text)) => text.to_string(), _ => String::new() };",
                 );
@@ -227,7 +232,7 @@ fn emit_traits(writer: &mut CodeWriter, needs_unknown: bool) {
                     "let last_modified = match map.get(\"lastModified\") { Some(SmeltUnknown::Number(value)) => value, _ => 0.0 };",
                 );
                 fn_writer.line(
-                    "match name { Some(name) => Self::file_from_bytes(content.into_bytes(), blob_type, name, last_modified), None => Self::from_bytes(content.into_bytes(), blob_type) }",
+                    "match name { Some(name) => Self::file_from_bytes(bytes, blob_type, name, last_modified), None => Self::from_bytes(bytes, blob_type) }",
                 );
             },
         );

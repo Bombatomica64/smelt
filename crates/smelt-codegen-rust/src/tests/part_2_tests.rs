@@ -234,10 +234,21 @@ function dateValue(value: Date | undefined): boolean {
 ",
     );
 
-    assert!(source.contains("unwrap_or(f64::NAN)"), "{source}");
-    assert!(source.contains(".map_or(f64::NAN"), "{source}");
-    assert!(source.contains(".is_nan()"), "{source}");
-    assert!(source.contains("if "), "{source}");
+    // Asked of the program body, not the whole crate: the `unwrap_or(f64::NAN)`
+    // this once required (the optional numeric's read) had stopped appearing in
+    // the body once `!= null` narrowing began reading the present value with
+    // `expect`, and the check kept passing only on the runtime prelude's old
+    // inline string parse. The body's own reads are what the test is about.
+    let program = source
+        .split_once(PRELUDE_END_MARKER)
+        .map_or(source.as_str(), |(_, program)| program);
+    assert!(
+        program.contains(".expect(\"optional value was absent after narrowing\")"),
+        "{source}"
+    );
+    assert!(program.contains(".map_or(f64::NAN"), "{source}");
+    assert!(program.contains(".is_nan()"), "{source}");
+    assert!(program.contains("if "), "{source}");
 }
 
 #[test]

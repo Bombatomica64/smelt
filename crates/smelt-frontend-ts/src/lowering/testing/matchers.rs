@@ -2589,36 +2589,29 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Return whether a HIR type corresponds to a JavaScript `typeof` result.
+    /// Return whether a value of HIR type `ty` can answer the JavaScript
+    /// `typeof` string `kind`.
+    ///
+    /// A union can when any member can. `None` and an optional can be `null`
+    /// (`"object"`) or `undefined`. Every other type answers through the shared
+    /// concrete-type map, [`Type::runtime_kind`], so a `Map` or a generator is
+    /// an `"object"` here exactly as it is in `typeof_type_name` and in codegen.
     pub(in crate::lowering) fn type_matches_typeof(
         &self,
         ty: smelt_hir::TypeId,
         kind: &str,
     ) -> bool {
         let resolved_ty = self.type_param_constraint_or_self(ty);
-        match (self.ctx.krate.types.get(resolved_ty), kind) {
-            (Some(Type::Bool), "boolean")
-            | (Some(Type::Float | Type::Int), "number")
-            | (Some(Type::String), "string")
-            | (Some(Type::Function(_)), "function")
-            | (Some(Type::Optional(_)), "undefined")
-            | (
-                Some(
-                    Type::List(_)
-                    | Type::Set(_)
-                    | Type::Dict(_, _)
-                    | Type::Tuple(_)
-                    | Type::Class { .. }
-                    | Type::Optional(_),
-                ),
-                "object",
-            )
-            | (Some(Type::None), "undefined" | "object") => true,
-            (Some(Type::Union(items)), _) => items
+        match self.ctx.krate.types.get(resolved_ty) {
+            Some(Type::Union(items)) => items
                 .iter()
                 .copied()
                 .any(|item| self.type_matches_typeof(item, kind)),
-            _ => false,
+            Some(Type::None | Type::Optional(_)) => matches!(kind, "undefined" | "object"),
+            Some(concrete) => concrete
+                .runtime_kind()
+                .is_some_and(|actual| actual.typeof_name() == kind),
+            None => false,
         }
     }
 

@@ -207,14 +207,10 @@ impl FunctionEmitter<'_> {
         // unions, generics, and object-like elements. Both are
         // insertion-ordered and both dedup on `FromIterator`, so
         // `new Set(array)` keeps first-appearance order as JS requires.
-        let container = if self.type_is_hash_set_key_safe(set_item_ty) {
-            "SmeltPrimSet<_>"
-        } else {
-            "SmeltJsSet<_>"
-        };
         Ok(format!(
-            "{}.iter().cloned().collect::<{container}>()",
-            list_read_text(&self.operand_text(list)?)
+            "{}.iter().cloned().collect::<{}<_>>()",
+            list_read_text(&self.operand_text(list)?),
+            self.set_container_name(set_item_ty)
         ))
     }
 
@@ -1040,7 +1036,7 @@ impl FunctionEmitter<'_> {
                         "array entries destination must contain (int, item) tuples",
                     ));
                 }
-                if self.type_contains_function(*item_ty) {
+                if type_holds_function(self.mir, *item_ty, NominalStorage::Opaque) {
                     Ok(format!(
                         "{list_text}.into_iter().enumerate().map(|(idx, item)| (idx as i64, item)).collect::<Vec<_>>()"
                     ))

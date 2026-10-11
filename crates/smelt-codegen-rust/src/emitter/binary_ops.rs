@@ -720,9 +720,10 @@ impl FunctionEmitter<'_> {
         if !self.is_numeric_type(numeric_side_ty) {
             return Ok(None);
         }
-        // `ToNumber` a string operand: parse to `f64`, non-numeric text -> `NaN`,
-        // mirroring the `SmeltUnknown` ToNumber path used elsewhere in codegen.
-        let string_to_number = |text: String| format!("({text}).parse::<f64>().unwrap_or(f64::NAN)");
+        // `ToNumber` a string operand through the shared `StringToNumber`
+        // helper, the same rule the `SmeltUnknown` paths apply.
+        let string_to_number =
+            |text: String| crate::string_to_number_prelude::string_to_number_call(&text);
         let float_ty = self.type_id(Type::Float)?;
         let lhs_text = if lhs_is_string {
             string_to_number(self.operand_text(lhs)?)
@@ -765,8 +766,8 @@ impl FunctionEmitter<'_> {
         }
         let lhs_ty = self.operand_ty(lhs)?;
         let rhs_ty = self.operand_ty(rhs)?;
-        let lhs_contains_function = self.type_contains_function(lhs_ty);
-        let rhs_contains_function = self.type_contains_function(rhs_ty);
+        let lhs_contains_function = type_holds_function(self.mir, lhs_ty, NominalStorage::Opaque);
+        let rhs_contains_function = type_holds_function(self.mir, rhs_ty, NominalStorage::Opaque);
         if !lhs_contains_function && !rhs_contains_function {
             return Ok(None);
         }

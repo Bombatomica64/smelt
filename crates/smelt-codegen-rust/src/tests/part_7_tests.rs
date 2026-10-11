@@ -782,8 +782,10 @@ const bag: Record<string, unknown> = value as Record<string, unknown>;
         source.contains("SmeltUnknown::Null | SmeltUnknown::Undefined => false"),
         "{source}"
     );
+    // The numeric extraction of an erased string is the shared
+    // `StringToNumber` helper rather than a bare `parse::<f64>()`.
     assert!(
-        source.contains("value.parse::<f64>().unwrap_or(f64::NAN)"),
+        source.contains("SmeltUnknown::String(value) => smelt_string_to_number(&value)"),
         "{source}"
     );
     assert!(source.contains("_ => SmeltRecord::new()"), "{source}");
@@ -1454,7 +1456,12 @@ const number = +value;
         "{source}"
     );
     assert!(source.contains("SmeltUnknown::Null => 0.0"), "{source}");
-    assert!(source.contains("smelt_text.is_empty() { 0.0 }"), "{source}");
+    // A string goes through the shared `StringToNumber` helper (empty text is
+    // 0 there), not an inline trim-and-parse.
+    assert!(
+        source.contains("SmeltUnknown::String(value) => smelt_string_to_number(&(value))"),
+        "{source}"
+    );
     assert!(
         source.contains(
             "SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN"
@@ -5928,6 +5935,52 @@ function describe(value: string | number[]): string {
 }
 
 #[test]
+fn a_map_union_arm_is_an_object_on_every_runtime_kind_path() {
+    // Regression (haiku audit F0310): four sites mapped a concrete type to its
+    // JavaScript runtime category and the copies had drifted, three of them
+    // leaving `Map` out of "object". All now read `Type::runtime_kind`.
+    let source = source_for(
+        r"
+export function isObj(v: Map<string, number> | string): boolean {
+  return typeof v === 'object';
+}
+export function kindName(v: Map<string, number> | string): string {
+  return typeof v;
+}
+export function fromErased(u: unknown): Map<string, number> | number[] | boolean {
+  return u as Map<string, number> | number[] | boolean;
+}
+",
+    );
+
+    // The frontend no longer folds `typeof v === 'object'` to `false`, and the
+    // concrete-union arm filter keeps the Map arm.
+    let is_obj = source
+        .split("fn is_obj(")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}").next())
+        .unwrap_or_default();
+    assert!(
+        is_obj.contains("matches!(v.clone(), SmeltUnion") && !is_obj.contains("false"),
+        "{source}"
+    );
+    // The union `typeof` string names the Map arm "object", not "undefined".
+    assert!(
+        source.contains("(_) => \"object\" }") && !source.contains("(_) => \"undefined\""),
+        "{source}"
+    );
+    // No member of the reconstructed union is nullish, so a `Null | Undefined`
+    // routing pattern could only be the Map arm misfiled.
+    assert!(
+        source.contains("fn from_smelt_unknown")
+            && !source.contains(
+                "matches!(value, SmeltUnknown::Null | SmeltUnknown::Undefined) { return Self::"
+            ),
+        "{source}"
+    );
+}
+
+#[test]
 fn emits_unknown_index_assignment_as_object_mutation() {
     let source = source_for(
         r"
@@ -9021,6 +9074,47 @@ export function useDropStrings(): string[] {
     assert!(
         source.contains("let mut xs:") && source.contains("let mut ys:"),
         "a local borrowed mutably at a call site must be declared `mut`: {source}"
+    );
+}
+
+#[test]
+fn generic_class_return_of_a_monomorphized_mut_list_call_passes_through() {
+    // Regression (haiku audit F0044): the adapter decides whether the callee's
+    // return mentions the generics it monomorphized, and a narrower private
+    // walk answered that by stopping at class arguments. `Holder<T>` therefore
+    // read as a fully concrete return, and the already-`Holder<f64>` result was
+    // rebuilt field by field through a `SmeltUnknown` extraction of an `f64`
+    // field (E0308). Rust binds `T` from the borrowed `SmeltList<f64>`, so the
+    // result is the destination's type and passes through unchanged.
+    let source = source_for(
+        r"
+class Holder<T> {
+  value: T;
+  constructor(value: T) {
+    this.value = value;
+  }
+}
+function takeHeld<T>(arr: T[]): Holder<T> {
+  return new Holder(arr.splice(0, 1)[0]);
+}
+export function useTake(): number {
+  const ys: number[] = [4, 5];
+  const held = takeHeld(ys);
+  return held.value + ys.length;
+}
+",
+    );
+    assert!(
+        source.contains("fn take_held<T"),
+        "the mutating callee must stay generic: {source}"
+    );
+    assert!(
+        source.contains("let smelt_mut_call_result = take_held(&mut ys); smelt_mut_call_result }"),
+        "the monomorphized class return must pass through unchanged: {source}"
+    );
+    assert!(
+        !source.contains("smelt_struct_value"),
+        "the concrete result must not be rebuilt field by field: {source}"
     );
 }
 
@@ -13341,6 +13435,49 @@ export function wrap(fn: (value: string) => string): Wrapped {
         !signature.contains("&dyn Fn"),
         "a callback retained by the returned record must not stay borrowed:\n{source}"
     );
+}
+
+/// A callback stored into an INHERITED field of a returned subclass must enter
+/// its function owned.
+///
+/// Regression (haiku audit F0185): the escape analysis follows a class into its
+/// fields, but read the class's own `fields` rather than its effective layout,
+/// so `Sub extends Handler {}` was storage with no function in it. `cb` stayed
+/// `&dyn Fn` and the `Rc` capture failed borrowck ("`'1` must outlive
+/// `'static`"). The base-class return beside it was already owned.
+#[test]
+fn typescript_callback_stored_into_an_inherited_field_is_owned() {
+    let source = source_for(
+        r"
+class Handler {
+  cb: (x: number) => number;
+  constructor(cb: (x: number) => number) {
+    this.cb = cb;
+  }
+}
+class Sub extends Handler {
+  tag: string = 'sub';
+}
+export function makeBase(cb: (x: number) => number): Handler {
+  return new Handler(cb);
+}
+export function makeSub(cb: (x: number) => number): Sub {
+  return new Sub(cb);
+}
+",
+    );
+
+    for name in ["make_base", "make_sub"] {
+        let signature = source
+            .split(&format!("fn {name}("))
+            .nth(1)
+            .and_then(|rest| rest.split(')').next())
+            .unwrap_or_else(|| panic!("expected a generated `{name}`:\n{source}"));
+        assert!(
+            !signature.contains("&dyn Fn"),
+            "`{name}`: a callback retained by the returned class must not stay borrowed:\n{source}"
+        );
+    }
 }
 
 /// A module-level regex `const` referenced from several functions must compile

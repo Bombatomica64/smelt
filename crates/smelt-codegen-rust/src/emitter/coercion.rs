@@ -388,9 +388,8 @@ impl FunctionEmitter<'_> {
         if self.mir.types.get(target) == Some(&Type::Float)
             && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::String)
         {
-            return Ok(format!(
-                "{}.parse::<f64>().unwrap_or(0.0)",
-                self.operand_text(operand)?
+            return Ok(crate::string_to_number_prelude::string_to_number_call(
+                &self.operand_text(operand)?,
             ));
         }
         if matches!(self.mir.types.get(target), Some(Type::Function(_)))
@@ -1243,7 +1242,7 @@ impl FunctionEmitter<'_> {
         if self.mir.types.get(target) == Some(&Type::Float)
             && self.mir.types.get(source) == Some(&Type::String)
         {
-            return Ok(format!("{value_text}.parse::<f64>().unwrap_or(0.0)"));
+            return Ok(crate::string_to_number_prelude::string_to_number_call(value_text));
         }
         if self.mir.types.get(target) == Some(&Type::String)
             && matches!(
@@ -2723,22 +2722,16 @@ impl FunctionEmitter<'_> {
     }
 
     /// Return the JavaScript `typeof` spelling for one concrete union member.
+    ///
+    /// A `None` or optional arm is `"undefined"`; every other arm answers
+    /// through the shared concrete-type map (`Type::runtime_kind`), so a `Map`
+    /// or generator arm is `"object"` here as it is under `static_tag_check`.
     fn typeof_static_type_text(&self, ty: TypeId) -> &'static str {
         match self.mir.types.get(ty) {
-            Some(Type::None | Type::Optional(_)) => "undefined",
-            Some(Type::Bool) => "boolean",
-            Some(Type::Int | Type::Float) => "number",
-            Some(Type::String) => "string",
-            Some(Type::Function(_)) => "function",
-            Some(
-                Type::List(_)
-                | Type::Set(_)
-                | Type::Dict(_, _)
-                | Type::Tuple(_)
-                | Type::Class { .. }
-                | Type::Future(_),
-            ) => "object",
-            _ => "undefined",
+            Some(Type::None | Type::Optional(_)) | None => "undefined",
+            Some(member) => member
+                .runtime_kind()
+                .map_or("undefined", smelt_hir::UnknownKind::typeof_name),
         }
     }
 
@@ -2870,35 +2863,16 @@ impl FunctionEmitter<'_> {
     /// shape this cannot answer confidently, and an erased class, which really
     /// is represented as a `SmeltUnknown` at run time.
     pub(super) fn static_tag_check(&self, ty: TypeId, kind: smelt_hir::UnknownKind) -> Option<bool> {
-        use smelt_hir::UnknownKind as Kind;
-
         if self.is_erased_class_type(ty) {
             return None;
         }
-        // `typeof` answers "object" for arrays, plain objects, `null`, promises
-        // and every class instance — the same set the `Object` arm of
-        // `tag_check_raw` matches — so each concrete arm below decides `Object`
-        // alongside its own tag rather than guessing.
-        match self.mir.types.get(ty)? {
-            // Erased or unanswerable: the check must stay dynamic.
-            Type::Unknown
-            | Type::Never
-            | Type::TypeParam { .. }
-            | Type::Union(_)
-            | Type::Optional(_)
-            | Type::None
-            | Type::Generator { .. }
-            | Type::GeneratorResult { .. } => None,
-            Type::Bool => Some(kind == Kind::Bool),
-            Type::Int | Type::Float => Some(kind == Kind::Number),
-            Type::String => Some(kind == Kind::String),
-            Type::List(_) | Type::Tuple(_) => Some(matches!(kind, Kind::Array | Kind::Object)),
-            Type::Dict(_, _) | Type::JsMap(_, _) | Type::Set(_) | Type::Class { .. } => {
-                Some(kind == Kind::Object)
-            }
-            Type::Function(_) => Some(kind == Kind::Function),
-            Type::Future(_) => Some(matches!(kind, Kind::Promise | Kind::Object)),
-        }
+        // The shared concrete-type map (`Type::runtime_kind`); a generator is
+        // an object and a future a promise, which `typeof` also calls "object".
+        self.mir
+            .types
+            .get(ty)?
+            .runtime_kind()
+            .map(|actual| actual.satisfies(kind))
     }
 
     /// Emits a runtime tag check for already-rendered `SmeltUnknown` text.
@@ -3048,10 +3022,10 @@ impl FunctionEmitter<'_> {
                 "match {smelt_owned_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}"
             )),
             Some(Type::Float) => Ok(format!(
-                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
+                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
             )),
             Some(Type::Int) => Ok(format!(
-                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}"
+                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => smelt_string_to_number(&value) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}"
             )),
             // Reading an erased value out into a `String` slot is not the JS
             // `String(x)` CONVERSION -- nothing in the source asked for one; the
@@ -3660,3 +3634,4 @@ fn erased_to_list_text(text: &str, item_text: Option<&str>, char_text: &str) -> 
          _ => panic!(\"unknown is not iterable\") }} }}"
     )
 }
+

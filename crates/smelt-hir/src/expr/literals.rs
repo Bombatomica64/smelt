@@ -45,3 +45,31 @@ pub enum UnknownKind {
     /// Promise value represented by the erased runtime sentinel.
     Promise,
 }
+
+impl UnknownKind {
+    /// Whether a value whose runtime kind is `self` passes a runtime-kind test
+    /// for `check`.
+    ///
+    /// Exact, except that `typeof x === "object"` also holds for arrays,
+    /// promises and `null`: JavaScript gives all three the `typeof` string
+    /// `"object"` (see [`Self::typeof_name`]).
+    #[must_use]
+    pub fn satisfies(self, check: Self) -> bool {
+        self == check
+            || (check == Self::Object && matches!(self, Self::Array | Self::Promise | Self::Null))
+    }
+
+    /// The string JavaScript's `typeof` answers for a value of this kind.
+    #[must_use]
+    pub const fn typeof_name(self) -> &'static str {
+        match self {
+            Self::Bool => "boolean",
+            Self::Number => "number",
+            Self::String => "string",
+            Self::Symbol => "symbol",
+            Self::Function => "function",
+            Self::Undefined => "undefined",
+            Self::Null | Self::Array | Self::Object | Self::Promise => "object",
+        }
+    }
+}
