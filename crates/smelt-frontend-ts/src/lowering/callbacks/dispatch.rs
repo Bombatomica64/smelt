@@ -1221,32 +1221,6 @@ impl ModuleBuilder<'_> {
                             kind: CallbackExprKind::Literal(Literal::Bool(literal.value)),
                             ty: self.ctx.krate.types.intern(Type::Bool),
                         },
-                        ArrayExpressionElement::Identifier(identifier) => {
-                            if let Some(param) = params.get(identifier.name.as_str()).cloned() {
-                                param
-                            } else if let Some(local) =
-                                self.scope.lookup(identifier.name.as_str())
-                            {
-                                let ty = Self::local_ty(body, local);
-                                CallbackExpr {
-                                    kind: CallbackExprKind::Capture(local),
-                                    ty,
-                                }
-                            } else if self
-                                .source_contains_forward_callable(identifier.name.as_str())
-                            {
-                                CallbackExpr {
-                                    kind: CallbackExprKind::Literal(Literal::None),
-                                    ty: self.ctx.krate.types.intern(Type::Unknown),
-                                }
-                            } else {
-                                return Err(SmeltError::for_unresolved_name(
-                                    self.span(identifier.span.start, identifier.span.end),
-                                    identifier.name.as_str(),
-                                    format!("unresolved callback identifier `{}`", identifier.name),
-                                ));
-                            }
-                        }
                         // Binary elements deliberately have no dedicated arm:
                         // they fall through to the `as_expression` case below so
                         // the full callback expression dispatcher handles them.
@@ -1254,6 +1228,14 @@ impl ModuleBuilder<'_> {
                         // `in`, `typeof` comparisons, `instanceof`, nullish
                         // checks — working inside array literals exactly as
                         // they do in any other callback position.
+                        //
+                        // Identifiers fall through for the same reason. A
+                        // reduced copy of the identifier resolution here (params,
+                        // locals, then a forward-callable placeholder) lacked the
+                        // `undefined`, module-constant and module-item cases, so
+                        // `[x, LIMIT]` inside a function's callback became
+                        // `[x, null]` typed `unknown` and `[x, undefined]` in a
+                        // `flatMap` callback failed to transpile.
                         ArrayExpressionElement::ComputedMemberExpression(member) => {
                             let receiver =
                                 self.callback_expression(&member.object, params, body)?;
