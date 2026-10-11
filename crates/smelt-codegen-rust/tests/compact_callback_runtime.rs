@@ -129,3 +129,29 @@ test("undefined is an element of a flatMap callback array literal", () => {
 "#;
     run_fixture(source, "compact_callback_array_identifier");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_callback_at_coerces_its_index_like_a_direct_one() {
+    // F0611: `.at(i)` inside a callback skipped the index coercion the direct
+    // call applies (`Number(i)`), so an erased index was read with a different
+    // string-to-number rule and a padded numeric string selected element 0.
+    let source = r#"
+import { test, expect } from "vitest";
+function direct(xs: string[], i: any): string | undefined {
+  return xs.at(i);
+}
+function viaCallback(xs: string[], i: any): string | undefined {
+  return [0].map(() => xs.at(i))[0];
+}
+test("a callback .at index converts like the direct call", () => {
+  const ys = ["a", "b", "c"];
+  for (const index of [" 1 ", "\n2", "-1", 1, -2]) {
+    expect(viaCallback(ys, index)).toBe(direct(ys, index));
+  }
+  expect(viaCallback(ys, " 1 ")).toBe("b");
+  expect(viaCallback(ys, "\n2")).toBe("c");
+});
+"#;
+    run_fixture(source, "compact_callback_at_index");
+}
