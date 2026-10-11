@@ -1785,12 +1785,13 @@ impl ModuleBuilder<'_> {
 
     /// Lower `.at(index)` on arrays and strings inside a callback body.
     ///
-    /// Mirrors the direct `collection_at_call` lowering: array/string `.at`
+    /// Shares the direct `collection_at_call` lowering: array/string `.at`
     /// returns `undefined` for out-of-range positions, modelled with
     /// `OptionalIndex` so generated Rust uses checked normalized indexes. The
     /// receiver/argument are already lowered HIR expressions in callback bodies,
-    /// so we only re-derive the optional element type and route through the same
-    /// `ExprKind` the statement-position path emits.
+    /// so this only re-derives the element type and hands both to
+    /// `optional_at_index_expr`, which coerces the index exactly as the direct
+    /// path does.
     pub(in crate::lowering) fn callback_at_call_to_body_expr(
         &mut self,
         receiver: smelt_hir::ExprId,
@@ -1824,12 +1825,9 @@ impl ModuleBuilder<'_> {
         let index = *args.first().ok_or_else(|| {
             SmeltError::unsupported(span, "callback array/string at requires one index argument")
         })?;
+        let value =
+            self.optional_at_index_expr(receiver, item_ty, index, span.start, span.end, body)?;
         let optional_ty = self.ctx.krate.types.intern(Type::Optional(item_ty));
-        let value = body.push_expr(Expr {
-            kind: ExprKind::OptionalIndex { receiver, index },
-            ty: optional_ty,
-            span,
-        });
         if ty == optional_ty {
             Ok(value)
         } else {

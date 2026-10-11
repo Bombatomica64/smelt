@@ -222,3 +222,82 @@ test("a logical condition does not evaluate the right operand eagerly", () => {
 "#;
     run_fixture(source, "smelt_logical_condition_short_circuit");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_logical_assignment_inside_a_comma_statement_stores_conditionally() {
+    // A comma-expression statement's elements are lowered one by one as
+    // expression statements. That dispatch was a copy that lacked the
+    // logical-assignment branch (haiku audit F0684), so an element `x ??= y`
+    // took the plain-assignment path: its right side was evaluated even when
+    // `x` was already set, and a keyed `rec[k] ??= v` never stored. The values
+    // below are node's.
+    let source = r#"
+import { test, expect } from "vitest";
+let calls = 0;
+function side(): number {
+  calls++;
+  return 5;
+}
+test("a logical assignment in a comma statement short-circuits", () => {
+  let b = 0;
+  let a = 1;
+  (a ||= side(), b = 4);
+  expect(a).toBe(1);
+  expect(calls).toBe(0);
+  expect(b).toBe(4);
+  let c = 0;
+  (c ||= side(), b = 5);
+  expect(c).toBe(5);
+  expect(calls).toBe(1);
+  let d: number | undefined = 1;
+  (d ??= side(), b = 6);
+  expect(d).toBe(1);
+  expect(calls).toBe(1);
+  expect(b).toBe(6);
+});
+test("a keyed logical assignment in a comma statement stores", () => {
+  const rec: Record<string, number> = {};
+  let b = 0;
+  (rec["k"] ??= 2, b = 1);
+  expect(rec["k"]).toBe(2);
+  expect(b).toBe(1);
+});
+"#;
+    run_fixture(source, "logical_assignment_in_comma");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_ternary_argument_yields_the_taken_arm() {
+    // A ternary passed as an argument has the type the same ternary has in a
+    // `const`: TypeScript's `typeof a | typeof b`. The argument path asked a
+    // different, union-free join (haiku audit F0794), so these calls did not
+    // lower at all. The values below are node's.
+    let source = r#"
+import { test, expect } from "vitest";
+class Doc {
+  title = "doc";
+}
+function show(v: unknown): string {
+  return typeof v === "string" ? v : "obj";
+}
+function count(r: Record<string, number> | Record<string, string>): number {
+  return Object.keys(r).length;
+}
+function describe(v: number | string): string {
+  return typeof v === "number" ? "n" + v : "s" + v;
+}
+test("a ternary argument with unrelated arms yields the taken arm", () => {
+  const r1: Record<string, number> = { a: 1 };
+  const r2: Record<string, string> = { b: "x", c: "y" };
+  for (const flag of [true, false]) {
+    expect(show(flag ? new Doc() : "text")).toBe(flag ? "obj" : "text");
+    expect(count(flag ? r1 : r2)).toBe(flag ? 1 : 2);
+    expect(describe(flag ? 1 : "a")).toBe(flag ? "n1" : "sa");
+  }
+});
+"#;
+    run_fixture(source, "ternary_argument_join");
+}
+

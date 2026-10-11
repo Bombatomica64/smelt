@@ -262,6 +262,15 @@ impl ModuleBuilder<'_> {
     /// It then forwards to the shared reconciler with no contextual type hint,
     /// so a callback branch mismatch that the general path cannot merge surfaces
     /// there instead of through a callback-specific error.
+    ///
+    /// That reconciler is NOT the ternary's own join (`ternary_branch_type`,
+    /// which joins two unrelated concrete arms to a union): a callback ternary
+    /// such as `xs.map((x) => (x > 1 ? x : "small"))` answers `Err` here and
+    /// does not lower. Switching to the ternary join is not safe yet. The `Err`
+    /// currently sends such callbacks to closure-body lowering, and the compact
+    /// IR's `if`/`else`-return lowering hoists statements out of the branch:
+    /// remeda's lazy `drop` evaluator (`if (left > 0) { left -= 1; return
+    /// SKIP_ITEM; } return {...}`) decremented `left` before testing it.
     pub(in crate::lowering) fn callback_conditional_type(
         &mut self,
         then_ty: smelt_hir::TypeId,
@@ -658,13 +667,36 @@ impl ModuleBuilder<'_> {
             _ => return Ok(None),
         };
         let index = self.argument(index_argument, body)?;
-        let index = self.coerce_at_index_operand(index, call.span.start, call.span.end, body)?;
+        self.optional_at_index_expr(receiver, item_ty, index, call.span.start, call.span.end, body)
+            .map(Some)
+    }
+
+    /// Build `receiver.at(index)` on a list or string whose element type is
+    /// `item_ty`: the index coerced by [`Self::coerce_at_index_operand`], then
+    /// an `OptionalIndex` typed `Optional<item_ty>`.
+    ///
+    /// The one lowering of `.at`, shared by the direct call above and the
+    /// compact callback IR (`callback_at_call_to_body_expr`). The callback copy
+    /// once skipped the index coercion, so an erased index reached the emitter
+    /// raw and was read with a different string-to-number rule than the direct
+    /// path's `Number(...)` cast: `[0].map(() => ys.at(i))` with `i: any = " 1 "`
+    /// answered `ys[0]` while `ys.at(i)` answered `ys[1]`.
+    pub(in crate::lowering) fn optional_at_index_expr(
+        &mut self,
+        receiver: smelt_hir::ExprId,
+        item_ty: smelt_hir::TypeId,
+        index: smelt_hir::ExprId,
+        span_start: u32,
+        span_end: u32,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let index = self.coerce_at_index_operand(index, span_start, span_end, body)?;
         let ty = self.ctx.krate.types.intern(Type::Optional(item_ty));
-        Ok(Some(body.push_expr(Expr {
+        Ok(body.push_expr(Expr {
             kind: ExprKind::OptionalIndex { receiver, index },
             ty,
-            span: self.span(call.span.start, call.span.end),
-        })))
+            span: self.span(span_start, span_end),
+        }))
     }
 
     /// Coerce a `.at(index)` argument to the `Float` runtime type the optional
