@@ -85,6 +85,7 @@ use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, MirGlobalInit, Rv
 mod asymmetric_matcher_prelude;
 mod builtin_member_prelude;
 mod erased_method_prelude;
+mod erased_list_alias;
 mod byte_buffer_prelude;
 mod event_emitter_prelude;
 mod host_value_erasure;
@@ -139,6 +140,12 @@ use rust::{CodeWriter, RustIdent};
 /// that tooling references this constant instead of hard-coding the string, so
 /// the marker and its consumers can never drift apart.
 pub const PRELUDE_END_MARKER: &str = "// @smelt:prelude-end — generated program below";
+
+/// Prelude helpers that alias an erased generic list into another erased slot.
+///
+/// The SmeltUnknown report classifies their call sites as a boundary; see
+/// `erased_list_alias` for why.
+pub use erased_list_alias::{ERASED_GENERIC_ARRAY_ALIAS_FN, ERASED_GENERIC_LIST_ALIAS_FN};
 
 /// Options for controlling code emission behavior.
 #[derive(Debug, Clone)]
@@ -659,6 +666,7 @@ fn emit_source_with_free_function_router(
     let needs_data_view = stdlib::needs_data_view_runtime(mir);
     let needs_blob = stdlib::needs_blob_runtime(mir);
     let needs_smelt_list = stdlib::needs_smelt_list(mir);
+    let needs_erased_list_alias = erased_list_alias::needed(mir);
     let needs_prim_set = stdlib::needs_prim_set(mir);
     let needs_erased_function = needs_erased_function_runtime(mir);
     let needs_date_now = stdlib::needs_date_now_runtime(mir);
@@ -2884,6 +2892,9 @@ fn emit_source_with_free_function_router(
         // does; borrowing rather than owning the handle changes nothing about the
         // array's identity.
         writer.line("impl From<&SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: &SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_storage(list.id(), list.storage()) } }");
+        if needs_erased_list_alias {
+            erased_list_alias::emit_prelude(&mut writer);
+        }
         writer.line("impl<T: Clone> From<&SmeltList<T>> for Vec<T> { fn from(list: &SmeltList<T>) -> Self { list.to_vec() } }");
         // serde impls only when the crate actually links serde (JSON contexts).
         if needs_serde_json {

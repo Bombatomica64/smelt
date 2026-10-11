@@ -18,6 +18,7 @@
 
 use super::*;
 use crate::emitter::rendered_text_rewrite::{borrowed_value_text, cloned_value_text};
+use crate::erased_list_alias;
 use crate::rust::RustIdent;
 use smelt_hir::FunctionType;
 
@@ -468,13 +469,19 @@ impl FunctionEmitter<'_> {
             // of the item being emitted, so its type was rendered at that item's
             // own lexical scope, while the target is rendered at `scope`, which a
             // callee argument narrows to what the callee also spells.
+            //
+            // Boundary: when the source element is an erased type parameter,
+            // the value leaves the erased-generic ABI through the named alias
+            // helper, which adds no erasure. A source `unknown[]` keeps the
+            // general conversion. See `crate::erased_list_alias`.
             if self.list_items_render_as_unknown(self.operand_ty(operand)?, &self.render_scope())
                 && self.list_items_render_as_unknown(target, scope)
             {
-                return Ok(format!(
-                    "Into::<SmeltList<_>>::into({})",
-                    self.operand_text(operand)?
-                ));
+                let text = self.operand_text(operand)?;
+                if erased_list_alias::leaves_erased_generic(self.mir.types.get(*source_item)) {
+                    return Ok(erased_list_alias::list_alias_text(&text));
+                }
+                return Ok(format!("Into::<SmeltList<_>>::into({text})"));
             }
             // A `List<None>` erased element-wise would become `Null`, but an
             // `[undefined, …]` literal must erase to `Undefined` (the type lost
@@ -1058,10 +1065,14 @@ impl FunctionEmitter<'_> {
             // Match operand coercion: an erased generic and unknown have the
             // same element representation, so conversion must preserve aliases.
             // As there, the source value was rendered at the emitted item's own
-            // scope and the target at the position's `scope`.
+            // scope and the target at the position's `scope`. Same boundary
+            // split as the operand twin: see `crate::erased_list_alias`.
             if self.list_items_render_as_unknown(source, &self.render_scope())
                 && self.list_items_render_as_unknown(target, scope)
             {
+                if erased_list_alias::leaves_erased_generic(self.mir.types.get(*source_item)) {
+                    return Ok(erased_list_alias::list_alias_text(&smelt_owned_value));
+                }
                 return Ok(format!("Into::<SmeltList<_>>::into({smelt_owned_value})"));
             }
             let source_item = *source_item;
@@ -1561,7 +1572,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({text})")),
             Some(Type::Int | Type::Float) => Ok(format!("SmeltUnknown::Number({text} as f64)")),
             Some(Type::String) => Ok(crate::rust::erased_string(&text)),
-            Some(Type::List(_)) if self.list_items_render_as_unknown(ty, &self.render_scope()) => {
+            Some(Type::List(item)) if self.list_items_render_as_unknown(ty, &self.render_scope()) => {
                 // An out-of-scope generic element also renders as SmeltUnknown.
                 // Use its existing representation; this creates no new erasure.
                 // In-scope Rust generics still need the per-element path below.
@@ -1571,7 +1582,17 @@ impl FunctionEmitter<'_> {
                 // erase/extract round-trip stays identity-stable, and a write made
                 // through either handle is observed by the other — which is what
                 // passing an array into an `unknown` slot means in JavaScript.
-                Ok(format!("SmeltUnknown::Array({text}.into())"))
+                //
+                // A source `unknown[]` is wrapped directly, as it was before the
+                // erased-generic case joined this arm. Boundary: an erased
+                // generic `T[]` goes through the named alias helper, because the
+                // erased-generic ABI already erased `T`, so the wrap adds no
+                // erasure. See `crate::erased_list_alias`.
+                if erased_list_alias::leaves_erased_generic(self.mir.types.get(*item)) {
+                    Ok(erased_list_alias::array_alias_text(&text))
+                } else {
+                    Ok(format!("SmeltUnknown::Array({text}.into())"))
+                }
             }
             Some(Type::List(item)) => {
                 // A `List<None>` erases its elements to `Null`, but an
@@ -2042,14 +2063,20 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::String) => Ok(crate::rust::erased_string(value_text)),
-            Some(Type::List(_)) if self.list_items_render_as_unknown(ty, &self.render_scope()) => {
+            Some(Type::List(item)) if self.list_items_render_as_unknown(ty, &self.render_scope()) => {
                 // Keep the rendered-value and operand erasure paths in agreement:
                 // an already-erased generic array aliases the same backing buffer.
-                // Method receiver: wrap a loose operand before `.into()`.
-                Ok(format!(
-                    "SmeltUnknown::Array({}.into())",
-                    value.parenthesized_if_needed()
-                ))
+                // Boundary, split as in `erase`: see `crate::erased_list_alias`.
+                // The helper takes the value as a call argument, so only the
+                // direct wrap's method receiver needs a loose operand wrapped.
+                if erased_list_alias::leaves_erased_generic(self.mir.types.get(*item)) {
+                    Ok(erased_list_alias::array_alias_text(value_text))
+                } else {
+                    Ok(format!(
+                        "SmeltUnknown::Array({}.into())",
+                        value.parenthesized_if_needed()
+                    ))
+                }
             }
             Some(Type::List(item)) => {
                 let value_wrap = self.erase_value_text("value", *item)?;

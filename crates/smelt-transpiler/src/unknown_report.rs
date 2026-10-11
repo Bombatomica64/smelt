@@ -572,6 +572,8 @@ fn opens_more_braces_than_it_closes(line: &str) -> bool {
 ///      promises are irreducibly dynamic (JS closures/interop, async values).
 ///    - `IntoSmeltUnknown` / `into_smelt_unknown` / `to_smelt_unknown` — explicit
 ///      boundary adapters, exactly the sanctioned way to cross into erasure.
+///    - `smelt_alias_erased_generic_list` / `smelt_alias_erased_generic_array` —
+///      the identity adapters between two erased spellings of one generic array.
 ///    - runtime narrowing helpers (`js_typeof`, `smelt_typeof(`, `tag_check`,
 ///      `smelt_unknown_is_`) — inspecting an
 ///      already-dynamic value.
@@ -595,7 +597,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 33] = [
+    const BOUNDARY_MARKERS: [&str; 35] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -625,6 +627,39 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // when the same conversion was spelled inline. Proven in
         // `symbol_key_inverse_is_a_boundary` below.
         "smelt_own_symbol_key_value",
+        // Aliasing an erased generic array into another erased slot
+        // (`crates/smelt-codegen-rust/src/erased_list_alias.rs`). A `T[]` whose
+        // `T` is out of scope is rendered under the erased-generic ABI as
+        // `SmeltList<SmeltUnknown>`, since no Rust generic in scope can name
+        // `T`. The emitter calls these two prelude helpers only where both sides
+        // render that way and the SOURCE element is such an erased `T`: the
+        // value is leaving the erased-generic ABI. The erasure happened before
+        // the helper; the helper is the identity adapter between two erased
+        // spellings of one JavaScript array, sharing its buffer and id. Until
+        // #250 the same conversions rebuilt the array through
+        // `into_smelt_unknown` (the marker below), the outbound adapter for an
+        // erased `T`, which classified them here. #250 made them alias for
+        // speed and dropped the marker, so the same lines moved to avoidable
+        // (+521 on es-toolkit) with no erasure added. The helper names restore
+        // that classification and no more.
+        //
+        // Deliberately narrow: a source `unknown[]` (into `unknown`, or into an
+        // erased `T[]` slot) carried no marker before #250 either, spelled
+        // `SmeltUnknown::Array(x.into())` or an identity-map rebuild, and it
+        // keeps a plain spelling and its avoidable classification. The general
+        // list conversion `Into::<SmeltList<_>>::into(` is NOT a marker either:
+        // every list-typed rvalue goes through it, including ones that erase a
+        // concrete value. A concrete element list or an in-scope generic
+        // `SmeltList<T>` never reaches these helpers (their signatures pin
+        // `SmeltUnknown` elements, so the generated crate would not compile).
+        // Proven in `erased_generic_list_alias_is_a_boundary` below and in
+        // `crates/smelt-codegen-rust/src/tests/part_7_tests.rs`
+        // (`erased_generic_list_into_unknown_list_takes_the_alias_helper`,
+        // `erased_generic_list_argument_judges_each_side_at_its_own_scope`,
+        // `concrete_list_erasure_still_converts_elements`,
+        // `source_unknown_list_erasure_keeps_its_direct_wrap`).
+        smelt_codegen_rust::ERASED_GENERIC_LIST_ALIAS_FN,
+        smelt_codegen_rust::ERASED_GENERIC_ARRAY_ALIAS_FN,
         "IntoSmeltUnknown",
         "into_smelt_unknown",
         "to_smelt_unknown",
@@ -1520,6 +1555,49 @@ mod tests {
             classify_line(plain_list, false),
             Category::AvoidableErasure,
             "a string-keyed projection is still avoidable erasure"
+        );
+    }
+
+    /// An erased generic array handed to another erased slot is a boundary
+    /// adapter; the general list conversion and a source `unknown[]` wrap are
+    /// not.
+    ///
+    /// The lines are the generated spellings of the two alias helpers
+    /// (`smelt_codegen_rust::erased_list_alias`). Before #250 the same
+    /// conversions rebuilt the array through `into_smelt_unknown`, which this
+    /// classifier already counted as a boundary; the helper names keep that
+    /// classification for the aliasing spelling.
+    #[test]
+    fn erased_generic_list_alias_is_a_boundary() {
+        let list_alias = "            let _smelt_tmp_3: SmeltList<SmeltUnknown> = smelt_alias_erased_generic_list(items.clone());";
+        assert_eq!(
+            classify_line(list_alias, false),
+            Category::LegitimateBoundary,
+            "an erased generic list handed to an erased-list slot adds no erasure"
+        );
+        let array_alias = "    _smelt_tmp_4 = !(SmeltUnknown::Array(smelt_alias_erased_generic_array(a.clone())) == SmeltUnknown::Array(smelt_alias_erased_generic_array(b.clone())));";
+        assert_eq!(
+            classify_line(array_alias, false),
+            Category::LegitimateBoundary,
+            "an erased generic list wrapped as an `unknown` array adds no erasure"
+        );
+        // The names are the codegen crate's own constants, so a rename on that
+        // side cannot silently drop the classification.
+        assert!(list_alias.contains(smelt_codegen_rust::ERASED_GENERIC_LIST_ALIAS_FN));
+        assert!(array_alias.contains(smelt_codegen_rust::ERASED_GENERIC_ARRAY_ALIAS_FN));
+        // The general list conversion is not a marker, and neither is the
+        // direct wrap a source `unknown[]` keeps: both stay avoidable.
+        let general = "            let _smelt_tmp_3: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(items.clone());";
+        assert_eq!(
+            classify_line(general, false),
+            Category::AvoidableErasure,
+            "the general list conversion must not hide erasure"
+        );
+        let source_unknown = "    _smelt_tmp_4 = !(SmeltUnknown::Array(a.clone().into()) == SmeltUnknown::Array(b.clone().into()));";
+        assert_eq!(
+            classify_line(source_unknown, false),
+            Category::AvoidableErasure,
+            "a source `unknown[]` wrap keeps its avoidable classification"
         );
     }
 
