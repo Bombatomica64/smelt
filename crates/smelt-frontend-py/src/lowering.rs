@@ -31,10 +31,11 @@ use smelt_hir::{
 use smelt_stdlib::RuleId;
 
 use crate::helpers::{
-    collect_bitor_parts, decorator_frozen_kwarg, decorator_simple_name, expr_kind_name,
-    expr_simple_name, expr_type_name, is_django_model_base, range_to_span, stmt_kind_name,
-    two_type_args,
+    collect_bitor_parts, decorator_frozen_kwarg, decorator_simple_name, dotted_name,
+    expr_kind_name, expr_simple_name, expr_type_name, is_django_model_base, range_to_span,
+    stmt_kind_name, two_type_args,
 };
+use crate::name_resolution::{EvalScope, ModuleBindings, StdlibMatch, StdlibName};
 use crate::{HirCtx, SmeltError, test_support};
 
 /// Option-owned specialization data for one source module.
@@ -112,6 +113,9 @@ pub(crate) struct ModuleBuilder<'ctx> {
     specialization: Option<SpecializationData>,
     /// `ty`-resolved types for this module (empty unless the `ty` feature is on).
     resolved_types: crate::ty_resolve::ResolvedTypes,
+    /// Module-scope and class-body bindings, used to resolve what a
+    /// decorator, base class or metaclass expression denotes.
+    bindings: ModuleBindings,
 }
 
 /// A local Python lambda value that can be consumed by callback APIs without escaping.
@@ -266,6 +270,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             function_variadics: HashMap::new(),
             specialization,
             resolved_types: crate::ty_resolve::ResolvedTypes::disabled(),
+            bindings: ModuleBindings::default(),
         }
     }
 
@@ -290,6 +295,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let module_span = self.span(module.range);
         let mut body = Body::new(None, module_span);
         let mut errors: Vec<SmeltError> = Vec::new();
+        self.bindings = ModuleBindings::collect(&module.body);
 
         if self.specialization.is_none()
             && let Some((span, name)) = self.required_specialization_definition(module)

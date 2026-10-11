@@ -53,14 +53,24 @@ Visitor over the `ruff_python_parser` AST (already type-annotated by phase 1's b
 | `smelt::no-cast`                   | `typing.cast(...)`                                           |
 | `smelt::no-eval`                   | `eval`, `exec`                                               |
 | `smelt::no-dynamic-attr`           | `getattr`/`setattr`/`hasattr`/`delattr` with non-literal name|
-| `smelt::no-metaclass`              | metaclass other than `type`                                  |
-| `smelt::no-multiple-inheritance`   | `class C(A, B):` with more than one non-`Protocol` base      |
+| `smelt::no-metaclass`              | metaclass other than `type` or `abc.ABCMeta`                 |
+| `smelt::no-multiple-inheritance`   | more than one base besides `object`, `abc.ABC`, `Generic[…]` |
+| `smelt::no-protocol`               | a `typing.Protocol` base (structural subtyping)              |
+| `smelt::ambiguous-binding`         | a decorator/base whose stdlib meaning depends on control flow|
 | `smelt::no-decorators`             | any decorator outside the v1.0 allowlist                     |
 | `smelt::no-varargs`                | `*args`, `**kwargs` in v1.0                                  |
 | `smelt::no-dynamic-imports`        | `importlib`, `__import__`                                    |
 | `smelt::no-module-side-effects`    | top-level statements that aren't definitions or `if __name__`|
 
 Decorator allowlist (v1.0): `@dataclass`, `@property`, plus FastAPI route decorators recognized by M9.
+
+Stdlib names in decorators, bases and `metaclass=` are matched by what they
+denote, not by spelling: the frontend resolves the expression through the
+module's imports and assignments (`src/name_resolution.rs`), so
+`dataclasses.dataclass`, `dc.dataclass` after `import dataclasses as dc`, and
+`dataclass` after `from dataclasses import dataclass` are the same decorator,
+while a local that rebinds `dataclass` is not. A name with no binding falls back
+to `builtins`, as in CPython.
 
 ### Phase 3: HIR construction
 

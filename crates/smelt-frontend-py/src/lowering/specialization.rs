@@ -714,27 +714,37 @@ impl ModuleBuilder<'_> {
             Stmt::FunctionDef(function) => (!function.decorator_list.is_empty()
                 && !self.has_frontend_only_test_decorators(function))
             .then(|| (self.span(function.range), function.name.as_str())),
-            Stmt::ClassDef(class) => Self::class_requires_specialization(class)
+            Stmt::ClassDef(class) => self
+                .class_requires_specialization(class)
                 .then(|| (self.span(class.range), class.name.as_str())),
             _ => None,
         })
     }
 
     /// Returns whether class construction invokes unsupported definition hooks.
-    fn class_requires_specialization(class: &StmtClassDef) -> bool {
+    ///
+    /// A decorator or metaclass is a supported hook only when every binding
+    /// that can reach it denotes `dataclasses.dataclass` or `abc.ABCMeta`
+    /// respectively (see [`crate::name_resolution`]). Anything else, including
+    /// a name whose meaning depends on which conditional import ran, is only
+    /// known by running the definition, which is what specialization does.
+    fn class_requires_specialization(&self, class: &StmtClassDef) -> bool {
+        let scope = EvalScope::Module {
+            at: class.range.start(),
+        };
+        let denotes = |expr: &Expr, expected: StdlibName| {
+            self.bindings
+                .resolve(expr, scope)
+                .is_some_and(|resolution| resolution.stdlib() == StdlibMatch::Exact(expected))
+        };
         let unknown_decorator = class.decorator_list.iter().any(|decorator| {
-            !matches!(
-                decorator_simple_name(decorator),
-                Some("dataclass" | "dataclasses.dataclass")
-            )
+            let callee = ruff_python_ast::helpers::map_callable(&decorator.expression);
+            !denotes(callee, StdlibName::Dataclass)
         });
         let custom_metaclass = class.arguments.as_deref().is_some_and(|arguments| {
             arguments.keywords.iter().any(|keyword| {
                 keyword.arg.as_ref().map(|name| name.as_str()) == Some("metaclass")
-                    && !matches!(
-                        expr_simple_name(&keyword.value),
-                        Some("ABCMeta" | "abc.ABCMeta")
-                    )
+                    && !denotes(&keyword.value, StdlibName::AbcMeta)
             })
         });
         let definition_hook = class.body.iter().any(|statement| {

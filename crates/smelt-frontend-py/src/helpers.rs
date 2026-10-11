@@ -174,6 +174,19 @@ fn expr_chain_contains_name(expr: &Expr, name: &str) -> bool {
     }
 }
 
+/// Spell a `Name` / `Attribute` chain as written (`abc.ABC`), for diagnostics.
+///
+/// Returns `None` for any other expression shape.
+pub(crate) fn dotted_name(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Name(name) => Some(name.id.to_string()),
+        Expr::Attribute(attribute) => {
+            Some(format!("{}.{}", dotted_name(&attribute.value)?, attribute.attr))
+        }
+        _ => None,
+    }
+}
+
 /// If `expr` is a simple `Name`, return the name string.
 pub(crate) fn expr_simple_name(expr: &Expr) -> Option<&str> {
     if let Expr::Name(n) = expr {

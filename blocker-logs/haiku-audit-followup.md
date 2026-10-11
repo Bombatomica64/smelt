@@ -104,6 +104,15 @@ base. Deleting the alternatives would bake the gap in; making the helpers
 return the dotted path is a feature change. Also `specialization.rs:726` (F0533,
 F0534) repeats the same name tests.
 
+Status: resolved on branch `fix/py-dotted-stdlib-names`. All six rows were
+re-checked against `main` first (`class C(abc.ABC)` hits "complex base class
+expression", `metaclass=abc.ABCMeta` needs specialization, and
+`@helpers.abstractmethod` / `@attrs_alias.dataclass` were taken for the stdlib
+names). The name helpers were not made to return dotted paths. The frontend
+now resolves each decorator, base and metaclass through the module's bindings
+(`crates/smelt-frontend-py/src/name_resolution.rs`) and matches the qualified
+name.
+
 ### 2.4 Duplicates that have already drifted (bugs, not consolidations)
 
 As the audit reports them (verdict "confirmed"); not re-verified in this pass

@@ -92,15 +92,31 @@ class MyModel(models.Model):
     Ok(())
 }
 
+// The source used to omit `from abc import ABCMeta`. CPython rejects that
+// module with `NameError: name 'ABCMeta' is not defined`, and the frontend now
+// resolves a metaclass through the module's imports, so an unbound `ABCMeta`
+// no longer counts as `abc.ABCMeta`. The test now also checks the abstract
+// metadata its name promises, which it never asserted before.
 #[test]
 fn abcmeta_metaclass_lowers_as_abstract_metadata() -> TestResult {
     let source = py!(r"
+from abc import ABCMeta
+
 class Meta(metaclass=ABCMeta):
     pass
 ");
     let mut ctx = HirCtx::new();
-    lower_module(source, &mut ctx)?;
-    Ok(())
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let class = module
+        .items
+        .iter()
+        .find_map(|item_id| match item(&ctx, *item_id).ok()? {
+            Item::Class(class) => Some(class),
+            _ => None,
+        })
+        .ok_or("expected Meta class")?;
+    ensure_eq(&class.kind, &smelt_hir::ClassKind::Abstract, "class kind")
 }
 
 #[test]

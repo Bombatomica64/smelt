@@ -215,6 +215,29 @@ impl SmeltError {
         }
     }
 
+    /// Error for a class deriving from `typing.Protocol`.
+    ///
+    /// A protocol declares a structural type: any class with matching members
+    /// conforms without naming it. Smelt types classes nominally, so lowering
+    /// the protocol as an ordinary class would make every structural use
+    /// either fail to type-check in Rust or silently take the conforming
+    /// class's type instead of the declared one.
+    pub(crate) fn protocol_unsupported(span: Span, class_name: &str) -> Self {
+        Self {
+            code: "smelt::no-protocol",
+            category: DiagnosticCategory::UnsupportedLowering,
+            span,
+            message: format!(
+                "class '{class_name}' derives from typing.Protocol: structural subtyping is not supported"
+            ),
+            note: Some(
+                "smelt has no structural (duck-typed) class conformance yet; \
+                 a protocol cannot stand for the classes that match it."
+                    .to_owned(),
+            ),
+        }
+    }
+
     /// Error for Django model inheritance, which is not supported.
     pub(crate) fn django_unsupported(span: Span, class_name: &str) -> Self {
         Self {
@@ -254,7 +277,35 @@ impl SmeltError {
             span,
             message: format!("class '{class_name}': decorator '@{decorator}' is not supported"),
             note: Some(
-                "Only '@dataclass' (and 'dataclasses.dataclass') is allowed on classes.".to_owned(),
+                "Only 'dataclasses.dataclass' is allowed on classes, however it is imported."
+                    .to_owned(),
+            ),
+        }
+    }
+
+    /// Error for a definition-time name whose meaning depends on control flow.
+    ///
+    /// `spelled` is the source spelling (`Protocol`, `abc.ABC`) and
+    /// `candidates` lists what the reaching bindings denote. Raised only when
+    /// one of them is a standard-library definition the frontend models, so
+    /// the class would lower differently depending on which binding runs.
+    pub(crate) fn ambiguous_binding(
+        span: Span,
+        owner: &str,
+        spelled: &str,
+        candidates: &str,
+    ) -> Self {
+        Self {
+            code: "smelt::ambiguous-binding",
+            category: DiagnosticCategory::TypeConstraint,
+            span,
+            message: format!(
+                "{owner}: '{spelled}' may denote {candidates}, depending on which binding runs"
+            ),
+            note: Some(
+                "Bind the name with one unconditional import (for example \
+                 `from abc import ABC`) so its meaning is known before the program runs."
+                    .to_owned(),
             ),
         }
     }
@@ -399,6 +450,7 @@ fn is_generated_stub_file(path: &str, source: &str) -> bool {
 
 pub(crate) mod helpers;
 pub(crate) mod lowering;
+pub(crate) mod name_resolution;
 #[doc(hidden)]
 pub mod test_support;
 pub(crate) mod ty_resolve;
