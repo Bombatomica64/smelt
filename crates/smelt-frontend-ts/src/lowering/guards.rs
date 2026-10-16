@@ -1709,6 +1709,7 @@ impl ModuleBuilder<'_> {
             | AsyncOp::Promise
             | AsyncOp::Then
             | AsyncOp::Catch
+            | AsyncOp::Finally
             | AsyncOp::SpawnLocal => Err(SmeltError::unsupported(
                 self.span(span.start, span.end),
                 format!("Promise.{op:?} is not lowered yet"),

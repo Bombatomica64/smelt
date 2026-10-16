@@ -3304,15 +3304,13 @@ fn main() {
     _smelt_tmp_7 = out.clone() == "".to_owned();
     if _smelt_tmp_7 {
     _smelt_tmp_8 = part.clone();
-    out = _smelt_tmp_8.clone();
-    _smelt_tmp_4 = _smelt_tmp_4 + 1.0;
     } else {
     _smelt_tmp_9 = out.clone() + &closure_arg_0.clone();
     _smelt_tmp_10 = _smelt_tmp_9.clone() + &part.clone();
     _smelt_tmp_8 = _smelt_tmp_10.clone();
+    }
     out = _smelt_tmp_8.clone();
     _smelt_tmp_4 = _smelt_tmp_4 + 1.0;
-    }
     } else {
     return out.clone();
     }

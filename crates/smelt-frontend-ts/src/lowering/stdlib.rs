@@ -2710,29 +2710,7 @@ impl ModuleBuilder<'_> {
                 // key])` into an `Array<[number, string]>` lowers `[value, key]`
                 // as a `(Float, String)` tuple literal rather than a
                 // `List<Unknown>` that could never be re-typed into the tuple.
-                let mut item = self.argument_with_hint(item_argument, body, Some(element_ty))?;
-                let item_ty = Self::expr_ty(body, item);
-                let compatible = self.array_item_type_compatible(item_ty, element_ty)
-                    || self.ctx.krate.types.get(element_ty) == Some(&Type::Unknown)
-                    || self.type_contains_unknown(item_ty)
-                    || self.type_contains_unknown(element_ty)
-                    || self.numeric_type_compatible(element_ty, item_ty);
-                if !compatible {
-                    if self.erased_or_union_surface(item_ty)
-                        || self.erased_or_union_surface(element_ty)
-                    {
-                        item = body.push_expr(Expr {
-                            kind: ExprKind::TypeAssert { value: item },
-                            ty: element_ty,
-                            span: self.span(item_argument.span().start, item_argument.span().end),
-                        });
-                    } else {
-                        return Err(SmeltError::unsupported(
-                            self.span(call.span.start, call.span.end),
-                            "array push argument must match the array element type",
-                        ));
-                    }
-                }
+                let item = self.list_element_argument(item_argument, element_ty, "push", body)?;
                 body.push_expr(Expr {
                     kind: ExprKind::ListPush { list, item },
                     ty: number_ty,
@@ -2802,18 +2780,20 @@ impl ModuleBuilder<'_> {
                 for argument in item_args {
                     let (item, spread) = match argument {
                         Argument::SpreadElement(spread) => {
-                            (self.expression(&spread.argument, body)?, true)
+                            let item = self.expression(&spread.argument, body)?;
+                            if Self::expr_ty(body, item) != list_ty {
+                                return Err(SmeltError::unsupported(
+                                    self.span(argument.span().start, argument.span().end),
+                                    "array splice replacement items must match the array element type",
+                                ));
+                            }
+                            (item, true)
                         }
-                        _ => (self.argument(argument, body)?, false),
+                        _ => (
+                            self.list_element_argument(argument, element_ty, "splice", body)?,
+                            false,
+                        ),
                     };
-                    let item_ty = Self::expr_ty(body, item);
-                    let expected_ty = if spread { list_ty } else { element_ty };
-                    if item_ty != expected_ty {
-                        return Err(SmeltError::unsupported(
-                            self.span(argument.span().start, argument.span().end),
-                            "array splice replacement items must match the array element type",
-                        ));
-                    }
                     items.push(ListSpliceItem {
                         value: item,
                         spread,
@@ -3210,6 +3190,53 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Lower one value an array method inserts (`push`, `unshift`, a `splice`
+    /// replacement item) at the array's element type.
+    ///
+    /// The element type is the argument's contextual type, exactly as an
+    /// assignment target's type is: `users.unshift({ username, password })`
+    /// builds the declared element record, and `conditions.unshift((c) => ..)`
+    /// types the arrow's parameter from the element's callable type. Without
+    /// the hint the literal lowered to an anonymous shape that could never
+    /// match. The value must then be assignable to the element type; an
+    /// erased or union surface on either side is reconciled with an explicit
+    /// assertion, and anything else is a named blocker.
+    pub(super) fn list_element_argument(
+        &mut self,
+        argument: &Argument<'_>,
+        element_ty: smelt_hir::TypeId,
+        method: &str,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let item = self.argument_with_hint(argument, body, Some(element_ty))?;
+        let item_ty = Self::expr_ty(body, item);
+        let compatible = self.array_item_type_compatible(item_ty, element_ty)
+            || self.ctx.krate.types.get(element_ty) == Some(&Type::Unknown)
+            || self.type_contains_unknown(item_ty)
+            || self.type_contains_unknown(element_ty)
+            || self.numeric_type_compatible(element_ty, item_ty);
+        if compatible {
+            return Ok(item);
+        }
+        if self.erased_or_union_surface(item_ty) || self.erased_or_union_surface(element_ty) {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: item },
+                ty: element_ty,
+                span: self.span(argument.span().start, argument.span().end),
+            }));
+        }
+        // The historical per-method wording, which diagnostics are matched on.
+        let message = match method {
+            "unshift" => "array unshift arguments must match the array element type",
+            "splice" => "array splice replacement items must match the array element type",
+            _ => "array push argument must match the array element type",
+        };
+        Err(SmeltError::unsupported(
+            self.span(argument.span().start, argument.span().end),
+            message,
+        ))
+    }
+
     /// Lower direct TypeScript `Array.prototype.unshift` calls.
     pub(super) fn list_unshift_call(
         &mut self,
@@ -3236,17 +3263,7 @@ impl ModuleBuilder<'_> {
         let element_ty = *list_element_ty;
         let mut items = Vec::with_capacity(call.arguments.len());
         for argument in &call.arguments {
-            let item = self.argument(argument, body)?;
-            let item_ty = Self::expr_ty(body, item);
-            if !self.array_item_type_compatible(item_ty, element_ty)
-                && !self.numeric_type_compatible(element_ty, item_ty)
-            {
-                return Err(SmeltError::unsupported(
-                    self.span(argument.span().start, argument.span().end),
-                    "array unshift arguments must match the array element type",
-                ));
-            }
-            items.push(item);
+            items.push(self.list_element_argument(argument, element_ty, "unshift", body)?);
         }
         let ty = self.ctx.krate.types.intern(Type::Float);
         Ok(Some(body.push_expr(Expr {

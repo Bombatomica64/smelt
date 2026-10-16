@@ -1,0 +1,137 @@
+module examples/typescript/end-to-end/158_joins_absence_and_host_reads/input.ts (ModuleId(0))
+  body BodyId(9)
+  items
+    fn rethrow__module_examples/typescript/end-to-end/158_joins_absence_and_host_reads/input.ts owner Module
+    fn handle__module_examples/typescript/end-to-end/158_joins_absence_and_host_reads/input.ts owner Module
+    fn pick owner Module
+    fn choose_handler owner Module
+    fn label_of owner Module
+    fn port_of owner Module
+    fn response_facts owner Module
+  locals
+    %0 const error: Unknown
+  exprs
+    #0: String = "*"
+    #1: String = "/x"
+    #2: String = "/"
+    #3: fn(String, String, String) -> String = @0(pick)
+    #4: String = call #3(#0, #1, #2)
+    #5: String = "*"
+    #6: String = "/x"
+    #7: String = "a"
+    #8: fn(String, String, String) -> String = @0(pick)
+    #9: String = call #8(#5, #6, #7)
+    #10: String = "*"
+    #11: String = "x"
+    #12: String = "/"
+    #13: fn(String, String, String) -> String = @0(pick)
+    #14: String = call #13(#10, #11, #12)
+    #15: String = "x"
+    #16: String = ""
+    #17: String = ""
+    #18: fn(String, String, String) -> String = @0(pick)
+    #19: String = call #18(#15, #16, #17)
+    #20: None = @10(console_log)
+    #21: None = call #20(#4, #9, #14, #19)
+    #22: Bool = false
+    #23: fn(Bool) -> fn(Unknown) -> Float = @1(choose_handler)
+    #24: fn(Unknown) -> Float = call #23(#22)
+    #25: String = "four"
+    #26: Float = closure_call #24(#25)
+    #27: None = @11(console_log)
+    #28: None = call #27(#26)
+    #29: Bool = true
+    #30: fn(Bool) -> fn(Unknown) -> Float = @1(choose_handler)
+    #31: fn(Unknown) -> Float = call #30(#29)
+    #32: String = "boom"
+    #33: Float = closure_call #31(#32)
+    #34: String = "rethrown"
+    #35: Unknown = %0
+    #36: None = @12(console_log)
+    #37: None = call #36(#34, #35)
+    #38: String = "a"
+    #39: String = ""
+    #40: String = "c"
+    #41: List<String> = [#38, #39, #40]
+    #42: Float = 0.0
+    #43: fn(List<String>, Float) -> String = @2(label_of)
+    #44: String = call #43(#41, #42)
+    #45: String = "a"
+    #46: String = ""
+    #47: String = "c"
+    #48: List<String> = [#45, #46, #47]
+    #49: Float = 1.0
+    #50: fn(List<String>, Float) -> String = @2(label_of)
+    #51: String = call #50(#48, #49)
+    #52: String = "a"
+    #53: List<String> = [#52]
+    #54: Float = 5.0
+    #55: fn(List<String>, Float) -> String = @2(label_of)
+    #56: String = call #55(#53, #54)
+    #57: None = @13(console_log)
+    #58: None = call #57(#44, #51, #56)
+    #59: Float = 8080.0
+    #60: List<Float> = [#59]
+    #61: fn(List<Float>) -> Float = @3(port_of)
+    #62: Float = call #61(#60)
+    #63: Float = 0.0
+    #64: List<Float> = [#63]
+    #65: fn(List<Float>) -> Float = @3(port_of)
+    #66: Float = call #65(#64)
+    #67: List<Float> = []
+    #68: fn(List<Float>) -> Float = @3(port_of)
+    #69: Float = call #68(#67)
+    #70: None = @14(console_log)
+    #71: None = call #70(#62, #66, #69)
+    #72: async fn() -> Future<None> = @4(response_facts)
+    #73: Future<None> = call #72()
+    #74: None = async_spawn_local(#73)
+    #75: Future<None> = async_exit_drain()
+    #76: None = await #75
+  stmts
+    s0: #21
+    s1: #28
+    s2: #33
+    s3: #37
+    s4: try BlockId(1) catch %0 BlockId(2)
+    s5: #58
+    s6: #71
+    s7: #74
+    s8: #76
+  async state machine
+    states [state0, state1]
+    suspend #76 on #75 -> state77
+
+interned types
+  t0 = Unknown
+  t1 = Never
+  t2 = fn(Unknown) -> Never
+  t3 = Float
+  t4 = fn(Unknown) -> Float
+  t5 = String
+  t6 = fn(String, String, String) -> String
+  t7 = Bool
+  t8 = fn(Bool) -> fn(Unknown) -> Float
+  t9 = List<String>
+  t10 = fn(List<String>, Float) -> String
+  t11 = List<Float>
+  t12 = fn(List<Float>) -> Float
+  t13 = None
+  t14 = Future<None>
+  t15 = async fn() -> Future<None>
+  t16 = Optional<List<String>>
+  t17 = Optional<Optional<List<String>>>
+  t18 = Optional<String>
+  t19 = fn(Unknown) -> Float
+  t20 = Response
+  t21 = Optional<Response>
+  t22 = Optional<Float>
+  t23 = Optional<Bool>
+  t24 = ReadableStream
+  t25 = Optional<ReadableStream>
+  t26 = Future<String>
+  t27 = fn(String, String, String) -> String
+  t28 = fn(Bool) -> fn(Unknown) -> Float
+  t29 = fn(List<String>, Float) -> String
+  t30 = fn(List<Float>) -> Float
+  t31 = async fn() -> Future<None>

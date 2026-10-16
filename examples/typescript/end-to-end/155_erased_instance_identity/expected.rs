@@ -2626,6 +2626,7 @@ async fn smelt_promise_race<T>(mut racers: Vec<::std::pin::Pin<Box<dyn ::std::fu
             if let ::std::task::Poll::Ready(result) = ::std::future::Future::poll(racer.as_mut(), &mut cx) { return result; }
         }
         smelt_drain_promise_tasks().await;
+        if SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; continue; }
         let id_barrier = SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get);
         let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());
         if let Some(earliest) = earliest {
@@ -3663,67 +3664,6 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| fail(c.clone()))) {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_9: () = __smelt_value;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| fail_later(c.clone()))) {
-        Ok(__smelt_value) => {
-            let _smelt_tmp_15 = __smelt_value;
-    match _smelt_tmp_15.await {
-        Ok(__smelt_value) => {
-            let _smelt_tmp_16: () = { let _ = __smelt_value; };
-    let _smelt_tmp_23: Point = Point::new(1.0, 2.0);
-    p = _smelt_tmp_23;
-    let _smelt_tmp_24: Point = Point::new(1.0, 2.0);
-    q = _smelt_tmp_24;
-    alias = p.clone();
-    _smelt_tmp_25 = (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize);
-    _smelt_tmp_26 = (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(q.clone()).0) as *const () as usize);
-    _smelt_tmp_27 = !((::std::rc::Rc::as_ptr(&(p).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(q).0) as *const () as usize));
-    let _ = { println!("{} {} {}", _smelt_tmp_25, _smelt_tmp_26, _smelt_tmp_27); };
-    return Ok(());
-        }
-        Err(__smelt_error) => {
-            let err_1 = smelt_thrown_value(&*__smelt_error);
-    _smelt_tmp_17 = match (err_1).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = values.smelt_shared_record(); { let smelt_record_map = smelt_record_map.clone(); match smelt_record_map.smelt_origin() { Some(smelt_origin) => smelt_origin, None => Context(::std::rc::Rc::new(::std::cell::RefCell::new(ContextInner { res: smelt_record_map.get("res").or_else(|| smelt_record_map.get("__smelt_proto:res")).or_else(|| smelt_record_map.get("__smelt_method:res")).cloned().map_or(String::new(), |value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }), headers: smelt_record_map.get("headers").or_else(|| smelt_record_map.get("__smelt_proto:headers")).or_else(|| smelt_record_map.get("__smelt_method:headers")).cloned().map_or(SmeltList::new(Vec::<String>::new()), |value| { let smelt_src = value.clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(values) => SmeltList::with_id(values.id, values.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()), SmeltUnknown::String(value) => SmeltList::new(value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&value) { SmeltList::new(smelt_args.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = value.get("__smelt_map") { SmeltList::new(pairs.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = value.get("__smelt_set") { SmeltList::new(members.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else { match value.get("__smelt_symbol_iterator") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()), _ => panic!("unknown is not iterable") } }, _ => panic!("unknown is not iterable") } }), count: smelt_record_map.get("count").or_else(|| smelt_record_map.get("__smelt_proto:count")).or_else(|| smelt_record_map.get("__smelt_method:count")).cloned().map_or(0.0, |value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) }))) } } }, _ => Default::default() };
-    back_1 = _smelt_tmp_17;
-    let _ = back_1.header("x-two".to_owned());
-    _smelt_tmp_19 = c.0.borrow().headers.clone().borrow().join(&",".to_owned());
-    _smelt_tmp_20 = (::std::rc::Rc::as_ptr(&(back_1.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(c.clone()).0) as *const () as usize);
-    _smelt_tmp_21 = !((::std::rc::Rc::as_ptr(&(back_1).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(c.clone()).0) as *const () as usize));
-    let _ = { println!("{} {} {} {}", _smelt_tmp_19, smelt_console_number(c.0.borrow().count.clone()), _smelt_tmp_20, _smelt_tmp_21); };
-    let _smelt_tmp_23: Point = Point::new(1.0, 2.0);
-    p = _smelt_tmp_23;
-    let _smelt_tmp_24: Point = Point::new(1.0, 2.0);
-    q = _smelt_tmp_24;
-    alias = p.clone();
-    _smelt_tmp_25 = (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize);
-    _smelt_tmp_26 = (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(q.clone()).0) as *const () as usize);
-    _smelt_tmp_27 = !((::std::rc::Rc::as_ptr(&(p).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(q).0) as *const () as usize));
-    let _ = { println!("{} {} {}", _smelt_tmp_25, _smelt_tmp_26, _smelt_tmp_27); };
-    return Ok(());
-        }
-    }
-        }
-        Err(__smelt_panic) => {
-            let __smelt_error = smelt_panic_message(&*__smelt_panic);
-            let err_1 = smelt_panic_error_value(&*__smelt_panic);
-    _smelt_tmp_17 = match (err_1).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = values.smelt_shared_record(); { let smelt_record_map = smelt_record_map.clone(); match smelt_record_map.smelt_origin() { Some(smelt_origin) => smelt_origin, None => Context(::std::rc::Rc::new(::std::cell::RefCell::new(ContextInner { res: smelt_record_map.get("res").or_else(|| smelt_record_map.get("__smelt_proto:res")).or_else(|| smelt_record_map.get("__smelt_method:res")).cloned().map_or(String::new(), |value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }), headers: smelt_record_map.get("headers").or_else(|| smelt_record_map.get("__smelt_proto:headers")).or_else(|| smelt_record_map.get("__smelt_method:headers")).cloned().map_or(SmeltList::new(Vec::<String>::new()), |value| { let smelt_src = value.clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(values) => SmeltList::with_id(values.id, values.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()), SmeltUnknown::String(value) => SmeltList::new(value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&value) { SmeltList::new(smelt_args.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = value.get("__smelt_map") { SmeltList::new(pairs.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = value.get("__smelt_set") { SmeltList::new(members.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else { match value.get("__smelt_symbol_iterator") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()), _ => panic!("unknown is not iterable") } }, _ => panic!("unknown is not iterable") } }), count: smelt_record_map.get("count").or_else(|| smelt_record_map.get("__smelt_proto:count")).or_else(|| smelt_record_map.get("__smelt_method:count")).cloned().map_or(0.0, |value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) }))) } } }, _ => Default::default() };
-    back_1 = _smelt_tmp_17;
-    let _ = back_1.header("x-two".to_owned());
-    _smelt_tmp_19 = c.0.borrow().headers.clone().borrow().join(&",".to_owned());
-    _smelt_tmp_20 = (::std::rc::Rc::as_ptr(&(back_1.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(c.clone()).0) as *const () as usize);
-    _smelt_tmp_21 = !((::std::rc::Rc::as_ptr(&(back_1).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(c.clone()).0) as *const () as usize));
-    let _ = { println!("{} {} {} {}", _smelt_tmp_19, smelt_console_number(c.0.borrow().count.clone()), _smelt_tmp_20, _smelt_tmp_21); };
-    let _smelt_tmp_23: Point = Point::new(1.0, 2.0);
-    p = _smelt_tmp_23;
-    let _smelt_tmp_24: Point = Point::new(1.0, 2.0);
-    q = _smelt_tmp_24;
-    alias = p.clone();
-    _smelt_tmp_25 = (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize);
-    _smelt_tmp_26 = (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(q.clone()).0) as *const () as usize);
-    _smelt_tmp_27 = !((::std::rc::Rc::as_ptr(&(p).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(q).0) as *const () as usize));
-    let _ = { println!("{} {} {}", _smelt_tmp_25, _smelt_tmp_26, _smelt_tmp_27); };
-    return Ok(());
-        }
-    }
         }
         Ok(Err(__smelt_error)) => {
             let err = smelt_thrown_value(&*__smelt_error);
@@ -3734,67 +3674,6 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_12 = c.0.borrow().headers.clone().borrow().join(&",".to_owned());
     _smelt_tmp_13 = (::std::rc::Rc::as_ptr(&(back).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(c.clone()).0) as *const () as usize);
     let _ = { println!("{} {} {} {}", c.0.borrow().res.clone(), _smelt_tmp_12, smelt_console_number(c.0.borrow().count.clone()), _smelt_tmp_13); };
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| fail_later(c.clone()))) {
-        Ok(__smelt_value) => {
-            let _smelt_tmp_15 = __smelt_value;
-    match _smelt_tmp_15.await {
-        Ok(__smelt_value) => {
-            let _smelt_tmp_16: () = { let _ = __smelt_value; };
-    let _smelt_tmp_23: Point = Point::new(1.0, 2.0);
-    p = _smelt_tmp_23;
-    let _smelt_tmp_24: Point = Point::new(1.0, 2.0);
-    q = _smelt_tmp_24;
-    alias = p.clone();
-    _smelt_tmp_25 = (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize);
-    _smelt_tmp_26 = (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(q.clone()).0) as *const () as usize);
-    _smelt_tmp_27 = !((::std::rc::Rc::as_ptr(&(p).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(q).0) as *const () as usize));
-    let _ = { println!("{} {} {}", _smelt_tmp_25, _smelt_tmp_26, _smelt_tmp_27); };
-    return Ok(());
-        }
-        Err(__smelt_error) => {
-            let err_1 = smelt_thrown_value(&*__smelt_error);
-    _smelt_tmp_17 = match (err_1).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = values.smelt_shared_record(); { let smelt_record_map = smelt_record_map.clone(); match smelt_record_map.smelt_origin() { Some(smelt_origin) => smelt_origin, None => Context(::std::rc::Rc::new(::std::cell::RefCell::new(ContextInner { res: smelt_record_map.get("res").or_else(|| smelt_record_map.get("__smelt_proto:res")).or_else(|| smelt_record_map.get("__smelt_method:res")).cloned().map_or(String::new(), |value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }), headers: smelt_record_map.get("headers").or_else(|| smelt_record_map.get("__smelt_proto:headers")).or_else(|| smelt_record_map.get("__smelt_method:headers")).cloned().map_or(SmeltList::new(Vec::<String>::new()), |value| { let smelt_src = value.clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(values) => SmeltList::with_id(values.id, values.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()), SmeltUnknown::String(value) => SmeltList::new(value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&value) { SmeltList::new(smelt_args.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = value.get("__smelt_map") { SmeltList::new(pairs.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = value.get("__smelt_set") { SmeltList::new(members.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else { match value.get("__smelt_symbol_iterator") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()), _ => panic!("unknown is not iterable") } }, _ => panic!("unknown is not iterable") } }), count: smelt_record_map.get("count").or_else(|| smelt_record_map.get("__smelt_proto:count")).or_else(|| smelt_record_map.get("__smelt_method:count")).cloned().map_or(0.0, |value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) }))) } } }, _ => Default::default() };
-    back_1 = _smelt_tmp_17;
-    let _ = back_1.header("x-two".to_owned());
-    _smelt_tmp_19 = c.0.borrow().headers.clone().borrow().join(&",".to_owned());
-    _smelt_tmp_20 = (::std::rc::Rc::as_ptr(&(back_1.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(c.clone()).0) as *const () as usize);
-    _smelt_tmp_21 = !((::std::rc::Rc::as_ptr(&(back_1).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(c.clone()).0) as *const () as usize));
-    let _ = { println!("{} {} {} {}", _smelt_tmp_19, smelt_console_number(c.0.borrow().count.clone()), _smelt_tmp_20, _smelt_tmp_21); };
-    let _smelt_tmp_23: Point = Point::new(1.0, 2.0);
-    p = _smelt_tmp_23;
-    let _smelt_tmp_24: Point = Point::new(1.0, 2.0);
-    q = _smelt_tmp_24;
-    alias = p.clone();
-    _smelt_tmp_25 = (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize);
-    _smelt_tmp_26 = (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(q.clone()).0) as *const () as usize);
-    _smelt_tmp_27 = !((::std::rc::Rc::as_ptr(&(p).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(q).0) as *const () as usize));
-    let _ = { println!("{} {} {}", _smelt_tmp_25, _smelt_tmp_26, _smelt_tmp_27); };
-    return Ok(());
-        }
-    }
-        }
-        Err(__smelt_panic) => {
-            let __smelt_error = smelt_panic_message(&*__smelt_panic);
-            let err_1 = smelt_panic_error_value(&*__smelt_panic);
-    _smelt_tmp_17 = match (err_1).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = values.smelt_shared_record(); { let smelt_record_map = smelt_record_map.clone(); match smelt_record_map.smelt_origin() { Some(smelt_origin) => smelt_origin, None => Context(::std::rc::Rc::new(::std::cell::RefCell::new(ContextInner { res: smelt_record_map.get("res").or_else(|| smelt_record_map.get("__smelt_proto:res")).or_else(|| smelt_record_map.get("__smelt_method:res")).cloned().map_or(String::new(), |value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }), headers: smelt_record_map.get("headers").or_else(|| smelt_record_map.get("__smelt_proto:headers")).or_else(|| smelt_record_map.get("__smelt_method:headers")).cloned().map_or(SmeltList::new(Vec::<String>::new()), |value| { let smelt_src = value.clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(values) => SmeltList::with_id(values.id, values.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()), SmeltUnknown::String(value) => SmeltList::new(value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&value) { SmeltList::new(smelt_args.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = value.get("__smelt_map") { SmeltList::new(pairs.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = value.get("__smelt_set") { SmeltList::new(members.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else { match value.get("__smelt_symbol_iterator") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()), _ => panic!("unknown is not iterable") } }, _ => panic!("unknown is not iterable") } }), count: smelt_record_map.get("count").or_else(|| smelt_record_map.get("__smelt_proto:count")).or_else(|| smelt_record_map.get("__smelt_method:count")).cloned().map_or(0.0, |value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) }))) } } }, _ => Default::default() };
-    back_1 = _smelt_tmp_17;
-    let _ = back_1.header("x-two".to_owned());
-    _smelt_tmp_19 = c.0.borrow().headers.clone().borrow().join(&",".to_owned());
-    _smelt_tmp_20 = (::std::rc::Rc::as_ptr(&(back_1.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(c.clone()).0) as *const () as usize);
-    _smelt_tmp_21 = !((::std::rc::Rc::as_ptr(&(back_1).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(c.clone()).0) as *const () as usize));
-    let _ = { println!("{} {} {} {}", _smelt_tmp_19, smelt_console_number(c.0.borrow().count.clone()), _smelt_tmp_20, _smelt_tmp_21); };
-    let _smelt_tmp_23: Point = Point::new(1.0, 2.0);
-    p = _smelt_tmp_23;
-    let _smelt_tmp_24: Point = Point::new(1.0, 2.0);
-    q = _smelt_tmp_24;
-    alias = p.clone();
-    _smelt_tmp_25 = (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize);
-    _smelt_tmp_26 = (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(q.clone()).0) as *const () as usize);
-    _smelt_tmp_27 = !((::std::rc::Rc::as_ptr(&(p).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(q).0) as *const () as usize));
-    let _ = { println!("{} {} {}", _smelt_tmp_25, _smelt_tmp_26, _smelt_tmp_27); };
-    return Ok(());
-        }
-    }
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
@@ -3806,22 +3685,14 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_12 = c.0.borrow().headers.clone().borrow().join(&",".to_owned());
     _smelt_tmp_13 = (::std::rc::Rc::as_ptr(&(back).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(c.clone()).0) as *const () as usize);
     let _ = { println!("{} {} {} {}", c.0.borrow().res.clone(), _smelt_tmp_12, smelt_console_number(c.0.borrow().count.clone()), _smelt_tmp_13); };
+        }
+    }
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| fail_later(c.clone()))) {
         Ok(__smelt_value) => {
             let _smelt_tmp_15 = __smelt_value;
     match _smelt_tmp_15.await {
         Ok(__smelt_value) => {
             let _smelt_tmp_16: () = { let _ = __smelt_value; };
-    let _smelt_tmp_23: Point = Point::new(1.0, 2.0);
-    p = _smelt_tmp_23;
-    let _smelt_tmp_24: Point = Point::new(1.0, 2.0);
-    q = _smelt_tmp_24;
-    alias = p.clone();
-    _smelt_tmp_25 = (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize);
-    _smelt_tmp_26 = (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(q.clone()).0) as *const () as usize);
-    _smelt_tmp_27 = !((::std::rc::Rc::as_ptr(&(p).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(q).0) as *const () as usize));
-    let _ = { println!("{} {} {}", _smelt_tmp_25, _smelt_tmp_26, _smelt_tmp_27); };
-    return Ok(());
         }
         Err(__smelt_error) => {
             let err_1 = smelt_thrown_value(&*__smelt_error);
@@ -3832,16 +3703,6 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_20 = (::std::rc::Rc::as_ptr(&(back_1.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(c.clone()).0) as *const () as usize);
     _smelt_tmp_21 = !((::std::rc::Rc::as_ptr(&(back_1).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(c.clone()).0) as *const () as usize));
     let _ = { println!("{} {} {} {}", _smelt_tmp_19, smelt_console_number(c.0.borrow().count.clone()), _smelt_tmp_20, _smelt_tmp_21); };
-    let _smelt_tmp_23: Point = Point::new(1.0, 2.0);
-    p = _smelt_tmp_23;
-    let _smelt_tmp_24: Point = Point::new(1.0, 2.0);
-    q = _smelt_tmp_24;
-    alias = p.clone();
-    _smelt_tmp_25 = (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize);
-    _smelt_tmp_26 = (::std::rc::Rc::as_ptr(&(p.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(q.clone()).0) as *const () as usize);
-    _smelt_tmp_27 = !((::std::rc::Rc::as_ptr(&(p).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(q).0) as *const () as usize));
-    let _ = { println!("{} {} {}", _smelt_tmp_25, _smelt_tmp_26, _smelt_tmp_27); };
-    return Ok(());
         }
     }
         }
@@ -3855,6 +3716,8 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_20 = (::std::rc::Rc::as_ptr(&(back_1.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(c.clone()).0) as *const () as usize);
     _smelt_tmp_21 = !((::std::rc::Rc::as_ptr(&(back_1).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(c.clone()).0) as *const () as usize));
     let _ = { println!("{} {} {} {}", _smelt_tmp_19, smelt_console_number(c.0.borrow().count.clone()), _smelt_tmp_20, _smelt_tmp_21); };
+        }
+    }
     let _smelt_tmp_23: Point = Point::new(1.0, 2.0);
     p = _smelt_tmp_23;
     let _smelt_tmp_24: Point = Point::new(1.0, 2.0);
@@ -3865,8 +3728,4 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_27 = !((::std::rc::Rc::as_ptr(&(p).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(q).0) as *const () as usize));
     let _ = { println!("{} {} {}", _smelt_tmp_25, _smelt_tmp_26, _smelt_tmp_27); };
     return Ok(());
-        }
-    }
-        }
-    }
 }

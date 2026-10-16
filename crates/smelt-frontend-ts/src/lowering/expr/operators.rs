@@ -1882,6 +1882,35 @@ impl ModuleBuilder<'_> {
             }
         };
         let fallback_ty = Self::expr_ty(body, fallback);
+        // `||` is a TRUTHINESS test, and `OptionalCoalesce` below is a
+        // PRESENCE test: the two agree only when every present value is truthy
+        // (objects). A present `''`, `0`, `NaN` or `false` is falsy, so for a
+        // primitive left operand (`pattern[2] || LABEL`, `opts.port || 80`)
+        // the fallback is taken for those too. `optional` is one HIR value,
+        // evaluated once and read by both the test and the selected arm.
+        if matches!(
+            self.ctx.krate.types.get(ty),
+            Some(Type::String | Type::Float | Type::Int | Type::Bool)
+        ) && (fallback_ty == ty
+            || self.is_string_compatible_type(ty) && self.is_string_compatible_type(fallback_ty))
+        {
+            let span = self.span(logical.span.start, logical.span.end);
+            let cond = self.lowered_condition_expression(optional, span, body)?;
+            let present = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: optional },
+                ty,
+                span,
+            });
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Conditional {
+                    cond,
+                    then_expr: present,
+                    else_expr: fallback,
+                },
+                ty,
+                span,
+            })));
+        }
         let ty = if fallback_ty == ty {
             ty
         } else if matches!(

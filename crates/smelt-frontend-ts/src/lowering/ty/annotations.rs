@@ -2947,6 +2947,9 @@ return_ty: function.return_ty,
                 if let Some(field_ty) = self.regexp_field_type_for(name, field) {
                     return Ok(field_ty);
                 }
+                if let Some(field_ty) = self.host_data_property_type(receiver_ty, field) {
+                    return Ok(field_ty);
+                }
                 let class_item = self.class_by_symbol(name).cloned();
                 if class_item.is_none()
                     && let Some(ty) = self.in_progress_class_method_member_type(name, field)

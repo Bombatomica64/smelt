@@ -413,6 +413,46 @@ impl ModuleBuilder<'_> {
         smelt_stdlib::typescript_stdlib_class(class_name)
     }
 
+    /// The type of a modeled host class's primitive data property read off a
+    /// receiver of type `receiver_ty` (`smelt_stdlib::host_data_property`).
+    ///
+    /// The direct reads (`res.status`) already lower to modeled operations;
+    /// this answers the generic member-type question for the other readers of
+    /// the same property — an optional chain (`res?.status`, `res.body?.locked`)
+    /// in particular — which otherwise typed it `unknown` while the emitter
+    /// read the runtime's concrete value. A user class of the same name keeps
+    /// its own members.
+    pub(in crate::lowering) fn host_data_property_type(
+        &mut self,
+        receiver_ty: smelt_hir::TypeId,
+        field: smelt_hir::Symbol,
+    ) -> Option<smelt_hir::TypeId> {
+        let class = self.stdlib_class_of_type(receiver_ty)?;
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver_ty) else {
+            return None;
+        };
+        let class_name = self
+            .ctx
+            .krate
+            .names
+            .get(*name)
+            .or_else(|| self.ctx.krate.symbols.get(*name))?
+            .to_owned();
+        if self.user_class_shadows(&class_name) {
+            return None;
+        }
+        let member = self.ctx.krate.symbols.get(field)?;
+        let property = smelt_stdlib::host_data_property(class, member)?;
+        let ty = match property.ty {
+            smelt_stdlib::HostPrimitive::Number => Type::Float,
+            smelt_stdlib::HostPrimitive::Bool => Type::Bool,
+            smelt_stdlib::HostPrimitive::String => Type::String,
+            // A primitive this frontend does not know keeps the generic path.
+            _ => return None,
+        };
+        Some(self.ctx.krate.types.intern(ty))
+    }
+
     /// Resolve a source class SPELLING to its stdlib class identity.
     ///
     /// The name-keyed counterpart of [`Self::stdlib_class_of_type`], for the

@@ -2734,7 +2734,22 @@ impl ModuleBuilder<'_> {
             self.scope.pop_narrowing_scope();
         }
         let then_expr = then_expr?;
-        let branch_hint = Some(Self::expr_ty(body, then_expr));
+        // The consequent's type is the alternate's hint (`c ? [1] : []` types
+        // the empty literal as the consequent's list) — except a `null` /
+        // `undefined` consequent, which says nothing about the alternate's
+        // shape: `c ? null : d ? ['a'] : ['b']` would otherwise lower the
+        // nested array literals AGAINST `None`. Likewise a consequent that is
+        // a `never`-returning function (`c ? rethrow : (e) => handle(e)`): its
+        // return says nothing about the alternate's. The outer hint is the
+        // right one there.
+        let then_ty = Self::expr_ty(body, then_expr);
+        let branch_hint = if self.ctx.krate.types.get(then_ty) == Some(&Type::None)
+            || self.function_returns_never(then_ty)
+        {
+            type_hint
+        } else {
+            Some(then_ty)
+        };
         let else_narrowing = self.inverse_guard_narrowing(&conditional.test, body);
         if let Some(narrowing) = else_narrowing.clone() {
             self.scope.push_narrowing_scope(narrowing);
@@ -2763,6 +2778,16 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(conditional.span.start, conditional.span.end),
         }))
+    }
+
+    /// Whether `ty` is a function type whose declared return is `never`.
+    fn function_returns_never(&self, ty: smelt_hir::TypeId) -> bool {
+        let ty = self.type_param_constraint_or_self(ty);
+        matches!(
+            self.ctx.krate.types.get(ty),
+            Some(Type::Function(function))
+                if matches!(self.ctx.krate.types.get(function.return_ty), Some(Type::Never))
+        )
     }
 
     /// The type of a ternary `c ? a : b` whose arms lowered to `then_expr`
@@ -2795,7 +2820,24 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::TypeId, SmeltError> {
         let then_ty = Self::expr_ty(body, then_expr);
         let else_ty = Self::expr_ty(body, else_expr);
-        let ty = if then_ty == else_ty {
+        // `never` is the bottom type: `c ? rethrow : (e) => handle(e)`, with
+        // `rethrow: (e: unknown) => never`, is a callable returning what
+        // `handle` returns, because the `never` arm returns nothing at all.
+        // Checked before every other function rule, which would keep the
+        // `never` arm's signature and type the join's result by its erased
+        // return.
+        let never_join = if self.compatible_function_branch_types(then_ty, else_ty) {
+            match (self.function_returns_never(then_ty), self.function_returns_never(else_ty)) {
+                (true, false) => Some(else_ty),
+                (false, true) => Some(then_ty),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let ty = if let Some(joined) = never_join {
+            joined
+        } else if then_ty == else_ty {
             then_ty
         } else if self.numeric_type_compatible(then_ty, else_ty) {
             self.ctx.krate.types.intern(Type::Float)

@@ -585,6 +585,23 @@ impl<K, V> serde::Serialize for SmeltRecord<K, V> where K: Eq + ::std::hash::Has
     }
 }
 
+impl<'de, K, V> serde::Deserialize<'de> for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + serde::Deserialize<'de>, V: serde::Deserialize<'de> {
+    /// Deserialize a JSON object into a record, entry by entry.
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct SmeltRecordVisitor<K, V>(::std::marker::PhantomData<(K, V)>);
+        impl<'de, K, V> serde::de::Visitor<'de> for SmeltRecordVisitor<K, V> where K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + serde::Deserialize<'de>, V: serde::Deserialize<'de> {
+            type Value = SmeltRecord<K, V>;
+            fn expecting(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("an object") }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let record = SmeltRecord::new();
+                while let Some((key, value)) = map.next_entry::<K, V>()? { record.insert(key, value); }
+                Ok(record)
+            }
+        }
+        deserializer.deserialize_map(SmeltRecordVisitor(::std::marker::PhantomData))
+    }
+}
+
 trait SmeltOwnedOptionCloned<T> {
     /// Return owned optional values unchanged when generated shared lookup code calls `.cloned()`.
     fn cloned(self) -> Option<T>;
@@ -3383,48 +3400,28 @@ fn main() {
     if _smelt_tmp_17 {
     _smelt_tmp_19 = matches!(results.get(&name.clone().map_or(String::new(), |value| value.clone())).unwrap_or(SmeltUnion10::M0(String::new())), SmeltUnion10::M1(_));
     _smelt_tmp_18 = _smelt_tmp_19;
-    _smelt_tmp_20 = !(_smelt_tmp_18);
-    if _smelt_tmp_20 {
-    _smelt_tmp_21 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    results.insert(name.clone().map_or(String::new(), |value| value.clone()), SmeltUnion10::M1(_smelt_tmp_21.clone()));
-    _smelt_tmp_22 = Into::<SmeltList<_>>::into(match results.get(&name.clone().map_or(String::new(), |value| value.clone())).unwrap_or(SmeltUnion10::M0(String::new())) { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") });
-    _smelt_tmp_23 = { let smelt_push_item = value.clone().clone().unwrap_or(String::new()); _smelt_tmp_22.borrow_mut().push(smelt_push_item); _smelt_tmp_22.len() as f64 };
-    results.insert(name.clone().map_or(String::new(), |value| value.clone()), SmeltUnion10::M1(_smelt_tmp_22.clone()));
-    _smelt_tmp_12 = _smelt_tmp_12 + 1.0;
-    } else {
-    _smelt_tmp_22 = Into::<SmeltList<_>>::into(match results.get(&name.clone().map_or(String::new(), |value| value.clone())).unwrap_or(SmeltUnion10::M0(String::new())) { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") });
-    _smelt_tmp_23 = { let smelt_push_item = value.clone().clone().unwrap_or(String::new()); _smelt_tmp_22.borrow_mut().push(smelt_push_item); _smelt_tmp_22.len() as f64 };
-    results.insert(name.clone().map_or(String::new(), |value| value.clone()), SmeltUnion10::M1(_smelt_tmp_22.clone()));
-    _smelt_tmp_12 = _smelt_tmp_12 + 1.0;
-    }
     } else {
     _smelt_tmp_18 = false;
+    }
     _smelt_tmp_20 = !(_smelt_tmp_18);
     if _smelt_tmp_20 {
     _smelt_tmp_21 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
     results.insert(name.clone().map_or(String::new(), |value| value.clone()), SmeltUnion10::M1(_smelt_tmp_21.clone()));
-    _smelt_tmp_22 = Into::<SmeltList<_>>::into(match results.get(&name.clone().map_or(String::new(), |value| value.clone())).unwrap_or(SmeltUnion10::M0(String::new())) { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") });
-    _smelt_tmp_23 = { let smelt_push_item = value.clone().clone().unwrap_or(String::new()); _smelt_tmp_22.borrow_mut().push(smelt_push_item); _smelt_tmp_22.len() as f64 };
-    results.insert(name.clone().map_or(String::new(), |value| value.clone()), SmeltUnion10::M1(_smelt_tmp_22.clone()));
-    _smelt_tmp_12 = _smelt_tmp_12 + 1.0;
     } else {
+    }
     _smelt_tmp_22 = Into::<SmeltList<_>>::into(match results.get(&name.clone().map_or(String::new(), |value| value.clone())).unwrap_or(SmeltUnion10::M0(String::new())) { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") });
     _smelt_tmp_23 = { let smelt_push_item = value.clone().clone().unwrap_or(String::new()); _smelt_tmp_22.borrow_mut().push(smelt_push_item); _smelt_tmp_22.len() as f64 };
     results.insert(name.clone().map_or(String::new(), |value| value.clone()), SmeltUnion10::M1(_smelt_tmp_22.clone()));
-    _smelt_tmp_12 = _smelt_tmp_12 + 1.0;
-    }
-    }
     } else {
     _smelt_tmp_24 = results.clone().get(&name.clone().map_or(String::new(), |value| value.clone()));
     _smelt_tmp_25 = _smelt_tmp_24.clone().is_none();
     if _smelt_tmp_25 {
     __smelt_logical_value_6 = value.clone();
     results.insert(name.clone().map_or(String::new(), |value| value.clone()), __smelt_logical_value_6.clone().clone().map_or(SmeltUnion10::M0(String::new()), |value| SmeltUnion10::M0(value)));
-    _smelt_tmp_12 = _smelt_tmp_12 + 1.0;
     } else {
+    }
+    }
     _smelt_tmp_12 = _smelt_tmp_12 + 1.0;
-    }
-    }
     } else {
     return results.clone();
     }

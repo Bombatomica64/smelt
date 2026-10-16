@@ -3482,6 +3482,10 @@ impl SmeltBody {
     pub fn id(&self) -> usize { self.id }
     /// The spec's `bodyUsed`.
     pub fn body_used(&self) -> bool { self.used.get() }
+    /// `ReadableStream.locked`: the body has no reader API in this model, so
+    /// it is locked exactly when it has been consumed (see
+    /// `smelt_stdlib::host_data_property`).
+    pub fn locked(&self) -> bool { self.used.get() }
     /// The `Content-Type` this body implies, when it implies one.
     pub fn content_type(&self) -> Option<String> { self.content_type.clone() }
     /// Whether there is no body at all (the spec's null body).
@@ -3887,7 +3891,7 @@ fn main() {
     _smelt_tmp_14 = _smelt_tmp_13.get(&"x-a".to_owned());
     _smelt_tmp_15 = _smelt_tmp_14.clone().unwrap_or("none".to_owned());
     let _ = { println!("{}", _smelt_tmp_15); };
-    _smelt_tmp_17 = (create_response_instance)(None::<String>, None::<globalThis_ResponseInit>);
+    _smelt_tmp_17 = (create_response_instance)(None, None);
     bare = _smelt_tmp_17;
     _smelt_tmp_18 = bare.clone().status();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_18)); };

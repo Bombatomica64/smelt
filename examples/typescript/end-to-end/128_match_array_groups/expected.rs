@@ -3348,22 +3348,20 @@ pub(crate) fn describe(text: String) -> () {
     let _smelt_tmp_3: bool = !(closure_arg_0.clone().is_none());
     if _smelt_tmp_3 {
     _smelt_tmp_4 = closure_arg_0.clone();
-    _smelt_tmp_4.clone()
     } else {
     _smelt_tmp_4 = Some("U".to_owned());
-    _smelt_tmp_4.clone()
     }
+    _smelt_tmp_4.clone()
     });
     _smelt_tmp_20 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: Option<String>, closure_arg_1: i64, closure_arg_2: &SmeltList<Option<String>>| {
     let mut _smelt_tmp_4: Option<String>;
     let _smelt_tmp_3: bool = !(closure_arg_0.clone().is_none());
     if _smelt_tmp_3 {
     _smelt_tmp_4 = closure_arg_0.clone();
-    _smelt_tmp_4.clone()
     } else {
     _smelt_tmp_4 = Some("U".to_owned());
-    _smelt_tmp_4.clone()
     }
+    _smelt_tmp_4.clone()
     }); let smelt_array = _smelt_tmp_18; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     _smelt_tmp_21 = _smelt_tmp_20.borrow().iter().map(|item| { item.as_ref().map_or_else(String::new, Clone::clone) }).collect::<Vec<_>>().join(&",".to_owned());
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_13), _smelt_tmp_16, _smelt_tmp_21); };
@@ -3490,22 +3488,20 @@ pub(crate) fn first_two(text: String, pattern: SmeltRegExp) -> String {
     let _smelt_tmp_3: bool = !(closure_arg_0.clone().is_none());
     if _smelt_tmp_3 {
     _smelt_tmp_4 = closure_arg_0.clone();
-    _smelt_tmp_4.clone()
     } else {
     _smelt_tmp_4 = Some("-".to_owned());
-    _smelt_tmp_4.clone()
     }
+    _smelt_tmp_4.clone()
     });
     let _smelt_tmp_9: SmeltList<Option<String>> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: Option<String>, closure_arg_1: i64, closure_arg_2: &SmeltList<Option<String>>| {
     let mut _smelt_tmp_4: Option<String>;
     let _smelt_tmp_3: bool = !(closure_arg_0.clone().is_none());
     if _smelt_tmp_3 {
     _smelt_tmp_4 = closure_arg_0.clone();
-    _smelt_tmp_4.clone()
     } else {
     _smelt_tmp_4 = Some("-".to_owned());
-    _smelt_tmp_4.clone()
     }
+    _smelt_tmp_4.clone()
     }); let smelt_array = _smelt_tmp_7; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     let _smelt_tmp_10: String = _smelt_tmp_9.borrow().iter().map(|item| { item.as_ref().map_or_else(String::new, Clone::clone) }).collect::<Vec<_>>().join(&"|".to_owned());
     return _smelt_tmp_10;

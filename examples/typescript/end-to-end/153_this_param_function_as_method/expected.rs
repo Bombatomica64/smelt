@@ -3988,11 +3988,10 @@ pub(crate) fn match_(method: String, path: String) -> SmeltList<String> {
     _smelt_tmp_8 = closure_arg_0.clone() + &" ".to_owned();
     _smelt_tmp_9 = _smelt_tmp_8.clone() + &closure_arg_1.clone();
     _smelt_tmp_7 = Into::<SmeltList<_>>::into(table.get(&_smelt_tmp_9.clone()).unwrap_or(SmeltList::new(Vec::<String>::new())));
-    _smelt_tmp_7.clone()
     } else {
     _smelt_tmp_7 = Into::<SmeltList<_>>::into(none.clone());
-    _smelt_tmp_7.clone()
     }
+    _smelt_tmp_7.clone()
     }
 });
     let lookup = _smelt_tmp_7.clone();

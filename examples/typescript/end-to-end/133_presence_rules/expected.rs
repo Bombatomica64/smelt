@@ -623,6 +623,23 @@ impl<K, V> serde::Serialize for SmeltRecord<K, V> where K: Eq + ::std::hash::Has
     }
 }
 
+impl<'de, K, V> serde::Deserialize<'de> for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + serde::Deserialize<'de>, V: serde::Deserialize<'de> {
+    /// Deserialize a JSON object into a record, entry by entry.
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct SmeltRecordVisitor<K, V>(::std::marker::PhantomData<(K, V)>);
+        impl<'de, K, V> serde::de::Visitor<'de> for SmeltRecordVisitor<K, V> where K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + serde::Deserialize<'de>, V: serde::Deserialize<'de> {
+            type Value = SmeltRecord<K, V>;
+            fn expecting(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("an object") }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let record = SmeltRecord::new();
+                while let Some((key, value)) = map.next_entry::<K, V>()? { record.insert(key, value); }
+                Ok(record)
+            }
+        }
+        deserializer.deserialize_map(SmeltRecordVisitor(::std::marker::PhantomData))
+    }
+}
+
 trait SmeltOwnedOptionCloned<T> {
     /// Return owned optional values unchanged when generated shared lookup code calls `.cloned()`.
     fn cloned(self) -> Option<T>;
@@ -3517,6 +3534,10 @@ impl SmeltBody {
     pub fn id(&self) -> usize { self.id }
     /// The spec's `bodyUsed`.
     pub fn body_used(&self) -> bool { self.used.get() }
+    /// `ReadableStream.locked`: the body has no reader API in this model, so
+    /// it is locked exactly when it has been consumed (see
+    /// `smelt_stdlib::host_data_property`).
+    pub fn locked(&self) -> bool { self.used.get() }
     /// The `Content-Type` this body implies, when it implies one.
     pub fn content_type(&self) -> Option<String> { self.content_type.clone() }
     /// Whether there is no body at all (the spec's null body).
@@ -3783,21 +3804,21 @@ impl SmeltFromUnknown for Wrapper {
 
 #[derive(Clone)]
 pub enum SmeltUnion4 {
-    M0(Wrapper),
-    M1(SmeltRequest),
+    M0(SmeltRequest),
+    M1(Wrapper),
 }
 impl IntoSmeltUnknown for SmeltUnion4 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
-            Self::M0(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("raw".to_owned(), smelt_object_value.0.borrow().raw.clone().into_smelt_unknown())); smelt_object_entries.push(("count".to_owned(), SmeltUnknown::Number(smelt_object_value.0.borrow().count.clone() as f64))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Wrapper".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); SmeltUnknown::Object(SmeltObject::with_id(smelt_reference_object_identity(::std::rc::Rc::as_ptr(&smelt_struct_value.0) as usize), smelt_object_entries).smelt_with_origin(smelt_struct_value.clone())) },
-            Self::M1(value) => value.clone().into_smelt_unknown(),
+            Self::M0(value) => value.clone().into_smelt_unknown(),
+            Self::M1(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("raw".to_owned(), smelt_object_value.0.borrow().raw.clone().into_smelt_unknown())); smelt_object_entries.push(("count".to_owned(), SmeltUnknown::Number(smelt_object_value.0.borrow().count.clone() as f64))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Wrapper".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); SmeltUnknown::Object(SmeltObject::with_id(smelt_reference_object_identity(::std::rc::Rc::as_ptr(&smelt_struct_value.0) as usize), smelt_object_entries).smelt_with_origin(smelt_struct_value.clone())) },
         }
     }
 }
 impl SmeltUnion4 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("raw")) && matches!(&value, SmeltUnknown::Object(map) if map.contains_key("count"))) { return Self::M0(Default::default()); }
-        Self::M1(<SmeltRequest as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
+        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("raw")) && matches!(&value, SmeltUnknown::Object(map) if map.contains_key("count"))) { return Self::M1(Default::default()); }
+        Self::M0(<SmeltRequest as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
     }
 }
 impl PartialEq for SmeltUnion4 {
@@ -3819,7 +3840,7 @@ impl ::std::fmt::Debug for SmeltUnion4 {
 }
 impl Default for SmeltUnion4 {
     fn default() -> Self {
-        Self::M0(Default::default())
+        Self::M0(SmeltRequest::from_parts("about:blank", "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty()))
     }
 }
 
@@ -3889,23 +3910,23 @@ fn main() {
     let _smelt_tmp_3: SmeltRequest = SmeltRequest::from_parts_with_init(&"https://x/".to_owned(), "POST".to_owned(), SmeltHeaders::from_pairs(_smelt_tmp_2.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"a".to_owned()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     let req: SmeltRequest = _smelt_tmp_3;
     let _smelt_tmp_4 = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion4| {
-    let _smelt_tmp_1: bool = matches!(closure_arg_0.clone(), SmeltUnion4::M1(_));
+    let _smelt_tmp_1: bool = matches!(closure_arg_0.clone(), SmeltUnion4::M0(_));
     _smelt_tmp_1
     });
-    let _smelt_tmp_5: bool = (_smelt_tmp_4)(SmeltUnion4::M1(req.clone()));
+    let _smelt_tmp_5: bool = (_smelt_tmp_4)(SmeltUnion4::M0(req.clone()));
     let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion4| {
-    let _smelt_tmp_1: bool = matches!(closure_arg_0.clone(), SmeltUnion4::M1(_));
+    let _smelt_tmp_1: bool = matches!(closure_arg_0.clone(), SmeltUnion4::M0(_));
     _smelt_tmp_1
     });
     let _smelt_tmp_7: Wrapper = Wrapper::new(req.clone());
-    _smelt_tmp_8 = (_smelt_tmp_6)(SmeltUnion4::M0(_smelt_tmp_7));
+    _smelt_tmp_8 = (_smelt_tmp_6)(SmeltUnion4::M1(_smelt_tmp_7));
     let _ = { println!("{} {}", _smelt_tmp_5, _smelt_tmp_8); };
     _smelt_tmp_10 = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion4| {
-    let _smelt_tmp_1: bool = matches!(closure_arg_0.clone(), SmeltUnion4::M1(_));
+    let _smelt_tmp_1: bool = matches!(closure_arg_0.clone(), SmeltUnion4::M0(_));
     _smelt_tmp_1
     });
     let _smelt_tmp_11: Wrapper = Wrapper::new(req.clone());
-    _smelt_tmp_12 = (_smelt_tmp_10)(SmeltUnion4::M1(_smelt_tmp_11.0.borrow().raw.clone()));
+    _smelt_tmp_12 = (_smelt_tmp_10)(SmeltUnion4::M0(_smelt_tmp_11.0.borrow().raw.clone()));
     let _smelt_tmp_13: Wrapper = Wrapper::new(req.clone());
     let _smelt_tmp_14: String = _smelt_tmp_13.header();
     let _ = { println!("{} {}", _smelt_tmp_12, _smelt_tmp_14); };

@@ -2644,6 +2644,7 @@ async fn smelt_promise_race<T>(mut racers: Vec<::std::pin::Pin<Box<dyn ::std::fu
             if let ::std::task::Poll::Ready(result) = ::std::future::Future::poll(racer.as_mut(), &mut cx) { return result; }
         }
         smelt_drain_promise_tasks().await;
+        if SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; continue; }
         let id_barrier = SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get);
         let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());
         if let Some(earliest) = earliest {
@@ -3944,6 +3945,10 @@ impl SmeltBody {
     pub fn id(&self) -> usize { self.id }
     /// The spec's `bodyUsed`.
     pub fn body_used(&self) -> bool { self.used.get() }
+    /// `ReadableStream.locked`: the body has no reader API in this model, so
+    /// it is locked exactly when it has been consumed (see
+    /// `smelt_stdlib::host_data_property`).
+    pub fn locked(&self) -> bool { self.used.get() }
     /// The `Content-Type` this body implies, when it implies one.
     pub fn content_type(&self) -> Option<String> { self.content_type.clone() }
     /// Whether there is no body at all (the spec's null body).
@@ -5096,20 +5101,18 @@ pub(crate) async fn read_or_report(response: SmeltResponse, label: String) -> Re
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| { println!("{} {}", label.clone(), "read".to_owned()); })) {
         Ok(__smelt_value) => {
             let _smelt_tmp_5: () = __smelt_value;
-    return Ok(());
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let error = smelt_panic_error_value(&*__smelt_panic);
     let _ = { println!("{} {}", label.clone(), "threw".to_owned()); };
-    return Ok(());
         }
     }
         }
         Err(__smelt_error) => {
             let error = smelt_thrown_value(&*__smelt_error);
     let _ = { println!("{} {}", label.clone(), "threw".to_owned()); };
-    return Ok(());
         }
     }
+    return Ok(());
 }

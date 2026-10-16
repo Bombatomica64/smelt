@@ -2631,6 +2631,7 @@ async fn smelt_promise_race<T>(mut racers: Vec<::std::pin::Pin<Box<dyn ::std::fu
             if let ::std::task::Poll::Ready(result) = ::std::future::Future::poll(racer.as_mut(), &mut cx) { return result; }
         }
         smelt_drain_promise_tasks().await;
+        if SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; continue; }
         let id_barrier = SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get);
         let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());
         if let Some(earliest) = earliest {
@@ -3549,11 +3550,10 @@ pub(crate) fn counted(flag: bool) -> SmeltFuture<f64> {
     let _smelt_tmp_3: ();
     if flag {
     _smelt_tmp_2 = (closure_arg_0)(3.0);
-    ()
     } else {
     _smelt_tmp_3 = (closure_arg_0)(4.0);
-    ()
     }
+    ()
     }
 });
     let _smelt_tmp_2: SmeltFuture<f64> = { let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<f64, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn(f64) -> ()> = ::std::rc::Rc::new(move |value: f64| { *smelt_resolve_result.borrow_mut() = Some(Ok(value)); }); let smelt_reject: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |error: &SmeltUnknown| { *smelt_reject_result.borrow_mut() = Some(Err(smelt_throw(error.clone()))); }); let _ = &smelt_reject; (_smelt_tmp_1)(smelt_resolve); SmeltFuture::from_future(Box::pin(async move { loop { if let Some(result) = smelt_promise_result.borrow_mut().take() { break result; } tokio::task::yield_now().await; smelt_sleep_ms(0.0).await; } })) };
@@ -3570,12 +3570,11 @@ pub(crate) fn maybe(flag: bool) -> SmeltFuture<Option<f64>> {
     if flag {
     _smelt_tmp_3 = (closure_arg_0)(Some(1.0));
     _smelt_tmp_2 = _smelt_tmp_3.clone();
-    ()
     } else {
-    _smelt_tmp_4 = (closure_arg_0)(None::<f64>);
+    _smelt_tmp_4 = (closure_arg_0)(None);
     _smelt_tmp_2 = _smelt_tmp_4.clone();
-    ()
     }
+    ()
     }
 });
     let _smelt_tmp_2: SmeltFuture<Option<f64>> = { let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<Option<f64>, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn(Option<f64>) -> ()> = ::std::rc::Rc::new(move |value: Option<f64>| { *smelt_resolve_result.borrow_mut() = Some(Ok(value)); }); let smelt_reject: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |error: &SmeltUnknown| { *smelt_reject_result.borrow_mut() = Some(Err(smelt_throw(error.clone()))); }); let _ = &smelt_reject; (_smelt_tmp_1)(smelt_resolve); SmeltFuture::from_future(Box::pin(async move { loop { if let Some(result) = smelt_promise_result.borrow_mut().take() { break result; } tokio::task::yield_now().await; smelt_sleep_ms(0.0).await; } })) };
@@ -3620,13 +3619,11 @@ pub(crate) async fn entry() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_3: bool = !(closure_arg_1.clone().is_none());
     if _smelt_tmp_3 {
     _smelt_tmp_4 = closure_arg_1.clone();
-    _smelt_tmp_5 = _smelt_tmp_2.clone() + &_smelt_tmp_4.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_5.clone()
     } else {
     _smelt_tmp_4 = Some("!".to_owned());
+    }
     _smelt_tmp_5 = _smelt_tmp_2.clone() + &_smelt_tmp_4.clone().unwrap_or_else(|| "undefined".to_owned());
     _smelt_tmp_5.clone()
-    }
     });
     _smelt_tmp_19 = { let smelt_narrowed_callable = ::std::rc::Rc::new({ let _smelt_adapted_callback = _smelt_tmp_18.clone(); move |arg0: String| (_smelt_adapted_callback)(arg0, None::<String>) }); smelt_register_narrowed_callable(&smelt_narrowed_callable, { let smelt_function_value = _smelt_tmp_18.clone(); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String(((smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }, if smelt_args.get(1).is_some() { { let smelt_optional_source = smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Null); if smelt_unknown_is_nullish(&smelt_optional_source) { None } else { Some(match smelt_optional_source.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) } } } else { None::<String> })).into()))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } }); smelt_narrowed_callable };
     greet = _smelt_tmp_19.clone();

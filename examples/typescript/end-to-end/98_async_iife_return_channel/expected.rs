@@ -2608,6 +2608,7 @@ async fn smelt_promise_race<T>(mut racers: Vec<::std::pin::Pin<Box<dyn ::std::fu
             if let ::std::task::Poll::Ready(result) = ::std::future::Future::poll(racer.as_mut(), &mut cx) { return result; }
         }
         smelt_drain_promise_tasks().await;
+        if SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; continue; }
         let id_barrier = SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get);
         let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());
         if let Some(earliest) = earliest {
@@ -3468,11 +3469,11 @@ impl SmeltFromUnknown for Reply {
 }
 
 #[derive(Clone)]
-pub enum SmeltUnion2 {
+pub enum SmeltUnion3 {
     M0(Reply),
     M1(SmeltFuture<Reply>),
 }
-impl IntoSmeltUnknown for SmeltUnion2 {
+impl IntoSmeltUnknown for SmeltUnion3 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
             Self::M0(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("status".to_owned(), SmeltUnknown::Number(smelt_object_value.status as f64))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Reply".into()))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },
@@ -3480,30 +3481,30 @@ impl IntoSmeltUnknown for SmeltUnion2 {
         }
     }
 }
-impl SmeltUnion2 {
+impl SmeltUnion3 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(Default::default()); }
         Self::M1({ let smelt_erased_future = (value).into_smelt_unknown(); SmeltFuture::from_future(Box::pin(async move { let smelt_awaited = smelt_await_flatten(smelt_erased_future).await?; Ok::<_, Box<dyn std::error::Error>>(Default::default()) })) })
     }
 }
-impl PartialEq for SmeltUnion2 {
+impl PartialEq for SmeltUnion3 {
     fn eq(&self, other: &Self) -> bool {
         self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
     }
 }
-impl SmeltFromUnknown for SmeltUnion2 {
+impl SmeltFromUnknown for SmeltUnion3 {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
 }
-impl SmeltJsKeyEq for SmeltUnion2 {
+impl SmeltJsKeyEq for SmeltUnion3 {
     fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
     fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
 }
-impl ::std::fmt::Debug for SmeltUnion2 {
+impl ::std::fmt::Debug for SmeltUnion3 {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
     }
 }
-impl Default for SmeltUnion2 {
+impl Default for SmeltUnion3 {
     fn default() -> Self {
         Self::M0(Default::default())
     }
@@ -3519,12 +3520,12 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_6: Reply;
     let _smelt_tmp_9: Reply;
     let _smelt_tmp_12: ();
-    let _smelt_tmp_0: SmeltUnion2 = head(true);
-    let _smelt_tmp_1: SmeltFuture<Reply> = match _smelt_tmp_0 { SmeltUnion2::M0(value) => SmeltFuture::<Reply>::resolved(value), SmeltUnion2::M1(value) => value };
+    let _smelt_tmp_0: SmeltUnion3 = head(true);
+    let _smelt_tmp_1: SmeltFuture<Reply> = match _smelt_tmp_0 { SmeltUnion3::M0(value) => SmeltFuture::<Reply>::resolved(value), SmeltUnion3::M1(value) => value };
     _smelt_tmp_2 = _smelt_tmp_1.await?;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_2.status)); };
-    let _smelt_tmp_4: SmeltUnion2 = head(false);
-    let _smelt_tmp_5: SmeltFuture<Reply> = match _smelt_tmp_4 { SmeltUnion2::M0(value) => SmeltFuture::<Reply>::resolved(value), SmeltUnion2::M1(value) => value };
+    let _smelt_tmp_4: SmeltUnion3 = head(false);
+    let _smelt_tmp_5: SmeltFuture<Reply> = match _smelt_tmp_4 { SmeltUnion3::M0(value) => SmeltFuture::<Reply>::resolved(value), SmeltUnion3::M1(value) => value };
     _smelt_tmp_6 = _smelt_tmp_5.await?;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_6.status)); };
     let _smelt_tmp_8 = plain();
@@ -3551,12 +3552,12 @@ impl Reply {
 
 use super::*;
 
-pub(crate) fn direct() -> SmeltUnion2 {
+pub(crate) fn direct() -> SmeltUnion3 {
     let _smelt_tmp_0: Reply = Reply::new(200.0);
-    return SmeltUnion2::M0(_smelt_tmp_0);
+    return SmeltUnion3::M0(_smelt_tmp_0);
 }
 
-pub(crate) fn head(is_head: bool) -> SmeltUnion2 {
+pub(crate) fn head(is_head: bool) -> SmeltUnion3 {
     let mut _smelt_tmp_1: ::std::rc::Rc<dyn Fn() -> SmeltFuture<Reply>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> SmeltFuture<Reply>> = ::std::rc::Rc::new(move || -> SmeltFuture<Reply> { SmeltFuture::resolved(Default::default()) }); smelt_default_callback };
     if is_head {
     _smelt_tmp_1 = ::std::rc::Rc::new(move || { SmeltFuture::from_future_primed(Box::pin(async move {
@@ -3567,9 +3568,9 @@ pub(crate) fn head(is_head: bool) -> SmeltUnion2 {
         Ok::<Reply, Box<dyn std::error::Error>>(smelt_async_value)
     }) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<Reply, Box<dyn std::error::Error>>>>>) });
     let _smelt_tmp_2: SmeltFuture<Reply> = (_smelt_tmp_1)();
-    return SmeltUnion2::M1(_smelt_tmp_2);
+    return SmeltUnion3::M1(_smelt_tmp_2);
     } else {
-    let _smelt_tmp_3: SmeltUnion2 = direct();
+    let _smelt_tmp_3: SmeltUnion3 = direct();
     return _smelt_tmp_3;
     }
 }

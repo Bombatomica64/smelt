@@ -3341,13 +3341,21 @@ fn main() {
     let _smelt_tmp_18: String;
     let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: Context| {
     let accept: String;
-    let _smelt_tmp_4: String;
+    let _smelt_tmp_4: bool;
+    let mut _smelt_tmp_5: String;
+    let _smelt_tmp_6: String;
     let _smelt_tmp_2: Request = closure_arg_0.__smelt_get_req().clone();
     let _smelt_tmp_3: Option<String> = _smelt_tmp_2.header("accept".to_owned());
-    _smelt_tmp_4 = _smelt_tmp_3.clone().clone().unwrap_or("".to_owned());
-    accept = _smelt_tmp_4.clone();
-    let _smelt_tmp_5: String = closure_arg_0.text(accept.clone());
-    _smelt_tmp_5.clone()
+    _smelt_tmp_4 = _smelt_tmp_3.clone().clone().is_some_and(|value| !value.is_empty());
+    if _smelt_tmp_4 {
+    _smelt_tmp_6 = _smelt_tmp_3.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_5 = _smelt_tmp_6.clone();
+    } else {
+    _smelt_tmp_5 = "".to_owned();
+    }
+    accept = _smelt_tmp_5.clone();
+    let _smelt_tmp_7: String = closure_arg_0.text(accept.clone());
+    _smelt_tmp_7.clone()
     });
     let handler = _smelt_tmp_2.clone();
     let _smelt_tmp_3: SmeltJsMap<String, String> = SmeltJsMap::from([("content-type".to_owned(), "text/plain".to_owned()), ("accept".to_owned(), "*/*".to_owned())]);
@@ -3479,11 +3487,10 @@ pub(crate) fn present(c: Context, names: SmeltList<String>) -> SmeltList<String>
     if _smelt_tmp_4 {
     _smelt_tmp_6 = (known)(closure_arg_0.clone());
     _smelt_tmp_5 = _smelt_tmp_6;
-    _smelt_tmp_5
     } else {
     _smelt_tmp_5 = false;
-    _smelt_tmp_5
     }
+    _smelt_tmp_5
     }
 });
     let _smelt_tmp_5: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new({
@@ -3497,11 +3504,10 @@ pub(crate) fn present(c: Context, names: SmeltList<String>) -> SmeltList<String>
     if _smelt_tmp_4 {
     _smelt_tmp_6 = (known)(closure_arg_0.clone());
     _smelt_tmp_5 = _smelt_tmp_6;
-    _smelt_tmp_5
     } else {
     _smelt_tmp_5 = false;
-    _smelt_tmp_5
     }
+    _smelt_tmp_5
     }
 }); let smelt_array = names.clone(); smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
     return _smelt_tmp_5;

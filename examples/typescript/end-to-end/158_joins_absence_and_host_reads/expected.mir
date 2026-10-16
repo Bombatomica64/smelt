@@ -1,0 +1,303 @@
+fn pick (FuncId(0)) -> String
+  locals
+    %0 param token: String
+    %1 param next: String
+    %2 param prev: String
+    %3 user pattern: Optional<List<String>>
+    %4 temp: Bool
+    %5 temp: Optional<List<String>>
+    %6 temp: Bool
+    %7 temp: Optional<List<String>>
+    %8 temp: Bool
+    %9 temp: List<String>
+    %10 temp: List<String>
+    %11 temp: List<String>
+    %12 temp: Bool
+    %13 temp: Optional<String>
+    %14 temp: Optional<List<String>>
+    %15 temp: Optional<String>
+  bb0:
+    %4 = copy %0 == "*"
+    switch move %4 ? bb1 : bb2
+  bb1:
+    %6 = copy %1[0.0] != "/"
+    switch move %6 ? bb3 : bb4
+  bb2:
+    %5 = none
+    goto bb9
+  bb3:
+    %7 = none
+    goto bb8
+  bb4:
+    %8 = copy %2 == "/"
+    switch move %8 ? bb5 : bb6
+  bb5:
+    %10 = ["", "", "label"]
+    %9 = move %10
+    goto bb7
+  bb6:
+    %11 = ["", "", "prefixed"]
+    %9 = move %11
+    goto bb7
+  bb7:
+    %7 = move %9
+    goto bb8
+  bb8:
+    %5 = move %7
+    goto bb9
+  bb9:
+    %3 = move %5
+    %12 = primitive_cast_bool copy %3
+    switch move %12 ? bb10 : bb11
+  bb10:
+    %14 = copy %3
+    %15 = move %3?.[2.0]
+    %13 = move %15
+    goto bb12
+  bb11:
+    %13 = "none"
+    goto bb12
+  bb12:
+    return move %13
+
+fn choose_handler (FuncId(1)) -> fn(Unknown) -> Float
+  locals
+    %0 param strict: Bool
+    %1 user handler: fn(Unknown) -> Float
+    %2 temp: fn(Unknown) -> Float
+    %3 temp: fn(Unknown) -> Never
+    %4 temp: fn(Unknown) -> Float
+  bb0:
+    switch copy %0 ? bb1 : bb2
+  bb1:
+    %3 = closure ClosureId(0) []
+    %2 = move %3
+    goto bb3
+  bb2:
+    %4 = closure ClosureId(1) []
+    %2 = move %4
+    goto bb3
+  bb3:
+    %1 = move %2
+    return move %1
+
+fn label_of (FuncId(2)) -> String
+  locals
+    %0 param parts: List<String>
+    %1 param index: Float
+    %2 temp: Bool
+    %3 temp: String
+  bb0:
+    %2 = copy %0[copy %1] != ""
+    switch move %2 ? bb1 : bb2
+  bb1:
+    %3 = copy %0[copy %1]
+    goto bb3
+  bb2:
+    %3 = "fallback"
+    goto bb3
+  bb3:
+    return move %3
+
+fn port_of (FuncId(3)) -> Float
+  locals
+    %0 param ports: List<Float>
+    %1 temp: Bool
+    %2 temp: Float
+  bb0:
+    %1 = copy %0[0.0] != 0.0
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = copy %0[0.0]
+    goto bb3
+  bb2:
+    %2 = 80.0
+    goto bb3
+  bb3:
+    return move %2
+
+async fn response_facts (FuncId(4)) -> None
+  locals
+    %0 user maybe: Optional<Response>
+    %1 user missing: Optional<Response>
+    %2 user status: Optional<Float>
+    %3 temp: Response
+    %4 temp: Optional<Float>
+    %5 temp: Optional<Bool>
+    %6 temp: Optional<String>
+    %7 temp: Optional<Float>
+    %8 temp: None
+    %9 temp: Bool
+    %10 temp: Response
+    %11 temp: Optional<ReadableStream>
+    %12 temp: Optional<Bool>
+    %13 temp: Response
+    %14 temp: Bool
+    %15 temp: None
+    %16 temp: Response
+    %17 temp: Future<String>
+    %18 temp: String
+    %19 temp: Response
+    %20 temp: Optional<ReadableStream>
+    %21 temp: Optional<Bool>
+    %22 temp: Response
+    %23 temp: Bool
+    %24 temp: None
+  bb0:
+    %3 = response_new body="hi" status=201.0 status_text="Made"
+    %0 = move %3
+    %1 = undefined
+    %4 = copy %0?.field22
+    %2 = move %4
+    %5 = copy %0?.field23
+    %6 = copy %0?.field24
+    %7 = move %1?.field22
+    %8 = call @console_log(move %2, move %5, move %6, move %7) -> bb1
+  bb1:
+    %9 = copy %0 != none
+    switch move %9 ? bb2 : bb3
+  bb2:
+    %10 = copy %0
+    %11 = response_body move %10
+    %12 = move %11?.field27
+    %13 = copy %0
+    %14 = response_body_used move %13
+    %15 = call @console_log("locked before", move %12, move %14) -> bb4
+  bb3:
+    return none
+  bb4:
+    %16 = copy %0
+    %17 = response_text move %16
+    %18 = await move %17
+    %19 = copy %0
+    %20 = response_body move %19
+    %21 = move %20?.field27
+    %22 = move %0
+    %23 = response_body_used move %22
+    %24 = call @console_log("locked after", move %21, move %23) -> bb5
+  bb5:
+    goto bb3
+
+fn rethrow__module_examples/typescript/end-to-end/158_joins_absence_and_host_reads/input.ts (FuncId(5)) -> Never throws
+  locals
+    %0 param err: Unknown
+  bb0:
+    throw copy %0
+
+fn handle__module_examples/typescript/end-to-end/158_joins_absence_and_host_reads/input.ts (FuncId(6)) -> Float
+  locals
+    %0 param err: Unknown
+    %1 temp: String
+    %2 temp: Float
+  bb0:
+    %1 = primitive_cast_string copy %0
+    %2 = len move %1
+    return move %2
+
+async fn main (FuncId(7)) -> None throws
+  locals
+    %0 user error: Unknown
+    %1 temp: String
+    %2 temp: String
+    %3 temp: String
+    %4 temp: String
+    %5 temp: None
+    %6 temp: fn(Unknown) -> Float
+    %7 temp: Float
+    %8 temp: None
+    %9 temp: fn(Unknown) -> Float
+    %10 temp: Float
+    %11 temp: None
+    %12 temp: List<String>
+    %13 temp: String
+    %14 temp: List<String>
+    %15 temp: String
+    %16 temp: List<String>
+    %17 temp: String
+    %18 temp: None
+    %19 temp: List<Float>
+    %20 temp: Float
+    %21 temp: List<Float>
+    %22 temp: Float
+    %23 temp: List<Float>
+    %24 temp: Float
+    %25 temp: None
+    %26 temp: Future<None>
+    %27 temp: None
+    %28 temp: Future<None>
+    %29 temp: None
+  bb0:
+    %1 = call fn0("*", "/x", "/") -> bb1
+  bb1:
+    %2 = call fn0("*", "/x", "a") -> bb2
+  bb2:
+    %3 = call fn0("*", "x", "/") -> bb3
+  bb3:
+    %4 = call fn0("x", "", "") -> bb4
+  bb4:
+    %5 = call @console_log(move %1, move %2, move %3, move %4) -> bb5
+  bb5:
+    %6 = call fn1(false) -> bb6
+  bb6:
+    %7 = closure_call move %6("four")
+    %8 = call @console_log(move %7) -> bb7
+  bb7:
+    goto bb8
+  bb8:
+    %9 = call fn1(true) -> bb11 unwind bb10
+  bb9:
+    %12 = ["a", "", "c"]
+    %13 = call fn2(move %12, 0.0) -> bb14
+  bb10:
+    %11 = call @console_log("rethrown", move %0) -> bb13
+  bb11:
+    %10 = call move %9("boom") -> bb12 unwind bb10
+  bb12:
+    goto bb9
+  bb13:
+    goto bb9
+  bb14:
+    %14 = ["a", "", "c"]
+    %15 = call fn2(move %14, 1.0) -> bb15
+  bb15:
+    %16 = ["a"]
+    %17 = call fn2(move %16, 5.0) -> bb16
+  bb16:
+    %18 = call @console_log(move %13, move %15, move %17) -> bb17
+  bb17:
+    %19 = [8080.0]
+    %20 = call fn3(move %19) -> bb18
+  bb18:
+    %21 = [0.0]
+    %22 = call fn3(move %21) -> bb19
+  bb19:
+    %23 = []
+    %24 = call fn3(move %23) -> bb20
+  bb20:
+    %25 = call @console_log(move %20, move %22, move %24) -> bb21
+  bb21:
+    %26 = call fn4() -> bb22
+  bb22:
+    %27 = async_spawn_local(move %26)
+    %28 = async_exit_drain()
+    %29 = await move %28
+    return none
+
+closure ClosureId(0) -> Never throws
+  locals
+    %0 param err: Unknown
+    %1 temp: Never
+  bb0:
+    %1 = call fn5(copy %0) -> bb1
+  bb1:
+    return copy %1
+
+closure ClosureId(1) -> Float
+  locals
+    %0 param __callback_param_0: Unknown
+    %1 temp: Float
+  bb0:
+    %1 = call fn6(copy %0) -> bb1
+  bb1:
+    return copy %1
+

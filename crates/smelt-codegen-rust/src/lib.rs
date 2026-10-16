@@ -588,6 +588,7 @@ fn needs_timer_helpers(mir: &Mir) -> bool {
                     | AsyncOp::Promise
                     | AsyncOp::Then
                     | AsyncOp::Catch
+                    | AsyncOp::Finally
                     // `Promise.race` is backed by `smelt_promise_race`, which
                     // lives with the timer helpers because it drives the same
                     // cooperative promise-task queue.
@@ -1712,6 +1713,28 @@ fn emit_source_with_free_function_router(
             writer.line("        let mut map = serde::Serializer::serialize_map(serializer, Some(store.len()))?;");
             writer.line("        for entry in store.entries() { serde::ser::SerializeMap::serialize_entry(&mut map, &entry.key, &entry.value)?; }");
             writer.line("        serde::ser::SerializeMap::end(map)");
+            writer.line("    }");
+            writer.line("}");
+            writer.blank_line();
+            // The inverse: a JSON object read into a record field of a struct
+            // that derives `Deserialize` (`idp?: Record<string, string>` on an
+            // interface parsed with `JSON.parse`). Entries go through `insert`,
+            // so the record's key order is JavaScript's own-key order — the
+            // order `JSON.parse` would give the object.
+            writer.line("impl<'de, K, V> serde::Deserialize<'de> for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + serde::Deserialize<'de>, V: serde::Deserialize<'de> {");
+            writer.line("    /// Deserialize a JSON object into a record, entry by entry.");
+            writer.line("    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {");
+            writer.line("        struct SmeltRecordVisitor<K, V>(::std::marker::PhantomData<(K, V)>);");
+            writer.line("        impl<'de, K, V> serde::de::Visitor<'de> for SmeltRecordVisitor<K, V> where K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + serde::Deserialize<'de>, V: serde::Deserialize<'de> {");
+            writer.line("            type Value = SmeltRecord<K, V>;");
+            writer.line("            fn expecting(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str(\"an object\") }");
+            writer.line("            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {");
+            writer.line("                let record = SmeltRecord::new();");
+            writer.line("                while let Some((key, value)) = map.next_entry::<K, V>()? { record.insert(key, value); }");
+            writer.line("                Ok(record)");
+            writer.line("            }");
+            writer.line("        }");
+            writer.line("        deserializer.deserialize_map(SmeltRecordVisitor(::std::marker::PhantomData))");
             writer.line("    }");
             writer.line("}");
             writer.blank_line();
@@ -4953,6 +4976,16 @@ fn emit_source_with_free_function_router(
                 "        {drain_promise_tasks}().await;",
                 drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
             ));
+            // A race reached during an async function's EAGER PREFIX poll
+            // (`SmeltFuture::from_future_primed`) is not idle when every racer is
+            // pending: under priming a racer yields before it has run its own
+            // synchronous prefix (`smelt_sleep_ms`), so it may not have scheduled
+            // its timer yet. Advancing the clock then fired the OTHER racer's
+            // timer first — `Promise.race([work(), timeout])` inside a function
+            // called from a `.then` callback rejected with the timeout even when
+            // the work was due long before it. The race yields instead, which
+            // ends the single prime poll; it resumes as an ordinary await.
+            writer.line("        if SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; continue; }");
             // Every racer is pending, so the event loop is idle: take exactly ONE
             // timer step — advance to the earliest pending due time and fire the
             // timers due at that instant — then re-poll everyone. Timers scheduled

@@ -510,7 +510,7 @@ pub(super) fn widen_throwing_closure_types(mir: &mut Mir) {
                 continue;
             }
             function_ty.may_throw = true;
-            function_ty.return_ty = return_ty;
+            function_ty.return_ty = widened_throwing_return(&mir.types, function_ty.return_ty, return_ty);
             let widened = mir.types.intern(Type::Function(function_ty));
             if let Some(local_decl_mut) = local_index(local).and_then(|index| {
                 mir.functions
@@ -617,7 +617,7 @@ pub(super) fn widen_throwing_closure_types(mir: &mut Mir) {
                 continue;
             }
             function_ty.may_throw = true;
-            function_ty.return_ty = return_ty;
+            function_ty.return_ty = widened_throwing_return(&mir.types, function_ty.return_ty, return_ty);
             let widened = mir.types.intern(Type::Function(function_ty));
             if let Some(local_decl_mut) = local_index(local).and_then(|index| {
                 mir.closures
@@ -765,12 +765,32 @@ fn widen_function_local_from_source(
         return false;
     }
     dest_fn.may_throw = true;
-    dest_fn.return_ty = source_fn.return_ty;
+    dest_fn.return_ty = widened_throwing_return(types, dest_fn.return_ty, source_fn.return_ty);
     let widened = types.intern(Type::Function(dest_fn));
     if let Some(local) = local_index(dest).and_then(|index| locals.get_mut(index)) {
         local.ty = widened;
         true
     } else {
         false
+    }
+}
+
+/// The return type a function-typed slot takes when a THROWING callable is
+/// stored in it and the slot is widened to `may_throw`.
+///
+/// The stored callable's return is normally the precise one, but `never` is
+/// the bottom type: a callable that never returns says nothing about what the
+/// slot's other callables return (`c ? rethrow : (e) => handle(e)`, with
+/// `rethrow: (e: unknown) => never`, still returns `handle`'s result). Taking
+/// `never` retyped such a slot's every call result to the erased bottom.
+fn widened_throwing_return(
+    types: &smelt_hir::TypeInterner,
+    slot_return: smelt_hir::TypeId,
+    stored_return: smelt_hir::TypeId,
+) -> smelt_hir::TypeId {
+    if matches!(types.get(stored_return), Some(Type::Never)) {
+        slot_return
+    } else {
+        stored_return
     }
 }
