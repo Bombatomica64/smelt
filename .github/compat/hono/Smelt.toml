@@ -18,8 +18,10 @@ test-prefix = ["**/*.test.ts"]
 # The list is short on purpose. The campaign started from the whole of `src/`
 # and `smelt check --message-format json` was used to decide what actually
 # cannot be in the profile, rather than assuming the obvious candidates: with
-# host globals modeled as erased value closures, `src/adapter/**`, `src/jsx/**`
-# and `src/helper/{html,css,ssg}` all lower today and are NOT excluded.
+# host globals modeled as erased value closures, `src/jsx/**` and
+# `src/helper/{html,css,ssg}` all lower today and are NOT excluded. (Hono v5
+# moved the runtime adapters out of `src/adapter/**` into the workspace
+# packages `adapters/*`, so they are no longer part of this probe at all.)
 #
 # `[sources] exclude` prunes the dependency CLOSURE, not only the root set, so
 # a module reached transitively is genuinely removed from the crate. Type-only
@@ -54,9 +56,6 @@ exclude = [
   # `vi.stubGlobal('caches'/'crypto', ...)` (8 call sites): replacing a host
   # global wholesale is the monkey-patching model Smelt does not have.
   "src/middleware/cache/index.test.ts",
-  # `vi.stubGlobal` + `vi.unstubAllGlobals` around the service-worker global
-  # scope; same monkey-patching model as above.
-  "src/adapter/service-worker/handler.test.ts",
   # `vi.spyOn(global.crypto, 'subtle', 'get')` is an accessor spy on a host
   # global: neither the getter form of `vi.spyOn` nor global replacement is
   # modeled.
@@ -77,8 +76,7 @@ exclude = [
   # fixed. Derived mechanically (`smelt check --message-format json` on the
   # full test closure + the build-only blockers `smelt build` reports), and
   # kept to test files so no library module is pruned. Type-only imports
-  # still pull a module into the closure, which is why e.g.
-  # `lambda-edge/conninfo.test.ts` is here.
+  # still pull a module into the closure.
   #
   # Sequential `expect(..).toThrow()` duplicates the continuation: 616 MB
   # module, rustc OOM (round 2 item). phase 3 pending.
@@ -113,8 +111,6 @@ exclude = [
   "src/middleware/bearer-auth/index.test.ts",
   # Unresolved `ReadableStream`/`TransformStream`/`(De)CompressionStream`
   # (the test or a module it reaches). phase 3 pending.
-  "src/adapter/aws-lambda/handler.test.ts",
-  "src/adapter/lambda-edge/handler.test.ts",
   "src/helper/accepts/accepts.test.ts",
   "src/middleware/body-limit/index.test.ts",
   "src/middleware/compress/index.test.ts",
@@ -122,11 +118,6 @@ exclude = [
   "src/middleware/etag/index.test.ts",
   "src/middleware/serve-static/index.test.ts",
   "src/utils/stream.test.ts",
-  # Unresolved `EventTarget` + adapter modules importing values from the
-  # excluded `helper/websocket`. phase 3 pending.
-  "src/adapter/bun/websocket.test.ts",
-  "src/adapter/cloudflare-workers/websocket.test.ts",
-  "src/adapter/deno/websocket.test.ts",
   # Unmodeled runtime globals / host modules reached by the module under
   # test (`Deno`, `navigator`; `node:async_hooks`). phase 3 pending.
   "src/helper/adapter/index.test.ts",
@@ -146,7 +137,6 @@ exclude = [
   "src/middleware/pretty-json/index.test.ts",
   # Array/string/index builtins on an erased or optional receiver (string
   # case, `concat`, `splice`, index on Optional). phase 3 pending.
-  "src/adapter/lambda-edge/conninfo.test.ts",
   "src/utils/filepath.test.ts",
   "src/utils/ipaddr.test.ts",
   "src/middleware/ip-restriction/index.test.ts",
@@ -167,11 +157,14 @@ exclude = [
   "src/router/reg-exp-router/prepared-router.test.ts",
   "src/utils/types.test.ts",
   "src/request.test.ts",
-  "src/adapter/cloudflare-pages/handler.test.ts",
   "src/validator/validator.test.ts",
   # Tagged templates with a user-defined tag (+ assignment-target gap in
   # `helper/html`). phase 3 pending.
   "src/helper/html/index.test.ts",
+  # New in v5. A user-defined tagged template in the test itself, the
+  # `asserted call callee must be a function` gap in `define-handler.ts`, and
+  # the `jsx/**` runtime closure (below) it reaches. phase 3 pending.
+  "src/helper/factory/define-handler.test.ts",
   # The `jsx/**` runtime closure (10 modules, ~15 classes: see families).
   # phase 3 pending.
   "src/jsx/children.test.ts",
@@ -181,20 +174,9 @@ exclude = [
   # pulling library modules into the crate with generated-Rust errors
   # (measured on the 99-module build: 125 errors, table in hono-current.md).
   #
-  # The `Context` class / `reg-exp-router` `Context` interface collision that
-  # used to exclude the other conninfo tests is fixed (early consumers now
-  # resolve the renamed `Context_1`); these still fail for other reasons:
-  # `aws-lambda/types.ts` records derive `serde::Deserialize` over
-  # `SmeltRecord` (8 E0277); `helper/route` compares
-  # `SmeltList<RouterRoute>` with `!=` (E0369, no `PartialEq`).
-  # phase 3 pending.
-  "src/adapter/aws-lambda/conninfo.test.ts",
+  # `helper/route` compares `SmeltList<RouterRoute>` with `!=` (E0369, no
+  # `PartialEq`). phase 3 pending.
   "src/helper/route/index.test.ts",
-  # `middleware/serve-static/index.ts` emits a 37 MB `serve_static_index.rs`
-  # (34k lines of repeated async-closure bodies) that rustc does not finish
-  # checking in 40 min; the 28 E0308s (`Option<f64>` vs `SmeltResponse`)
-  # reported earlier are behind it. phase 3 pending.
-  "src/adapter/cloudflare-workers/serve-static.test.ts",
   # Reach library modules with generated-Rust errors: `utils/accept.ts`
   # (E0308 tuple `Option<Accept>`), `utils/basic-auth.ts` (E0308
   # `SmeltMatch`), `utils/concurrent.ts` (E0425 capture name, E0605, E0308
