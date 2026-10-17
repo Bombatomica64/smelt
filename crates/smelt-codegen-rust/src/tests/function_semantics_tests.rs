@@ -341,3 +341,76 @@ function run(): void {
         "the erased adapter must call the callback and propagate its throw: {source}"
     );
 }
+
+/// `never` is the bottom type of a function join.
+///
+/// `strict ? rethrow : (err) => handle(err)`, with `rethrow: (err) => never`,
+/// is a callable returning what `handle` returns. Both the frontend's ternary
+/// join and MIR's throwing-closure widening used to take the `never` arm's
+/// return, so the joined slot returned an erased value and `handle`'s `f64`
+/// was adapted into it.
+#[test]
+fn never_returning_arm_does_not_type_a_function_join() {
+    let source = source_for(
+        r"
+class Failure {
+  message: string
+  constructor(message: string) {
+    this.message = message
+  }
+}
+const rethrow = (err: Failure): never => {
+  throw err
+}
+const handle = (err: Failure): number => err.message.length
+export function chooseHandler(strict: boolean): (err: Failure) => number {
+  const handler = strict ? rethrow : (err: Failure) => handle(err)
+  return handler
+}
+",
+    );
+    assert!(
+        source.contains(
+            "let handler: ::std::rc::Rc<dyn Fn(Failure) -> Result<f64, Box<dyn std::error::Error>>>;"
+        ),
+        "the joined handler must return `handle`'s number (throwing, because `rethrow` throws):\n{source}"
+    );
+}
+
+/// A property read on a concrete union whose arms do not all declare the
+/// property reads it PER ARM, typed: the record arm's optional field, the
+/// `Response` arm's host data property, and `undefined` for the `number` arm
+/// (`(5).status` is `undefined` in JavaScript).
+///
+/// Before, the read went through the erased `smelt_get_unknown_field` path,
+/// and because nothing else in this program is erased the crate had no
+/// `unknown` type to answer with: emission failed with "type table does not
+/// contain literal operand type Unknown". Node prints `404 201 200 500` for
+/// this source; the `fetch_init_runtime` tier runs it.
+#[test]
+fn union_property_read_is_typed_per_arm() {
+    let source = source_for(
+        r"
+interface PlainInit {
+  status?: number;
+}
+export function pickStatus(arg?: number | PlainInit | Response): number {
+  return typeof arg === 'number' ? arg : (arg?.status ?? 200);
+}
+",
+    );
+    assert!(
+        source.contains("M0(_) => None")
+            && source.contains("(smelt_union_arm) => smelt_union_arm.status.clone()")
+            && source.contains("(smelt_union_arm) => Some(smelt_union_arm.status())"),
+        "each union arm must answer `status` with its own typed read:\n{source}"
+    );
+    let function = source
+        .split_once("fn pick_status")
+        .and_then(|(_, rest)| rest.split_once("\n}\n"))
+        .map_or("", |(body, _)| body);
+    assert!(
+        !function.is_empty() && !function.contains("smelt_get_unknown_field"),
+        "the read must not be erased:\n{function}"
+    );
+}

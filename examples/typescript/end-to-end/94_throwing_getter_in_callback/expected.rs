@@ -3327,21 +3327,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_16: String = __smelt_value;
     caught = "no throw".to_owned();
-    let _ = { println!("{}", caught); };
-    return Ok(());
         }
         Ok(Err(__smelt_error)) => {
     caught = "threw".to_owned();
-    let _ = { println!("{}", caught); };
-    return Ok(());
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
     caught = "threw".to_owned();
-    let _ = { println!("{}", caught); };
-    return Ok(());
         }
     }
+    let _ = { println!("{}", caught); };
+    return Ok(());
 }
 
 impl Registry {

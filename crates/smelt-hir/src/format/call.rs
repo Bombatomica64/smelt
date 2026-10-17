@@ -1450,6 +1450,7 @@ fn async_op_text(op: AsyncOp, args: &[ExprId]) -> String {
         AsyncOp::Promise => "async_promise",
         AsyncOp::Then => "async_then",
         AsyncOp::Catch => "async_catch",
+        AsyncOp::Finally => "async_finally",
         AsyncOp::SpawnLocal => "async_spawn_local",
         AsyncOp::CreateTask => "async_create_task",
         AsyncOp::WaitFor => "async_wait_for",

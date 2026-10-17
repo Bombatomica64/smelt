@@ -132,6 +132,7 @@ mod map;
 mod numeric;
 mod optional_access;
 mod place;
+mod post_dominance;
 mod receiver_bound_slot;
 mod record_slot_abi;
 mod render_scope;
@@ -146,6 +147,7 @@ mod set;
 mod strings;
 mod strings_io;
 mod throw;
+mod throwing_join;
 mod tuple;
 mod typeof_str_locals;
 mod types;
@@ -1126,6 +1128,9 @@ pub(crate) struct FunctionEmitter<'mir> {
     folded_throw_payloads: HashSet<LocalId>,
     /// Cached termination queries for this function CFG.
     termination_cache: RefCell<HashMap<smelt_mir::BlockId, bool>>,
+    /// Immediate post-dominator of every block of this function CFG, computed
+    /// on first use (see `post_dominance`).
+    post_dominators: RefCell<Option<Vec<Option<smelt_mir::BlockId>>>>,
     /// Cached loop-exit shape queries keyed by block, continue target, and break target.
     loop_exit_cache:
         RefCell<HashMap<(smelt_mir::BlockId, smelt_mir::BlockId, smelt_mir::BlockId), bool>>,

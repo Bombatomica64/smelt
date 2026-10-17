@@ -48,11 +48,26 @@ impl FunctionEmitter<'_> {
                     self.type_id(Type::Unknown)?,
                 )
             } else {
-                let rendered = args
+                // The slot is a Rust closure with the borrowed-callback ABI of
+                // any other callable value: a `&T` parameter takes a reference.
+                let mut rendered = args
                     .iter()
                     .zip(function.params.iter())
-                    .map(|(arg, param)| self.value_at_type(arg, *param))
+                    .enumerate()
+                    .map(|(index, (arg, param))| {
+                        if self.callback_param_is_shared_reference(&function, index, *param) {
+                            self.shared_reference_argument_text(arg, *param)
+                        } else {
+                            self.closure_value_argument_text(arg, *param)
+                        }
+                    })
                     .collect::<Result<Vec<_>, EmitError>>()?;
+                // A call may omit trailing optional parameters; the slot is a
+                // Rust closure, which takes every one.
+                for (index, param) in function.params.iter().enumerate().skip(args.len()) {
+                    let padding = self.closure_value_padding_text(*param)?;
+                    rendered.push(self.callback_call_arg_text(&function, index, *param, padding));
+                }
                 let call = format!("({slot_text})({})", rendered.join(", "));
                 let call = if function.may_throw {
                     if self.body_can_propagate_error() {
@@ -1104,8 +1119,8 @@ impl FunctionEmitter<'_> {
                     ));
                 }
                 if *op == smelt_hir::BinOp::UShr {
-                    let lhs_text = self.operand_text(lhs)?;
-                    let rhs_text = self.operand_text(rhs)?;
+                    let lhs_text = self.bitwise_operand_number_text(lhs)?;
+                    let rhs_text = self.bitwise_operand_number_text(rhs)?;
                     let lhs_trunc_text = self.numeric_trunc_f64_text(&lhs_text);
                     let rhs_trunc_text = self.numeric_trunc_f64_text(&rhs_text);
                     return Ok(format!(
@@ -1113,8 +1128,8 @@ impl FunctionEmitter<'_> {
                     ));
                 }
                 if matches!(*op, smelt_hir::BinOp::Shl | smelt_hir::BinOp::Shr) {
-                    let lhs_text = self.operand_text(lhs)?;
-                    let rhs_text = self.operand_text(rhs)?;
+                    let lhs_text = self.bitwise_operand_number_text(lhs)?;
+                    let rhs_text = self.bitwise_operand_number_text(rhs)?;
                     let lhs_trunc_text = self.numeric_trunc_f64_text(&lhs_text);
                     let rhs_trunc_text = self.numeric_trunc_f64_text(&rhs_text);
                     let op_text = smelt_hir::bin_op_text(*op);
@@ -1134,8 +1149,8 @@ impl FunctionEmitter<'_> {
                     // JavaScript bitwise `&`, `|`, `^` coerce both operands with
                     // `ToInt32` (truncate to integer, take modulo 2^32 as a signed
                     // 32-bit value), operate, and yield a signed 32-bit number.
-                    let lhs_text = self.operand_text(lhs)?;
-                    let rhs_text = self.operand_text(rhs)?;
+                    let lhs_text = self.bitwise_operand_number_text(lhs)?;
+                    let rhs_text = self.bitwise_operand_number_text(rhs)?;
                     let lhs_trunc_text = self.numeric_trunc_f64_text(&lhs_text);
                     let rhs_trunc_text = self.numeric_trunc_f64_text(&rhs_text);
                     let op_text = smelt_hir::bin_op_text(*op);
@@ -1821,7 +1836,7 @@ impl FunctionEmitter<'_> {
                                 // whole-list copy that made array callbacks quadratic.
                                 self.shared_reference_argument_text(arg, *param)?
                             } else {
-                                self.value_at_type(arg, *param)?
+                                self.closure_value_argument_text(arg, *param)?
                             };
                             if self.type_text(*param)? == "Vec<SmeltUnknown>"
                                 && text
@@ -1843,7 +1858,7 @@ impl FunctionEmitter<'_> {
                     // `isEqualWith` calls a six-parameter comparator with two
                     // required arguments and four padded ones.
                     for (index, param) in params.iter().enumerate().skip(args.len()) {
-                        let default_text = self.default_value(*param)?;
+                        let default_text = self.closure_value_padding_text(*param)?;
                         rendered_args.push(match (abi_function.as_ref(), rest_function) {
                             (Some(function), _) => match function.params.get(index) {
                                 Some(declared) => self.callback_call_arg_text(
@@ -2418,6 +2433,9 @@ impl FunctionEmitter<'_> {
         if let Some(Type::Dict(_, value)) = self.mir.types.get(receiver_ty) {
             return Ok(*value);
         }
+        if let Some((read_ty, _)) = self.concrete_union_member_reads(receiver_ty, field)? {
+            return Ok(read_ty);
+        }
         if matches!(
             self.mir.types.get(receiver_ty),
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
@@ -2432,6 +2450,14 @@ impl FunctionEmitter<'_> {
         // `SmeltUnknown::Number`).
         if matches!(self.mir.types.get(receiver_ty), Some(Type::String)) {
             return Ok(self.string_field_read("", field)?.1);
+        }
+        if let Some(property) = self.host_data_property(receiver_ty, field)? {
+            return self.type_id(match property.ty {
+                smelt_stdlib::HostPrimitive::Number => Type::Float,
+                smelt_stdlib::HostPrimitive::Bool => Type::Bool,
+                smelt_stdlib::HostPrimitive::String => Type::String,
+                _ => return Err(EmitError::new("host data property of an unmodeled primitive type")),
+            });
         }
         // Likewise for a concrete `RegExp` receiver (see `regexp_field_text`).
         if let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty)
@@ -2757,12 +2783,86 @@ impl FunctionEmitter<'_> {
 
 
     /// Emits a field read against a named in-scope receiver value.
+    /// Render `arg` passed to a closure VALUE's `param`.
+    ///
+    /// A closure value (`Rc<dyn Fn ..>`) is never generic, so its own signature
+    /// fixes every argument's type, and an absent argument (`undefined` passed
+    /// or padded for an optional parameter) is a bare `None` — what a hand port
+    /// writes. Spelling `None::<T>` from the CALLER's view of the signature
+    /// breaks whenever that view is less precise than the callee's: a callable
+    /// interface's signature predeclared for an import cycle is lowered before
+    /// an alias it names can resolve (`headers?: HeaderRecord`, whose
+    /// `BaseMime` is computed from a const object), while the slot's real type
+    /// is the precise one.
+    pub(super) fn closure_value_argument_text(
+        &self,
+        arg: &Operand,
+        param: TypeId,
+    ) -> Result<String, EmitError> {
+        if matches!(arg, Operand::Const(Constant::Undefined | Constant::None))
+            && matches!(self.mir.types.get(param), Some(Type::Optional(_)))
+        {
+            return Ok("None".to_owned());
+        }
+        self.value_at_type(arg, param)
+    }
+
+    /// The padding for an omitted argument to a closure value's `param`; see
+    /// [`Self::closure_value_argument_text`].
+    pub(super) fn closure_value_padding_text(&self, param: TypeId) -> Result<String, EmitError> {
+        if matches!(self.mir.types.get(param), Some(Type::Optional(_))) {
+            return Ok("None".to_owned());
+        }
+        self.default_value(param)
+    }
+
+    /// An operand of a bitwise or shift operator, as a JavaScript number.
+    ///
+    /// Those operators apply `ToNumber` and then `ToInt32`/`ToUint32` to each
+    /// operand. A statically numeric operand is already the number; any other
+    /// (an erased value, a boolean) is converted with the same `ToNumber`
+    /// coercion the comparison operators use. A bare `as f64` cast is only
+    /// valid Rust for a primitive, so an erased operand (`opt.maxAge | 0` on an
+    /// erased options record) did not compile.
+    fn bitwise_operand_number_text(&self, operand: &Operand) -> Result<String, EmitError> {
+        let ty = self.operand_ty(operand)?;
+        if matches!(self.mir.types.get(ty), Some(Type::Int | Type::Float)) {
+            return self.operand_text(operand);
+        }
+        let float_ty = self.type_id(Type::Float)?;
+        Ok(format!("({})", self.value_at_type(operand, float_ty)?))
+    }
+
+    /// The modeled host data property `field` names on a `receiver_ty`
+    /// receiver, if any (`smelt_stdlib::host_data_property`): a value the
+    /// runtime type COMPUTES, so it is read through an accessor, never a field.
+    pub(super) fn host_data_property(
+        &self,
+        receiver_ty: TypeId,
+        field: Symbol,
+    ) -> Result<Option<smelt_stdlib::HostDataProperty>, EmitError> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty) else {
+            return Ok(None);
+        };
+        // A source class of the same name is that class, with its own members.
+        if self.mir.classes.iter().any(|class| class.name == *name) {
+            return Ok(None);
+        }
+        let Some(class) = smelt_stdlib::typescript_stdlib_class(self.symbol_name(*name)?) else {
+            return Ok(None);
+        };
+        Ok(smelt_stdlib::host_data_property(class, self.symbol_name(field)?))
+    }
+
     pub(super) fn field_access_text(
         &self,
         receiver_text: &str,
         receiver_ty: TypeId,
         field: Symbol,
     ) -> Result<String, EmitError> {
+        if let Some(property) = self.host_data_property(receiver_ty, field)? {
+            return Ok(format!("{receiver_text}.{}()", property.accessor));
+        }
         if let Some(Type::Dict(key, value)) = self.mir.types.get(receiver_ty)
             && self.mir.types.get(*key) == Some(&Type::String)
         {
@@ -2795,6 +2895,9 @@ impl FunctionEmitter<'_> {
             return Ok(format!(
                 "{receiver_text}.get({field_name:?}).cloned().expect(\"missing field\")"
             ));
+        }
+        if let Some(text) = self.concrete_union_member_read_text(receiver_text, receiver_ty, field)? {
+            return Ok(text);
         }
         if matches!(
             self.mir.types.get(receiver_ty),

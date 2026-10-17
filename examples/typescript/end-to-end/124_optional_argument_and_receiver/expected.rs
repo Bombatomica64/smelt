@@ -3255,28 +3255,24 @@ fn main() {
     let _smelt_tmp_2: bool = !(closure_arg_1.clone().is_none());
     if _smelt_tmp_2 {
     _smelt_tmp_3 = closure_arg_1.clone();
-    _smelt_tmp_4 = closure_arg_0.clone() + &_smelt_tmp_3.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_4.clone()
     } else {
     _smelt_tmp_3 = Some("-".to_owned());
+    }
     _smelt_tmp_4 = closure_arg_0.clone() + &_smelt_tmp_3.clone().unwrap_or_else(|| "undefined".to_owned());
     _smelt_tmp_4.clone()
-    }
     });
-    let _smelt_tmp_4: String = (_smelt_tmp_3)("p".to_owned(), None::<String>);
+    let _smelt_tmp_4: String = (_smelt_tmp_3)("p".to_owned(), None);
     let _smelt_tmp_5 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: Option<String>| {
     let mut _smelt_tmp_3: Option<String>;
     let _smelt_tmp_4: String;
     let _smelt_tmp_2: bool = !(closure_arg_1.clone().is_none());
     if _smelt_tmp_2 {
     _smelt_tmp_3 = closure_arg_1.clone();
-    _smelt_tmp_4 = closure_arg_0.clone() + &_smelt_tmp_3.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_4.clone()
     } else {
     _smelt_tmp_3 = Some("-".to_owned());
+    }
     _smelt_tmp_4 = closure_arg_0.clone() + &_smelt_tmp_3.clone().unwrap_or_else(|| "undefined".to_owned());
     _smelt_tmp_4.clone()
-    }
     });
     let _smelt_tmp_6: String = (_smelt_tmp_5)("p".to_owned(), Some("q".to_owned()));
     let _ = { println!("{} {}", _smelt_tmp_4, _smelt_tmp_6); };

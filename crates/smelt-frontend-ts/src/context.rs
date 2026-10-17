@@ -280,6 +280,16 @@ pub struct HirCtx {
     /// built. Empty when a module is lowered on its own (a unit test,
     /// `dump-hir`), and then the path is used as before.
     pub module_identities: HashMap<String, String>,
+    /// Module-level `const X = Symbol(..)` bindings, recorded crate-wide by
+    /// [`crate::predeclare_unique_symbol_consts_with_path`] before any module
+    /// body is lowered: declaring-module key (the module path, plus its
+    /// canonical form) -> binding name -> the symbol's value spelling.
+    ///
+    /// A unique symbol bound once at module level is a static member name
+    /// (`class C { get [K]() {..} }`, `c[K]`). An import cycle can lower a
+    /// consumer of `K` before `K`'s own module, so the consumer could not
+    /// otherwise know which member `c[K]` names; this table is what lets it.
+    pub predeclared_unique_symbols: HashMap<String, HashMap<String, String>>,
 }
 
 impl HirCtx {
@@ -313,6 +323,7 @@ impl HirCtx {
             project_sources_outside_crate: HashSet::new(),
             type_renames: HashMap::new(),
             module_identities: HashMap::new(),
+            predeclared_unique_symbols: HashMap::new(),
         }
     }
 }

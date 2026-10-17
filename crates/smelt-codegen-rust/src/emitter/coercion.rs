@@ -117,6 +117,17 @@ impl FunctionEmitter<'_> {
         if let Some(projected) = self.project_union_value_text(&operand_text, source_ty, target)? {
             return Ok(projected);
         }
+        // A tuple at a DIFFERENT tuple type (`[n, accept] as [number, Accept]`
+        // returned as `[number, Accept | undefined]`) is coerced element by
+        // element; the operand ladder below has no tuple rule and handed the
+        // value back unchanged (E0308).
+        if source_ty != target
+            && let (Some(Type::Tuple(source_items)), Some(Type::Tuple(target_items))) =
+                (self.mir.types.get(source_ty), self.mir.types.get(target))
+            && source_items.len() == target_items.len()
+        {
+            return self.value_at_type_text(&operand_text, source_ty, target, scope);
+        }
         let target_is_erased = matches!(
             self.mir.types.get(target),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -1568,7 +1579,12 @@ impl FunctionEmitter<'_> {
                 Ok(format!("({text}).into_smelt_unknown()"))
             }
             Some(Type::TypeParam { .. }) => Ok(text),
-            Some(Type::None) => Ok("SmeltUnknown::Null".to_owned()),
+            // A `void` value erases to the absent tag, but the expression that
+            // produced it still has to RUN: `text` is routinely a call (`let r:
+            // unknown = setter(k, v)`), and answering the bare constant deleted
+            // the call and its side effects from the program.
+            Some(Type::None) if text.trim() == "()" => Ok("SmeltUnknown::Null".to_owned()),
+            Some(Type::None) => Ok(format!("{{ let _ = {text}; SmeltUnknown::Null }}")),
             Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({text})")),
             Some(Type::Int | Type::Float) => Ok(format!("SmeltUnknown::Number({text} as f64)")),
             Some(Type::String) => Ok(crate::rust::erased_string(&text)),
@@ -2047,6 +2063,11 @@ impl FunctionEmitter<'_> {
             // The operand twin (`erase`) has to gate the same conversion on
             // scope because it must not perturb the erased spelling's bytes.
             Some(Type::TypeParam { .. }) => Ok(format!("({value_text}).into_smelt_unknown()")),
+            // As in `value_at_type_text`: erase the `void` value, but run the
+            // expression that produced it.
+            Some(Type::None | Type::Never) | None if value_text.trim() != "()" => {
+                Ok(format!("{{ let _ = {value_text}; SmeltUnknown::Null }}"))
+            }
             Some(Type::None | Type::Never) | None => Ok("SmeltUnknown::Null".to_owned()),
             Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({value_text})")),
             Some(Type::Int | Type::Float)

@@ -2608,6 +2608,7 @@ async fn smelt_promise_race<T>(mut racers: Vec<::std::pin::Pin<Box<dyn ::std::fu
             if let ::std::task::Poll::Ready(result) = ::std::future::Future::poll(racer.as_mut(), &mut cx) { return result; }
         }
         smelt_drain_promise_tasks().await;
+        if SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; continue; }
         let id_barrier = SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get);
         let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());
         if let Some(earliest) = earliest {
@@ -3468,11 +3469,11 @@ impl SmeltFromUnknown for Cell {
 }
 
 #[derive(Clone)]
-pub enum SmeltUnion3 {
+pub enum SmeltUnion4 {
     M0(Cell),
     M1(SmeltFuture<Cell>),
 }
-impl IntoSmeltUnknown for SmeltUnion3 {
+impl IntoSmeltUnknown for SmeltUnion4 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
             Self::M0(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("value".to_owned(), SmeltUnknown::Number(smelt_object_value.value as f64))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Cell".into()))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },
@@ -3480,30 +3481,30 @@ impl IntoSmeltUnknown for SmeltUnion3 {
         }
     }
 }
-impl SmeltUnion3 {
+impl SmeltUnion4 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(Default::default()); }
         Self::M1({ let smelt_erased_future = (value).into_smelt_unknown(); SmeltFuture::from_future(Box::pin(async move { let smelt_awaited = smelt_await_flatten(smelt_erased_future).await?; Ok::<_, Box<dyn std::error::Error>>(Default::default()) })) })
     }
 }
-impl PartialEq for SmeltUnion3 {
+impl PartialEq for SmeltUnion4 {
     fn eq(&self, other: &Self) -> bool {
         self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
     }
 }
-impl SmeltFromUnknown for SmeltUnion3 {
+impl SmeltFromUnknown for SmeltUnion4 {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
 }
-impl SmeltJsKeyEq for SmeltUnion3 {
+impl SmeltJsKeyEq for SmeltUnion4 {
     fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
     fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
 }
-impl ::std::fmt::Debug for SmeltUnion3 {
+impl ::std::fmt::Debug for SmeltUnion4 {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
     }
 }
-impl Default for SmeltUnion3 {
+impl Default for SmeltUnion4 {
     fn default() -> Self {
         Self::M0(Default::default())
     }
@@ -3583,16 +3584,16 @@ impl Cell {
 
 use super::*;
 
-pub(crate) fn pick(sync: bool) -> SmeltUnion3 {
-    let mut _smelt_tmp_1: SmeltUnion3;
+pub(crate) fn pick(sync: bool) -> SmeltUnion4 {
+    let mut _smelt_tmp_1: SmeltUnion4;
     if sync {
     let _smelt_tmp_2: Cell = Cell::new(1.0);
-    _smelt_tmp_1 = SmeltUnion3::M0(_smelt_tmp_2);
+    _smelt_tmp_1 = SmeltUnion4::M0(_smelt_tmp_2);
     return _smelt_tmp_1;
     } else {
     let _smelt_tmp_3: Cell = Cell::new(2.0);
     let _smelt_tmp_4: SmeltFuture<Cell> = SmeltFuture::from_future(Box::pin(async move { smelt_sleep_ms(0.0 as f64).await; Ok::<_, Box<dyn std::error::Error>>(_smelt_tmp_3) }));
-    _smelt_tmp_1 = SmeltUnion3::M1(_smelt_tmp_4);
+    _smelt_tmp_1 = SmeltUnion4::M1(_smelt_tmp_4);
     return _smelt_tmp_1;
     }
 }
@@ -3623,12 +3624,12 @@ pub(crate) async fn run() -> Result<String, Box<dyn std::error::Error>> {
     let _smelt_tmp_18: String;
     let _smelt_tmp_19: f64;
     let _smelt_tmp_20: String;
-    let _smelt_tmp_4: SmeltUnion3 = pick(true);
-    let _smelt_tmp_5: SmeltFuture<Cell> = match _smelt_tmp_4 { SmeltUnion3::M0(value) => SmeltFuture::<Cell>::resolved(value), SmeltUnion3::M1(value) => value };
+    let _smelt_tmp_4: SmeltUnion4 = pick(true);
+    let _smelt_tmp_5: SmeltFuture<Cell> = match _smelt_tmp_4 { SmeltUnion4::M0(value) => SmeltFuture::<Cell>::resolved(value), SmeltUnion4::M1(value) => value };
     _smelt_tmp_6 = _smelt_tmp_5.await?;
     direct = _smelt_tmp_6;
-    let _smelt_tmp_7: SmeltUnion3 = pick(false);
-    let _smelt_tmp_8: SmeltFuture<Cell> = match _smelt_tmp_7 { SmeltUnion3::M0(value) => SmeltFuture::<Cell>::resolved(value), SmeltUnion3::M1(value) => value };
+    let _smelt_tmp_7: SmeltUnion4 = pick(false);
+    let _smelt_tmp_8: SmeltFuture<Cell> = match _smelt_tmp_7 { SmeltUnion4::M0(value) => SmeltFuture::<Cell>::resolved(value), SmeltUnion4::M1(value) => value };
     _smelt_tmp_9 = _smelt_tmp_8.await?;
     deferred = _smelt_tmp_9;
     let _smelt_tmp_10: SmeltUnion7 = pick_number(true);
