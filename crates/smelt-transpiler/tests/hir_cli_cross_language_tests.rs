@@ -1196,6 +1196,8 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "155_erased_instance_identity",
     "156_runtime_shape_behind_static_types",
     "157_node_path_hash_and_runtime_regexp",
+    "158_joins_absence_and_host_reads",
+    "159_spread_join_tuple_return_finally",
     "160_function_item_typed_identity",
     "162_alias_names_generic_class",
     "165_void_operand_runs",

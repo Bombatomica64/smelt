@@ -1028,6 +1028,32 @@ impl ModuleBuilder<'_> {
             let span = self.span(actual_arg.span().start, actual_arg.span().end);
             (self.argument(actual_arg, body)?, inverted, span)
         };
+        // `expect(record[key]).toBeUndefined()`: the read is typed by the
+        // record's value type, so a missing key reads that type's default and
+        // can never compare equal to `undefined`. For a value type that is not
+        // itself nullable, "is undefined" is exactly "the key is absent" — the
+        // containment test a condition on the same read already uses
+        // (`keyed_read_presence_condition`). `toBeNull` keeps the comparison:
+        // a missing key is `undefined`, not `null`.
+        if matcher_name != "toBeNull"
+            && let Some(present) = self.keyed_read_contains_key(actual, actual_span, body)
+        {
+            let mut failed = if matcher_name == "toBeDefined" {
+                self.unary_bool_expr(UnaryOp::Not, present, call.span, body)
+            } else {
+                present
+            };
+            if inverted {
+                failed = self.unary_bool_expr(UnaryOp::Not, failed, call.span, body);
+            }
+            self.push_test_failure_if(
+                failed,
+                &format!("expect(...).{matcher_name}() failed"),
+                call.span,
+                body,
+            );
+            return Ok(true);
+        }
         let actual_ty = Self::expr_ty(body, actual);
         if !matches!(self.ctx.krate.types.get(actual_ty), Some(Type::Optional(_)))
             && self.assertion_type_contains_unknown(actual_ty)

@@ -62,6 +62,7 @@ impl<'mir> FunctionEmitter<'mir> {
             static_typeof_str_locals: typeof_str_locals::static_typeof_str_locals(mir, function),
             folded_throw_payloads,
             termination_cache: RefCell::new(HashMap::new()),
+            post_dominators: RefCell::new(None),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
             by_reference_param_locals: HashSet::new(),
@@ -1826,6 +1827,12 @@ impl<'mir> FunctionEmitter<'mir> {
             };
             let value = if let Some(value) = receiver_bound {
                 value
+            } else if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty)
+                && self.record_value_misses_concrete_union(source_value, *inner)
+            {
+                // The record's values cannot be this field's type, so the key
+                // is absent from any value the source holds.
+                "None".to_owned()
             } else if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
                 if self.can_render_dict_value_as(source_value, *inner) {
                     let mapped = self.value_at_type_text("value", source_value, *inner, scope)?;
@@ -1970,6 +1977,26 @@ impl<'mir> FunctionEmitter<'mir> {
     fn can_render_dict_value_as(&self, source: TypeId, target: TypeId) -> bool {
         self.can_render_non_function_dict_value_as(source, target)
             || self.can_adapt_rendered_function_value(source, target)
+    }
+
+    /// Whether a record whose values are `source` can never hold a value of
+    /// the field type `target`, because `target` is a union emitted as a
+    /// concrete enum and `source` is none of its arms.
+    ///
+    /// Projecting `{ method: 'HEAD' }` (`Record<string, string>`) into
+    /// `RequestInit` reaches `headers: Record | Headers | [string, string][]`;
+    /// a string is not a header list, so the key is absent for every value the
+    /// record can hold. An erased or union-typed source is still projected at
+    /// run time.
+    fn record_value_misses_concrete_union(&self, source: TypeId, target: TypeId) -> bool {
+        source != target
+            && !matches!(
+                self.mir.types.get(source),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
+            && self
+                .concrete_union_members(target)
+                .is_some_and(|members| !members.contains(&source))
     }
 
     /// Returns whether a non-callback dictionary value can populate a field.
@@ -2582,6 +2609,7 @@ impl<'mir> FunctionEmitter<'mir> {
             static_typeof_str_locals: HashSet::new(),
             folded_throw_payloads: HashSet::new(),
             termination_cache: RefCell::new(HashMap::new()),
+            post_dominators: RefCell::new(None),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
             by_reference_param_locals: HashSet::new(),
@@ -2642,6 +2670,7 @@ impl<'mir> FunctionEmitter<'mir> {
             static_typeof_str_locals: HashSet::new(),
             folded_throw_payloads: HashSet::new(),
             termination_cache: RefCell::new(HashMap::new()),
+            post_dominators: RefCell::new(None),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
             by_reference_param_locals: HashSet::new(),
@@ -2689,6 +2718,7 @@ impl<'mir> FunctionEmitter<'mir> {
             static_typeof_str_locals: HashSet::new(),
             folded_throw_payloads: HashSet::new(),
             termination_cache: RefCell::new(HashMap::new()),
+            post_dominators: RefCell::new(None),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
             by_reference_param_locals: HashSet::new(),

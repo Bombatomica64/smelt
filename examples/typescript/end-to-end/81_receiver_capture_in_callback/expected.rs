@@ -3369,11 +3369,10 @@ impl Index {
     if _smelt_tmp_4 {
     _smelt_tmp_6 = closure_arg_0.clone() + &suffix.clone();
     _smelt_tmp_5 = _smelt_tmp_6.clone();
-    _smelt_tmp_5.clone()
     } else {
     _smelt_tmp_5 = closure_arg_0.clone();
-    _smelt_tmp_5.clone()
     }
+    _smelt_tmp_5.clone()
     }
 });
     let _smelt_tmp_4: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new({
@@ -3387,11 +3386,10 @@ impl Index {
     if _smelt_tmp_4 {
     _smelt_tmp_6 = closure_arg_0.clone() + &suffix.clone();
     _smelt_tmp_5 = _smelt_tmp_6.clone();
-    _smelt_tmp_5.clone()
     } else {
     _smelt_tmp_5 = closure_arg_0.clone();
-    _smelt_tmp_5.clone()
     }
+    _smelt_tmp_5.clone()
     }
 }); let smelt_array = keys.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     return _smelt_tmp_4;

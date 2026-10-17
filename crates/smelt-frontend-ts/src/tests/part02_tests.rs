@@ -2108,11 +2108,25 @@ function read(options: Options, date: number): number {
     let module = module(&ctx, module_id)?;
     let function = function_item(&ctx, module, 1)?;
     let body = function_body(&ctx, function)?;
+    // Corrected requirement. This test used to require an `OptionalCoalesce`
+    // (a PRESENCE test, the `??` rule). JavaScript's `||` is a TRUTHINESS
+    // test: `({ in: 0 })?.in || 5` is `5` in Node, while presence-coalescing
+    // answers `0`. The guarantee the old assertion protected — the selected
+    // runtime value is kept rather than erased — still holds: the result is a
+    // conditional that selects the present value when it is truthy and the
+    // fallback otherwise (e2e `158_joins_absence_and_host_reads` checks `0`).
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::OptionalCoalesce { .. })),
+        "a numeric `||` must not be lowered as presence-coalescing"
+    );
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::OptionalCoalesce { .. })),
-        "expected optional numeric fallback to preserve the selected runtime value"
+            .any(|expr| matches!(expr.kind, ExprKind::Conditional { .. })),
+        "expected a truthiness selection between the value and the fallback"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())

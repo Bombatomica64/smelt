@@ -1818,6 +1818,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::AsyncOp::Promise => "async_promise",
                 smelt_hir::AsyncOp::Then => "async_then",
                 smelt_hir::AsyncOp::Catch => "async_catch",
+                smelt_hir::AsyncOp::Finally => "async_finally",
                 smelt_hir::AsyncOp::SpawnLocal => "async_spawn_local",
                 smelt_hir::AsyncOp::CreateTask => "async_create_task",
                 smelt_hir::AsyncOp::WaitFor => "async_wait_for",

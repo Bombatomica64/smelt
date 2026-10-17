@@ -3237,12 +3237,12 @@ impl SmeltFromUnknown for Reply {
 }
 
 #[derive(Clone)]
-pub enum SmeltUnion4 {
+pub enum SmeltUnion5 {
     M0(String),
     M1(f64),
     M2(bool),
 }
-impl IntoSmeltUnknown for SmeltUnion4 {
+impl IntoSmeltUnknown for SmeltUnion5 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
             Self::M0(value) => SmeltUnknown::String(value.into()),
@@ -3251,42 +3251,42 @@ impl IntoSmeltUnknown for SmeltUnion4 {
         }
     }
 }
-impl SmeltUnion4 {
+impl SmeltUnion5 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if matches!(value, SmeltUnknown::String(_)) { return Self::M0(match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }); }
         if matches!(value, SmeltUnknown::Number(_)) { return Self::M1(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }); }
         Self::M2(match value.clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true })
     }
 }
-impl PartialEq for SmeltUnion4 {
+impl PartialEq for SmeltUnion5 {
     fn eq(&self, other: &Self) -> bool {
         self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
     }
 }
-impl SmeltFromUnknown for SmeltUnion4 {
+impl SmeltFromUnknown for SmeltUnion5 {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
 }
-impl SmeltJsKeyEq for SmeltUnion4 {
+impl SmeltJsKeyEq for SmeltUnion5 {
     fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
     fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
 }
-impl ::std::fmt::Debug for SmeltUnion4 {
+impl ::std::fmt::Debug for SmeltUnion5 {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
     }
 }
-impl Default for SmeltUnion4 {
+impl Default for SmeltUnion5 {
     fn default() -> Self {
         Self::M0(String::new())
     }
 }
 
 #[derive(Clone)]
-pub enum SmeltUnion6 {
+pub enum SmeltUnion7 {
     M0(String),
     M1(bool),
 }
-impl IntoSmeltUnknown for SmeltUnion6 {
+impl IntoSmeltUnknown for SmeltUnion7 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
             Self::M0(value) => SmeltUnknown::String(value.into()),
@@ -3294,30 +3294,30 @@ impl IntoSmeltUnknown for SmeltUnion6 {
         }
     }
 }
-impl SmeltUnion6 {
+impl SmeltUnion7 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if matches!(value, SmeltUnknown::String(_)) { return Self::M0(match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }); }
         Self::M1(match value.clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true })
     }
 }
-impl PartialEq for SmeltUnion6 {
+impl PartialEq for SmeltUnion7 {
     fn eq(&self, other: &Self) -> bool {
         self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
     }
 }
-impl SmeltFromUnknown for SmeltUnion6 {
+impl SmeltFromUnknown for SmeltUnion7 {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
 }
-impl SmeltJsKeyEq for SmeltUnion6 {
+impl SmeltJsKeyEq for SmeltUnion7 {
     fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
     fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
 }
-impl ::std::fmt::Debug for SmeltUnion6 {
+impl ::std::fmt::Debug for SmeltUnion7 {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
     }
 }
-impl Default for SmeltUnion6 {
+impl Default for SmeltUnion7 {
     fn default() -> Self {
         Self::M0(String::new())
     }
@@ -3331,9 +3331,9 @@ fn main() {
     reply = _smelt_tmp_1;
     let _smelt_tmp_2: String = reply.describe();
     let _ = { println!("{}", _smelt_tmp_2); };
-    let _smelt_tmp_4: String = render(SmeltUnion6::M0("hi".to_owned()));
+    let _smelt_tmp_4: String = render(SmeltUnion7::M0("hi".to_owned()));
     let _ = { println!("{}", _smelt_tmp_4); };
-    let _smelt_tmp_6: String = render(SmeltUnion6::M1(true));
+    let _smelt_tmp_6: String = render(SmeltUnion7::M1(true));
     let _ = { println!("{}", _smelt_tmp_6); };
     return;
 }
@@ -3369,18 +3369,18 @@ impl Reply {
 
 use super::*;
 
-pub(crate) fn render(value: SmeltUnion6) -> String {
+pub(crate) fn render(value: SmeltUnion7) -> String {
     let _smelt_tmp_2: String;
     let _smelt_tmp_3: String;
     let _smelt_tmp_4: bool;
     let _smelt_tmp_5: String;
-    let _smelt_tmp_1: bool = matches!(value.clone(), SmeltUnion6::M0(_));
+    let _smelt_tmp_1: bool = matches!(value.clone(), SmeltUnion7::M0(_));
     if _smelt_tmp_1 {
-    _smelt_tmp_2 = match value.clone() { SmeltUnion6::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
+    _smelt_tmp_2 = match value.clone() { SmeltUnion7::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_3 = "s:".to_owned() + &_smelt_tmp_2;
     return _smelt_tmp_3;
     } else {
-    _smelt_tmp_4 = match value.clone() { SmeltUnion6::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
+    _smelt_tmp_4 = match value.clone() { SmeltUnion7::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_5 = "b:".to_owned() + &_smelt_tmp_4.to_string();
     return _smelt_tmp_5;
     }

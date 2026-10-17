@@ -1334,7 +1334,7 @@ return_ty: target_function.return_ty,
             return Ok(ConstLiteral {
                 literal: Literal::Symbol(call_dispatch::unique_symbol_spelling(
                     description,
-                    call.span.start,
+                    self.span(call.span.start, call.span.end),
                 )),
                 ty: self.ctx.krate.types.intern(Type::Unknown),
             });

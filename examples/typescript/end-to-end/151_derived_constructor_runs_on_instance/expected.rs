@@ -4241,12 +4241,11 @@ impl AppBase {
     if _smelt_tmp_4 {
     _smelt_tmp_6 = "hit ".to_owned() + &full.clone();
     _smelt_tmp_5 = _smelt_tmp_6.clone();
-    _smelt_tmp_5.clone()
     } else {
     _smelt_tmp_7 = "miss ".to_owned() + &full.clone();
     _smelt_tmp_5 = _smelt_tmp_7.clone();
-    _smelt_tmp_5.clone()
     }
+    _smelt_tmp_5.clone()
     }
 });
     (*smelt_capture_this.borrow()).0.borrow_mut().handle = _smelt_tmp_6.clone();
@@ -4295,12 +4294,11 @@ impl App {
     if _smelt_tmp_4 {
     _smelt_tmp_6 = "hit ".to_owned() + &full.clone();
     _smelt_tmp_5 = _smelt_tmp_6.clone();
-    _smelt_tmp_5.clone()
     } else {
     _smelt_tmp_7 = "miss ".to_owned() + &full.clone();
     _smelt_tmp_5 = _smelt_tmp_7.clone();
-    _smelt_tmp_5.clone()
     }
+    _smelt_tmp_5.clone()
     }
 });
     (*smelt_capture_this.borrow()).0.borrow_mut().handle = _smelt_tmp_6.clone();
@@ -4349,12 +4347,11 @@ impl PlainApp {
     if _smelt_tmp_4 {
     _smelt_tmp_6 = "hit ".to_owned() + &full.clone();
     _smelt_tmp_5 = _smelt_tmp_6.clone();
-    _smelt_tmp_5.clone()
     } else {
     _smelt_tmp_7 = "miss ".to_owned() + &full.clone();
     _smelt_tmp_5 = _smelt_tmp_7.clone();
-    _smelt_tmp_5.clone()
     }
+    _smelt_tmp_5.clone()
     }
 });
     (*smelt_capture_this.borrow()).0.borrow_mut().handle = _smelt_tmp_6.clone();

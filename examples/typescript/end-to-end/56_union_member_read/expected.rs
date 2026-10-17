@@ -3481,6 +3481,10 @@ impl SmeltBody {
     pub fn id(&self) -> usize { self.id }
     /// The spec's `bodyUsed`.
     pub fn body_used(&self) -> bool { self.used.get() }
+    /// `ReadableStream.locked`: the body has no reader API in this model, so
+    /// it is locked exactly when it has been consumed (see
+    /// `smelt_stdlib::host_data_property`).
+    pub fn locked(&self) -> bool { self.used.get() }
     /// The `Content-Type` this body implies, when it implies one.
     pub fn content_type(&self) -> Option<String> { self.content_type.clone() }
     /// Whether there is no body at all (the spec's null body).

@@ -995,6 +995,127 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// The static type and per-arm reads of `receiver.field` on a concrete
+    /// union whose arms do NOT all declare the field at one type (the case
+    /// [`Self::concrete_union_field_read_text`] declines).
+    ///
+    /// Each arm answers on its own: a record arm reads its declared field, a
+    /// modeled host class arm reads its data property (`Response.status`), and
+    /// a `number`/`boolean` arm answers `undefined`, which is what JavaScript
+    /// reads for a property neither primitive has (`(5).status`). The read's
+    /// type is the arms' common base type, made `Optional` when any arm can
+    /// answer `undefined`: `(number | { status?: number } | Response)?.status`
+    /// reads `Option<f64>`, typed per arm, as a hand port would write the
+    /// `match`.
+    ///
+    /// `None` (keep the erased path) when an arm is any other shape without the
+    /// field, when the arms disagree on the base type, or when the joined
+    /// type is not interned.
+    pub(super) fn concrete_union_member_reads(
+        &self,
+        union_ty: TypeId,
+        field: Symbol,
+    ) -> Result<Option<(TypeId, Vec<UnionArmRead>)>, EmitError> {
+        let Some(members) = self.concrete_union_members(union_ty) else {
+            return Ok(None);
+        };
+        let mut reads = Vec::with_capacity(members.len());
+        let mut base: Option<TypeId> = None;
+        let mut optional = false;
+        for member in members {
+            let read = if let Some(field_ty) = self.class_named_field_ty(*member, field) {
+                UnionArmRead::Field(field_ty)
+            } else if let Some(property) = self.host_data_property(*member, field)? {
+                let primitive = match property.ty {
+                    smelt_stdlib::HostPrimitive::Number => Type::Float,
+                    smelt_stdlib::HostPrimitive::Bool => Type::Bool,
+                    smelt_stdlib::HostPrimitive::String => Type::String,
+                    _ => return Ok(None),
+                };
+                let Some(ty) = self.find_type_id(&primitive) else {
+                    return Ok(None);
+                };
+                UnionArmRead::Host(ty, property.accessor)
+            } else if matches!(self.mir.types.get(*member), Some(Type::Float | Type::Bool)) {
+                UnionArmRead::Absent
+            } else {
+                return Ok(None);
+            };
+            if let UnionArmRead::Field(ty) | UnionArmRead::Host(ty, _) = read {
+                let arm_base = match self.mir.types.get(ty) {
+                    Some(Type::Optional(inner)) => {
+                        optional = true;
+                        *inner
+                    }
+                    _ => ty,
+                };
+                match base {
+                    Some(previous) if previous != arm_base => return Ok(None),
+                    _ => base = Some(arm_base),
+                }
+            } else {
+                optional = true;
+            }
+            reads.push(read);
+        }
+        let Some(base) = base else {
+            return Ok(None);
+        };
+        let read_ty = if optional {
+            match self.find_type_id(&Type::Optional(base)) {
+                Some(ty) => ty,
+                None => return Ok(None),
+            }
+        } else {
+            base
+        };
+        Ok(Some((read_ty, reads)))
+    }
+
+    /// Render `receiver.field` on a concrete union through
+    /// [`Self::concrete_union_member_reads`]: one `match` arm per member, each
+    /// converted to the joined read type.
+    pub(super) fn concrete_union_member_read_text(
+        &self,
+        receiver_text: &str,
+        union_ty: TypeId,
+        field: Symbol,
+    ) -> Result<Option<String>, EmitError> {
+        let Some((read_ty, reads)) = self.concrete_union_member_reads(union_ty, field)? else {
+            return Ok(None);
+        };
+        let read_is_optional = matches!(self.mir.types.get(read_ty), Some(Type::Optional(_)));
+        let union_enum_name = union_name(union_ty);
+        let field_name = sanitize_ident(self.symbol_name(field)?);
+        let arms = reads
+            .iter()
+            .enumerate()
+            .map(|(index, read)| {
+                let (value, ty) = match read {
+                    UnionArmRead::Absent => {
+                        return format!("{union_enum_name}::M{index}(_) => None");
+                    }
+                    UnionArmRead::Field(ty) => {
+                        (format!("smelt_union_arm.{field_name}.clone()"), *ty)
+                    }
+                    UnionArmRead::Host(ty, accessor) => {
+                        (format!("smelt_union_arm.{accessor}()"), *ty)
+                    }
+                };
+                let value = if read_is_optional
+                    && !matches!(self.mir.types.get(ty), Some(Type::Optional(_)))
+                {
+                    format!("Some({value})")
+                } else {
+                    value
+                };
+                format!("{union_enum_name}::M{index}(smelt_union_arm) => {value}")
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        Ok(Some(format!("match &{receiver_text} {{ {arms} }}")))
+    }
+
     /// Resolve the one type every arm of a concrete union gives a named field.
     ///
     /// `None` when the receiver is not a concrete union, when an arm does not
@@ -1350,4 +1471,16 @@ pub(crate) fn emit_union_definitions(
         output.push_str("    }\n}\n\n");
     }
     Ok(output)
+}
+
+/// How one arm of a concrete union answers a named property read; see
+/// [`FunctionEmitter::concrete_union_member_reads`].
+#[derive(Clone, Copy)]
+pub(super) enum UnionArmRead {
+    /// A record arm's declared field, of this type.
+    Field(TypeId),
+    /// A modeled host class's data property: its type and Rust accessor.
+    Host(TypeId, &'static str),
+    /// A `number`/`boolean` arm: JavaScript reads `undefined`.
+    Absent,
 }
