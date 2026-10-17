@@ -1546,14 +1546,10 @@ impl ModuleBuilder<'_> {
         let receiver_ty = Self::expr_ty(body, receiver);
         let receiver_may_hold_regexp = match self.ctx.krate.types.get(receiver_ty) {
             Some(Type::Unknown) => true,
-            Some(Type::Union(items)) => items.iter().any(|item| {
-                matches!(self.ctx.krate.types.get(*item), Some(Type::Class { name, .. }) if self.ctx.krate.symbols.get(*name).is_some_and(|name| name == "RegExp"))
-            }),
+            Some(Type::Union(items)) => items.iter().any(|item| self.is_regexp_class_type(*item)),
             _ => false,
         };
-        if receiver_may_hold_regexp
-            || matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Class { name, .. }) if self.ctx.krate.symbols.get(*name).is_some_and(|name| name == "RegExp"))
-        {
+        if receiver_may_hold_regexp || self.is_regexp_class_type(receiver_ty) {
             // A concrete receiver whose flags are NOT readable here — a regex
             // held in a variable, or built with a computed flags string. Its
             // `test` may be stateful, so it runs the runtime's own `test`,
@@ -1597,8 +1593,16 @@ impl ModuleBuilder<'_> {
     /// routes untagged calls into regex lowering when the receiver is a direct
     /// regex-producing expression or a local/module value with a regex-like type
     /// surface.
-    fn could_be_regexp_test_receiver(&self, expression: &Expression<'_>, body: &Body) -> bool {
-        match expression {
+    ///
+    /// Any other receiver whose STATIC type is a `RegExp` qualifies too
+    /// ([`Self::static_receiver_type`]): `build(path).test(text)`, where `build`
+    /// is a module function declared to return `RegExp`, is the same runtime
+    /// `test` as `const re = build(path); re.test(text)`. It used to fall through
+    /// to a generic member call whose callee was the regex VALUE itself, so the
+    /// call answered `null` (Hono's `RegExpRouter` never matched a wildcard
+    /// middleware: `findMiddleware` asks `buildWildcardRegExp(k).test(path)`).
+    fn could_be_regexp_test_receiver(&mut self, expression: &Expression<'_>, body: &Body) -> bool {
+        let syntactic = match expression {
             Expression::NewExpression(new_expr) => {
                 matches!(&new_expr.callee, Expression::Identifier(callee) if callee.name == "RegExp")
             }
@@ -1632,7 +1636,11 @@ impl ModuleBuilder<'_> {
                     .is_some_and(|entry| self.regexp_receiver_type(entry.value_ty))
             }
             _ => false,
-        }
+        };
+        syntactic
+            || self
+                .static_receiver_type(expression, body)
+                .is_some_and(|ty| self.is_regexp_class_type(ty))
     }
 
     /// Return whether a HIR type can represent a regex value in TS lowering.
@@ -1644,20 +1652,26 @@ impl ModuleBuilder<'_> {
             .get(self.type_param_constraint_or_self(ty))
         {
             Some(Type::String) => true,
-            Some(Type::Class { name, .. }) => {
-                self.ctx
-                    .krate
-                    .symbols
-                    .get(*name)
-                    .or_else(|| self.ctx.krate.names.get(*name))
-                    == Some("RegExp")
-            }
+            Some(Type::Class { .. }) => self.is_regexp_class_type(ty),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()
                 .any(|item| self.regexp_receiver_type(item)),
             _ => false,
         }
+    }
+
+    /// Whether `ty` (through a type parameter's constraint) is the `RegExp`
+    /// class. Its name is interned in either the symbol table or the name
+    /// table depending on how it was spelled (`RegExp` annotation vs a regex
+    /// value), so both are consulted — the receiver gate and the post-lowering
+    /// check of [`Self::regexp_test_call`] must agree on this.
+    fn is_regexp_class_type(&self, ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)),
+            Some(Type::Class { name, .. })
+                if self.ctx.krate.symbols.get(*name).or_else(|| self.ctx.krate.names.get(*name)) == Some("RegExp")
+        )
     }
 
     /// Lower TypeScript `pattern.exec(text)` to an optional match array.
