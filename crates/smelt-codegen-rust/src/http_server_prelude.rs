@@ -368,8 +368,8 @@ fn emit_server(writer: &mut CodeWriter) {
     writer.block("pub struct SmeltHttpServer", |struct_writer| {
         struct_writer.line("id: usize,");
         struct_writer.line("handler: SmeltHttpHandler,");
-        struct_writer.line("/// The bound port once `listen` has run, for `address()`.");
-        struct_writer.line("port: ::std::rc::Rc<::std::cell::Cell<Option<u16>>>,");
+        struct_writer.line("/// The bound socket address once `listen` has run, for `address()`.");
+        struct_writer.line("local: ::std::rc::Rc<::std::cell::Cell<Option<::std::net::SocketAddr>>>,");
         struct_writer.line("/// Sends the accept loop its stop signal; taken by `close`.");
         struct_writer.line("shutdown: ::std::rc::Rc<::std::cell::RefCell<Option<tokio::sync::oneshot::Sender<()>>>>,");
     });
@@ -378,14 +378,14 @@ fn emit_server(writer: &mut CodeWriter) {
         "impl PartialEq for SmeltHttpServer { fn eq(&self, other: &Self) -> bool { self.id == other.id } }",
     );
     writer.line(
-        "impl ::std::fmt::Debug for SmeltHttpServer { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct(\"SmeltHttpServer\").field(\"port\", &self.port.get()).finish() } }",
+        "impl ::std::fmt::Debug for SmeltHttpServer { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct(\"SmeltHttpServer\").field(\"local\", &self.local.get()).finish() } }",
     );
     writer.blank_line();
     writer.line("#[allow(dead_code)]");
     writer.block("impl SmeltHttpServer", |impl_writer| {
         impl_writer.line("/// `createServer(handler)`.");
         impl_writer.line(
-            "pub fn new(handler: SmeltHttpHandler) -> Self { Self { id: smelt_next_object_id(), handler, port: ::std::rc::Rc::new(::std::cell::Cell::new(None)), shutdown: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }",
+            "pub fn new(handler: SmeltHttpHandler) -> Self { Self { id: smelt_next_object_id(), handler, local: ::std::rc::Rc::new(::std::cell::Cell::new(None)), shutdown: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }",
         );
         impl_writer.line("/// JS reference identity of this server.");
         impl_writer.line("pub fn id(&self) -> usize { self.id }");
@@ -407,7 +407,7 @@ fn emit_server(writer: &mut CodeWriter) {
                 fn_writer.line("let port = if port.is_finite() && port >= 0.0 && port <= 65535.0 { port as u16 } else { 0 };");
                 fn_writer.line("let listener = ::std::net::TcpListener::bind((host.as_str(), port))?;");
                 fn_writer.line("listener.set_nonblocking(true)?;");
-                fn_writer.line("self.port.set(Some(listener.local_addr()?.port()));");
+                fn_writer.line("self.local.set(Some(listener.local_addr()?));");
                 fn_writer.line("let listener = tokio::net::TcpListener::from_std(listener)?;");
                 fn_writer.line("let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();");
                 fn_writer.line("*self.shutdown.borrow_mut() = Some(shutdown_tx);");
@@ -432,12 +432,15 @@ fn emit_server(writer: &mut CodeWriter) {
                     arm_writer.line("let _ = shutdown.send(());");
                     arm_writer.line("smelt_release_handle();");
                 });
-                fn_writer.line("self.port.set(None);");
+                fn_writer.line("self.local.set(None);");
                 fn_writer.line("Ok(self.clone())");
             },
         );
-        impl_writer.line("/// `server.address()`: the bound port, or null when not listening.");
-        impl_writer.line("pub fn address(&self) -> Option<f64> { self.port.get().map(f64::from) }");
+        impl_writer.line("/// `server.address()`: Node's `AddressInfo` fields of the bound socket --");
+        impl_writer.line("/// `(address, family, port)`, e.g. `(\"127.0.0.1\", \"IPv4\", 41234.0)` --");
+        impl_writer.line("/// or `None` when not listening. The emitter builds the generated");
+        impl_writer.line("/// `AddressInfo` record from the triple.");
+        impl_writer.line("pub fn address(&self) -> Option<(String, String, f64)> { self.local.get().map(|local| (local.ip().to_string(), if local.is_ipv4() { \"IPv4\".to_owned() } else { \"IPv6\".to_owned() }, f64::from(local.port()))) }");
     });
     writer.blank_line();
 }

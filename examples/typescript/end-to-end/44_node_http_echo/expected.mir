@@ -1,87 +1,117 @@
+interface AddressInfo
+
 async fn main (FuncId(0)) -> None throws
   locals
     %0 user server: Server
-    %1 user port: Float
-    %2 user base: String
-    %3 user posted: Response
-    %4 user plain: Response
-    %5 temp: fn(IncomingMessage, ServerResponse) -> None
-    %6 temp: Server
-    %7 temp: fn() -> None
-    %8 temp: Server
-    %9 temp: Optional<Float>
-    %10 temp: Float
-    %11 temp: String
-    %12 temp: String
-    %13 temp: String
-    %14 temp: Request
-    %15 temp: Future<Response>
-    %16 temp: Response
-    %17 temp: Float
-    %18 temp: None
-    %19 temp: Future<String>
+    %1 user address: Optional<AddressInfo>
+    %2 user port: Float
+    %3 user base: String
+    %4 user posted: Response
+    %5 user plain: Response
+    %6 temp: fn(IncomingMessage, ServerResponse) -> None
+    %7 temp: Server
+    %8 temp: fn() -> None
+    %9 temp: Server
+    %10 temp: Optional<AddressInfo>
+    %11 temp: Bool
+    %12 temp: Bool
+    %13 temp: Bool
+    %14 temp: Bool
+    %15 temp: Bool
+    %16 temp: Float
+    %17 temp: AddressInfo
+    %18 temp: String
+    %19 temp: String
     %20 temp: String
-    %21 temp: None
-    %22 temp: String
-    %23 temp: String
-    %24 temp: Future<Response>
-    %25 temp: Response
-    %26 temp: Float
-    %27 temp: None
-    %28 temp: Future<String>
+    %21 temp: Request
+    %22 temp: Future<Response>
+    %23 temp: Response
+    %24 temp: Float
+    %25 temp: None
+    %26 temp: Future<String>
+    %27 temp: String
+    %28 temp: None
     %29 temp: String
-    %30 temp: None
-    %31 temp: Server
-    %32 temp: Optional<Float>
+    %30 temp: String
+    %31 temp: Future<Response>
+    %32 temp: Response
     %33 temp: Float
-    %34 temp: Float
-    %35 temp: None
-    %36 temp: Future<None>
+    %34 temp: None
+    %35 temp: Future<String>
+    %36 temp: String
     %37 temp: None
+    %38 temp: Server
+    %39 temp: Optional<AddressInfo>
+    %40 temp: Float
+    %41 temp: Float | AddressInfo
+    %42 temp: None
+    %43 temp: Future<None>
+    %44 temp: None
   bb0:
-    %5 = closure ClosureId(0) []
-    %6 = http_create_server move %5
-    %0 = move %6
-    %7 = closure ClosureId(3) []
-    %8 = http_server_listen copy %0 0.0 "127.0.0.1" move %7
-    %9 = http_server_address copy %0
-    %10 = move %9 ?? 0.0
+    %6 = closure ClosureId(0) []
+    %7 = http_create_server move %6
+    %0 = move %7
+    %8 = closure ClosureId(3) []
+    %9 = http_server_listen copy %0 0.0 "127.0.0.1" move %8
+    %10 = http_server_address copy %0
     %1 = move %10
-    %11 = "http://127.0.0.1:" + move %1
-    %2 = move %11
-    %12 = "" + copy %2
-    %13 = move %12 + "/echo?q=1"
-    %14 = request_new input=move %13 method="POST" body="hello body"
-    %15 = async_http_fetch(move %14)
-    %16 = await move %15
-    %3 = move %16
-    %17 = response_status copy %3
-    %18 = call @console_log(move %17) -> bb1
+    %11 = unknown_is Null copy %1
+    %12 = !move %11
+    switch move %12 ? bb1 : bb2
   bb1:
-    %19 = response_text move %3
-    %20 = await move %19
-    %21 = call @console_log(move %20) -> bb2
+    %14 = unknown_is Null copy %1
+    %15 = !move %14
+    %13 = move %15
+    goto bb3
   bb2:
-    %22 = "" + move %2
-    %23 = move %22 + "/again"
-    %24 = async_http_fetch(move %23)
-    %25 = await move %24
-    %4 = move %25
-    %26 = response_status copy %4
-    %27 = call @console_log(move %26) -> bb3
+    %13 = false
+    goto bb3
   bb3:
-    %28 = response_text move %4
-    %29 = await move %28
-    %30 = call @console_log(move %29) -> bb4
+    switch move %13 ? bb4 : bb5
   bb4:
-    %31 = http_server_close copy %0
-    %32 = http_server_address move %0
-    %33 = -1.0
-    %34 = move %32 ?? move %33
-    %35 = call @console_log(move %34) -> bb5
+    %17 = move %1
+    %16 = copy %17.field14
+    goto bb6
   bb5:
-    %36 = async_exit_drain()
-    %37 = await move %36
+    %16 = 0.0
+    goto bb6
+  bb6:
+    %2 = move %16
+    %18 = "http://127.0.0.1:" + move %2
+    %3 = move %18
+    %19 = "" + copy %3
+    %20 = move %19 + "/echo?q=1"
+    %21 = request_new input=move %20 method="POST" body="hello body"
+    %22 = async_http_fetch(move %21)
+    %23 = await move %22
+    %4 = move %23
+    %24 = response_status copy %4
+    %25 = call @console_log(move %24) -> bb7
+  bb7:
+    %26 = response_text move %4
+    %27 = await move %26
+    %28 = call @console_log(move %27) -> bb8
+  bb8:
+    %29 = "" + move %3
+    %30 = move %29 + "/again"
+    %31 = async_http_fetch(move %30)
+    %32 = await move %31
+    %5 = move %32
+    %33 = response_status copy %5
+    %34 = call @console_log(move %33) -> bb9
+  bb9:
+    %35 = response_text move %5
+    %36 = await move %35
+    %37 = call @console_log(move %36) -> bb10
+  bb10:
+    %38 = http_server_close copy %0
+    %39 = http_server_address move %0
+    %40 = -1.0
+    %41 = move %39 ?? move %40
+    %42 = call @console_log(move %41) -> bb11
+  bb11:
+    %43 = async_exit_drain()
+    %44 = await move %43
     return none
 
 closure ClosureId(0) -> None

@@ -3109,7 +3109,36 @@ impl FunctionEmitter<'_> {
     ) -> Result<(&'static str, String), EmitError> {
         let ty = self.operand_ty(operand)?;
         if ty == self.none_ty {
-            Ok(("{}", "\"null\"".to_owned()))
+            // The language's own word for the null value: `console.log(null)`
+            // is `null`, Python's `print(None)` is `None`.
+            Ok(("{}", format!("{:?}", absent.null_text())))
+        } else if absent == AbsentSpelling::None
+            && matches!(self.mir.types.get(ty), Some(Type::Bool))
+        {
+            // Python's `print` writes `str(value)`, and `str(True)` is `True`;
+            // Rust's `Display` (and JavaScript) write `true`. `AbsentSpelling`
+            // is the console's language: `None` is Python's `print`.
+            Ok((
+                "{}",
+                format!(
+                    "if {} {{ \"True\" }} else {{ \"False\" }}",
+                    self.operand_text(operand)?
+                ),
+            ))
+        } else if self.console_inspects(ty, absent) {
+            // A container, record or union prints the way Node's
+            // `util.inspect` draws it (`[ 1, 2 ]`, `{ x: 1 }`, `Map(1) { .. }`),
+            // through the trait impl of the value's own Rust type; see
+            // `console_inspect_prelude`.
+            Ok((
+                "{}",
+                format!(
+                    "{}::{}(&{})",
+                    crate::console_inspect_prelude::INSPECT_TRAIT,
+                    crate::console_inspect_prelude::CONSOLE_TEXT_METHOD,
+                    self.operand_text(operand)?
+                ),
+            ))
         } else if matches!(
             self.mir.types.get(ty),
             Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))

@@ -1441,7 +1441,7 @@ impl ModuleBuilder<'_> {
             let literal = if Self::is_process_env_field(member, "TZ")
                 || Self::is_process_env_field(member, "tz")
             {
-                Literal::String("America/Santiago".to_owned())
+                Literal::String(smelt_stdlib::NODE_PROFILE_TIMEZONE.to_owned())
             } else {
                 Literal::Undefined
             };

@@ -516,10 +516,10 @@ fn main() {
     _smelt_tmp_16 = full.clone().referrer();
     _smelt_tmp_17 = full.clone().referrer_policy();
     let _ = { println!("{} {}", _smelt_tmp_16, _smelt_tmp_17); };
-    _smelt_tmp_19 = SmeltRequest::from_parts_with_init(&full.clone().url(), full.clone().method(), full.clone().headers(), SmeltBody::take_from_source(&full.clone().body()), full.clone().init());
+    _smelt_tmp_19 = SmeltRequest::from_parts_with_init(&full.clone().url(), full.clone().method(), full.clone().headers(), SmeltBody::take_from_source(&full.clone().body()), { let mut smelt_request_init = full.clone().init(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     let _smelt_tmp_20: String = describe(_smelt_tmp_19);
     let _ = { println!("{}", _smelt_tmp_20); };
-    _smelt_tmp_22 = SmeltRequest::from_parts_with_init(&full.clone().url(), full.clone().method(), full.clone().headers(), SmeltBody::take_from_source(&full.clone().body()), full.clone().init());
+    _smelt_tmp_22 = SmeltRequest::from_parts_with_init(&full.clone().url(), full.clone().method(), full.clone().headers(), SmeltBody::take_from_source(&full.clone().body()), { let mut smelt_request_init = full.clone().init(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     let _smelt_tmp_23: String = describe(_smelt_tmp_22);
     let _ = { println!("{}", _smelt_tmp_23); };
     _smelt_tmp_25 = SmeltRequest::from_parts_with_init(&full.clone().url(), "POST".to_owned(), full.clone().headers(), SmeltBody::take_from_source(&full.clone().body()), { let mut smelt_request_init = full.clone().init(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });

@@ -28,7 +28,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Collect free type parameters retained by a concrete union's members.
-    fn union_type_params(&self, ty: TypeId) -> Result<Vec<Symbol>, EmitError> {
+    pub(super) fn union_type_params(&self, ty: TypeId) -> Result<Vec<Symbol>, EmitError> {
         let Some(members) = self.concrete_union_members(ty) else {
             return Ok(Vec::new());
         };

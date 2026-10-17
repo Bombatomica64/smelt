@@ -4,7 +4,7 @@
     reason = "class helpers are shared across sibling emitter modules"
 )]
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use smelt_hir::{AsyncOp, Symbol, Type, TypeId};
 use smelt_mir::{
@@ -1461,17 +1461,28 @@ fn type_holds_function_seen(
 /// class, the subclass field replaces the inherited slot so Rust struct storage
 /// stays valid and matches the effective source member surface.
 pub(crate) fn effective_class_fields(mir: &Mir, class: &MirClass) -> Vec<MirField> {
-    let mut fields = base_class(mir, class)
-        .map(|base| effective_class_fields(mir, base))
-        .unwrap_or_default();
-    for field in &class.fields {
-        if let Some(existing) = fields
-            .iter_mut()
-            .find(|candidate| candidate.name == field.name)
-        {
-            *existing = field.clone();
-        } else {
-            fields.push(field.clone());
+    // The chain root first, so a base's fields lead and an override replaces
+    // the inherited slot in place. The slot lookup is a map: a linear `find`
+    // per field made a long `extends` chain cubic overall (measured by
+    // `tests/compile_scaling.rs`).
+    let mut chain = vec![class];
+    let mut seen = HashSet::from([class.name]);
+    while let Some(base) = chain.last().and_then(|last| base_class(mir, last)) {
+        if !seen.insert(base.name) {
+            break;
+        }
+        chain.push(base);
+    }
+    let mut fields: Vec<MirField> = Vec::new();
+    let mut slots: HashMap<Symbol, usize> = HashMap::new();
+    for owner in chain.iter().rev() {
+        for field in &owner.fields {
+            if let Some(existing) = slots.get(&field.name).and_then(|slot| fields.get_mut(*slot)) {
+                *existing = field.clone();
+            } else {
+                slots.insert(field.name, fields.len());
+                fields.push(field.clone());
+            }
         }
     }
     fields
@@ -1572,22 +1583,20 @@ pub(crate) fn materialized_static_value_text(literal: Option<&smelt_hir::Literal
 /// declarations describe the effective surface while keeping generated storage
 /// valid.
 pub(crate) fn effective_interface_fields(mir: &Mir, interface: &MirInterface) -> Vec<MirField> {
-    let mut fields = Vec::new();
+    // Keyed by the sanitized Rust name in a map: the linear `find` (which
+    // re-sanitized every candidate) made a long `extends` chain cubic.
+    let mut fields: Vec<MirField> = Vec::new();
+    let mut slots: HashMap<String, usize> = HashMap::new();
     for field in &interface.fields {
         let field_name = mir
             .symbols
             .get(field.name)
             .map(RustIdent::new)
             .map_or_else(|| "field".to_owned(), RustIdent::into_string);
-        if let Some(existing) = fields.iter_mut().find(|candidate: &&mut MirField| {
-            mir.symbols
-                .get(candidate.name)
-                .map(RustIdent::new)
-                .map_or_else(|| "field".to_owned(), RustIdent::into_string)
-                == field_name
-        }) {
+        if let Some(existing) = slots.get(&field_name).and_then(|slot| fields.get_mut(*slot)) {
             *existing = field.clone();
         } else {
+            slots.insert(field_name, fields.len());
             fields.push(field.clone());
         }
     }

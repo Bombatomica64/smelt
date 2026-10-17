@@ -4537,7 +4537,7 @@ return_ty: function.return_ty,
     /// know about it, so the interface registry is not yet populated when the
     /// question is asked.
     /// Whether the module's source text spells a declaration of the type `name`.
-    fn source_declares_type(&self, name: &str) -> bool {
+    pub(in crate::lowering) fn source_declares_type(&self, name: &str) -> bool {
         [
             format!("interface {name}"),
             format!("type {name}"),

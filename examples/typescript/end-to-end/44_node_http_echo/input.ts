@@ -58,9 +58,12 @@ server.listen(0, () => {
   console.log("listening");
 });
 
-// `address()` answers the bound port or null, so it is narrowed before use —
-// the same shape as Node, where `server.address()` is `AddressInfo | null`.
-const port = server.address() ?? 0;
+// `address()` answers Node's `AddressInfo` (`{ address, family, port }`) for a
+// TCP server and `null` when the server is not listening; Node's own typing
+// adds a path string for a pipe server. So the result is narrowed to the
+// object arm before `.port` is read, exactly as a Node program has to.
+const address = server.address();
+const port = typeof address === "object" && address !== null ? address.port : 0;
 const base = `http://127.0.0.1:${port}`;
 
 const posted = await fetch(`${base}/echo?q=1`, {

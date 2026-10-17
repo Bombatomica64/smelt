@@ -107,6 +107,7 @@ mod cfg_queries;
 mod closures;
 mod coercion;
 mod control_flow;
+mod console_inspect;
 mod construct;
 mod control_flow_match;
 mod core;
@@ -160,6 +161,7 @@ use rendered_value::{Precedence, RenderedValue};
 use types::MutablePrefix;
 pub(crate) use union::emit_union_definitions;
 pub(crate) use json_decode::emit_json_decoders;
+pub(crate) use console_inspect::emit_console_inspect_support;
 pub(crate) use core::is_erased_unknown_rest_function_in;
 
 /// Process-wide runtime state an emitted native test resets before its body,
@@ -244,6 +246,10 @@ pub(crate) struct EmitContext {
     /// Whether any body reads the dynamic `this` receiver channel (see
     /// [`receiver_bound_slot`]).
     program_reads_this: bool,
+    /// Whether some `console.log` argument took the `util.inspect` route, so
+    /// the crate root must carry the `SmeltInspect` runtime (see
+    /// [`console_inspect`]). Set while bodies are emitted, read after.
+    console_inspect_used: ::std::cell::Cell<bool>,
 }
 
 impl EmitContext {
@@ -347,7 +353,18 @@ impl EmitContext {
             type_param_elision: crate::generic_elision::compute(mir),
             erased_view_write_through: view_write_through::program_writes_erased_fields(mir),
             program_reads_this: receiver_bound_slot::program_reads_this(mir),
+            console_inspect_used: ::std::cell::Cell::new(false),
         })
+    }
+
+    /// Record that a `console.log` argument renders through `SmeltInspect`.
+    pub(crate) fn mark_console_inspect_used(&self) {
+        self.console_inspect_used.set(true);
+    }
+
+    /// Whether any `console.log` argument rendered through `SmeltInspect`.
+    pub(crate) fn console_inspect_used(&self) -> bool {
+        self.console_inspect_used.get()
     }
 
     /// Return whether property writes through an erased view reach the
