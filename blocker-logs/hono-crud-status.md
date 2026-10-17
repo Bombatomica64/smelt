@@ -220,3 +220,12 @@ Assumed / not checked: behavior of the shipped app with real `node:sqlite` and
 runtimes were pinned to one); that the `serve.ts` shim's cost is representative of
 `@hono/node-server` on the Rust side (on Node, `@hono/node-server` is ~2× faster than the shim on
 the 400/404 routes, so `node-staging` understates what Node achieves with its native adapter).
+
+## 9. Decisions (user, 2026-10-17)
+
+| Question | Decision |
+| --- | --- |
+| Order of work | **Track 1 first**: make the generated server fit to run — bound the identity registries (plan item 1, the leak), index erased field stores (item 3), then land the serializer fast path with them. Track 2 (shipped example builds as written) next; track 3 (typed Hono context) after. |
+| `@hono/node-server` | **Model it** as a host module (`serve({ fetch, port })` on the existing hyper-backed `node:http` runtime), the way `@date-fns/tz` is modeled — not lower its source. |
+| `process.env` in programs | **Real reads are allowed**: a server program must see its environment (`process.env.PORT`). The deterministic profile's "every variable is absent" fold (family P) is to be replaced by a real read, keeping determinism where tests need it. |
+| Python-app showcase | **Deferred**; revisit with the open questions in `hono-crud-python-app.md`. |
