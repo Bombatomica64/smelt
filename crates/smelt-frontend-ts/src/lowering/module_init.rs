@@ -262,12 +262,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     }
                 })
                 .collect::<Vec<_>>();
-            fields.extend(
-                members
-                    .into_iter()
-                    .filter(|member| fields.iter().all(|method| method.name != member.name))
-                    .collect::<Vec<_>>(),
-            );
+            let members = members
+                .into_iter()
+                .filter(|member| fields.iter().all(|method| method.name != member.name))
+                .collect::<Vec<_>>();
+            fields.extend(members);
             if !fields.is_empty() {
                 self.ctx.type_alias_fields.insert(name, fields);
             }

@@ -3604,6 +3604,60 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// `record.has(key)` for a keyed record read `record[key]` whose value type
+    /// is not itself nullable, or `None` for any other expression.
+    ///
+    /// The read then answers `undefined` exactly when the key is absent, so
+    /// this containment test is how a presence assertion on it is asked (see
+    /// `expect_to_be_none_statement`). `TypeAssert` wrappers are looked
+    /// through, as in [`Self::keyed_read_presence_condition`].
+    pub(in crate::lowering) fn keyed_read_contains_key(
+        &mut self,
+        read: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        if self.is_nullishable_type(Self::expr_ty(body, read)) {
+            return None;
+        }
+        let mut inner = read;
+        while let Some(ExprKind::TypeAssert { value }) = usize::try_from(inner.0)
+            .ok()
+            .and_then(|index| body.exprs.get(index))
+            .map(|expr| expr.kind.clone())
+        {
+            inner = value;
+        }
+        let Some(ExprKind::Index { receiver, index }) = usize::try_from(inner.0)
+            .ok()
+            .and_then(|position| body.exprs.get(position))
+            .map(|expr| expr.kind.clone())
+        else {
+            return None;
+        };
+        let Some(Type::Dict(key_ty, value_ty)) =
+            self.ctx.krate.types.get(Self::expr_ty(body, receiver)).cloned()
+        else {
+            return None;
+        };
+        if key_ty != Self::expr_ty(body, index)
+            || self.is_nullishable_type(value_ty)
+            || matches!(self.ctx.krate.types.get(value_ty), Some(Type::Unknown))
+        {
+            return None;
+        }
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        Some(body.push_expr(Expr {
+            kind: ExprKind::DictContainsKey {
+                dict: receiver,
+                key: index,
+                lookup: smelt_hir::PropertyLookup::Own,
+            },
+            ty: bool_ty,
+            span,
+        }))
+    }
+
     /// Keep a keyed record read's absence when it flows into an optional slot.
     ///
     /// `record[key]` is typed as the record's value type (TypeScript without

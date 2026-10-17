@@ -32,7 +32,7 @@ use std::collections::HashMap;
 /// unique symbol — the ordinary call-lowering path and the const-initializer
 /// folding path — must go through here so the two cannot drift apart.
 pub(in crate::lowering) fn unique_symbol_spelling(description: &str, site: Span) -> String {
-    let site = (u64::from(site.file.0) << 32) | u64::from(site.start);
+    let site = (u64::from(site.file.0) << 32_u32) | u64::from(site.start);
     format!("Symbol({description})@{site}")
 }
 
@@ -3740,7 +3740,14 @@ impl<'builder> ModuleBuilder<'builder> {
         // return (`U | PromiseLike<U>`); forcing `void` here erased values such
         // as a returned `Generator<Y, R, N>` before the surrounding `await` and
         // made typed `yield* await promise.then(...)` impossible.
-        let callback_return_ty = unknown_ty;
+        // `onFinally`'s result is discarded (only a returned promise is
+        // awaited, and an `async` callback is a future by its own `async`), so
+        // its contextual return is `void`, not an erased value.
+        let callback_return_ty = if method == "finally" {
+            self.ctx.krate.types.intern(Type::None)
+        } else {
+            unknown_ty
+        };
         // `onFinally` is called with no arguments (it cannot observe the
         // outcome); `onRejected` gets the erased reason, `onFulfilled` the value.
         let callback_params = match method {
