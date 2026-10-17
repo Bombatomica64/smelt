@@ -2433,6 +2433,9 @@ impl FunctionEmitter<'_> {
         if let Some(Type::Dict(_, value)) = self.mir.types.get(receiver_ty) {
             return Ok(*value);
         }
+        if let Some((read_ty, _)) = self.concrete_union_member_reads(receiver_ty, field)? {
+            return Ok(read_ty);
+        }
         if matches!(
             self.mir.types.get(receiver_ty),
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
@@ -2892,6 +2895,9 @@ impl FunctionEmitter<'_> {
             return Ok(format!(
                 "{receiver_text}.get({field_name:?}).cloned().expect(\"missing field\")"
             ));
+        }
+        if let Some(text) = self.concrete_union_member_read_text(receiver_text, receiver_ty, field)? {
+            return Ok(text);
         }
         if matches!(
             self.mir.types.get(receiver_ty),
