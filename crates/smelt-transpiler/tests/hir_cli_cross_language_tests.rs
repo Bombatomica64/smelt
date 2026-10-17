@@ -1457,6 +1457,7 @@ const RUNTIME_FIXTURES: &[&str] = &[
     "dynamic_key_body_reader",
     "object_assign_onto_instance",
     "union_function_element_callee",
+    "optional_unknown_reads_as_undefined",
 ];
 
 #[test]

@@ -597,7 +597,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 35] = [
+    const BOUNDARY_MARKERS: [&str; 36] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -660,6 +660,15 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // `source_unknown_list_erasure_keeps_its_direct_wrap`).
         smelt_codegen_rust::ERASED_GENERIC_LIST_ALIAS_FN,
         smelt_codegen_rust::ERASED_GENERIC_ARRAY_ALIAS_FN,
+        // Reading an optional erased value at the erased carrier
+        // (`Option<SmeltUnknown>` to `SmeltUnknown`, absence becoming
+        // `undefined`). Same reasoning as the two list-alias helpers above:
+        // the value is a `SmeltUnknown` on both sides, and the helper adapts
+        // one erased spelling to the other. The site used to assert presence
+        // with `.expect(..)` -- which named no `SmeltUnknown` and so counted
+        // nowhere -- and panicked on an absent value (remeda `prop`). Proven
+        // in `optional_unknown_read_is_a_boundary` below.
+        smelt_codegen_rust::OPTIONAL_UNKNOWN_OR_UNDEFINED_FN,
         "IntoSmeltUnknown",
         "into_smelt_unknown",
         "to_smelt_unknown",
@@ -1556,6 +1565,23 @@ mod tests {
             Category::AvoidableErasure,
             "a string-keyed projection is still avoidable erasure"
         );
+    }
+
+    /// An optional erased value read at the erased carrier is an adapter between
+    /// two erased spellings, not new erasure.
+    #[test]
+    fn optional_unknown_read_is_a_boundary() {
+        let line = "    _smelt_tmp_3 = smelt_optional_unknown_or_undefined(value.clone());";
+        assert_eq!(
+            classify_line(line, false),
+            Category::LegitimateBoundary,
+            "an optional erased value read at the erased carrier adds no erasure"
+        );
+        assert!(line.contains(smelt_codegen_rust::OPTIONAL_UNKNOWN_OR_UNDEFINED_FN));
+        // Spelling the same absence by hand is not a marker: only the named
+        // adapter, whose input is already erased, is classified as a boundary.
+        let by_hand = "    _smelt_tmp_3 = value.clone().unwrap_or(SmeltUnknown::Undefined);";
+        assert_eq!(classify_line(by_hand, false), Category::AvoidableErasure);
     }
 
     /// An erased generic array handed to another erased slot is a boundary

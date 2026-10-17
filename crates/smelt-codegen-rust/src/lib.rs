@@ -147,6 +147,17 @@ pub const PRELUDE_END_MARKER: &str = "// @smelt:prelude-end — generated progra
 /// `erased_list_alias` for why.
 pub use erased_list_alias::{ERASED_GENERIC_ARRAY_ALIAS_FN, ERASED_GENERIC_LIST_ALIAS_FN};
 
+/// Name of the prelude helper that reads an optional erased value at the
+/// erased carrier: `Option<SmeltUnknown>` to `SmeltUnknown`, absence becoming
+/// `undefined`.
+///
+/// It converts between two erased spellings of one JavaScript value and adds
+/// no erasure: the value was a `SmeltUnknown` on both sides. The emitter used
+/// to assert presence here (`.expect(..)`), which panicked on an absent value;
+/// the helper's name is what lets the SmeltUnknown report classify the call
+/// site as the boundary it is (same reasoning as `erased_list_alias`).
+pub const OPTIONAL_UNKNOWN_OR_UNDEFINED_FN: &str = "smelt_optional_unknown_or_undefined";
+
 /// Options for controlling code emission behavior.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -2894,6 +2905,20 @@ fn emit_source_with_free_function_router(
         writer.line("impl From<&SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: &SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_storage(list.id(), list.storage()) } }");
         if needs_erased_list_alias {
             erased_list_alias::emit_prelude(&mut writer);
+        }
+        // Pay-for-use: only a program whose type table holds `Optional<Unknown>`
+        // can read one at `Unknown`, so only such a program carries the helper.
+        let unknown_ty = mir.types.all().iter().position(|ty| matches!(ty, Type::Unknown));
+        let needs_optional_unknown_read = unknown_ty.is_some_and(|unknown| {
+            mir.types.all().iter().any(|ty| matches!(ty, Type::Optional(inner) if usize::try_from(inner.0).ok() == Some(unknown)))
+        });
+        if needs_optional_unknown_read {
+        writer.line("/// An optional erased value read at the erased carrier: absence is `undefined`.");
+        writer.line("#[inline]");
+        writer.line("#[allow(dead_code)]");
+        writer.line(format!(
+            "fn {OPTIONAL_UNKNOWN_OR_UNDEFINED_FN}(value: Option<SmeltUnknown>) -> SmeltUnknown {{ value.unwrap_or(SmeltUnknown::Undefined) }}"
+        ));
         }
         writer.line("impl<T: Clone> From<&SmeltList<T>> for Vec<T> { fn from(list: &SmeltList<T>) -> Self { list.to_vec() } }");
         // serde impls only when the crate actually links serde (JSON contexts).

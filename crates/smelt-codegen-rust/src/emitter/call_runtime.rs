@@ -373,6 +373,25 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         match value {
+            // An optional value read at the ERASED carrier keeps its absence:
+            // `SmeltUnknown` has an `Undefined` arm, so `let output: unknown =
+            // data` with `data: object | null | undefined` is `undefined` when
+            // `data` is, exactly as in JavaScript. Asserting presence instead
+            // (the arm below) panicked as soon as a caller passed `undefined`
+            // as `None` (remeda `prop(undefined, 'a')`).
+            Rvalue::Use(operand)
+                if matches!(self.mir.types.get(dest_ty), Some(Type::Unknown))
+                    && matches!(
+                        self.mir.types.get(self.operand_ty(operand)?),
+                        Some(Type::Optional(inner)) if *inner == dest_ty
+                    ) =>
+            {
+                Ok(format!(
+                    "{}({}.clone())",
+                    crate::OPTIONAL_UNKNOWN_OR_UNDEFINED_FN,
+                    self.operand_text(operand)?
+                ))
+            }
             Rvalue::Use(operand)
                 if matches!(
                     self.mir.types.get(self.operand_ty(operand)?),
