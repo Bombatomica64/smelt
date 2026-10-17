@@ -1118,6 +1118,45 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// the event loop", and a body that did cannot be missed by a scan of what
     /// it actually produced.
     fn body_needs_async_runtime(&self, body: &Body) -> bool {
+        self.body_reaches_event_loop(body, &mut Vec::new())
+    }
+
+    /// Whether `body`, or a function it calls, puts work on the event loop.
+    ///
+    /// The module-body scan above only saw the body's OWN expressions, so a
+    /// program whose top level calls a synchronous helper that starts a
+    /// server (`serve({ fetch: app.fetch, port })`, with `createServer(..)`
+    /// and `listen(..)` inside `serve`) emitted a synchronous `main`: no
+    /// runtime for the accept loop's `spawn_local` (it panicked with "there is
+    /// no reactor running") and no exit drain to keep the process serving.
+    /// Every function item the body references is followed (a reference is
+    /// how a call names its callee); closures are not, because defining one
+    /// schedules nothing. `visited` stops recursion.
+    fn body_reaches_event_loop(&self, body: &Body, visited: &mut Vec<smelt_hir::BodyId>) -> bool {
+        let reaches_through_callee = |builder: &Self, seen: &mut Vec<smelt_hir::BodyId>, id: smelt_hir::BodyId| {
+            if seen.contains(&id) {
+                return false;
+            }
+            seen.push(id);
+            let Some(callee_body) = usize::try_from(id.0).ok().and_then(|index| builder.ctx.krate.bodies.get(index)) else {
+                return false;
+            };
+            builder.body_reaches_event_loop(callee_body, seen)
+        };
+        for expr in &body.exprs {
+            let nested = match &expr.kind {
+                ExprKind::Item(item) => match usize::try_from(item.0).ok().and_then(|index| self.ctx.krate.items.get(index)) {
+                    Some(Item::Function(function)) => function.body,
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some(id) = nested
+                && reaches_through_callee(self, visited, id)
+            {
+                return true;
+            }
+        }
         body.exprs.iter().any(|expr| {
             // An `AsyncOp` covers the timers (`Sleep`, `SetTimeout`) as well as
             // the HTTP operations, so one arm answers for every op that reaches

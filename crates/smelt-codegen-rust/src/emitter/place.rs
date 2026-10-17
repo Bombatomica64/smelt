@@ -605,6 +605,24 @@ impl FunctionEmitter<'_> {
                         let default_value = self.default_value(value_ty)?;
                         Ok(format!("{optional_read}.unwrap_or({default_value})"))
                     }
+                    // A class receiver read with a RUN-TIME key. The key can
+                    // name any declared member (a field, a method, a host
+                    // body reader), so it is looked up on the value's erased
+                    // view, which carries the fields and prototype members of
+                    // a program class and resolves a host class's modeled
+                    // members (`smelt_host_method`). Answering `undefined`
+                    // unconditionally made `raw[key]()` (Hono's request body
+                    // cache) call nothing.
+                    Some(Type::Class { .. }) if self.mir.types.get(self.operand_ty(index)?) == Some(&Type::String)
+                        && crate::stdlib::needs_unknown_type(self.mir) =>
+                    {
+                        let base_text =
+                            format!("({}).clone().into_smelt_unknown()", self.local_value_text(*base)?);
+                        let index_ty = self.operand_ty(index)?;
+                        let key_text =
+                            self.property_key_to_string_text(&self.operand_text(index)?, index_ty)?;
+                        Ok(format!("smelt_get_unknown_field(&{base_text}, &{key_text})"))
+                    }
                     // No modelled keyed storage on this receiver, so the key
                     // is not a property of it: JavaScript answers `undefined`
                     // for a missing property, which is a DIFFERENT value from

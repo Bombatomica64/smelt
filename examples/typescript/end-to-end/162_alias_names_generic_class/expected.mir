@@ -1,0 +1,58 @@
+class GCtx fields [Public path: P] constructor Some(FuncId(2)) methods [FuncId(3)]
+
+fn via_alias (FuncId(0)) -> String
+  locals
+    %0 param c: GCtx<String>
+    %1 temp: String
+  bb0:
+    %1 = call fn3(copy %0, "alias") -> bb1
+  bb1:
+    return move %1
+
+fn via_id_alias (FuncId(1)) -> String
+  locals
+    %0 param c: GCtx<String>
+    %1 temp: String
+  bb0:
+    %1 = call fn3(copy %0, "id") -> bb1
+  bb1:
+    return move %1
+
+fn new (FuncId(2)) -> GCtx<P>
+  locals
+    %0 user this: GCtx<P>
+    %1 param path: P
+  bb0:
+    %0 = struct1 {}
+    %0.field7 = copy %1
+    return move %0
+
+fn text (FuncId(3)) -> String
+  locals
+    %0 param this: GCtx<P>
+    %1 param value: String
+    %2 temp: String
+  bb0:
+    %2 = copy %1 + "!"
+    return move %2
+
+fn main (FuncId(4)) -> None
+  locals
+    %0 temp: GCtx<String>
+    %1 temp: String
+    %2 temp: GCtx<String>
+    %3 temp: String
+    %4 temp: None
+  bb0:
+    %0 = call fn2("/b") -> bb1
+  bb1:
+    %1 = call fn0(move %0) -> bb2
+  bb2:
+    %2 = call fn2("/:id") -> bb3
+  bb3:
+    %3 = call fn1(move %2) -> bb4
+  bb4:
+    %4 = call @console_log(move %1, move %3) -> bb5
+  bb5:
+    return none
+

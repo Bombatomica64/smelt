@@ -5734,11 +5734,23 @@ const values = JSON.parse<number[]>(text);
 
 #[test]
 fn lowers_untyped_json_parse_to_unknown_record() -> Result<(), String> {
+    // Requirement corrected. OLD: an untyped `JSON.parse(text)` lowers to a
+    // string-keyed record (`Dict<String, Unknown>`). NEW: it lowers to
+    // `Unknown`, the erased carrier. Evidence: TypeScript types the call `any`,
+    // and the value is whatever the text holds — `JSON.parse('null')` is
+    // `null`, `JSON.parse('3')` a number, `JSON.parse('[1]')` an array. The
+    // record type coerced every non-object document into `{}`, so
+    // `body === null` validation never fired (Hono's `c.req.json()`; runtime
+    // fixture `json_parse_any_value` compares against Node). The guarantee
+    // this test exists for — an untyped parse lowers to a `JsonParse` with an
+    // erased result rather than failing — is kept; a source that knows the
+    // shape still gets its typed target through `JSON.parse<T>`, checked below.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
 const text = "{\"enabled\":true}";
 const values = JSON.parse(text);
+const typed = JSON.parse<Record<string, boolean>>(text);
 "#),
         &mut ctx,
     )?;
@@ -5748,9 +5760,16 @@ const values = JSON.parse(text);
     ensure!(
         body.exprs.iter().any(|expr| {
             matches!(expr.kind, ExprKind::JsonParse { .. })
+                && matches!(ctx.krate.types.get(expr.ty), Some(Type::Unknown))
+        }),
+        "expected untyped JSON.parse to lower to the erased `unknown` carrier",
+    );
+    ensure!(
+        body.exprs.iter().any(|expr| {
+            matches!(expr.kind, ExprKind::JsonParse { .. })
                 && matches!(ctx.krate.types.get(expr.ty), Some(Type::Dict(_, _)))
         }),
-        "expected untyped JSON.parse to lower as an unknown record",
+        "expected JSON.parse<Record<..>> to keep its typed record target",
     );
     Ok(())
 }

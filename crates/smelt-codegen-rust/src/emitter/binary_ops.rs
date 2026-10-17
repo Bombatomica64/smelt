@@ -957,8 +957,18 @@ impl FunctionEmitter<'_> {
         ty: TypeId,
     ) -> Result<String, EmitError> {
         let fn_ty = self.type_text_with_impl_trait(ty, false)?;
+        // `smelt_same_function_identity` (which also answers through identity
+        // links a callable gains crossing the erased ABI) lives in the
+        // `SmeltUnknown` runtime. A program without that runtime has no erased
+        // callables to link, so pointer identity of the shared `Rc` is the
+        // whole answer.
+        let compare = if crate::stdlib::needs_unknown_type(self.mir) {
+            "smelt_same_function_identity"
+        } else {
+            "::std::rc::Rc::ptr_eq"
+        };
         Ok(format!(
-            "smelt_same_function_identity(&{{ let smelt_lhs_fn: {fn_ty} = {left}.clone(); smelt_lhs_fn }}, &{{ let smelt_rhs_fn: {fn_ty} = {right}.clone(); smelt_rhs_fn }})"
+            "{compare}(&{{ let smelt_lhs_fn: {fn_ty} = {left}.clone(); smelt_lhs_fn }}, &{{ let smelt_rhs_fn: {fn_ty} = {right}.clone(); smelt_rhs_fn }})"
         ))
     }
 

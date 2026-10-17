@@ -24,10 +24,10 @@ module examples/typescript/end-to-end/41_symbol_keyed_class_members/input.ts (Mo
     #11: Float = #10.__smelt_symbol_unique__at_813
     #12: None = @8(console_log)
     #13: None = call #12(#11)
-    #14: Float = 1.0
-    #15: Holder = %5
-    #16: fn(Float) -> Float = #15.__smelt_symbol_unique_described_at_841
-    #17: Float = closure_call #16(#14)
+    #14: Holder = %5
+    #15: fn(Float) -> Float = #14.__smelt_symbol_unique_described_at_841
+    #16: Float = 1.0
+    #17: Float = closure_call #15(#16)
     #18: None = @9(console_log)
     #19: None = call #18(#17)
     #20: Holder = %5
