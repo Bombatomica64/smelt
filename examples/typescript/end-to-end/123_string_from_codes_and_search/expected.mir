@@ -2,15 +2,15 @@ fn main (FuncId(0)) -> None
   locals
     %0 user codes: List<Float>
     %1 user text: String
-    %2 user i: Float
+    %2 user i: usize
     %3 user escape_re: RegExp
     %4 temp: List<Float>
-    %5 temp: Float
+    %5 temp: usize
     %6 temp: Bool
     %7 temp: List<Float>
     %8 temp: String
     %9 temp: String
-    %10 temp: Float
+    %10 temp: usize
     %11 temp: None
     %12 temp: Float
     %13 temp: List<Float>
@@ -35,7 +35,7 @@ fn main (FuncId(0)) -> None
     %4 = [72.0, 101.0, 108.0, 108.0, 111.0]
     %0 = move %4
     %1 = ""
-    %2 = 0.0
+    %2 = 0
     goto bb1
   bb1:
     %5 = len copy %0
@@ -48,7 +48,7 @@ fn main (FuncId(0)) -> None
     %1 = move %9
     goto bb3
   bb3:
-    %10 = move %2 + 1.0
+    %10 = move %2 + 1
     %2 = move %10
     goto bb1
   bb4:

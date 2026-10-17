@@ -4555,20 +4555,20 @@ use super::*;
 
 pub(crate) fn make_record(keys: SmeltList<String>) -> SmeltRecord<String, String> {
     let mut key: String;
-    let mut _smelt_tmp_5: f64;
+    let mut _smelt_tmp_5: usize;
     let mut _smelt_tmp_6: bool;
     let mut _smelt_tmp_7: String;
     let _smelt_tmp_3: SmeltRecord<String, String> = SmeltRecord::from([]);
     let mut rec: SmeltRecord<String, String> = _smelt_tmp_3;
-    let mut _smelt_tmp_4: f64 = 0.0;
+    let mut _smelt_tmp_4: usize = 0;
     loop {
-    _smelt_tmp_5 = keys.len() as f64;
+    _smelt_tmp_5 = keys.len();
     _smelt_tmp_6 = _smelt_tmp_4 < _smelt_tmp_5;
     if !(_smelt_tmp_6) { break; }
-    key = keys.borrow().get({ let smelt_normalized = _smelt_tmp_4 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
+    key = keys.borrow().get(_smelt_tmp_4).cloned().unwrap_or_else(|| String::new());
     _smelt_tmp_7 = key.clone() + &"!".to_owned();
     rec.insert(key.clone(), _smelt_tmp_7);
-    _smelt_tmp_4 = _smelt_tmp_4 + 1.0;
+    _smelt_tmp_4 = _smelt_tmp_4 + 1;
     }
     return rec;
 }

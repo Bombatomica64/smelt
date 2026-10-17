@@ -112,5 +112,5 @@ pub use krate::{
     Crate, Import, Language, Module, SourceFile,
 };
 pub use symbol::{OriginalNameTable, SymbolInterner};
-pub use ty::{FunctionType, Type, TypeInterner};
+pub use ty::{FunctionType, IntWidth, Type, TypeInterner};
 pub use validate::{ValidationError, validate};

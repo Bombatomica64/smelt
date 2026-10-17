@@ -843,7 +843,7 @@ impl FunctionEmitter<'_> {
             // an integer is still a JavaScript number: `String(x)` must not
             // depend on which of the two Smelt inferred, and a JS number is an
             // `f64` in any case.
-            Some(Type::Int) => Ok(format!(
+            Some(Type::Int | Type::FixedInt(_)) => Ok(format!(
                 "{fn_name}({text} as f64)",
                 fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
                 text = self.operand_text(operand)?,

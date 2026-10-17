@@ -113,6 +113,7 @@ mod core;
 mod dict_entry_update;
 mod blob;
 mod fetch_types;
+mod fixed_int;
 mod abort_signal;
 mod crypto;
 mod host_module;

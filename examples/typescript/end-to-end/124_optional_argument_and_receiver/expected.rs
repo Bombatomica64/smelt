@@ -3218,8 +3218,8 @@ fn main() {
     let words: SmeltList<Option<String>>;
     let mut w: Option<String>;
     let _smelt_tmp_12: SmeltList<Option<String>>;
-    let mut _smelt_tmp_13: f64;
-    let mut _smelt_tmp_14: f64;
+    let mut _smelt_tmp_13: usize;
+    let mut _smelt_tmp_14: usize;
     let mut _smelt_tmp_15: bool;
     let mut _smelt_tmp_16: bool;
     let mut _smelt_tmp_17: bool;
@@ -3282,12 +3282,12 @@ fn main() {
     let _ = { println!("{} {} {}", _smelt_tmp_8, _smelt_tmp_9, _smelt_tmp_10); };
     _smelt_tmp_12 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Option<String>> = vec![Some("/xy".to_owned()), None::<String>]; smelt_list_items }));
     words = Into::<SmeltList<_>>::into(_smelt_tmp_12);
-    _smelt_tmp_13 = 0.0;
+    _smelt_tmp_13 = 0;
     loop {
-    _smelt_tmp_14 = words.len() as f64;
+    _smelt_tmp_14 = words.len();
     _smelt_tmp_15 = _smelt_tmp_13 < _smelt_tmp_14;
     if !(_smelt_tmp_15) { break; }
-    w = words.borrow().get({ let smelt_normalized = _smelt_tmp_13 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| None::<String>);
+    w = words.borrow().get(_smelt_tmp_13).cloned().unwrap_or_else(|| None::<String>);
     _smelt_tmp_16 = w.clone().is_none();
     _smelt_tmp_17 = !(_smelt_tmp_16);
     if _smelt_tmp_17 {
@@ -3334,7 +3334,7 @@ fn main() {
     _smelt_tmp_39 = None::<bool>;
     }
     let _ = { println!("{} {} {} {} {}", match &_smelt_tmp_18 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_24 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_29 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_34 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_39 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    _smelt_tmp_13 = _smelt_tmp_13 + 1.0;
+    _smelt_tmp_13 = _smelt_tmp_13 + 1;
     continue;
     } else {
     _smelt_tmp_18 = None::<String>;
@@ -3377,7 +3377,7 @@ fn main() {
     _smelt_tmp_39 = None::<bool>;
     }
     let _ = { println!("{} {} {} {} {}", match &_smelt_tmp_18 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_24 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_29 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_34 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_39 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    _smelt_tmp_13 = _smelt_tmp_13 + 1.0;
+    _smelt_tmp_13 = _smelt_tmp_13 + 1;
     continue;
     }
     }

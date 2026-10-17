@@ -1056,6 +1056,9 @@ impl FunctionEmitter<'_> {
                 }
             }
             Rvalue::Binary { op, lhs, rhs } => {
+                if let Some(text) = self.fixed_int_binary_text(*op, lhs, rhs)? {
+                    return Ok(text);
+                }
                 if let Some(text) = self.element_presence_comparison_text(*op, lhs, rhs)? {
                     return Ok(text);
                 }

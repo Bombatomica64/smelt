@@ -8075,6 +8075,7 @@ fn type_supports_partial_eq(
         Some(
             Type::Bool
             | Type::Int
+            | Type::FixedInt(_)
             | Type::Float
             | Type::String
             | Type::None
@@ -8343,7 +8344,7 @@ pub(crate) fn record_field_unknown_text(mir: &Mir, value_text: &str, ty: TypeId)
             "SmeltUnknown::Null".to_owned()
         }
         Some(Type::Bool) => format!("SmeltUnknown::Bool({value_text})"),
-        Some(Type::Int | Type::Float) => format!("SmeltUnknown::Number({value_text} as f64)"),
+        Some(Type::Int | Type::FixedInt(_) | Type::Float) => format!("SmeltUnknown::Number({value_text} as f64)"),
         Some(Type::String) => erased_string(value_text),
         Some(Type::Optional(inner)) => {
             let inner_text = record_field_unknown_text(mir, "value", *inner)?;

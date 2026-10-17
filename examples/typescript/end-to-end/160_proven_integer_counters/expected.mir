@@ -1,0 +1,571 @@
+fn sum_pairs (FuncId(0)) -> Float
+  locals
+    %0 param xs: List<Float>
+    %1 user total: Float
+    %2 user i: usize
+    %3 temp: usize
+    %4 temp: usize
+    %5 temp: Bool
+    %6 temp: usize
+    %7 temp: Float
+    %8 temp: Float
+    %9 temp: usize
+  bb0:
+    %1 = 0.0
+    %2 = 0
+    goto bb1
+  bb1:
+    %3 = copy %2 + 1
+    %4 = len copy %0
+    %5 = move %3 < move %4
+    switch move %5 ? bb2 : bb4
+  bb2:
+    %6 = copy %2 + 1
+    %7 = copy %0[copy %2] * copy %0[copy %6]
+    %8 = move %1 + move %7
+    %1 = move %8
+    goto bb3
+  bb3:
+    %9 = move %2 + 1
+    %2 = move %9
+    goto bb1
+  bb4:
+    return move %1
+
+fn last_index_down (FuncId(1)) -> Float
+  locals
+    %0 param xs: List<String>
+    %1 user i: i64
+    %2 temp: i64
+    %3 temp: i64
+    %4 temp: Bool
+    %5 temp: Bool
+    %6 temp: i64
+    %7 temp: Float
+  bb0:
+    %2 = len copy %0
+    %3 = move %2 - 1
+    %1 = move %3
+    goto bb1
+  bb1:
+    %4 = copy %1 >= 0
+    switch move %4 ? bb2 : bb3
+  bb2:
+    %5 = copy %0[copy %1] == "stop"
+    switch move %5 ? bb4 : bb5
+  bb3:
+    %7 = primitive_cast_float copy %1
+    return move %7
+  bb4:
+    goto bb3
+  bb5:
+    %6 = move %1 - 1
+    %1 = move %6
+    goto bb1
+
+fn step_two (FuncId(2)) -> String
+  locals
+    %0 param xs: List<Float>
+    %1 user i: usize
+    %2 user out: String
+    %3 temp: usize
+    %4 temp: Bool
+    %5 temp: String
+    %6 temp: String
+    %7 temp: String
+    %8 temp: String
+    %9 temp: String
+    %10 temp: usize
+    %11 temp: String
+    %12 temp: String
+    %13 temp: Float
+    %14 temp: Float
+  bb0:
+    %1 = 0
+    %2 = ""
+    goto bb1
+  bb1:
+    %3 = len copy %0
+    %4 = copy %1 < move %3
+    switch move %4 ? bb2 : bb4
+  bb2:
+    %13 = primitive_cast_float copy %1
+    %5 = "" + move %13
+    %6 = move %5 + ":"
+    %7 = move %6 + copy %0[copy %1]
+    %8 = move %7 + " "
+    %9 = move %2 + move %8
+    %2 = move %9
+    goto bb3
+  bb3:
+    %10 = move %1 + 2
+    %1 = move %10
+    goto bb1
+  bb4:
+    %11 = move %2 + "end="
+    %14 = primitive_cast_float copy %1
+    %12 = move %11 + move %14
+    return move %12
+
+fn chars (FuncId(3)) -> String
+  locals
+    %0 param s: String
+    %1 user out: String
+    %2 user i: usize
+    %3 temp: usize
+    %4 temp: Bool
+    %5 temp: String
+    %6 temp: String
+    %7 temp: usize
+    %8 temp: Float
+    %9 temp: Float
+  bb0:
+    %1 = ""
+    %2 = 0
+    goto bb1
+  bb1:
+    %3 = len copy %0
+    %4 = copy %2 < move %3
+    switch move %4 ? bb2 : bb4
+  bb2:
+    %8 = primitive_cast_float copy %2
+    %5 = move %1 + copy %0[move %8]
+    %9 = primitive_cast_float copy %2
+    %6 = move %5 + move %9
+    %1 = move %6
+    goto bb3
+  bb3:
+    %7 = move %2 + 1
+    %2 = move %7
+    goto bb1
+  bb4:
+    return move %1
+
+fn grid (FuncId(4)) -> Float
+  locals
+    %0 param rows: List<List<Float>>
+    %1 user acc: Float
+    %2 user r: usize
+    %3 user row: List<Float>
+    %4 user c: usize
+    %5 temp: usize
+    %6 temp: Bool
+    %7 temp: usize
+    %8 temp: Bool
+    %9 temp: usize
+    %10 temp: Float
+    %11 temp: Float
+    %12 temp: Float
+    %13 temp: usize
+    %14 temp: usize
+    %15 temp: Float
+    %16 temp: Float
+  bb0:
+    %1 = 0.0
+    %2 = 0
+    goto bb1
+  bb1:
+    %5 = len copy %0
+    %6 = copy %2 < move %5
+    switch move %6 ? bb2 : bb4
+  bb2:
+    %3 = copy %0[copy %2]
+    %4 = 0
+    goto bb5
+  bb3:
+    %14 = move %2 + 1
+    %2 = move %14
+    goto bb1
+  bb4:
+    return move %1
+  bb5:
+    %7 = len copy %3
+    %8 = copy %4 < move %7
+    switch move %8 ? bb6 : bb8
+  bb6:
+    %9 = copy %2 + 1
+    %15 = primitive_cast_float copy %9
+    %10 = copy %3[copy %4] * move %15
+    %16 = primitive_cast_float copy %4
+    %11 = move %10 + move %16
+    %12 = move %1 + move %11
+    %1 = move %12
+    goto bb7
+  bb7:
+    %13 = move %4 + 1
+    %4 = move %13
+    goto bb5
+  bb8:
+    goto bb3
+
+fn unguarded (FuncId(5)) -> Float
+  locals
+    %0 param limit: Float
+    %1 user i: Float
+    %2 temp: Float
+    %3 temp: Float
+    %4 temp: Bool
+  bb0:
+    %1 = 0.0
+    goto bb1
+  bb1:
+    switch true ? bb2 : bb3
+  bb2:
+    %2 = move %1 + 1.0
+    %1 = move %2
+    %3 = copy %1 * 3.0
+    %4 = move %3 > copy %0
+    switch move %4 ? bb4 : bb5
+  bb3:
+    return move %1
+  bb4:
+    goto bb3
+  bb5:
+    goto bb1
+
+fn flip (FuncId(6)) -> Float
+  locals
+    %0 param times: Float
+    %1 user sign: Float
+    %2 user k: usize
+    %3 temp: Bool
+    %4 temp: Float
+    %5 temp: Float
+    %6 temp: usize
+    %7 temp: Float
+  bb0:
+    %1 = 1.0
+    %2 = 0
+    goto bb1
+  bb1:
+    %3 = copy %2 < 4
+    switch move %3 ? bb2 : bb4
+  bb2:
+    %4 = -1.0
+    %5 = move %1 * move %4
+    %1 = move %5
+    goto bb3
+  bb3:
+    %6 = move %2 + 1
+    %2 = move %6
+    goto bb1
+  bb4:
+    %7 = move %1 + copy %0
+    return move %7
+
+fn halve (FuncId(7)) -> Float
+  locals
+    %0 user h: Float
+    %1 temp: Bool
+    %2 temp: Float
+  bb0:
+    %0 = 64.0
+    goto bb1
+  bb1:
+    %1 = copy %0 > 1.0
+    switch move %1 ? bb2 : bb3
+  bb2:
+    %2 = move %0 / 2.0
+    %0 = move %2
+    goto bb1
+  bb3:
+    return move %0
+
+fn captured (FuncId(8)) -> Float
+  locals
+    %0 param xs: List<Float>
+    %1 user seen: Float
+    %2 user i: usize
+    %3 temp: usize
+    %4 temp: Bool
+    %5 temp: fn(Float, Int, List<Float>) -> None
+    %6 temp: None
+    %7 temp: usize
+  bb0:
+    %1 = 0.0
+    %2 = 0
+    goto bb1
+  bb1:
+    %3 = len copy %0
+    %4 = copy %2 < move %3
+    switch move %4 ? bb2 : bb4
+  bb2:
+    %5 = closure ClosureId(0) [copy %1]
+    %6 = list_for_each copy %0, move %5
+    goto bb3
+  bb3:
+    %7 = move %2 + 1
+    %2 = move %7
+    goto bb1
+  bb4:
+    return copy %1
+
+fn from_start (FuncId(9)) -> Float
+  locals
+    %0 param start: Float
+    %1 param xs: List<Float>
+    %2 user i: Float
+    %3 user acc: Float
+    %4 temp: Float
+    %5 temp: Bool
+    %6 temp: Float
+    %7 temp: Float
+    %8 temp: Float
+  bb0:
+    %2 = copy %0
+    %3 = 0.0
+    goto bb1
+  bb1:
+    %4 = len copy %1
+    %5 = copy %2 < move %4
+    switch move %5 ? bb2 : bb3
+  bb2:
+    %6 = move %3 + copy %1[copy %2]
+    %3 = move %6
+    %7 = move %2 + 1.0
+    %2 = move %7
+    goto bb1
+  bb3:
+    %8 = move %3 + move %2
+    return move %8
+
+fn below_bound (FuncId(10)) -> Float
+  locals
+    %0 param n: Float
+    %1 user i: Float
+    %2 temp: Bool
+    %3 temp: Float
+  bb0:
+    %1 = 0.0
+    goto bb1
+  bb1:
+    %2 = copy %1 < copy %0
+    switch move %2 ? bb2 : bb3
+  bb2:
+    %3 = move %1 + 1.0
+    %1 = move %3
+    goto bb1
+  bb3:
+    return move %1
+
+fn main (FuncId(11)) -> None
+  locals
+    %0 user i: i64
+    %1 user z: Float
+    %2 user j: i64
+    %3 user m: i64
+    %4 temp: List<Float>
+    %5 temp: Float
+    %6 temp: List<Float>
+    %7 temp: Float
+    %8 temp: List<Float>
+    %9 temp: Float
+    %10 temp: None
+    %11 temp: List<String>
+    %12 temp: Float
+    %13 temp: List<String>
+    %14 temp: Float
+    %15 temp: List<String>
+    %16 temp: Float
+    %17 temp: None
+    %18 temp: List<Float>
+    %19 temp: String
+    %20 temp: List<Float>
+    %21 temp: String
+    %22 temp: List<Float>
+    %23 temp: String
+    %24 temp: None
+    %25 temp: String
+    %26 temp: String
+    %27 temp: None
+    %28 temp: List<Float>
+    %29 temp: List<Float>
+    %30 temp: List<Float>
+    %31 temp: List<List<Float>>
+    %32 temp: Float
+    %33 temp: List<List<Float>>
+    %34 temp: Float
+    %35 temp: None
+    %36 temp: Float
+    %37 temp: Float
+    %38 temp: Float
+    %39 temp: List<Float>
+    %40 temp: Float
+    %41 temp: None
+    %42 temp: List<Float>
+    %43 temp: Float
+    %44 temp: Float
+    %45 temp: Float
+    %46 temp: Float
+    %47 temp: None
+    %48 temp: Bool
+    %49 temp: String
+    %50 temp: String
+    %51 temp: i64
+    %52 temp: String
+    %53 temp: Float
+    %54 temp: None
+    %55 temp: i64
+    %56 temp: Float
+    %57 temp: Bool
+    %58 temp: Float
+    %59 temp: Float
+    %60 temp: Float
+    %61 temp: Float
+    %62 temp: None
+    %63 temp: Bool
+    %64 temp: i64
+    %65 temp: Float
+    %66 temp: None
+    %67 temp: i64
+    %68 temp: Float
+    %69 temp: Float
+    %70 temp: Float
+    %71 temp: Float
+    %72 temp: Float
+    %73 temp: Float
+    %74 temp: Float
+    %75 temp: Float
+  bb0:
+    %4 = [1.0, 2.0, 3.0, 4.0]
+    %5 = call fn0(move %4) -> bb1
+  bb1:
+    %6 = []
+    %7 = call fn0(move %6) -> bb2
+  bb2:
+    %8 = [5.0]
+    %9 = call fn0(move %8) -> bb3
+  bb3:
+    %10 = call @console_log(move %5, move %7, move %9) -> bb4
+  bb4:
+    %11 = ["a", "stop", "b"]
+    %12 = call fn1(move %11) -> bb5
+  bb5:
+    %13 = []
+    %14 = call fn1(move %13) -> bb6
+  bb6:
+    %15 = ["x"]
+    %16 = call fn1(move %15) -> bb7
+  bb7:
+    %17 = call @console_log(move %12, move %14, move %16) -> bb8
+  bb8:
+    %18 = [10.0, 20.0, 30.0]
+    %19 = call fn2(move %18) -> bb9
+  bb9:
+    %20 = []
+    %21 = call fn2(move %20) -> bb10
+  bb10:
+    %22 = [1.0, 2.0]
+    %23 = call fn2(move %22) -> bb11
+  bb11:
+    %24 = call @console_log(move %19, move %21, move %23) -> bb12
+  bb12:
+    %25 = call fn3("hello") -> bb13
+  bb13:
+    %26 = call fn3("") -> bb14
+  bb14:
+    %27 = call @console_log(move %25, move %26) -> bb15
+  bb15:
+    %28 = [1.0, 2.0]
+    %29 = [3.0]
+    %30 = []
+    %31 = [move %28, move %29, move %30]
+    %32 = call fn4(move %31) -> bb16
+  bb16:
+    %33 = []
+    %34 = call fn4(move %33) -> bb17
+  bb17:
+    %35 = call @console_log(move %32, move %34) -> bb18
+  bb18:
+    %36 = call fn5(10.0) -> bb19
+  bb19:
+    %37 = call fn6(0.5) -> bb20
+  bb20:
+    %38 = call fn7() -> bb21
+  bb21:
+    %39 = [1.0, 2.0, 3.0]
+    %40 = call fn8(move %39) -> bb22
+  bb22:
+    %41 = call @console_log(move %36, move %37, move %38, move %40) -> bb23
+  bb23:
+    %42 = [1.0, 2.0, 3.0]
+    %43 = call fn9(1.0, move %42) -> bb24
+  bb24:
+    %44 = call fn10(2.5) -> bb25
+  bb25:
+    %45 = -1.0
+    %46 = call fn10(move %45) -> bb26
+  bb26:
+    %47 = call @console_log(move %43, move %44, move %46) -> bb27
+  bb27:
+    %0 = 0
+    goto bb28
+  bb28:
+    %48 = copy %0 < 3
+    switch move %48 ? bb29 : bb31
+  bb29:
+    %68 = primitive_cast_float copy %0
+    %49 = "i=" + move %68
+    %69 = primitive_cast_float copy %0
+    %50 = "t" + move %69
+    %51 = copy %0 - 1
+    %70 = primitive_cast_float copy %0
+    %52 = primitive_cast_string move %70
+    %71 = primitive_cast_float copy %0
+    %53 = move %71 / 2.0
+    %72 = primitive_cast_float copy %0
+    %73 = primitive_cast_float copy %51
+    %54 = call @console_log(move %72, move %49, move %50, move %73, move %52, move %53) -> bb32
+  bb30:
+    %55 = move %0 + 1
+    %0 = move %55
+    goto bb28
+  bb31:
+    goto bb33
+  bb32:
+    goto bb30
+  bb33:
+    %56 = global_get #0
+    %57 = move %56 > 0.0
+    switch move %57 ? bb34 : bb35
+  bb34:
+    %58 = global_get #0
+    %59 = move %58 - 2.0
+    %60 = global_set #0 = move %59
+    goto bb33
+  bb35:
+    %61 = global_get #0
+    %62 = call @console_log(move %61) -> bb36
+  bb36:
+    %1 = 0.0
+    %2 = 0
+    goto bb37
+  bb37:
+    %63 = copy %2 < 2
+    switch move %63 ? bb38 : bb40
+  bb38:
+    %64 = copy %2 - 1
+    %3 = move %64
+    %74 = primitive_cast_float copy %3
+    %75 = primitive_cast_float copy %2
+    %65 = move %74 * move %75
+    %1 = move %65
+    %66 = call @console_log(move %1) -> bb41
+  bb39:
+    %67 = move %2 + 1
+    %2 = move %67
+    goto bb37
+  bb40:
+    return none
+  bb41:
+    goto bb39
+
+closure ClosureId(0) -> None
+  locals
+    %0 user seen: Float
+    %1 temp: Float
+  bb0:
+    %1 = copy %0 + 1.0
+    %0 = copy %1
+    return none
+

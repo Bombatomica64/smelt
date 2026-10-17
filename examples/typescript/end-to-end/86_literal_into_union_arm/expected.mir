@@ -35,8 +35,8 @@ fn total (FuncId(1)) -> String
     %4 temp: String
     %5 temp: String
     %6 temp: List<(Float, Float)>
-    %7 temp: Float
-    %8 temp: Float
+    %7 temp: usize
+    %8 temp: usize
     %9 temp: Bool
     %10 temp: Float
     %11 temp: Float
@@ -54,7 +54,7 @@ fn total (FuncId(1)) -> String
   bb2:
     %1 = 0.0
     %6 = unknown_cast copy %0 as t6
-    %7 = 0.0
+    %7 = 0
     goto bb3
   bb3:
     %8 = len copy %6
@@ -69,7 +69,7 @@ fn total (FuncId(1)) -> String
     %1 = move %13
     goto bb5
   bb5:
-    %7 = copy %7 + 1.0
+    %7 = copy %7 + 1
     goto bb3
   bb6:
     %14 = primitive_cast_string move %1

@@ -5195,6 +5195,7 @@ impl<'builder> ModuleBuilder<'builder> {
             Some(
                 Type::Bool
                 | Type::Int
+                | Type::FixedInt(_)
                 | Type::Float
                 | Type::String
                 | Type::Unknown

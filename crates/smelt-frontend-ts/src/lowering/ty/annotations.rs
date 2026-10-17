@@ -1949,6 +1949,7 @@ return_ty: function.return_ty,
             Some(
                 Type::Bool
                 | Type::Int
+                | Type::FixedInt(_)
                 | Type::Float
                 | Type::String
                 | Type::Unknown

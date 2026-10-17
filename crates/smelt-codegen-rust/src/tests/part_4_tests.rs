@@ -135,8 +135,11 @@ export function count(a: boolean, b: boolean): number {
     );
 
     assert!(source.contains("return f64::NAN;"), "{source}");
-    assert!(source.contains("result + 1.0"), "{source}");
-    assert!(source.contains("return result;"), "{source}");
+    // `result` is a counter proven to stay in `0..=1`, so integer range
+    // analysis makes it an integer and the step is the integer `+ 1`.
+    assert!(source.contains("result + 1;"), "{source}");
+    // The `number` result is the counter's exact conversion.
+    assert!(source.contains("= result as f64;"), "{source}");
 }
 
 #[test]

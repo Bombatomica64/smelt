@@ -32,8 +32,8 @@ fn main (FuncId(0)) -> None
     %29 temp: String
     %30 temp: None
     %31 temp: List<(String, String)>
-    %32 temp: Float
-    %33 temp: Float
+    %32 temp: usize
+    %33 temp: usize
     %34 temp: Bool
     %35 temp: String
     %36 temp: String
@@ -76,7 +76,7 @@ fn main (FuncId(0)) -> None
     %30 = call @console_log(move %29) -> bb8
   bb8:
     %31 = url_search_params_entries move %0
-    %32 = 0.0
+    %32 = 0
     goto bb9
   bb9:
     %33 = len copy %31
@@ -90,7 +90,7 @@ fn main (FuncId(0)) -> None
     %3 = move %36
     %37 = call @console_log(move %2, move %3) -> bb13
   bb11:
-    %32 = copy %32 + 1.0
+    %32 = copy %32 + 1
     goto bb9
   bb12:
     return none

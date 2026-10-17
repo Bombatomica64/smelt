@@ -3365,7 +3365,7 @@ fn main() {
     let mut name: Option<String>;
     let mut value: Option<String>;
     let mut __smelt_logical_value_6: Option<String>;
-    let mut _smelt_tmp_13: f64;
+    let mut _smelt_tmp_13: usize;
     let mut _smelt_tmp_14: bool;
     let mut _smelt_tmp_15: Option<String>;
     let mut _smelt_tmp_16: Option<String>;
@@ -3385,12 +3385,12 @@ fn main() {
     let _smelt_tmp_10: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x".to_owned(), "1".to_owned()]; smelt_list_items }));
     let _smelt_tmp_11: SmeltList<SmeltList<String>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_8.clone(), _smelt_tmp_9.clone(), _smelt_tmp_10.clone()]; smelt_list_items }));
     let pairs: SmeltList<SmeltList<String>> = Into::<SmeltList<_>>::into(_smelt_tmp_11.clone());
-    let mut _smelt_tmp_12: f64 = 0.0;
+    let mut _smelt_tmp_12: usize = 0;
     loop {
-    _smelt_tmp_13 = pairs.len() as f64;
+    _smelt_tmp_13 = pairs.len();
     _smelt_tmp_14 = _smelt_tmp_12 < _smelt_tmp_13;
     if _smelt_tmp_14 {
-    __smelt_for_item = Into::<SmeltList<_>>::into(pairs.borrow().get({ let smelt_normalized = _smelt_tmp_12 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltList::new(Vec::<String>::new())));
+    __smelt_for_item = Into::<SmeltList<_>>::into(pairs.borrow().get(_smelt_tmp_12).cloned().unwrap_or_else(|| SmeltList::new(Vec::<String>::new())));
     _smelt_tmp_15 = ({ let smelt_len = __smelt_for_item.clone().len() as i64; let smelt_index = 0.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| __smelt_for_item.clone().borrow().get(index).cloned());
     name = _smelt_tmp_15.clone();
     _smelt_tmp_16 = ({ let smelt_len = __smelt_for_item.clone().len() as i64; let smelt_index = 1.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| __smelt_for_item.clone().borrow().get(index).cloned());
@@ -3421,7 +3421,7 @@ fn main() {
     } else {
     }
     }
-    _smelt_tmp_12 = _smelt_tmp_12 + 1.0;
+    _smelt_tmp_12 = _smelt_tmp_12 + 1;
     } else {
     return results.clone();
     }
