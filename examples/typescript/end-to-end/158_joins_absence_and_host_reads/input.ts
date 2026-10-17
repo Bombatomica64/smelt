@@ -6,10 +6,9 @@
 // 1. A ternary whose consequent is `null` does not hint its alternate:
 //    `c ? null : d ? ['a'] : ['b']` must lower the nested array literals as
 //    arrays, not against `null`'s type (they were bound to `()` locals).
-// 2. `never` is the bottom type of a function join: `c ? rethrow : handle` is
-//    a callable returning what `handle` returns. It used to take `rethrow`'s
-//    signature, so `handle`'s concrete result was returned through an erased
-//    one.
+// 2. (`never` as the bottom of a function join is checked by the codegen unit
+//    test `never_returning_arm_does_not_type_a_function_join`: Smelt renders a
+//    `never` return as an erased value, which this corpus must not contain.)
 // 3. `x || y` over an optional PRIMITIVE is a truthiness test: a present
 //    `''`, `0` or `false` takes the fallback. It was lowered as presence
 //    (`unwrap_or`), the `??` rule.
@@ -31,22 +30,6 @@ function pick(token: string, next: string, prev: string): string {
   return pattern ? pattern[2] : 'none'
 }
 console.log(pick('*', '/x', '/'), pick('*', '/x', 'a'), pick('*', 'x', '/'), pick('x', '', ''))
-
-// 2.
-const rethrow = (err: unknown): never => {
-  throw err
-}
-const handle = (err: unknown): number => String(err).length
-function chooseHandler(strict: boolean): (err: unknown) => number {
-  const handler = strict ? rethrow : (err: unknown) => handle(err)
-  return handler
-}
-console.log(chooseHandler(false)('four'))
-try {
-  chooseHandler(true)('boom')
-} catch (error) {
-  console.log('rethrown', error)
-}
 
 // 3.
 function labelOf(parts: string[], index: number): string {

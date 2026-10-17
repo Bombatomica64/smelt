@@ -1599,13 +1599,16 @@ export function isContainerTag(tag: string): boolean {
     Ok(())
 }
 
+/// A temporary project and the path of its `Smelt.toml`, or why it could not be written.
+type ManifestProject = Result<(TempProject, String), Box<dyn std::error::Error>>;
+
 /// Write a manifest-built project whose files are `files` (path, source),
 /// entered from `src/main.ts`, and return it with its manifest path.
 fn multi_module_project(
     name: &str,
     build: bool,
     files: &[(&str, &str)],
-) -> Result<(TempProject, String), Box<dyn std::error::Error>> {
+) -> ManifestProject {
     let project = TempProject::new()?;
     let project_path = project.path();
     fs::create_dir_all(project_path.join("src"))?;

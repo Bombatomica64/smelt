@@ -1,0 +1,112 @@
+module examples/typescript/end-to-end/159_spread_join_tuple_return_finally/input.ts (ModuleId(0))
+  body BodyId(11)
+  items
+    global mut cleanups: Float
+    fn with_defaults owner Module
+    interface Accept fields [Public type: String, Public q: Float] methods []
+    fn next_accept owner Module
+    fn work owner Module
+    fn finally_then_catch owner Module
+    class Failure fields [Public message: String] constructor Some(ItemId(12)) methods [] implements []
+    fn failing owner Module
+    fn prepare owner Module
+    fn caught owner Module
+  locals
+    %0 const consumed: Float
+    %1 const accept: Optional<Accept>
+  exprs
+    #0: String = "path"
+    #1: String = "/app"
+    #2: Dict<String, String> = {#0: #1}
+    #3: fn(Optional<Dict<String, String>>) -> String = @1(with_defaults)
+    #4: String = call #3(#2)
+    #5: fn(Optional<Dict<String, String>>) -> String = @1(with_defaults)
+    #6: String = call #5()
+    #7: None = @14(console_log)
+    #8: None = call #7(#4, #6)
+    #9: String = "json"
+    #10: fn(String) -> (Float, Optional<Accept>) = @2(next_accept)
+    #11: (Float, Optional<Accept>) = call #10(#9)
+    #12: Float = 0.0
+    #13: Float = tuple_index #11, 0
+    #14: Float = 1.0
+    #15: Optional<Accept> = tuple_index #11, 1
+    #16: Float = %0
+    #17: Optional<Accept> = %1
+    #18: Optional<String> = #17?.type
+    #19: String = ""
+    #20: fn(String) -> (Float, Optional<Accept>) = @2(next_accept)
+    #21: (Float, Optional<Accept>) = call #20(#19)
+    #22: Float = 1.0
+    #23: Optional<Accept> = tuple_index #21, 1
+    #24: None = undefined
+    #25: Bool = JsStrictEq #23, #24
+    #26: None = @15(console_log)
+    #27: None = call #26(#16, #18, #25)
+    #28: String = "{"maxAge": 12.7}"
+    #29: Dict<String, Unknown> = json_parse #28
+    #30: Unknown = #29.max_age
+    #31: Float = 0.0
+    #32: Float = BitOr #30, #31
+    #33: String = "{"maxAge": "7"}"
+    #34: Dict<String, Unknown> = json_parse #33
+    #35: Unknown = #34.max_age
+    #36: Float = 0.0
+    #37: Float = BitOr #35, #36
+    #38: None = @16(console_log)
+    #39: None = call #38(#32, #37)
+    #40: fn() -> Future<None> = @4(finally_then_catch)
+    #41: Future<None> = call #40()
+    #42: None = async_spawn_local(#41)
+    #43: Future<None> = async_exit_drain()
+    #44: None = await #43
+  stmts
+    s0: #8
+    s1: let %0: Float = #13
+    s2: let %1: Optional<Accept> = #15
+    s3: #27
+    s4: #39
+    s5: #42
+    s6: #44
+  async state machine
+    states [state0, state1]
+    suspend #44 on #43 -> state45
+
+interned types
+  t0 = Unknown
+  t1 = Float
+  t2 = String
+  t3 = Dict<String, String>
+  t4 = Optional<Dict<String, String>>
+  t5 = fn(Optional<Dict<String, String>>) -> String
+  t6 = Accept
+  t7 = None
+  t8 = Optional<Accept>
+  t9 = (Float, Optional<Accept>)
+  t10 = fn(String) -> (Float, Optional<Accept>)
+  t11 = Future<Float>
+  t12 = async fn(Float) -> Future<Float>
+  t13 = Future<None>
+  t14 = fn() -> Future<None>
+  t15 = async fn() -> Future<None>
+  t16 = fn(Float) -> Float
+  t17 = Future<String>
+  t18 = async fn() -> Future<String>
+  t19 = Bool
+  t20 = (Float, Accept)
+  t21 = async fn(Float) -> Future<Float>
+  t22 = fn() -> None
+  t23 = fn() -> None
+  t24 = fn(Float) -> Unknown
+  t25 = async fn() -> Future<String>
+  t26 = fn(Float) -> Future<String>
+  t27 = fn(String) -> Unknown
+  t28 = fn(String) -> None
+  t29 = Failure
+  t30 = fn(Float) -> Float
+  t31 = async fn() -> Future<None>
+  t32 = Optional<String>
+  t33 = fn(Optional<Dict<String, String>>) -> String
+  t34 = fn(String) -> (Float, Optional<Accept>)
+  t35 = Dict<String, Unknown>
+  t36 = fn() -> Future<None>

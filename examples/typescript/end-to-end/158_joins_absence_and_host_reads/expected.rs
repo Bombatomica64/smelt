@@ -3836,61 +3836,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
-    let _smelt_tmp_7: f64;
-    let _smelt_tmp_12: SmeltList<String>;
-    let _smelt_tmp_14: SmeltList<String>;
-    let _smelt_tmp_16: SmeltList<String>;
-    let _smelt_tmp_19: SmeltList<f64>;
-    let _smelt_tmp_21: SmeltList<f64>;
-    let _smelt_tmp_23: SmeltList<f64>;
-    let _smelt_tmp_27: ();
-    let _smelt_tmp_29: ();
-    let _smelt_tmp_1: String = pick("*".to_owned(), "/x".to_owned(), "/".to_owned());
-    let _smelt_tmp_2: String = pick("*".to_owned(), "/x".to_owned(), "a".to_owned());
-    let _smelt_tmp_3: String = pick("*".to_owned(), "x".to_owned(), "/".to_owned());
-    let _smelt_tmp_4: String = pick("x".to_owned(), "".to_owned(), "".to_owned());
-    let _ = { println!("{} {} {} {}", _smelt_tmp_1, _smelt_tmp_2, _smelt_tmp_3, _smelt_tmp_4); };
-    let _smelt_tmp_6 = choose_handler(false).clone();
-    _smelt_tmp_7 = (_smelt_tmp_6)(&(SmeltUnknown::String("four".into())));
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_7)); };
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| choose_handler(true))) {
-        Ok(__smelt_value) => {
-            let _smelt_tmp_9 = __smelt_value;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| (_smelt_tmp_9)(&(SmeltUnknown::String("boom".into()))))) {
-        Ok(__smelt_value) => {
-            let _smelt_tmp_10: f64 = __smelt_value;
-        }
-        Err(__smelt_panic) => {
-            let __smelt_error = smelt_panic_message(&*__smelt_panic);
-            let error = smelt_panic_error_value(&*__smelt_panic);
-    let _ = { println!("{} {}", "rethrown".to_owned(), error); };
-        }
-    }
-        }
-        Err(__smelt_panic) => {
-            let __smelt_error = smelt_panic_message(&*__smelt_panic);
-            let error = smelt_panic_error_value(&*__smelt_panic);
-    let _ = { println!("{} {}", "rethrown".to_owned(), error); };
-        }
-    }
-    _smelt_tmp_12 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "".to_owned(), "c".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_13: String = label_of(_smelt_tmp_12, 0.0);
-    _smelt_tmp_14 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "".to_owned(), "c".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_15: String = label_of(_smelt_tmp_14, 1.0);
-    _smelt_tmp_16 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_17: String = label_of(_smelt_tmp_16, 5.0);
-    let _ = { println!("{} {} {}", _smelt_tmp_13, _smelt_tmp_15, _smelt_tmp_17); };
-    _smelt_tmp_19 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![8080.0]; smelt_list_items }));
-    let _smelt_tmp_20: f64 = port_of(_smelt_tmp_19);
-    _smelt_tmp_21 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![0.0]; smelt_list_items }));
-    let _smelt_tmp_22: f64 = port_of(_smelt_tmp_21);
-    _smelt_tmp_23 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![]; smelt_list_items }));
-    let _smelt_tmp_24: f64 = port_of(_smelt_tmp_23);
-    let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_20), smelt_console_number(_smelt_tmp_22), smelt_console_number(_smelt_tmp_24)); };
-    let _smelt_tmp_26 = SmeltFuture::from_future(Box::pin(response_facts()));
-    _smelt_tmp_27 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_26.await; })); () };
-    let _smelt_tmp_28: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
-    _smelt_tmp_29 = _smelt_tmp_28.await?;
+    let _smelt_tmp_5: SmeltList<String>;
+    let _smelt_tmp_7: SmeltList<String>;
+    let _smelt_tmp_9: SmeltList<String>;
+    let _smelt_tmp_12: SmeltList<f64>;
+    let _smelt_tmp_14: SmeltList<f64>;
+    let _smelt_tmp_16: SmeltList<f64>;
+    let _smelt_tmp_20: ();
+    let _smelt_tmp_22: ();
+    let _smelt_tmp_0: String = pick("*".to_owned(), "/x".to_owned(), "/".to_owned());
+    let _smelt_tmp_1: String = pick("*".to_owned(), "/x".to_owned(), "a".to_owned());
+    let _smelt_tmp_2: String = pick("*".to_owned(), "x".to_owned(), "/".to_owned());
+    let _smelt_tmp_3: String = pick("x".to_owned(), "".to_owned(), "".to_owned());
+    let _ = { println!("{} {} {} {}", _smelt_tmp_0, _smelt_tmp_1, _smelt_tmp_2, _smelt_tmp_3); };
+    _smelt_tmp_5 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "".to_owned(), "c".to_owned()]; smelt_list_items }));
+    let _smelt_tmp_6: String = label_of(_smelt_tmp_5, 0.0);
+    _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "".to_owned(), "c".to_owned()]; smelt_list_items }));
+    let _smelt_tmp_8: String = label_of(_smelt_tmp_7, 1.0);
+    _smelt_tmp_9 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned()]; smelt_list_items }));
+    let _smelt_tmp_10: String = label_of(_smelt_tmp_9, 5.0);
+    let _ = { println!("{} {} {}", _smelt_tmp_6, _smelt_tmp_8, _smelt_tmp_10); };
+    _smelt_tmp_12 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![8080.0]; smelt_list_items }));
+    let _smelt_tmp_13: f64 = port_of(_smelt_tmp_12);
+    _smelt_tmp_14 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![0.0]; smelt_list_items }));
+    let _smelt_tmp_15: f64 = port_of(_smelt_tmp_14);
+    _smelt_tmp_16 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![]; smelt_list_items }));
+    let _smelt_tmp_17: f64 = port_of(_smelt_tmp_16);
+    let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_13), smelt_console_number(_smelt_tmp_15), smelt_console_number(_smelt_tmp_17)); };
+    let _smelt_tmp_19 = SmeltFuture::from_future(Box::pin(response_facts()));
+    _smelt_tmp_20 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_19.await; })); () };
+    let _smelt_tmp_21: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
+    _smelt_tmp_22 = _smelt_tmp_21.await?;
     return Ok(());
 })
 }
@@ -3972,29 +3948,6 @@ pub(crate) fn pick(token: String, next: String, prev: String) -> String {
     }
 }
 
-pub(crate) fn choose_handler(strict: bool) -> ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> f64> {
-    let handler: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> Result<f64, Box<dyn std::error::Error>>>;
-    let mut _smelt_tmp_2: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> Result<f64, Box<dyn std::error::Error>>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> Result<f64, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |arg0: &SmeltUnknown| -> Result<f64, Box<dyn std::error::Error>> { Ok::<_, Box<dyn std::error::Error>>(0.0) }); smelt_default_callback };
-    let mut _smelt_tmp_3: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |arg0: &SmeltUnknown| -> Result<SmeltUnknown, Box<dyn std::error::Error>> { Ok::<_, Box<dyn std::error::Error>>(SmeltUnknown::Null) }); smelt_default_callback };
-    let mut _smelt_tmp_4: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> f64> = ::std::rc::Rc::new(move |arg0: &SmeltUnknown| -> f64 { 0.0 }); smelt_default_callback };
-    let mut _smelt_tmp_2: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> Result<f64, Box<dyn std::error::Error>>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> Result<f64, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |arg0: &SmeltUnknown| -> Result<f64, Box<dyn std::error::Error>> { Ok::<_, Box<dyn std::error::Error>>(0.0) }); smelt_default_callback };
-    if strict {
-    _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: &SmeltUnknown| -> Result<SmeltUnknown, Box<dyn std::error::Error>> {
-    let _smelt_tmp_1: SmeltUnknown = rethrow__module_main(closure_arg_0.clone())?;
-    Ok::<SmeltUnknown, Box<dyn std::error::Error>>(_smelt_tmp_1.clone())
-    });
-    _smelt_tmp_2 = ::std::rc::Rc::new({ let _smelt_adapted_callback = _smelt_tmp_3.clone(); move |arg0: &SmeltUnknown| Ok::<_, Box<dyn std::error::Error>>(match ((_smelt_adapted_callback)(arg0)?).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) });
-    } else {
-    _smelt_tmp_4 = ::std::rc::Rc::new(move |closure_arg_0: &SmeltUnknown| {
-    let _smelt_tmp_1: f64 = handle__module_main(closure_arg_0.clone());
-    _smelt_tmp_1
-    });
-    _smelt_tmp_2 = ::std::rc::Rc::new({ let _smelt_adapted_callback = _smelt_tmp_4.clone(); move |arg0: &SmeltUnknown| Ok::<_, Box<dyn std::error::Error>>((_smelt_adapted_callback)(arg0)) });
-    }
-    handler = _smelt_tmp_2.clone();
-    return ::std::rc::Rc::new({ let _smelt_adapted_callback = handler.clone(); move |arg0: &SmeltUnknown| (_smelt_adapted_callback)(arg0).unwrap_or_else(|error| smelt_panic_throw(error)) });
-}
-
 pub(crate) fn label_of(parts: SmeltList<String>, index: f64) -> String {
     let mut _smelt_tmp_3: String;
     let _smelt_tmp_2: bool = parts.borrow().get({ let smelt_normalized = index as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()) != "".to_owned();
@@ -4051,14 +4004,4 @@ pub(crate) async fn response_facts() -> Result<(), Box<dyn std::error::Error>> {
     let _ = { println!("{} {} {}", "locked after".to_owned(), match &_smelt_tmp_21 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_23); };
     }
     return Ok(());
-}
-
-pub(crate) fn rethrow__module_main(err: SmeltUnknown) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {
-    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(err.clone()));
-}
-
-pub(crate) fn handle__module_main(err: SmeltUnknown) -> f64 {
-    let _smelt_tmp_1: String = match err.clone() {  SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
-    let _smelt_tmp_2: f64 = _smelt_tmp_1.chars().count() as f64;
-    return _smelt_tmp_2;
 }
