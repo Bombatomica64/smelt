@@ -171,9 +171,9 @@ async fn main (FuncId(8)) -> None throws
     %11 temp: Optional<Accept>
     %12 temp: Bool
     %13 temp: None
-    %14 temp: Dict<String, Unknown>
+    %14 temp: Unknown
     %15 temp: Float
-    %16 temp: Dict<String, Unknown>
+    %16 temp: Unknown
     %17 temp: Float
     %18 temp: None
     %19 temp: Future<None>

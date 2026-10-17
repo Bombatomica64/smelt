@@ -2479,6 +2479,9 @@ thread_local! {
     // Non-zero while a `Promise.race` driver owns the event loop; see
     // `smelt_promise_race`.
     static SMELT_RACE_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
+    // Wakes the exit loop (`smelt_run_until_exit`) when work is queued
+    // while the program is only being kept alive by an open handle.
+    static SMELT_LOOP_WAKE: ::std::rc::Rc<tokio::sync::Notify> = ::std::rc::Rc::new(tokio::sync::Notify::new());
 }
 
 fn smelt_reset_timers() {
@@ -2502,6 +2505,7 @@ fn smelt_noop_waker() -> ::std::task::Waker {
 
 fn smelt_spawn_promise_task(task: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>) {
     SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().push(task));
+    SMELT_LOOP_WAKE.with(|wake| wake.notify_one());
 }
 
 async fn smelt_drain_promise_tasks() {
@@ -2639,7 +2643,9 @@ fn smelt_release_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handle
 async fn smelt_run_until_exit() {
     smelt_sleep_ms(0.0).await;
     while SMELT_LIVE_HANDLES.with(::std::cell::Cell::get) > 0 {
-        tokio::time::sleep(::std::time::Duration::from_millis(5)).await;
+        smelt_sleep_ms(0.0).await;
+        let smelt_wake = SMELT_LOOP_WAKE.with(::std::rc::Rc::clone);
+        tokio::select! { _ = smelt_wake.notified() => {}, _ = tokio::time::sleep(::std::time::Duration::from_millis(5)) => {} }
     }
 }
 
@@ -3640,10 +3646,10 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_11 = _smelt_tmp_10.1.clone();
     _smelt_tmp_12 = _smelt_tmp_11.is_none();
     let _ = { println!("{} {} {}", smelt_console_number(consumed), match &_smelt_tmp_9 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_12); };
-    let _smelt_tmp_14: SmeltRecord<String, SmeltUnknown> = match (smelt_json_parse(&"{\"maxAge\": 12.7}".to_owned())?).into_smelt_unknown() { SmeltUnknown::Object(value) => value.smelt_shared_record(), SmeltUnknown::Array(values) => values.own_entries().into_iter().collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string().into()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([("__smelt_call".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() };
-    _smelt_tmp_15 = ({ let smelt_bit_lhs = { let smelt_bit_v = ((match _smelt_tmp_14.get(&"maxAge".to_owned()).unwrap_or(SmeltUnknown::Undefined).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (0.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
-    let _smelt_tmp_16: SmeltRecord<String, SmeltUnknown> = match (smelt_json_parse(&"{\"maxAge\": \"7\"}".to_owned())?).into_smelt_unknown() { SmeltUnknown::Object(value) => value.smelt_shared_record(), SmeltUnknown::Array(values) => values.own_entries().into_iter().collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string().into()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([("__smelt_call".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() };
-    _smelt_tmp_17 = ({ let smelt_bit_lhs = { let smelt_bit_v = ((match _smelt_tmp_16.get(&"maxAge".to_owned()).unwrap_or(SmeltUnknown::Undefined).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (0.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
+    let _smelt_tmp_14: SmeltUnknown = smelt_json_parse(&"{\"maxAge\": 12.7}".to_owned())?;
+    _smelt_tmp_15 = ({ let smelt_bit_lhs = { let smelt_bit_v = ((match smelt_get_unknown_field(&_smelt_tmp_14.clone(), "maxAge").clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (0.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
+    let _smelt_tmp_16: SmeltUnknown = smelt_json_parse(&"{\"maxAge\": \"7\"}".to_owned())?;
+    _smelt_tmp_17 = ({ let smelt_bit_lhs = { let smelt_bit_v = ((match smelt_get_unknown_field(&_smelt_tmp_16.clone(), "maxAge").clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (0.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_15), smelt_console_number(_smelt_tmp_17)); };
     let _smelt_tmp_19 = finally_then_catch();
     _smelt_tmp_20 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_19.await; })); () };

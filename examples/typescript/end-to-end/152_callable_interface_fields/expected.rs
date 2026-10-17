@@ -2900,7 +2900,7 @@ impl SmeltFromUnknown for Set {
         if let SmeltUnknown::Object(object) = value {
             if let Some(field) = object.get("__smelt_call") {
                 let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String, SmeltUnion8) -> ()>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String, SmeltUnion16) -> ()>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
             }
         }
         result

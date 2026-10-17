@@ -597,7 +597,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 36] = [
+    const BOUNDARY_MARKERS: [&str; 37] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -669,6 +669,13 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // nowhere -- and panicked on an absent value (remeda `prop`). Proven
         // in `optional_unknown_read_is_a_boundary` below.
         smelt_codegen_rust::OPTIONAL_UNKNOWN_OR_UNDEFINED_FN,
+        // An untyped `JSON.parse(text)`: the result is whatever the TEXT holds
+        // (`null`, a number, a string, an array or an object), known only when
+        // the text is parsed, which is the "JSON values" boundary CLAUDE.md
+        // names. A source that knows the shape writes `JSON.parse<T>` or
+        // `as T`, which lower to a typed target and never reach this adapter
+        // with an erased result. Proven in `untyped_json_parse_is_a_boundary`.
+        "smelt_json_parse(",
         "IntoSmeltUnknown",
         "into_smelt_unknown",
         "to_smelt_unknown",
@@ -1565,6 +1572,23 @@ mod tests {
             Category::AvoidableErasure,
             "a string-keyed projection is still avoidable erasure"
         );
+    }
+
+    /// An untyped `JSON.parse` result is a run-time JSON value.
+    #[test]
+    fn untyped_json_parse_is_a_boundary() {
+        let line = r#"    let _smelt_tmp_14: SmeltUnknown = smelt_json_parse(&"{\"maxAge\": 12.7}".to_owned())?;"#;
+        assert_eq!(
+            classify_line(line, false),
+            Category::LegitimateBoundary,
+            "a parsed JSON document's shape exists only at run time"
+        );
+        // One parse yields different SHAPES from different texts; no concrete
+        // type, union arm or scoped generic chosen at compile time can hold
+        // `null`, `3` and `{..}` from the same call site except the erased
+        // carrier (runtime fixture `json_parse_any_value` runs all of them).
+        let typed = "    let _smelt_tmp_3: SmeltRecord<String, SmeltUnknown> = Default::default();";
+        assert_eq!(classify_line(typed, false), Category::AvoidableErasure);
     }
 
     /// An optional erased value read at the erased carrier is an adapter between

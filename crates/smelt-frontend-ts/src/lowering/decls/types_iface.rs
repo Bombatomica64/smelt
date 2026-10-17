@@ -101,13 +101,34 @@ impl ModuleBuilder<'_> {
         // `IdContext`-typed handlers saw `c` as `SmeltUnknown` and read
         // `c.req.param(..)` dynamically. Only a structural right-hand side (an
         // object type, an intersection, a mapped type) is a record of its own.
-        let names_nominal_type = matches!(
-            self.ctx.krate.types.get(ty),
-            Some(Type::Class { name: target, .. }) if *target != name
-        ) && matches!(
-            &alias.type_annotation,
-            oxc::ast::ast::TSType::TSTypeReference(_)
-        );
+        // Only a reference that SPELLS the class is that class: a utility
+        // type over it (`Partial<Body & {..}>`, `Pick<..>`) also lowers to the
+        // class symbol here, but its members differ (Hono's `BodyCache`), so
+        // it keeps the alias's own fields.
+        let names_nominal_type = match (self.ctx.krate.types.get(ty), &alias.type_annotation) {
+            (
+                Some(Type::Class { name: target, .. }),
+                oxc::ast::ast::TSType::TSTypeReference(reference),
+            ) if *target != name => {
+                let spelled = match &reference.type_name {
+                    oxc::ast::ast::TSTypeName::IdentifierReference(ident) => Some(ident.name.as_str()),
+                    _ => None,
+                };
+                let target_name = self
+                    .ctx
+                    .krate
+                    .names
+                    .get(*target)
+                    .or_else(|| self.ctx.krate.symbols.get(*target));
+                spelled.is_some_and(|spelled| {
+                    target_name.is_some_and(|target_name| {
+                        target_name == spelled
+                            || self.imports.imported_name(spelled).is_some_and(|imported| imported == target_name)
+                    })
+                })
+            }
+            _ => false,
+        };
         if let Some(fields) = fields
             && !fields.is_empty()
             && !names_nominal_type

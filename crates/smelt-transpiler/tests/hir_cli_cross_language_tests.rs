@@ -1460,6 +1460,7 @@ const RUNTIME_FIXTURES: &[&str] = &[
     "object_assign_onto_instance",
     "union_function_element_callee",
     "optional_unknown_reads_as_undefined",
+    "headers_from_optional_string_record",
 ];
 
 #[test]
