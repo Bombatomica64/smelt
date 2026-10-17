@@ -1409,7 +1409,7 @@ impl ModuleBuilder<'_> {
             span: self.span(call.span.start, call.span.end),
         });
         let value = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("America/Santiago".to_owned())),
+            kind: ExprKind::Literal(Literal::String(smelt_stdlib::NODE_PROFILE_TIMEZONE.to_owned())),
             ty: string_ty,
             span: self.span(call.span.start, call.span.end),
         });

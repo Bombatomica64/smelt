@@ -90,6 +90,7 @@ mod byte_buffer_prelude;
 mod event_emitter_prelude;
 mod host_value_erasure;
 mod number_format_prelude;
+mod console_inspect_prelude;
 mod string_to_number_prelude;
 mod blob_prelude;
 mod fetch_types_prelude;
@@ -6473,6 +6474,18 @@ fn emit_source_with_free_function_router(
         out.push_str(&format!(
             "\nfn __smelt_fn_erased_{key}() -> SmeltErasedFunction {{\n    thread_local! {{ static SMELT_FN_ERASED: ::std::cell::OnceCell<SmeltErasedFunction> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_ERASED.with(|cell| cell.get_or_init(|| {body}).clone())\n}}\n"
         ));
+    }
+
+    // The `util.inspect` formatter is pay-for-use like the rest of the
+    // prelude, but whether a `console.log` argument needs it is decided while
+    // the bodies above are emitted, so it is spliced in ahead of the prelude
+    // marker only now. See `emitter::console_inspect`.
+    let console_inspect = emitter::emit_console_inspect_support(mir, &context)?;
+    if !console_inspect.is_empty() {
+        let marker = format!("\n\n{PRELUDE_END_MARKER}\n");
+        if let Some(position) = out.find(&marker) {
+            out.insert_str(position, &format!("\n\n{}", console_inspect.trim_end()));
+        }
     }
 
     if !has_main_function(mir)? {

@@ -46,8 +46,13 @@ fn emits_main_with_console_log() {
     assert!(source.contains("let _ = { println!(\"{}\", smelt_console_number(count)); };"));
 }
 
+/// A list reaching the exact-write path renders the way the console renders
+/// it — Node's `util.inspect` (`[ 1, 2 ]`) through the list's own
+/// `SmeltInspect` impl — never Rust's `Debug` (`[1.0, 2.0]`), which is a
+/// spelling no JavaScript runtime prints. (This test used to pin the `{:?}`
+/// rendering; the end-to-end oracle against Node showed it was wrong.)
 #[test]
-fn exact_console_write_uses_debug_format_for_lists() {
+fn exact_console_write_renders_lists_like_the_console() {
     use smelt_mir::{BuiltinFn, Callee, Terminator};
 
     let mut ctx = HirCtx::new();
@@ -71,7 +76,11 @@ fn exact_console_write_uses_debug_format_for_lists() {
         }
     }
     let source = emit_source(&mir).unwrap_or_else(|error| panic!("Rust source: {error}"));
-    assert!(source.contains("print!(\"{:?}\", values"), "{source}");
+    assert!(
+        source.contains("print!(\"{}\", SmeltInspect::smelt_console_text(&values"),
+        "{source}"
+    );
+    assert!(!source.contains("print!(\"{:?}\", values"), "{source}");
 }
 
 #[test]

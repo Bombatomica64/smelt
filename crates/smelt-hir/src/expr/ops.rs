@@ -558,7 +558,10 @@ impl RequestInitMember {
     /// re-initialized is a new request as far as referrer leakage goes. Node 22
     /// agrees: `new Request(src, { method: 'POST' }).referrer` is
     /// `"about:client"` even though `src.referrer` was set, while
-    /// `new Request(src, {}).referrer` still copies.
+    /// `new Request(src, {}).referrer` still copies. Node 24 (undici 7) treats
+    /// EVERY init as non-empty (its dictionary defaults `priority`), so there
+    /// the reset applies to `new Request(src)` and `new Request(src, {})` too;
+    /// the Rust backend follows the pinned Node 24 (see `request_new_text`).
     #[must_use]
     pub const fn resets_on_non_empty_init(self) -> bool {
         matches!(self, Self::Referrer | Self::ReferrerPolicy)

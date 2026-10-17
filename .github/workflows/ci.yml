@@ -287,6 +287,19 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
+      # The end-to-end corpus checks every golden stdout against real Node
+      # (`ensure_node_agrees` in crates/smelt-transpiler/tests/common/mod.rs),
+      # and Node is the oracle, so its version is pinned: the runner image's
+      # default Node is older than the 22.7 that `--experimental-transform-types`
+      # needs (the oracle would silently skip), and Node releases disagree on
+      # observable behaviour (`92_request_init_members` records one such
+      # difference between Node 22 and 24). Bump this deliberately and
+      # re-check the goldens when it moves.
+      - name: Install Node (pinned oracle for the end-to-end goldens)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+
       # Without these the sandbox-backed specialization tests skip themselves,
       # and `smelt-specialize` reports ~50% line / ~36% branch coverage for code
       # that never ran. `SMELT_REQUIRE_SANDBOX` is deliberately NOT set here: a

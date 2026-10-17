@@ -40,6 +40,18 @@ pub const NODE_PROFILE_VERSION: &str = "20.0.0";
 /// The `process.version` spelling of [`NODE_PROFILE_VERSION`] (`v`-prefixed).
 pub const NODE_PROFILE_VERSION_STRING: &str = "v20.0.0";
 
+/// The IANA time zone the deterministic target profile runs in.
+///
+/// The profile is a fixed environment, resolved at compile time rather than
+/// read from the host at run time: `process.env.TZ` is this zone, every other
+/// `process.env` variable is absent, and
+/// `Intl.DateTimeFormat().resolvedOptions().timeZone` reports it. A real Node
+/// process reads its environment instead, so comparing a generated program
+/// against `node` (the end-to-end oracle) means running `node` under this
+/// same environment: `TZ` set to this zone and nothing else that the program
+/// reads.
+pub const NODE_PROFILE_TIMEZONE: &str = "America/Santiago";
+
 /// A global that is an OBJECT rather than a constructor or a function.
 ///
 /// These are the namespace objects: their members are reached as
