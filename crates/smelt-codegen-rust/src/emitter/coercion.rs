@@ -1261,6 +1261,20 @@ impl FunctionEmitter<'_> {
         {
             return Ok(format!("(({value_text} as f64).trunc() as i64)"));
         }
+        // A `FixedInt` is exactly an `f64`. The opposite direction is only
+        // reached for a value the TypeScript frontend proved to be in range
+        // (a Bun `int32` field of an object literal; see `lowering::int32`),
+        // so the narrowing cast is exact.
+        if let (Some(Type::Float), Some(Type::FixedInt(_))) =
+            (self.mir.types.get(target), self.mir.types.get(source))
+        {
+            return Ok(format!("({value_text} as f64)"));
+        }
+        if let (Some(Type::FixedInt(width)), Some(Type::Float)) =
+            (self.mir.types.get(target), self.mir.types.get(source))
+        {
+            return Ok(format!("({value_text} as {})", width.rust_name()));
+        }
         if self.mir.types.get(target) == Some(&Type::Float)
             && self.mir.types.get(source) == Some(&Type::String)
         {

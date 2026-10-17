@@ -173,12 +173,12 @@ fn main() {
     mask = _smelt_tmp_13;
     let _ = { println!("{}", smelt_console_number(mask)); };
     shifted = 1.0;
-    _smelt_tmp_15 = (((shifted as f64).trunc() as i128) << (((4.0 as f64).trunc() as u32).min(127))) as f64;
+    _smelt_tmp_15 = ((({ let smelt_int32_v = (shifted as f64).trunc(); if smelt_int32_v.is_finite() { smelt_int32_v.rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }).wrapping_shl({ let smelt_uint32_v = (4.0 as f64).trunc(); if smelt_uint32_v.is_finite() { smelt_uint32_v.rem_euclid(4294967296.0) as u32 } else { 0_u32 } } & 31)) as f64);
     shifted = _smelt_tmp_15;
     let _ = { println!("{}", smelt_console_number(shifted)); };
     _smelt_tmp_17 = -16.0;
     signed = _smelt_tmp_17;
-    _smelt_tmp_18 = (((signed as f64).trunc() as i128) >> (((2.0 as f64).trunc() as u32).min(127))) as f64;
+    _smelt_tmp_18 = ((({ let smelt_int32_v = (signed as f64).trunc(); if smelt_int32_v.is_finite() { smelt_int32_v.rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }).wrapping_shr({ let smelt_uint32_v = (2.0 as f64).trunc(); if smelt_uint32_v.is_finite() { smelt_uint32_v.rem_euclid(4294967296.0) as u32 } else { 0_u32 } } & 31)) as f64);
     signed = _smelt_tmp_18;
     let _ = { println!("{}", smelt_console_number(signed)); };
     _smelt_tmp_20 = -16.0;

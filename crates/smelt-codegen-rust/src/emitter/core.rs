@@ -2023,6 +2023,9 @@ impl<'mir> FunctionEmitter<'mir> {
                 (self.mir.types.get(source), self.mir.types.get(target)),
                 (Some(Type::Int), Some(Type::Float))
                     | (Some(Type::Float), Some(Type::Int))
+                    // A Bun `int32` field the frontend proved every literal
+                    // store into (`lowering::int32`).
+                    | (Some(Type::Float), Some(Type::FixedInt(_)))
                     | (
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)),
                         _

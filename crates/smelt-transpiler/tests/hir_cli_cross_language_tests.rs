@@ -1199,6 +1199,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "158_joins_absence_and_host_reads",
     "159_spread_join_tuple_return_finally",
     "160_proven_integer_counters",
+    "161_bun_int32_slots",
     "14_c_for_loop",
     "15_break_continue",
     "16_switch_break_no_fallthrough",

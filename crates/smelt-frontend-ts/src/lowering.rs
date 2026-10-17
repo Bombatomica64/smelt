@@ -5,6 +5,7 @@ mod arguments_forwarding;
 mod asserted_member_read;
 mod function_statics;
 mod hoisting;
+mod int32;
 mod presence_tested_locals;
 mod promise_resolution;
 mod specialization;
@@ -917,6 +918,13 @@ struct ModuleBuilder<'ctx> {
     /// Consulted by `classify_pending_host_imports`; see
     /// [`FrontendOptions::excluded_modules`].
     excluded_modules: Vec<String>,
+    /// How deep inside a type annotation lowering currently is.
+    ///
+    /// Bun's `int32` is an int32 only as the WHOLE type of a slot; nested in
+    /// another type it is a `number`. `ts_type_to_hir` is re-entered for every
+    /// nested type, so depth `0` is exactly the whole-type position. See
+    /// `lowering::int32`.
+    int32_type_depth: usize,
 }
 
 /// One value import whose module resolved to no source item.

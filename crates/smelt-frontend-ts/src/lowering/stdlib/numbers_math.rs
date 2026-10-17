@@ -1517,6 +1517,7 @@ impl ModuleBuilder<'_> {
             "log10" => NumericUnaryFuncOp::Log10,
             "log2" => NumericUnaryFuncOp::Log2,
             "exp" => NumericUnaryFuncOp::Exp,
+            "clz32" => NumericUnaryFuncOp::Clz32,
             _ => return Ok(None),
         };
         if call.arguments.len() != 1 {

@@ -503,6 +503,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             specialization,
             pending_host_imports: Vec::new(),
             excluded_modules,
+            int32_type_depth: 0,
         }
     }
 
@@ -588,6 +589,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// Lower a TypeScript program to HIR module.
     pub(super) fn program(&mut self, program: &Program<'_>) -> Result<ModuleId, Vec<SmeltError>> {
         let span = self.span(program.span.start, program.span.end);
+        // Bodies this module lowers, for the int32 store proofs that run once
+        // every signature they consult exists (see `finish_int32_bodies`).
+        let first_body = self.ctx.krate.bodies.len();
         let mut body = Body::new(None, span);
         let mut errors = Vec::new();
         self.presence_widened_bindings =
@@ -1052,6 +1056,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         let body_id = self.ctx.krate.push_body(body);
         module.body = Some(body_id);
+        self.finish_int32_bodies(first_body, &module.items)
+            .map_err(|error| vec![error])?;
         Ok(self.ctx.krate.push_module(module))
     }
 

@@ -513,6 +513,17 @@ impl ModuleBuilder<'_> {
                     ));
                 };
                 if !field_type_satisfies(&self.ctx.krate, actual.ty, required) {
+                    // Bun's `int32` on one side only is its own diagnostic.
+                    if let Some(error) = self.int32_member_mismatch(
+                        class.name,
+                        interface.name,
+                        required.name,
+                        actual.ty,
+                        required.ty,
+                        actual.span,
+                    ) {
+                        return Err(error);
+                    }
                     let name = self
                         .ctx
                         .krate

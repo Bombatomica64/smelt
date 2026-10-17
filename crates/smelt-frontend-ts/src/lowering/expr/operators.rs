@@ -2856,6 +2856,7 @@ impl ModuleBuilder<'_> {
                     "unary plus requires a numeric or DateArg-compatible operand",
                 ));
             }
+            UnaryOperator::BitwiseNot => return self.bitwise_not_expression(unary, body),
             _ => {
                 return Err(SmeltError::unsupported(
                     self.span(unary.span.start, unary.span.end),

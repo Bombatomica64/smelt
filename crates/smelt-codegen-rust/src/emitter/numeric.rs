@@ -341,7 +341,15 @@ impl FunctionEmitter<'_> {
                 "numeric unary function operand must be numeric",
             ));
         }
+        if op == smelt_hir::NumericUnaryFuncOp::Clz32 {
+            let operand_text = self.float_operand_text(operand)?;
+            return Ok(format!(
+                "f64::from({}.leading_zeros())",
+                Self::js_to_uint32_text(&operand_text)
+            ));
+        }
         let method_name = match op {
+            smelt_hir::NumericUnaryFuncOp::Clz32 => "leading_zeros",
             smelt_hir::NumericUnaryFuncOp::Sqrt => "sqrt",
             smelt_hir::NumericUnaryFuncOp::Cbrt => "cbrt",
             smelt_hir::NumericUnaryFuncOp::Sign => "signum",

@@ -271,7 +271,7 @@ impl FunctionEmitter<'_> {
         // so those arms see the `SmeltUnknown` shape they expect. Non-concrete
         // unions are already stored erased, so this is a no-op for them.
         let operand_text = self.erase_concrete_union_text(&self.operand_text(operand)?, operand_ty);
-        if let Some(text) = Self::fixed_int_cast_text(op, dest_type, operand_type, &operand_text) {
+        if let Some(text) = self.fixed_int_cast_text(op, dest_type, operand_type, &operand_text) {
             return Ok(text);
         }
         match (op, dest_type, operand_type) {

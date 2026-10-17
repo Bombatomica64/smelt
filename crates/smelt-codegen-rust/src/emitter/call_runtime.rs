@@ -1130,6 +1130,23 @@ impl FunctionEmitter<'_> {
                         "{{ let smelt_shift_value = {lhs_trunc_text}; let smelt_shift_value = if smelt_shift_value.is_finite() {{ smelt_shift_value.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }}; let smelt_shift_count = {rhs_trunc_text}; let smelt_shift_count = if smelt_shift_count.is_finite() {{ smelt_shift_count.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }}; (smelt_shift_value >> (smelt_shift_count & 31)) as f64 }}"
                     ));
                 }
+                if matches!(
+                    *op,
+                    smelt_hir::BinOp::Shl | smelt_hir::BinOp::Shr | smelt_hir::BinOp::IMul
+                ) && self.absent_spelling() == AbsentSpelling::Undefined
+                    // A TypeScript `bigint` (`Int`) shift is a BigInt shift, not int32.
+                    && !matches!(self.mir.types.get(self.operand_ty(lhs)?), Some(Type::Int))
+                    && !matches!(self.mir.types.get(self.operand_ty(rhs)?), Some(Type::Int))
+                {
+                    let lhs_text = self.bitwise_operand_number_text(lhs)?;
+                    let rhs_text = self.bitwise_operand_number_text(rhs)?;
+                    let result_cast = if matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
+                        "i64"
+                    } else {
+                        "f64"
+                    };
+                    return Ok(Self::js_int32_binary_text(*op, &lhs_text, &rhs_text, result_cast));
+                }
                 if matches!(*op, smelt_hir::BinOp::Shl | smelt_hir::BinOp::Shr) {
                     let lhs_text = self.bitwise_operand_number_text(lhs)?;
                     let rhs_text = self.bitwise_operand_number_text(rhs)?;

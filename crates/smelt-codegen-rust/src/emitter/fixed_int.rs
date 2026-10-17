@@ -12,15 +12,16 @@
 //! * the exact `ToFloat` conversion the analysis inserts wherever the value
 //!   meets a `number` context (`i as f64`);
 //! * a `FixedInt` list index, which needs no `f64` round trip.
+//!
+//! Bun's `int32` slots (`FixedInt(I32)`, from `import type { int32 } from
+//! "bun"`) are storage only: the TypeScript frontend converts every read to a
+//! `number` (`ToFloat`) and every proven store to the slot (`ToInt32`), so an
+//! `i32` never takes part in arithmetic here. Integer-closed arithmetic is
+//! rendered only for the range-analysis widths (`usize`, `i64`).
 
 use super::*;
 
 impl FunctionEmitter<'_> {
-    /// Whether `ty` is a proven fixed-width integer.
-    pub(super) fn is_fixed_int_type(&self, ty: TypeId) -> bool {
-        matches!(self.mir.types.get(ty), Some(Type::FixedInt(_)))
-    }
-
     /// Renders an integer-closed binary operation over `FixedInt` operands.
     ///
     /// Returns `None` unless at least one operand is a `FixedInt`; the other is
@@ -34,8 +35,14 @@ impl FunctionEmitter<'_> {
         lhs: &Operand,
         rhs: &Operand,
     ) -> Result<Option<String>, EmitError> {
-        let lhs_fixed = self.is_fixed_int_type(self.operand_ty(lhs)?);
-        let rhs_fixed = self.is_fixed_int_type(self.operand_ty(rhs)?);
+        let counter = |ty: TypeId| {
+            matches!(
+                self.mir.types.get(ty),
+                Some(Type::FixedInt(smelt_hir::IntWidth::Usize | smelt_hir::IntWidth::I64))
+            )
+        };
+        let lhs_fixed = counter(self.operand_ty(lhs)?);
+        let rhs_fixed = counter(self.operand_ty(rhs)?);
         if !lhs_fixed && !rhs_fixed {
             return Ok(None);
         }
@@ -70,22 +77,41 @@ impl FunctionEmitter<'_> {
         )))
     }
 
-    /// Renders a primitive conversion out of a `FixedInt`, if this is one.
+    /// Renders a primitive conversion into or out of a `FixedInt`, if this is one.
     ///
     /// Every `FixedInt` value is exactly representable as an `f64`, so the
-    /// `ToFloat`/`ToJsNumber` conversion is the plain `as f64` cast.
+    /// `ToFloat`/`ToJsNumber` conversion is the plain `as f64` cast (mapped
+    /// over an `Option` for an optional int32 slot). `ToInt32` stores a value
+    /// the frontend proved to be a whole number in the `i32` range, so its
+    /// `as i32` is exact as well.
     pub(super) fn fixed_int_cast_text(
+        &self,
         op: smelt_hir::PrimitiveCastOp,
         dest: &Type,
         operand: &Type,
         operand_text: &str,
     ) -> Option<String> {
+        let is_fixed = |ty: &TypeId| matches!(self.mir.types.get(*ty), Some(Type::FixedInt(_)));
+        let is_float = |ty: &TypeId| matches!(self.mir.types.get(*ty), Some(Type::Float));
         match (op, dest, operand) {
             (
                 smelt_hir::PrimitiveCastOp::ToFloat | smelt_hir::PrimitiveCastOp::ToJsNumber,
                 Type::Float,
                 Type::FixedInt(_),
             ) => Some(format!("{operand_text} as f64")),
+            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Optional(to), Type::Optional(from))
+                if is_float(to) && is_fixed(from) =>
+            {
+                Some(format!("{operand_text}.map(f64::from)"))
+            }
+            (smelt_hir::PrimitiveCastOp::ToInt32, Type::FixedInt(width), Type::Float) => {
+                Some(format!("{operand_text} as {}", width.rust_name()))
+            }
+            (smelt_hir::PrimitiveCastOp::ToInt32, Type::Optional(to), Type::Optional(from))
+                if is_fixed(to) && is_float(from) =>
+            {
+                Some(format!("{operand_text}.map(|value| value as i32)"))
+            }
             _ => None,
         }
     }
@@ -100,6 +126,49 @@ impl FunctionEmitter<'_> {
             return len_expr;
         }
         format!("{len_expr} as {}", width.rust_name())
+    }
+
+    /// JavaScript `ToInt32` of a numeric expression, as an `i32` expression.
+    ///
+    /// Truncates toward zero, takes the result modulo `2^32` and reads it as a
+    /// signed 32-bit integer; `NaN` and `±Infinity` are `0`. This is the exact
+    /// spec algorithm (ECMA-262 `ToInt32`), so `x | 0`, `x as int32` and every
+    /// int32 operator agree with every JavaScript engine.
+    pub(super) fn js_to_int32_text(value_text: &str) -> String {
+        format!(
+            "{{ let smelt_int32_v = ({value_text} as f64).trunc(); if smelt_int32_v.is_finite() {{ smelt_int32_v.rem_euclid(4294967296.0) as u32 as i32 }} else {{ 0_i32 }} }}"
+        )
+    }
+
+    /// JavaScript `ToUint32` of a numeric expression, as a `u32` expression.
+    pub(super) fn js_to_uint32_text(value_text: &str) -> String {
+        format!(
+            "{{ let smelt_uint32_v = ({value_text} as f64).trunc(); if smelt_uint32_v.is_finite() {{ smelt_uint32_v.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }} }}"
+        )
+    }
+
+    /// JavaScript `a << b`, `a >> b` and `Math.imul(a, b)` on `number`s.
+    ///
+    /// All three take `ToInt32(a)`; the shifts take the count as
+    /// `ToUint32(b) & 31`, `<<` wraps out of the int32 range, `>>` is the
+    /// arithmetic (sign-propagating) shift, and `Math.imul` is the low 32 bits
+    /// of the product read as signed. The int32 result converts to `f64`
+    /// exactly (or to `i64` for an `Int` destination).
+    pub(super) fn js_int32_binary_text(
+        op: smelt_hir::BinOp,
+        lhs_text: &str,
+        rhs_text: &str,
+        result_cast: &str,
+    ) -> String {
+        let lhs = Self::js_to_int32_text(lhs_text);
+        let int32 = match op {
+            smelt_hir::BinOp::IMul => format!("({lhs}).wrapping_mul({})", Self::js_to_int32_text(rhs_text)),
+            smelt_hir::BinOp::Shl => {
+                format!("({lhs}).wrapping_shl({} & 31)", Self::js_to_uint32_text(rhs_text))
+            }
+            _ => format!("({lhs}).wrapping_shr({} & 31)", Self::js_to_uint32_text(rhs_text)),
+        };
+        format!("(({int32}) as {result_cast})")
     }
 
     /// A `FixedInt` element index rendered as a Rust `usize`, if `index` is one.
