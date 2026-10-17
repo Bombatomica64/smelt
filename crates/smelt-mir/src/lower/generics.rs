@@ -13,6 +13,35 @@ use smelt_hir::{Symbol, Type, TypeId};
 
 use crate::Mir;
 
+/// Collect an interface's strict-JSON decode facts, inherited ones included.
+///
+/// Mirrors [`lower_effective_interface_fields`]: a parent's facts come first
+/// and the interface's own facts for the same property replace them, exactly as
+/// a redeclared field replaces the inherited one. The facts are keyed by
+/// property symbol, so no type substitution applies (a literal or nullability
+/// fact does not mention a type parameter).
+pub(super) fn lower_effective_interface_decode_facts(
+    krate: &smelt_hir::Crate,
+    interface: &smelt_hir::Interface,
+    seen: &mut HashSet<Symbol>,
+) -> Vec<smelt_hir::FieldDecodeFacts> {
+    if !seen.insert(interface.name) {
+        return Vec::new();
+    }
+    let mut facts: Vec<smelt_hir::FieldDecodeFacts> = Vec::new();
+    for heritage in &interface.extends {
+        if let Some(parent) = find_hir_interface(krate, heritage.parent) {
+            facts.extend(lower_effective_interface_decode_facts(krate, parent, seen));
+        }
+    }
+    for own in &interface.decode_facts {
+        facts.retain(|inherited| inherited.name != own.name);
+        facts.push(own.clone());
+    }
+    seen.remove(&interface.name);
+    facts
+}
+
 /// Return interface fields with inherited parent fields substituted and flattened.
 ///
 /// TypeScript interface inheritance is erased at runtime, but generated Rust

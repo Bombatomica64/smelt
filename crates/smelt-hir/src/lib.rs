@@ -102,10 +102,11 @@ pub use ids::{
     TypeId,
 };
 pub use item::{
-    Class, ClassKind, ClassProtocol, ConstItem, Descriptor, DescriptorValueField, Field, Function,
+    Class, ClassKind, ClassProtocol, ConstItem, Descriptor, DescriptorValueField, Field,
+    FieldDecodeFacts, Function,
     FunctionOwner, Interface, InterfaceHeritage, Item, MethodSig, MutableGlobalInit,
     MutableGlobalItem, Param,
-    ParamSig, StaticField, TypeAlias, TypeParamDef, Visibility,
+    ParamSig, StaticField, TypeAlias, TypeDecodeFacts, TypeParamDef, Visibility,
 };
 pub use krate::{
     CLASS_INDEX_STORE_FIELD, CONSOLE_ERROR_WRITE_SYMBOL, CONSOLE_LOG_SYMBOL, CONSOLE_WRITE_SYMBOL,

@@ -1151,7 +1151,13 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("string_join {}, {}", expr_ref(*items), expr_ref(*separator))
         }
         ExprKind::JsonStringify { value } => format!("json_stringify {}", expr_ref(*value)),
-        ExprKind::JsonParse { text } => format!("json_parse {}", expr_ref(*text)),
+        ExprKind::JsonParse { text, decode } => {
+            if *decode {
+                format!("json_decode {}", expr_ref(*text))
+            } else {
+                format!("json_parse {}", expr_ref(*text))
+            }
+        }
         ExprKind::HttpGetText { url } => format!("http_get_text {}", expr_ref(*url)),
         ExprKind::DateNow => "date_now".to_owned(),
         ExprKind::DateSetNow { timestamp } => format!("date_set_now {}", expr_ref(*timestamp)),

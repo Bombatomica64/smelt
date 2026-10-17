@@ -485,6 +485,11 @@ fn lower_interface_table_entry(
             })
             .collect(),
         methods: interface.methods.clone(),
+        decode_facts: generics::lower_effective_interface_decode_facts(
+            krate,
+            interface,
+            &mut HashSet::new(),
+        ),
     });
 }
 
@@ -684,7 +689,7 @@ fn intern_fallible_builtin_return_types(mir: &mut Mir) {
         } = terminator
         {
             match builtin {
-                BuiltinFn::JsonParse => needed.push(Type::Unknown),
+                BuiltinFn::JsonParse { .. } => needed.push(Type::Unknown),
                 BuiltinFn::UriDecode(_) | BuiltinFn::Base64(_) => needed.push(Type::String),
                 // A read answers a number and a write answers `undefined`, and
                 // both spellings are already in the table wherever an accessor

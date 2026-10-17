@@ -1476,6 +1476,15 @@ impl ModuleBuilder<'_> {
                 }
                 self.argument(argument, body)
             }
+            // `f(JSON.parse(s))` with `f(x: T)`: the parameter type is the
+            // declared target the parsed value enters (see
+            // `json_parse_call_with_hint`).
+            Argument::CallExpression(call) => {
+                if let Some(parsed) = self.json_parse_call_with_hint(call, type_hint, body)? {
+                    return Ok(parsed);
+                }
+                self.argument(argument, body)
+            }
             _ => self.argument(argument, body),
         }
     }

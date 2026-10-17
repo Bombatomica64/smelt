@@ -296,6 +296,10 @@ pub struct MirInterface {
     pub fields: Vec<MirField>,
     /// Method signatures in the interface.
     pub methods: Vec<smelt_hir::MethodSig>,
+    /// Per-property facts for strict JSON entry decoding; see
+    /// [`smelt_hir::FieldDecodeFacts`].
+    #[serde(default)]
+    pub decode_facts: Vec<smelt_hir::FieldDecodeFacts>,
 }
 
 /// MIR representation of a field in a class or interface.
@@ -2471,7 +2475,16 @@ pub enum BuiltinFn {
     /// throws a catchable `SyntaxError` in JavaScript. Only `Terminator::Call`
     /// and `Terminator::Await` carry an `unwind` edge, so a fallible operation
     /// has to be a call to reach an enclosing `try`.
-    JsonParse,
+    ///
+    /// `target` is `Some(T)` when the source declared the parse's type (see
+    /// `smelt_hir::ExprKind::JsonParse::decode`): the backend then decodes the
+    /// parsed value strictly into `T`, throwing a catchable `TypeError` on a
+    /// mismatch, whenever `T` has a decodable Rust shape. `None` is the dynamic
+    /// parse that answers the erased JSON value.
+    JsonParse {
+        /// The source-declared type the parsed value is decoded into.
+        target: Option<TypeId>,
+    },
     /// A `DataView` element accessor (`getInt16`, `setFloat64`, ...), which
     /// throws a catchable `RangeError` when the offset is outside the view.
     ///
@@ -2539,7 +2552,7 @@ impl BuiltinFn {
     #[must_use]
     pub const fn is_fallible(self) -> bool {
         match self {
-            Self::JsonParse
+            Self::JsonParse { .. }
             | Self::UriDecode(_)
             | Self::Base64(_)
             | Self::RegExpCompile

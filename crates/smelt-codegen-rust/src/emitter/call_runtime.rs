@@ -1316,6 +1316,13 @@ impl FunctionEmitter<'_> {
                 signal.as_ref(),
                 init_members,
             ),
+            Rvalue::RequestOp {
+                op: smelt_hir::RequestOp::Json,
+                request,
+                args,
+            } if let Some(target) = self.json_body_decode_target(dest_ty) => {
+                self.json_body_decode_text(request, args, target)
+            }
             Rvalue::RequestOp { op, request, args } => {
                 self.request_op_text(*op, request, args)
             }
@@ -1330,6 +1337,13 @@ impl FunctionEmitter<'_> {
                 status_text.as_ref(),
                 headers.as_ref(),
             ),
+            Rvalue::ResponseOp {
+                op: smelt_hir::ResponseOp::Json,
+                response,
+                args,
+            } if let Some(target) = self.json_body_decode_target(dest_ty) => {
+                self.json_body_decode_text(response, args, target)
+            }
             Rvalue::ResponseOp { op, response, args } => {
                 self.response_op_text(*op, response, args)
             }

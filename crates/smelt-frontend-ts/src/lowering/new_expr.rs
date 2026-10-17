@@ -2452,7 +2452,13 @@ impl ModuleBuilder<'_> {
                 Ok(self.keyed_read_into_optional_slot(read, type_hint, body))
             }
             Expression::CallExpression(call) => {
+                // An untyped `JSON.parse` flowing into a declared type is a
+                // typed entry boundary; see `json_parse_call_with_hint`.
+                if let Some(parsed) = self.json_parse_call_with_hint(call, type_hint, body)? {
+                    return Ok(parsed);
+                }
                 let value = self.call_expression_with_hint(call, body, type_hint)?;
+                let value = self.adopt_json_body_read_target(value, type_hint, body);
                 // A bare `Array(n)` allocation takes the contextual list type
                 // when it has one, exactly as the `new Array(n)` spelling does
                 // below; the two forms must stay in lockstep.

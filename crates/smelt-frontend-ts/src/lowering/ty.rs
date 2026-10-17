@@ -3,6 +3,7 @@
 
 mod annotations;
 mod assignability;
+mod decode_facts;
 pub(in crate::lowering) mod computed_key_symbols;
 mod generics;
 mod interface_lookup;

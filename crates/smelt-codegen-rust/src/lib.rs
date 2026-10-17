@@ -6280,6 +6280,16 @@ fn emit_source_with_free_function_router(
         }
     }
 
+    // Strict JSON entry decoders (`emitter::json_decode`): boundary adapters
+    // from the parsed JSON value into each source-declared target's concrete
+    // type. Emitted beside the union definitions they construct.
+    let json_decoders = emitter::emit_json_decoders(mir, &context)?;
+    if !json_decoders.is_empty() {
+        for line in json_decoders.lines() {
+            writer.line(line);
+        }
+    }
+
     let mut out = writer.finish();
 
     // Stable sentinel marking the end of the fixed runtime prelude and the start

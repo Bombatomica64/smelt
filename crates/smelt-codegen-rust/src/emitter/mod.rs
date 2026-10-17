@@ -121,6 +121,7 @@ mod text_codec;
 mod typed_array;
 mod host_member_read;
 mod host_interop;
+mod json_decode;
 mod http_server;
 mod list;
 mod list_mutation;
@@ -158,6 +159,7 @@ use literals::{assigned_locals, constant_text};
 use rendered_value::{Precedence, RenderedValue};
 use types::MutablePrefix;
 pub(crate) use union::emit_union_definitions;
+pub(crate) use json_decode::emit_json_decoders;
 pub(crate) use core::is_erased_unknown_rest_function_in;
 
 /// Process-wide runtime state an emitted native test resets before its body,

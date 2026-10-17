@@ -4466,6 +4466,7 @@ return_ty: function.return_ty,
             extends: Vec::new(),
             fields,
             methods: Vec::new(),
+            decode_facts: Vec::new(),
         }));
         self.interfaces.register_lowered(crate::lowering::state::interface_registry::LoweredInterface {
             name,

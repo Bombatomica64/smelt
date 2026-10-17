@@ -810,7 +810,7 @@ impl FunctionEmitter<'_> {
                 };
                 Ok(format!("{{ {macro_name}!(\"{format_spec}\", {value}); }}"))
             }
-            Callee::Builtin(BuiltinFn::JsonParse) => {
+            Callee::Builtin(BuiltinFn::JsonParse { target }) => {
                 let text = args
                     .first()
                     .ok_or_else(|| EmitError::new("JSON parse takes one string argument"))?;
@@ -819,6 +819,16 @@ impl FunctionEmitter<'_> {
                     Some(Type::String)
                 ) {
                     return Err(EmitError::new("JSON parse input must be a string"));
+                }
+                // A source-declared, decodable target is a typed entry
+                // boundary: parse AND decode strictly, throwing a catchable
+                // `TypeError` on a mismatch (see `emitter::json_decode`).
+                if let Some(decoded) = self.json_decode_target(*target) {
+                    return Ok(format!(
+                        "{}(&{})?",
+                        json_decode::json_decode_entry_name(decoded),
+                        self.operand_text(text)?
+                    ));
                 }
                 // The trailing `?` is what marks this call fallible to
                 // `emit_throwing_call_terminator`, which then renders the
@@ -3005,7 +3015,13 @@ impl FunctionEmitter<'_> {
             ) => self.none_ty,
             // `JSON.parse` yields a dynamic JavaScript value; the destination's
             // own type drives the ordinary coercion from the erased carrier.
-            Callee::Builtin(BuiltinFn::JsonParse) => return self.type_id(Type::Unknown),
+            // A decoded parse answers its declared target's concrete type.
+            Callee::Builtin(BuiltinFn::JsonParse { target }) => {
+                if let Some(decoded) = self.json_decode_target(*target) {
+                    return Ok(decoded);
+                }
+                return self.type_id(Type::Unknown);
+            }
             // A decoder answers a `String`, not an erased value -- the whole
             // point of keeping the typed runtime helper behind the adapter.
             Callee::Builtin(BuiltinFn::UriDecode(_)) => return self.type_id(Type::String),
