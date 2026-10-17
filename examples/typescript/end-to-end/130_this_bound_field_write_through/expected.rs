@@ -2947,6 +2947,10 @@ impl SmeltFromUnknown for Counter {
             if let Some(field) = object.get("builds") {
                 result.builds = SmeltFromUnknown::smelt_from_unknown(field);
             }
+            if let Some(field) = object.get("describe") {
+                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String) -> String>>(&smelt_function)) { result.describe = smelt_origin; }
+            }
         }
         result
     }
@@ -3474,10 +3478,7 @@ impl Tally {
     fn new(label: String) -> Self {
     let mut this: Self = Tally(::std::rc::Rc::new(::std::cell::RefCell::new(TallyInner { label: String::new(), builds: 0.0, describe: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback } })));
     this.0.borrow_mut().builds = 0.0;
-    let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: String = describe(closure_arg_0.clone());
-    _smelt_tmp_1.clone()
-    });
+    let _smelt_tmp_2 = __smelt_fn_typed_0_0();
     this.0.borrow_mut().describe = _smelt_tmp_2.clone();
     this.0.borrow_mut().label = label.clone();
     return this;
@@ -3495,6 +3496,15 @@ impl Tally {
     /// The live value of a callable own field, for a read through this instance's erased view.
     #[allow(dead_code, unreachable_patterns)]
     fn __smelt_get_callable_field(&self, key: &str) -> SmeltUnknown { match key { "describe" => { let smelt_function_value = self.0.borrow().describe.clone(); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String(((smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() })).into()))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } }, _ => SmeltUnknown::Undefined } }
+}
+
+type SmeltFnTyped0_0 = ::std::rc::Rc<dyn Fn(String) -> String>;
+fn __smelt_fn_typed_0_0() -> SmeltFnTyped0_0 {
+    thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped0_0> = ::std::cell::OnceCell::new(); }
+    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| { let smelt_function: SmeltFnTyped0_0 = ::std::rc::Rc::new(|closure_arg_0: String| {
+    let _smelt_tmp_1: String = describe(closure_arg_0.clone());
+    _smelt_tmp_1.clone()
+    }); smelt_function }).clone())
 }
 
 // ==== source_main.rs

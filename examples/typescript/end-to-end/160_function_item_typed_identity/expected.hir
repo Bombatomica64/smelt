@@ -1,0 +1,64 @@
+module examples/typescript/end-to-end/160_function_item_typed_identity/input.ts (ModuleId(0))
+  body BodyId(10)
+  items
+    fn default_handler__module_examples/typescript/end-to-end/160_function_item_typed_identity/input.ts owner Module
+    type ErrorHandler = fn(String, String) -> String
+    fn named_handler owner Module
+    class App fields [Public error_handler: fn(String, String) -> String, Public other: fn(String, String) -> String] constructor Some(ItemId(5)) methods [] implements []
+  locals
+    %0 const a: App
+    %1 const b: App
+  exprs
+    #0: App = new App()
+    #1: App = %0
+    #2: fn(String, String) -> String = #1.error_handler
+    #3: fn(String, String) -> String = closure BodyId(5) captures 0 -> String
+    #4: Bool = JsStrictEq #2, #3
+    #5: App = %0
+    #6: fn(String, String) -> String = #5.other
+    #7: fn(String, String) -> String = closure BodyId(6) captures 0 -> String
+    #8: Bool = JsStrictEq #6, #7
+    #9: App = %0
+    #10: fn(String, String) -> String = #9.error_handler
+    #11: fn(String, String) -> String = closure BodyId(7) captures 0 -> String
+    #12: Bool = JsStrictEq #10, #11
+    #13: None = @7(console_log)
+    #14: None = call #13(#4, #8, #12)
+    #15: App = new App()
+    #16: App = %1
+    #17: fn(String, String) -> String = #16.error_handler
+    #18: fn(String, String) -> String = closure BodyId(8) captures 0 -> String
+    #19: App = %1
+    #20: fn(String, String) -> String = #19.error_handler
+    #21: fn(String, String) -> String = closure BodyId(9) captures 0 -> String
+    #22: Bool = JsStrictEq #20, #21
+    #23: App = %1
+    #24: fn(String, String) -> String = #23.error_handler
+    #25: App = %1
+    #26: String = "e"
+    #27: String = "t"
+    #28: fn(String, String) -> String = bind_this #24, #23
+    #29: String = closure_call #28(#26, #27)
+    #30: App = %0
+    #31: fn(String, String) -> String = #30.error_handler
+    #32: App = %0
+    #33: String = "e"
+    #34: String = "t"
+    #35: fn(String, String) -> String = bind_this #31, #30
+    #36: String = closure_call #35(#33, #34)
+    #37: None = @8(console_log)
+    #38: None = call #37(#22, #29, #36)
+  stmts
+    s0: let %0: App = #0
+    s1: #14
+    s2: let %1: App = #15
+    s3: #17 = #18
+    s4: #38
+
+interned types
+  t0 = String
+  t1 = fn(String, String) -> String
+  t2 = App
+  t3 = fn(String, String) -> String
+  t4 = None
+  t5 = Bool

@@ -4822,6 +4822,58 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(Some((key, body)))
     }
 
+    /// Route a typed function-item-as-value wrapper through a cached accessor.
+    ///
+    /// Returns `__smelt_fn_typed_<key>_<ordinal>()` for a closure that is a bare
+    /// function item referenced as a value (`function_item_key`, no captures)
+    /// at a `Type::Function` destination whose Rust spelling needs no type
+    /// parameter, registering the accessor's wrapper body on first use. See
+    /// [`super::EmitContext::function_item_typed_accessors`] for why: every
+    /// reference must share one `Rc` so `===` answers as in JavaScript.
+    ///
+    /// Returns `None` — keep the inline fresh wrapper — for a user closure
+    /// (each arrow expression IS a distinct function), a non-function
+    /// destination, an erased-rest callable (it has its own per-item accessor),
+    /// or a callable type that mentions a type parameter in scope:
+    /// the accessor is a module-level `fn` with no generics, so a type it
+    /// cannot spell has no single cached value.
+    pub(super) fn function_item_typed_accessor(
+        &self,
+        id: smelt_mir::ClosureId,
+        dest_ty: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        let closure = self.mir_closure(id)?;
+        let Some(key) = closure.function_item_key else {
+            return Ok(None);
+        };
+        let Some(Type::Function(function)) = self.mir.types.get(dest_ty) else {
+            return Ok(None);
+        };
+        // An erased-rest callable renders as `SmeltErasedFunction`, whose
+        // per-item `__smelt_fn_erased_<key>()` accessor (`closure_text_for_type`)
+        // already gives every reference one shared identity.
+        if !closure.captures.is_empty() || self.is_erased_unknown_rest_function(function) {
+            return Ok(None);
+        }
+        let scoped_text = self.type_text_with_impl_trait(dest_ty, false)?;
+        let hoisted = HoistedModuleItemScope::enter(self);
+        let module_text = self.type_text_with_impl_trait(dest_ty, false)?;
+        if module_text != scoped_text {
+            return Ok(None);
+        }
+        let wrapper = self.closure_text_for_type(id, dest_ty)?;
+        drop(hoisted);
+        let mut accessors = self.context.function_item_typed_accessors.borrow_mut();
+        let next_ordinal = accessors
+            .keys()
+            .filter(|(existing, _)| *existing == key)
+            .count();
+        let (ordinal, _) = accessors
+            .entry((key, module_text))
+            .or_insert((next_ordinal, wrapper));
+        Ok(Some(format!("__smelt_fn_typed_{key}_{ordinal}()")))
+    }
+
     /// Build the erased rest-forwarding closure for a function type.
     ///
     /// Emits `::std::rc::Rc::new(move |smelt_args| { .. })` that forwards the

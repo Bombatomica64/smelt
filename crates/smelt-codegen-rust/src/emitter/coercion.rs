@@ -271,6 +271,20 @@ impl FunctionEmitter<'_> {
             if self.mir.types.get(operand_ty) == Some(&Type::None) {
                 return Ok("None".to_owned());
             }
+            // A union with a `null`/`undefined` arm is stored erased, and its
+            // nullish values are the slot's ABSENT case. Wrapping the whole
+            // value in `Some(..)` sent `null` into the inner type's
+            // reconstruction instead, which picked whichever arm accepts it:
+            // `new Response(null as Data | null)` built a
+            // `URLSearchParams` body and answered a 204 with
+            // `content-type: application/x-www-form-urlencoded`. `extract`
+            // tests for nullish first.
+            if matches!(
+                self.mir.types.get(operand_ty),
+                Some(Type::Union(items)) if items.iter().any(|item| matches!(self.mir.types.get(*item), Some(Type::None)))
+            ) {
+                return self.extract(operand, target, scope);
+            }
             if operand_ty == *inner {
                 return Ok(format!("Some({})", self.value_at_type_in(operand, *inner, scope)?));
             }

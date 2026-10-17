@@ -3319,10 +3319,7 @@ fn main() {
     }); let smelt_array = words.clone(); smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
     _smelt_tmp_18 = _smelt_tmp_17.borrow().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_18); };
-    _smelt_tmp_20 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: bool = is_long(closure_arg_0.clone());
-    _smelt_tmp_1
-    });
+    _smelt_tmp_20 = __smelt_fn_typed_4_0();
     _smelt_tmp_21 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String| {
     let _smelt_tmp_1: bool = is_long(closure_arg_0.clone());
     _smelt_tmp_1
@@ -3381,6 +3378,15 @@ impl Checker {
         smelt_proto_entries.push(("__smelt_method:matches".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.matches(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(SmeltUnknown::Bool(smelt_result)) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Checker::matches")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
+}
+
+type SmeltFnTyped4_0 = ::std::rc::Rc<dyn Fn(String) -> bool>;
+fn __smelt_fn_typed_4_0() -> SmeltFnTyped4_0 {
+    thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped4_0> = ::std::cell::OnceCell::new(); }
+    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| { let smelt_function: SmeltFnTyped4_0 = ::std::rc::Rc::new(|closure_arg_0: String| {
+    let _smelt_tmp_1: bool = is_long(closure_arg_0.clone());
+    _smelt_tmp_1
+    }); smelt_function }).clone())
 }
 
 // ==== source_main.rs

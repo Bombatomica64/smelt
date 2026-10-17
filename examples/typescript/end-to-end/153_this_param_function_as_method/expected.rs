@@ -2944,6 +2944,14 @@ impl SmeltFromUnknown for Router {
             if let Some(field) = object.get("name") {
                 result.name = SmeltFromUnknown::smelt_from_unknown(field);
             }
+            if let Some(field) = object.get("add") {
+                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String, String, String) -> ()>>(&smelt_function)) { result.add = smelt_origin; }
+            }
+            if let Some(field) = object.get("match") {
+                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>>>(&smelt_function)) { result.match_ = smelt_origin; }
+            }
         }
         result
     }
@@ -3659,10 +3667,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_43 = _smelt_tmp_42.len() as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_43)); };
     let _ = { println!("{}", s.0.borrow().name.clone()); };
-    _smelt_tmp_46 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: String = greet(closure_arg_0.clone());
-    _smelt_tmp_1.clone()
-    });
+    _smelt_tmp_46 = __smelt_fn_typed_1_0();
     _smelt_tmp_47 = SmeltRecord::from([("prefix".to_owned(), "hi ".to_owned())]);
     _smelt_tmp_48 = { let smelt_bound_callee = _smelt_tmp_46.clone();                          let smelt_bound_receiver = _smelt_tmp_47.clone();                          let smelt_bound: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |smelt_bound_arg_0| {                          let _smelt_this_guard = smelt_push_this_lazy({ let smelt_bound_receiver = smelt_bound_receiver.clone(); ::std::rc::Rc::new(move || { let smelt_record = smelt_bound_receiver.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) }) });                          (smelt_bound_callee)(smelt_bound_arg_0) }); smelt_bound };
     __smelt_bind_callee = _smelt_tmp_48.clone();
@@ -3676,10 +3681,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     bound = _smelt_tmp_49.clone();
     _smelt_tmp_50 = (bound)("bob".to_owned());
     let _ = { println!("{}", _smelt_tmp_50); };
-    _smelt_tmp_52 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: String = greet(closure_arg_0.clone());
-    _smelt_tmp_1.clone()
-    });
+    _smelt_tmp_52 = __smelt_fn_typed_1_0();
     _smelt_tmp_53 = SmeltRecord::from([("prefix".to_owned(), "yo ".to_owned())]);
     _smelt_tmp_54 = { let smelt_bound_callee = _smelt_tmp_52.clone();                          let smelt_bound_receiver = _smelt_tmp_53.clone();                          let smelt_bound: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |smelt_bound_arg_0| {                          let _smelt_this_guard = smelt_push_this_lazy({ let smelt_bound_receiver = smelt_bound_receiver.clone(); ::std::rc::Rc::new(move || { let smelt_record = smelt_bound_receiver.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) }) });                          (smelt_bound_callee)(smelt_bound_arg_0) }); smelt_bound };
     __smelt_bind_callee_1 = _smelt_tmp_54.clone();
@@ -3717,10 +3719,7 @@ impl TableRouter {
     this.0.borrow_mut().name = "TableRouter".to_owned();
     let _smelt_tmp_1: SmeltRecord<String, SmeltList<String>> = SmeltRecord::from([]);
     this.0.borrow_mut().table = _smelt_tmp_1;
-    let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: String| {
-    let _smelt_tmp_2: SmeltList<String> = match_(closure_arg_0.clone(), closure_arg_1.clone());
-    _smelt_tmp_2.clone()
-    });
+    let _smelt_tmp_2 = __smelt_fn_typed_0_0();
     this.0.borrow_mut().match_ = _smelt_tmp_2.clone();
     return this;
     }
@@ -3959,6 +3958,24 @@ impl App {
     /// The live value of a callable own field, for a read through this instance's erased view.
     #[allow(dead_code, unreachable_patterns)]
     fn __smelt_get_callable_field(&self, key: &str) -> SmeltUnknown { match key { "get" => { let smelt_function_value = self.0.borrow().get.clone(); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) as f64))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } }, "post" => { let smelt_function_value = self.0.borrow().post.clone(); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) as f64))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } }, _ => SmeltUnknown::Undefined } }
+}
+
+type SmeltFnTyped0_0 = ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>>;
+fn __smelt_fn_typed_0_0() -> SmeltFnTyped0_0 {
+    thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped0_0> = ::std::cell::OnceCell::new(); }
+    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| { let smelt_function: SmeltFnTyped0_0 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: String| {
+    let _smelt_tmp_2: SmeltList<String> = match_(closure_arg_0.clone(), closure_arg_1.clone());
+    _smelt_tmp_2.clone()
+    }); smelt_function }).clone())
+}
+
+type SmeltFnTyped1_0 = ::std::rc::Rc<dyn Fn(String) -> String>;
+fn __smelt_fn_typed_1_0() -> SmeltFnTyped1_0 {
+    thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped1_0> = ::std::cell::OnceCell::new(); }
+    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| { let smelt_function: SmeltFnTyped1_0 = ::std::rc::Rc::new(|closure_arg_0: String| {
+    let _smelt_tmp_1: String = greet(closure_arg_0.clone());
+    _smelt_tmp_1.clone()
+    }); smelt_function }).clone())
 }
 
 // ==== source_main.rs

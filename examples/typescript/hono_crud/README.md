@@ -52,6 +52,15 @@ crate named `hono_crud` into `./dist-smelt`:
 cargo run --bin smelt -- --manifest-path examples/typescript/hono_crud/Smelt.toml build
 ```
 
+**Status (2026-10-16): this does not build yet.** `hono` from npm ships no
+TypeScript, `node:sqlite` is a declared-only host surface, and
+`@hono/node-server` does not lower. `benchmarks/hono_crud/prepare-staging.sh`
+builds a staging tree that routes around all three (Hono's TypeScript source as
+a workspace package, an in-memory store, a buffered `node:http` shim); that tree
+transpiles, passes `test/todos.test.ts` 9/9 as generated Rust, and serves every
+route. Details, the remaining gaps and the performance comparison:
+`blocker-logs/hono-crud-status.md`.
+
 ## Why Hono
 
 The interesting part for Smelt is not the app but the dependency. Most Node web

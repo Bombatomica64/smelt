@@ -15,7 +15,7 @@ use rendered_text_rewrite::{
 
 impl FunctionEmitter<'_> {
     /// The MIR closure an `Rvalue::Closure` names.
-    fn mir_closure(&self, id: smelt_mir::ClosureId) -> Result<&MirClosure, EmitError> {
+    pub(super) fn mir_closure(&self, id: smelt_mir::ClosureId) -> Result<&MirClosure, EmitError> {
         self.mir
             .closures
             .get(id_index(id.0, "closure id does not fit usize")?)

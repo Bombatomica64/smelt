@@ -2381,7 +2381,18 @@ impl ModuleBuilder<'_> {
         } else if let Some(hint) = type_hint
             && !self.concrete_type_requires_never_value(hint)
         {
-            hint
+            // `a ?? b` is `NonNullable<typeof a> | typeof b`: it is nullish
+            // exactly when the fallback is. A hint that cannot hold the
+            // fallback's `undefined` (the other arm of an enclosing ternary,
+            // `typeof arg === 'number' ? arg : (arg?.status ?? this.#status)`)
+            // has to widen to its optional form, or the absent value is
+            // converted to the hint's type — `undefined` became the `NaN`
+            // status of every Hono `c.json(..)` without an explicit status.
+            if self.is_nullable_value_type(fallback_ty) && !self.is_nullable_value_type(hint) {
+                smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, hint)
+            } else {
+                hint
+            }
         } else if !self.erased_or_union_surface(ty)
             && !self.erased_or_union_surface(fallback_ty)
             && !self.concrete_type_requires_never_value(ty)
@@ -2445,6 +2456,19 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a `??` fallback is covered by one member of the non-null union.
+    /// Whether a value of type `ty` can be `null`/`undefined` at run time: an
+    /// optional, a union with a `None` arm, `None` itself, or an erased surface
+    /// (which can hold anything).
+    fn is_nullable_value_type(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Optional(_) | Type::None | Type::Unknown) => true,
+            Some(Type::Union(items)) => items
+                .iter()
+                .any(|item| self.is_nullable_value_type(*item)),
+            _ => false,
+        }
+    }
+
     pub(in crate::lowering) fn nullish_fallback_matches_union_member(
         &self,
         non_nullish_ty: smelt_hir::TypeId,
@@ -2590,6 +2614,37 @@ impl ModuleBuilder<'_> {
     /// function body is lowered. For those, membership is a pure key-set test,
     /// so emitting string equality checks keeps the generated Rust independent
     /// from a runtime object allocation.
+    /// Lower `void operand`: evaluate the operand for its effects, then yield
+    /// `undefined`.
+    ///
+    /// The operand is not optional in JavaScript: `void handle(req, res)` is
+    /// the idiom for starting a promise and deliberately discarding it, and
+    /// `void` is only about the RESULT. Answering the literal without lowering
+    /// the operand dropped the call, so a `node:http` handler written that
+    /// way never answered a single request. The operand runs as an expression
+    /// statement of the block the `void` is lowered into; `result` is the
+    /// literal the caller's context spells `undefined` with.
+    pub(in crate::lowering) fn void_expression(
+        &mut self,
+        unary: &oxc::ast::ast::UnaryExpression<'_>,
+        body: &mut Body,
+        result: Literal,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let operand = self.expression(&unary.argument, body)?;
+        let effect = Stmt::Expr(operand);
+        if let Some(block) = self.current_statement_block {
+            body.push_stmt_to_block(block, effect);
+        } else {
+            body.push_stmt(effect);
+        }
+        let ty = self.ctx.krate.types.intern(Type::None);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Literal(result),
+            ty,
+            span: self.span(unary.span.start, unary.span.end),
+        }))
+    }
+
     pub(in crate::lowering) fn in_expression(
         &mut self,
         binary: &oxc::ast::ast::BinaryExpression<'_>,
@@ -2793,12 +2848,7 @@ impl ModuleBuilder<'_> {
             return self.typeof_expression(unary, body);
         }
         if unary.operator == UnaryOperator::Void {
-            let ty = self.ctx.krate.types.intern(Type::None);
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Undefined),
-                ty,
-                span: self.span(unary.span.start, unary.span.end),
-            }));
+            return self.void_expression(unary, body, Literal::Undefined);
         }
         let op = match unary.operator {
             UnaryOperator::LogicalNot => UnaryOp::Not,

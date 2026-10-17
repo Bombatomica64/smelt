@@ -1646,12 +1646,14 @@ impl FunctionEmitter<'_> {
                 }
                 // Emit the closure value directly at its destination type.
                 //
-                // A bare function-item-as-value wrapper still carries a stable
-                // `function_item_key`, but reference identity is now preserved at
-                // the ERASE site (see `coercion::erase`), which routes erased
-                // function-item references through a per-item accessor. Here, in
-                // typed context, identity does not matter, so this arm emits the
-                // plain fresh closure regardless of `function_item_key`.
+                // A bare function-item-as-value wrapper carries a stable
+                // `function_item_key`. Its erased form keeps reference identity
+                // through the ERASE site's per-item accessor (`coercion::erase`);
+                // its typed form needs the same, because typed function values
+                // are compared with `===` too (`smelt_same_function_identity`).
+                if let Some(accessor) = self.function_item_typed_accessor(*id, dest_ty)? {
+                    return Ok(accessor);
+                }
                 Ok(self.closure_text_for_type(*id, dest_ty)?)
             }
             Rvalue::ClosureCall { callee, args } => {
