@@ -117,6 +117,17 @@ impl FunctionEmitter<'_> {
         if let Some(projected) = self.project_union_value_text(&operand_text, source_ty, target)? {
             return Ok(projected);
         }
+        // A tuple at a DIFFERENT tuple type (`[n, accept] as [number, Accept]`
+        // returned as `[number, Accept | undefined]`) is coerced element by
+        // element; the operand ladder below has no tuple rule and handed the
+        // value back unchanged (E0308).
+        if source_ty != target
+            && let (Some(Type::Tuple(source_items)), Some(Type::Tuple(target_items))) =
+                (self.mir.types.get(source_ty), self.mir.types.get(target))
+            && source_items.len() == target_items.len()
+        {
+            return self.value_at_type_text(&operand_text, source_ty, target, scope);
+        }
         let target_is_erased = matches!(
             self.mir.types.get(target),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))

@@ -1430,7 +1430,7 @@ impl FunctionEmitter<'_> {
                     }
                     _ => self.default_value(exception_decl.ty)?,
                 };
-                out.push_str(&format!("            let {exception_name} = {value};\n"));
+                out.push_str(&self.exception_binding_text(exception_local, exception_name, &value));
                 self.mark_local_declared(exception_local);
             }
             self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -1494,7 +1494,7 @@ impl FunctionEmitter<'_> {
             // value a panic-routed throw parked in `SMELT_PANIC_VALUE`, and a
             // class-and-message record only for a panic with no parked value.)
             let value = self.caught_error_value_text(exception_decl.ty, "__smelt_error")?;
-            out.push_str(&format!("            let {exception_name} = {value};\n"));
+            out.push_str(&self.exception_binding_text(exception_local, exception_name, &value));
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -1519,7 +1519,7 @@ impl FunctionEmitter<'_> {
                 }
                 _ => self.default_value(exception_decl.ty)?,
             };
-            out.push_str(&format!("            let {exception_name} = {value};\n"));
+            out.push_str(&self.exception_binding_text(exception_local, exception_name, &value));
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -1620,7 +1620,7 @@ impl FunctionEmitter<'_> {
             let exception_name = self.local_name(exception_local)?;
             let exception_decl = self.local_decl(exception_local)?;
             let value = self.caught_error_value_text(exception_decl.ty, "__smelt_error")?;
-            out.push_str(&format!("            let {exception_name} = {value};\n"));
+            out.push_str(&self.exception_binding_text(exception_local, exception_name, &value));
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -1632,6 +1632,21 @@ impl FunctionEmitter<'_> {
             self.emit_throwing_continuation_tail(join, continuation, out)?;
         }
         Ok(())
+    }
+
+    /// The statement binding a `catch` parameter to the caught `value`.
+    ///
+    /// A catch parameter that is already declared — predeclared at function
+    /// scope because the code after the `try` reads it — is ASSIGNED: the
+    /// rejoined continuation (`throwing_join`) runs after the `match`, outside
+    /// the arm, so a `let` in the arm would shadow it and the tail would read
+    /// the unassigned outer binding. Otherwise it is a fresh `let`.
+    fn exception_binding_text(&self, local: LocalId, name: &str, value: &str) -> String {
+        if self.is_local_declared(local) {
+            format!("            {name} = {value};\n")
+        } else {
+            format!("            let {name} = {value};\n")
+        }
     }
 
     /// Emits an if/else or while loop from a switch terminator.

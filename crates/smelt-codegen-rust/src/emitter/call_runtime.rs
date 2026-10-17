@@ -1119,8 +1119,8 @@ impl FunctionEmitter<'_> {
                     ));
                 }
                 if *op == smelt_hir::BinOp::UShr {
-                    let lhs_text = self.operand_text(lhs)?;
-                    let rhs_text = self.operand_text(rhs)?;
+                    let lhs_text = self.bitwise_operand_number_text(lhs)?;
+                    let rhs_text = self.bitwise_operand_number_text(rhs)?;
                     let lhs_trunc_text = self.numeric_trunc_f64_text(&lhs_text);
                     let rhs_trunc_text = self.numeric_trunc_f64_text(&rhs_text);
                     return Ok(format!(
@@ -1128,8 +1128,8 @@ impl FunctionEmitter<'_> {
                     ));
                 }
                 if matches!(*op, smelt_hir::BinOp::Shl | smelt_hir::BinOp::Shr) {
-                    let lhs_text = self.operand_text(lhs)?;
-                    let rhs_text = self.operand_text(rhs)?;
+                    let lhs_text = self.bitwise_operand_number_text(lhs)?;
+                    let rhs_text = self.bitwise_operand_number_text(rhs)?;
                     let lhs_trunc_text = self.numeric_trunc_f64_text(&lhs_text);
                     let rhs_trunc_text = self.numeric_trunc_f64_text(&rhs_text);
                     let op_text = smelt_hir::bin_op_text(*op);
@@ -1149,8 +1149,8 @@ impl FunctionEmitter<'_> {
                     // JavaScript bitwise `&`, `|`, `^` coerce both operands with
                     // `ToInt32` (truncate to integer, take modulo 2^32 as a signed
                     // 32-bit value), operate, and yield a signed 32-bit number.
-                    let lhs_text = self.operand_text(lhs)?;
-                    let rhs_text = self.operand_text(rhs)?;
+                    let lhs_text = self.bitwise_operand_number_text(lhs)?;
+                    let rhs_text = self.bitwise_operand_number_text(rhs)?;
                     let lhs_trunc_text = self.numeric_trunc_f64_text(&lhs_text);
                     let rhs_trunc_text = self.numeric_trunc_f64_text(&rhs_text);
                     let op_text = smelt_hir::bin_op_text(*op);
@@ -2811,6 +2811,23 @@ impl FunctionEmitter<'_> {
             return Ok("None".to_owned());
         }
         self.default_value(param)
+    }
+
+    /// An operand of a bitwise or shift operator, as a JavaScript number.
+    ///
+    /// Those operators apply `ToNumber` and then `ToInt32`/`ToUint32` to each
+    /// operand. A statically numeric operand is already the number; any other
+    /// (an erased value, a boolean) is converted with the same `ToNumber`
+    /// coercion the comparison operators use. A bare `as f64` cast is only
+    /// valid Rust for a primitive, so an erased operand (`opt.maxAge | 0` on an
+    /// erased options record) did not compile.
+    fn bitwise_operand_number_text(&self, operand: &Operand) -> Result<String, EmitError> {
+        let ty = self.operand_ty(operand)?;
+        if matches!(self.mir.types.get(ty), Some(Type::Int | Type::Float)) {
+            return self.operand_text(operand);
+        }
+        let float_ty = self.type_id(Type::Float)?;
+        Ok(format!("({})", self.value_at_type(operand, float_ty)?))
     }
 
     /// The modeled host data property `field` names on a `receiver_ty`

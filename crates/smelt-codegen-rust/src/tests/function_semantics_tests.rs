@@ -341,3 +341,38 @@ function run(): void {
         "the erased adapter must call the callback and propagate its throw: {source}"
     );
 }
+
+/// `never` is the bottom type of a function join.
+///
+/// `strict ? rethrow : (err) => handle(err)`, with `rethrow: (err) => never`,
+/// is a callable returning what `handle` returns. Both the frontend's ternary
+/// join and MIR's throwing-closure widening used to take the `never` arm's
+/// return, so the joined slot returned an erased value and `handle`'s `f64`
+/// was adapted into it.
+#[test]
+fn never_returning_arm_does_not_type_a_function_join() {
+    let source = source_for(
+        r"
+class Failure {
+  message: string
+  constructor(message: string) {
+    this.message = message
+  }
+}
+const rethrow = (err: Failure): never => {
+  throw err
+}
+const handle = (err: Failure): number => err.message.length
+export function chooseHandler(strict: boolean): (err: Failure) => number {
+  const handler = strict ? rethrow : (err: Failure) => handle(err)
+  return handler
+}
+",
+    );
+    assert!(
+        source.contains(
+            "let handler: ::std::rc::Rc<dyn Fn(Failure) -> Result<f64, Box<dyn std::error::Error>>>;"
+        ),
+        "the joined handler must return `handle`'s number (throwing, because `rethrow` throws):\n{source}"
+    );
+}
