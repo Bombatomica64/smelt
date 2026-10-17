@@ -13,6 +13,16 @@ use smelt_hir::{Symbol, Type, TypeId};
 
 use crate::Mir;
 
+/// The walk state [`lower_effective_interface_fields`] threads through an
+/// `extends` chain.
+#[derive(Default)]
+pub(super) struct InterfaceFlattening {
+    /// Interfaces on the current path, which cuts an (invalid) cyclic chain.
+    seen: HashSet<Symbol>,
+    /// Substitution-free flattenings already computed, by interface.
+    flattened: HashMap<Symbol, Vec<smelt_hir::Field>>,
+}
+
 /// Return interface fields with inherited parent fields substituted and flattened.
 ///
 /// TypeScript interface inheritance is erased at runtime, but generated Rust
@@ -24,9 +34,19 @@ pub(super) fn lower_effective_interface_fields(
     mir: &mut Mir,
     interface: &smelt_hir::Interface,
     substitutions: &HashMap<Symbol, TypeId>,
-    seen: &mut HashSet<Symbol>,
+    state: &mut InterfaceFlattening,
 ) -> Vec<smelt_hir::Field> {
-    if !seen.insert(interface.name) {
+    // An interface reached with no substitutions in force flattens to the same
+    // fields every time, so it is computed once: re-flattening every ancestor
+    // for every interface made a long `extends` chain cubic (measured by
+    // `tests/compile_scaling.rs` in `smelt-codegen-rust`). Only the
+    // substitution-free case is cached; a generic parent instantiated with
+    // arguments is flattened per instantiation, as before.
+    let memoizable = substitutions.is_empty();
+    if memoizable && let Some(fields) = state.flattened.get(&interface.name) {
+        return fields.clone();
+    }
+    if !state.seen.insert(interface.name) {
         return Vec::new();
     }
     let mut fields = Vec::new();
@@ -51,22 +71,33 @@ pub(super) fn lower_effective_interface_fields(
             mir,
             parent,
             &parent_substitutions,
-            seen,
+            state,
         ));
     }
+    // An override replaces the inherited slot in place. The slot lookup is a
+    // map: a linear `find` per field made a long `extends` chain cubic
+    // (measured by `tests/compile_scaling.rs` in `smelt-codegen-rust`).
+    let mut slots: HashMap<Symbol, usize> = fields
+        .iter()
+        .enumerate()
+        .map(|(slot, field)| (field.name, slot))
+        .collect();
     for source_field in &interface.fields {
         let mut lowered_field = source_field.clone();
         lowered_field.ty = substitute_type_id(mir, lowered_field.ty, substitutions);
-        if let Some(existing) = fields
-            .iter_mut()
-            .find(|candidate: &&mut smelt_hir::Field| candidate.name == lowered_field.name)
-        {
+        if let Some(existing) = slots.get(&lowered_field.name).and_then(|slot| fields.get_mut(*slot)) {
             *existing = lowered_field;
         } else {
+            slots.insert(lowered_field.name, fields.len());
             fields.push(lowered_field);
         }
     }
-    seen.remove(&interface.name);
+    state.seen.remove(&interface.name);
+    // A cycle (`seen` cut the walk short) leaves a partial answer that depends
+    // on where the walk entered, so only a walk that started clean is cached.
+    if memoizable && state.seen.is_empty() {
+        state.flattened.insert(interface.name, fields.clone());
+    }
     fields
 }
 

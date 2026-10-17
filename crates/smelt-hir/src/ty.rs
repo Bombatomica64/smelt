@@ -163,6 +163,17 @@ pub struct FunctionType {
 pub struct TypeInterner {
     /// Interned types in insertion order.
     types: Vec<Type>,
+    /// `types` inverted, so interning is a hash lookup rather than a scan.
+    ///
+    /// A derived cache, never serialized: a deserialized interner starts with
+    /// it empty and [`Self::intern`] rebuilds it on first use. The linear scan
+    /// it replaces made every `intern` O(types), which is quadratic over a
+    /// program -- measured by `tests/compile_scaling.rs` in
+    /// `smelt-codegen-rust` on deeply nested generic types. Because `intern`
+    /// is the only writer of `types` and never stores a duplicate, the index
+    /// answers exactly the id the scan found (the first, and only, equal type).
+    #[serde(skip)]
+    index: std::collections::HashMap<Type, TypeId>,
 }
 
 impl TypeInterner {
@@ -175,15 +186,20 @@ impl TypeInterner {
             items.sort_unstable_by_key(|item| item.0);
             items.dedup();
         }
-        if let Some((idx, _)) = self
-            .types
-            .iter()
-            .enumerate()
-            .find(|(_, existing)| **existing == ty)
-        {
-            return TypeId(id_index(idx));
+        if self.index.len() != self.types.len() {
+            // First occurrence wins, as the scan did, should a deserialized
+            // table ever carry a duplicate.
+            let mut index = std::collections::HashMap::with_capacity(self.types.len());
+            for (idx, existing) in self.types.iter().enumerate() {
+                index.entry(existing.clone()).or_insert_with(|| TypeId(id_index(idx)));
+            }
+            self.index = index;
+        }
+        if let Some(id) = self.index.get(&ty) {
+            return *id;
         }
         let id = TypeId(id_index(self.types.len()));
+        self.index.insert(ty.clone(), id);
         self.types.push(ty);
         id
     }

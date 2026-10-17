@@ -19,7 +19,7 @@
 //! * [`generics`] — interface field flattening and generic type substitution.
 //! * [`passes`] — whole-program analyses that run after core lowering.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::convert::TryFrom;
 
 use smelt_hir::{BodyId, Literal as HirLiteral, Span, Type, TypeId};
@@ -48,7 +48,7 @@ mod closures;
 mod passes;
 
 use context::{FunctionSpec, LoweringCtx, LoweringShared};
-use generics::lower_effective_interface_fields;
+use generics::{InterfaceFlattening, lower_effective_interface_fields};
 
 /// Converts a `usize` into `u32`, returning a `LowerError` if it does not fit.
 fn u32_from_usize(value: usize, context: &str) -> Result<u32, LowerError> {
@@ -363,11 +363,14 @@ fn lower_globals(
 /// substitution) so codegen sees a concrete record layout. Function, type
 /// alias, and const items carry no table entry here.
 fn lower_type_tables(krate: &smelt_hir::Crate, mir: &mut Mir, item_functions: &FunctionIds) {
+    // Shared across the interfaces so an `extends` chain flattens each
+    // ancestor once; see `lower_effective_interface_fields`.
+    let mut flattening = InterfaceFlattening::default();
     for hir_item in &krate.items {
         match hir_item {
             smelt_hir::Item::Class(class) => lower_class_table_entry(mir, class, item_functions),
             smelt_hir::Item::Interface(interface) => {
-                lower_interface_table_entry(krate, mir, interface);
+                lower_interface_table_entry(krate, mir, interface, &mut flattening);
             }
             smelt_hir::Item::Function(_)
             | smelt_hir::Item::TypeAlias(_)
@@ -469,9 +472,9 @@ fn lower_interface_table_entry(
     krate: &smelt_hir::Crate,
     mir: &mut Mir,
     interface: &smelt_hir::Interface,
+    flattening: &mut InterfaceFlattening,
 ) {
-    let fields =
-        lower_effective_interface_fields(krate, mir, interface, &HashMap::new(), &mut HashSet::new());
+    let fields = lower_effective_interface_fields(krate, mir, interface, &HashMap::new(), flattening);
     mir.interfaces.push(crate::MirInterface {
         name: interface.name,
         type_params: interface.type_params.clone(),

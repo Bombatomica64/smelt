@@ -3949,6 +3949,7 @@ impl ModuleBuilder<'_> {
         statements: &[Statement<'_>],
         body: &mut Body,
     ) -> Result<(), SmeltError> {
+        let first_reads = self.first_capture_read_indices(statements);
         for (index, statement) in statements.iter().enumerate() {
             let Statement::VariableDeclaration(decl) = statement else {
                 continue;
@@ -3979,10 +3980,9 @@ impl ModuleBuilder<'_> {
                 };
                 let read_earlier = direct_arrow.is_none()
                     && !is_deferred_self_binding
-                    && self.name_is_read_by_earlier_statement(
-                        binding.name.as_str(),
-                        &statements[..index],
-                    );
+                    && first_reads
+                        .get(binding.name.as_str())
+                        .is_some_and(|first| *first < index);
                 if direct_arrow.is_none() && !is_deferred_self_binding && !read_earlier {
                     continue;
                 }
@@ -4035,36 +4035,68 @@ impl ModuleBuilder<'_> {
         Ok(())
     }
 
-    /// Return whether an earlier statement in this list already reads `name`.
+    /// For every `let`/`const` name this statement list declares, the index of
+    /// the first statement whose deferred code (a closure or a local function
+    /// body) reads it.
     ///
+    /// "Is `name` read by a statement before index `i`" is then
+    /// `first < i`. Asking that per declaration (the previous shape) re-walked
+    /// the whole prefix for every declaration, which is
+    /// quadratic in the length of a function body (measured by
+    /// `tests/compile_scaling.rs` in `smelt-codegen-rust`: a 1024-statement body
+    /// spent two thirds of its frontend time here). This walks each statement
+    /// once, with every candidate bound to the sentinel the per-name walk used.
     /// TypeScript rejects a plain use-before-declaration of a block-scoped
-    /// binding, so an earlier reference that compiles is necessarily inside a
-    /// function or arrow body -- deferred code that runs after the declaration
-    /// has executed. The existing capture walk answers it: it reports only
-    /// names that are BOUND, so the candidate is bound to a sentinel for the
-    /// walk and the binding is restored afterwards, exactly as
-    /// `initializer_needs_deferred_self_binding` does for the self-reference
-    /// shape.
-    fn name_is_read_by_earlier_statement(
-        &mut self,
-        name: &str,
-        earlier: &[Statement<'_>],
-    ) -> bool {
-        if earlier.is_empty() {
-            return false;
+    /// binding, so an earlier reference that compiles is inside deferred code;
+    /// the capture walk reports exactly the BOUND names such code reads, and
+    /// whether it reports one name does not depend on whether another is
+    /// bound, so each candidate's answer is the one the per-name walk gave.
+    fn first_capture_read_indices(&mut self, statements: &[Statement<'_>]) -> HashMap<String, usize> {
+        let mut candidates = Vec::new();
+        for statement in statements {
+            let Statement::VariableDeclaration(decl) = statement else {
+                continue;
+            };
+            if decl.kind != oxc::ast::ast::VariableDeclarationKind::Const
+                && decl.kind != oxc::ast::ast::VariableDeclarationKind::Let
+            {
+                continue;
+            }
+            for declarator in &decl.declarations {
+                if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+                    && declarator.init.is_some()
+                    && !candidates.contains(&binding.name.as_str())
+                {
+                    candidates.push(binding.name.as_str());
+                }
+            }
         }
-        let previous = self.scope.bind(name.to_owned(), smelt_hir::LocalId(u32::MAX));
-        let mut captures = Vec::new();
-        for statement in earlier {
+        let mut first_reads = HashMap::new();
+        if candidates.is_empty() {
+            return first_reads;
+        }
+        let previous = candidates
+            .iter()
+            .map(|name| (*name, self.scope.bind((*name).to_owned(), smelt_hir::LocalId(u32::MAX))))
+            .collect::<Vec<_>>();
+        for (index, statement) in statements.iter().enumerate() {
+            let mut captures = Vec::new();
             self.collect_statement_capture_names(statement, &HashSet::new(), &mut captures);
             self.collect_function_declaration_capture_names(statement, &mut captures);
+            for capture in captures {
+                if candidates.contains(&capture.as_str()) {
+                    first_reads.entry(capture).or_insert(index);
+                }
+            }
         }
-        if let Some(previous) = previous {
-            self.scope.bind(name.to_owned(), previous);
-        } else {
-            self.scope.unbind(name);
+        for (name, previous) in previous.into_iter().rev() {
+            if let Some(previous) = previous {
+                self.scope.bind(name.to_owned(), previous);
+            } else {
+                self.scope.unbind(name);
+            }
         }
-        captures.iter().any(|capture| capture == name)
+        first_reads
     }
 
     /// Collect the enclosing names a local `function` DECLARATION's body reads.
