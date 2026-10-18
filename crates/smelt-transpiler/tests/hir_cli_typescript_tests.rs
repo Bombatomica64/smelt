@@ -6,6 +6,7 @@ use std::fs;
 
 use common::{
     TempProject, TestResult, cargo_run_manifest, cargo_test_manifest, ensure, ensure_eq, smelt,
+    smelt_in,
     utf8_path,
 };
 
@@ -1177,6 +1178,53 @@ clone-strategy = "aggressive"
 
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
     ensure_eq(&actual_stdout, &"5\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+/// A workspace package resolves the same when the manifest path is RELATIVE.
+///
+/// Run from inside the project (`smelt --manifest-path Smelt.toml`), importer
+/// paths are relative and the package search root used to become the empty
+/// path, so `read_dir("")` failed and the package was reported unresolved.
+#[test]
+fn check_resolves_workspace_package_with_a_relative_manifest_path() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::create_dir_all(project_path.join("packages/utility/src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-workspace-relative-manifest"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_workspace_relative_manifest"
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(project_path.join("package.json"), "{\"name\":\"workspace-root\",\"private\":true}\n")?;
+    fs::write(
+        project_path.join("packages/utility/package.json"),
+        "{\"name\":\"utility\",\"source\":\"src/index.ts\"}\n",
+    )?;
+    fs::write(
+        project_path.join("packages/utility/src/index.ts"),
+        "export function increment(value: number): number {\n  return value + 1;\n}\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import { increment } from \"utility\";\nconsole.log(increment(4));\n",
+    )?;
+
+    smelt_in(project_path, &["--manifest-path", "Smelt.toml", "check"])?;
 
     Ok(())
 }

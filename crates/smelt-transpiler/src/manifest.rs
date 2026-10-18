@@ -625,7 +625,14 @@ fn bare_package_name(module: &str) -> String {
 }
 
 /// Choose a bounded root for scanning workspace packages.
+///
+/// The importer path is made absolute first: run with a relative manifest
+/// (`smelt --manifest-path Smelt.toml` inside the project), importers are
+/// relative paths whose last ancestor is the EMPTY path, and choosing it as the
+/// root made `read_dir("")` fail and every workspace package "unresolved".
 fn workspace_search_root(importer_path: &Path) -> PathBuf {
+    let absolute = std::path::absolute(importer_path).unwrap_or_else(|_| importer_path.to_path_buf());
+    let importer_path = absolute.as_path();
     let mut candidate = importer_path
         .parent()
         .unwrap_or_else(|| Path::new("."))
