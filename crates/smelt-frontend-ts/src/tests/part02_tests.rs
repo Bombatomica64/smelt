@@ -1321,10 +1321,13 @@ const zero = 0n;
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
+    // `0n` is a `bigint`, so it lowers to `Int` -- the type a `bigint`
+    // annotation lowers to. It used to lower to `Float(0.0)`, which let a
+    // bigint shift be mistaken for a 32-bit number shift downstream.
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(0.0_f64))))
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Int(0))))
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())

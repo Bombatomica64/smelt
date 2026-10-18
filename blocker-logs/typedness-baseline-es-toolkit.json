@@ -2,19 +2,19 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 13282,
+      "concrete": 13284,
       "generic": 229,
-      "erased": 10235
+      "erased": 10236
     },
     "reads": {
       "concrete": 304,
       "generic": 30,
-      "erased": 1116
+      "erased": 1117
     },
     "calls": {
       "concrete": 1939,
       "generic": 19,
-      "erased": 975
+      "erased": 976
     }
   },
   "programs": {
@@ -11750,19 +11750,19 @@
     },
     "src/promise/timeout.spec.ts": {
       "values": {
-        "concrete": 34,
+        "concrete": 36,
         "generic": 0,
-        "erased": 47
+        "erased": 48
       },
       "reads": {
         "concrete": 0,
         "generic": 0,
-        "erased": 7
+        "erased": 8
       },
       "calls": {
         "concrete": 2,
         "generic": 0,
-        "erased": 4
+        "erased": 5
       }
     },
     "src/promise/timeout.ts": {

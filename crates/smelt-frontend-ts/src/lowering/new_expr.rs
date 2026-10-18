@@ -2596,6 +2596,22 @@ impl ModuleBuilder<'_> {
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // A bigint literal has TypeScript type `bigint`, which smelt carries as
+        // `Int` -- the same type a `bigint` annotation lowers to. Typing it
+        // `Float` lost the bigint-ness downstream: `result << 8n` then looked
+        // like a NUMBER shift and took JS's 32-bit ToInt32 semantics, wrapping
+        // a bigint after four bytes (remeda's `randomBigInt`). A literal wider
+        // than `i64` has no exact `Int`; it keeps the approximate `Float`
+        // carrier below until smelt models arbitrary-precision bigints.
+        let digits = value.trim_end_matches('n').replace('_', "");
+        if let Ok(exact) = digits.parse::<i64>() {
+            let ty = self.ctx.krate.types.intern(Type::Int);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Int(exact)),
+                ty,
+                span: self.span(span.start, span.end),
+            }));
+        }
         let value = value.parse::<f64>().map_err(|err| {
             SmeltError::unsupported(
                 self.span(span.start, span.end),

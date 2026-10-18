@@ -1454,6 +1454,7 @@ console.log(ns.compose(addOne, addOne, three)())
 /// invariant for reasons unrelated to the rule under test. `input.ts` states
 /// the rule; `expected.stdout` is Node's output.
 const RUNTIME_FIXTURES: &[&str] = &[
+    "bigint_shifts_stay_wide",
     "receiver_pinned_class_parameter",
     "class_value_at_interface_type",
     "overloaded_callable_interface_field",

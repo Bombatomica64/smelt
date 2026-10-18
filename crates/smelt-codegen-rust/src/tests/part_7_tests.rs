@@ -4427,6 +4427,8 @@ const binary = (10n).toString(2);
 const left = 1n << 8n;
 const right = left >> 1n;
 const pivot = (4 + 10) >>> 1;
+const numberLeft = 1 << 31;
+const numberRight = -8 >> 1;
 function shiftRaw(raw: bigint): bigint {
   return raw >> 1n;
 }
@@ -4437,12 +4439,18 @@ function shiftRaw(raw: bigint): bigint {
         source.contains("let radix = ((2.0 as f64).trunc() as u32).clamp(2, 36);"),
         "{source}"
     );
-    // The module-level `1n << 8n` reaches codegen as a `number` shift (the
-    // frontend types those literals as numbers), and a `number` shift is
-    // JavaScript's int32 shift: `ToInt32(a)` shifted by `ToUint32(b) & 31`.
-    // Only a real `bigint` operand keeps the wide shift below.
+    // A `number` shift is JavaScript's int32 shift: `ToInt32(a)` shifted by
+    // `ToUint32(b) & 31` (`1 << 31` is -2147483648 in Node).
     assert!(source.contains(".wrapping_shl("), "{source}");
     assert!(source.contains(".wrapping_shr("), "{source}");
+    // A `bigint` shift is NOT: `1n << 8n` is `256n` and `(1n << 40n)` is
+    // `1099511627776n` in Node, with no 32-bit wrap. Bigint literals are typed
+    // `Int` (as `bigint` annotations are), so module-level bigint shifts keep
+    // the wide shift. This test used to assert the opposite -- that
+    // `1n << 8n` was an int32 shift -- which encoded the literal mistyping and
+    // made remeda's `asBigInt` (`(result << 8n) + BigInt(byte)`) wrap after
+    // four bytes.
+    assert!(source.contains("let left: i64"), "{source}");
     assert!(source.contains("fn shift_raw(raw: i64) -> i64"), "{source}");
     assert!(
         source.contains("(((raw as f64).trunc() as i128) >>"),
