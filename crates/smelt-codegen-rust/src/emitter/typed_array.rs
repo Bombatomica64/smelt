@@ -62,6 +62,19 @@ impl FunctionEmitter<'_> {
             // An element list converts per element at the view's own width and
             // signedness, so `new Uint8Array([256])` is `0` and
             // `new Int8Array([200])` is `-56`.
+            // The view stores its elements as `f64`, so an integer element list
+            // (`new BigInt64Array([1n, 2n])`, whose bigint literals are `Int`, or
+            // a proven-integer `FixedInt` list) converts each element first.
+            Some(Type::List(item_ty))
+                if matches!(
+                    self.mir.types.get(*item_ty),
+                    Some(Type::Int | Type::FixedInt(_))
+                ) =>
+            {
+                Ok(format!(
+                    "SmeltTypedArray::with_elements({kind}, &{first_text}.to_vec().into_iter().map(|smelt_element| smelt_element as f64).collect::<Vec<f64>>())"
+                ))
+            }
             Some(Type::List(item_ty)) if self.is_numeric_element_type(*item_ty) => Ok(format!(
                 "SmeltTypedArray::with_elements({kind}, &{first_text}.to_vec())"
             )),

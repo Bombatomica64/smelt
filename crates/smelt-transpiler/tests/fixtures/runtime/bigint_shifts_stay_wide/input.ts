@@ -17,3 +17,7 @@ console.log((wide >> 38n).toString());
 const narrow = 1 << 31;
 console.log(narrow);
 console.log(-8 >> 1);
+// A bigint element list builds a bigint typed array element by element.
+const big = new BigInt64Array([1n, 2n, 3n]);
+console.log(big.length);
+console.log(big[2] === 3n);
