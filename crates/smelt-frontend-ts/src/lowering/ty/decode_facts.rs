@@ -21,6 +21,8 @@
 //! kind only, never rejecting more than TypeScript would.
 
 use oxc::ast::ast::{Expression, TSLiteral, TSType, TSTypeName, UnaryOperator};
+use std::collections::HashSet;
+
 use smelt_hir::{FieldDecodeFacts, Literal, TypeDecodeFacts};
 
 use crate::lowering::ModuleBuilder;
@@ -43,16 +45,44 @@ const fn empty_union_facts() -> TypeDecodeFacts {
     }
 }
 
+/// A hashable identity for a literal value, equal exactly when the values are
+/// equal under `Literal`'s `PartialEq` (so `0` and `-0` share one key), or
+/// `None` for a value equal to nothing (`NaN`).
+fn literal_key(value: &Literal) -> Option<(u8, u64, &str)> {
+    match value {
+        Literal::Bool(flag) => Some((0, u64::from(*flag), "")),
+        Literal::Int(number) => Some((1, u64::from_ne_bytes(number.to_ne_bytes()), "")),
+        Literal::Float(number) if number.is_nan() => None,
+        Literal::Float(number) => Some((2, (if *number == 0.0 { 0.0_f64 } else { *number }).to_bits(), "")),
+        Literal::String(text) => Some((3, 0, text.as_str())),
+        Literal::Symbol(text) => Some((4, 0, text.as_str())),
+        Literal::Undefined => Some((5, 0, "")),
+        Literal::None => Some((6, 0, "")),
+    }
+}
+
 /// Combine the facts of two union arms: nullish arms accumulate, and the
 /// literal list survives only while every arm is a literal (or nullish).
-fn union_facts(left: TypeDecodeFacts, right: TypeDecodeFacts) -> TypeDecodeFacts {
+///
+/// `seen` holds the keys of the literals already in `left`, so a union of `n`
+/// literal arms deduplicates in linear time (a `Vec::contains` per arm made
+/// `type U = "a0" | … | "aN"` quadratic -- caught by the `compile_scaling`
+/// string-literal-union shape).
+fn union_facts(
+    left: TypeDecodeFacts,
+    right: TypeDecodeFacts,
+    seen: &mut HashSet<(u8, u64, String)>,
+) -> TypeDecodeFacts {
     TypeDecodeFacts {
         admits_null: left.admits_null || right.admits_null,
         admits_undefined: left.admits_undefined || right.admits_undefined,
         literals: match (left.literals, right.literals) {
             (Some(mut values), Some(more)) => {
                 for value in more {
-                    if !values.contains(&value) {
+                    let fresh = literal_key(&value).is_none_or(|(tag, bits, text)| {
+                        seen.insert((tag, bits, text.to_owned()))
+                    });
+                    if fresh {
                         values.push(value);
                     }
                 }
@@ -98,11 +128,14 @@ impl ModuleBuilder<'_> {
                     ..open_facts()
                 })
             }
-            TSType::TSUnionType(union) => union
-                .types
-                .iter()
-                .map(|member| self.ts_type_decode_facts(member))
-                .fold(empty_union_facts(), union_facts),
+            TSType::TSUnionType(union) => {
+                let mut seen = HashSet::new();
+                union
+                    .types
+                    .iter()
+                    .map(|member| self.ts_type_decode_facts(member))
+                    .fold(empty_union_facts(), |left, right| union_facts(left, right, &mut seen))
+            }
             TSType::TSParenthesizedType(inner) => self.ts_type_decode_facts(&inner.type_annotation),
             TSType::TSTypeReference(reference) if reference.type_arguments.is_none() => {
                 let TSTypeName::IdentifierReference(name) = &reference.type_name else {
