@@ -1,0 +1,6 @@
+before-r1  13:31:11 up 6 days,  3:20,  2 users,  load average: 2.93, 5.17, 7.40
+after-r1  13:32:43 up 6 days,  3:21,  2 users,  load average: 3.54, 4.82, 7.06
+before-r2  13:34:15 up 6 days,  3:23,  2 users,  load average: 3.59, 4.48, 6.73
+after-r2  13:35:48 up 6 days,  3:25,  2 users,  load average: 2.70, 3.96, 6.32
+before-r3  13:37:20 up 6 days,  3:26,  2 users,  load average: 3.17, 3.76, 6.03
+after-r3  13:38:52 up 6 days,  3:28,  2 users,  load average: 2.84, 3.40, 5.67

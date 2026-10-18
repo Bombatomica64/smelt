@@ -458,7 +458,7 @@ fn collect_self_capture_triggers(
 /// [`collect_self_capture_triggers`] uses for a method's receiver), so it is
 /// identified by its type: the first user binding whose type is the class under
 /// construction. That is the local a class-field arrow captures.
-fn constructor_instance_local(
+pub(crate) fn constructor_instance_local(
     mir: &Mir,
     function: &MirFunction,
     class: Symbol,

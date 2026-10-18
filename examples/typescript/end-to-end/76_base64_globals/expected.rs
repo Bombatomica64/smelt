@@ -263,20 +263,30 @@ const SMELT_FIELD_SCAN_LIMIT: usize = 12;
 pub struct SmeltFieldStore<K, V> {
     entries: Vec<SmeltFieldEntry<K, V>>,
     index: Option<SmeltFieldMap<u64, usize>>,
+    /// How many keys live in the runtime's internal `__smelt` namespace.
+    internal: u32,
 }
 
 impl<K, V> SmeltFieldStore<K, V> {
     /// Build an empty store sized for `capacity` entries.
-    fn with_capacity(capacity: usize) -> Self { Self { entries: Vec::with_capacity(capacity), index: None } }
+    fn with_capacity(capacity: usize) -> Self { Self { entries: Vec::with_capacity(capacity), index: None, internal: 0 } }
     #[inline]
     fn len(&self) -> usize { self.entries.len() }
     /// Borrow the key/value pairs in JavaScript own-key order.
     #[inline]
     fn entries(&self) -> &[SmeltFieldEntry<K, V>] { &self.entries }
+    /// Whether any key is in the internal `__smelt` namespace (markers, slots).
+    ///
+    /// Every marker probe (`smelt_object_has_host_marker`, the byte-buffer
+    /// marker, `for...in`'s regexp/error/arguments checks) asks about keys in
+    /// that namespace, and almost every object has none: a store that says so
+    /// answers all of them without scanning its entries once per marker.
+    #[inline]
+    fn has_internal_keys(&self) -> bool { self.internal != 0 }
 }
 
 impl<K, V> Default for SmeltFieldStore<K, V> {
-    fn default() -> Self { Self { entries: Vec::new(), index: None } }
+    fn default() -> Self { Self { entries: Vec::new(), index: None, internal: 0 } }
 }
 
 impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
@@ -328,7 +338,9 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
     /// Remove `key`, returning its value; later positions shift, so reindex.
     fn remove<Q>(&mut self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
         let position = self.position(key)?;
-        let value = self.entries.remove(position).value;
+        let entry = self.entries.remove(position);
+        if entry.key.smelt_is_internal_key() { self.internal -= 1; }
+        let value = entry.value;
         self.reindex();
         Some(value)
     }
@@ -339,6 +351,7 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
     /// entry shifts later positions and forces a rebuild.
     fn insert(&mut self, key: K, value: V) -> Option<V> {
         if let Some(position) = self.position(&key) { return Some(::std::mem::replace(&mut self.entries[position].value, value)); }
+        if key.smelt_is_internal_key() { self.internal += 1; }
         let position = smelt_js_key_order_position(&self.entries, &key);
         if position == self.entries.len() {
             let hash = if self.index.is_some() { key.smelt_key_hash() } else { 0 };
@@ -367,9 +380,117 @@ thread_local! {
     static SMELT_PROMISE_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
 }
 
+/// Whether the allocation an address-table key names is still alive.
+trait SmeltAllocationGuard { fn is_live(&self) -> bool; }
+
+impl<T: ?Sized> SmeltAllocationGuard for ::std::rc::Weak<T> {
+    #[inline]
+    fn is_live(&self) -> bool { self.strong_count() != 0 }
+}
+
+/// The size below which an address table never sweeps.
+const SMELT_ADDRESS_TABLE_MIN_SWEEP: usize = 256;
+
+/// How far past its surviving size a table grows before the next sweep.
+///
+/// A sweep scans every entry once and then lets the table reach this multiple
+/// of what survived, so each insert pays `GROWTH / (GROWTH - 1)` liveness
+/// checks on average and the table stays within `GROWTH` times its live size.
+/// Four keeps the scan near one check per insert for a small, bounded table.
+const SMELT_ADDRESS_TABLE_GROWTH: usize = 4;
+
+/// One address-table entry: the metadata, and the `Weak` reserving its key.
+struct SmeltAddressSlot<V, F: ?Sized> { value: V, guard: ::std::rc::Weak<F> }
+
+/// An address-table entry seen without its allocation's type.
+///
+/// One boxed slot per entry keeps the map's own entries a pointer wide, so a
+/// rehash moves a few words per entry whatever the metadata holds.
+trait SmeltAddressEntry<V> {
+    fn value(&self) -> &V;
+    fn value_mut(&mut self) -> &mut V;
+    fn is_live(&self) -> bool;
+}
+
+impl<V, F: ?Sized> SmeltAddressEntry<V> for SmeltAddressSlot<V, F> {
+    #[inline]
+    fn value(&self) -> &V { &self.value }
+    #[inline]
+    fn value_mut(&mut self) -> &mut V { &mut self.value }
+    #[inline]
+    fn is_live(&self) -> bool { self.guard.strong_count() != 0 }
+}
+
+/// Metadata keyed by the address of a live `Rc` allocation.
+///
+/// Every entry owns a `Weak` to the allocation it is keyed by, which keeps
+/// the address reserved for exactly as long as the entry exists, so an
+/// address never names two allocations. Entries whose allocation has died
+/// are removed by an amortized sweep when the table reaches `sweep_at`, which
+/// is then reset to `SMELT_ADDRESS_TABLE_GROWTH` times the surviving count:
+/// the table stays proportional to the number of LIVE allocations it describes.
+struct SmeltAddressTable<V> {
+    entries: ::std::collections::HashMap<usize, Box<dyn SmeltAddressEntry<V>>>,
+    sweep_at: usize,
+}
+
+impl<V: 'static> SmeltAddressTable<V> {
+    fn new() -> Self { Self { entries: ::std::collections::HashMap::new(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP } }
+    /// Number of entries, live or not yet swept.
+    #[allow(dead_code)]
+    fn len(&self) -> usize { self.entries.len() }
+    /// The metadata of the allocation at `key`, when it has any.
+    ///
+    /// `key` must come from a live handle (`Rc::as_ptr`), so a hit is always
+    /// that allocation's own entry: a dead entry's address is still reserved
+    /// by its guard and cannot belong to a live allocation.
+    #[inline]
+    fn get(&self, key: usize) -> Option<&V> { self.entries.get(&key).map(|entry| entry.value()) }
+    /// The metadata of `allocation`, created with `init` on first use.
+    ///
+    /// The caller sweeps first when [`Self::wants_sweep`] says so (see
+    /// `smelt_sweep_address_table`); this never drops an entry itself.
+    fn slot<F: ?Sized + 'static>(&mut self, allocation: &::std::rc::Rc<F>, init: impl FnOnce() -> V) -> &mut V {
+        let key = ::std::rc::Rc::as_ptr(allocation) as *const () as usize;
+        self.entries.entry(key).or_insert_with(|| Box::new(SmeltAddressSlot { value: init(), guard: ::std::rc::Rc::downgrade(allocation) })).value_mut()
+    }
+    /// Whether inserting an entry for `allocation` should sweep first.
+    #[inline]
+    fn wants_sweep<F: ?Sized>(&self, allocation: &::std::rc::Rc<F>) -> bool {
+        self.entries.len() >= self.sweep_at && !self.entries.contains_key(&(::std::rc::Rc::as_ptr(allocation) as *const () as usize))
+    }
+    /// Remove every entry whose allocation has died, returning them undropped.
+    fn take_dead(&mut self) -> Vec<Box<dyn SmeltAddressEntry<V>>> {
+        self.entries.extract_if(|_, entry| !entry.is_live()).map(|(_, entry)| entry).collect()
+    }
+    /// Set the next threshold from the entries that survived a full sweep.
+    fn finish_sweep(&mut self) {
+        if self.entries.capacity() > 2 * SMELT_ADDRESS_TABLE_GROWTH * self.entries.len().max(SMELT_ADDRESS_TABLE_MIN_SWEEP) { self.entries.shrink_to(SMELT_ADDRESS_TABLE_GROWTH * self.entries.len()); }
+        self.sweep_at = (SMELT_ADDRESS_TABLE_GROWTH * self.entries.len()).max(SMELT_ADDRESS_TABLE_MIN_SWEEP);
+    }
+}
+
+/// Sweep `table` until no entry dies, then reset its threshold.
+///
+/// Dropping a dead entry can release the last handle on allocations other
+/// entries describe (a callback's entry held the erased adapter of another),
+/// so one pass leaves entries that are dead the moment its garbage is dropped.
+/// Setting the threshold from that inflated count let a table of such chains
+/// grow without bound; sweeping again until a pass frees nothing sets it from
+/// the TRUE live count. Garbage is dropped outside the table borrow, because
+/// dropping it can run code that reads the table.
+fn smelt_sweep_address_table<V: 'static>(table: &::std::cell::RefCell<SmeltAddressTable<V>>) {
+    loop {
+        let dead = table.borrow_mut().take_dead();
+        if dead.is_empty() { break; }
+        drop(dead);
+    }
+    table.borrow_mut().finish_sweep();
+}
+
 thread_local! {
-    /// Map a reference record's shared cell address to a stable erased id.
-    static SMELT_REFERENCE_OBJECT_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+    /// The erased object id of each live reference record cell.
+    static SMELT_REFERENCE_OBJECT_IDENTITIES: ::std::cell::RefCell<SmeltAddressTable<usize>> = ::std::cell::RefCell::new(SmeltAddressTable::new());
 }
 
 /// Return a stable erased-object id for a reference record's shared cell.
@@ -379,18 +500,13 @@ thread_local! {
 /// handle on that cell is the SAME JavaScript object. Erasing any of them
 /// must therefore produce an object that compares `===` equal to the
 /// others, which means one id per cell rather than a fresh id per erasure.
-/// Keying on the live cell's address gives exactly that. The handle is
-/// alive at the call site, so the address is valid; a freed cell can see
-/// its address reused, which at worst hands a stale id to a NEW object no
-/// live erased alias of the old one can still be compared against.
+/// The entry lives exactly as long as the cell (see `SmeltAddressTable`), so
+/// a recycled cell address gets a fresh id rather than a dead object's.
 #[allow(dead_code)]
-fn smelt_reference_object_identity(cell_address: usize) -> usize {
+fn smelt_reference_object_identity<T: ?Sized + 'static>(cell: &::std::rc::Rc<T>) -> usize {
     SMELT_REFERENCE_OBJECT_IDENTITIES.with(|identities| {
-        let mut identities = identities.borrow_mut();
-        if let Some(id) = identities.get(&cell_address) { return *id; }
-        let id = smelt_next_object_id();
-        identities.insert(cell_address, id);
-        id
+        if identities.borrow().wants_sweep(cell) { smelt_sweep_address_table(identities); }
+        *identities.borrow_mut().slot(cell, smelt_next_object_id)
     })
 }
 
@@ -430,99 +546,156 @@ fn smelt_list_identity(source_key: usize) -> usize {
     })
 }
 
-thread_local! {
-    /// Weak handles reserving every address used as an identity-registry key.
-    static SMELT_CALLABLE_KEY_GUARDS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+/// The state of one JavaScript function value, shared by every allocation
+/// that denotes it (a typed callable, its erasure adapters, the typed
+/// callbacks recovered from those).
+#[derive(Default)]
+struct SmeltFunctionIdentityState {
+    /// `Function.prototype.length`, once some representation recorded it.
+    length: ::std::cell::Cell<Option<f64>>,
+    /// Own JavaScript properties (`f.prototype`, `f.placeholder = ..`).
+    properties: ::std::cell::RefCell<Option<SmeltObject>>,
 }
 
-/// Reserve a callable allocation's address so no later allocation can reuse it.
+/// A JavaScript function identity: a shared token every linked allocation holds.
 ///
-/// Call this before storing that address in ANY identity registry, as a key or
-/// as a canonical-identity value. Returns the reserved key for convenience.
-fn smelt_retain_callable_key<F: ?Sized + 'static>(function: &::std::rc::Rc<F>) -> usize {
-    let key = smelt_callable_object_key(function);
-    SMELT_CALLABLE_KEY_GUARDS.with(|guards| {
-        guards.borrow_mut().entry(key).or_insert_with(|| Box::new(::std::rc::Rc::downgrade(function)) as Box<dyn ::std::any::Any>);
-    });
-    key
+/// Its address is the number `===` compares (`key`). The number can only be
+/// reused after the token is freed, which happens once no table entry holds
+/// it — when nothing that could still be compared against it is alive.
+#[derive(Clone, Default)]
+struct SmeltFunctionIdentity(::std::rc::Rc<SmeltFunctionIdentityState>);
+
+impl SmeltFunctionIdentity {
+    /// The identity number two callables share when they are one JS function.
+    #[inline]
+    fn key(&self) -> usize { ::std::rc::Rc::as_ptr(&self.0) as usize }
 }
 
-/// The canonical JavaScript identity of a callable, reserving its address first.
-///
-/// Use this instead of `smelt_function_identity_of(smelt_callable_object_key(..))`
-/// wherever the result is STORED, so an unlinked callable's own address cannot be
-/// recycled underneath the registry entry that names it.
-fn smelt_canonical_function_identity<F: ?Sized + 'static>(function: &::std::rc::Rc<F>) -> usize {
-    smelt_function_identity_of(smelt_retain_callable_key(function))
+impl PartialEq for SmeltFunctionIdentity {
+    fn eq(&self, other: &Self) -> bool { ::std::rc::Rc::ptr_eq(&self.0, &other.0) }
+}
+
+/// Everything the runtime knows about one callable allocation.
+#[derive(Default)]
+struct SmeltCallableMeta {
+    /// The JavaScript function this allocation denotes; minted on first need.
+    identity: Option<SmeltFunctionIdentity>,
+    /// The typed callable an erased adapter wraps (`Box<T>` for its `Rc` type).
+    ///
+    /// The adapter already captures this callable, so holding it here does not
+    /// extend its life past the adapter's.
+    wrapped: Option<Box<dyn ::std::any::Any>>,
+    /// The erased value a typed callable was narrowed from (a callable object,
+    /// or the full-arity function an arity-narrowing adapter forwards to).
+    callable_object: Option<SmeltUnknown>,
+    /// The outer erased function built for this inner `SmeltErasedFunction`
+    /// callback, weak so it does not pin a transient erasure.
+    erased_value: Option<::std::rc::Weak<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>>,
+    /// The classes a stored constructor value constructs.
+    classes: Option<Vec<&'static str>>,
+    /// Whether the callable takes its receiver as the leading argument.
+    receiver_method: bool,
 }
 
 thread_local! {
-    static SMELT_FUNCTION_ORIGINS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+    /// Metadata of every callable allocation that crossed an erased ABI.
+    static SMELT_CALLABLES: ::std::cell::RefCell<SmeltAddressTable<SmeltCallableMeta>> = ::std::cell::RefCell::new(SmeltAddressTable::new());
 }
 
-/// Return the stable key for an erased callback wrapper.
-fn smelt_erased_function_key(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> usize {
+/// Stable key for a callable allocation (address of its `Rc`).
+fn smelt_callable_object_key<F: ?Sized>(function: &::std::rc::Rc<F>) -> usize {
     ::std::rc::Rc::as_ptr(function) as *const () as usize
 }
 
-/// Retain typed callback identity while it crosses an erased ABI.
-fn smelt_register_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, origin: T) {
-    smelt_retain_callable_key(function);
-    SMELT_FUNCTION_ORIGINS.with(|origins| { origins.borrow_mut().insert(smelt_erased_function_key(function), Box::new(origin)); });
+/// Update `function`'s metadata, creating its entry on first use.
+///
+/// `update` must not call back into the callable table.
+fn smelt_update_callable<F: ?Sized + 'static, R>(function: &::std::rc::Rc<F>, update: impl FnOnce(&mut SmeltCallableMeta) -> R) -> R {
+    SMELT_CALLABLES.with(|table| {
+        if table.borrow().wants_sweep(function) { smelt_sweep_address_table(table); }
+        update(table.borrow_mut().slot(function, SmeltCallableMeta::default))
+    })
 }
 
-thread_local! {
-    static SMELT_FUNCTION_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+/// Read `function`'s metadata without creating an entry.
+fn smelt_read_callable<F: ?Sized, R>(function: &::std::rc::Rc<F>, read: impl FnOnce(&SmeltCallableMeta) -> Option<R>) -> Option<R> {
+    let key = smelt_callable_object_key(function);
+    SMELT_CALLABLES.with(|table| table.borrow().get(key).and_then(read))
 }
 
-/// The JavaScript function identity of a callable allocation.
+/// The canonical JavaScript identity of a callable, minted on first use.
+///
+/// Holding the result is what keeps its number from being reused, so a
+/// caller that stores the number must also keep `function` alive (the
+/// event emitter keeps the listener beside its identity).
+fn smelt_canonical_function_identity<F: ?Sized + 'static>(function: &::std::rc::Rc<F>) -> SmeltFunctionIdentity {
+    smelt_update_callable(function, |meta| meta.identity.get_or_insert_with(SmeltFunctionIdentity::default).clone())
+}
+
+/// The JavaScript function identity number of a callable allocation.
 ///
 /// Defaults to the allocation's own address, so two callables that were never
-/// linked stay distinct.
-fn smelt_function_identity_of(key: usize) -> usize { SMELT_FUNCTION_IDENTITIES.with(|identities| identities.borrow().get(&key).copied()).unwrap_or(key) }
+/// linked stay distinct. An address and a token address cannot coincide: both
+/// name live allocations.
+fn smelt_function_identity_of(key: usize) -> usize { SMELT_CALLABLES.with(|table| table.borrow().get(key).and_then(|meta| meta.identity.as_ref().map(SmeltFunctionIdentity::key))).unwrap_or(key) }
 
 /// Record that `derived` wraps `origin`, so both denote one JavaScript function.
-///
-/// Stores `origin`'s CANONICAL identity rather than its address, so a chain of
-/// wrappers (erase, extract, erase again) collapses to one id without a walk.
 fn smelt_link_function_identity<D: ?Sized + 'static, O: ?Sized + 'static>(derived: &::std::rc::Rc<D>, origin: &::std::rc::Rc<O>) { smelt_link_function_identity_key(derived, smelt_canonical_function_identity(origin)); }
 
 /// Link `derived` to an already-resolved canonical identity.
 ///
 /// Needed where the origin callable is moved into the wrapper being built, so
 /// its identity has to be read before the move.
-fn smelt_link_function_identity_key<D: ?Sized + 'static>(derived: &::std::rc::Rc<D>, canonical: usize) { let key = smelt_retain_callable_key(derived); SMELT_FUNCTION_IDENTITIES.with(|identities| { identities.borrow_mut().insert(key, canonical); }); }
+fn smelt_link_function_identity_key<D: ?Sized + 'static>(derived: &::std::rc::Rc<D>, canonical: SmeltFunctionIdentity) { smelt_update_callable(derived, |meta| meta.identity = Some(canonical)); }
 
-thread_local! {
-    /// Canonical identity address of each class method, keyed by `Class::method`.
-    static SMELT_METHOD_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<&'static str, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+/// Return the stable key for an erased callback wrapper.
+#[allow(dead_code)]
+fn smelt_erased_function_key(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> usize {
+    smelt_callable_object_key(function)
 }
 
-/// The canonical JavaScript identity of one class method.
+/// Retain typed callback identity while it crosses an erased ABI.
+fn smelt_register_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, origin: T) {
+    smelt_update_callable(function, |meta| meta.wrapped = Some(Box::new(origin)));
+}
+
+/// Recover a typed callback previously passed through an erased ABI.
+fn smelt_restore_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> Option<T> {
+    smelt_read_callable(function, |meta| meta.wrapped.as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned())
+}
+
+/// Remember the callable object a typed callback was narrowed from.
 ///
-/// Allocated once per key and never freed, so it is distinct from every
-/// callable allocation and stable across every read of the method.
-fn smelt_method_identity(key: &'static str) -> usize {
-    SMELT_METHOD_IDENTITIES.with(|identities| *identities.borrow_mut().entry(key).or_insert_with(|| ::std::boxed::Box::leak(::std::boxed::Box::new(0u8)) as *const u8 as usize))
+/// The object must not strongly reach `function` itself, or the entry would
+/// keep its own key alive; the erasure adapters register a fresh forwarding
+/// callable when the narrowed callback IS the object's own origin.
+fn smelt_register_callable_object<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, object: SmeltUnknown) {
+    if let SmeltUnknown::Object(_) = &object {
+        smelt_update_callable(function, |meta| meta.callable_object = Some(object));
+    }
 }
 
-thread_local! {
-    /// Source arity of each erased callable, keyed by canonical identity.
-    static SMELT_FUNCTION_LENGTHS: ::std::cell::RefCell<::std::collections::HashMap<usize, f64>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
-}
-
-/// Record an erased callable's `Function.prototype.length`.
-fn smelt_register_function_length<T: ?Sized + 'static>(function: &::std::rc::Rc<T>, length: f64) { let key = smelt_canonical_function_identity(function); SMELT_FUNCTION_LENGTHS.with(|lengths| { lengths.borrow_mut().insert(key, length); }); }
-
-/// Record an erased callable's `Function.prototype.length` if none is known.
-fn smelt_register_function_length_once<T: ?Sized + 'static>(function: &::std::rc::Rc<T>, length: f64) { let key = smelt_canonical_function_identity(function); SMELT_FUNCTION_LENGTHS.with(|lengths| { lengths.borrow_mut().entry(key).or_insert(length); }); }
-
-/// Read `Function.prototype.length` off an erased value.
+/// Remember the full-arity erased function a narrowing adapter forwards to.
 ///
-/// A callable object (`{ __smelt_call }`) reports the arity of the callable it
-/// carries; anything else reports `0`, which is what JavaScript answers for a
-/// value with no `length` property.
-fn smelt_function_length(value: &SmeltUnknown) -> f64 { let function = match value { SmeltUnknown::Function(function) => Some(function.clone()), SmeltUnknown::Object(object) => match object.get("__smelt_call") { Some(SmeltUnknown::Function(function)) => Some(function), _ => None }, _ => None }; let Some(function) = function else { return 0.0; }; let key = smelt_function_identity_of(smelt_callable_object_key(&function)); SMELT_FUNCTION_LENGTHS.with(|lengths| lengths.borrow().get(&key).copied()).unwrap_or(0.0) }
+/// An adapter that calls a wider callback through a signature with FEWER
+/// parameters (`((ctx, next) => ..) as Next`) is still that wider JavaScript
+/// function: a type assertion changes nothing at runtime, so a call reaching
+/// it through an erased `Function` must pass every argument it has. The
+/// adapter's `Rc<dyn Fn(..)>` cannot accept them, so it records the
+/// full-arity erased function here and shares its identity; erasing the
+/// adapter then answers that function. It preserves the source callable, it
+/// erases nothing.
+fn smelt_register_narrowed_callable<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, wide: SmeltUnknown) {
+    if let SmeltUnknown::Function(wide_function) = &wide {
+        let identity = smelt_canonical_function_identity(wide_function);
+        smelt_update_callable(function, |meta| { meta.identity = Some(identity); meta.callable_object = Some(wide); });
+    }
+}
+
+/// Recover the callable object a typed callback was narrowed from.
+fn smelt_lookup_callable_object<F: ?Sized>(function: &::std::rc::Rc<F>) -> Option<SmeltUnknown> {
+    smelt_read_callable(function, |meta| meta.callable_object.clone())
+}
 
 /// Whether two callables denote the same JavaScript function value.
 ///
@@ -535,41 +708,35 @@ fn smelt_same_function_identity<L: ?Sized, R: ?Sized>(left: &::std::rc::Rc<L>, r
 /// Whether two erased callables are the same JavaScript function value.
 fn smelt_same_erased_function(left: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, right: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> bool { smelt_same_function_identity(left, right) }
 
-/// Recover a typed callback previously passed through an erased ABI.
-fn smelt_restore_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> Option<T> {
-    SMELT_FUNCTION_ORIGINS.with(|origins| origins.borrow().get(&smelt_erased_function_key(function)).and_then(|origin| origin.downcast_ref::<T>()).cloned())
-}
-
 thread_local! {
-    static SMELT_CALLABLE_OBJECTS: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+    /// Canonical identity of each class method, keyed by `Class::method`.
+    static SMELT_METHOD_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<&'static str, SmeltFunctionIdentity>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
 }
 
-/// Stable key for a typed callback allocation (address of its `Rc`).
-fn smelt_callable_object_key<F: ?Sized>(function: &::std::rc::Rc<F>) -> usize {
-    ::std::rc::Rc::as_ptr(function) as *const () as usize
+/// The canonical JavaScript identity of one class method.
+///
+/// Minted once per key and never freed, so it is stable across every read of
+/// the method and distinct from every other function's identity.
+fn smelt_method_identity(key: &'static str) -> SmeltFunctionIdentity {
+    SMELT_METHOD_IDENTITIES.with(|identities| identities.borrow_mut().entry(key).or_default().clone())
 }
 
-/// Remember the callable object a typed callback was narrowed from.
-fn smelt_register_callable_object<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, object: SmeltUnknown) {
-    if let SmeltUnknown::Object(_) = &object {
-        let key = smelt_retain_callable_key(function);
-        SMELT_CALLABLE_OBJECTS.with(|objects| { objects.borrow_mut().insert(key, object); });
-    }
-}
+/// Record an erased callable's `Function.prototype.length`.
+fn smelt_register_function_length<T: ?Sized + 'static>(function: &::std::rc::Rc<T>, length: f64) { smelt_canonical_function_identity(function).0.length.set(Some(length)); }
 
-/// Remember the full-arity erased function a narrowing adapter forwards to.
-fn smelt_register_narrowed_callable<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, wide: SmeltUnknown) {
-    if let SmeltUnknown::Function(wide_function) = &wide {
-        smelt_link_function_identity(function, wide_function);
-        let key = smelt_retain_callable_key(function);
-        SMELT_CALLABLE_OBJECTS.with(|objects| { objects.borrow_mut().insert(key, wide); });
-    }
-}
+/// Record an erased callable's `Function.prototype.length` if none is known.
+///
+/// An erasure adapter and the callable it wraps are ONE JavaScript function
+/// and share one identity, so a second registration would overwrite the
+/// arity already recorded; this keeps the first (the source-declared) one.
+fn smelt_register_function_length_once<T: ?Sized + 'static>(function: &::std::rc::Rc<T>, length: f64) { let identity = smelt_canonical_function_identity(function); if identity.0.length.get().is_none() { identity.0.length.set(Some(length)); } }
 
-/// Recover the callable object a typed callback was narrowed from.
-fn smelt_lookup_callable_object<F: ?Sized>(function: &::std::rc::Rc<F>) -> Option<SmeltUnknown> {
-    SMELT_CALLABLE_OBJECTS.with(|objects| objects.borrow().get(&smelt_callable_object_key(function)).cloned())
-}
+/// Read `Function.prototype.length` off an erased value.
+///
+/// A callable object (`{ __smelt_call }`) reports the arity of the callable it
+/// carries; anything else reports `0`, which is what JavaScript answers for a
+/// value with no `length` property.
+fn smelt_function_length(value: &SmeltUnknown) -> f64 { let function = match value { SmeltUnknown::Function(function) => Some(function.clone()), SmeltUnknown::Object(object) => match object.get("__smelt_call") { Some(SmeltUnknown::Function(function)) => Some(function), _ => None }, _ => None }; let Some(function) = function else { return 0.0; }; smelt_read_callable(&function, |meta| meta.identity.as_ref().and_then(|identity| identity.0.length.get())).unwrap_or(0.0) }
 
 impl<K, V> Clone for SmeltRecord<K, V> {
     fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } }
@@ -609,10 +776,12 @@ pub trait SmeltPropertyKey {
     fn smelt_key_hash(&self) -> u64;
     /// The stored-entry tie-break for this key; see `smelt_field_fingerprint`.
     fn smelt_key_fingerprint(&self) -> u32;
+    /// Whether this key is in the runtime's internal `__smelt` namespace.
+    fn smelt_is_internal_key(&self) -> bool;
 }
 
-impl SmeltPropertyKey for str { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.as_bytes()) } }
-impl SmeltPropertyKey for String { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.as_bytes()) } }
+impl SmeltPropertyKey for str { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.as_bytes()) } #[inline] fn smelt_is_internal_key(&self) -> bool { self.starts_with("__smelt") } }
+impl SmeltPropertyKey for String { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.as_bytes()) } #[inline] fn smelt_is_internal_key(&self) -> bool { self.starts_with("__smelt") } }
 
 /// Return the position a newly inserted key takes in a JavaScript own-key order.
 ///
@@ -955,14 +1124,14 @@ impl SmeltObject {
 }
 
 /// Return whether an erased object key is visible to JavaScript `for...in` iteration.
-fn smelt_object_has_host_marker(object: &SmeltObject) -> bool { ["__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_headers", "__smelt_urlsearchparams", "__smelt_request", "__smelt_response", "__smelt_textencoder", "__smelt_textdecoder", "__smelt_eventemitter", "__smelt_httpserver", "__smelt_incomingmessage", "__smelt_serverresponse", "__smelt_formdata", "__smelt_readablestream", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| object.contains_key(marker)) }
-fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool { ["__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_headers", "__smelt_urlsearchparams", "__smelt_request", "__smelt_response", "__smelt_textencoder", "__smelt_textdecoder", "__smelt_eventemitter", "__smelt_httpserver", "__smelt_incomingmessage", "__smelt_serverresponse", "__smelt_formdata", "__smelt_readablestream", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| record.contains_key(*marker)) }
+fn smelt_object_has_host_marker(object: &SmeltObject) -> bool { object.store.borrow().has_internal_keys() && ["__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_headers", "__smelt_urlsearchparams", "__smelt_request", "__smelt_response", "__smelt_textencoder", "__smelt_textdecoder", "__smelt_eventemitter", "__smelt_httpserver", "__smelt_incomingmessage", "__smelt_serverresponse", "__smelt_formdata", "__smelt_readablestream", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| object.contains_key(marker)) }
+fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool { record.store.borrow().has_internal_keys() && ["__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_headers", "__smelt_urlsearchparams", "__smelt_request", "__smelt_response", "__smelt_textencoder", "__smelt_textdecoder", "__smelt_eventemitter", "__smelt_httpserver", "__smelt_incomingmessage", "__smelt_serverresponse", "__smelt_formdata", "__smelt_readablestream", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| record.contains_key(*marker)) }
 /// Return the byte-backed host marker a record carries, if any.
 ///
 /// The marker doubles as the record's identity, so a slice can rebuild a fresh
 /// record of the *same* host kind rather than degrading to a plain object, and
 /// the element codec can find the record's element type without being told.
-fn smelt_host_buffer_marker(map: &SmeltObject) -> Option<&'static str> { ["__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview"].into_iter().find(|marker| map.contains_key(marker)) }
+fn smelt_host_buffer_marker(map: &SmeltObject) -> Option<&'static str> { if !map.store.borrow().has_internal_keys() { return None; } ["__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview"].into_iter().find(|marker| map.contains_key(marker)) }
 /// Whether an erased value is a *view* over byte storage (`ArrayBuffer.isView`).
 ///
 /// `true` for the view kinds (the typed arrays, `DataView`, Node `Buffer`) and
@@ -1166,11 +1335,19 @@ fn smelt_host_buffer_construct(marker: &'static str, args: Vec<SmeltUnknown>) ->
 fn smelt_arguments_object(fixed: Vec<SmeltUnknown>, rest: Option<SmeltUnknown>) -> SmeltUnknown { let mut smelt_elements = fixed; if let Some(SmeltUnknown::Array(items)) = rest { smelt_elements.extend(items.into_vec()); } let mut fields = Vec::from([("__smelt_arguments".to_owned(), SmeltUnknown::Bool(true))]); for (index, value) in smelt_elements.iter().enumerate() { fields.push((index.to_string(), value.clone())); } fields.push(("length".to_owned(), SmeltUnknown::Number(smelt_elements.len() as f64))); SmeltUnknown::Object(SmeltObject::new(fields)) }
 /// Extract an `arguments` object's elements, or `None` for any other value.
 fn smelt_arguments_elements(object: &SmeltObject) -> Option<Vec<SmeltUnknown>> { if !object.contains_key("__smelt_arguments") { return None; } let length = match object.get("length") { Some(SmeltUnknown::Number(length)) if length >= 0.0 => length as usize, _ => 0 }; Some((0..length).map(|index| object.get(&index.to_string()).unwrap_or(SmeltUnknown::Undefined)).collect()) }
-fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } !key.starts_with("__smelt_symbol") && !key.starts_with("__smelt_proto:") && !key.starts_with("__smelt_method:") && key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && key != "__smelt_map" && key != "__smelt_set" && !(object.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags" | "lastIndex")) && !(object.contains_key("__smelt_error") && matches!(key, "__smelt_error" | "message" | "cause" | "errors" | "stack")) && !(object.contains_key("__smelt_arguments") && matches!(key, "__smelt_arguments" | "length")) }
+/// The parts of an object's shape own-key enumeration depends on, read once per object.
+#[derive(Clone, Copy)]
+struct SmeltForInShape { host: bool, regexp: bool, error: bool, arguments: bool }
+/// Read an object's `for...in`-relevant markers once.
+fn smelt_for_in_object_shape(object: &SmeltObject) -> SmeltForInShape { if !object.store.borrow().has_internal_keys() { return SmeltForInShape { host: false, regexp: false, error: false, arguments: false }; } SmeltForInShape { host: smelt_object_has_host_marker(object), regexp: object.contains_key("__smelt_regexp"), error: object.contains_key("__smelt_error"), arguments: object.contains_key("__smelt_arguments") } }
+/// Return whether `key` is visible to `for...in` on an object of this shape.
+fn smelt_is_for_in_shape_key(shape: SmeltForInShape, key: &str) -> bool { !shape.host && !key.starts_with("__smelt_symbol") && !key.starts_with("__smelt_proto:") && !key.starts_with("__smelt_method:") && key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && key != "__smelt_map" && key != "__smelt_set" && !(shape.regexp && matches!(key, "__smelt_regexp" | "source" | "flags" | "lastIndex")) && !(shape.error && matches!(key, "__smelt_error" | "message" | "cause" | "errors" | "stack")) && !(shape.arguments && matches!(key, "__smelt_arguments" | "length")) }
+/// Return whether an object key is visible to JavaScript `for...in` iteration.
+fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { smelt_is_for_in_shape_key(smelt_for_in_object_shape(object), key) }
 /// Return whether a record key is visible to JavaScript `for...in` iteration.
 fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with("__smelt_symbol") && !key.starts_with("__smelt_proto:") && !key.starts_with("__smelt_method:") && key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && !(record.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags" | "lastIndex")) && !(record.contains_key("__smelt_error") && matches!(key, "__smelt_error" | "message" | "cause" | "errors" | "stack")) && !(record.contains_key("__smelt_arguments") && matches!(key, "__smelt_arguments" | "length")) }
 /// Every key JavaScript `for...in` yields for an erased object, prototype chain included.
-fn smelt_for_in_object_keys(map: &SmeltObject) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for key in map.keys() { if key.starts_with("__smelt_proto:") { continue; } if smelt_is_for_in_object_key(map, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in map.keys() { if let Some(inherited) = key.strip_prefix("__smelt_proto:") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }
+fn smelt_for_in_object_keys(map: &SmeltObject) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); let shape = smelt_for_in_object_shape(map); for key in map.keys() { if key.starts_with("__smelt_proto:") { continue; } if smelt_is_for_in_shape_key(shape, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in map.keys() { if let Some(inherited) = key.strip_prefix("__smelt_proto:") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }
 
 /// Every key JavaScript `for...in` yields for a typed record, prototype chain included.
 fn smelt_for_in_record_keys<V>(record: &SmeltRecord<String, V>) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for key in record.keys() { if key.starts_with("__smelt_proto:") { continue; } if smelt_is_for_in_record_key(record, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in record.keys() { if let Some(inherited) = key.strip_prefix("__smelt_proto:") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }
@@ -1199,7 +1376,7 @@ fn smelt_key_symbol_value(key: &str) -> Option<SmeltUnknown> { if let Some(descr
 fn smelt_own_keys<V>(record: &SmeltRecord<String, V>) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for key in record.keys() { if let Some(symbol) = smelt_key_symbol_value(&key) { symbols.push(symbol); } else if smelt_is_for_in_record_key(record, &key) && !key.starts_with("__smelt_proto:") { strings.push(SmeltUnknown::String(key.as_str().into())); } } strings.extend(symbols); strings }
 
 /// `Reflect.ownKeys` over an erased object: string keys, then symbol keys.
-fn smelt_own_object_keys(map: &SmeltObject) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for key in map.keys() { if let Some(symbol) = smelt_key_symbol_value(&key) { symbols.push(symbol); } else if smelt_is_for_in_object_key(map, &key) && !key.starts_with("__smelt_proto:") { strings.push(SmeltUnknown::String(key.as_str().into())); } } strings.extend(symbols); strings }
+fn smelt_own_object_keys(map: &SmeltObject) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); let shape = smelt_for_in_object_shape(map); for key in map.keys() { if let Some(symbol) = smelt_key_symbol_value(&key) { symbols.push(symbol); } else if smelt_is_for_in_shape_key(shape, &key) && !key.starts_with("__smelt_proto:") { strings.push(SmeltUnknown::String(key.as_str().into())); } } strings.extend(symbols); strings }
 
 /// `Reflect.ownKeys` over a `SmeltJsMap` backing: string keys, then symbol keys.
 fn smelt_own_js_map_keys<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for (key, _) in smelt_own_js_map_entries(map) { if matches!(key, SmeltUnknown::Symbol(_)) { symbols.push(key); } else { strings.push(key); } } strings.extend(symbols); strings }
@@ -1301,34 +1478,30 @@ fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { if let Smelt
 /// Read the JavaScript `__proto__` accessor for an erased value.
 fn smelt_proto_accessor(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) if map.contains_key("__proto__") => smelt_get_object_field(map, "__proto__"), other => smelt_prototype_sentinel(other) } }
 
-thread_local! {
-    /// Own JavaScript properties of each function value, keyed by canonical
-    /// function identity so a typed callable and every erasure adapter derived
-    /// from it share one bag.
-    static SMELT_FUNCTION_PROPERTIES: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltObject>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
-}
-
 /// Read one own property of the function value with this canonical identity.
-fn smelt_function_property_lookup(identity: usize, name: &str) -> Option<SmeltUnknown> { SMELT_FUNCTION_PROPERTIES.with(|bags| bags.borrow().get(&identity).and_then(|bag| bag.get(name))) }
+fn smelt_function_property_lookup(identity: &SmeltFunctionIdentity, name: &str) -> Option<SmeltUnknown> { identity.0.properties.borrow().as_ref().and_then(|bag| bag.get(name)) }
 
 /// Store one own property on the function value with this canonical identity.
-fn smelt_set_function_property_key(identity: usize, name: &str, value: SmeltUnknown) { SMELT_FUNCTION_PROPERTIES.with(|bags| { bags.borrow_mut().entry(identity).or_insert_with(|| SmeltObject::new(Vec::new())).insert(name.to_owned(), value); }); }
+fn smelt_set_function_property_key(identity: &SmeltFunctionIdentity, name: &str, value: SmeltUnknown) { identity.0.properties.borrow_mut().get_or_insert_with(|| SmeltObject::new(Vec::new())).insert(name.to_owned(), value); }
 
 /// Store one own property on a function value (JS `f.name = value`).
 ///
 /// Accepts any callable handle, typed or erased, and resolves it to the one
 /// canonical identity every representation of that function shares.
-fn smelt_set_function_property<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, name: &str, value: SmeltUnknown) { smelt_set_function_property_key(smelt_canonical_function_identity(function), name, value); }
+fn smelt_set_function_property<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, name: &str, value: SmeltUnknown) { smelt_set_function_property_key(&smelt_canonical_function_identity(function), name, value); }
 
 /// The `prototype` object of a function value, created on first read.
 ///
 /// JavaScript gives every non-arrow function a fresh `{ constructor: f }`
 /// object when the function is created. Creating it lazily is observationally
 /// the same and costs nothing for a function nothing constructs through.
-fn smelt_function_prototype(identity: usize, constructor: SmeltUnknown) -> SmeltUnknown { if let Some(value) = smelt_function_property_lookup(identity, "prototype") { return value; } let prototype = SmeltUnknown::Object(SmeltObject::new(Vec::from([("constructor".to_owned(), constructor)]))); smelt_set_function_property_key(identity, "prototype", prototype.clone()); prototype }
+/// The object references the function (`constructor`), which is the same
+/// reference cycle JavaScript has: a function whose prototype was read is
+/// kept alive by it, as any `Rc` cycle in the generated runtime is.
+fn smelt_function_prototype(identity: &SmeltFunctionIdentity, constructor: SmeltUnknown) -> SmeltUnknown { if let Some(value) = smelt_function_property_lookup(identity, "prototype") { return value; } let prototype = SmeltUnknown::Object(SmeltObject::new(Vec::from([("constructor".to_owned(), constructor)]))); smelt_set_function_property_key(identity, "prototype", prototype.clone()); prototype }
 
 /// Read one own property of an erased function value (JS `f.prototype`).
-fn smelt_function_value_property(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, name: &str) -> SmeltUnknown { let identity = smelt_canonical_function_identity(function); if let Some(value) = smelt_function_property_lookup(identity, name) { return value; } if name == "prototype" { return smelt_function_prototype(identity, SmeltUnknown::Function(function.clone())); } SmeltUnknown::Undefined }
+fn smelt_function_value_property(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, name: &str) -> SmeltUnknown { let identity = smelt_canonical_function_identity(function); if let Some(value) = smelt_function_property_lookup(&identity, name) { return value; } if name == "prototype" { return smelt_function_prototype(&identity, SmeltUnknown::Function(function.clone())); } SmeltUnknown::Undefined }
 
 /// Resolve the JavaScript `Object.prototype.toString.call(x)` tag for an erased value.
 ///
@@ -1346,37 +1519,84 @@ impl Eq for SmeltObject {}
 impl ::std::hash::Hash for SmeltObject { fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_hash(self, state, &mut smelt_seen); } }
 impl IntoIterator for SmeltObject { type Item = (String, SmeltUnknown); type IntoIter = ::std::vec::IntoIter<(String, SmeltUnknown)>; fn into_iter(self) -> Self::IntoIter { self.iter() } }
 
+/// The named properties of one array identity, and the buffers that keep them.
+#[derive(Default)]
+struct SmeltArrayProps { props: Vec<(String, SmeltUnknown)>, owners: Vec<(usize, Box<dyn SmeltAllocationGuard>)>, pinned: bool }
+
+impl SmeltArrayProps {
+    /// Whether some representation that can still name this array is alive.
+    fn is_live(&self) -> bool { self.pinned || self.owners.iter().any(|(_, owner)| owner.is_live()) }
+    /// Record a buffer carrying this array's id (erased or typed) as an owner of this entry.
+    fn own<T: 'static>(&mut self, storage: &::std::rc::Rc<::std::cell::RefCell<Vec<T>>>) { let key = ::std::rc::Rc::as_ptr(storage) as *const () as usize; if !self.owners.iter().any(|(owner, _)| *owner == key) { self.owners.retain(|(_, owner)| owner.is_live()); self.owners.push((key, Box::new(::std::rc::Rc::downgrade(storage)))); } }
+}
+
+/// Named array properties by array identity, swept like `SmeltAddressTable`.
+struct SmeltArrayPropsTable { entries: ::std::collections::HashMap<usize, SmeltArrayProps>, sweep_at: usize }
+
+impl SmeltArrayPropsTable {
+    /// Number of entries, live or not yet swept.
+    #[allow(dead_code)]
+    fn len(&self) -> usize { self.entries.len() }
+    /// Whether creating an entry for `id` should sweep first.
+    fn wants_sweep(&self, id: usize) -> bool { self.entries.len() >= self.sweep_at && !self.entries.contains_key(&id) }
+    /// The entry for `id`, created on first use.
+    fn slot(&mut self, id: usize) -> &mut SmeltArrayProps { self.entries.entry(id).or_default() }
+}
+
+/// Sweep the named-property table until no entry dies (see `smelt_sweep_address_table`).
+fn smelt_sweep_array_props(table: &::std::cell::RefCell<SmeltArrayPropsTable>) {
+    loop {
+        let dead: Vec<SmeltArrayProps> = table.borrow_mut().entries.extract_if(|_, entry| !entry.is_live()).map(|(_, entry)| entry).collect();
+        if dead.is_empty() { break; }
+        drop(dead);
+    }
+    let mut table = table.borrow_mut();
+    table.sweep_at = (SMELT_ADDRESS_TABLE_GROWTH * table.entries.len()).max(SMELT_ADDRESS_TABLE_MIN_SWEEP);
+}
+
 thread_local! {
     /// Named (non-index) properties of erased arrays, keyed by array identity.
-    static SMELT_ARRAY_PROPS: ::std::cell::RefCell<::std::collections::HashMap<usize, Vec<(String, SmeltUnknown)>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+    static SMELT_ARRAY_PROPS: ::std::cell::RefCell<SmeltArrayPropsTable> = ::std::cell::RefCell::new(SmeltArrayPropsTable { entries: ::std::collections::HashMap::new(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP });
 }
 
 /// Read one named property of the array with this identity.
-fn smelt_array_named_property(id: usize, key: &str) -> Option<SmeltUnknown> { SMELT_ARRAY_PROPS.with(|props| props.borrow().get(&id).and_then(|props| props.iter().find(|(name, _)| name == key).map(|(_, value)| value.clone()))) }
+fn smelt_array_named_property(id: usize, key: &str) -> Option<SmeltUnknown> { SMELT_ARRAY_PROPS.with(|props| props.borrow().entries.get(&id).and_then(|entry| entry.props.iter().find(|(name, _)| name == key).map(|(_, value)| value.clone()))) }
 
-/// Write one named property of the array with this identity, creating its table on first use.
-fn smelt_array_set_named_property(id: usize, key: String, value: SmeltUnknown) { SMELT_ARRAY_PROPS.with(|props| { let mut props = props.borrow_mut(); let entries = props.entry(id).or_default(); match entries.iter_mut().find(|(name, _)| *name == key) { Some(slot) => slot.1 = value, None => entries.push((key, value)) } }); }
+/// Write one named property of `array`, owned by its buffer (pinned through a detached copy).
+///
+/// `derived` marks a property the erasure of a typed value rewrites every
+/// time it erases (a match's `index`): such an entry is never pinned.
+fn smelt_array_store_named_property(array: &SmeltArray, key: String, property: SmeltUnknown, derived: bool) { SMELT_ARRAY_PROPS.with(|props| { if props.borrow().wants_sweep(array.id) { smelt_sweep_array_props(props); } let mut props = props.borrow_mut(); let entry = props.slot(array.id); entry.own(&array.values); if array.detached && !derived { entry.pinned = true; } match entry.props.iter_mut().find(|(name, _)| *name == key) { Some(slot) => slot.1 = property, None => entry.props.push((key, property)) } }); }
+
+/// Make a typed copy's buffer an owner of `id`'s named properties, if it has any.
+///
+/// A copy carries the id onward (`as string[]` of a regex match), so the
+/// properties must live as long as it does, not only as long as the erased
+/// array it was copied from.
+fn smelt_array_props_adopt<T: 'static>(id: usize, storage: &::std::rc::Rc<::std::cell::RefCell<Vec<T>>>) { SMELT_ARRAY_PROPS.with(|props| { if let Ok(mut props) = props.try_borrow_mut() { if let Some(entry) = props.entries.get_mut(&id) { entry.own(storage); } } }); }
 
 /// The named property keys of the array with this identity, in insertion order.
-fn smelt_array_named_keys(id: usize) -> Vec<String> { SMELT_ARRAY_PROPS.with(|props| props.borrow().get(&id).map_or_else(Vec::new, |props| props.iter().map(|(name, _)| name.clone()).collect())) }
+fn smelt_array_named_keys(id: usize) -> Vec<String> { SMELT_ARRAY_PROPS.with(|props| props.borrow().entries.get(&id).map_or_else(Vec::new, |entry| entry.props.iter().map(|(name, _)| name.clone()).collect())) }
 
 /// The named properties of the array with this identity, in insertion order.
-fn smelt_array_named_entries(id: usize) -> Vec<(String, SmeltUnknown)> { SMELT_ARRAY_PROPS.with(|props| props.borrow().get(&id).cloned().unwrap_or_default()) }
+fn smelt_array_named_entries(id: usize) -> Vec<(String, SmeltUnknown)> { SMELT_ARRAY_PROPS.with(|props| props.borrow().entries.get(&id).map(|entry| entry.props.clone()).unwrap_or_default()) }
 
 pub struct SmeltArray {
     id: usize,
     values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>,
+    /// Whether the buffer is a COPY of another representation of `id` (`with_id`).
+    detached: bool,
 }
 
 impl ::std::fmt::Debug for SmeltArray { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltArray").field("id", &self.id).field("values", &*self.values.borrow()).finish() } }
-impl Clone for SmeltArray { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } } }
+impl Clone for SmeltArray { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone(), detached: self.detached } } }
 impl SmeltArray {
     /// Create an identity-bearing erased JavaScript array.
-    fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }
+    fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), detached: false } }
     /// Reuse a caller-supplied identity so repeated erasures of one source list compare `===` equal.
-    fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }
+    fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), detached: true } }
     /// Reuse an existing shared buffer, so a re-wrap keeps aliasing the same array.
-    fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>) -> Self { Self { id, values } }
+    fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>) -> Self { Self { id, values, detached: false } }
     /// Another handle on this array's shared buffer.
     fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>> { ::std::rc::Rc::clone(&self.values) }
     /// Snapshot the elements. This COPIES: mutating the result does not write back.
@@ -1398,7 +1618,7 @@ impl SmeltArray {
     /// Read a NON-INDEX named property (JS `arr.x`), or `None` when absent.
     fn named_property(&self, key: &str) -> Option<SmeltUnknown> { smelt_array_named_property(self.id, key) }
     /// Write a NON-INDEX named property (JS `arr.x = v`), allocating the side table on first use.
-    fn set_named_property(&self, key: String, value: SmeltUnknown) { smelt_array_set_named_property(self.id, key, value); }
+    fn set_named_property(&self, key: String, value: SmeltUnknown) { smelt_array_store_named_property(self, key, value, false); }
     /// The named property keys, in insertion order (empty in the common case).
     fn named_keys(&self) -> Vec<String> { smelt_array_named_keys(self.id) }
     /// Own enumerable keys: the element indices, then the named properties, exactly the order `Object.keys` reports.
@@ -1890,9 +2110,10 @@ fn smelt_builtin_prototype_object(class: &str) -> SmeltUnknown { SMELT_BUILTIN_P
 /// first argument. `Function.prototype.call`/`.apply` drop the receiver for an
 /// ordinary erased callable (which has no `this` channel), so they must not do
 /// that for these: membership here is the difference.
-thread_local! { static SMELT_RECEIVER_METHODS: ::std::cell::RefCell<::std::collections::HashSet<usize>> = ::std::cell::RefCell::new(::std::collections::HashSet::new()); }
-fn smelt_register_receiver_method<T: ?Sized + 'static>(function: &::std::rc::Rc<T>) { let key = smelt_retain_callable_key(function); SMELT_RECEIVER_METHODS.with(|methods| { methods.borrow_mut().insert(key); }); }
-fn smelt_is_receiver_method<T: ?Sized + 'static>(function: &::std::rc::Rc<T>) -> bool { let key = smelt_retain_callable_key(function); SMELT_RECEIVER_METHODS.with(|methods| methods.borrow().contains(&key)) }
+///
+/// The flag lives in the callable's entry of the bounded callable table.
+fn smelt_register_receiver_method<T: ?Sized + 'static>(function: &::std::rc::Rc<T>) { smelt_update_callable(function, |meta| meta.receiver_method = true); }
+fn smelt_is_receiver_method<T: ?Sized + 'static>(function: &::std::rc::Rc<T>) -> bool { smelt_read_callable(function, |meta| Some(meta.receiver_method)).unwrap_or(false) }
 
 /// Read a modeled member off a builtin, or `None` when it is not modeled.
 ///
@@ -2700,7 +2921,7 @@ impl SmeltFromUnknown for String {
     }
 }
 
-impl<T: SmeltFromUnknown> SmeltFromUnknown for SmeltList<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Array(array) => SmeltList::with_id(array.id, array.into_vec().into_iter().map(T::smelt_from_unknown).collect()), _ => SmeltList::new(Vec::new()) } } }
+impl<T: SmeltFromUnknown + 'static> SmeltFromUnknown for SmeltList<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Array(array) => { let id = array.id; let list = SmeltList::with_id(id, array.into_vec().into_iter().map(T::smelt_from_unknown).collect()); smelt_array_props_adopt(id, &list.storage()); list }, _ => SmeltList::new(Vec::new()) } } }
 
 impl<K: SmeltFromUnknown + Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V: SmeltFromUnknown + Clone> SmeltFromUnknown for SmeltRecord<K, V> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => SmeltRecord::with_id_from_entries(object.id, object.iter().map(|(key, value)| (K::smelt_from_unknown(SmeltUnknown::String(key.into())), V::smelt_from_unknown(value)))), _ => SmeltRecord::with_id_from_entries(smelt_next_object_id(), ::std::iter::empty()) } } }
 
@@ -3181,10 +3402,11 @@ impl IntoSmeltUnknown for SmeltMatch {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let elements = self.groups.iter().map(|value| value.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))).collect::<Vec<_>>();
         let groups = self.named.into_iter().map(|(name, value)| (name, value.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into())))).collect::<Vec<_>>();
-        smelt_array_set_named_property(self.id, "index".to_owned(), SmeltUnknown::Number(self.match_index as f64));
-        smelt_array_set_named_property(self.id, "input".to_owned(), SmeltUnknown::String(self.input.into()));
-        smelt_array_set_named_property(self.id, "groups".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)));
-        SmeltUnknown::Array(SmeltArray::with_id(self.id, elements))
+        let array = SmeltArray::with_id(self.id, elements);
+        smelt_array_store_named_property(&array, "index".to_owned(), SmeltUnknown::Number(self.match_index as f64), true);
+        smelt_array_store_named_property(&array, "input".to_owned(), SmeltUnknown::String(self.input.into()), true);
+        smelt_array_store_named_property(&array, "groups".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)), true);
+        SmeltUnknown::Array(array)
     }
 }
 

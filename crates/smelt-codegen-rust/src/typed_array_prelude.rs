@@ -228,13 +228,13 @@ fn emit_data_view_adapters(writer: &mut CodeWriter) {
     writer.line("/// Erase a `DataView` for a dynamic boundary.");
     writer.block("impl IntoSmeltUnknown for SmeltDataView", |impl_writer| {
         impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-            fn_writer.line("smelt_register_host_origin(self.id, self.clone());");
+            fn_writer.line("let smelt_host_origin = self.clone();");
             fn_writer.line("let storage = self.buffer().into_smelt_unknown();");
             fn_writer.line(
                 "let elements: Vec<SmeltUnknown> = self.to_bytes().into_iter().map(|byte| SmeltUnknown::Number(f64::from(byte))).collect();",
             );
             fn_writer.line(format!(
-                "{with_id}(self.id, {marker:?}, elements, Some(storage), self.byte_offset)",
+                "smelt_with_host_origin({with_id}(self.id, {marker:?}, elements, Some(storage), self.byte_offset), smelt_host_origin)",
                 with_id = smelt_stdlib::runtime_symbols::byte_buffer::VIEW_RECORD_WITH_ID,
             ));
         });
@@ -270,18 +270,19 @@ fn emit_data_view_adapters(writer: &mut CodeWriter) {
 /// class of divergence that only appears in a mixed program and never in a
 /// wholly erased or wholly concrete one.
 ///
-/// The record's own id and its storage record's id are both tried, because a
-/// view's window and its buffer are two live values with two identities and an
-/// element write is a write to both.
+/// The bridge is called with the view's record and with its storage record,
+/// because a view's window and its buffer are two live values with two
+/// identities and an element write is a write to both. Each record carries
+/// its own live value in its origin slot (`smelt_with_host_origin`).
 fn emit_origin_write_through(writer: &mut CodeWriter) {
     writer.line("/// Write an erased record's encoded bytes through to its live value.");
     writer.line("#[allow(dead_code)]");
     writer.block(
-        "fn smelt_typed_array_write_origin(id: usize, offset: usize, encoded: &[SmeltUnknown])",
+        "fn smelt_typed_array_write_origin(record: &SmeltObject, offset: usize, encoded: &[SmeltUnknown])",
         |fn_writer| {
             fn_writer.line("let bytes: Vec<u8> = encoded.iter().map(|byte| match byte { SmeltUnknown::Number(value) => *value as i64 as u8, _ => 0 }).collect();");
-            fn_writer.line("if let Some(view) = smelt_restore_host_origin_by_id::<SmeltTypedArray>(id) { view.write_bytes_at(offset, &bytes); return; }");
-            fn_writer.line("if let Some(storage) = smelt_restore_host_origin_by_id::<SmeltArrayBuffer>(id) { storage.write_bytes_at(offset, &bytes); }");
+            fn_writer.line("if let Some(view) = record.smelt_origin::<SmeltTypedArray>() { view.write_bytes_at(offset, &bytes); return; }");
+            fn_writer.line("if let Some(storage) = record.smelt_origin::<SmeltArrayBuffer>() { storage.write_bytes_at(offset, &bytes); }");
         },
     );
     writer.blank_line();
@@ -538,7 +539,7 @@ fn emit_array_buffer_adapters(writer: &mut CodeWriter) {
     writer.line("/// Erase byte storage for a dynamic boundary.");
     writer.block("impl IntoSmeltUnknown for SmeltArrayBuffer", |impl_writer| {
         impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-            fn_writer.line("smelt_register_host_origin(self.id, self.clone());");
+            fn_writer.line("let smelt_host_origin = self.clone();");
             fn_writer.line("let bytes = self.bytes.borrow();");
             fn_writer.line(
                 "let elements: Vec<SmeltUnknown> = bytes.iter().map(|byte| SmeltUnknown::Number(f64::from(*byte))).collect();",
@@ -552,7 +553,7 @@ fn emit_array_buffer_adapters(writer: &mut CodeWriter) {
                 "let marker = if self.shared {{ {shared_marker:?} }} else {{ {marker:?} }};"
             ));
             fn_writer.line(format!(
-                "{with_id}(self.id, marker, elements, None, 0)",
+                "smelt_with_host_origin({with_id}(self.id, marker, elements, None, 0), smelt_host_origin)",
                 with_id = smelt_stdlib::runtime_symbols::byte_buffer::VIEW_RECORD_WITH_ID,
             ));
         });
@@ -847,7 +848,7 @@ fn emit_typed_array_adapters(writer: &mut CodeWriter) {
             // record's id is the key, so `SmeltFromUnknown` hands back the SAME
             // view (sharing its storage) and an index write through the record
             // reaches the storage the concrete value is still holding.
-            fn_writer.line("smelt_register_host_origin(self.id, self.clone());");
+            fn_writer.line("let smelt_host_origin = self.clone();");
             fn_writer.line("let bytes = self.to_bytes();");
             fn_writer.line(
                 "let elements: Vec<SmeltUnknown> = bytes.iter().map(|byte| SmeltUnknown::Number(f64::from(*byte))).collect();",
@@ -861,7 +862,7 @@ fn emit_typed_array_adapters(writer: &mut CodeWriter) {
             // buffer's length.
             fn_writer.line("let storage = self.buffer().into_smelt_unknown();");
             fn_writer.line(format!(
-                "{with_id}(self.id, self.kind.marker(), elements, Some(storage), self.byte_offset)",
+                "smelt_with_host_origin({with_id}(self.id, self.kind.marker(), elements, Some(storage), self.byte_offset), smelt_host_origin)",
                 with_id = smelt_stdlib::runtime_symbols::byte_buffer::VIEW_RECORD_WITH_ID,
             ));
         });

@@ -40,6 +40,52 @@ pub fn emit(writer: &mut CodeWriter) {
     emit_struct(writer);
     emit_inherent_impl(writer);
     emit_erasure(writer);
+    emit_weak_handle(writer);
+}
+
+/// The weak handle a listener registered on its own emitter captures.
+///
+/// `req.on('end', () => use(req))` stores the listener in `req` while the
+/// listener owns `req`: an `Rc` cycle JavaScript's collector would reclaim and
+/// `Rc` never does (`emitter::weak_receiver`). A listener only runs when its
+/// emitter emits, so it can hold the emitter weakly: whenever it runs, the
+/// emitter is alive. Every emitter-composing host type gets an impl.
+const WEAK_HANDLE: &str = r#"/// An emitter a listener can hold without owning it.
+trait SmeltEmitterHandle: Sized {
+    /// The handle with its listener list held weakly.
+    type Weak;
+    /// Downgrade to the weak handle.
+    fn smelt_downgrade(&self) -> Self::Weak;
+    /// The emitter again, while it is alive.
+    fn smelt_upgrade(weak: &Self::Weak) -> Option<Self>;
+}
+
+/// `SmeltEventEmitter` with its listener list held weakly.
+#[derive(Clone)]
+struct SmeltWeakEventEmitter { id: usize, listeners: ::std::rc::Weak<::std::cell::RefCell<Vec<SmeltEventListener>>> }
+
+impl SmeltEmitterHandle for SmeltEventEmitter {
+    type Weak = SmeltWeakEventEmitter;
+    fn smelt_downgrade(&self) -> Self::Weak { SmeltWeakEventEmitter { id: self.id, listeners: ::std::rc::Rc::downgrade(&self.listeners) } }
+    fn smelt_upgrade(weak: &Self::Weak) -> Option<Self> { Some(Self { id: weak.id, listeners: weak.listeners.upgrade()? }) }
+}
+
+/// The emitter a listener registered on it captures, held weakly.
+struct SmeltWeakEmitter<H: SmeltEmitterHandle>(H::Weak);
+
+impl<H: SmeltEmitterHandle> SmeltWeakEmitter<H> {
+    /// Capture `emitter` weakly.
+    fn new(emitter: &H) -> Self { Self(emitter.smelt_downgrade()) }
+    /// The emitter: alive whenever its listener runs.
+    fn smelt_emitter(&self) -> H { H::smelt_upgrade(&self.0).expect("a listener ran after the emitter it was registered on was dropped") }
+}"#;
+
+/// Emit [`WEAK_HANDLE`].
+fn emit_weak_handle(writer: &mut CodeWriter) {
+    for line in WEAK_HANDLE.lines() {
+        writer.line(line);
+    }
+    writer.blank_line();
 }
 
 /// Emit the emitter's erasure adapter pair.
@@ -76,7 +122,7 @@ fn emit_struct(writer: &mut CodeWriter) {
         struct_writer.line("/// Whether this listener is removed after one call.");
         struct_writer.line("once: bool,");
         struct_writer.line("/// Function identity, so `off(name, fn)` can find this entry.");
-        struct_writer.line("identity: usize,");
+        struct_writer.line("identity: SmeltFunctionIdentity,");
     });
     writer.blank_line();
     writer.line("/// A `node:events` `EventEmitter`: listeners in registration order.");

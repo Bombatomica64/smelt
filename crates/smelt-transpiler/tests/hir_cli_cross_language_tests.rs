@@ -1201,6 +1201,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "160_function_item_typed_identity",
     "162_alias_names_generic_class",
     "165_void_operand_runs",
+    "166_closure_stored_on_its_receiver",
     "14_c_for_loop",
     "15_break_continue",
     "16_switch_break_no_fallthrough",
@@ -1461,6 +1462,7 @@ const RUNTIME_FIXTURES: &[&str] = &[
     "union_function_element_callee",
     "optional_unknown_reads_as_undefined",
     "headers_from_optional_string_record",
+    "listener_captures_its_own_emitter",
 ];
 
 #[test]

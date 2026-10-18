@@ -82,9 +82,10 @@ fn emit_member_value(writer: &mut CodeWriter) {
     writer.line("/// first argument. `Function.prototype.call`/`.apply` drop the receiver for an");
     writer.line("/// ordinary erased callable (which has no `this` channel), so they must not do");
     writer.line("/// that for these: membership here is the difference.");
-    writer.line("thread_local! { static SMELT_RECEIVER_METHODS: ::std::cell::RefCell<::std::collections::HashSet<usize>> = ::std::cell::RefCell::new(::std::collections::HashSet::new()); }");
-    writer.line("fn smelt_register_receiver_method<T: ?Sized + 'static>(function: &::std::rc::Rc<T>) { let key = smelt_retain_callable_key(function); SMELT_RECEIVER_METHODS.with(|methods| { methods.borrow_mut().insert(key); }); }");
-    writer.line("fn smelt_is_receiver_method<T: ?Sized + 'static>(function: &::std::rc::Rc<T>) -> bool { let key = smelt_retain_callable_key(function); SMELT_RECEIVER_METHODS.with(|methods| methods.borrow().contains(&key)) }");
+    writer.line("///");
+    writer.line("/// The flag lives in the callable's entry of the bounded callable table.");
+    writer.line("fn smelt_register_receiver_method<T: ?Sized + 'static>(function: &::std::rc::Rc<T>) { smelt_update_callable(function, |meta| meta.receiver_method = true); }");
+    writer.line("fn smelt_is_receiver_method<T: ?Sized + 'static>(function: &::std::rc::Rc<T>) -> bool { smelt_read_callable(function, |meta| Some(meta.receiver_method)).unwrap_or(false) }");
     writer.blank_line();
     writer.line("/// Read a modeled member off a builtin, or `None` when it is not modeled.");
     writer.line("///");

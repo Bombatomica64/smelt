@@ -57,7 +57,9 @@
 //!
 //! A program with no reference record never erases one, so the slot and its
 //! two accessors are emitted only when `classify::reference_classes` is
-//! non-empty; everything else keeps byte-identical output.
+//! non-empty — or when the program erases a host value whose state is not a
+//! record (`smelt_with_host_origin` in `lib.rs` stamps the same slot);
+//! everything else keeps byte-identical output.
 
 #![expect(
     clippy::redundant_pub_crate,

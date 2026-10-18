@@ -31,8 +31,10 @@
 //! ```
 //!
 //! must reach the emitter's own listeners. So the erasure RETAINS the live
-//! value in `SMELT_HOST_ORIGINS` under the record's object id, and the recovery
-//! hands that value back. Reconstruction never enters into it; the only
+//! value in the erased object's own `origin` slot (`smelt_with_host_origin`),
+//! and the recovery hands that value back. The slot lives in the object's
+//! store, so the retained value lives exactly as long as some erased view of
+//! it does. Reconstruction never enters into it; the only
 //! question a type has to answer is what a record that did NOT come from an
 //! erasure should mean, which is [`Recovery`].
 
@@ -108,10 +110,10 @@ pub fn emit_adapters(
 
     writer.line(format!("/// Erase a `{type_name}` for a dynamic boundary."));
     writer.line("///");
-    writer.line("/// Retains the live value under the record's object id, so narrowing the");
+    writer.line("/// Retains the live value in the erased record's origin slot, so narrowing the");
     writer.line("/// erased value back hands out the SAME object rather than a copy.");
     writer.line(format!(
-        "impl IntoSmeltUnknown for {type_name} {{ fn into_smelt_unknown(self) -> SmeltUnknown {{ let smelt_id = self.id; smelt_register_host_origin(smelt_id, self.clone()); SmeltUnknown::Object(SmeltObject::with_id(smelt_id, Vec::from([{entries}]))) }} }}"
+        "impl IntoSmeltUnknown for {type_name} {{ fn into_smelt_unknown(self) -> SmeltUnknown {{ let smelt_id = self.id; let smelt_host_origin = self.clone(); smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(smelt_id, Vec::from([{entries}]))), smelt_host_origin) }} }}"
     ));
     writer.blank_line();
 

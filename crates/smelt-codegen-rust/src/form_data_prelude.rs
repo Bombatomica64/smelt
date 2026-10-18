@@ -484,12 +484,12 @@ fn emit_traits(writer: &mut CodeWriter, needs_unknown: bool) {
             // a view of the SAME form: an `append` through one has to be
             // visible on the value the program still holds, and a method
             // resolved off the record (`smelt_host_method`) acts on it.
-            fn_writer.line("smelt_register_host_origin(self.id, self.clone());");
+            fn_writer.line("let smelt_host_origin = self.clone();");
             fn_writer.line(
                 "let pairs: Vec<SmeltUnknown> = self.entries_in_order().into_iter().map(|(name, value)| { let erased_value = match value { SmeltFormDataValue::Text(text) => SmeltUnknown::String(text.into()), SmeltFormDataValue::File(file) => file.into_smelt_unknown() }; SmeltUnknown::Array(Vec::from([SmeltUnknown::String(name.into()), erased_value]).into()) }).collect();",
             );
             fn_writer.line(
-                "SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_formdata\".to_owned(), SmeltUnknown::Bool(true)), (\"entries\".to_owned(), SmeltUnknown::Array(pairs.into()))])))",
+                "smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_formdata\".to_owned(), SmeltUnknown::Bool(true)), (\"entries\".to_owned(), SmeltUnknown::Array(pairs.into()))]))), smelt_host_origin)",
             );
         });
     });

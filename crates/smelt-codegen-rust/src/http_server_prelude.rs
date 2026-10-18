@@ -69,11 +69,28 @@ use crate::rust::CodeWriter;
 /// of which `crate::stdlib` gates on this prelude's own use.
 pub fn emit(writer: &mut CodeWriter) {
     emit_incoming_message(writer);
+    for line in INCOMING_WEAK_HANDLE.lines() {
+        writer.line(line);
+    }
+    writer.blank_line();
     emit_server_response(writer);
     emit_server(writer);
     emit_connection_glue(writer);
     emit_erasure(writer);
 }
+
+/// The weak handle of a request, for a listener registered on it (see
+/// `event_emitter_prelude::WEAK_HANDLE`): everything but the listener list is
+/// data the request owns, so only the composed emitter is held weakly.
+const INCOMING_WEAK_HANDLE: &str = r"/// `SmeltIncomingMessage` with its listener list held weakly.
+#[derive(Clone)]
+struct SmeltWeakIncomingMessage { id: usize, method: String, url: String, headers: ::std::rc::Rc<Vec<(String, String)>>, emitter: SmeltWeakEventEmitter, pending_body: ::std::rc::Rc<::std::cell::RefCell<Option<Vec<u8>>>> }
+
+impl SmeltEmitterHandle for SmeltIncomingMessage {
+    type Weak = SmeltWeakIncomingMessage;
+    fn smelt_downgrade(&self) -> Self::Weak { SmeltWeakIncomingMessage { id: self.id, method: self.method.clone(), url: self.url.clone(), headers: self.headers.clone(), emitter: self.emitter.smelt_downgrade(), pending_body: self.pending_body.clone() } }
+    fn smelt_upgrade(weak: &Self::Weak) -> Option<Self> { Some(Self { id: weak.id, method: weak.method.clone(), url: weak.url.clone(), headers: weak.headers.clone(), emitter: SmeltEventEmitter::smelt_upgrade(&weak.emitter)?, pending_body: weak.pending_body.clone() }) }
+}";
 
 /// Emit the erasure adapter pair for the three `node:http` types.
 ///
@@ -254,6 +271,8 @@ fn emit_server_response(writer: &mut CodeWriter) {
             .line("headers: ::std::rc::Rc<::std::cell::RefCell<Vec<(String, String)>>>,");
         struct_writer.line("body: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>,");
         struct_writer.line("ended: ::std::rc::Rc<::std::cell::Cell<bool>>,");
+        struct_writer.line("/// Signalled by `end`, so the connection task wakes as soon as it answers.");
+        struct_writer.line("ended_signal: ::std::rc::Rc<tokio::sync::Notify>,");
     });
     writer.blank_line();
     writer.line(
@@ -268,7 +287,7 @@ fn emit_server_response(writer: &mut CodeWriter) {
     writer.block("impl SmeltServerResponse", |impl_writer| {
         impl_writer.line("/// A fresh response: 200, no headers, empty body, not yet sent.");
         impl_writer.line(
-            "pub fn new() -> Self { Self { id: smelt_next_object_id(), status: ::std::rc::Rc::new(::std::cell::Cell::new(200)), headers: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), body: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), ended: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }",
+            "pub fn new() -> Self { Self { id: smelt_next_object_id(), status: ::std::rc::Rc::new(::std::cell::Cell::new(200)), headers: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), body: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), ended: ::std::rc::Rc::new(::std::cell::Cell::new(false)), ended_signal: ::std::rc::Rc::new(tokio::sync::Notify::new()) } }",
         );
         impl_writer.line("/// JS reference identity of this response.");
         impl_writer.line("pub fn id(&self) -> usize { self.id }");
@@ -329,6 +348,7 @@ fn emit_server_response(writer: &mut CodeWriter) {
                     chunk_writer.line("self.body.borrow_mut().extend_from_slice(chunk.as_bytes());");
                 });
                 arm_writer.line("self.ended.set(true);");
+                arm_writer.line("self.ended_signal.notify_one();");
             });
             fn_writer.line("self.clone()");
         });
@@ -337,13 +357,14 @@ fn emit_server_response(writer: &mut CodeWriter) {
         impl_writer.line("/// Wait until the handler (or one of its listeners) calls `end`.");
         impl_writer.line("///");
         impl_writer.line("/// A response that is never ended leaves the request hanging, exactly");
-        impl_writer.line("/// as it does in Node, so there is deliberately no timeout here. The");
-        impl_writer.line("/// poll interval only costs anything while a handler really has not");
-        impl_writer.line("/// answered yet.");
+        impl_writer.line("/// as it does in Node, so there is deliberately no timeout here. `end`");
+        impl_writer.line("/// signals the wait directly: this used to poll every millisecond, which");
+        impl_writer.line("/// added up to a millisecond of idle time to every request a handler");
+        impl_writer.line("/// answered asynchronously and capped a loaded server at roughly");
+        impl_writer.line("/// connections per millisecond, whatever its CPU cost per request.");
         impl_writer.block("pub async fn wait_until_ended(&self)", |fn_writer| {
             fn_writer.block("while !self.ended.get()", |loop_writer| {
-                loop_writer
-                    .line("tokio::time::sleep(::std::time::Duration::from_millis(1)).await;");
+                loop_writer.line("self.ended_signal.notified().await;");
             });
         });
         impl_writer.line("/// The status, headers and body, ready for the wire.");

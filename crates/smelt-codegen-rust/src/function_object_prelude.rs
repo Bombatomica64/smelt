@@ -5,13 +5,13 @@
 //!
 //! * **A function has own properties.** `f.prototype` is one of them, and source
 //!   code writes others (`partialed.prototype = …`, `curried.placeholder = …`).
-//!   An `Rc<dyn Fn(..)>` has nowhere to put them, so they live in a side bag
-//!   keyed by *canonical function identity* — the same key
+//!   An `Rc<dyn Fn(..)>` has nowhere to put them, so they live in a bag on the
+//!   function's *canonical identity* token — the identity
 //!   `smelt_same_function_identity` compares and `Function.prototype.length`
-//!   is stored under. Keying on identity rather than on an allocation address is
-//!   what makes a typed callable and every erasure adapter derived from it share
-//!   ONE property bag, so a write through one spelling is visible through all of
-//!   them.
+//!   is stored on (see `callable_registry`). Carrying the bag on the identity
+//!   rather than per allocation is what makes a typed callable and every
+//!   erasure adapter derived from it share ONE property bag, so a write through
+//!   one spelling is visible through all of them.
 //!
 //! * **`new f(args)` is not `f(args)`.** `[[Construct]]` allocates an object
 //!   whose prototype link is `f.prototype`, runs `f` with that object installed
@@ -60,36 +60,36 @@ pub fn emit(writer: &mut CodeWriter, needs_construct: bool, needs_instance_of_va
     }
 }
 
-/// Emit the identity-keyed own-property bag of function values.
+/// Emit the identity-carried own-property bag of function values.
+///
+/// The bag lives on the function's identity token (`SmeltFunctionIdentity`,
+/// see `callable_registry`), so a typed callable and every erasure adapter
+/// derived from it share ONE bag, and the bag dies with the last of them.
 fn emit_property_bag(writer: &mut CodeWriter) {
-    writer.line("thread_local! {");
-    writer.line("    /// Own JavaScript properties of each function value, keyed by canonical");
-    writer.line("    /// function identity so a typed callable and every erasure adapter derived");
-    writer.line("    /// from it share one bag.");
-    writer.line("    static SMELT_FUNCTION_PROPERTIES: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltObject>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
-    writer.line("}");
-    writer.blank_line();
     writer.line("/// Read one own property of the function value with this canonical identity.");
-    writer.line("fn smelt_function_property_lookup(identity: usize, name: &str) -> Option<SmeltUnknown> { SMELT_FUNCTION_PROPERTIES.with(|bags| bags.borrow().get(&identity).and_then(|bag| bag.get(name))) }");
+    writer.line("fn smelt_function_property_lookup(identity: &SmeltFunctionIdentity, name: &str) -> Option<SmeltUnknown> { identity.0.properties.borrow().as_ref().and_then(|bag| bag.get(name)) }");
     writer.blank_line();
     writer.line("/// Store one own property on the function value with this canonical identity.");
-    writer.line("fn smelt_set_function_property_key(identity: usize, name: &str, value: SmeltUnknown) { SMELT_FUNCTION_PROPERTIES.with(|bags| { bags.borrow_mut().entry(identity).or_insert_with(|| SmeltObject::new(Vec::new())).insert(name.to_owned(), value); }); }");
+    writer.line("fn smelt_set_function_property_key(identity: &SmeltFunctionIdentity, name: &str, value: SmeltUnknown) { identity.0.properties.borrow_mut().get_or_insert_with(|| SmeltObject::new(Vec::new())).insert(name.to_owned(), value); }");
     writer.blank_line();
     writer.line("/// Store one own property on a function value (JS `f.name = value`).");
     writer.line("///");
     writer.line("/// Accepts any callable handle, typed or erased, and resolves it to the one");
     writer.line("/// canonical identity every representation of that function shares.");
-    writer.line("fn smelt_set_function_property<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, name: &str, value: SmeltUnknown) { smelt_set_function_property_key(smelt_canonical_function_identity(function), name, value); }");
+    writer.line("fn smelt_set_function_property<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, name: &str, value: SmeltUnknown) { smelt_set_function_property_key(&smelt_canonical_function_identity(function), name, value); }");
     writer.blank_line();
     writer.line("/// The `prototype` object of a function value, created on first read.");
     writer.line("///");
     writer.line("/// JavaScript gives every non-arrow function a fresh `{ constructor: f }`");
     writer.line("/// object when the function is created. Creating it lazily is observationally");
     writer.line("/// the same and costs nothing for a function nothing constructs through.");
-    writer.line("fn smelt_function_prototype(identity: usize, constructor: SmeltUnknown) -> SmeltUnknown { if let Some(value) = smelt_function_property_lookup(identity, \"prototype\") { return value; } let prototype = SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"constructor\".to_owned(), constructor)]))); smelt_set_function_property_key(identity, \"prototype\", prototype.clone()); prototype }");
+    writer.line("/// The object references the function (`constructor`), which is the same");
+    writer.line("/// reference cycle JavaScript has: a function whose prototype was read is");
+    writer.line("/// kept alive by it, as any `Rc` cycle in the generated runtime is.");
+    writer.line("fn smelt_function_prototype(identity: &SmeltFunctionIdentity, constructor: SmeltUnknown) -> SmeltUnknown { if let Some(value) = smelt_function_property_lookup(identity, \"prototype\") { return value; } let prototype = SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"constructor\".to_owned(), constructor)]))); smelt_set_function_property_key(identity, \"prototype\", prototype.clone()); prototype }");
     writer.blank_line();
     writer.line("/// Read one own property of an erased function value (JS `f.prototype`).");
-    writer.line("fn smelt_function_value_property(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, name: &str) -> SmeltUnknown { let identity = smelt_canonical_function_identity(function); if let Some(value) = smelt_function_property_lookup(identity, name) { return value; } if name == \"prototype\" { return smelt_function_prototype(identity, SmeltUnknown::Function(function.clone())); } SmeltUnknown::Undefined }");
+    writer.line("fn smelt_function_value_property(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, name: &str) -> SmeltUnknown { let identity = smelt_canonical_function_identity(function); if let Some(value) = smelt_function_property_lookup(&identity, name) { return value; } if name == \"prototype\" { return smelt_function_prototype(&identity, SmeltUnknown::Function(function.clone())); } SmeltUnknown::Undefined }");
     writer.blank_line();
 }
 

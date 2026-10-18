@@ -564,7 +564,15 @@ impl FunctionEmitter<'_> {
                     {
                         emitter.borrowed_callback_names.insert(alias_name.clone());
                     }
-                    let capture_name = if alias_name.starts_with("(*smelt_capture_") {
+                    let capture_name = if self.is_weak_emitter_capture(id, capture) {
+                        // Registered as a listener on the emitter it captures:
+                        // read through a weak handle (see `emitter::weak_receiver`).
+                        super::weak_receiver::emitter_access_text(&alias_name)
+                    } else if self.is_weak_receiver_capture(id, capture) {
+                        // Stored on the instance it captures: read through a
+                        // weak capture (see `emitter::weak_receiver`).
+                        super::weak_receiver::capture_access_text(&alias_name)
+                    } else if alias_name.starts_with("(*smelt_capture_") {
                         // The source binding is itself captured from an
                         // enclosing shared closure and already renders as
                         // `(*smelt_capture_x.borrow_mut())`. Reuse that rendered
@@ -1076,6 +1084,22 @@ impl FunctionEmitter<'_> {
                         .then(|| format!("let {cell} = {cell}.clone();"));
                 }
                 cloned_captures.insert(name.clone()).then(|| {
+                    if self.is_weak_emitter_capture(id, capture) {
+                        shared_replacements.push((
+                            name.clone(),
+                            super::weak_receiver::emitter_access_text(&name),
+                        ));
+                        return super::weak_receiver::emitter_prelude_text(&name, &source_name);
+                    }
+                    if self.is_weak_receiver_capture(id, capture) {
+                        shared_replacements.push((
+                            name.clone(),
+                            super::weak_receiver::capture_access_text(&name),
+                        ));
+                        let shared = self.closure_capture_needs_shared_access(closure, capture)
+                            || self.local_uses_shared_capture_storage(capture.source_local);
+                        return super::weak_receiver::capture_prelude_text(&name, &source_name, shared);
+                    }
                     if self.closure_capture_needs_shared_access(closure, capture)
                         || self.local_uses_shared_capture_storage(capture.source_local)
                     {
