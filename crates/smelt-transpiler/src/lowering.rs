@@ -17,6 +17,7 @@ use crate::manifest::{
     ManifestSource, dependency_closure, exclusion_base, manifest_relative_path,
     order_manifest_sources, read_manifest_source, resolve_manifest_path,
 };
+use crate::sound::SoundSettings;
 use crate::timing;
 
 /// Source language inferred from a file path.
@@ -314,7 +315,9 @@ fn ordered_dependency_paths(target: PathBuf) -> Option<Vec<PathBuf>> {
     let root = read_manifest_source(target).ok()?;
     // No manifest is in scope here (this is the single-file fallback path),
     // so there are no exclude globs to apply.
-    let sources = dependency_closure(vec![root], &[], Path::new(".")).ok()?;
+    // Typed versions of packages are a manifest-build feature: they are looked
+    // up from the project root, which a single-file command does not have.
+    let sources = dependency_closure(vec![root], &[], Path::new("."), None).ok()?;
     let ordered = order_manifest_sources(&sources).ok()?;
     Some(
         ordered
@@ -431,6 +434,21 @@ fn is_probe_source_file(path: &Path) -> bool {
     )
 }
 
+/// The typed-version lookup inputs for a manifest build: the manifest
+/// directory is the root `.sound/` and the project's `package.json` are found
+/// from, and the manifest's (plus the command line's) defines decide `when`.
+fn sound_settings(config: &crate::config::Config, manifest_dir: &Path) -> SoundSettings {
+    let root = if manifest_dir.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        manifest_dir
+    };
+    SoundSettings {
+        root: root.canonicalize().unwrap_or_else(|_| root.to_path_buf()),
+        defines: config.defines(),
+    }
+}
+
 /// Lowers manifest entries in dependency order using one shared HIR crate.
 pub(crate) fn lower_manifest_entries(
     config: &crate::config::Config,
@@ -444,7 +462,12 @@ pub(crate) fn lower_manifest_entries(
             .collect::<Result<Vec<_>, _>>()
     })?;
     let sources = timing::measure("manifest.dependency_closure", || {
-        dependency_closure(root_sources, config.source_excludes(), manifest_dir)
+        dependency_closure(
+            root_sources,
+            config.source_excludes(),
+            manifest_dir,
+            Some(sound_settings(config, manifest_dir)),
+        )
     })?;
 
     let ordered_sources = timing::measure("manifest.order_sources", || {
@@ -704,7 +727,7 @@ fn glob_segment_match(path: &str, pattern: &str) -> bool {
 fn seed_written_host_globals(sources: &[&ManifestSource], state: &mut FrontendLoweringState) {
     for source in sources {
         let path = source.path.display().to_string();
-        if SourceLang::from_path(&path).is_ok_and(SourceLang::is_typescript) {
+        if source.lang.is_typescript() {
             state.ts_written_host_globals.extend(
                 smelt_frontend_ts::scan_written_host_globals(&source.source, &path),
             );
@@ -758,7 +781,7 @@ fn manifest_type_renames(
         .iter()
         .map(|source| {
             let path = source.path.display().to_string();
-            if SourceLang::from_path(&path).is_ok_and(SourceLang::is_typescript) {
+            if source.lang.is_typescript() {
                 smelt_frontend_ts::scan_declared_type_names(&source.source, &path)
             } else {
                 Vec::new()
@@ -882,7 +905,7 @@ fn predeclare_manifest_type_declarations(
     };
     for (idx, source) in sources.iter().enumerate() {
         let path = source.path.display().to_string();
-        if SourceLang::from_path(&path).is_ok_and(SourceLang::is_typescript) {
+        if source.lang.is_typescript() {
             smelt_frontend_ts::predeclare_type_declarations_with_path(
                 &source.source,
                 FileId(u32::try_from(idx).unwrap_or(u32::MAX)),
@@ -947,15 +970,10 @@ fn lower_ordered_manifest_sources(
 
     for (idx, source) in sources.iter().enumerate() {
         let (next_krate, next_state, outcome) =
-            lower_manifest_source(krate, state, source, idx, specialization)?;
+            lower_manifest_source(krate, state, source, idx, specialization);
         krate = next_krate;
         state = next_state;
-        let module = outcome.map_err(|diagnostics| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("{}:\n{diagnostics:#?}", source.path.display()),
-            )
-        })?;
+        let module = outcome.map_err(|diagnostics| manifest_source_error(source, &diagnostics))?;
         let file = &source.path;
         if let Ok(module_idx) = usize::try_from(module.0)
             && let Some(module_value) = krate.modules.get_mut(module_idx)
@@ -969,6 +987,39 @@ fn lower_ordered_manifest_sources(
     }
 
     Ok((krate, modules))
+}
+
+/// The build error for a manifest source the frontend rejected.
+///
+/// A project source reports its path and diagnostics as it always has. A file
+/// laid by a package's typed version (see [`crate::sound`]) is reported as that
+/// typed version's error, adapting Bun's `TS100021` ("The typed version of 'X'
+/// in .sound/X has type errors (N), the first at F. Fix it, or remove it to
+/// compile 'X' untyped."): in Bun a type error in a typed version stops the
+/// build, and Smelt's frontend rejecting the laid text is the same event —
+/// the text claims types Smelt cannot lower. Smelt's diagnostics carry no
+/// line and column, so the error names the file and the first diagnostic's
+/// message where Bun names a position, and keeps the full diagnostic list
+/// below it. Removing the typed version is a real way out: the package is then
+/// resolved as installed.
+fn manifest_source_error(source: &ManifestSource, diagnostics: &[ManifestDiagnostic]) -> io::Error {
+    let path = source.path.display();
+    let Some(origin) = &source.typed_version else {
+        return io::Error::new(io::ErrorKind::InvalidData, format!("{path}:\n{diagnostics:#?}"));
+    };
+    let first = diagnostics
+        .first()
+        .map_or_else(String::new, |diagnostic| format!(": {}", diagnostic.message));
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!(
+            "error: the typed version of '{name}' in {shown} is rejected by Smelt's frontend ({count} diagnostic{plural}), the first at {path}{first}. Fix it, or remove it to compile '{name}' untyped.\n{diagnostics:#?}",
+            name = origin.name,
+            shown = origin.shown,
+            count = diagnostics.len(),
+            plural = if diagnostics.len() == 1 { "" } else { "s" },
+        ),
+    )
 }
 
 /// Lower all manifest sources in dependency order, recovering from per-file
@@ -988,7 +1039,12 @@ pub(crate) fn collect_manifest_diagnostics(
         .into_iter()
         .map(read_manifest_source)
         .collect::<Result<Vec<_>, _>>()?;
-    let sources = dependency_closure(root_sources, config.source_excludes(), manifest_dir)?;
+    let sources = dependency_closure(
+        root_sources,
+        config.source_excludes(),
+        manifest_dir,
+        Some(sound_settings(config, manifest_dir)),
+    )?;
     let ordered_sources = order_manifest_sources(&sources)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
         .into_iter()
@@ -1009,14 +1065,13 @@ pub(crate) fn collect_manifest_diagnostics(
             lower_manifest_source(krate, state, source, idx, &specialization)
         }));
         match lowered {
-            Ok(Ok((next_krate, next_state, outcome))) => {
+            Ok((next_krate, next_state, outcome)) => {
                 krate = next_krate;
                 state = next_state;
                 if let Err(file_diagnostics) = outcome {
                     diagnostics.extend(file_diagnostics);
                 }
             }
-            Ok(Err(hard_error)) => return Err(hard_error),
             Err(_panic) => {
                 diagnostics.push(ManifestDiagnostic {
                     file: source.path.display().to_string(),
@@ -1038,26 +1093,25 @@ pub(crate) fn collect_manifest_diagnostics(
 ///
 /// The crate and state are returned even when the file has lowering errors, so
 /// a recoverable driver can keep lowering the remaining modules with the
-/// already-lowered modules still resolvable. The outer error is reserved for
-/// unrecoverable failures such as an unknown source extension.
+/// already-lowered modules still resolvable. The source's language was decided
+/// when it was read, so there is no unrecoverable failure left to report here.
 fn lower_manifest_source(
     krate: smelt_hir::Crate,
     state: FrontendLoweringState,
     source: &ManifestSource,
     idx: usize,
     specialization: &crate::specialization::PreparedSpecialization,
-) -> Result<
-    (
-        smelt_hir::Crate,
-        FrontendLoweringState,
-        Result<ModuleId, Vec<ManifestDiagnostic>>,
-    ),
-    Box<dyn std::error::Error>,
-> {
+) -> (
+    smelt_hir::Crate,
+    FrontendLoweringState,
+    Result<ModuleId, Vec<ManifestDiagnostic>>,
+) {
     let file = &source.path;
     let file_string = file.display().to_string();
     let file_id = FileId(u32::try_from(idx).unwrap_or(u32::MAX));
-    match SourceLang::from_path(&file_string)? {
+    // The collector decided the language (a laid typed-version file can carry
+    // TypeScript text under a `.js` path), so the path is not re-classified.
+    match source.lang {
         SourceLang::TypeScript | SourceLang::TypeScriptDeclaration => {
             let mut ctx = smelt_frontend_ts::HirCtx {
                 krate,
@@ -1134,7 +1188,7 @@ fn lower_manifest_source(
                 py_module_namespaces: state.py_module_namespaces,
                 py_enum_members: state.py_enum_members,
             };
-            Ok((ctx.krate, next_state, outcome))
+            (ctx.krate, next_state, outcome)
         }
         SourceLang::Python | SourceLang::PythonDeclaration => {
             let (next_krate, py_module_namespaces, py_enum_members, outcome) =
@@ -1176,7 +1230,7 @@ fn lower_manifest_source(
                 py_module_namespaces,
                 py_enum_members,
             };
-            Ok((next_krate, next_state, outcome))
+            (next_krate, next_state, outcome)
         }
     }
 }
