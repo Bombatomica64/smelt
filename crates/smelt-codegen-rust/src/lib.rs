@@ -84,6 +84,7 @@ use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, MirGlobalInit, Rv
 
 mod asymmetric_matcher_prelude;
 mod builtin_member_prelude;
+mod callable_registry;
 mod erased_method_prelude;
 mod erased_list_alias;
 mod byte_buffer_prelude;
@@ -681,6 +682,17 @@ fn emit_source_with_free_function_router(
     let needs_erased_list_alias = erased_list_alias::needed(mir);
     let needs_prim_set = stdlib::needs_prim_set(mir);
     let needs_erased_function = needs_erased_function_runtime(mir);
+    // Host values whose erasure retains the live value in the erased record's
+    // origin slot (see `smelt_with_host_origin`).
+    let needs_host_origins = needs_text_encoder
+        || needs_text_decoder
+        || needs_node_hash
+        || needs_event_emitter
+        || needs_http_server
+        || needs_headers
+        || needs_url_search_params
+        || needs_form_data
+        || needs_byte_array;
     let needs_date_now = stdlib::needs_date_now_runtime(mir);
     let needs_date_timezone_offset = stdlib::needs_date_timezone_offset_runtime(mir);
     let needs_vitest_mock = stdlib::needs_vitest_mock_runtime(mir);
@@ -853,11 +865,12 @@ fn emit_source_with_free_function_router(
         // are instances of this constructor — the class itself plus every
         // subclass of it in this crate, computed where the hierarchy is known so
         // the runtime needs no class graph.
-        writer.line("thread_local! { static SMELT_FUNCTION_CLASSES: ::std::cell::RefCell<::std::collections::HashMap<usize, Vec<&'static str>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }");
+        // The names live in the callable's entry of the bounded callable table
+        // (`callable_registry`), so they die with the constructor value.
         writer.line("/// Record which classes a callable constructs (the class and its subclasses).");
-        writer.line("fn smelt_register_function_classes<T: ?Sized + 'static>(function: &::std::rc::Rc<T>, classes: &[&'static str]) { let key = smelt_retain_callable_key(function); SMELT_FUNCTION_CLASSES.with(|registry| { registry.borrow_mut().insert(key, classes.to_vec()); }); }");
+        writer.line("fn smelt_register_function_classes<T: ?Sized + 'static>(function: &::std::rc::Rc<T>, classes: &[&'static str]) { smelt_update_callable(function, |meta| meta.classes = Some(classes.to_vec())); }");
         writer.line("/// The classes a stored constructor value constructs, if it is a known one.");
-        writer.line("fn smelt_function_classes(value: &SmeltUnknown) -> Option<Vec<&'static str>> { let SmeltUnknown::Function(function) = value else { return None; }; let key = smelt_retain_callable_key(function); SMELT_FUNCTION_CLASSES.with(|registry| registry.borrow().get(&key).cloned()) }");
+        writer.line("fn smelt_function_classes(value: &SmeltUnknown) -> Option<Vec<&'static str>> { let SmeltUnknown::Function(function) = value else { return None; }; smelt_read_callable(function, |meta| meta.classes.clone()) }");
         writer.blank_line();
         writer.line("/// `value instanceof <HostName>` where the name lives in an override slot.");
         writer.line("///");
@@ -1200,9 +1213,12 @@ fn emit_source_with_free_function_router(
         writer.line("pub struct SmeltFieldStore<K, V> {");
         writer.line("    entries: Vec<SmeltFieldEntry<K, V>>,");
         writer.line("    index: Option<SmeltFieldMap<u64, usize>>,");
+        writer.line("    /// How many keys live in the runtime's internal `__smelt` namespace.");
+        writer.line("    internal: u32,");
         // The erased-view origin slot is pay-for-use: only a program with a
         // reference record ever erases one (see `reference_origin`).
-        let needs_reference_origins = context.has_reference_classes();
+        // Host-value erasures stamp the same slot (`smelt_with_host_origin`).
+        let needs_reference_origins = context.has_reference_classes() || needs_host_origins;
         let origin_init = if needs_reference_origins {
             for line in reference_origin::STORE_FIELD_DECL.lines() {
                 writer.line(line);
@@ -1215,16 +1231,24 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.line("impl<K, V> SmeltFieldStore<K, V> {");
         writer.line("    /// Build an empty store sized for `capacity` entries.");
-        writer.line(format!("    fn with_capacity(capacity: usize) -> Self {{ Self {{ entries: Vec::with_capacity(capacity), index: None{origin_init} }} }}"));
+        writer.line(format!("    fn with_capacity(capacity: usize) -> Self {{ Self {{ entries: Vec::with_capacity(capacity), index: None, internal: 0{origin_init} }} }}"));
         writer.line("    #[inline]");
         writer.line("    fn len(&self) -> usize { self.entries.len() }");
         writer.line("    /// Borrow the key/value pairs in JavaScript own-key order.");
         writer.line("    #[inline]");
         writer.line("    fn entries(&self) -> &[SmeltFieldEntry<K, V>] { &self.entries }");
+        writer.line("    /// Whether any key is in the internal `__smelt` namespace (markers, slots).");
+        writer.line("    ///");
+        writer.line("    /// Every marker probe (`smelt_object_has_host_marker`, the byte-buffer");
+        writer.line("    /// marker, `for...in`'s regexp/error/arguments checks) asks about keys in");
+        writer.line("    /// that namespace, and almost every object has none: a store that says so");
+        writer.line("    /// answers all of them without scanning its entries once per marker.");
+        writer.line("    #[inline]");
+        writer.line("    fn has_internal_keys(&self) -> bool { self.internal != 0 }");
         writer.line("}");
         writer.blank_line();
         writer.line("impl<K, V> Default for SmeltFieldStore<K, V> {");
-        writer.line(format!("    fn default() -> Self {{ Self {{ entries: Vec::new(), index: None{origin_init} }} }}"));
+        writer.line(format!("    fn default() -> Self {{ Self {{ entries: Vec::new(), index: None, internal: 0{origin_init} }} }}"));
         writer.line("}");
         writer.blank_line();
         writer.line("impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {");
@@ -1276,7 +1300,9 @@ fn emit_source_with_free_function_router(
         writer.line("    /// Remove `key`, returning its value; later positions shift, so reindex.");
         writer.line("    fn remove<Q>(&mut self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {");
         writer.line("        let position = self.position(key)?;");
-        writer.line("        let value = self.entries.remove(position).value;");
+        writer.line("        let entry = self.entries.remove(position);");
+        writer.line("        if entry.key.smelt_is_internal_key() { self.internal -= 1; }");
+        writer.line("        let value = entry.value;");
         writer.line("        self.reindex();");
         writer.line("        Some(value)");
         writer.line("    }");
@@ -1287,6 +1313,7 @@ fn emit_source_with_free_function_router(
         writer.line("    /// entry shifts later positions and forces a rebuild.");
         writer.line("    fn insert(&mut self, key: K, value: V) -> Option<V> {");
         writer.line("        if let Some(position) = self.position(&key) { return Some(::std::mem::replace(&mut self.entries[position].value, value)); }");
+        writer.line("        if key.smelt_is_internal_key() { self.internal += 1; }");
         writer.line("        let position = smelt_js_key_order_position(&self.entries, &key);");
         writer.line("        if position == self.entries.len() {");
         writer.line("            let hash = if self.index.is_some() { key.smelt_key_hash() } else { 0 };");
@@ -1319,35 +1346,8 @@ fn emit_source_with_free_function_router(
         writer.line("    static SMELT_PROMISE_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
         writer.line("}");
         writer.blank_line();
-        writer.line("thread_local! {");
-        writer.line(
-            "    /// Map a reference record's shared cell address to a stable erased id.",
-        );
-        writer.line("    static SMELT_REFERENCE_OBJECT_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("/// Return a stable erased-object id for a reference record's shared cell.");
-        writer.line("///");
-        writer.line("/// A reference record (a class or object shape whose fields are written");
-        writer.line("/// after construction) is a handle over one `Rc<RefCell<..>>`, and every");
-        writer.line("/// handle on that cell is the SAME JavaScript object. Erasing any of them");
-        writer.line("/// must therefore produce an object that compares `===` equal to the");
-        writer.line("/// others, which means one id per cell rather than a fresh id per erasure.");
-        writer.line("/// Keying on the live cell's address gives exactly that. The handle is");
-        writer.line("/// alive at the call site, so the address is valid; a freed cell can see");
-        writer.line("/// its address reused, which at worst hands a stale id to a NEW object no");
-        writer.line("/// live erased alias of the old one can still be compared against.");
-        writer.line("#[allow(dead_code)]");
-        writer.line("fn smelt_reference_object_identity(cell_address: usize) -> usize {");
-        writer.line("    SMELT_REFERENCE_OBJECT_IDENTITIES.with(|identities| {");
-        writer.line("        let mut identities = identities.borrow_mut();");
-        writer.line("        if let Some(id) = identities.get(&cell_address) { return *id; }");
-        writer.line("        let id = smelt_next_object_id();");
-        writer.line("        identities.insert(cell_address, id);");
-        writer.line("        id");
-        writer.line("    })");
-        writer.line("}");
-        writer.blank_line();
+        // The bounded address table, and the reference-record identity table on it.
+        callable_registry::emit_address_tables(&mut writer);
         writer.line("/// Return a stable erased promise id for a source future local.");
         writer.line("fn smelt_promise_identity(source_key: usize) -> usize {");
         writer.line("    SMELT_PROMISE_IDENTITIES.with(|identities| {");
@@ -1387,198 +1387,12 @@ fn emit_source_with_free_function_router(
         writer.line("    })");
         writer.line("}");
         writer.blank_line();
-        // Address reuse in the identity registries.
-        //
-        // Every registry below (`SMELT_FUNCTION_ORIGINS`,
-        // `SMELT_FUNCTION_IDENTITIES`, `SMELT_FUNCTION_LENGTHS`,
-        // `SMELT_CALLABLE_OBJECTS`) keys on the ADDRESS of an `Rc` allocation and
-        // never removes an entry, because there is no drop hook to remove it
-        // from. The allocator, meanwhile, happily hands a freed address to the
-        // next allocation of the same size — so a fresh callable can land on a
-        // dead callable's address and inherit its registry entries. That is not
-        // theoretical: it is what made remeda's lazy `pipe` fail intermittently
-        // under `cargo test`'s thread-per-test scheduling. A `map(cb)` lazy
-        // evaluator allocated at a recycled address hit a stale
-        // `SMELT_CALLABLE_OBJECTS` entry, so `prepareLazyFunction` received the
-        // PREVIOUS operation's `{ __smelt_call: dataLast, lazy, lazyArgs }`
-        // callable object instead of the evaluator, and `pipe` then invoked
-        // `dataLast(item)` — routing one ITEM into the ARRAY parameter of
-        // `map`'s data-first implementation.
-        //
-        // The fix reserves the address for as long as a registry can name it.
-        // Holding a `Weak` keeps the `RcBox` block allocated even after the last
-        // strong handle is gone (the value itself is still dropped, so captured
-        // state is released), which makes the address unreusable and therefore
-        // makes every key unique to one allocation for the life of the thread.
-        // Growth matches the registries this guards, which are already unbounded.
-        writer.line("thread_local! {");
-        writer.line("    /// Weak handles reserving every address used as an identity-registry key.");
-        writer.line("    static SMELT_CALLABLE_KEY_GUARDS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("/// Reserve a callable allocation's address so no later allocation can reuse it.");
-        writer.line("///");
-        writer.line("/// Call this before storing that address in ANY identity registry, as a key or");
-        writer.line("/// as a canonical-identity value. Returns the reserved key for convenience.");
-        writer.line("fn smelt_retain_callable_key<F: ?Sized + 'static>(function: &::std::rc::Rc<F>) -> usize {");
-        writer.line("    let key = smelt_callable_object_key(function);");
-        writer.line("    SMELT_CALLABLE_KEY_GUARDS.with(|guards| {");
-        writer.line("        guards.borrow_mut().entry(key).or_insert_with(|| Box::new(::std::rc::Rc::downgrade(function)) as Box<dyn ::std::any::Any>);");
-        writer.line("    });");
-        writer.line("    key");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("/// The canonical JavaScript identity of a callable, reserving its address first.");
-        writer.line("///");
-        writer.line("/// Use this instead of `smelt_function_identity_of(smelt_callable_object_key(..))`");
-        writer.line("/// wherever the result is STORED, so an unlinked callable's own address cannot be");
-        writer.line("/// recycled underneath the registry entry that names it.");
-        writer.line("fn smelt_canonical_function_identity<F: ?Sized + 'static>(function: &::std::rc::Rc<F>) -> usize {");
-        writer.line("    smelt_function_identity_of(smelt_retain_callable_key(function))");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("thread_local! {");
-        writer.line("    static SMELT_FUNCTION_ORIGINS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("/// Return the stable key for an erased callback wrapper.");
-        writer.line("fn smelt_erased_function_key(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> usize {");
-        writer.line("    ::std::rc::Rc::as_ptr(function) as *const () as usize");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("/// Retain typed callback identity while it crosses an erased ABI.");
-        writer.line("fn smelt_register_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, origin: T) {");
-        writer.line("    smelt_retain_callable_key(function);");
-        writer.line("    SMELT_FUNCTION_ORIGINS.with(|origins| { origins.borrow_mut().insert(smelt_erased_function_key(function), Box::new(origin)); });");
-        writer.line("}");
-        writer.blank_line();
-        // JavaScript reference identity for an erased callable.
-        //
-        // Erasing a typed callback builds a fresh forwarding adapter, so two
-        // erasures of the SAME source callable produced two distinct `Rc`s and
-        // `js_strict_eq`'s `Rc::ptr_eq` called them unequal — `f === f` read
-        // `false`. Named function *items* already dodge this through the
-        // per-item `__smelt_fn_value_<key>()` accessor, which caches one erased
-        // value, but a closure bound to a local (`const f = () => {}`) has no
-        // compile-time key: its identity exists only at runtime.
-        //
-        // So each adapter records the address of the callable it wraps, and
-        // `===` compares those. This is sound despite address reuse: an adapter
-        // owns a clone of its source, so a live adapter's recorded address
-        // cannot have been recycled, and the entry for a reused adapter address
-        // is overwritten when the new adapter is built. Growth matches the
-        // sibling `SMELT_FUNCTION_ORIGINS` / `SMELT_CALLABLE_OBJECTS` registries.
-        writer.line("thread_local! {");
-        writer.line("    static SMELT_FUNCTION_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("/// The JavaScript function identity of a callable allocation.");
-        writer.line("///");
-        writer.line("/// Defaults to the allocation's own address, so two callables that were never");
-        writer.line("/// linked stay distinct.");
-        writer.line("fn smelt_function_identity_of(key: usize) -> usize { SMELT_FUNCTION_IDENTITIES.with(|identities| identities.borrow().get(&key).copied()).unwrap_or(key) }");
-        writer.blank_line();
-        writer.line("/// Record that `derived` wraps `origin`, so both denote one JavaScript function.");
-        writer.line("///");
-        writer.line("/// Stores `origin`'s CANONICAL identity rather than its address, so a chain of");
-        writer.line("/// wrappers (erase, extract, erase again) collapses to one id without a walk.");
-        writer.line("fn smelt_link_function_identity<D: ?Sized + 'static, O: ?Sized + 'static>(derived: &::std::rc::Rc<D>, origin: &::std::rc::Rc<O>) { smelt_link_function_identity_key(derived, smelt_canonical_function_identity(origin)); }");
-        writer.blank_line();
-        writer.line("/// Link `derived` to an already-resolved canonical identity.");
-        writer.line("///");
-        writer.line("/// Needed where the origin callable is moved into the wrapper being built, so");
-        writer.line("/// its identity has to be read before the move.");
-        writer.line("fn smelt_link_function_identity_key<D: ?Sized + 'static>(derived: &::std::rc::Rc<D>, canonical: usize) { let key = smelt_retain_callable_key(derived); SMELT_FUNCTION_IDENTITIES.with(|identities| { identities.borrow_mut().insert(key, canonical); }); }");
-        writer.blank_line();
-        // One canonical JavaScript identity per (defining class, method).
-        //
-        // In JavaScript a method lives ONCE, on the prototype, so every read of
-        // it denotes the same function value: `a.m === b.m === C.prototype.m`.
-        // A generated method reference cannot be that single allocation — it has
-        // to capture its receiver to stay callable — so each read builds a fresh
-        // `Rc` and a bare address comparison answered `false`.
-        //
-        // The identity registry above already exists for exactly this shape
-        // (erase/extract wrappers of one source callable); it needs a canonical
-        // key that no allocation owns. `smelt_method_identity` mints one leaked
-        // byte per key: a unique address that stays live for the life of the
-        // process, so it can never be recycled underneath the registry, and one
-        // that every read of the same (class, method) pair resolves to.
-        writer.line("thread_local! {");
-        writer.line("    /// Canonical identity address of each class method, keyed by `Class::method`.");
-        writer.line("    static SMELT_METHOD_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<&'static str, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("/// The canonical JavaScript identity of one class method.");
-        writer.line("///");
-        writer.line("/// Allocated once per key and never freed, so it is distinct from every");
-        writer.line("/// callable allocation and stable across every read of the method.");
-        writer.line("fn smelt_method_identity(key: &'static str) -> usize {");
-        writer.line("    SMELT_METHOD_IDENTITIES.with(|identities| *identities.borrow_mut().entry(key).or_insert_with(|| ::std::boxed::Box::leak(::std::boxed::Box::new(0u8)) as *const u8 as usize))");
-        writer.line("}");
-        writer.blank_line();
-        // `Function.prototype.length` across the erasure boundary.
-        //
-        // A typed callable knows its own arity, and `SmeltErasedFunction` carries it
-        // in a `length` field. Erasing that value to `SmeltUnknown::Function(Rc<…>)`
-        // throws the field away — an `Rc<dyn Fn>` has nowhere to put it — so a
-        // `.length` read on an erased callable answered `0`. Real code branches on
-        // it: es-toolkit `rest(func)` defaults its split point to `func.length - 1`,
-        // so an answer of `0` made the default `-1` and every rest-parameter spec
-        // reshaped its arguments wrongly.
-        //
-        // Keyed and read through the CANONICAL identity, so a chain of erasure
-        // wrappers resolves to the arity of the function the chain started from,
-        // exactly as `smelt_same_function_identity` resolves equality.
-        writer.line("thread_local! {");
-        writer.line("    /// Source arity of each erased callable, keyed by canonical identity.");
-        writer.line("    static SMELT_FUNCTION_LENGTHS: ::std::cell::RefCell<::std::collections::HashMap<usize, f64>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("/// Record an erased callable's `Function.prototype.length`.");
-        writer.line(format!(
-            "fn {register}<T: ?Sized + 'static>(function: &::std::rc::Rc<T>, length: f64) {{ let key = smelt_canonical_function_identity(function); SMELT_FUNCTION_LENGTHS.with(|lengths| {{ lengths.borrow_mut().insert(key, length); }}); }}",
-            register = smelt_stdlib::runtime_symbols::function_length::REGISTER,
-        ));
-        writer.blank_line();
-        // An erasure adapter and the callable it wraps are ONE JavaScript
-        // function and share one canonical identity, so a second registration
-        // for the same function would overwrite the arity already recorded for
-        // it. `SmeltErasedFunction::into_smelt_unknown` fills the field it is
-        // about to drop through this door, which keeps the first (and therefore
-        // the source-declared) arity.
-        writer.line("/// Record an erased callable's `Function.prototype.length` if none is known.");
-        writer.line("fn smelt_register_function_length_once<T: ?Sized + 'static>(function: &::std::rc::Rc<T>, length: f64) { let key = smelt_canonical_function_identity(function); SMELT_FUNCTION_LENGTHS.with(|lengths| { lengths.borrow_mut().entry(key).or_insert(length); }); }");
-        writer.blank_line();
-        writer.line("/// Read `Function.prototype.length` off an erased value.");
-        writer.line("///");
-        writer.line("/// A callable object (`{ __smelt_call }`) reports the arity of the callable it");
-        writer.line("/// carries; anything else reports `0`, which is what JavaScript answers for a");
-        writer.line("/// value with no `length` property.");
-        writer.line(format!(
-            "fn {read}(value: &SmeltUnknown) -> f64 {{ let function = match value {{ SmeltUnknown::Function(function) => Some(function.clone()), SmeltUnknown::Object(object) => match object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(function)) => Some(function), _ => None }}, _ => None }}; let Some(function) = function else {{ return 0.0; }}; let key = smelt_function_identity_of(smelt_callable_object_key(&function)); SMELT_FUNCTION_LENGTHS.with(|lengths| lengths.borrow().get(&key).copied()).unwrap_or(0.0) }}",
-            read = smelt_stdlib::runtime_symbols::function_length::READ,
-        ));
-        writer.blank_line();
-        writer.line("/// Whether two callables denote the same JavaScript function value.");
-        writer.line("///");
-        writer.line("/// Two allocations can denote one source function once a wrapper sits between");
-        writer.line("/// them (an erasure adapter, or the typed callback recovered back out of one),");
-        writer.line("/// so a bare `Rc::ptr_eq` is not sufficient. Accepts differently-typed handles");
-        writer.line("/// because `===` can compare a typed callback against an erased one.");
-        writer.line("fn smelt_same_function_identity<L: ?Sized, R: ?Sized>(left: &::std::rc::Rc<L>, right: &::std::rc::Rc<R>) -> bool { let left_key = smelt_callable_object_key(left); let right_key = smelt_callable_object_key(right); left_key == right_key || smelt_function_identity_of(left_key) == smelt_function_identity_of(right_key) }");
-        writer.blank_line();
-        writer.line("/// Whether two erased callables are the same JavaScript function value.");
-        writer.line("fn smelt_same_erased_function(left: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, right: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> bool { smelt_same_function_identity(left, right) }");
-        writer.blank_line();
-        writer.line("/// Recover a typed callback previously passed through an erased ABI.");
-        writer.line("fn smelt_restore_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> Option<T> {");
-        writer.line("    SMELT_FUNCTION_ORIGINS.with(|origins| origins.borrow().get(&smelt_erased_function_key(function)).and_then(|origin| origin.downcast_ref::<T>()).cloned())");
-        writer.line("}");
-        writer.blank_line();
+        // Callable identity, origin, length and callable-object metadata: one
+        // bounded address table (see `callable_registry`).
+        callable_registry::emit_callable_registry(&mut writer);
         // Pay-for-use. Only the classes whose state is not a record retain
         // their live value, so a program that erases none of them must not carry
-        // the registry — sixteen example goldens grew by it before this gate.
+        // the helpers — sixteen example goldens grew by them before this gate.
         // `Headers`, `URLSearchParams` and `FormData` joined the list in round
         // 18: their records round-trip STRUCTURALLY, but a member resolved off
         // an erased view (`smelt_host_method`) has to act on the SAME value, so
@@ -1587,17 +1401,8 @@ fn emit_source_with_free_function_router(
         // The typed-array family joined for the same reason: a write through an
         // erased view (`(view as any)[0] = 9`) has to reach the SAME storage the
         // concrete value still holds, and `smelt_typed_array_write_origin` finds
-        // it through this registry.
-        if needs_text_encoder
-            || needs_text_decoder
-            || needs_node_hash
-            || needs_event_emitter
-            || needs_http_server
-            || needs_headers
-            || needs_url_search_params
-            || needs_form_data
-            || stdlib::needs_byte_array_runtime(mir)
-        {
+        // it through the erased record's origin.
+        if needs_host_origins {
             // Host values whose state is NOT representable as a record.
             //
             // `Headers` and `Blob` round-trip structurally: their erased record
@@ -1610,28 +1415,26 @@ fn emit_source_with_free_function_router(
             // What JavaScript does there is not rebuild anything: erasing a value
             // and narrowing it back yields the SAME object, so
             // `const x: unknown = emitter; (x as EventEmitter).on(..)` reaches the
-            // same listener list. This registry is how the generated runtime keeps
-            // that promise: the erasure retains the live value under the erased
-            // record's object id, and `SmeltFromUnknown` hands that value back.
+            // same listener list. The erasure therefore stamps the live value into
+            // the erased object's own `origin` slot — the slot reference records
+            // already use (`reference_origin`) — and `SmeltFromUnknown` hands that
+            // value back.
             //
-            // Keyed on the JavaScript object id, not on an `Rc` address, so unlike
-            // the sibling callable registries it needs no address-reuse guard: ids
-            // are minted monotonically by `smelt_next_object_id` and are never
-            // reused within a thread. Entries are never removed, for the same
-            // reason as the callable registries — there is no drop hook — and the
-            // growth is one entry per host value that crosses the boundary.
-            writer.line("thread_local! {");
-            writer.line("    /// Live host values reachable from their erased records, by object id.");
-            writer.line("    static SMELT_HOST_ORIGINS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
-            writer.line("}");
-            writer.blank_line();
-            writer.line("/// Retain a host value so its erased record can hand back the same object.");
+            // This used to be a thread-local map from object id to value that
+            // never removed an entry (there is no drop hook on an id), so every
+            // `Request`/`Response`/`Headers` that crossed the boundary stayed
+            // alive for the life of the process: six per request in the Hono
+            // showcase, and the values it retained held most of the request's
+            // graph. In the slot the value lives exactly as long as some erased
+            // view of it does, which is also the only time a recovery can ask.
+            writer.line("/// Stamp the live host value an erased record was made from into its origin slot.");
             writer.line("///");
-            writer.line("/// Call this from the value's `IntoSmeltUnknown`, with the id the erased");
-            writer.line("/// record is built with, so the record and the retained value agree.");
+            writer.line("/// Call this from the value's `IntoSmeltUnknown` on the record it builds,");
+            writer.line("/// so narrowing the record back hands out the SAME object.");
             writer.line("#[allow(dead_code)]");
-            writer.line("fn smelt_register_host_origin<T: Clone + 'static>(id: usize, value: T) {");
-            writer.line("    SMELT_HOST_ORIGINS.with(|origins| { origins.borrow_mut().insert(id, Box::new(value)); });");
+            writer.line("fn smelt_with_host_origin<T: 'static>(erased: SmeltUnknown, origin: T) -> SmeltUnknown {");
+            writer.line("    if let SmeltUnknown::Object(object) = &erased { object.store.borrow_mut().origin = Some(Box::new(origin)); }");
+            writer.line("    erased");
             writer.line("}");
             writer.blank_line();
             writer.line("/// Recover the host value an erased record was made from.");
@@ -1643,73 +1446,11 @@ fn emit_source_with_free_function_router(
             writer.line("#[allow(dead_code)]");
             writer.line("fn smelt_restore_host_origin<T: Clone + 'static>(value: &SmeltUnknown) -> Option<T> {");
             writer.line("    let SmeltUnknown::Object(map) = value else { return None };");
-            writer.line("    smelt_restore_host_origin_by_id::<T>(map.id)");
-            writer.line("}");
-            writer.blank_line();
-            writer.line("/// The same lookup from an object id alone.");
-            writer.line("///");
-            writer.line("/// A write THROUGH an erased record needs this: it holds the record's id");
-            writer.line("/// (and its storage record's id) rather than a whole value, and it has to");
-            writer.line("/// reach the live object those ids stand for.");
-            writer.line("#[allow(dead_code)]");
-            writer.line("fn smelt_restore_host_origin_by_id<T: Clone + 'static>(id: usize) -> Option<T> {");
-            writer.line("    SMELT_HOST_ORIGINS.with(|origins| origins.borrow().get(&id).and_then(|origin| origin.downcast_ref::<T>()).cloned())");
+            writer.line("    map.smelt_origin::<T>()");
             writer.line("}");
             writer.blank_line();
         }
 
-        // A JavaScript "callable object" (a function with attached own
-        // properties, e.g. remeda's `map(cb)` carrying `.lazy`/`.lazyArgs`)
-        // erases to `SmeltUnknown::Object { __smelt_call, ...props }`. When such
-        // a value is narrowed to a CONCRETE typed callback (`Rc<dyn Fn(..)>`),
-        // the sibling properties have nowhere to live on the bare `Rc`, so a
-        // naive round-trip back to `SmeltUnknown` would forget them and yield a
-        // plain `SmeltUnknown::Function`. `SmeltErasedFunction` solves the same
-        // problem with its `object` field; typed `Rc` callbacks instead stash
-        // the originating object here, keyed by the callback allocation address
-        // (stable across `Rc::clone`). This is a genuine dynamic boundary
-        // (erased callable identity), not avoidable erasure: it PRESERVES a
-        // concrete object shape that would otherwise be lost.
-        writer.line("thread_local! {");
-        writer.line("    static SMELT_CALLABLE_OBJECTS: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("/// Stable key for a typed callback allocation (address of its `Rc`).");
-        writer.line("fn smelt_callable_object_key<F: ?Sized>(function: &::std::rc::Rc<F>) -> usize {");
-        writer.line("    ::std::rc::Rc::as_ptr(function) as *const () as usize");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("/// Remember the callable object a typed callback was narrowed from.");
-        writer.line("fn smelt_register_callable_object<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, object: SmeltUnknown) {");
-        writer.line("    if let SmeltUnknown::Object(_) = &object {");
-        writer.line("        let key = smelt_retain_callable_key(function);");
-        writer.line("        SMELT_CALLABLE_OBJECTS.with(|objects| { objects.borrow_mut().insert(key, object); });");
-        writer.line("    }");
-        writer.line("}");
-        writer.blank_line();
-        // An adapter that calls a wider callback through a signature with FEWER
-        // parameters (`((ctx, next) => ..) as Next`) is still that wider
-        // JavaScript function: a type assertion changes nothing at runtime, so
-        // a call reaching it through an erased `Function` must pass every
-        // argument it has. The adapter's `Rc<dyn Fn(..)>` cannot accept them,
-        // so it records the full-arity erased function here (in the same
-        // registry, keyed the same way) and shares its identity; erasing the
-        // adapter then answers that function. Same boundary as the callable
-        // objects above: it preserves the source callable, it erases nothing.
-        writer.line("/// Remember the full-arity erased function a narrowing adapter forwards to.");
-        writer.line("fn smelt_register_narrowed_callable<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, wide: SmeltUnknown) {");
-        writer.line("    if let SmeltUnknown::Function(wide_function) = &wide {");
-        writer.line("        smelt_link_function_identity(function, wide_function);");
-        writer.line("        let key = smelt_retain_callable_key(function);");
-        writer.line("        SMELT_CALLABLE_OBJECTS.with(|objects| { objects.borrow_mut().insert(key, wide); });");
-        writer.line("    }");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("/// Recover the callable object a typed callback was narrowed from.");
-        writer.line("fn smelt_lookup_callable_object<F: ?Sized>(function: &::std::rc::Rc<F>) -> Option<SmeltUnknown> {");
-        writer.line("    SMELT_CALLABLE_OBJECTS.with(|objects| objects.borrow().get(&smelt_callable_object_key(function)).cloned())");
-        writer.line("}");
-        writer.blank_line();
         writer.line("impl<K, V> Clone for SmeltRecord<K, V> {");
         writer.line(
             "    fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } }",
@@ -1791,10 +1532,12 @@ fn emit_source_with_free_function_router(
         writer.line("    fn smelt_key_hash(&self) -> u64;");
         writer.line("    /// The stored-entry tie-break for this key; see `smelt_field_fingerprint`.");
         writer.line("    fn smelt_key_fingerprint(&self) -> u32;");
+        writer.line("    /// Whether this key is in the runtime's internal `__smelt` namespace.");
+        writer.line("    fn smelt_is_internal_key(&self) -> bool;");
         writer.line("}");
         writer.blank_line();
-        writer.line("impl SmeltPropertyKey for str { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.as_bytes()) } }");
-        writer.line("impl SmeltPropertyKey for String { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.as_bytes()) } }");
+        writer.line("impl SmeltPropertyKey for str { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.as_bytes()) } #[inline] fn smelt_is_internal_key(&self) -> bool { self.starts_with(\"__smelt\") } }");
+        writer.line("impl SmeltPropertyKey for String { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.as_bytes()) } #[inline] fn smelt_is_internal_key(&self) -> bool { self.starts_with(\"__smelt\") } }");
         writer.blank_line();
         writer.line("/// Return the position a newly inserted key takes in a JavaScript own-key order.");
         writer.line("///");
@@ -2417,8 +2160,8 @@ fn emit_source_with_free_function_router(
             "/// Return whether an erased object key is visible to JavaScript `for...in` iteration.",
         );
         let host_marker_array = host_marker_registry_array();
-        writer.line(format!("fn smelt_object_has_host_marker(object: &SmeltObject) -> bool {{ {host_marker_array}.iter().any(|marker| object.contains_key(marker)) }}"));
-        writer.line(format!("fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool {{ {host_marker_array}.iter().any(|marker| record.contains_key(*marker)) }}"));
+        writer.line(format!("fn smelt_object_has_host_marker(object: &SmeltObject) -> bool {{ object.store.borrow().has_internal_keys() && {host_marker_array}.iter().any(|marker| object.contains_key(marker)) }}"));
+        writer.line(format!("fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool {{ record.store.borrow().has_internal_keys() && {host_marker_array}.iter().any(|marker| record.contains_key(*marker)) }}"));
         // The concrete typed-array family's presence decides whether the
         // erased index write has a live value to write through to.
         byte_buffer_prelude::emit(&mut writer, stdlib::needs_byte_array_runtime(mir));
@@ -2466,7 +2209,22 @@ fn emit_source_with_free_function_router(
         // the opaque `__smelt_symbol:<description>` form, the folded registry and
         // unique member names, and the well-known keys — so one prefix test
         // covers all of them.
-        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_map\" && key != \"__smelt_set\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(object.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
+        // The object-dependent half of the predicate (host marker, the
+        // regexp/error/arguments markers) is a property of the OBJECT, not of
+        // the key, so a walk over every key reads it once
+        // (`smelt_for_in_object_shape`) instead of re-probing ~30 marker keys per
+        // key: the serializer and the own-key walks below do exactly that. The
+        // per-key form keeps its signature for single-key callers, and both read
+        // the one key predicate, so they cannot drift apart.
+        writer.line("/// The parts of an object's shape own-key enumeration depends on, read once per object.");
+        writer.line("#[derive(Clone, Copy)]");
+        writer.line("struct SmeltForInShape { host: bool, regexp: bool, error: bool, arguments: bool }");
+        writer.line("/// Read an object's `for...in`-relevant markers once.");
+        writer.line("fn smelt_for_in_object_shape(object: &SmeltObject) -> SmeltForInShape { if !object.store.borrow().has_internal_keys() { return SmeltForInShape { host: false, regexp: false, error: false, arguments: false }; } SmeltForInShape { host: smelt_object_has_host_marker(object), regexp: object.contains_key(\"__smelt_regexp\"), error: object.contains_key(\"__smelt_error\"), arguments: object.contains_key(\"__smelt_arguments\") } }");
+        writer.line("/// Return whether `key` is visible to `for...in` on an object of this shape.");
+        writer.line("fn smelt_is_for_in_shape_key(shape: SmeltForInShape, key: &str) -> bool { !shape.host && !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_map\" && key != \"__smelt_set\" && !(shape.regexp && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(shape.error && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(shape.arguments && matches!(key, \"__smelt_arguments\" | \"length\")) }");
+        writer.line("/// Return whether an object key is visible to JavaScript `for...in` iteration.");
+        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { smelt_is_for_in_shape_key(smelt_for_in_object_shape(object), key) }");
         writer
             .line("/// Return whether a record key is visible to JavaScript `for...in` iteration.");
         writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(record.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
@@ -2485,7 +2243,7 @@ fn emit_source_with_free_function_router(
         // itself is recorded by reference in `SMELT_OBJECT_PROTOTYPES`, keyed by
         // object identity, so no hidden entry has to be filtered out of this walk.
         writer.line("/// Every key JavaScript `for...in` yields for an erased object, prototype chain included.");
-        writer.line("fn smelt_for_in_object_keys(map: &SmeltObject) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for key in map.keys() { if key.starts_with(\"__smelt_proto:\") { continue; } if smelt_is_for_in_object_key(map, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in map.keys() { if let Some(inherited) = key.strip_prefix(\"__smelt_proto:\") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }");
+        writer.line("fn smelt_for_in_object_keys(map: &SmeltObject) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); let shape = smelt_for_in_object_shape(map); for key in map.keys() { if key.starts_with(\"__smelt_proto:\") { continue; } if smelt_is_for_in_shape_key(shape, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in map.keys() { if let Some(inherited) = key.strip_prefix(\"__smelt_proto:\") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }");
         writer.blank_line();
         writer.line("/// Every key JavaScript `for...in` yields for a typed record, prototype chain included.");
         writer.line("fn smelt_for_in_record_keys<V>(record: &SmeltRecord<String, V>) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for key in record.keys() { if key.starts_with(\"__smelt_proto:\") { continue; } if smelt_is_for_in_record_key(record, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in record.keys() { if let Some(inherited) = key.strip_prefix(\"__smelt_proto:\") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }");
@@ -2784,33 +2542,104 @@ fn emit_source_with_free_function_router(
         // serializes only the elements — and visible to property reads and to key
         // enumeration, where it follows the index keys.
         //
-        // The registry is keyed by a monotonically minted id and never pruned, so
-        // it retains what an array with a named property holds for the rest of the
-        // process. That is the same trade the callable-identity registries above
-        // make, and named properties on an array are rare: an array that never
-        // takes one puts nothing in the table.
+        // Lifetime. An entry is keyed by an id, and an id has no drop hook, so the
+        // entry also records WHICH storages it belongs to: a `Weak` to the shared
+        // buffer of every erased array that wrote it. Typed `SmeltList<SmeltUnknown>`
+        // handles alias that buffer (`with_storage`), so a live typed handle keeps
+        // the entry too. Once every recorded buffer is dead nothing can name the
+        // array any more and an amortized sweep (the same doubling rule as
+        // `SmeltAddressTable`) drops the entry. This used to be never pruned, and
+        // every regex match a router erased (`index`/`input`/`groups`) stayed in
+        // the table for the life of the process.
+        //
+        // One kind of entry cannot be bounded that way and is PINNED, which is
+        // exactly the old never-pruned behavior: a property the program writes
+        // through a DETACHED array — one built by `with_id` as a copy of another
+        // representation of the same id (the erasure of a typed `string[]`
+        // copies its elements). The typed original carries the id but no buffer
+        // this table was told about, and it may outlive every erased copy.
+        // A typed COPY made from an erased array with properties
+        // (`SmeltFromUnknown` for `SmeltList<T>`, and the emitter's
+        // erased-array-to-list arm) ADOPTS the entry instead: its own buffer
+        // becomes an owner (`smelt_array_props_adopt`), so the properties live
+        // exactly as long as some representation that carries the id.
+        // Known gap: a typed-to-typed list conversion that changes the element
+        // type (`unknown[]` to `string[]`, emitter `coercion.rs`) copies the id
+        // without adopting, because it can be emitted in a crate without this
+        // table. Properties written through the `unknown[]` alias then live only
+        // as long as that alias's buffer.
+        // Properties DERIVED from a typed value at its erasure (a regex match's
+        // `index`/`input`/`groups`) are rewritten by every erasure of that value,
+        // so they are guarded by the buffer alone even though the array is a copy.
+        writer.line("/// The named properties of one array identity, and the buffers that keep them.");
+        writer.line("#[derive(Default)]");
+        writer.line("struct SmeltArrayProps { props: Vec<(String, SmeltUnknown)>, owners: Vec<(usize, Box<dyn SmeltAllocationGuard>)>, pinned: bool }");
+        writer.blank_line();
+        writer.line("impl SmeltArrayProps {");
+        writer.line("    /// Whether some representation that can still name this array is alive.");
+        writer.line("    fn is_live(&self) -> bool { self.pinned || self.owners.iter().any(|(_, owner)| owner.is_live()) }");
+        writer.line("    /// Record a buffer carrying this array's id (erased or typed) as an owner of this entry.");
+        writer.line("    fn own<T: 'static>(&mut self, storage: &::std::rc::Rc<::std::cell::RefCell<Vec<T>>>) { let key = ::std::rc::Rc::as_ptr(storage) as *const () as usize; if !self.owners.iter().any(|(owner, _)| *owner == key) { self.owners.retain(|(_, owner)| owner.is_live()); self.owners.push((key, Box::new(::std::rc::Rc::downgrade(storage)))); } }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Named array properties by array identity, swept like `SmeltAddressTable`.");
+        writer.line("struct SmeltArrayPropsTable { entries: ::std::collections::HashMap<usize, SmeltArrayProps>, sweep_at: usize }");
+        writer.blank_line();
+        writer.line("impl SmeltArrayPropsTable {");
+        writer.line("    /// Number of entries, live or not yet swept.");
+        writer.line("    #[allow(dead_code)]");
+        writer.line("    fn len(&self) -> usize { self.entries.len() }");
+        writer.line("    /// Whether creating an entry for `id` should sweep first.");
+        writer.line("    fn wants_sweep(&self, id: usize) -> bool { self.entries.len() >= self.sweep_at && !self.entries.contains_key(&id) }");
+        writer.line("    /// The entry for `id`, created on first use.");
+        writer.line("    fn slot(&mut self, id: usize) -> &mut SmeltArrayProps { self.entries.entry(id).or_default() }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Sweep the named-property table until no entry dies (see `smelt_sweep_address_table`).");
+        writer.line("fn smelt_sweep_array_props(table: &::std::cell::RefCell<SmeltArrayPropsTable>) {");
+        writer.line("    loop {");
+        writer.line("        let dead: Vec<SmeltArrayProps> = table.borrow_mut().entries.extract_if(|_, entry| !entry.is_live()).map(|(_, entry)| entry).collect();");
+        writer.line("        if dead.is_empty() { break; }");
+        writer.line("        drop(dead);");
+        writer.line("    }");
+        writer.line("    let mut table = table.borrow_mut();");
+        writer.line("    table.sweep_at = (SMELT_ADDRESS_TABLE_GROWTH * table.entries.len()).max(SMELT_ADDRESS_TABLE_MIN_SWEEP);");
+        writer.line("}");
+        writer.blank_line();
         writer.line("thread_local! {");
         writer.line("    /// Named (non-index) properties of erased arrays, keyed by array identity.");
-        writer.line("    static SMELT_ARRAY_PROPS: ::std::cell::RefCell<::std::collections::HashMap<usize, Vec<(String, SmeltUnknown)>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
+        writer.line("    static SMELT_ARRAY_PROPS: ::std::cell::RefCell<SmeltArrayPropsTable> = ::std::cell::RefCell::new(SmeltArrayPropsTable { entries: ::std::collections::HashMap::new(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP });");
         writer.line("}");
         writer.blank_line();
         writer.line("/// Read one named property of the array with this identity.");
-        writer.line("fn smelt_array_named_property(id: usize, key: &str) -> Option<SmeltUnknown> { SMELT_ARRAY_PROPS.with(|props| props.borrow().get(&id).and_then(|props| props.iter().find(|(name, _)| name == key).map(|(_, value)| value.clone()))) }");
+        writer.line("fn smelt_array_named_property(id: usize, key: &str) -> Option<SmeltUnknown> { SMELT_ARRAY_PROPS.with(|props| props.borrow().entries.get(&id).and_then(|entry| entry.props.iter().find(|(name, _)| name == key).map(|(_, value)| value.clone()))) }");
         writer.blank_line();
-        writer.line("/// Write one named property of the array with this identity, creating its table on first use.");
-        writer.line("fn smelt_array_set_named_property(id: usize, key: String, value: SmeltUnknown) { SMELT_ARRAY_PROPS.with(|props| { let mut props = props.borrow_mut(); let entries = props.entry(id).or_default(); match entries.iter_mut().find(|(name, _)| *name == key) { Some(slot) => slot.1 = value, None => entries.push((key, value)) } }); }");
+        writer.line("/// Write one named property of `array`, owned by its buffer (pinned through a detached copy).");
+        writer.line("///");
+        writer.line("/// `derived` marks a property the erasure of a typed value rewrites every");
+        writer.line("/// time it erases (a match's `index`): such an entry is never pinned.");
+        writer.line("fn smelt_array_store_named_property(array: &SmeltArray, key: String, property: SmeltUnknown, derived: bool) { SMELT_ARRAY_PROPS.with(|props| { if props.borrow().wants_sweep(array.id) { smelt_sweep_array_props(props); } let mut props = props.borrow_mut(); let entry = props.slot(array.id); entry.own(&array.values); if array.detached && !derived { entry.pinned = true; } match entry.props.iter_mut().find(|(name, _)| *name == key) { Some(slot) => slot.1 = property, None => entry.props.push((key, property)) } }); }");
+        writer.blank_line();
+        writer.line("/// Make a typed copy's buffer an owner of `id`'s named properties, if it has any.");
+        writer.line("///");
+        writer.line("/// A copy carries the id onward (`as string[]` of a regex match), so the");
+        writer.line("/// properties must live as long as it does, not only as long as the erased");
+        writer.line("/// array it was copied from.");
+        writer.line("fn smelt_array_props_adopt<T: 'static>(id: usize, storage: &::std::rc::Rc<::std::cell::RefCell<Vec<T>>>) { SMELT_ARRAY_PROPS.with(|props| { if let Ok(mut props) = props.try_borrow_mut() { if let Some(entry) = props.entries.get_mut(&id) { entry.own(storage); } } }); }");
         writer.blank_line();
         writer.line("/// The named property keys of the array with this identity, in insertion order.");
-        writer.line("fn smelt_array_named_keys(id: usize) -> Vec<String> { SMELT_ARRAY_PROPS.with(|props| props.borrow().get(&id).map_or_else(Vec::new, |props| props.iter().map(|(name, _)| name.clone()).collect())) }");
+        writer.line("fn smelt_array_named_keys(id: usize) -> Vec<String> { SMELT_ARRAY_PROPS.with(|props| props.borrow().entries.get(&id).map_or_else(Vec::new, |entry| entry.props.iter().map(|(name, _)| name.clone()).collect())) }");
         writer.blank_line();
         writer.line("/// The named properties of the array with this identity, in insertion order.");
-        writer.line("fn smelt_array_named_entries(id: usize) -> Vec<(String, SmeltUnknown)> { SMELT_ARRAY_PROPS.with(|props| props.borrow().get(&id).cloned().unwrap_or_default()) }");
+        writer.line("fn smelt_array_named_entries(id: usize) -> Vec<(String, SmeltUnknown)> { SMELT_ARRAY_PROPS.with(|props| props.borrow().entries.get(&id).map(|entry| entry.props.clone()).unwrap_or_default()) }");
         writer.blank_line();
         writer.line("pub struct SmeltArray {");
         writer.line("    id: usize,");
         writer.line(
             "    values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>,",
         );
+        writer.line("    /// Whether the buffer is a COPY of another representation of `id` (`with_id`).");
+        writer.line("    detached: bool,");
         writer.line("}");
         writer.blank_line();
         // Hand-written `Debug` rather than a derive, so the shared cell does not
@@ -2818,20 +2647,20 @@ fn emit_source_with_free_function_router(
         // `SmeltArray { id: 1, values: [..] }`. Keeping the rendering byte-identical
         // means the storage change is invisible to anything that formats a value.
         writer.line("impl ::std::fmt::Debug for SmeltArray { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct(\"SmeltArray\").field(\"id\", &self.id).field(\"values\", &*self.values.borrow()).finish() } }");
-        writer.line("impl Clone for SmeltArray { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } } }");
+        writer.line("impl Clone for SmeltArray { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone(), detached: self.detached } } }");
         writer.line("impl SmeltArray {");
         writer.line("    /// Create an identity-bearing erased JavaScript array.");
-        writer.line("    fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }");
+        writer.line("    fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), detached: false } }");
         writer.line(
             "    /// Reuse a caller-supplied identity so repeated erasures of one source list compare `===` equal.",
         );
         writer.line(
-            "    fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }",
+            "    fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), detached: true } }",
         );
         writer.line(
             "    /// Reuse an existing shared buffer, so a re-wrap keeps aliasing the same array.",
         );
-        writer.line("    fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>) -> Self { Self { id, values } }");
+        writer.line("    fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>) -> Self { Self { id, values, detached: false } }");
         // The twin of `SmeltList::storage()`. An erased array re-wrapped as a
         // typed `SmeltList<SmeltUnknown>` must keep aliasing the SAME buffer, or
         // the round-trip produces a stale snapshot wearing the live array's id
@@ -2870,7 +2699,7 @@ fn emit_source_with_free_function_router(
         writer.line("    /// Read a NON-INDEX named property (JS `arr.x`), or `None` when absent.");
         writer.line("    fn named_property(&self, key: &str) -> Option<SmeltUnknown> { smelt_array_named_property(self.id, key) }");
         writer.line("    /// Write a NON-INDEX named property (JS `arr.x = v`), allocating the side table on first use.");
-        writer.line("    fn set_named_property(&self, key: String, value: SmeltUnknown) { smelt_array_set_named_property(self.id, key, value); }");
+        writer.line("    fn set_named_property(&self, key: String, value: SmeltUnknown) { smelt_array_store_named_property(self, key, value, false); }");
         writer.line("    /// The named property keys, in insertion order (empty in the common case).");
         writer.line("    fn named_keys(&self) -> Vec<String> { smelt_array_named_keys(self.id) }");
         writer.line("    /// Own enumerable keys: the element indices, then the named properties, exactly the order `Object.keys` reports.");
@@ -2912,9 +2741,8 @@ fn emit_source_with_free_function_router(
         // with `unknown is not array` INTERMITTENTLY. That intermittency was later
         // root-caused and it was NOT this copy: identity-registry keys are `Rc`
         // addresses, and a freed address handed to a later callback inherited the
-        // dead callback's `SMELT_CALLABLE_OBJECTS` entry (see the address-reuse
-        // comment on `SMELT_CALLABLE_KEY_GUARDS` above, and
-        // `callable_object_identity_runtime`). Sharing the buffer only perturbed
+        // dead callback's callable-object entry (see the address-reuse guarantee
+        // in `callable_registry`, and `callable_object_identity_runtime`). Sharing the buffer only perturbed
         // allocation enough to change how often the aliasing was observed. With that
         // fix in place the remeda suite was re-measured over twenty consecutive runs
         // with the sharing below and stayed 1789/1789.
@@ -3643,8 +3471,8 @@ fn emit_source_with_free_function_router(
             writer.line("    fn smelt_property(&self, name: &str) -> SmeltUnknown {");
             writer.line("        if let Some(value) = self.object.as_ref().and_then(|object| object.get(name)) { return value; }");
             writer.line("        let identity = smelt_canonical_function_identity(&self.callback);");
-            writer.line("        if let Some(value) = smelt_function_property_lookup(identity, name) { return value; }");
-            writer.line("        if name == \"prototype\" { return smelt_function_prototype(identity, self.clone().into_smelt_unknown()); }");
+            writer.line("        if let Some(value) = smelt_function_property_lookup(&identity, name) { return value; }");
+            writer.line("        if name == \"prototype\" { return smelt_function_prototype(&identity, self.clone().into_smelt_unknown()); }");
             writer.line("        SmeltUnknown::Undefined");
             writer.line("    }");
             writer.line(
@@ -3665,7 +3493,7 @@ fn emit_source_with_free_function_router(
                 "        // routes through one cached `SmeltErasedFunction`, so two calls share",
             );
             writer.line(
-                "        // the inner callback `Rc`; key a `Weak` outer cache on its address so",
+                "        // the inner callback `Rc`; keep a `Weak` to the outer value in its entry so",
             );
             writer.line(
                 "        // both erasures resolve to one `SmeltUnknown::Function` while both are",
@@ -3679,13 +3507,13 @@ fn emit_source_with_free_function_router(
             writer.line("        // same callback, so it is a true hit. Callable objects");
             writer.line("        // (`object: Some(_)`) are per-instance and skip the cache.");
             writer.line("        if self.object.is_none() {");
-            writer.line("            let key = ::std::rc::Rc::as_ptr(&self.callback) as *const () as usize;");
-            writer.line("            if let Some(callable) = SMELT_ERASED_FUNCTION_VALUES.with(|cache| cache.borrow().get(&key).and_then(::std::rc::Weak::upgrade)) {");
+            writer.line("            if let Some(callable) = smelt_read_callable(&self.callback, |meta| meta.erased_value.as_ref().and_then(::std::rc::Weak::upgrade)) {");
             writer.line("                return SmeltUnknown::Function(callable);");
             writer.line("            }");
             writer.line("            let callback = self.callback.clone();");
             writer.line("            let callable: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((callback)(args)));");
-            writer.line("            SMELT_ERASED_FUNCTION_VALUES.with(|cache| { cache.borrow_mut().insert(key, ::std::rc::Rc::downgrade(&callable)); });");
+            writer.line("            let erased_value = ::std::rc::Rc::downgrade(&callable);");
+            writer.line("            smelt_update_callable(&self.callback, |meta| meta.erased_value = Some(erased_value));");
             // The `length` field dies with the struct, so hand it to the registry
             // before returning: this is the only point that still knows both the
             // arity and the erased allocation it belongs to.
@@ -3707,18 +3535,6 @@ fn emit_source_with_free_function_router(
             writer.line("    }");
             writer.line("}");
             writer.blank_line();
-            writer.line("thread_local! {");
-            writer.line(
-                "    /// Cache the OUTER `SmeltUnknown::Function` `Rc` derived from each erased",
-            );
-            writer
-                .line("    /// callback, keyed on the inner callback `Rc` address, as a `Weak` so");
-            writer.line(
-                "    /// repeated erasures of one shared `SmeltErasedFunction` keep reference",
-            );
-            writer.line("    /// identity while alive without pinning transient callbacks.");
-            writer.line("    static SMELT_ERASED_FUNCTION_VALUES: ::std::cell::RefCell<::std::collections::HashMap<usize, ::std::rc::Weak<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
-            writer.line("}");
         }
         if needs_this_channel {
         writer.blank_line();
@@ -4719,8 +4535,15 @@ fn emit_source_with_free_function_router(
             writer.line(
                 "    unsafe fn clone(_: *const ()) -> ::std::task::RawWaker { smelt_raw_waker() }",
             );
-            writer.line("    unsafe fn wake(_: *const ()) {}");
-            writer.line("    unsafe fn wake_by_ref(_: *const ()) {}");
+            // A promise task the drain left pending is polled again on the next
+            // loop turn. While the program is serving (`smelt_run_until_exit`
+            // waits on `SMELT_LOOP_WAKE`), a task that becomes ready has to say
+            // so, or it sits until the 5 ms tick: under load that idled the
+            // server between requests even though no request needed the time.
+            // Waking only notifies the serving loop; outside it nothing awaits
+            // the notification, so the drain's own order is unchanged.
+            writer.line("    unsafe fn wake(_: *const ()) { let _ = SMELT_LOOP_WAKE.try_with(|wake| wake.notify_one()); }");
+            writer.line("    unsafe fn wake_by_ref(_: *const ()) { let _ = SMELT_LOOP_WAKE.try_with(|wake| wake.notify_one()); }");
             writer.line("    unsafe fn drop(_: *const ()) {}");
             writer.line("    fn smelt_raw_waker() -> ::std::task::RawWaker { ::std::task::RawWaker::new(::std::ptr::null(), &::std::task::RawWakerVTable::new(clone, wake, wake_by_ref, drop)) }");
             writer.line("    unsafe { ::std::task::Waker::from_raw(smelt_raw_waker()) }");
@@ -5435,7 +5258,7 @@ fn emit_source_with_free_function_router(
         // converts each element/entry through the element type's own
         // `SmeltFromUnknown`. A non-matching `SmeltUnknown` variant yields an empty
         // container (the JS-coercion fallback, matching the scalar impls above).
-        writer.line("impl<T: SmeltFromUnknown> SmeltFromUnknown for SmeltList<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Array(array) => SmeltList::with_id(array.id, array.into_vec().into_iter().map(T::smelt_from_unknown).collect()), _ => SmeltList::new(Vec::new()) } } }");
+        writer.line("impl<T: SmeltFromUnknown + 'static> SmeltFromUnknown for SmeltList<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Array(array) => { let id = array.id; let list = SmeltList::with_id(id, array.into_vec().into_iter().map(T::smelt_from_unknown).collect()); smelt_array_props_adopt(id, &list.storage()); list }, _ => SmeltList::new(Vec::new()) } } }");
         writer.blank_line();
         writer.line("impl<K: SmeltFromUnknown + Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V: SmeltFromUnknown + Clone> SmeltFromUnknown for SmeltRecord<K, V> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => SmeltRecord::with_id_from_entries(object.id, object.iter().map(|(key, value)| (K::smelt_from_unknown(SmeltUnknown::String(key.into())), V::smelt_from_unknown(value)))), _ => SmeltRecord::with_id_from_entries(smelt_next_object_id(), ::std::iter::empty()) } } }");
         writer.blank_line();
@@ -6103,6 +5926,9 @@ fn emit_source_with_free_function_router(
     // `SmeltHeaders`, whose insertion-ordered pairs `writeHead` merges.
     if needs_http_server {
         http_server_prelude::emit(&mut writer);
+    }
+    if !context.weak_receivers().is_empty() {
+        emitter::weak_receiver::emit_prelude(&mut writer, needs_unknown, needs_erased_function);
     }
     for class in &mir.classes {
         let name = class_name_text(mir, class)?;
@@ -7001,7 +6827,7 @@ fn emit_own_keys_projection(writer: &mut CodeWriter) {
     writer.line("fn smelt_own_keys<V>(record: &SmeltRecord<String, V>) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for key in record.keys() { if let Some(symbol) = smelt_key_symbol_value(&key) { symbols.push(symbol); } else if smelt_is_for_in_record_key(record, &key) && !key.starts_with(\"__smelt_proto:\") { strings.push(SmeltUnknown::String(key.as_str().into())); } } strings.extend(symbols); strings }");
     writer.blank_line();
     writer.line("/// `Reflect.ownKeys` over an erased object: string keys, then symbol keys.");
-    writer.line("fn smelt_own_object_keys(map: &SmeltObject) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for key in map.keys() { if let Some(symbol) = smelt_key_symbol_value(&key) { symbols.push(symbol); } else if smelt_is_for_in_object_key(map, &key) && !key.starts_with(\"__smelt_proto:\") { strings.push(SmeltUnknown::String(key.as_str().into())); } } strings.extend(symbols); strings }");
+    writer.line("fn smelt_own_object_keys(map: &SmeltObject) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); let shape = smelt_for_in_object_shape(map); for key in map.keys() { if let Some(symbol) = smelt_key_symbol_value(&key) { symbols.push(symbol); } else if smelt_is_for_in_shape_key(shape, &key) && !key.starts_with(\"__smelt_proto:\") { strings.push(SmeltUnknown::String(key.as_str().into())); } } strings.extend(symbols); strings }");
     writer.blank_line();
     writer.line("/// `Reflect.ownKeys` over a `SmeltJsMap` backing: string keys, then symbol keys.");
     writer.line("fn smelt_own_js_map_keys<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for (key, _) in smelt_own_js_map_entries(map) { if matches!(key, SmeltUnknown::Symbol(_)) { symbols.push(key); } else { strings.push(key); } } strings.extend(symbols); strings }");
@@ -7174,10 +7000,12 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool, needs_smelt_li
             impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
                 fn_writer.line("let elements = self.groups.iter().map(|value| value.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))).collect::<Vec<_>>();");
                 fn_writer.line("let groups = self.named.into_iter().map(|(name, value)| (name, value.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into())))).collect::<Vec<_>>();");
-                fn_writer.line("smelt_array_set_named_property(self.id, \"index\".to_owned(), SmeltUnknown::Number(self.match_index as f64));");
-                fn_writer.line("smelt_array_set_named_property(self.id, \"input\".to_owned(), SmeltUnknown::String(self.input.into()));");
-                fn_writer.line("smelt_array_set_named_property(self.id, \"groups\".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)));");
-                fn_writer.line("SmeltUnknown::Array(SmeltArray::with_id(self.id, elements))");
+                fn_writer.line("let array = SmeltArray::with_id(self.id, elements);");
+                // Derived from this match, and rewritten by its every erasure.
+                fn_writer.line("smelt_array_store_named_property(&array, \"index\".to_owned(), SmeltUnknown::Number(self.match_index as f64), true);");
+                fn_writer.line("smelt_array_store_named_property(&array, \"input\".to_owned(), SmeltUnknown::String(self.input.into()), true);");
+                fn_writer.line("smelt_array_store_named_property(&array, \"groups\".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)), true);");
+                fn_writer.line("SmeltUnknown::Array(array)");
             });
         });
         writer.blank_line();
@@ -7265,7 +7093,7 @@ fn emit_unknown_serde_impls(writer: &mut CodeWriter) {
                     // byte-backed shape, and `Object.keys`, `for...in` and this
                     // serializer cannot drift apart.
                     match_writer.line(format!(
-                        "Self::Object(values) => {{ use serde::ser::SerializeMap as _; if let Some(elements) = {own_elements}(self) {{ let mut map = serializer.serialize_map(Some(elements.len()))?; for (index, element) in elements.iter().enumerate() {{ map.serialize_entry(&index.to_string(), element)?; }} return map.end(); }} let entries = values.iter().filter(|(key, value)| !matches!(value, Self::Undefined | Self::Function(_) | Self::Symbol(_)) && smelt_is_for_in_object_key(values, key)).collect::<Vec<_>>(); let mut map = serializer.serialize_map(Some(entries.len()))?; for (key, value) in &entries {{ map.serialize_entry(key, value)?; }} map.end() }},",
+                        "Self::Object(values) => {{ use serde::ser::SerializeMap as _; if let Some(elements) = {own_elements}(self) {{ let mut map = serializer.serialize_map(Some(elements.len()))?; for (index, element) in elements.iter().enumerate() {{ map.serialize_entry(&index.to_string(), element)?; }} return map.end(); }} let shape = smelt_for_in_object_shape(values); let store = values.store.borrow(); let included = |entry: &&SmeltFieldEntry<String, SmeltUnknown>| !matches!(entry.value, Self::Undefined | Self::Function(_) | Self::Symbol(_)) && smelt_is_for_in_shape_key(shape, &entry.key); let mut map = serializer.serialize_map(Some(store.entries().iter().filter(included).count()))?; for entry in store.entries().iter().filter(included) {{ map.serialize_entry(&entry.key, &entry.value)?; }} map.end() }},",
                         own_elements = smelt_stdlib::runtime_symbols::byte_buffer::OWN_ELEMENTS,
                     ));
                     // A function or symbol VALUE is not JSON: inside an array
@@ -7417,6 +7245,29 @@ fn emit_reference_record_storage(
         has_field_setter,
     } = shape;
     let inner_name = format!("{name}Inner");
+    // Fields holding a closure that captures this instance weakly
+    // (`emitter::weak_receiver`): the handle exposes its cell to that capture,
+    // and the erasure keeps the instance alive through those fields' values.
+    let weak_fields: HashSet<smelt_hir::Symbol> = fields
+        .iter()
+        .filter(|field| context.weak_receivers().is_weak_field(*declared_name, field.name))
+        .map(|field| field.name)
+        .collect();
+    if !weak_fields.is_empty() {
+        writer.line(emitter::weak_receiver::handle_impl_text(name, impl_generics, type_args));
+        let checked = fields
+            .iter()
+            .filter(|field| weak_fields.contains(&field.name))
+            .map(|field| {
+                (
+                    RustIdent::new(mir.symbols.get(field.name).unwrap_or("field")).into_string(),
+                    emitter::weak_receiver::closure_slot(mir, field.ty).unwrap_or(""),
+                )
+            })
+            .collect::<Vec<_>>();
+        writer.line(emitter::weak_receiver::drop_impl_text(name, type_params, type_args, &checked));
+        writer.blank_line();
+    }
     let scoped_type_params = type_param_names.iter().copied().collect::<HashSet<_>>();
     let has_function_field = fields
         .iter()
@@ -7613,6 +7464,7 @@ fn emit_reference_record_storage(
             impl_generics,
             type_args,
             fields,
+            &weak_fields,
             *has_proto_entries,
             *has_field_setter,
             *has_field_setter
@@ -7699,6 +7551,7 @@ fn emit_reference_class_into_smelt_unknown_impl(
     impl_generics: &str,
     type_args: &str,
     fields: &[smelt_mir::MirField],
+    weak_fields: &HashSet<smelt_hir::Symbol>,
     has_proto_entries: bool,
     has_field_setter: bool,
     has_live_reads: bool,
@@ -7711,7 +7564,7 @@ fn emit_reference_class_into_smelt_unknown_impl(
                 // derived from the cell address rather than minted fresh; see
                 // `smelt_reference_object_identity` in the prelude.
                 fn_writer.line(
-                    "let __smelt_id = smelt_reference_object_identity(::std::rc::Rc::as_ptr(&self.0) as usize);",
+                    "let __smelt_id = smelt_reference_object_identity(&self.0);",
                 );
                 // The prototype members are collected BEFORE the cell is
                 // borrowed: each adapter clones the handle, and taking the
@@ -7747,6 +7600,13 @@ fn emit_reference_class_into_smelt_unknown_impl(
                         field.ty,
                     )
                     .unwrap_or_else(|_| "SmeltUnknown::Null".to_owned());
+                    // A closure capturing this instance weakly must hold it
+                    // strongly once it is reachable from an erased view.
+                    let value = if weak_fields.contains(&field.name) {
+                        format!("smelt_keep_receiver_alive({value}, &self)")
+                    } else {
+                        value
+                    };
                     fn_writer.line(format!("({key:?}.to_owned(), {value}),"));
                 }
                 fn_writer.line("]);");

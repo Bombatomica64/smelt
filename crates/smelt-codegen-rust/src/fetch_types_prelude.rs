@@ -220,7 +220,7 @@ fn emit_params_traits(writer: &mut CodeWriter, needs_unknown: bool) {
             impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
                 // Same identity retention as `SmeltHeaders`: an erased view of
                 // a parameter list is a view of the SAME list.
-                fn_writer.line("smelt_register_host_origin(self.id, self.clone());");
+                fn_writer.line("let smelt_host_origin = self.clone();");
                 fn_writer.line(
                     "let pairs: Vec<SmeltUnknown> = self.entries_in_order().into_iter().map(|(name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(name.into()), SmeltUnknown::String(value.into())]).into())).collect();",
                 );
@@ -229,7 +229,7 @@ fn emit_params_traits(writer: &mut CodeWriter, needs_unknown: bool) {
                 // data.size === "number"` is how remeda's `isEmptyish` decides
                 // emptiness), so the record has to carry it.
                 fn_writer.line(
-                    "SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_urlsearchparams\".to_owned(), SmeltUnknown::Bool(true)), (\"size\".to_owned(), SmeltUnknown::Number(pairs.len() as f64)), (\"entries\".to_owned(), SmeltUnknown::Array(pairs.into()))])))",
+                    "smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_urlsearchparams\".to_owned(), SmeltUnknown::Bool(true)), (\"size\".to_owned(), SmeltUnknown::Number(pairs.len() as f64)), (\"entries\".to_owned(), SmeltUnknown::Array(pairs.into()))]))), smelt_host_origin)",
                 );
             });
         },
@@ -450,12 +450,12 @@ fn emit_traits(writer: &mut CodeWriter, needs_unknown: bool) {
                 // `smelt_host_method` — reaches the SAME header list rather
                 // than a copy rebuilt from the pairs. A `set` through an erased
                 // view has to be visible on the value the program still holds.
-                fn_writer.line("smelt_register_host_origin(self.id, self.clone());");
+                fn_writer.line("let smelt_host_origin = self.clone();");
                 fn_writer.line(
                     "let pairs: Vec<SmeltUnknown> = self.entries_sorted().into_iter().map(|(name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(name.into()), SmeltUnknown::String(value.into())]).into())).collect();",
                 );
                 fn_writer.line(
-                    "SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_headers\".to_owned(), SmeltUnknown::Bool(true)), (\"entries\".to_owned(), SmeltUnknown::Array(pairs.into()))])))",
+                    "smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_headers\".to_owned(), SmeltUnknown::Bool(true)), (\"entries\".to_owned(), SmeltUnknown::Array(pairs.into()))]))), smelt_host_origin)",
                 );
             },
         );
@@ -1049,9 +1049,9 @@ fn emit_response_traits(writer: &mut CodeWriter, needs_unknown: bool) {
     writer.line("/// body handle and `bodyUsed` cell included.");
     writer.block("impl IntoSmeltUnknown for SmeltResponse", |impl_writer| {
         impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-            fn_writer.line("smelt_register_host_origin(self.id, self.clone());");
+            fn_writer.line("let smelt_host_origin = self.clone();");
             fn_writer.line("let body_text = String::from_utf8_lossy(&self.body.peek_bytes()).into_owned();");
-            fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_response\".to_owned(), SmeltUnknown::Bool(true)), (\"status\".to_owned(), SmeltUnknown::Number(self.status)), (\"statusText\".to_owned(), SmeltUnknown::String(self.status_text.into())), (\"ok\".to_owned(), SmeltUnknown::Bool(self.status >= 200.0 && self.status <= 299.0)), (\"headers\".to_owned(), self.headers.into_smelt_unknown()), (\"body\".to_owned(), SmeltUnknown::String(body_text.into()))])))");
+            fn_writer.line("smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_response\".to_owned(), SmeltUnknown::Bool(true)), (\"status\".to_owned(), SmeltUnknown::Number(self.status)), (\"statusText\".to_owned(), SmeltUnknown::String(self.status_text.into())), (\"ok\".to_owned(), SmeltUnknown::Bool(self.status >= 200.0 && self.status <= 299.0)), (\"headers\".to_owned(), self.headers.into_smelt_unknown()), (\"body\".to_owned(), SmeltUnknown::String(body_text.into()))]))), smelt_host_origin)");
         });
     });
     writer.blank_line();
@@ -1090,9 +1090,9 @@ fn emit_request_traits(writer: &mut CodeWriter, needs_unknown: bool) {
     writer.line("/// do. Same rule, and the same registry, as `host_value_erasure`'s pair.");
     writer.block("impl IntoSmeltUnknown for SmeltRequest", |impl_writer| {
         impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-            fn_writer.line("smelt_register_host_origin(self.id, self.clone());");
+            fn_writer.line("let smelt_host_origin = self.clone();");
             fn_writer.line("let body_text = String::from_utf8_lossy(&self.body.peek_bytes()).into_owned();");
-            fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_request\".to_owned(), SmeltUnknown::Bool(true)), (\"url\".to_owned(), SmeltUnknown::String(self.url.into())), (\"method\".to_owned(), SmeltUnknown::String(self.method.into())), (\"headers\".to_owned(), self.headers.into_smelt_unknown()), (\"body\".to_owned(), SmeltUnknown::String(body_text.into()))])))");
+            fn_writer.line("smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_request\".to_owned(), SmeltUnknown::Bool(true)), (\"url\".to_owned(), SmeltUnknown::String(self.url.into())), (\"method\".to_owned(), SmeltUnknown::String(self.method.into())), (\"headers\".to_owned(), self.headers.into_smelt_unknown()), (\"body\".to_owned(), SmeltUnknown::String(body_text.into()))]))), smelt_host_origin)");
         });
     });
     writer.blank_line();

@@ -543,7 +543,7 @@ function useRecord(values: Record<string, string>): Record<string, string> {
     );
 
     assert!(
-        source.contains("impl<T: SmeltFromUnknown> SmeltFromUnknown for SmeltList<T>"),
+        source.contains("impl<T: SmeltFromUnknown + 'static> SmeltFromUnknown for SmeltList<T>"),
         "{source}"
     );
     assert!(
