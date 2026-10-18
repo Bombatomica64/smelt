@@ -1,0 +1,6 @@
+ 19:22:49 up 4 days,  9:12,  3 users,  load average: 19.78, 182.62, 203.03
+ 19:24:21 up 4 days,  9:13,  3 users,  load average: 16.25, 139.38, 185.80
+ 19:25:54 up 4 days,  9:15,  3 users,  load average: 11.82, 104.41, 168.81
+ 19:27:27 up 4 days,  9:16,  3 users,  load average: 10.97, 78.84, 153.40
+ 19:29:03 up 4 days,  9:18,  3 users,  load average: 16.53, 61.77, 140.03
+ 19:30:35 up 4 days,  9:19,  3 users,  load average: 13.93, 48.78, 128.16

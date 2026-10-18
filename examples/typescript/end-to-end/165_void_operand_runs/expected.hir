@@ -1,0 +1,59 @@
+module examples/typescript/end-to-end/165_void_operand_runs/input.ts (ModuleId(0))
+  body BodyId(2)
+  items
+    global mut count: Float
+    fn bump owner Module
+    fn later owner Module
+  locals
+    %0 const discarded: None
+    %1 const label: String
+  exprs
+    #0: fn() -> Float = @1(bump)
+    #1: Float = call #0()
+    #2: fn() -> Float = @1(bump)
+    #3: Float = call #2()
+    #4: None = undefined
+    #5: Float = global_get @0(count)
+    #6: None = %0
+    #7: None = undefined
+    #8: Bool = JsStrictEq #6, #7
+    #9: None = @4(console_log)
+    #10: None = call #9(#5, #8)
+    #11: String = "from callback"
+    #12: List<String> = [#11]
+    #13: String = %1
+    #14: async fn(String) -> Future<None> = @2(later)
+    #15: Future<None> = call #14(#13)
+    #16: None = async_spawn_local(#15)
+    #17: String = "top"
+    #18: async fn(String) -> Future<None> = @2(later)
+    #19: Future<None> = call #18(#17)
+    #20: None = async_spawn_local(#19)
+    #21: Future<None> = async_exit_drain()
+    #22: None = await #21
+  stmts
+    s0: #1
+    s1: #3
+    s2: let %0: None = #4
+    s3: #10
+    s4: #16
+    s5: for %1 in #12 BlockId(1)
+    s6: #20
+    s7: #22
+  async state machine
+    states [state0, state1]
+    suspend #22 on #21 -> state23
+
+interned types
+  t0 = Float
+  t1 = Unknown
+  t2 = String
+  t3 = Dict<String, Unknown>
+  t4 = None
+  t5 = fn() -> Float
+  t6 = Future<None>
+  t7 = async fn(String) -> Future<None>
+  t8 = fn() -> Float
+  t9 = Bool
+  t10 = List<String>
+  t11 = async fn(String) -> Future<None>

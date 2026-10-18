@@ -215,6 +215,79 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Lower a call expression once its receiver view (if any) is registered.
+    /// Whether a callee of type `ty` is called through the erased callable ABI.
+    ///
+    /// True for an erased surface (`unknown`/`any`, a class or type-parameter
+    /// surface, see [`Self::erased_or_union_surface`]) and for a union whose
+    /// every arm is itself callable — `Handler | MiddlewareHandler`. A union of
+    /// function types has no single typed signature to call through, and its
+    /// storage is already the tagged runtime value, so the call dispatches on
+    /// that value at run time exactly as JavaScript does.
+    pub(in crate::lowering) fn callable_through_erased_abi(&self, ty: smelt_hir::TypeId) -> bool {
+        if self.erased_or_union_surface(ty) {
+            return true;
+        }
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Optional(inner)) => self.callable_through_erased_abi(*inner),
+            Some(Type::Union(items)) => items.iter().copied().all(|item| {
+                matches!(self.ctx.krate.types.get(item), Some(Type::Function(_)))
+                    || self.callable_through_erased_abi(item)
+            }),
+            _ => false,
+        }
+    }
+
+    /// Lower `callee(args)` for a callee whose static type has no typed call
+    /// signature, through the erased callable ABI.
+    ///
+    /// The callee is asserted to `Unknown` (a no-op when it already is) and
+    /// every source argument is passed, spread arguments packed, because the
+    /// run-time value — not the static type — decides the arity. The result is
+    /// `Unknown`: the source's own result type for such a call is `any` or the
+    /// union of the arms' results, which the caller narrows.
+    ///
+    /// This is the one place a computed-member or asserted callee of that kind
+    /// is lowered, so the call is never dropped: earlier fallbacks answered the
+    /// call with `undefined` or with its first argument, which compiled and
+    /// silently skipped the call (Hono's `#dispatch` never ran a route handler).
+    fn erased_value_call(
+        &mut self,
+        callee: smelt_hir::ExprId,
+        callee_span: oxc::span::Span,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let callee_ty = Self::expr_ty(body, callee);
+        let callee = if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown) {
+            callee
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: callee },
+                ty: unknown_ty,
+                span: self.span(callee_span.start, callee_span.end),
+            })
+        };
+        if self.call_has_spread_arguments_or_source_spread(call) {
+            let args = self.packed_spread_call_arguments(unknown_ty, call, body)?;
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::ClosureCallSpread { callee, args },
+                ty: unknown_ty,
+                span: self.span(call.span.start, call.span.end),
+            }));
+        }
+        let args = call
+            .arguments
+            .iter()
+            .map(|arg| self.argument(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::ClosureCall { callee, args },
+            ty: unknown_ty,
+            span: self.span(call.span.start, call.span.end),
+        }))
+    }
+
     fn call_expression_lowering(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -262,13 +335,18 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(expr);
         }
         if let Expression::ComputedMemberExpression(member) = &call.callee {
+            // JavaScript evaluates the callee (`object[key]`) before the
+            // arguments, so the member read is lowered first.
+            let callee = self.computed_member(member, body)?;
+            let callee_ty = Self::expr_ty(body, callee);
+            if self.callable_through_erased_abi(callee_ty) {
+                return self.erased_value_call(callee, member.span, call, body);
+            }
             let args = call
                 .arguments
                 .iter()
                 .map(|arg| self.argument(arg, body))
                 .collect::<Result<Vec<_>, _>>()?;
-            let callee = self.computed_member(member, body)?;
-            let callee_ty = Self::expr_ty(body, callee);
             if let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned() {
                 if args.len() < function.params.len() {
                     return Err(SmeltError::unsupported(
@@ -285,20 +363,16 @@ impl<'builder> ModuleBuilder<'builder> {
                     span: self.span(call.span.start, call.span.end),
                 }));
             }
-            if matches!(self.ctx.krate.types.get(callee_ty), Some(Type::Unknown)) {
-                let ty = self.ctx.krate.types.intern(Type::Unknown);
-                return Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::None),
-                    ty,
-                    span: self.span(call.span.start, call.span.end),
-                }));
-            }
-            if let Some(first) = args.first().copied() {
-                return Ok(first);
-            }
+            // Any other callee type is not callable in TypeScript, so `tsc`
+            // rejects the call before Smelt runs. Report it rather than
+            // inventing a value: substituting the first argument (or
+            // `undefined`) for the call's result silently drops the call.
             return Err(SmeltError::unsupported(
                 self.span(member.span.start, member.span.end),
-                "computed member calls require at least one argument",
+                format!(
+                    "computed member callee is not callable ({:?})",
+                    self.ctx.krate.types.get(callee_ty)
+                ),
             ));
         }
         if let Expression::StaticMemberExpression(member) = &call.callee
@@ -542,16 +616,8 @@ impl<'builder> ModuleBuilder<'builder> {
             let callee_ty = Self::expr_ty(body, callee);
             let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned()
             else {
-                if self.erased_or_union_surface(callee_ty) {
-                    for arg in &call.arguments {
-                        let _ = self.argument(arg, body)?;
-                    }
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::None),
-                        ty,
-                        span: self.span(call.span.start, call.span.end),
-                    }));
+                if self.callable_through_erased_abi(callee_ty) {
+                    return self.erased_value_call(callee, callee_expression.span(), call, body);
                 }
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),

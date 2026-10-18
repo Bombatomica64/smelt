@@ -2455,6 +2455,9 @@ thread_local! {
     // Non-zero while a `Promise.race` driver owns the event loop; see
     // `smelt_promise_race`.
     static SMELT_RACE_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
+    // Wakes the exit loop (`smelt_run_until_exit`) when work is queued
+    // while the program is only being kept alive by an open handle.
+    static SMELT_LOOP_WAKE: ::std::rc::Rc<tokio::sync::Notify> = ::std::rc::Rc::new(tokio::sync::Notify::new());
 }
 
 fn smelt_reset_timers() {
@@ -2478,6 +2481,7 @@ fn smelt_noop_waker() -> ::std::task::Waker {
 
 fn smelt_spawn_promise_task(task: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>) {
     SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().push(task));
+    SMELT_LOOP_WAKE.with(|wake| wake.notify_one());
 }
 
 async fn smelt_drain_promise_tasks() {
@@ -2615,7 +2619,9 @@ fn smelt_release_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handle
 async fn smelt_run_until_exit() {
     smelt_sleep_ms(0.0).await;
     while SMELT_LIVE_HANDLES.with(::std::cell::Cell::get) > 0 {
-        tokio::time::sleep(::std::time::Duration::from_millis(5)).await;
+        smelt_sleep_ms(0.0).await;
+        let smelt_wake = SMELT_LOOP_WAKE.with(::std::rc::Rc::clone);
+        tokio::select! { _ = smelt_wake.notified() => {}, _ = tokio::time::sleep(::std::time::Duration::from_millis(5)) => {} }
     }
 }
 

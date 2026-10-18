@@ -92,8 +92,46 @@ impl ModuleBuilder<'_> {
             self.types.mark_callable_object_alias(name);
             self.ctx.callable_object_aliases.insert(name);
         }
+        // An alias that NAMES a nominal type (`type IdContext = Context<Env,
+        // '/:id'>`, `type A = SomeInterface`) is that type: a reference to the
+        // alias must lower to the class or interface it names. Recording the
+        // target's fields as the ALIAS's own made every reference resolve to a
+        // nominal record called after the alias (see the alias arm of
+        // `type_reference_to_hir`), which no struct backs, so it erased: Hono's
+        // `IdContext`-typed handlers saw `c` as `SmeltUnknown` and read
+        // `c.req.param(..)` dynamically. Only a structural right-hand side (an
+        // object type, an intersection, a mapped type) is a record of its own.
+        // Only a reference that SPELLS the class is that class: a utility
+        // type over it (`Partial<Body & {..}>`, `Pick<..>`) also lowers to the
+        // class symbol here, but its members differ (Hono's `BodyCache`), so
+        // it keeps the alias's own fields.
+        let names_nominal_type = match (self.ctx.krate.types.get(ty), &alias.type_annotation) {
+            (
+                Some(Type::Class { name: target, .. }),
+                oxc::ast::ast::TSType::TSTypeReference(reference),
+            ) if *target != name => {
+                let spelled = match &reference.type_name {
+                    oxc::ast::ast::TSTypeName::IdentifierReference(ident) => Some(ident.name.as_str()),
+                    _ => None,
+                };
+                let target_name = self
+                    .ctx
+                    .krate
+                    .names
+                    .get(*target)
+                    .or_else(|| self.ctx.krate.symbols.get(*target));
+                spelled.is_some_and(|spelled| {
+                    target_name.is_some_and(|target_name| {
+                        target_name == spelled
+                            || self.imports.imported_name(spelled).is_some_and(|imported| imported == target_name)
+                    })
+                })
+            }
+            _ => false,
+        };
         if let Some(fields) = fields
             && !fields.is_empty()
+            && !names_nominal_type
         {
             self.types.set_alias_fields(name, fields.clone());
             self.ctx.type_alias_fields.insert(name, fields);
@@ -1069,6 +1107,15 @@ impl ModuleBuilder<'_> {
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
         let expression = Self::unparenthesized_expression(expression);
+        // `void X;` discards X's result, which a statement does anyway: lower
+        // it as the statement `X;`, so a floating promise it starts
+        // (`void handle(req, res);`) is driven exactly as a bare `handle(..);`
+        // is, instead of being built and dropped unpolled.
+        if let Expression::UnaryExpression(unary) = expression
+            && unary.operator == UnaryOperator::Void
+        {
+            return self.expression_statement(&unary.argument, unary.argument.span(), body, block);
+        }
         if let Expression::SequenceExpression(sequence) = expression {
             for child in &sequence.expressions {
                 self.expression_statement(child, child.span(), body, block)?;

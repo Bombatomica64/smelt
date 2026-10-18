@@ -1,0 +1,79 @@
+fn bump (FuncId(0)) -> Float
+  locals
+    %0 temp: Float
+    %1 temp: Float
+    %2 temp: Float
+    %3 temp: Float
+  bb0:
+    %0 = global_get #0
+    %1 = move %0 + 1.0
+    %2 = global_set #0 = move %1
+    %3 = global_get #0
+    return move %3
+
+async fn later (FuncId(1)) -> None
+  locals
+    %0 param label: String
+    %1 temp: Future<None>
+    %2 temp: None
+    %3 temp: None
+  bb0:
+    %1 = async_resolve(0.0)
+    %2 = await move %1
+    %3 = call @console_log("async ran", copy %0) -> bb1
+  bb1:
+    return none
+
+async fn main (FuncId(2)) -> None throws
+  locals
+    %0 user discarded: None
+    %1 user label: String
+    %2 temp: Float
+    %3 temp: Float
+    %4 temp: Float
+    %5 temp: Bool
+    %6 temp: None
+    %7 temp: List<String>
+    %8 temp: Float
+    %9 temp: Float
+    %10 temp: Bool
+    %11 temp: Future<None>
+    %12 temp: None
+    %13 temp: Future<None>
+    %14 temp: None
+    %15 temp: Future<None>
+    %16 temp: None
+  bb0:
+    %2 = call fn0() -> bb1
+  bb1:
+    %3 = call fn0() -> bb2
+  bb2:
+    %0 = undefined
+    %4 = global_get #0
+    %5 = move %0 == undefined
+    %6 = call @console_log(move %4, move %5) -> bb3
+  bb3:
+    %7 = ["from callback"]
+    %8 = 0.0
+    goto bb4
+  bb4:
+    %9 = len copy %7
+    %10 = copy %8 < move %9
+    switch move %10 ? bb5 : bb7
+  bb5:
+    %1 = copy %7[copy %8]
+    %11 = call fn1(move %1) -> bb8
+  bb6:
+    %8 = copy %8 + 1.0
+    goto bb4
+  bb7:
+    %13 = call fn1("top") -> bb9
+  bb8:
+    %12 = async_spawn_local(move %11)
+    goto bb6
+  bb9:
+    %14 = async_spawn_local(move %13)
+    %15 = async_exit_drain()
+    %16 = await move %15
+    return none
+

@@ -3708,21 +3708,24 @@ impl Default for SmeltUnion4 {
 // @smelt:prelude-end — generated program below
 fn main() {
     let mut _smelt_tmp_5: ::std::rc::Rc<dyn Fn(f64) -> SmeltArrayBuffer> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> SmeltArrayBuffer> = ::std::rc::Rc::new(move |arg0: f64| -> SmeltArrayBuffer { SmeltArrayBuffer::new(0) }); smelt_default_callback };
-    let _smelt_tmp_0 = ::std::rc::Rc::new(|closure_arg_0: f64| {
-    let _smelt_tmp_1: SmeltArrayBuffer = make__module_main(closure_arg_0);
-    _smelt_tmp_1.clone()
-    });
+    let _smelt_tmp_0 = __smelt_fn_typed_6_0();
     let _smelt_tmp_1: String = describe(SmeltUnion4::M1(_smelt_tmp_0));
     let _ = { println!("{}", _smelt_tmp_1); };
     let _smelt_tmp_3: String = describe(SmeltUnion4::M0(true));
     let _ = { println!("{}", _smelt_tmp_3); };
-    _smelt_tmp_5 = ::std::rc::Rc::new(|closure_arg_0: f64| {
-    let _smelt_tmp_1: SmeltArrayBuffer = make__module_main(closure_arg_0);
-    _smelt_tmp_1.clone()
-    });
+    _smelt_tmp_5 = __smelt_fn_typed_6_0();
     let _smelt_tmp_6: String = label(SmeltUnion4::M1(_smelt_tmp_5));
     let _ = { println!("{}", _smelt_tmp_6); };
     return;
+}
+
+type SmeltFnTyped6_0 = ::std::rc::Rc<dyn Fn(f64) -> SmeltArrayBuffer>;
+fn __smelt_fn_typed_6_0() -> SmeltFnTyped6_0 {
+    thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped6_0> = ::std::cell::OnceCell::new(); }
+    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| { let smelt_function: SmeltFnTyped6_0 = ::std::rc::Rc::new(|closure_arg_0: f64| {
+    let _smelt_tmp_1: SmeltArrayBuffer = make__module_main(closure_arg_0);
+    _smelt_tmp_1.clone()
+    }); smelt_function }).clone())
 }
 
 // ==== source_main.rs

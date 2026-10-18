@@ -1198,6 +1198,9 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "157_node_path_hash_and_runtime_regexp",
     "158_joins_absence_and_host_reads",
     "159_spread_join_tuple_return_finally",
+    "160_function_item_typed_identity",
+    "162_alias_names_generic_class",
+    "165_void_operand_runs",
     "14_c_for_loop",
     "15_break_continue",
     "16_switch_break_no_fallthrough",
@@ -1450,6 +1453,14 @@ const RUNTIME_FIXTURES: &[&str] = &[
     "overloaded_callable_interface_field",
     "generic_slot_union_return",
     "response_request_json",
+    "json_parse_any_value",
+    "event_loop_reached_through_callee",
+    "nullish_fallback_and_nullable_union_slot",
+    "dynamic_key_body_reader",
+    "object_assign_onto_instance",
+    "union_function_element_callee",
+    "optional_unknown_reads_as_undefined",
+    "headers_from_optional_string_record",
 ];
 
 #[test]

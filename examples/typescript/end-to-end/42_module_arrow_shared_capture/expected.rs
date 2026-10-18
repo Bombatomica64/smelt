@@ -154,10 +154,7 @@ fn main() {
     let _smelt_tmp_2 = ::std::rc::Rc::new(|| {
     let mut _smelt_tmp_0: SmeltList<String> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_REM_0.with(|value| value.borrow().clone()));
     let _smelt_tmp_1: f64 = { let smelt_push_item = "first".to_owned(); _smelt_tmp_0.borrow_mut().push(smelt_push_item); _smelt_tmp_0.len() as f64 };
-    let _smelt_tmp_2 = ::std::rc::Rc::new(|| {
-    let _smelt_tmp_0: () = second__module_main();
-    ()
-    });
+    let _smelt_tmp_2 = __smelt_fn_typed_2_0();
     let _smelt_tmp_3: () = take(&*_smelt_tmp_2);
     ()
     });
@@ -167,6 +164,15 @@ fn main() {
     let _smelt_tmp_5: String = _smelt_tmp_4.borrow().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_5); };
     return;
+}
+
+type SmeltFnTyped2_0 = ::std::rc::Rc<dyn Fn() -> ()>;
+fn __smelt_fn_typed_2_0() -> SmeltFnTyped2_0 {
+    thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped2_0> = ::std::cell::OnceCell::new(); }
+    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| { let smelt_function: SmeltFnTyped2_0 = ::std::rc::Rc::new(|| {
+    let _smelt_tmp_0: () = second__module_main();
+    ()
+    }); smelt_function }).clone())
 }
 
 // ==== source_main.rs
