@@ -37,6 +37,14 @@ pub enum Command {
         /// Print full debug HIR after frontend lowering and stop
         #[arg(long = "hir-debug")]
         hir_debug: bool,
+
+        /// Define a build-time value, like Bun's `--define`: `KEY=VALUE` where
+        /// VALUE is JSON text, e.g. `--define 'process.env.NODE_ENV="production"'`.
+        /// Repeatable; overrides `[build] define` in Smelt.toml. Smelt consults
+        /// defines only to decide whether a package's typed version
+        /// (`.sound/`, `@sound/*`) applies; it does not substitute them.
+        #[arg(long = "define", value_name = "KEY=VALUE", value_parser = parse_define)]
+        define: Vec<(String, String)>,
     },
     /// Type-check and validate without generating Rust
     ///
@@ -240,4 +248,15 @@ pub enum Command {
     Clean,
     /// Print the JSON Schema for Smelt.toml
     DumpSchema,
+}
+
+/// Parse one `--define KEY=VALUE` argument, splitting at the first `=`.
+fn parse_define(argument: &str) -> Result<(String, String), String> {
+    let (key, value) = argument
+        .split_once('=')
+        .ok_or_else(|| format!("`--define {argument}` is not KEY=VALUE"))?;
+    if key.is_empty() {
+        return Err(format!("`--define {argument}` has an empty KEY"));
+    }
+    Ok((key.to_owned(), value.to_owned()))
 }

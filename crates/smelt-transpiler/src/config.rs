@@ -54,6 +54,9 @@ pub struct Config {
     /// Generated-Rust options.
     #[serde(default)]
     rust: Rust,
+    /// Build options.
+    #[serde(default)]
+    build: Build,
     /// Optional strict mode configuration.
     strict: Option<Strict>,
 }
@@ -125,6 +128,25 @@ impl Config {
         self.output.kind
     }
 
+    /// Build-time defines as `(key, JSON text)` pairs, in key order.
+    ///
+    /// See [`Build::define`]. Command-line `--define` values have already been
+    /// merged in by [`Config::extend_defines`].
+    #[must_use]
+    pub fn defines(&self) -> Vec<(String, String)> {
+        self.build
+            .define
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect()
+    }
+
+    /// Merge command-line defines over the manifest's; a key given on the
+    /// command line replaces the manifest's value, as a later `--define` does.
+    pub fn extend_defines(&mut self, defines: impl IntoIterator<Item = (String, String)>) {
+        self.build.define.extend(defines);
+    }
+
     /// Whether the generated output should be built automatically.
     #[must_use]
     pub fn should_build_output(&self) -> bool {
@@ -163,6 +185,20 @@ pub struct Output {
     kind: OutputKind,
     /// Whether to build the generated crate.
     build: Option<bool>,
+}
+
+/// Build configuration from the [build] section.
+#[derive(Default, Deserialize, Debug, JsonSchema)]
+pub struct Build {
+    /// Build-time defines, spelled like Bun's `--define`: the key is the
+    /// expression, the value is JSON text (`"process.env.NODE_ENV" =
+    /// "\"production\""`).
+    ///
+    /// Smelt consults defines only to decide whether a package's typed version
+    /// applies (its `sound.json` `when` field); it does not substitute them
+    /// into the program text.
+    #[serde(default)]
+    define: std::collections::BTreeMap<String, String>,
 }
 
 /// Generated-Rust configuration from the [rust] section.

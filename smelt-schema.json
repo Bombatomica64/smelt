@@ -24,6 +24,10 @@
       "description": "Generated-Rust options.",
       "$ref": "#/$defs/Rust"
     },
+    "build": {
+      "description": "Build options.",
+      "$ref": "#/$defs/Build"
+    },
     "strict": {
       "description": "Optional strict mode configuration.",
       "anyOf": [
@@ -236,6 +240,20 @@
           "const": "default"
         }
       ]
+    },
+    "Build": {
+      "description": "Build configuration from the [build] section.",
+      "type": "object",
+      "properties": {
+        "define": {
+          "description": "Build-time defines, spelled like Bun's `--define`: the key is the\nexpression, the value is JSON text (`\"process.env.NODE_ENV\" =\n\"\\\"production\\\"\"`).\n\nSmelt consults defines only to decide whether a package's typed version\napplies (its `sound.json` `when` field); it does not substitute them\ninto the program text.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        }
+      }
     },
     "Strict": {
       "description": "Strict mode configuration from the [strict] section.",

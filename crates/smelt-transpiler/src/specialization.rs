@@ -321,7 +321,7 @@ fn invalidation_hashes(
     graph: &[&ManifestSource],
     policy: &SandboxPolicyRecord,
 ) -> Result<HashInputs, Box<dyn std::error::Error>> {
-    let source = hash_files(graph.iter().map(|source| source.path.clone()))?;
+    let source = hash_sources(graph);
     let dependency_files = [
         "package.json",
         "pyproject.toml",
@@ -370,6 +370,26 @@ fn hash_files(paths: impl Iterator<Item = PathBuf>) -> Result<String, io::Error>
         digest.update([0xff]);
     }
     Ok(hex::encode(digest.finalize()))
+}
+
+/// Hashes the graph's source texts with their paths, in path order.
+///
+/// Hashes the text the build lowers rather than re-reading each path: a file
+/// laid by a package's typed version (see [`crate::sound`]) exists only in
+/// memory, or replaces an installed file at the same path, so the bytes on
+/// disk are not what is compiled. For every other source the text is the
+/// file's content, so the digest is the one re-reading the file gave.
+fn hash_sources(graph: &[&ManifestSource]) -> String {
+    let mut sorted = graph.to_vec();
+    sorted.sort_by(|left, right| left.path.cmp(&right.path));
+    let mut digest = Sha256::new();
+    for source in sorted {
+        digest.update(source.path.to_string_lossy().as_bytes());
+        digest.update([0]);
+        digest.update(source.source.as_bytes());
+        digest.update([0xff]);
+    }
+    hex::encode(digest.finalize())
 }
 
 /// Hashes one in-memory byte sequence.

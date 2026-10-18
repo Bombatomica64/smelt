@@ -46,6 +46,8 @@ mod manifest;
 mod pipeline;
 mod probe;
 mod python;
+mod sound;
+mod sound_overlay;
 mod specialization;
 pub mod stubs;
 mod test_report;
@@ -217,7 +219,7 @@ fn main() -> CliResult<()> {
         .manifest_path
         .unwrap_or_else(|| "Smelt.toml".to_owned());
     let manifest_path = PathBuf::from(manifest_path_string);
-    let config = config_parser::parse(
+    let mut config = config_parser::parse(
         manifest_path
             .to_str()
             .ok_or("manifest path contains invalid UTF-8")?,
@@ -237,7 +239,12 @@ fn main() -> CliResult<()> {
                 );
             }
         },
-        Command::Build { hir, hir_debug } => {
+        Command::Build {
+            hir,
+            hir_debug,
+            define,
+        } => {
+            config.extend_defines(define);
             if hir || hir_debug {
                 let (krate, modules) = lowering::lower_manifest_entries(&config, &manifest_path)?;
                 pipeline::print_hir(&krate, &modules, hir_debug);
