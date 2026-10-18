@@ -53,6 +53,7 @@ mod specialization;
 pub mod stubs;
 mod test_report;
 mod timing;
+mod typedness_report;
 mod unknown_report;
 
 use std::{io, io::Write as _, path::PathBuf};
@@ -154,6 +155,57 @@ fn main() -> CliResult<()> {
         } else {
             let mut stdout = io::stdout().lock();
             write!(stdout, "{report}")?;
+        }
+        return Ok(());
+    }
+
+    if let Command::TypednessReport {
+        paths,
+        format,
+        baseline,
+        fail_on_regression,
+        update_baseline,
+        output,
+    } = &args.command
+    {
+        let report_format = match format.as_str() {
+            "json" => typedness_report::TypednessFormat::Json,
+            "md" | "markdown" => typedness_report::TypednessFormat::Markdown,
+            other => {
+                return Err(format!("unknown --format `{other}`; use `md` or `json`").into());
+            }
+        };
+        let input_paths = paths.iter().map(PathBuf::from).collect::<Vec<_>>();
+        let outcome =
+            typedness_report::typedness_report(&typedness_report::TypednessReportOptions {
+                paths: &input_paths,
+                format: report_format,
+                baseline: baseline.as_deref().map(PathBuf::from),
+                update_baseline: *update_baseline,
+            })?;
+        if let Some(output_path) = output {
+            std::fs::write(output_path, &outcome.rendered)?;
+        } else {
+            let mut stdout = io::stdout().lock();
+            write!(stdout, "{}", outcome.rendered)?;
+        }
+        if *fail_on_regression && !outcome.worsened.is_empty() {
+            let mut stderr = io::stderr().lock();
+            writeln!(
+                stderr,
+                "typedness regressed: {} program(s)/kind(s) became less typed than the baseline:",
+                outcome.worsened.len()
+            )?;
+            for worsening in &outcome.worsened {
+                writeln!(stderr, "  {}: {}", worsening.program, worsening.detail)?;
+            }
+            writeln!(
+                stderr,
+                "Make the program at least as typed again, or (only for a documented, \
+                 justified boundary) re-snapshot with --update-baseline. See the \
+                 `Typedness ratchet` policy in AGENTS.md."
+            )?;
+            std::process::exit(1);
         }
         return Ok(());
     }
@@ -318,6 +370,7 @@ fn main() -> CliResult<()> {
         Command::RustDiagnostics { .. }
         | Command::RustTestReport { .. }
         | Command::SmeltUnknownReport { .. }
+        | Command::TypednessReport { .. }
         | Command::ListEscapeReport { .. }
         | Command::DumpSchema => {
             return Ok(());

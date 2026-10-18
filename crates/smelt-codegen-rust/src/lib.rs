@@ -147,6 +147,16 @@ pub const PRELUDE_END_MARKER: &str = "// @smelt:prelude-end — generated progra
 /// The SmeltUnknown report classifies their call sites as a boundary; see
 /// `erased_list_alias` for why.
 pub use erased_list_alias::{ERASED_GENERIC_ARRAY_ALIAS_FN, ERASED_GENERIC_LIST_ALIAS_FN};
+pub use emitter::typedness::{KindCounts, Typedness, TypednessCounts, TypednessMeasurement};
+
+/// Measure how much of optimized MIR reaches Rust typed.
+///
+/// Counts values, property reads and calls, each concrete, generic or erased,
+/// per source file. Uses the emitter's own type rendering so it matches the
+/// generated crate; see `emitter::typedness`.
+pub fn measure_typedness(mir: &Mir) -> Result<TypednessMeasurement, EmitError> {
+    emitter::typedness::measure(mir)
+}
 
 /// Options for controlling code emission behavior.
 #[derive(Debug, Clone)]

@@ -224,6 +224,46 @@ pub enum Command {
         output: Option<String>,
     },
 
+    /// Measure and ratchet how much of a program reaches Rust typed
+    #[command(
+        name = "typedness-report",
+        long_about = "Measure, on optimized MIR and through the Rust emitter's own \
+        type rendering, how many values (locals), property reads and calls are \
+        concrete, generic or erased (`SmeltUnknown`), per program. Inputs are \
+        `smelt-typedness.json` sidecars (or directories holding one), `Smelt.toml` \
+        manifests (lowered in-process) or `.ts`/`.py` files (each lowered \
+        in-process as one program). With `--baseline`, a program whose erased \
+        count rose or whose typed share fell for any kind is reported; \
+        `--fail-on-regression` makes that exit nonzero. Design adapted from Bun's \
+        `--aot` typedness tests (oven-sh/bun#45631)."
+    )]
+    TypednessReport {
+        /// Sidecars, directories, manifests or source files to measure.
+        #[arg(value_name = "PATH", required = true)]
+        paths: Vec<String>,
+
+        /// Report format: `md` (default) or `json` (also the baseline format).
+        #[arg(long, default_value = "md", value_name = "FORMAT")]
+        format: String,
+
+        /// Baseline report to compare against.
+        #[arg(long, value_name = "PATH")]
+        baseline: Option<String>,
+
+        /// Exit nonzero when any program became less typed than the baseline.
+        #[arg(long)]
+        fail_on_regression: bool,
+
+        /// Rewrite `--baseline`, taking each program's new record only when it
+        /// is no less typed (a regression keeps its old record).
+        #[arg(long)]
+        update_baseline: bool,
+
+        /// Write the report to this file instead of stdout.
+        #[arg(long, value_name = "PATH")]
+        output: Option<String>,
+    },
+
     /// Classify list-typed MIR locals as escaping, aliased, or frame-local
     #[command(
         name = "list-escape-report",

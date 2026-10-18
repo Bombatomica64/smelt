@@ -11,7 +11,7 @@ use smelt_hir::format_compact;
 
 use crate::{
     config::{Allocator, Config, OutputKind, ReleaseProfile},
-    erasure, lowering,
+    erasure, lowering, typedness_report,
     manifest::resolve_manifest_path,
     stubs, timing,
 };
@@ -124,6 +124,13 @@ pub(crate) fn build_rust_crate_with_erasure(
     })?;
     let erasures = erasure::resolve(&krate, &backend_erasures, manifest_dir, settings);
     erasure::write_sidecar(&output_dir, &erasures)?;
+    let typedness = typedness_report::TypednessReport::from_programs(
+        typedness_report::programs_of(&smelt_codegen_rust::measure_typedness(&mir)?, manifest_dir),
+    );
+    typedness_report::write_report_if_changed(
+        &output_dir.join(typedness_report::SIDECAR_FILE_NAME),
+        &typedness,
+    )?;
     let denied = erasure::print_diagnostics(&erasures);
     if denied > 0 {
         return Err(erasure::denied_error(denied));

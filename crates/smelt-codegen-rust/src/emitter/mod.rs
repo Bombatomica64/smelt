@@ -99,6 +99,7 @@ impl Drop for HoistedModuleItemScope<'_, '_> {
 pub(crate) type BlockIdSet = rustc_hash::FxHashSet<smelt_mir::BlockId>;
 
 mod backend_erasure;
+pub(crate) mod typedness;
 mod binary_ops;
 mod call;
 mod call_runtime;
