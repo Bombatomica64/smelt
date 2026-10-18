@@ -44,12 +44,12 @@ module examples/typescript/end-to-end/159_spread_join_tuple_return_finally/input
     #26: None = @15(console_log)
     #27: None = call #26(#16, #18, #25)
     #28: String = "{"maxAge": 12.7}"
-    #29: Dict<String, Unknown> = json_parse #28
+    #29: Unknown = json_parse #28
     #30: Unknown = #29.max_age
     #31: Float = 0.0
     #32: Float = BitOr #30, #31
     #33: String = "{"maxAge": "7"}"
-    #34: Dict<String, Unknown> = json_parse #33
+    #34: Unknown = json_parse #33
     #35: Unknown = #34.max_age
     #36: Float = 0.0
     #37: Float = BitOr #35, #36
@@ -108,5 +108,4 @@ interned types
   t32 = Optional<String>
   t33 = fn(Optional<Dict<String, String>>) -> String
   t34 = fn(String) -> (Float, Optional<Accept>)
-  t35 = Dict<String, Unknown>
-  t36 = fn() -> Future<None>
+  t35 = fn() -> Future<None>

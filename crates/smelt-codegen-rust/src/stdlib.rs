@@ -555,6 +555,53 @@ fn is_stdlib_class(mir: &Mir, ty: &Type, class: smelt_stdlib::StdlibClass) -> bo
     stdlib_class_of_class_symbol(mir, *name) == Some(class)
 }
 
+/// Returns whether any function or closure reads a `Request`/`Response`
+/// member through a run-time key (`raw[key]`).
+///
+/// That read goes through the value's erased view, whose body readers are
+/// resolved by `smelt_body_host_method` (see `fetch_types_prelude`); the
+/// resolver is pay-for-use and gated on this.
+#[must_use]
+pub(crate) fn needs_body_host_method(mir: &Mir) -> bool {
+    let body_holder = |locals: &[smelt_mir::LocalDecl], base: smelt_mir::LocalId| {
+        usize::try_from(base.0)
+            .ok()
+            .and_then(|index| locals.get(index))
+            .and_then(|local| mir.types.get(local.ty))
+            .is_some_and(|ty| {
+                is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::Request)
+                    || is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::Response)
+            })
+    };
+    let reads = |locals: &[smelt_mir::LocalDecl], blocks: &[smelt_mir::BasicBlock]| {
+        blocks.iter().flat_map(|block| &block.statements).any(|statement| {
+            let (Statement::Assign { value, .. }
+            | Statement::AssignPlace { value, .. }
+            | Statement::DictEntryUpdate { value, .. }) = statement
+            else {
+                return false;
+            };
+            let mut found = false;
+            value.for_each_operand(|operand| {
+                if let smelt_mir::Operand::Copy(smelt_mir::Place::Index { base, .. })
+                | smelt_mir::Operand::Move(smelt_mir::Place::Index { base, .. }) = operand
+                    && body_holder(locals, *base)
+                {
+                    found = true;
+                }
+            });
+            found
+        })
+    };
+    mir.functions
+        .iter()
+        .any(|function| reads(&function.locals, &function.blocks))
+        || mir
+            .closures
+            .iter()
+            .any(|closure| reads(&closure.locals, &closure.blocks))
+}
+
 /// Returns true when a MIR rvalue uses Unicode normalization APIs.
 fn rvalue_needs_unicode_normalization(rvalue: &Rvalue) -> bool {
     matches!(rvalue, Rvalue::StringNormalize { .. })
@@ -752,7 +799,8 @@ pub(crate) fn needs_json_parse_runtime(mir: &Mir) -> bool {
                 ..
             }
         )
-    }) || any_rvalue_needs(mir, |rvalue| {
+    }) || needs_body_host_method(mir)
+        || any_rvalue_needs(mir, |rvalue| {
         // A `Response`/`Request` `json()` body reader parses through the same
         // fallible adapter.
         matches!(

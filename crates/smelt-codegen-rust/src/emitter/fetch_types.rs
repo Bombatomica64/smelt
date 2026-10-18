@@ -56,6 +56,22 @@ impl FunctionEmitter<'_> {
                     "SmeltHeaders::from_pairs({init_text}.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>())"
                 ))
             }
+            // `Record<string, string | undefined>`: each own entry is one
+            // header, and WebIDL's record-to-ByteString conversion runs
+            // ToString on every value, so an `undefined` entry is the header
+            // value `"undefined"` (Node agrees). This is the shape a
+            // `{ 'Content-Type': contentType }` literal takes when its value's
+            // narrowing is not carried into the record type (Hono's
+            // `#cachedBody` rebuild).
+            Some(&Type::Dict(key, value))
+                if matches!(self.mir.types.get(key), Some(Type::String))
+                    && matches!(self.mir.types.get(value), Some(&Type::Optional(inner))
+                        if matches!(self.mir.types.get(inner), Some(Type::String))) =>
+            {
+                Ok(format!(
+                    "SmeltHeaders::from_pairs({init_text}.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone().unwrap_or_else(|| \"undefined\".to_owned()))).collect::<Vec<(String, String)>>())"
+                ))
+            }
             // `[string, string][]`: pairs in order.
             Some(&Type::List(item)) if self.is_string_pair_type(item) => Ok(format!(
                 "SmeltHeaders::from_pairs({init_text}.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<(String, String)>>())"

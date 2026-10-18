@@ -158,6 +158,17 @@ pub fn measure_typedness(mir: &Mir) -> Result<TypednessMeasurement, EmitError> {
     emitter::typedness::measure(mir)
 }
 
+/// Name of the prelude helper that reads an optional erased value at the
+/// erased carrier: `Option<SmeltUnknown>` to `SmeltUnknown`, absence becoming
+/// `undefined`.
+///
+/// It converts between two erased spellings of one JavaScript value and adds
+/// no erasure: the value was a `SmeltUnknown` on both sides. The emitter used
+/// to assert presence here (`.expect(..)`), which panicked on an absent value;
+/// the helper's name is what lets the SmeltUnknown report classify the call
+/// site as the boundary it is (same reasoning as `erased_list_alias`).
+pub const OPTIONAL_UNKNOWN_OR_UNDEFINED_FN: &str = "smelt_optional_unknown_or_undefined";
+
 /// Options for controlling code emission behavior.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -2946,6 +2957,20 @@ fn emit_source_with_free_function_router(
         if needs_erased_list_alias {
             erased_list_alias::emit_prelude(&mut writer);
         }
+        // Pay-for-use: only a program whose type table holds `Optional<Unknown>`
+        // can read one at `Unknown`, so only such a program carries the helper.
+        let unknown_ty = mir.types.all().iter().position(|ty| matches!(ty, Type::Unknown));
+        let needs_optional_unknown_read = unknown_ty.is_some_and(|unknown| {
+            mir.types.all().iter().any(|ty| matches!(ty, Type::Optional(inner) if usize::try_from(inner.0).ok() == Some(unknown)))
+        });
+        if needs_optional_unknown_read {
+        writer.line("/// An optional erased value read at the erased carrier: absence is `undefined`.");
+        writer.line("#[inline]");
+        writer.line("#[allow(dead_code)]");
+        writer.line(format!(
+            "fn {OPTIONAL_UNKNOWN_OR_UNDEFINED_FN}(value: Option<SmeltUnknown>) -> SmeltUnknown {{ value.unwrap_or(SmeltUnknown::Undefined) }}"
+        ));
+        }
         writer.line("impl<T: Clone> From<&SmeltList<T>> for Vec<T> { fn from(list: &SmeltList<T>) -> Self { list.to_vec() } }");
         // serde impls only when the crate actually links serde (JSON contexts).
         if needs_serde_json {
@@ -3513,6 +3538,10 @@ fn emit_source_with_free_function_router(
         // resolver, and only when its prelude is emitted at all: the fetch
         // types are pay-for-use, so a crate that never mentions `Headers`
         // carries neither `SmeltHeaders` nor its resolver.
+        let needs_body_host_method = stdlib::needs_body_host_method(mir);
+        if needs_body_host_method {
+            emit_body_host_method(&mut writer, needs_request, needs_response);
+        }
         let mut class_resolvers = String::new();
         for (enabled, resolver) in [
             (needs_headers, "smelt_headers_host_method"),
@@ -3523,6 +3552,7 @@ fn emit_source_with_free_function_router(
             (needs_form_data, "smelt_form_data_host_method"),
             (needs_text_encoder, "smelt_text_encoder_host_method"),
             (needs_text_decoder, "smelt_text_decoder_host_method"),
+            (needs_body_host_method, "smelt_body_host_method"),
         ] {
             if enabled {
                 class_resolvers.push_str(&format!(
@@ -4692,6 +4722,9 @@ fn emit_source_with_free_function_router(
             writer.line("    // Non-zero while a `Promise.race` driver owns the event loop; see");
             writer.line("    // `smelt_promise_race`.");
             writer.line("    static SMELT_RACE_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };");
+            writer.line("    // Wakes the exit loop (`smelt_run_until_exit`) when work is queued");
+            writer.line("    // while the program is only being kept alive by an open handle.");
+            writer.line("    static SMELT_LOOP_WAKE: ::std::rc::Rc<tokio::sync::Notify> = ::std::rc::Rc::new(tokio::sync::Notify::new());");
             writer.line("}");
             writer.blank_line();
             writer.line(format!(
@@ -4726,6 +4759,7 @@ fn emit_source_with_free_function_router(
                 spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
             ));
             writer.line("    SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().push(task));");
+            writer.line("    SMELT_LOOP_WAKE.with(|wake| wake.notify_one());");
             writer.line("}");
             writer.blank_line();
             writer.line(format!(
@@ -5761,6 +5795,7 @@ fn emit_source_with_free_function_router(
                 &impl_generics,
                 &type_params,
                 &fields,
+                &scoped_type_params,
             )?;
         }
         writer.blank_line();
@@ -6329,6 +6364,7 @@ fn emit_source_with_free_function_router(
                 &impl_generics,
                 &type_params,
                 &fields,
+                &scoped_type_params,
             )?;
         }
         writer.blank_line();
@@ -6543,6 +6579,19 @@ fn emit_source_with_free_function_router(
     for (key, body) in context.function_item_erased_fn_accessors.borrow().iter() {
         out.push_str(&format!(
             "\nfn __smelt_fn_erased_{key}() -> SmeltErasedFunction {{\n    thread_local! {{ static SMELT_FN_ERASED: ::std::cell::OnceCell<SmeltErasedFunction> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_ERASED.with(|cell| cell.get_or_init(|| {body}).clone())\n}}\n"
+        ));
+    }
+
+    // Flush the per-function-item accessors for TYPED callable values (see
+    // `EmitContext::function_item_typed_accessors`): one cached `Rc` per item
+    // and rendered callable type, so every typed reference to a named function
+    // shares one identity. The wrapper is bound at its declared type first so
+    // the unsizing coercion to `Rc<dyn Fn..>` happens at a `let`; the type is
+    // spelled once, as an alias, rather than restated in each of the three
+    // positions that name it.
+    for ((key, type_text), (ordinal, body)) in context.function_item_typed_accessors.borrow().iter() {
+        out.push_str(&format!(
+            "\ntype SmeltFnTyped{key}_{ordinal} = {type_text};\nfn __smelt_fn_typed_{key}_{ordinal}() -> SmeltFnTyped{key}_{ordinal} {{\n    thread_local! {{ static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped{key}_{ordinal}> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| {{ let smelt_function: SmeltFnTyped{key}_{ordinal} = {body}; smelt_function }}).clone())\n}}\n"
         ));
     }
 
@@ -6814,11 +6863,23 @@ fn emit_exit_drain_support(writer: &mut CodeWriter) {
                 "{sleep_ms}(0.0).await;",
                 sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
             ));
+            // While a handle keeps the program alive, the loop keeps RUNNING
+            // the event loop, not just waiting: work a handle produces (a
+            // `node:http` request whose handler starts a promise, a timer it
+            // sets) is queued for this loop to drive. Sleeping alone left a
+            // served request's handler task queued forever, so the server
+            // accepted every connection and answered none. A queued task wakes
+            // the loop at once (`SMELT_LOOP_WAKE`); the 5 ms tick remains for
+            // due timers.
             fn_writer.block(
                 "while SMELT_LIVE_HANDLES.with(::std::cell::Cell::get) > 0",
                 |loop_writer| {
-                    loop_writer
-                        .line("tokio::time::sleep(::std::time::Duration::from_millis(5)).await;");
+                    loop_writer.line(format!(
+                        "{sleep_ms}(0.0).await;",
+                        sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
+                    ));
+                    loop_writer.line("let smelt_wake = SMELT_LOOP_WAKE.with(::std::rc::Rc::clone);");
+                    loop_writer.line("tokio::select! { _ = smelt_wake.notified() => {}, _ = tokio::time::sleep(::std::time::Duration::from_millis(5)) => {} }");
                 },
             );
         },
@@ -8283,6 +8344,7 @@ fn emit_record_from_smelt_unknown_impl(
     impl_generics: &str,
     type_args: &str,
     fields: &[smelt_mir::MirField],
+    scoped_type_params: &HashSet<smelt_hir::Symbol>,
 ) -> Result<(), EmitError> {
     writer.block(
         format!("impl{impl_generics} SmeltFromUnknown for {name}{type_args}"),
@@ -8303,12 +8365,6 @@ fn emit_record_from_smelt_unknown_impl(
                             // `Default`, and a type added later has to opt in
                             // rather than silently emit a call to a
                             // `SmeltFromUnknown` impl that does not exist.
-                            if !type_supports_from_unknown(mir, context, field.ty) {
-                                continue;
-                            }
-                            // Read the SOURCE spelling out of the erased object;
-                            // write the sanitized Rust field. See the outbound
-                            // impl above.
                             let field_name =
                                 RustIdent::new(mir.symbols.get(field.name).unwrap_or("field"))
                                     .into_string();
@@ -8317,6 +8373,24 @@ fn emit_record_from_smelt_unknown_impl(
                                 .get(field.name)
                                 .or_else(|| mir.symbols.get(field.name))
                                 .unwrap_or("field");
+                            if matches!(mir.types.get(field.ty), Some(Type::Function(_))) {
+                                emit_function_field_origin_restore(
+                                    body,
+                                    mir,
+                                    context,
+                                    scoped_type_params,
+                                    &field_name,
+                                    key,
+                                    field.ty,
+                                );
+                                continue;
+                            }
+                            if !type_supports_from_unknown(mir, context, field.ty) {
+                                continue;
+                            }
+                            // Read the SOURCE spelling out of the erased object;
+                            // write the sanitized Rust field. See the outbound
+                            // impl above.
                             body.block(
                                 format!("if let Some(field) = object.get({key:?})"),
                                 |assign| {
@@ -8333,6 +8407,82 @@ fn emit_record_from_smelt_unknown_impl(
         },
     );
     Ok(())
+}
+
+/// Restores a function-typed record field from an erased object, by identity.
+///
+/// A record that crosses an erased boundary and comes back (an options bag
+/// passed as a generic `T`, then `Object.assign(this, options)`) carries its
+/// callable members as erased functions. Leaving the field at its `Default`
+/// replaces a live method with a no-op: Hono's `basePath()`/`route()` build a
+/// clone whose `router` came back through here, and every route added to the
+/// clone went into a router whose `add` did nothing, so mounted routes 404'd.
+///
+/// The erasure of a typed callback registers that callback as the erased
+/// function's origin (`smelt_register_function_origin`), so the field is
+/// restored to the SAME typed `Rc` — the identity JavaScript preserves — when
+/// the origin has the field's exact type. A function that never had a typed
+/// origin of this type keeps the `Default` it had before; adapting an arbitrary
+/// erased function to a typed signature needs the per-call-site coercion the
+/// function emitter owns.
+fn emit_function_field_origin_restore(
+    body: &mut CodeWriter,
+    mir: &Mir,
+    context: &emitter::EmitContext,
+    scoped_type_params: &HashSet<smelt_hir::Symbol>,
+    field_name: &str,
+    key: &str,
+    field_ty: TypeId,
+) {
+    let Ok(field_ty_text) = FunctionEmitter::type_text_for_with_scoped_type_params(
+        mir,
+        context,
+        field_ty,
+        &TypeSubstitution::lexical(scoped_type_params),
+    ) else {
+        return;
+    };
+    body.block(format!("if let Some(field) = object.get({key:?})"), |assign| {
+        assign.line(
+            "let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };",
+        );
+        assign.line(format!(
+            "if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<{field_ty_text}>(&smelt_function)) {{ result.{field_name} = smelt_origin; }}"
+        ));
+    });
+}
+
+/// Emits `smelt_body_host_method`: the body readers of an erased
+/// `Request`/`Response`, resolved at run time.
+///
+/// **Dynamic boundary.** A member read whose KEY is a run-time value
+/// (`raw[key]()` with `key: keyof Body`, Hono's request body cache) has no
+/// static member to dispatch to, so it reads the member off the value's
+/// erased view, and that view is a marker-bearing record with no stored
+/// `text`/`json` field. The member has to be synthesized from the marker and
+/// the key, exactly as `smelt_headers_host_method` does for `Headers`;
+/// answering `undefined` instead made every such read call nothing and
+/// resolve `null`.
+///
+/// The live value is recovered through the origin registry, so the body read
+/// is the SAME body the program holds: it is disturbed (`bodyUsed`) and a
+/// second read fails with the spec's `TypeError`, as in Node. `text` and
+/// `json` are the readers with an erased result representation; the others
+/// keep the plain read's `undefined`.
+fn emit_body_host_method(writer: &mut CodeWriter, needs_request: bool, needs_response: bool) {
+    let mut holders = String::new();
+    if needs_request {
+        holders.push_str("if object.contains_key(\"__smelt_request\") { <SmeltRequest as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())).body.clone() } else ");
+    }
+    if needs_response {
+        holders.push_str("if object.contains_key(\"__smelt_response\") { <SmeltResponse as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())).body.clone() } else ");
+    }
+    writer.line("/// The `text`/`json` body readers of an erased `Request`/`Response` record.");
+    writer.line(format!(
+        "fn smelt_body_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> {{ if !matches!(name, \"text\" | \"json\") {{ return None; }} let body = {holders}{{ return None; }}; let parse_json = name == \"json\"; Some(SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| {{ let result = body.take_bytes().and_then(|bytes| {{ let text = String::from_utf8_lossy(&bytes).into_owned(); if parse_json {{ {json_parse}(&text) }} else {{ Ok(SmeltUnknown::String(text.into())) }} }}); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move {{ result }})))) }}))) }}",
+        json_parse = crate::thrown::JSON_PARSE_FN,
+    ));
+    writer.blank_line();
 }
 
 /// Recovers a value of type `ty` from a `SmeltUnknown` expression.

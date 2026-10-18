@@ -1,4 +1,4 @@
-module examples/typescript/end-to-end/160_proven_integer_counters/input.ts (ModuleId(0))
+module examples/typescript/end-to-end/166_proven_integer_counters/input.ts (ModuleId(0))
   body BodyId(12)
   items
     global mut k: Float

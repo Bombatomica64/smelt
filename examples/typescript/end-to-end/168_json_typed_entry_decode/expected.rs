@@ -2500,6 +2500,9 @@ thread_local! {
     // Non-zero while a `Promise.race` driver owns the event loop; see
     // `smelt_promise_race`.
     static SMELT_RACE_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
+    // Wakes the exit loop (`smelt_run_until_exit`) when work is queued
+    // while the program is only being kept alive by an open handle.
+    static SMELT_LOOP_WAKE: ::std::rc::Rc<tokio::sync::Notify> = ::std::rc::Rc::new(tokio::sync::Notify::new());
 }
 
 fn smelt_reset_timers() {
@@ -2523,6 +2526,7 @@ fn smelt_noop_waker() -> ::std::task::Waker {
 
 fn smelt_spawn_promise_task(task: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>) {
     SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().push(task));
+    SMELT_LOOP_WAKE.with(|wake| wake.notify_one());
 }
 
 async fn smelt_drain_promise_tasks() {
@@ -2660,7 +2664,9 @@ fn smelt_release_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handle
 async fn smelt_run_until_exit() {
     smelt_sleep_ms(0.0).await;
     while SMELT_LIVE_HANDLES.with(::std::cell::Cell::get) > 0 {
-        tokio::time::sleep(::std::time::Duration::from_millis(5)).await;
+        smelt_sleep_ms(0.0).await;
+        let smelt_wake = SMELT_LOOP_WAKE.with(::std::rc::Rc::clone);
+        tokio::select! { _ = smelt_wake.notified() => {}, _ = tokio::time::sleep(::std::time::Duration::from_millis(5)) => {} }
     }
 }
 
@@ -4578,10 +4584,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     order = _smelt_tmp_8;
     _smelt_tmp_9 = order.note.clone().is_none();
     let _ = { println!("{} {} {}", smelt_console_number(order.id), order.priority.clone(), _smelt_tmp_9); };
-    _smelt_tmp_11 = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion2| {
-    let _smelt_tmp_1: f64 = area(closure_arg_0.clone());
-    _smelt_tmp_1
-    });
+    _smelt_tmp_11 = __smelt_fn_typed_8_0();
     _smelt_tmp_12 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion2| {
     let _smelt_tmp_1: f64 = area(closure_arg_0.clone());
     _smelt_tmp_1
@@ -4621,6 +4624,15 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_42 = _smelt_tmp_41.await?;
     return Ok(());
 })
+}
+
+type SmeltFnTyped8_0 = ::std::rc::Rc<dyn Fn(SmeltUnion2) -> f64>;
+fn __smelt_fn_typed_8_0() -> SmeltFnTyped8_0 {
+    thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped8_0> = ::std::cell::OnceCell::new(); }
+    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| { let smelt_function: SmeltFnTyped8_0 = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion2| {
+    let _smelt_tmp_1: f64 = area(closure_arg_0.clone());
+    _smelt_tmp_1
+    }); smelt_function }).clone())
 }
 
 // ==== source_main.rs

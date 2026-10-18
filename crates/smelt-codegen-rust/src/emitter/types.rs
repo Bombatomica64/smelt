@@ -2212,11 +2212,21 @@ impl FunctionEmitter<'_> {
     /// `0` for a non-generic class and for a name that is not a generated class
     /// at all, so callers can ask without checking first.
     pub(super) fn class_type_param_count(&self, name: smelt_hir::Symbol) -> usize {
-        self.mir
+        // The parameters the emitted struct DECLARES: a position
+        // `generic_elision` dropped is spelled nowhere, so it must not be
+        // spelled here either (`Context_1::<SmeltUnknown, ..>::default()` for a
+        // `Context_1` whose three parameters were all elided was E0107 in the
+        // Hono crate). Same rule as the type renderer's `retain_carried`.
+        let declared = self
+            .mir
             .classes
             .iter()
             .find(|class| class.name == name)
-            .map_or(0, |class| class.type_params.len())
+            .map_or(0, |class| class.type_params.len());
+        self.context
+            .type_param_elision()
+            .retain_carried(name, (0..declared).collect::<Vec<_>>())
+            .len()
     }
 
     /// Substitute concrete class/interface arguments into structural fields.

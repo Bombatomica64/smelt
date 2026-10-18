@@ -221,6 +221,26 @@ pub(crate) struct EmitContext {
     /// { .. }` factory expression. A `BTreeMap` keeps emitted order deterministic.
     pub(crate) function_item_erased_fn_accessors:
         ::std::cell::RefCell<::std::collections::BTreeMap<usize, String>>,
+    /// Per-function-item accessors for a TYPED callable value (`Rc<dyn Fn..>`).
+    ///
+    /// A named function referenced as a value at a typed function position
+    /// (`errorHandler: ErrorHandler = errorHandler`, `this.errorHandler ===
+    /// errorHandler`) was emitted as a fresh `Rc::new(..)` wrapper per
+    /// reference, so two references were never `===`: Hono's `route()` asks
+    /// `app.errorHandler === errorHandler` to decide whether a sub-app has its
+    /// own error handler, always answered `false`, and wrapped every mounted
+    /// handler in an error-composing adapter. Each accessor caches ONE typed
+    /// wrapper, so every reference shares one `Rc` — the JavaScript identity of
+    /// the one function object.
+    ///
+    /// Keyed by `(item key, rendered Rust type)`, because one item can be
+    /// referenced at differently rendered callable types (a callback parameter
+    /// passed by shared reference renders `&T` where an owned slot renders `T`);
+    /// the value is `(ordinal, wrapper expression)`, the ordinal naming the
+    /// accessor `__smelt_fn_typed_<key>_<ordinal>`.
+    pub(crate) function_item_typed_accessors: ::std::cell::RefCell<
+        ::std::collections::BTreeMap<(usize, String), (usize, String)>,
+    >,
     /// MIR ids of free functions that emit real Rust generics.
     ///
     /// A generic free function only keeps real generics when its signature is
@@ -354,6 +374,9 @@ impl EmitContext {
                 ::std::collections::BTreeMap::new(),
             ),
             function_item_erased_fn_accessors: ::std::cell::RefCell::new(
+                ::std::collections::BTreeMap::new(),
+            ),
+            function_item_typed_accessors: ::std::cell::RefCell::new(
                 ::std::collections::BTreeMap::new(),
             ),
             generic_functions: RefCell::new(HashSet::new()),

@@ -132,4 +132,4 @@ nullish values.
   (`emits_strict_json_decoders_for_declared_targets`,
   `keeps_dynamic_json_parse_for_undecodable_targets`), the runtime tier in
   `crates/smelt-codegen-rust/tests/stdlib_boundary_runtime.rs`, and the
-  end-to-end example `162_json_typed_entry_decode`.
+  end-to-end example `168_json_typed_entry_decode`.

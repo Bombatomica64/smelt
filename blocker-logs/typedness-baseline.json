@@ -2,17 +2,17 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 7108,
-      "generic": 71,
+      "concrete": 7196,
+      "generic": 74,
       "erased": 51
     },
     "reads": {
-      "concrete": 707,
+      "concrete": 714,
       "generic": 21,
       "erased": 34
     },
     "calls": {
-      "concrete": 1672,
+      "concrete": 1695,
       "generic": 5,
       "erased": 2
     }
@@ -1021,7 +1021,58 @@
         "erased": 0
       }
     },
-    "examples/typescript/end-to-end/160_proven_integer_counters/input.ts": {
+    "examples/typescript/end-to-end/160_function_item_typed_identity/input.ts": {
+      "values": {
+        "concrete": 52,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 10,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/162_alias_names_generic_class/input.ts": {
+      "values": {
+        "concrete": 11,
+        "generic": 3,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 7,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/165_void_operand_runs/input.ts": {
+      "values": {
+        "concrete": 25,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/166_proven_integer_counters/input.ts": {
       "values": {
         "concrete": 175,
         "generic": 0,
@@ -1038,7 +1089,7 @@
         "erased": 0
       }
     },
-    "examples/typescript/end-to-end/161_bun_int32_slots/input.ts": {
+    "examples/typescript/end-to-end/167_bun_int32_slots/input.ts": {
       "values": {
         "concrete": 149,
         "generic": 0,
@@ -1055,7 +1106,7 @@
         "erased": 0
       }
     },
-    "examples/typescript/end-to-end/162_json_typed_entry_decode/input.ts": {
+    "examples/typescript/end-to-end/168_json_typed_entry_decode/input.ts": {
       "values": {
         "concrete": 76,
         "generic": 0,

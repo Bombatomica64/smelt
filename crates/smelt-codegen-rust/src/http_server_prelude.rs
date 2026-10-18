@@ -451,10 +451,20 @@ fn emit_connection_glue(writer: &mut CodeWriter) {
     writer.block(
         "async fn smelt_http_accept_loop(listener: tokio::net::TcpListener, handler: SmeltHttpHandler, mut shutdown: tokio::sync::oneshot::Receiver<()>)",
         |fn_writer| {
+            fn_writer.line("let mut shutdown_open = true;");
             fn_writer.block("loop", |loop_writer| {
                 loop_writer.block("let stream = tokio::select!", |select_writer| {
                     select_writer.line("accepted = listener.accept() => match accepted { Ok((stream, _)) => stream, Err(_) => continue },");
-                    select_writer.line("_ = &mut shutdown => break,");
+                    // Only an explicit `close()` SENDS on the channel. A
+                    // dropped sender (every handle to the server object went
+                    // out of scope — `createServer(..).listen(..)` inside a
+                    // helper that returns) is not a close: Node keeps a
+                    // listening server alive as a ref'd handle whether or not
+                    // the program still references it. Breaking on the
+                    // `RecvError` stopped accepting the moment such a helper
+                    // returned; it now stops polling the finished channel
+                    // (polling it again panics) and keeps serving.
+                    select_writer.line("closed = &mut shutdown, if shutdown_open => match closed { Ok(()) => break, Err(_) => { shutdown_open = false; continue } },");
                 });
                 loop_writer.line(";");
                 loop_writer.line("let handler = ::std::rc::Rc::clone(&handler);");

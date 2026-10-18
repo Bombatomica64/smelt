@@ -2396,12 +2396,7 @@ impl ModuleBuilder<'_> {
                     return self.unary_expression(unary, body);
                 }
                 if unary.operator == UnaryOperator::Void {
-                    let ty = self.ctx.krate.types.intern(Type::None);
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::None),
-                        ty,
-                        span: self.span(unary.span.start, unary.span.end),
-                    }));
+                    return self.void_expression(unary, body, Literal::Undefined);
                 }
                 let op = match unary.operator {
                     UnaryOperator::LogicalNot => UnaryOp::Not,

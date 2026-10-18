@@ -1,4 +1,4 @@
-module examples/typescript/end-to-end/162_json_typed_entry_decode/input.ts (ModuleId(0))
+module examples/typescript/end-to-end/168_json_typed_entry_decode/input.ts (ModuleId(0))
   body BodyId(6)
   items
     interface Circle fields [Public kind: String, Public radius: Float] methods []

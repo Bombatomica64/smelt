@@ -1,0 +1,268 @@
+### GET /todos 
+HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 2
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+[]
+
+### POST /todos body={"title":"buy milk"}
+HTTP/1.1 201 Created
+Content-Type: application/json
+Content-Length: 79
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"id":1,"title":"buy milk","done":false,"createdAt":"<ts>"}
+
+### POST /todos body={"title":"walk dog","done":true}
+HTTP/1.1 201 Created
+Content-Type: application/json
+Content-Length: 78
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"id":2,"title":"walk dog","done":true,"createdAt":"<ts>"}
+
+### POST /todos body={"title":""}
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+Content-Length: 44
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"title must be a non-empty string"}
+
+### POST /todos body={"title":"x","done":"yes"}
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+Content-Length: 34
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"done must be a boolean"}
+
+### POST /todos body=[1,2]
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+Content-Length: 44
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"title must be a non-empty string"}
+
+### POST /todos body=null
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+Content-Length: 38
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"body must be a JSON object"}
+
+### POST /todos body={bad json
+HTTP/1.1 500 Internal Server Error
+Content-Type: application/json
+Content-Length: 81
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"Expected property name or '}' in JSON at position 1 (line 1 column 2)"}
+
+### GET /todos 
+HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 160
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+[{"id":1,"title":"buy milk","done":false,"createdAt":"<ts>"},{"id":2,"title":"walk dog","done":true,"createdAt":"<ts>"}]
+
+### GET /todos/1 
+HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 79
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"id":1,"title":"buy milk","done":false,"createdAt":"<ts>"}
+
+### GET /todos/2 
+HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 78
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"id":2,"title":"walk dog","done":true,"createdAt":"<ts>"}
+
+### GET /todos/999 
+HTTP/1.1 404 Not Found
+Content-Type: application/json
+Content-Length: 26
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"todo not found"}
+
+### GET /todos/abc 
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+Content-Length: 41
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"id must be a positive integer"}
+
+### GET /todos/0 
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+Content-Length: 41
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"id must be a positive integer"}
+
+### GET /todos/1.5 
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+Content-Length: 41
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"id must be a positive integer"}
+
+### GET /todos/-3 
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+Content-Length: 41
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"id must be a positive integer"}
+
+### PATCH /todos/1 body={"done":true}
+HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 78
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"id":1,"title":"buy milk","done":true,"createdAt":"<ts>"}
+
+### PATCH /todos/1 body={"title":"buy oat milk"}
+HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 82
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"id":1,"title":"buy oat milk","done":true,"createdAt":"<ts>"}
+
+### PATCH /todos/1 body={}
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+Content-Length: 40
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"patch must set title or done"}
+
+### PATCH /todos/1 body={"title":3}
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+Content-Length: 44
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"title must be a non-empty string"}
+
+### PATCH /todos/1 body={"done":"no"}
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+Content-Length: 34
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"done must be a boolean"}
+
+### PATCH /todos/999 body={"done":true}
+HTTP/1.1 404 Not Found
+Content-Type: application/json
+Content-Length: 26
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"todo not found"}
+
+### PATCH /todos/abc body={"done":true}
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+Content-Length: 41
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"id must be a positive integer"}
+
+### DELETE /todos/2 
+HTTP/1.1 204 No Content
+content-type: text/plain; charset=UTF-8
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+
+### DELETE /todos/2 
+HTTP/1.1 404 Not Found
+Content-Type: application/json
+Content-Length: 26
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"todo not found"}
+
+### DELETE /todos/abc 
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+Content-Length: 41
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"id must be a positive integer"}
+
+### GET /todos 
+HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 84
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+[{"id":1,"title":"buy oat milk","done":true,"createdAt":"<ts>"}]
+
+### GET /nope 
+HTTP/1.1 404 Not Found
+Content-Type: application/json
+Content-Length: 27
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"route not found"}
+
+### PUT /todos/1 body={"title":"x"}
+HTTP/1.1 404 Not Found
+Content-Type: application/json
+Content-Length: 27
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"route not found"}
+
+### GET /todos/ 
+HTTP/1.1 404 Not Found
+Content-Type: application/json
+Content-Length: 27
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"route not found"}
+
