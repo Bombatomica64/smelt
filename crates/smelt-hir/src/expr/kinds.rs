@@ -693,6 +693,17 @@ pub enum ExprKind {
         /// The request handler, called once per accepted request.
         handler: ExprId,
     },
+    /// A `node:http` server answering requests with a fetch handler.
+    ///
+    /// What `@hono/node-server`'s `serve` builds: every request is converted to
+    /// a fetch `Request`, passed to `fetch`, and the `Response` it answers
+    /// (directly or through a promise) is written back. `fetch` keeps the
+    /// program's own function type; it is called with the request alone, so
+    /// its further parameters are optional.
+    HttpCreateFetchServer {
+        /// The fetch handler, called once per accepted request.
+        fetch: ExprId,
+    },
     /// A `node:http` `Server` member operation.
     HttpServerOp {
         /// Which operation this member performs.

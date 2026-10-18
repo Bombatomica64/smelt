@@ -1230,6 +1230,14 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::HttpCreateFetchServer { fetch } => {
+                let fetch_operand = self.lower_expr(*fetch)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::HttpCreateFetchServer { fetch: fetch_operand },
+                )?
+            }
             ExprKind::HttpServerOp { op, server, args } => {
                 let server_operand = self.lower_expr(*server)?;
                 let arg_operands = args

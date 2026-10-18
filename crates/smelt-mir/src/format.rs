@@ -922,6 +922,9 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
         Rvalue::HttpCreateServer { handler } => {
             format!("http_create_server {}", operand_text(handler))
         }
+        Rvalue::HttpCreateFetchServer { fetch } => {
+            format!("http_create_fetch_server {}", operand_text(fetch))
+        }
         Rvalue::HttpServerOp { op, server, args } => {
             let name = match op {
                 smelt_hir::HttpServerOp::Listen => "listen",

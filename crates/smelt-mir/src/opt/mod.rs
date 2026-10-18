@@ -532,6 +532,7 @@ fn rewrite_rvalue(
             rewritten
         }
         Rvalue::HttpCreateServer { handler } => rewrite_operand_except(handler, aliases, dest),
+        Rvalue::HttpCreateFetchServer { fetch } => rewrite_operand_except(fetch, aliases, dest),
         Rvalue::HttpServerOp { server, args, .. } => {
             let mut rewritten = rewrite_operand_except(server, aliases, dest);
             for arg in args {

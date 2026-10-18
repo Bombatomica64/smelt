@@ -518,6 +518,9 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::HttpCreateServer { handler } => {
             format!("http_create_server {}", expr_ref(*handler))
         }
+        ExprKind::HttpCreateFetchServer { fetch } => {
+            format!("http_create_fetch_server {}", expr_ref(*fetch))
+        }
         ExprKind::HttpServerOp { op, server, args } => {
             let name = match op {
                 crate::expr::HttpServerOp::Listen => "listen",

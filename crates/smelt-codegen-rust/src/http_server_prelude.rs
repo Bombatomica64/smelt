@@ -580,3 +580,68 @@ fn emit_connection_glue(writer: &mut CodeWriter) {
     );
     writer.blank_line();
 }
+
+/// The bridge from `node:http` to a fetch handler (`@hono/node-server`'s `serve`).
+///
+/// What the Node adapter does per request, on the runtime's own types: the
+/// incoming message becomes a fetch `Request` (`http://<host><url>`, its
+/// headers, its body), the handler's answer is awaited if it is a promise and
+/// read as a `Response`, and status, every header and the body are written to
+/// the server response, which ends it. A handler that throws, or a promise that
+/// rejects, answers `500 Internal Server Error` as the adapter does, after
+/// reporting the error on stderr.
+const FETCH_SERVER: &str = r#"/// The fetch `Request` for one incoming message.
+#[allow(dead_code)]
+fn smelt_fetch_server_request(message: &SmeltIncomingMessage) -> SmeltRequest {
+    let headers = SmeltHeaders::new();
+    let mut host = String::from("localhost");
+    for (name, value) in message.headers.iter() {
+        if name == "host" { host = value.clone(); }
+        headers.append(name, value);
+    }
+    let body = match message.pending_body.borrow_mut().take() {
+        Some(bytes) if !bytes.is_empty() && !matches!(message.method.as_str(), "GET" | "HEAD") => SmeltBody::from_bytes(bytes),
+        _ => SmeltBody::empty(),
+    };
+    SmeltRequest::from_parts(&format!("http://{host}{}", message.url), message.method.clone(), headers, body)
+}
+
+/// Write a fetch handler's answer to `response` once it settles.
+#[allow(dead_code)]
+fn smelt_fetch_server_respond(response: SmeltServerResponse, answer: Result<SmeltUnknown, Box<dyn ::std::error::Error>>) {
+    // A task of its own on the local set, like the connection that waits for
+    // it: the promise-task queue is drained only by the program's own event
+    // loop, which a program awaiting its own server (`await fetch(..)` at top
+    // level) is not running yet.
+    tokio::task::spawn_local(async move {
+        let settled = match answer {
+            Ok(value) => smelt_await_flatten(value).await,
+            Err(error) => Err(error),
+        };
+        match settled {
+            Ok(value) => {
+                let answered = <SmeltResponse as SmeltFromUnknown>::smelt_from_unknown(value);
+                response.status.set(answered.status() as u16);
+                for (name, value) in answered.headers.entries_sorted() {
+                    response.headers.borrow_mut().push((name, value));
+                }
+                response.body.borrow_mut().extend_from_slice(&answered.body.peek_bytes());
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                response.status.set(500);
+                response.headers.borrow_mut().push(("content-type".to_owned(), "text/plain; charset=UTF-8".to_owned()));
+                response.body.borrow_mut().extend_from_slice(b"Internal Server Error");
+            }
+        }
+        response.end(None);
+    });
+}"#;
+
+/// Emit [`FETCH_SERVER`].
+pub fn emit_fetch_server(writer: &mut CodeWriter) {
+    for line in FETCH_SERVER.lines() {
+        writer.line(line);
+    }
+    writer.blank_line();
+}

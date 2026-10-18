@@ -51,6 +51,7 @@ impl Rvalue {
                 }
             }
             Self::HttpCreateServer { handler } => visit(handler),
+            Self::HttpCreateFetchServer { fetch } => visit(fetch),
             Self::HttpServerOp { server, args, .. } => {
                 visit(server);
                 for arg in args {
@@ -989,6 +990,7 @@ impl Rvalue {
                 }
             }
             Self::HttpCreateServer { handler } => visit(handler),
+            Self::HttpCreateFetchServer { fetch } => visit(fetch),
             Self::HttpServerOp { server, args, .. } => {
                 visit(server);
                 for arg in args.iter_mut() {

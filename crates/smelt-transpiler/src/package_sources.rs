@@ -201,8 +201,8 @@ fn checkout_matches(checkout: &Path, rev: &str) -> bool {
 /// Run `git` and return its trimmed stdout.
 fn git(args: &[&str], working_dir: Option<&Path>) -> Result<String, Box<dyn Error>> {
     let mut command = Command::new("git");
-    if let Some(working_dir) = working_dir {
-        command.current_dir(working_dir);
+    if let Some(cwd) = working_dir {
+        command.current_dir(cwd);
     }
     let output = command.args(args).output()?;
     if !output.status.success() {

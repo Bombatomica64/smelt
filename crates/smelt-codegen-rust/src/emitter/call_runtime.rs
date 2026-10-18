@@ -1325,6 +1325,7 @@ impl FunctionEmitter<'_> {
             Rvalue::EventEmitterOp { op, emitter, args } => {
                 self.event_emitter_op_text(*op, emitter, args)
             }
+            Rvalue::HttpCreateFetchServer { fetch } => self.http_create_fetch_server_text(fetch),
             Rvalue::HttpCreateServer { handler } => self.http_create_server_text(handler),
             Rvalue::HttpServerOp { op, server, args } => {
                 self.http_server_op_text(*op, server, args)

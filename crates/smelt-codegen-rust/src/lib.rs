@@ -5927,6 +5927,9 @@ fn emit_source_with_free_function_router(
     if needs_http_server {
         http_server_prelude::emit(&mut writer);
     }
+    if stdlib::needs_fetch_server_runtime(mir) {
+        http_server_prelude::emit_fetch_server(&mut writer);
+    }
     if !context.weak_receivers().is_empty() {
         emitter::weak_receiver::emit_prelude(&mut writer, needs_unknown, needs_erased_function);
     }

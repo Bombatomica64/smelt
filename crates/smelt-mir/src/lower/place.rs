@@ -364,6 +364,7 @@ impl LoweringCtx<'_> {
             | ExprKind::EventEmitterNew
             | ExprKind::EventEmitterOp { .. }
             | ExprKind::HttpCreateServer { .. }
+            | ExprKind::HttpCreateFetchServer { .. }
             | ExprKind::HttpServerOp { .. }
             | ExprKind::IncomingMessageOp { .. }
             | ExprKind::ServerResponseOp { .. }

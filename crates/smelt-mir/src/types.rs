@@ -1353,6 +1353,12 @@ pub enum Rvalue {
         /// The request handler, called once per accepted request.
         handler: Operand,
     },
+    /// A `node:http` server answering requests with a fetch handler
+    /// (`smelt_hir::ExprKind::HttpCreateFetchServer`).
+    HttpCreateFetchServer {
+        /// The fetch handler, called with the request alone.
+        fetch: Operand,
+    },
     /// A `node:http` `Server` member operation.
     HttpServerOp {
         /// Which operation this member performs.

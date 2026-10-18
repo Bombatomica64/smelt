@@ -421,6 +421,7 @@ impl ExprKind {
             Self::HttpCreateServer { handler } => Self::HttpCreateServer {
                 handler: f(handler)?,
             },
+            Self::HttpCreateFetchServer { fetch } => Self::HttpCreateFetchServer { fetch: f(fetch)? },
             Self::HttpServerOp { op, server, args } => {
                 let server = f(server)?;
                 let mut mapped = Vec::with_capacity(args.len());

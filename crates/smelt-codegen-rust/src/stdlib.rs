@@ -208,6 +208,8 @@ pub(crate) fn needs_response_runtime(mir: &Mir) -> bool {
             rvalue,
             Rvalue::ResponseNew { .. }
                 | Rvalue::ResponseOp { .. }
+                // A fetch server turns every handler answer into a response.
+                | Rvalue::HttpCreateFetchServer { .. }
                 // `fetch` BUILDS a response, so a program that only calls it
                 // and never names the type still carries the runtime type.
                 | Rvalue::AsyncOp {
@@ -229,7 +231,10 @@ pub(crate) fn needs_request_runtime(mir: &Mir) -> bool {
     any_rvalue_needs(mir, |rvalue| {
         matches!(
             rvalue,
-            Rvalue::RequestNew { .. } | Rvalue::RequestOp { .. }
+            Rvalue::RequestNew { .. }
+                | Rvalue::RequestOp { .. }
+                // A fetch server builds a request per accepted connection.
+                | Rvalue::HttpCreateFetchServer { .. }
         )
     }) || mir
         .types
@@ -265,11 +270,17 @@ pub(crate) fn needs_event_emitter_runtime(mir: &Mir) -> bool {
 /// four server rvalues, or a value of any of the three modeled classes, is
 /// enough: a program can receive a `ServerResponse` from a helper without
 /// calling `createServer` in the same function.
+/// Returns true when generated Rust serves a fetch handler (`HttpCreateFetchServer`).
+pub(crate) fn needs_fetch_server_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| matches!(rvalue, Rvalue::HttpCreateFetchServer { .. }))
+}
+
 pub(crate) fn needs_http_server_runtime(mir: &Mir) -> bool {
     any_rvalue_needs(mir, |rvalue| {
         matches!(
             rvalue,
             Rvalue::HttpCreateServer { .. }
+                | Rvalue::HttpCreateFetchServer { .. }
                 | Rvalue::HttpServerOp { .. }
                 | Rvalue::IncomingMessageOp { .. }
                 | Rvalue::ServerResponseOp { .. }

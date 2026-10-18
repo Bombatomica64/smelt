@@ -16,6 +16,7 @@
 //! error the source could raise.
 
 use super::*;
+use crate::type_substitution::TypeSubstitution;
 
 impl FunctionEmitter<'_> {
     /// Emit `createServer(handler)`.
@@ -30,6 +31,58 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let adapted = self.http_handler_adapter_text(handler)?;
         Ok(format!("SmeltHttpServer::new({adapted})"))
+    }
+
+    /// Emit a server answering requests with a fetch handler.
+    ///
+    /// The handler is called the way the Node adapter calls it: with the
+    /// request alone, every further parameter absent. Those must be optional
+    /// (Hono's `app.fetch(request, env?, executionCtx?)`), so each takes its
+    /// absent value. Whatever the handler answers — a `Response`, a promise of
+    /// one, or a union of the two — is erased through the ordinary erasure and
+    /// written back by `smelt_fetch_server_respond`, which awaits a promise;
+    /// a throwing handler's error becomes the adapter's 500.
+    pub(super) fn http_create_fetch_server_text(
+        &self,
+        fetch: &Operand,
+    ) -> Result<String, EmitError> {
+        let ty = self.operand_ty(fetch)?;
+        let Some(Type::Function(function)) = self.mir.types.get(ty) else {
+            return Err(EmitError::new("`serve` needs a function as its `fetch` handler"));
+        };
+        let Some(request_ty) = function.params.first().copied() else {
+            return Err(EmitError::new("a `fetch` handler takes the request as its first parameter"));
+        };
+        let mut text = self.operand_text(fetch)?;
+        if matches!(fetch, Operand::Copy(_)) {
+            text = format!("{text}.clone()");
+        }
+        let substitution = TypeSubstitution::erased();
+        let request_text = self.function_type_param_text(function, 0, request_ty, &substitution)?;
+        let mut args = vec![if request_text.starts_with('&') {
+            "&smelt_fetch_request".to_owned()
+        } else {
+            "smelt_fetch_request".to_owned()
+        }];
+        let required = function.required_params.unwrap_or(function.params.len());
+        for (index, param) in function.params.iter().enumerate().skip(1) {
+            if index < required {
+                return Err(EmitError::new(
+                    "a `fetch` handler is called with the request alone, so its other parameters must be optional",
+                ));
+            }
+            args.push(self.default_value(*param)?);
+        }
+        let call = format!("smelt_fetch({})", args.join(", "));
+        let erased = self.erase_value_text("smelt_answer", function.return_ty)?;
+        let answer = if function.may_throw {
+            format!("{call}.map(|smelt_answer| {erased})")
+        } else {
+            format!("{{ let smelt_answer = {call}; Ok::<SmeltUnknown, Box<dyn ::std::error::Error>>({erased}) }}")
+        };
+        Ok(format!(
+            "SmeltHttpServer::new({{ let smelt_fetch = {text}; ::std::rc::Rc::new(move |smelt_request: SmeltIncomingMessage, smelt_response: SmeltServerResponse| {{ let smelt_fetch_request = smelt_fetch_server_request(&smelt_request); smelt_fetch_server_respond(smelt_response, {answer}); Ok(()) }}) as SmeltHttpHandler }})"
+        ))
     }
 
     /// Wrap a source request handler into a `SmeltHttpHandler`.

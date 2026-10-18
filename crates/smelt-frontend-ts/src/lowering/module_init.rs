@@ -1172,7 +1172,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             // process alive — so it bound a socket and returned immediately.
             if matches!(
                 expr.kind,
-                ExprKind::HttpCreateServer { .. } | ExprKind::HttpServerOp { .. }
+                ExprKind::HttpCreateServer { .. }
+                    | ExprKind::HttpCreateFetchServer { .. }
+                    | ExprKind::HttpServerOp { .. }
             ) {
                 return true;
             }
@@ -2834,13 +2836,32 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Infer the type of a top-level constant initializer for later test-body reads.
+    ///
+    /// The initializer is lowered into a scratch body only to read its type,
+    /// and the lowering is rolled back afterwards: a closure inside it
+    /// (`const server = serve({ fetch: async (r) => .. })`) allocates a real
+    /// body in the crate, and leaving that orphan behind made MIR lower a body
+    /// no expression refers to — for an async closure, one whose `await`s sit
+    /// in a function never marked async, which failed the whole build. The real
+    /// lowering of the declaration builds the closure again where it belongs.
     pub(super) fn infer_module_global_initializer_type(
         &mut self,
         init: &Expression<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
+        let bodies = self.ctx.krate.bodies.len();
+        let items = self.ctx.krate.items.len();
         let mut body = Body::new(None, self.expression_span(init));
-        let expr = self.expression_with_hint(init, &mut body, None)?;
-        Ok(Self::expr_ty(&body, expr))
+        let result = self
+            .expression_with_hint(init, &mut body, None)
+            .map(|expr| Self::expr_ty(&body, expr));
+        // Only bodies are rolled back, and only when the probe declared no
+        // item: an item (a class expression, say) is registered by id in the
+        // builder's name tables and owns bodies of its own, so a probe that
+        // made one keeps everything it made, as it always did.
+        if self.ctx.krate.items.len() == items {
+            self.ctx.krate.bodies.truncate(bodies);
+        }
+        result
     }
 
     /// Extract literal array and set constants that nested function bodies can inline.

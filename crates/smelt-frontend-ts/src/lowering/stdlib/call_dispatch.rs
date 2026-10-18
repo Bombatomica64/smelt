@@ -2382,6 +2382,7 @@ impl<'builder> ModuleBuilder<'builder> {
         // through it, and the two `node:http` receivers with methods of their
         // own must claim those names first.
         Self::http_create_server_call,
+        Self::hono_node_serve_call,
         Self::dispatch_http_server_method,
         Self::dispatch_server_response_method,
         Self::dispatch_event_emitter_method,

@@ -6107,6 +6107,7 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         // handler and `listen`'s listening callback are closure temps whose
         // ONLY use is the rvalue that consumes them.
         Rvalue::HttpCreateServer { handler } => operand_uses_local(handler, local),
+        Rvalue::HttpCreateFetchServer { fetch } => operand_uses_local(fetch, local),
         Rvalue::HttpServerOp { server, args, .. } => {
             operand_uses_local(server, local)
                 || args
