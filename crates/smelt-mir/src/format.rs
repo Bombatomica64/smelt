@@ -903,6 +903,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             )
         }
         Rvalue::EventEmitterNew => "event_emitter_new".to_owned(),
+        Rvalue::ProcessEnvRead { name } => format!("process_env_read {name:?}"),
         Rvalue::EventEmitterOp { op, emitter, args } => {
             let name = match op {
                 smelt_hir::EventEmitterOp::On => "on",

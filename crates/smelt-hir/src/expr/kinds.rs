@@ -670,6 +670,12 @@ pub enum ExprKind {
     /// by a listener is reported and has no meaning until listeners can be
     /// async here.
     EventEmitterNew,
+    /// `process.env.NAME`: the variable from the process environment, or
+    /// `undefined` when it is not set. Typed `Optional<String>`.
+    ProcessEnvRead {
+        /// The variable's name.
+        name: String,
+    },
     /// An `EventEmitter` member operation on a concrete emitter receiver.
     ///
     /// The receiver is any value whose class

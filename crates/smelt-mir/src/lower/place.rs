@@ -362,6 +362,7 @@ impl LoweringCtx<'_> {
             | ExprKind::RegexSplit { .. }
             | ExprKind::RegexFind { .. }
             | ExprKind::EventEmitterNew
+            | ExprKind::ProcessEnvRead { .. }
             | ExprKind::EventEmitterOp { .. }
             | ExprKind::HttpCreateServer { .. }
             | ExprKind::HttpCreateFetchServer { .. }

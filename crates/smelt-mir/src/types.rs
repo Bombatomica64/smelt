@@ -1339,6 +1339,11 @@ pub enum Rvalue {
     },
     /// Build an empty `EventEmitter`.
     EventEmitterNew,
+    /// `process.env.NAME` (`smelt_hir::ExprKind::ProcessEnvRead`).
+    ProcessEnvRead {
+        /// The variable's name.
+        name: String,
+    },
     /// An `EventEmitter` member operation on a concrete emitter receiver.
     EventEmitterOp {
         /// Which operation this member performs.

@@ -506,6 +506,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("set_{op_name} {}", expr_ref(*set))
         }
         ExprKind::EventEmitterNew => "event_emitter_new".to_owned(),
+        ExprKind::ProcessEnvRead { name } => format!("process_env_read {name:?}"),
         ExprKind::EventEmitterOp { op, emitter, args } => {
             let name = event_emitter_op_name(*op);
             let mut text = format!("emitter_{name} {}", expr_ref(*emitter));

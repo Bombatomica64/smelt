@@ -1427,26 +1427,29 @@ impl ModuleBuilder<'_> {
             }));
         }
         if Self::is_process_env_member(member) {
-            // `process.env.X` is `string | undefined` in TypeScript, and in the
-            // deterministic profile the answer is known: the profile defines the
-            // timezone and nothing else, so every other variable is *absent*.
-            // Modeling an absent variable as the empty string would make
-            // `process.env.PORT ?? 3000` statically dead and type the join as
-            // `string`; modeling it as `undefined` at `Optional(String)` keeps
-            // both the TypeScript type and the Node behaviour.
+            // `process.env.X` is `string | undefined` in TypeScript, typed here
+            // as `Optional(String)` so `process.env.PORT ?? 3000` keeps both
+            // arms. A variable is read from the real environment: a program
+            // that serves has to see its `PORT` (this used to fold every
+            // variable to `undefined`). The timezone is the exception: the
+            // profile fixes it, because the date runtime computes in that zone
+            // whatever the host's `TZ` says, and a program must read the zone
+            // its dates are actually in.
             let string_ty = self.ctx.krate.types.intern(Type::String);
             let span = self.span(member.span.start, member.span.end);
             let optional_ty =
                 smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, string_ty);
-            let literal = if Self::is_process_env_field(member, "TZ")
+            let kind = if Self::is_process_env_field(member, "TZ")
                 || Self::is_process_env_field(member, "tz")
             {
-                Literal::String("America/Santiago".to_owned())
+                ExprKind::Literal(Literal::String("America/Santiago".to_owned()))
             } else {
-                Literal::Undefined
+                ExprKind::ProcessEnvRead {
+                    name: member.property.name.as_str().to_owned(),
+                }
             };
             return Some(body.push_expr(Expr {
-                kind: ExprKind::Literal(literal),
+                kind,
                 ty: optional_ty,
                 span,
             }));

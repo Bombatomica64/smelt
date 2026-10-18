@@ -146,6 +146,33 @@ pub(crate) fn cargo_run_manifest(manifest: &Path) -> TestResult<String> {
     Ok(String::from_utf8(output.stdout)?)
 }
 
+/// Runs `cargo run --manifest-path` with `env` set (and every name in `unset`
+/// removed) for the generated program, and returns stdout.
+pub(crate) fn cargo_run_manifest_with_env(
+    manifest: &Path,
+    env: &[(&str, &str)],
+    unset: &[&str],
+) -> TestResult<String> {
+    let mut command = Command::new("cargo");
+    command.arg("run").arg("--quiet").arg("--manifest-path").arg(manifest);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    for key in unset {
+        command.env_remove(key);
+    }
+    let output = command.output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "generated crate failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+        .into());
+    }
+    Ok(String::from_utf8(output.stdout)?)
+}
+
 /// Runs `cargo test --manifest-path` for a generated crate and returns stdout.
 pub(crate) fn cargo_test_manifest(manifest: &Path) -> TestResult<String> {
     let output = Command::new("cargo")

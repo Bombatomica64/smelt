@@ -43,7 +43,7 @@ impl Rvalue {
                     visit(arg);
                 }
             }
-            Self::EventEmitterNew => {}
+            Self::EventEmitterNew | Self::ProcessEnvRead { .. } => {}
             Self::EventEmitterOp { emitter, args, .. } => {
                 visit(emitter);
                 for arg in args {
@@ -982,7 +982,7 @@ impl Rvalue {
                     visit(arg);
                 }
             }
-            Self::EventEmitterNew => {}
+            Self::EventEmitterNew | Self::ProcessEnvRead { .. } => {}
             Self::EventEmitterOp { emitter, args, .. } => {
                 visit(emitter);
                 for arg in args.iter_mut() {

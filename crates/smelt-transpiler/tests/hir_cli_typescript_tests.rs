@@ -5,7 +5,8 @@ mod common;
 use std::fs;
 
 use common::{
-    TempProject, TestResult, cargo_run_manifest, cargo_test_manifest, ensure, ensure_eq, smelt,
+    TempProject, TestResult, cargo_run_manifest, cargo_run_manifest_with_env, cargo_test_manifest,
+    ensure, ensure_eq, smelt,
     smelt_in, smelt_with_env,
     utf8_path,
 };
@@ -1338,6 +1339,45 @@ fn build_resolves_a_declared_package_from_a_pinned_git_revision() -> TestResult 
         ensure_eq(&actual_stdout, &"10\n".to_owned(), "unexpected stdout")?;
     }
     ensure(cache.join("utility-v1/.git").is_dir(), "the pinned checkout is cached under <name>-<rev>")?;
+    Ok(())
+}
+
+/// `process.env.NAME` reads the real environment at run time, so a server
+/// sees its `PORT`; the profile's timezone stays fixed whatever `TZ` says.
+#[test]
+fn process_env_reads_the_environment_at_run_time() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-process-env"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_process_env"
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "const port = Number(process.env.SMELT_TEST_PORT ?? 3000);\nconsole.log(port, process.env.TZ ?? \"UTC\");\n",
+    )?;
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let manifest = project_path.join("dist/Cargo.toml");
+    let unset = cargo_run_manifest_with_env(&manifest, &[("TZ", "UTC")], &["SMELT_TEST_PORT"])?;
+    ensure_eq(&unset, &"3000 America/Santiago\n".to_owned(), "an unset variable is undefined")?;
+    let set = cargo_run_manifest_with_env(&manifest, &[("SMELT_TEST_PORT", "4321"), ("TZ", "UTC")], &[])?;
+    ensure_eq(&set, &"4321 America/Santiago\n".to_owned(), "a set variable is read")?;
     Ok(())
 }
 

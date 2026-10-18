@@ -3474,11 +3474,12 @@ impl Default for SmeltUnion3 {
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let _smelt_tmp_2: SmeltUnion3 = SmeltUnion3::M1(3000.0);
-    let _smelt_tmp_3: f64 = match _smelt_tmp_2.clone().into_smelt_unknown() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&(value)), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null => 0.0, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN };
-    let port: f64 = _smelt_tmp_3;
-    let _smelt_tmp_4: String = "America/Santiago".to_owned();
-    let zone: String = _smelt_tmp_4;
+    let _smelt_tmp_2: Option<String> = ::std::env::var("PORT").ok();
+    let _smelt_tmp_3: SmeltUnion3 = _smelt_tmp_2.map_or_else(|| SmeltUnion3::M1(3000.0), |value| SmeltUnion3::M0(value));
+    let _smelt_tmp_4: f64 = match _smelt_tmp_3.clone().into_smelt_unknown() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&(value)), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null => 0.0, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN };
+    let port: f64 = _smelt_tmp_4;
+    let _smelt_tmp_5: String = "America/Santiago".to_owned();
+    let zone: String = _smelt_tmp_5;
     let _ = { println!("{}", smelt_console_number(port)); };
     let _ = { println!("{}", zone); };
     return;

@@ -1201,6 +1201,9 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::ProcessEnvRead { name } => {
+                self.assign_temp(expr.ty, expr.span, Rvalue::ProcessEnvRead { name: name.clone() })?
+            }
             ExprKind::EventEmitterNew => {
                 self.assign_temp(expr.ty, expr.span, Rvalue::EventEmitterNew)?
             }

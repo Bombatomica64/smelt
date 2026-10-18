@@ -406,6 +406,7 @@ impl ExprKind {
             },
             Self::SetProjection { op, set } => Self::SetProjection { op, set: f(set)? },
             Self::EventEmitterNew => Self::EventEmitterNew,
+            Self::ProcessEnvRead { name } => Self::ProcessEnvRead { name },
             Self::EventEmitterOp { op, emitter, args } => {
                 let emitter = f(emitter)?;
                 let mut mapped = Vec::with_capacity(args.len());

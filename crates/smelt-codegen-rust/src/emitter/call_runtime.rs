@@ -1321,6 +1321,9 @@ impl FunctionEmitter<'_> {
             Rvalue::TypedArrayNew { class_name, args } => {
                 self.typed_array_new_text(class_name, args)
             }
+            // A real read: a server must see its environment (`PORT`). The
+            // profile's one fixed variable, `TZ`, never reaches here.
+            Rvalue::ProcessEnvRead { name } => Ok(format!("::std::env::var({name:?}).ok()")),
             Rvalue::EventEmitterNew => Ok("SmeltEventEmitter::new()".to_owned()),
             Rvalue::EventEmitterOp { op, emitter, args } => {
                 self.event_emitter_op_text(*op, emitter, args)
