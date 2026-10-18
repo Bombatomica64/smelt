@@ -1344,8 +1344,12 @@ impl ModuleBuilder<'_> {
             ));
         }
         let text = self.json_parse_text_argument(argument, body, "JSON.parse<T>()")?;
+        // Only a source-written `<T>` is a declared target; the fallback
+        // `Record<string, unknown>` is the frontend's guess, and decoding
+        // against it would reject arrays and primitives Node accepts.
+        let decode = call.type_arguments.is_some();
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::JsonParse { text },
+            kind: ExprKind::JsonParse { text, decode },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -1389,10 +1393,125 @@ impl ModuleBuilder<'_> {
         }
         let text = self.json_parse_text_argument(argument, body, "JSON.parse()")?;
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::JsonParse { text },
+            kind: ExprKind::JsonParse { text, decode: true },
             ty: target,
             span: self.span(span.start, span.end),
         })))
+    }
+
+    /// Lower an untyped `JSON.parse(text)` whose value flows into a declared type.
+    ///
+    /// `const v: T = JSON.parse(s)`, `f(JSON.parse(s))` with `f(x: T)` and
+    /// `return JSON.parse(s)` from a `T`-returning function all hand the parse a
+    /// contextual type the SOURCE wrote. TypeScript types `JSON.parse` as `any`,
+    /// so the value enters typed code exactly there: this lowers the parse with
+    /// `T` as its decode target, the same expression `JSON.parse(s) as T`
+    /// produces, instead of the `Record<string, unknown>` fallback that is later
+    /// coerced (leniently) into `T`. Design adapted from Bun's `--aot` rule that a
+    /// value which does not match its type throws a `TypeError` where it enters
+    /// typed code (oven-sh/bun#45631, `docs/bundler/aot-adoption.mdx`).
+    ///
+    /// Behavioral requirement: JSON that matches `T` yields the value Node yields.
+    /// Type-preservation requirement: the parse is typed `T`, so the backend can
+    /// store the decoded value at `T`'s concrete Rust type.
+    ///
+    /// Returns `None` (keeping the untyped lowering) for a call that is not an
+    /// untyped single-argument `JSON.parse`, for a hint that is not a real
+    /// declared shape (`unknown`/`any`, a bare type parameter, `void`), and for a
+    /// hint `JSON.stringify` could not round-trip — a contextual type never
+    /// turns an accepted program into a rejected one.
+    pub(super) fn json_parse_call_with_hint(
+        &mut self,
+        call: &CallExpression<'_>,
+        hint: Option<smelt_hir::TypeId>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Some(target) = hint else {
+            return Ok(None);
+        };
+        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsJsonParse)
+            || call.type_arguments.is_some()
+            || call.arguments.len() != 1
+        {
+            return Ok(None);
+        }
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if !matches!(&member.object, Expression::Identifier(object) if object.name == "JSON")
+            || member.property.name != "parse"
+        {
+            return Ok(None);
+        }
+        if !self.is_json_decode_hint(target) {
+            return Ok(None);
+        }
+        let [argument] = call.arguments.as_slice() else {
+            return Ok(None);
+        };
+        let text = self.json_parse_text_argument(argument, body, "JSON.parse()")?;
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::JsonParse { text, decode: true },
+            ty: target,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Whether a contextual type is a declared shape a JSON value can be
+    /// decoded into: not `unknown`/`any`, a bare type parameter, `void` or
+    /// `never`, and a type `JSON.stringify` could round-trip.
+    fn is_json_decode_hint(&mut self, target: smelt_hir::TypeId) -> bool {
+        !matches!(
+            self.ctx.krate.types.get(target),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::None | Type::Never) | None
+        ) && self.is_json_serializable_type(target)
+    }
+
+    /// Give a `Response`/`Request` `json()` body read its declared target.
+    ///
+    /// `const v: T = await response.json()` awaits a `Promise<any>` whose value
+    /// enters typed code at `T`, exactly as `JSON.parse(text)` does in
+    /// [`Self::json_parse_call_with_hint`]. The await hands the operand the
+    /// context `Promise<T>`; when `value` is a `json()` read still typed
+    /// `Promise<unknown>`, this retypes it `Promise<T>` so the backend decodes
+    /// the body strictly into `T` (a catchable `TypeError` on mismatch) instead
+    /// of coercing the erased value afterwards. Any other expression, or a hint
+    /// that is not a decodable declared shape, is returned unchanged.
+    pub(super) fn adopt_json_body_read_target(
+        &mut self,
+        value: smelt_hir::ExprId,
+        hint: Option<smelt_hir::TypeId>,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let Some(Type::Future(target)) = hint.and_then(|hint| self.ctx.krate.types.get(hint)).cloned()
+        else {
+            return value;
+        };
+        let Some(expr) = body.exprs.get(usize::try_from(value.0).unwrap_or(usize::MAX)) else {
+            return value;
+        };
+        let is_json_read = matches!(
+            expr.kind,
+            ExprKind::ResponseOp {
+                op: smelt_hir::ResponseOp::Json,
+                ..
+            } | ExprKind::RequestOp {
+                op: smelt_hir::RequestOp::Json,
+                ..
+            }
+        );
+        let still_untyped = matches!(
+            self.ctx.krate.types.get(expr.ty),
+            Some(Type::Future(inner)) if self.ctx.krate.types.get(*inner) == Some(&Type::Unknown)
+        );
+        if !is_json_read || !still_untyped || !self.is_json_decode_hint(target) {
+            return value;
+        }
+        let future_ty = self.ctx.krate.types.intern(Type::Future(target));
+        if let Some(read) = body.exprs.get_mut(usize::try_from(value.0).unwrap_or(usize::MAX)) {
+            read.ty = future_ty;
+        }
+        value
     }
 
     /// Lower and coerce the text operand accepted by `JSON.parse`.
@@ -2146,6 +2265,7 @@ impl ModuleBuilder<'_> {
         match ty_kind {
             Type::Bool
             | Type::Int
+            | Type::FixedInt(_)
             | Type::Float
             | Type::String
             | Type::Unknown

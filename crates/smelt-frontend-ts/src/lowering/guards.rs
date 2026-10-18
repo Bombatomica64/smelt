@@ -1122,6 +1122,10 @@ impl ModuleBuilder<'_> {
         if Self::is_const_type_assertion(annotation) {
             return self.expression(expression, body);
         }
+        if self.is_bun_int32_annotation(annotation) {
+            let value = self.expression(expression, body)?;
+            return Ok(self.int32_assertion_expression(value, span, body));
+        }
         let target = self.ts_type_to_hir(annotation)?;
         if self.concrete_type_requires_never_value(target) {
             // TypeScript assertions are erased at runtime. An assertion such
@@ -1208,6 +1212,17 @@ impl ModuleBuilder<'_> {
 
     /// Lower a function call argument.
     pub(super) fn argument(
+        &mut self,
+        argument: &Argument<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let lowered = self.argument_shape(argument, body)?;
+        // A read of a Bun `int32` slot is a `number` to every consumer.
+        Ok(self.int32_read_as_number(lowered, body))
+    }
+
+    /// Lower one call argument; see [`Self::argument`].
+    fn argument_shape(
         &mut self,
         argument: &Argument<'_>,
         body: &mut Body,
@@ -1473,6 +1488,15 @@ impl ModuleBuilder<'_> {
                     body,
                 )? {
                     return Ok(expr);
+                }
+                self.argument(argument, body)
+            }
+            // `f(JSON.parse(s))` with `f(x: T)`: the parameter type is the
+            // declared target the parsed value enters (see
+            // `json_parse_call_with_hint`).
+            Argument::CallExpression(call) => {
+                if let Some(parsed) = self.json_parse_call_with_hint(call, type_hint, body)? {
+                    return Ok(parsed);
                 }
                 self.argument(argument, body)
             }

@@ -137,21 +137,21 @@ impl<T: Clone> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Se
 // @smelt:prelude-end — generated program below
 fn main() {
     let mut x: f64;
-    let mut _smelt_tmp_5: f64;
+    let mut _smelt_tmp_5: usize;
     let mut _smelt_tmp_6: bool;
     let mut _smelt_tmp_7: f64;
     let _smelt_tmp_3: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
     let xs: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_3);
     let mut sum: f64 = 0.0;
-    let mut _smelt_tmp_4: f64 = 0.0;
+    let mut _smelt_tmp_4: usize = 0;
     loop {
-    _smelt_tmp_5 = xs.len() as f64;
+    _smelt_tmp_5 = xs.len();
     _smelt_tmp_6 = _smelt_tmp_4 < _smelt_tmp_5;
     if !(_smelt_tmp_6) { break; }
-    x = xs.borrow().get({ let smelt_normalized = _smelt_tmp_4 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    x = xs.borrow().get(_smelt_tmp_4).cloned().unwrap_or_else(|| 0.0);
     _smelt_tmp_7 = sum + x;
     sum = _smelt_tmp_7;
-    _smelt_tmp_4 = _smelt_tmp_4 + 1.0;
+    _smelt_tmp_4 = _smelt_tmp_4 + 1;
     }
     let _ = { println!("{}", smelt_console_number(sum)); };
     return;

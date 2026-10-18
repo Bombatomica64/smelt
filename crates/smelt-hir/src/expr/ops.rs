@@ -84,6 +84,8 @@ pub enum NumericUnaryFuncOp {
     Log2,
     /// Exponential function.
     Exp,
+    /// `Math.clz32`: the number of leading zero bits of `ToUint32(x)`.
+    Clz32,
 }
 
 /// A directly lowered primitive conversion operation.
@@ -95,6 +97,12 @@ pub enum PrimitiveCastOp {
     ToInt,
     /// Convert to floating-point number.
     ToFloat,
+    /// Store a `number` the TypeScript frontend PROVED to be a whole number in
+    /// `[-2^31, 2^31 - 1]` (and not `-0`) into a Bun `int32` slot
+    /// (an `I32` [`crate::Type::FixedInt`], or its optional form). The
+    /// conversion is exact for every such value, so it neither wraps nor
+    /// checks; the proof is `smelt_frontend_ts`'s `lowering::int32`.
+    ToInt32,
     /// Parse a JavaScript-coerced string as a floating-point number.
     ParseFloat,
     /// Convert with JavaScript `Number(...)` and unary-plus semantics.
@@ -558,7 +566,10 @@ impl RequestInitMember {
     /// re-initialized is a new request as far as referrer leakage goes. Node 22
     /// agrees: `new Request(src, { method: 'POST' }).referrer` is
     /// `"about:client"` even though `src.referrer` was set, while
-    /// `new Request(src, {}).referrer` still copies.
+    /// `new Request(src, {}).referrer` still copies. Node 24 (undici 7) treats
+    /// EVERY init as non-empty (its dictionary defaults `priority`), so there
+    /// the reset applies to `new Request(src)` and `new Request(src, {})` too;
+    /// the Rust backend follows the pinned Node 24 (see `request_new_text`).
     #[must_use]
     pub const fn resets_on_non_empty_init(self) -> bool {
         matches!(self, Self::Referrer | Self::ReferrerPolicy)

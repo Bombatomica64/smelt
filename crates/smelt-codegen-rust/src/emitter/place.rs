@@ -1101,6 +1101,9 @@ impl FunctionEmitter<'_> {
         negative: NegativeIndex,
         usize_conversion: &str,
     ) -> Result<String, EmitError> {
+        if let Some(text) = self.fixed_int_index_text(index, usize_conversion)? {
+            return Ok(text);
+        }
         let index_ty = self.operand_ty(index)?;
         let index_text = if matches!(self.mir.types.get(index_ty), Some(Type::Int | Type::Float)) {
             self.operand_text(index)?

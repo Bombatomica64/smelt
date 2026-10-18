@@ -11,8 +11,8 @@ fn segments (FuncId(0)) -> List<String>
     %6 user next: Optional<String>
     %7 temp: List<String>
     %8 temp: List<String>
-    %9 temp: Float
-    %10 temp: Float
+    %9 temp: usize
+    %10 temp: usize
     %11 temp: Bool
     %12 temp: Float
     %13 temp: Bool
@@ -26,7 +26,7 @@ fn segments (FuncId(0)) -> List<String>
     %8 = []
     %2 = move %8
     %3 = 0.0
-    %9 = 0.0
+    %9 = 0
     goto bb1
   bb1:
     %10 = len copy %1
@@ -41,7 +41,7 @@ fn segments (FuncId(0)) -> List<String>
     %13 = move %6 == undefined
     switch move %13 ? bb5 : bb6
   bb3:
-    %9 = copy %9 + 1.0
+    %9 = copy %9 + 1
     goto bb1
   bb4:
     return move %2
@@ -92,8 +92,8 @@ fn buckets (FuncId(3)) -> String
     %9 temp: (Float, String)
     %10 temp: (Float, String)
     %11 temp: List<(Float, String)>
-    %12 temp: Float
-    %13 temp: Float
+    %12 temp: usize
+    %13 temp: usize
     %14 temp: Bool
     %15 temp: Float
     %16 temp: String
@@ -110,7 +110,7 @@ fn buckets (FuncId(3)) -> String
     %9 = (1.0, "b")
     %10 = (0.0, "c")
     %11 = [move %8, move %9, move %10]
-    %12 = 0.0
+    %12 = 0
     goto bb1
   bb1:
     %13 = len copy %11
@@ -128,7 +128,7 @@ fn buckets (FuncId(3)) -> String
     %19 = !move %18
     switch move %19 ? bb5 : bb6
   bb3:
-    %12 = copy %12 + 1.0
+    %12 = copy %12 + 1
     goto bb1
   bb4:
     %22 = json_stringify move %0

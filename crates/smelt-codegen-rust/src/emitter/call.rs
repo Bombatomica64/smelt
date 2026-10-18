@@ -835,7 +835,7 @@ impl FunctionEmitter<'_> {
                 };
                 Ok(format!("{{ {macro_name}!(\"{format_spec}\", {value}); }}"))
             }
-            Callee::Builtin(BuiltinFn::JsonParse) => {
+            Callee::Builtin(BuiltinFn::JsonParse { target }) => {
                 let text = args
                     .first()
                     .ok_or_else(|| EmitError::new("JSON parse takes one string argument"))?;
@@ -844,6 +844,16 @@ impl FunctionEmitter<'_> {
                     Some(Type::String)
                 ) {
                     return Err(EmitError::new("JSON parse input must be a string"));
+                }
+                // A source-declared, decodable target is a typed entry
+                // boundary: parse AND decode strictly, throwing a catchable
+                // `TypeError` on a mismatch (see `emitter::json_decode`).
+                if let Some(decoded) = self.json_decode_target(*target) {
+                    return Ok(format!(
+                        "{}(&{})?",
+                        json_decode::json_decode_entry_name(decoded),
+                        self.operand_text(text)?
+                    ));
                 }
                 // The trailing `?` is what marks this call fallible to
                 // `emit_throwing_call_terminator`, which then renders the
@@ -3030,7 +3040,13 @@ impl FunctionEmitter<'_> {
             ) => self.none_ty,
             // `JSON.parse` yields a dynamic JavaScript value; the destination's
             // own type drives the ordinary coercion from the erased carrier.
-            Callee::Builtin(BuiltinFn::JsonParse) => return self.type_id(Type::Unknown),
+            // A decoded parse answers its declared target's concrete type.
+            Callee::Builtin(BuiltinFn::JsonParse { target }) => {
+                if let Some(decoded) = self.json_decode_target(*target) {
+                    return Ok(decoded);
+                }
+                return self.type_id(Type::Unknown);
+            }
             // A decoder answers a `String`, not an erased value -- the whole
             // point of keeping the typed runtime helper behind the adapter.
             Callee::Builtin(BuiltinFn::UriDecode(_)) => return self.type_id(Type::String),
@@ -3118,7 +3134,36 @@ impl FunctionEmitter<'_> {
     ) -> Result<(&'static str, String), EmitError> {
         let ty = self.operand_ty(operand)?;
         if ty == self.none_ty {
-            Ok(("{}", "\"null\"".to_owned()))
+            // The language's own word for the null value: `console.log(null)`
+            // is `null`, Python's `print(None)` is `None`.
+            Ok(("{}", format!("{:?}", absent.null_text())))
+        } else if absent == AbsentSpelling::None
+            && matches!(self.mir.types.get(ty), Some(Type::Bool))
+        {
+            // Python's `print` writes `str(value)`, and `str(True)` is `True`;
+            // Rust's `Display` (and JavaScript) write `true`. `AbsentSpelling`
+            // is the console's language: `None` is Python's `print`.
+            Ok((
+                "{}",
+                format!(
+                    "if {} {{ \"True\" }} else {{ \"False\" }}",
+                    self.operand_text(operand)?
+                ),
+            ))
+        } else if self.console_inspects(ty, absent) {
+            // A container, record or union prints the way Node's
+            // `util.inspect` draws it (`[ 1, 2 ]`, `{ x: 1 }`, `Map(1) { .. }`),
+            // through the trait impl of the value's own Rust type; see
+            // `console_inspect_prelude`.
+            Ok((
+                "{}",
+                format!(
+                    "{}::{}(&{})",
+                    crate::console_inspect_prelude::INSPECT_TRAIT,
+                    crate::console_inspect_prelude::CONSOLE_TEXT_METHOD,
+                    self.operand_text(operand)?
+                ),
+            ))
         } else if matches!(
             self.mir.types.get(ty),
             Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))

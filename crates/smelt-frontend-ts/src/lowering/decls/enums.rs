@@ -141,6 +141,7 @@ impl ModuleBuilder<'_> {
             type_params: Vec::new(),
             ty,
             span: self.span(decl.span.start, decl.span.end),
+            decode_facts: None,
         }));
         self.items.insert(name_text, item);
     }

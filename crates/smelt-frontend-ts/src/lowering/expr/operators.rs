@@ -2411,6 +2411,24 @@ impl ModuleBuilder<'_> {
             && !self.concrete_type_requires_never_value(hint)
         {
             hint
+        } else if self.is_declared_record_type(ty)
+            && matches!(
+                self.ctx.krate.types.get(fallback_ty),
+                Some(Type::Bool | Type::Int | Type::Float | Type::String)
+            )
+        {
+            // A RECORD on the left and a primitive fallback: TypeScript's
+            // `NonNullable<typeof a> | typeof b` is a genuine two-arm union
+            // (`server.address() ?? -1` is `AddressInfo | number`). The
+            // class-surface branch below would assert the primitive INTO the
+            // record type, a value no record can hold — the generated Rust
+            // assigned an `f64` to an `AddressInfo` local (E0308). A record
+            // declared by the program has concrete storage, so the union is a
+            // concrete generated enum, not an erasure.
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Union(vec![ty, fallback_ty]))
         } else if !self.erased_or_union_surface(ty)
             && !self.erased_or_union_surface(fallback_ty)
             && !self.concrete_type_requires_never_value(ty)
@@ -2856,6 +2874,7 @@ impl ModuleBuilder<'_> {
                     "unary plus requires a numeric or DateArg-compatible operand",
                 ));
             }
+            UnaryOperator::BitwiseNot => return self.bitwise_not_expression(unary, body),
             _ => {
                 return Err(SmeltError::unsupported(
                     self.span(unary.span.start, unary.span.end),

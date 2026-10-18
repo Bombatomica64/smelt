@@ -127,6 +127,123 @@ pub(crate) fn cargo_run_manifest(manifest: &Path) -> TestResult<String> {
     Ok(String::from_utf8(output.stdout)?)
 }
 
+/// The first Node.js release that runs TypeScript with
+/// `--experimental-transform-types` (type stripping plus the transforms for
+/// enums, namespaces and parameter properties).
+const NODE_TRANSFORM_TYPES_MIN: (u32, u32) = (22, 7);
+
+/// Whether a `node` able to run TypeScript is on `PATH`, probed once per test
+/// binary.
+///
+/// The real-runtime oracle is skip-if-absent, like every other test here that
+/// needs an external tool: a missing `node`, or one older than
+/// [`NODE_TRANSFORM_TYPES_MIN`], skips the oracle half of a check with one
+/// `eprintln` note rather than failing it. CI installs a pinned Node (see the
+/// `actions/setup-node` steps in `.github/workflows/ci.yml`), so there the
+/// oracle always runs.
+#[expect(clippy::print_stderr, reason = "a skipped oracle check must say so in the test output")]
+pub(crate) fn node_runs_typescript() -> bool {
+    static PROBE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *PROBE.get_or_init(|| {
+        let Ok(output) = Command::new("node").arg("--version").output() else {
+            eprintln!("note: `node` is not on PATH; skipping the Node oracle checks");
+            return false;
+        };
+        let version = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        let mut parts = version
+            .trim_start_matches('v')
+            .split('.')
+            .map(|part| part.parse::<u32>().unwrap_or(0));
+        let found = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+        if !output.status.success() || found < NODE_TRANSFORM_TYPES_MIN {
+            eprintln!(
+                "note: `node` {version} cannot run --experimental-transform-types (needs >= {}.{}); skipping the Node oracle checks",
+                NODE_TRANSFORM_TYPES_MIN.0, NODE_TRANSFORM_TYPES_MIN.1
+            );
+            return false;
+        }
+        true
+    })
+}
+
+/// Runs a TypeScript program under real Node and returns its stdout.
+///
+/// `files` are `(relative path, source)` pairs written into a fresh directory;
+/// `entry` is the one Node runs, as
+/// `node --experimental-transform-types --no-warnings <entry>`.
+///
+/// # The environment is the target profile's, not the host's
+///
+/// Smelt compiles for a fixed, deterministic Node profile and resolves
+/// `process.env` against it at COMPILE time (see
+/// `smelt_stdlib::NODE_PROFILE_TIMEZONE`): `TZ` is the profile's zone and every
+/// other variable is absent. Node reads its environment at run time, so the
+/// oracle runs it under exactly that environment — cleared, then `TZ` set —
+/// and the comparison cannot depend on the machine or CI runner it runs on.
+/// Only `PATH` is carried over, so `node` itself and anything it spawns
+/// resolve.
+pub(crate) fn node_typescript_stdout(files: &[(&str, &str)], entry: &str) -> TestResult<String> {
+    let project = TempProject::new()?;
+    let root = project.path().join("node-oracle");
+    for (relative, source) in files {
+        let path = root.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, source)?;
+    }
+    let mut command = Command::new("node");
+    command
+        .current_dir(&root)
+        .env_clear()
+        .env("TZ", smelt_stdlib::NODE_PROFILE_TIMEZONE)
+        .arg("--experimental-transform-types")
+        .arg("--no-warnings")
+        .arg(entry);
+    if let Some(path) = std::env::var_os("PATH") {
+        command.env("PATH", path);
+    }
+    let output = command.output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "node failed on {entry}\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+        .into());
+    }
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+/// Asserts a golden stdout is what real Node prints for the same program.
+///
+/// Design adapted from Bun's `--aot` (oven-sh/bun#45631), which debugs compiled
+/// output by comparing it with the same program run by the runtime
+/// (`docs/bundler/aot-debugging.mdx`); here the runtime is Node itself.
+///
+/// The generated program is compared against the golden elsewhere; this is the
+/// other half that keeps the golden honest. Without it a golden recorded from
+/// Smelt's own output (`[1.0, 2.0, 3.0]` for `console.log([1, 2, 3])`) passed
+/// for as long as Smelt kept printing it. Skips, with a note, when no
+/// TypeScript-capable `node` is available.
+pub(crate) fn ensure_node_agrees(
+    files: &[(&str, &str)],
+    entry: &str,
+    expected_stdout: &str,
+    name: &str,
+) -> TestResult {
+    if !node_runs_typescript() {
+        return Ok(());
+    }
+    let node_stdout = node_typescript_stdout(files, entry)?;
+    ensure(
+        node_stdout == expected_stdout,
+        format!(
+            "{name}: the golden stdout is not what `node` prints for the same source\n--- node\n{node_stdout}--- golden\n{expected_stdout}"
+        ),
+    )
+}
+
 /// Runs `cargo test --manifest-path` for a generated crate and returns stdout.
 pub(crate) fn cargo_test_manifest(manifest: &Path) -> TestResult<String> {
     let output = Command::new("cargo")
@@ -242,7 +359,112 @@ pub(crate) fn python_example_dir(name: &str) -> TestResult<PathBuf> {
 pub(crate) fn verify_python_end_to_end_example(name: &str) -> TestResult {
     let example = python_example_dir(name)?;
     let input = example.join("input.py");
-    verify_example_dumps(name, &example, &input)
+    verify_example_dumps(name, &example, &input)?;
+
+    // The runtime tier: build the generated crate, run it, and compare its
+    // stdout with the golden, which is in turn checked against `python3`.
+    // The manifest is the harness's own minimal one (as on the TypeScript
+    // path) rather than the example's `Smelt.toml`, whose `[rust.dependencies]`
+    // would compile a web stack the program never uses.
+    let source = fs::read_to_string(&input)?;
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(project_path.join("src/main.py"), &source)?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "py-example"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.py"]
+
+[output]
+target = "./dist"
+crate-name = "py_example"
+build = false
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+    let expected_stdout = fs::read_to_string(example.join("expected.stdout"))?;
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure(
+        actual_stdout == expected_stdout,
+        format!("{name}: runtime stdout mismatch\n--- generated\n{actual_stdout}--- golden\n{expected_stdout}"),
+    )?;
+    ensure_python_agrees(&source, &expected_stdout, name)
+}
+
+/// The first `CPython` release with structural pattern matching (`match`), which
+/// the Python corpus uses.
+const PYTHON_MIN: (u32, u32) = (3, 10);
+
+/// Whether a `python3` able to run the corpus is on `PATH`, probed once.
+///
+/// Skip-if-absent, like [`node_runs_typescript`]: a missing or too-old
+/// interpreter skips the oracle half of the check with one note.
+#[expect(clippy::print_stderr, reason = "a skipped oracle check must say so in the test output")]
+pub(crate) fn python_runs_corpus() -> bool {
+    static PROBE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *PROBE.get_or_init(|| {
+        let Ok(output) = Command::new("python3").arg("--version").output() else {
+            eprintln!("note: `python3` is not on PATH; skipping the Python oracle checks");
+            return false;
+        };
+        let version = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        let mut parts = version
+            .trim_start_matches("Python ")
+            .split('.')
+            .map(|part| part.parse::<u32>().unwrap_or(0));
+        let found = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+        if !output.status.success() || found < PYTHON_MIN {
+            eprintln!(
+                "note: `python3` {version} is older than {}.{}; skipping the Python oracle checks",
+                PYTHON_MIN.0, PYTHON_MIN.1
+            );
+            return false;
+        }
+        true
+    })
+}
+
+/// Asserts a Python golden stdout is what `python3` prints for the source.
+///
+/// Runs the program isolated (`-I`: no user site, no environment-driven
+/// imports) from a fresh directory, so nothing on the host can change what it
+/// prints.
+pub(crate) fn ensure_python_agrees(source: &str, expected_stdout: &str, name: &str) -> TestResult {
+    if !python_runs_corpus() {
+        return Ok(());
+    }
+    let project = TempProject::new()?;
+    let root = project.path().join("python-oracle");
+    fs::create_dir_all(&root)?;
+    fs::write(root.join("main.py"), source)?;
+    let output = Command::new("python3")
+        .current_dir(&root)
+        .arg("-I")
+        .arg("main.py")
+        .output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "python3 failed on {name}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        ))
+        .into());
+    }
+    let python_stdout = String::from_utf8(output.stdout)?;
+    ensure(
+        python_stdout == expected_stdout,
+        format!(
+            "{name}: the golden stdout is not what `python3` prints for the same source\n--- python3\n{python_stdout}--- golden\n{expected_stdout}"
+        ),
+    )
 }
 
 /// The env var that turns the golden comparison into a golden REWRITE.
@@ -389,6 +611,10 @@ clone-strategy = "aggressive"
         &expected_stdout,
         format!("runtime stdout mismatch for {name}"),
     )?;
+    // The golden itself must be Node's answer, or the comparison above only
+    // proves Smelt agrees with an earlier Smelt.
+    let source = fs::read_to_string(&input)?;
+    ensure_node_agrees(&[("main.ts", &source)], "main.ts", &expected_stdout, name)?;
 
     Ok(())
 }

@@ -12,11 +12,12 @@ fn valid(value: bool) -> bool {
 }
 
 fn count(a: bool, b: bool) -> f64 {
-    let mut result: f64;
+    let mut result: usize;
     let _smelt_tmp_4: bool;
     let mut _smelt_tmp_5: bool;
     let _smelt_tmp_7: bool;
-    let _smelt_tmp_8: f64;
+    let _smelt_tmp_8: usize;
+    let _smelt_tmp_9: f64;
     let _smelt_tmp_3: bool = valid(a);
     _smelt_tmp_4 = !(_smelt_tmp_3);
     if _smelt_tmp_4 {
@@ -29,12 +30,13 @@ fn count(a: bool, b: bool) -> f64 {
     if _smelt_tmp_5 {
     return f64::NAN;
     } else {
-    result = 0.0;
+    result = 0;
     if a {
-    _smelt_tmp_8 = result + 1.0;
+    _smelt_tmp_8 = result + 1;
     result = _smelt_tmp_8;
     }
-    return result;
+    _smelt_tmp_9 = result as f64;
+    return _smelt_tmp_9;
     }
 }
 

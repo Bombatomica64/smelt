@@ -235,6 +235,7 @@ impl ModuleBuilder<'_> {
             call_signatures,
             construct_signatures,
             index_value_ty,
+            decode_facts,
         } = members;
         self.add_interface_method_fields(&mut fields, &methods);
         self.add_interface_call_signature_field(&mut fields, &call_signatures);
@@ -245,6 +246,7 @@ impl ModuleBuilder<'_> {
             extends: Vec::new(),
             fields,
             methods,
+            decode_facts,
         }));
         self.interfaces.register_lowered(LoweredInterface {
             name,

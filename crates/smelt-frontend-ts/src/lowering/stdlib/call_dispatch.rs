@@ -4716,6 +4716,9 @@ impl<'builder> ModuleBuilder<'builder> {
         if let Some(expr) = self.math_pow_call(call, body)? {
             return Ok(Some(expr));
         }
+        if let Some(expr) = self.math_imul_call(call, body)? {
+            return Ok(Some(expr));
+        }
         self.math_atan2_call(call, body)
     }
 
@@ -5195,6 +5198,7 @@ impl<'builder> ModuleBuilder<'builder> {
             Some(
                 Type::Bool
                 | Type::Int
+                | Type::FixedInt(_)
                 | Type::Float
                 | Type::String
                 | Type::Unknown

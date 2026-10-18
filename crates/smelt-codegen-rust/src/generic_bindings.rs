@@ -348,6 +348,7 @@ pub(crate) fn substituted_type_id(
         Type::Union(_) => None,
         Type::Bool
         | Type::Int
+        | Type::FixedInt(_)
         | Type::Float
         | Type::String
         | Type::Unknown
@@ -789,6 +790,7 @@ pub(crate) fn type_param_occurs(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
         Some(
             Type::Bool
             | Type::Int
+            | Type::FixedInt(_)
             | Type::Float
             | Type::String
             | Type::Unknown
@@ -848,6 +850,7 @@ fn collect_type_param_occurrences(mir: &Mir, ty: TypeId, names: &mut HashSet<Sym
         Some(
             Type::Bool
             | Type::Int
+            | Type::FixedInt(_)
             | Type::Float
             | Type::String
             | Type::Unknown

@@ -3466,7 +3466,7 @@ impl Table {
     fn lookup(&self, method: String) -> SmeltList<String> {
     let mut m: SmeltRecord<String, HandlerSet>;
     let mut set: Option<HandlerParamsSet>;
-    let mut _smelt_tmp_7: f64;
+    let mut _smelt_tmp_7: usize;
     let mut _smelt_tmp_8: bool;
     let mut _smelt_tmp_9: SmeltList<SmeltRecord<String, HandlerSet>>;
     let mut _smelt_tmp_10: Option<HandlerSet>;
@@ -3479,16 +3479,16 @@ impl Table {
     let mut _smelt_tmp_17: HandlerParamsSet;
     let mut _smelt_tmp_18: String;
     let mut _smelt_tmp_19: f64;
-    let mut _smelt_tmp_20: f64;
+    let mut _smelt_tmp_20: usize;
     let _smelt_tmp_6: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
     let mut found: SmeltList<String> = Into::<SmeltList<_>>::into(_smelt_tmp_6);
-    let mut i: f64 = 0.0;
+    let mut i: usize = 0;
     loop {
-    _smelt_tmp_7 = self.0.borrow().methods.clone().len() as f64;
+    _smelt_tmp_7 = self.0.borrow().methods.clone().len();
     _smelt_tmp_8 = i < _smelt_tmp_7;
     if !(_smelt_tmp_8) { break; }
     _smelt_tmp_9 = Into::<SmeltList<_>>::into(self.0.borrow().methods.clone());
-    m = _smelt_tmp_9.borrow().get({ let smelt_normalized = i as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltRecord::new());
+    m = _smelt_tmp_9.borrow().get(i).cloned().unwrap_or_else(|| SmeltRecord::new());
     _smelt_tmp_10 = m.clone().get(&method.clone());
     _smelt_tmp_11 = m.get(&"ALL".to_owned());
     _smelt_tmp_12 = _smelt_tmp_10.clone().or(_smelt_tmp_11);
@@ -3501,11 +3501,11 @@ impl Table {
     _smelt_tmp_17 = set.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_18 = _smelt_tmp_16 + &smelt_number_to_string(_smelt_tmp_17.0.borrow().score.clone());
     _smelt_tmp_19 = { let smelt_push_item = _smelt_tmp_18; found.borrow_mut().push(smelt_push_item); found.len() as f64 };
-    _smelt_tmp_20 = i + 1.0;
+    _smelt_tmp_20 = i + 1;
     i = _smelt_tmp_20;
     continue;
     } else {
-    _smelt_tmp_20 = i + 1.0;
+    _smelt_tmp_20 = i + 1;
     i = _smelt_tmp_20;
     continue;
     }

@@ -358,8 +358,11 @@ test('a union of a number, an init and a Response reaches every arm', () => {
 /// The non-empty-init referrer reset is asserted here too, because it is the
 /// one rule in the group that is not "copy or default": the spec puts the
 /// referrer and the referrer policy back to their defaults whenever a
-/// `Request` input is re-initialized with a non-empty init, and an EMPTY init
-/// still copies. Every expectation was diffed against Node 22.
+/// `Request` input is re-initialized with a non-empty init. Which inits are
+/// "empty" is Node-version dependent: Node 22 (undici 6) copies the pair for
+/// `new Request(src)`, while Node 24 (undici 7) -- the pinned oracle --
+/// defaults `priority` in every converted init and therefore resets it there
+/// too (see `92_request_init_members`). Every expectation is Node 24's.
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn the_stored_request_init_members_default_and_override() {
@@ -403,18 +406,20 @@ test('a present key overrides its slot', () => {
   expect(request.referrerPolicy).toBe('no-referrer');
 });
 
-test('a Request input copies the group, and a non-empty init resets the referrer pair', () => {
+test('a Request input copies the group, and a re-initialization resets the referrer pair', () => {
   const source = new Request('https://a.test/three', {
     cache: 'reload',
     keepalive: true,
     referrer: 'https://c.test/from',
     referrerPolicy: 'origin',
   });
+  // Node 24: even an absent init converts to a non-empty dictionary, so the
+  // referrer pair resets while the rest of the group is copied.
   const copied = new Request(source);
   expect(copied.cache).toBe('reload');
   expect(copied.keepalive).toBe(true);
-  expect(copied.referrer).toBe('https://c.test/from');
-  expect(copied.referrerPolicy).toBe('origin');
+  expect(copied.referrer).toBe('about:client');
+  expect(copied.referrerPolicy).toBe('');
 
   const reinitialized = new Request(source, { method: 'POST' });
   expect(reinitialized.cache).toBe('reload');

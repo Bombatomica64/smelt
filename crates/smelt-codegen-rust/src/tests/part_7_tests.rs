@@ -4437,8 +4437,12 @@ function shiftRaw(raw: bigint): bigint {
         source.contains("let radix = ((2.0 as f64).trunc() as u32).clamp(2, 36);"),
         "{source}"
     );
-    assert!(source.contains("<<"), "{source}");
-    assert!(source.contains(">>"), "{source}");
+    // The module-level `1n << 8n` reaches codegen as a `number` shift (the
+    // frontend types those literals as numbers), and a `number` shift is
+    // JavaScript's int32 shift: `ToInt32(a)` shifted by `ToUint32(b) & 31`.
+    // Only a real `bigint` operand keeps the wide shift below.
+    assert!(source.contains(".wrapping_shl("), "{source}");
+    assert!(source.contains(".wrapping_shr("), "{source}");
     assert!(source.contains("fn shift_raw(raw: i64) -> i64"), "{source}");
     assert!(
         source.contains("(((raw as f64).trunc() as i128) >>"),

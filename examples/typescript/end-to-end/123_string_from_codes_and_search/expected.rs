@@ -449,12 +449,12 @@ impl SmeltMatch {
 // @smelt:prelude-end — generated program below
 fn main() {
     let mut escape_re: SmeltRegExp;
-    let mut _smelt_tmp_5: f64;
+    let mut _smelt_tmp_5: usize;
     let mut _smelt_tmp_6: bool;
     let mut _smelt_tmp_7: SmeltList<f64>;
     let mut _smelt_tmp_8: String;
     let mut _smelt_tmp_9: String;
-    let mut _smelt_tmp_10: f64;
+    let mut _smelt_tmp_10: usize;
     let mut _smelt_tmp_12: f64;
     let mut _smelt_tmp_13: SmeltList<f64>;
     let mut _smelt_tmp_14: String;
@@ -473,16 +473,16 @@ fn main() {
     let _smelt_tmp_4: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![72.0, 101.0, 108.0, 108.0, 111.0]; smelt_list_items }));
     let codes: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_4);
     let mut text: String = "".to_owned();
-    let mut i: f64 = 0.0;
+    let mut i: usize = 0;
     loop {
-    _smelt_tmp_5 = codes.len() as f64;
+    _smelt_tmp_5 = codes.len();
     _smelt_tmp_6 = i < _smelt_tmp_5;
     if !(_smelt_tmp_6) { break; }
-    _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![codes.borrow().get({ let smelt_normalized = i as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0)]; smelt_list_items }));
+    _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![codes.borrow().get(i).cloned().unwrap_or_else(|| 0.0)]; smelt_list_items }));
     _smelt_tmp_8 = { let smelt_units: Vec<u16> = _smelt_tmp_7.borrow().iter().map(|smelt_code| { let smelt_code = *smelt_code; if smelt_code.is_finite() { smelt_code.trunc().rem_euclid(65536.0) as u16 } else { 0 } }).collect(); String::from_utf16_lossy(&smelt_units) };
     _smelt_tmp_9 = text + &_smelt_tmp_8;
     text = _smelt_tmp_9;
-    _smelt_tmp_10 = i + 1.0;
+    _smelt_tmp_10 = i + 1;
     i = _smelt_tmp_10;
     }
     let _ = { println!("{}", text); };

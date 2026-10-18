@@ -457,7 +457,7 @@ fn main() {
     let mut second: Option<String>;
     let mut single: SmeltRegExp;
     let mut found_1: Option<SmeltMatch>;
-    let mut _smelt_tmp_14: f64;
+    let mut _smelt_tmp_14: usize;
     let mut _smelt_tmp_15: bool;
     let mut _smelt_tmp_16: Option<String>;
     let mut _smelt_tmp_17: SmeltMatch;
@@ -481,12 +481,12 @@ fn main() {
     let pattern: SmeltRegExp = _smelt_tmp_11;
     let _smelt_tmp_12: SmeltList<SmeltMatch> = Into::<SmeltList<_>>::into(pattern.match_all_indices(&"a1 b c3".to_owned()));
     let matches: SmeltList<SmeltMatch> = Into::<SmeltList<_>>::into(_smelt_tmp_12);
-    let mut _smelt_tmp_13: f64 = 0.0;
+    let mut _smelt_tmp_13: usize = 0;
     loop {
-    _smelt_tmp_14 = matches.len() as f64;
+    _smelt_tmp_14 = matches.len();
     _smelt_tmp_15 = _smelt_tmp_13 < _smelt_tmp_14;
     if !(_smelt_tmp_15) { break; }
-    found = matches.borrow().get({ let smelt_normalized = _smelt_tmp_13 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltMatch::default());
+    found = matches.borrow().get(_smelt_tmp_13).cloned().unwrap_or_else(|| SmeltMatch::default());
     _smelt_tmp_16 = found.clone().group_owned(0.0 as usize);
     whole = _smelt_tmp_16;
     _smelt_tmp_17 = found.clone().clone();
@@ -507,7 +507,7 @@ fn main() {
     let _ = { println!("{}", match &full { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
     let _ = { println!("{}", match &first { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
     let _ = { println!("{}", match &second { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    _smelt_tmp_13 = _smelt_tmp_13 + 1.0;
+    _smelt_tmp_13 = _smelt_tmp_13 + 1;
     }
     _smelt_tmp_30 = SmeltRegExp::new("(?P<year>\\d{4})-(\\d{2})".to_owned(), "".to_owned());
     single = _smelt_tmp_30;

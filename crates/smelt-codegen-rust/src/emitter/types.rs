@@ -271,6 +271,9 @@ impl FunctionEmitter<'_> {
         // so those arms see the `SmeltUnknown` shape they expect. Non-concrete
         // unions are already stored erased, so this is a no-op for them.
         let operand_text = self.erase_concrete_union_text(&self.operand_text(operand)?, operand_ty);
+        if let Some(text) = self.fixed_int_cast_text(op, dest_type, operand_type, &operand_text) {
+            return Ok(text);
+        }
         match (op, dest_type, operand_type) {
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Bool)
             | (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Int)
@@ -519,7 +522,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         match self.mir.types.get(inner_ty) {
             Some(Type::Bool) => Ok(format!("{operand_text}.clone().unwrap_or(false)")),
-            Some(Type::Int) => Ok(format!(
+            Some(Type::Int | Type::FixedInt(_)) => Ok(format!(
                 "{operand_text}.clone().is_some_and(|value| value != 0)"
             )),
             Some(Type::Float) => Ok(format!(
@@ -619,7 +622,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         match self.mir.types.get(ty) {
             Some(Type::Bool) => Ok(value_text.to_owned()),
-            Some(Type::Int) => Ok(format!("({value_text}) != 0")),
+            Some(Type::Int | Type::FixedInt(_)) => Ok(format!("({value_text}) != 0")),
             Some(Type::Float) => Ok(format!(
                 "{{ let smelt_number = ({value_text}); smelt_number != 0.0 && !smelt_number.is_nan() }}"
             )),
@@ -1493,6 +1496,7 @@ impl FunctionEmitter<'_> {
         match resolved_ty {
             Type::Bool => Ok(RustType::raw("bool")),
             Type::Int => Ok(RustType::raw("i64")),
+            Type::FixedInt(width) => Ok(RustType::raw(width.rust_name())),
             Type::Float => Ok(RustType::raw("f64")),
             Type::String => Ok(RustType::raw("String")),
             Type::Unknown => Ok(RustType::raw("SmeltUnknown")),
@@ -1803,7 +1807,7 @@ impl FunctionEmitter<'_> {
             .ok_or_else(|| EmitError::new("MIR references an unknown type"))?
         {
             Type::Bool => Ok("false".to_owned()),
-            Type::Int => Ok("0".to_owned()),
+            Type::Int | Type::FixedInt(_) => Ok("0".to_owned()),
             Type::Float => Ok("0.0".to_owned()),
             Type::String => Ok("String::new()".to_owned()),
             Type::Unknown => Ok(self.null_value_text()),

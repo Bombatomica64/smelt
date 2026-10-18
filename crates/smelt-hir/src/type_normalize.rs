@@ -165,6 +165,7 @@ pub fn normalize_type(types: &mut TypeInterner, ty: TypeId, options: NormalizeOp
         }
         Type::Bool
         | Type::Int
+        | Type::FixedInt(_)
         | Type::Float
         | Type::String
         | Type::Unknown

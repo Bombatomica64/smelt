@@ -748,7 +748,7 @@ pub(crate) fn needs_json_parse_runtime(mir: &Mir) -> bool {
         matches!(
             terminator,
             Terminator::Call {
-                callee: Callee::Builtin(BuiltinFn::JsonParse),
+                callee: Callee::Builtin(BuiltinFn::JsonParse { .. }),
                 ..
             }
         )

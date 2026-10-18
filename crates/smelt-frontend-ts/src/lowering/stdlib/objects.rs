@@ -169,6 +169,50 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower direct TypeScript `Math.imul(a, b)` calls to the int32 product operator.
+    pub(in crate::lowering) fn math_imul_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Math" || member.property.name != "imul" {
+            return Ok(None);
+        }
+        let [lhs_argument, rhs_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Math.imul requires exactly two arguments",
+            ));
+        };
+        let lhs = self.argument(lhs_argument, body)?;
+        let rhs = self.argument(rhs_argument, body)?;
+        if [lhs, rhs]
+            .iter()
+            .any(|arg| self.ctx.krate.types.get(Self::expr_ty(body, *arg)) != Some(&Type::Float))
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Math.imul requires number arguments",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Float);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op: smelt_hir::BinOp::IMul,
+                lhs,
+                rhs,
+            },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower direct TypeScript `Math.atan2` calls.
     pub(in crate::lowering) fn math_atan2_call(
         &mut self,

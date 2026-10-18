@@ -11,13 +11,13 @@ async fn sum (FuncId(1)) -> Float
     %0 param values: List<Float>
     %1 user total: Float
     %2 user value: Float
-    %3 temp: Float
-    %4 temp: Float
+    %3 temp: usize
+    %4 temp: usize
     %5 temp: Bool
     %6 temp: Float
   bb0:
     %1 = 0.0
-    %3 = 0.0
+    %3 = 0
     goto bb1
   bb1:
     %4 = len copy %0
@@ -29,7 +29,7 @@ async fn sum (FuncId(1)) -> Float
     %1 = move %6
     goto bb3
   bb3:
-    %3 = copy %3 + 1.0
+    %3 = copy %3 + 1
     goto bb1
   bb4:
     return move %1

@@ -53,7 +53,7 @@ fn new (FuncId(3)) -> Sink
 fn main (FuncId(4)) -> None
   locals
     %0 user routes: List<(String, String, Float)>
-    %1 user i: Float
+    %1 user i: usize
     %2 user __smelt_spread: (String, String, Float)
     %3 user tail: (String, Float)
     %4 user __smelt_spread: (String, Float)
@@ -67,11 +67,11 @@ fn main (FuncId(4)) -> None
     %12 temp: (String, String, Float)
     %13 temp: (String, String, Float)
     %14 temp: List<(String, String, Float)>
-    %15 temp: Float
+    %15 temp: usize
     %16 temp: Bool
     %17 temp: String
     %18 temp: None
-    %19 temp: Float
+    %19 temp: usize
     %20 temp: (String, Float)
     %21 temp: String
     %22 temp: None
@@ -96,7 +96,7 @@ fn main (FuncId(4)) -> None
     %13 = ("POST", "/b", 2.0)
     %14 = [move %12, move %13]
     %0 = move %14
-    %1 = 0.0
+    %1 = 0
     goto bb1
   bb1:
     %15 = len copy %0
@@ -106,7 +106,7 @@ fn main (FuncId(4)) -> None
     %2 = copy %0[copy %1]
     %17 = call fn0(copy %2[0], copy %2[1], copy %2[2]) -> bb5
   bb3:
-    %19 = move %1 + 1.0
+    %19 = move %1 + 1
     %1 = move %19
     goto bb1
   bb4:

@@ -13,9 +13,12 @@
 //! TypeScript, because most of it compiles perfectly either way and is only
 //! wrong when it runs:
 //!
-//! * `listen(0)` binds BEFORE it returns, so `address()` has a real port
-//!   immediately — the whole test is addressable only because that holds;
-//! * the listening callback runs in the same turn as the bind;
+//! * `listen(0)` binds BEFORE it returns, so `address()` has a real
+//!   `AddressInfo` (`{ address, family, port }`) immediately — the whole test
+//!   is addressable only because that holds;
+//! * (NOT asserted: Node runs the listening callback on a later tick, while
+//!   the generated server runs it synchronously inside `listen` — a known
+//!   divergence; an earlier version of this list claimed the opposite);
 //! * a request body reaches the handler through the EMITTER inheritance —
 //!   `req.on('data', ..)` then `req.on('end', ..)` — and `data` does not fire
 //!   for an empty body, so a GET sees `''` rather than one empty chunk;
@@ -196,9 +199,18 @@ fn run_failing_program(source: &str, crate_name: &str) -> (String, String) {
 fn listen_binds_before_it_returns_and_reports_its_port() {
     // The bind is synchronous in Node -- `listen(0)` then `address()` is a
     // legal pair -- and everything else here depends on that being true, since
-    // the port is what the client builds its URL from. The port itself varies,
-    // so what is asserted is that it exists, is in range, and is gone after
-    // `close`.
+    // the port is what the client builds its URL from. `address()` answers
+    // Node's `AddressInfo` record (`{ address, family, port }`) while bound and
+    // `null` otherwise, so the program narrows it before reading `.port`, as a
+    // Node program must. The port itself varies, so what is asserted is that it
+    // exists, is in range, and is gone after `close`. Every line is what Node
+    // 24 prints for the same source.
+    //
+    // This used to pass a listening callback and expect it to print FIRST,
+    // "in the same turn". Node does not do that: it emits `listening` on a
+    // later tick, and here, with `close()` called synchronously, never runs it
+    // at all. The generated server still runs the callback synchronously -- a
+    // known divergence, left out of this test rather than asserted wrongly.
     let source = r"
 import { createServer } from 'node:http';
 
@@ -206,19 +218,14 @@ const server = createServer((req, res) => {
   res.end('ok');
 });
 
-const before = server.address() ?? -1;
-server.listen(0, () => { console.log('callback ran in the same turn'); });
-const bound = server.address() ?? -1;
-console.log(before);
-console.log(bound > 0 && bound < 65536);
+console.log(server.address() === null);
+server.listen(0);
+const bound = server.address();
+console.log(typeof bound === 'object' && bound !== null && bound.port > 0 && bound.port < 65536);
 server.close();
-console.log(server.address() ?? -1);
+console.log(server.address() === null);
 ";
-    assert_program_output(
-        source,
-        "http_listen_runtime",
-        "callback ran in the same turn\n-1\ntrue\n-1\n",
-    );
+    assert_program_output(source, "http_listen_runtime", "true\ntrue\ntrue\n");
 }
 
 #[test]
@@ -244,7 +251,8 @@ const server = createServer((req, res) => {
 });
 
 server.listen(0);
-const port = server.address() ?? 0;
+const address = server.address();
+const port = typeof address === 'object' && address !== null ? address.port : 0;
 
 const posted = await fetch(`http://127.0.0.1:${port}/p`, { method: 'POST', body: 'abc' });
 console.log(await posted.text());
@@ -286,7 +294,8 @@ const server = createServer((req, res) => {
 });
 
 server.listen(0);
-const port = server.address() ?? 0;
+const address = server.address();
+const port = typeof address === 'object' && address !== null ? address.port : 0;
 const answer = await fetch(`http://127.0.0.1:${port}/h`);
 console.log(answer.status);
 console.log(answer.headers.get('content-type'));
@@ -326,7 +335,8 @@ const server = createServer((req, res) => {
 });
 
 server.listen(0);
-const port = server.address() ?? 0;
+const address = server.address();
+const port = typeof address === 'object' && address !== null ? address.port : 0;
 
 // The healthy request first, so the failure below cannot be mistaken for a
 // server that never worked.
@@ -368,7 +378,8 @@ const server = createServer((req, res) => {
 });
 
 server.listen(0);
-const port = server.address() ?? 0;
+const address = server.address();
+const port = typeof address === 'object' && address !== null ? address.port : 0;
 const answer = await fetch(`http://127.0.0.1:${port}/path?query=1`, {
   method: 'PUT',
   headers: { 'X-Mixed-Case': 'sent' },

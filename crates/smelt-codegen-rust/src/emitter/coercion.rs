@@ -1261,6 +1261,20 @@ impl FunctionEmitter<'_> {
         {
             return Ok(format!("(({value_text} as f64).trunc() as i64)"));
         }
+        // A `FixedInt` is exactly an `f64`. The opposite direction is only
+        // reached for a value the TypeScript frontend proved to be in range
+        // (a Bun `int32` field of an object literal; see `lowering::int32`),
+        // so the narrowing cast is exact.
+        if let (Some(Type::Float), Some(Type::FixedInt(_))) =
+            (self.mir.types.get(target), self.mir.types.get(source))
+        {
+            return Ok(format!("({value_text} as f64)"));
+        }
+        if let (Some(Type::FixedInt(width)), Some(Type::Float)) =
+            (self.mir.types.get(target), self.mir.types.get(source))
+        {
+            return Ok(format!("({value_text} as {})", width.rust_name()));
+        }
         if self.mir.types.get(target) == Some(&Type::Float)
             && self.mir.types.get(source) == Some(&Type::String)
         {
@@ -1586,7 +1600,7 @@ impl FunctionEmitter<'_> {
             Some(Type::None) if text.trim() == "()" => Ok("SmeltUnknown::Null".to_owned()),
             Some(Type::None) => Ok(format!("{{ let _ = {text}; SmeltUnknown::Null }}")),
             Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({text})")),
-            Some(Type::Int | Type::Float) => Ok(format!("SmeltUnknown::Number({text} as f64)")),
+            Some(Type::Int | Type::FixedInt(_) | Type::Float) => Ok(format!("SmeltUnknown::Number({text} as f64)")),
             Some(Type::String) => Ok(crate::rust::erased_string(&text)),
             Some(Type::List(item)) if self.list_items_render_as_unknown(ty, &self.render_scope()) => {
                 // An out-of-scope generic element also renders as SmeltUnknown.
@@ -2070,12 +2084,12 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::None | Type::Never) | None => Ok("SmeltUnknown::Null".to_owned()),
             Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({value_text})")),
-            Some(Type::Int | Type::Float)
+            Some(Type::Int | Type::FixedInt(_) | Type::Float)
                 if value_text == "Default::default()" || value_text == "(Default::default())" =>
             {
                 Ok("SmeltUnknown::Number(0.0)".to_owned())
             }
-            Some(Type::Int | Type::Float) => {
+            Some(Type::Int | Type::FixedInt(_) | Type::Float) => {
                 // Cast operand: a loose top-level operator must be parenthesized
                 // so `as f64` does not reassociate across it.
                 Ok(format!(

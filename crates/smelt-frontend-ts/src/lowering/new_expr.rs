@@ -2097,6 +2097,18 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let lowered = self.expression_shape_with_hint(expression, body, type_hint)?;
+        // A read of a Bun `int32` slot is a `number` to every consumer.
+        Ok(self.int32_read_as_number(lowered, body))
+    }
+
+    /// Lower one expression; see [`Self::expression_with_hint`].
+    fn expression_shape_with_hint(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         match expression {
             Expression::NumericLiteral(lit) => {
                 let ty = self.ctx.krate.types.intern(Type::Float);
@@ -2405,6 +2417,7 @@ impl ModuleBuilder<'_> {
                             "unary plus requires a numeric or DateArg-compatible operand",
                         ));
                     }
+                    UnaryOperator::BitwiseNot => return self.bitwise_not_expression(unary, body),
                     _ => {
                         return Err(SmeltError::unsupported(
                             self.span(unary.span.start, unary.span.end),
@@ -2452,7 +2465,13 @@ impl ModuleBuilder<'_> {
                 Ok(self.keyed_read_into_optional_slot(read, type_hint, body))
             }
             Expression::CallExpression(call) => {
+                // An untyped `JSON.parse` flowing into a declared type is a
+                // typed entry boundary; see `json_parse_call_with_hint`.
+                if let Some(parsed) = self.json_parse_call_with_hint(call, type_hint, body)? {
+                    return Ok(parsed);
+                }
                 let value = self.call_expression_with_hint(call, body, type_hint)?;
+                let value = self.adopt_json_body_read_target(value, type_hint, body);
                 // A bare `Array(n)` allocation takes the contextual list type
                 // when it has one, exactly as the `new Array(n)` spelling does
                 // below; the two forms must stay in lockstep.

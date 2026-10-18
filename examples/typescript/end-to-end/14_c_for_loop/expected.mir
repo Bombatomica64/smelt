@@ -1,24 +1,26 @@
 fn main (FuncId(0)) -> None
   locals
     %0 user sum: Float
-    %1 user i: Float
+    %1 user i: usize
     %2 temp: Bool
     %3 temp: Float
-    %4 temp: Float
+    %4 temp: usize
     %5 temp: None
+    %6 temp: Float
   bb0:
     %0 = 0.0
-    %1 = 0.0
+    %1 = 0
     goto bb1
   bb1:
-    %2 = copy %1 < 4.0
+    %2 = copy %1 < 4
     switch move %2 ? bb2 : bb4
   bb2:
-    %3 = move %0 + copy %1
+    %6 = primitive_cast_float copy %1
+    %3 = move %0 + move %6
     %0 = move %3
     goto bb3
   bb3:
-    %4 = move %1 + 1.0
+    %4 = move %1 + 1
     %1 = move %4
     goto bb1
   bb4:

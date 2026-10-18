@@ -462,6 +462,18 @@ impl ModuleBuilder<'_> {
         })
     }
 
+    /// Whether `ty` names a non-generic record this crate declares: an
+    /// interface or class item already lowered into the HIR, so its Rust
+    /// storage is a generated struct rather than a host type or an erasure.
+    pub(in crate::lowering) fn is_declared_record_type(&self, ty: smelt_hir::TypeId) -> bool {
+        let Some(Type::Class { name, args }) = self.ctx.krate.types.get(ty) else {
+            return false;
+        };
+        args.is_empty()
+            && (self.find_interface(*name).is_some_and(|interface| interface.type_params.is_empty())
+                || self.find_class(*name).is_some_and(|class| class.type_params.is_empty()))
+    }
+
     /// Validate that a lowered class satisfies all declared interfaces.
     pub(in crate::lowering) fn validate_implements(&mut self, class_item: smelt_hir::ItemId) -> Result<(), SmeltError> {
         let Item::Class(class) = self.item_ref(class_item).clone() else {
@@ -513,6 +525,17 @@ impl ModuleBuilder<'_> {
                     ));
                 };
                 if !field_type_satisfies(&self.ctx.krate, actual.ty, required) {
+                    // Bun's `int32` on one side only is its own diagnostic.
+                    if let Some(error) = self.int32_member_mismatch(
+                        class.name,
+                        interface.name,
+                        required.name,
+                        actual.ty,
+                        required.ty,
+                        actual.span,
+                    ) {
+                        return Err(error);
+                    }
                     let name = self
                         .ctx
                         .krate

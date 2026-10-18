@@ -2395,7 +2395,7 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
-            ExprKind::JsonParse { text } => {
+            ExprKind::JsonParse { text, decode } => {
                 // `JSON.parse` is fallible: malformed text throws a catchable
                 // `SyntaxError`. A `Statement::Assign` has no unwind edge, so an
                 // rvalue form can never reach an enclosing `try` -- the catch
@@ -2408,7 +2408,9 @@ impl LoweringCtx<'_> {
                 let dest = self.push_temp(expr.ty, expr.span);
                 let target = self.function.push_block(expr.span);
                 self.set_terminator(Terminator::Call {
-                    callee: Callee::Builtin(BuiltinFn::JsonParse),
+                    callee: Callee::Builtin(BuiltinFn::JsonParse {
+                        target: decode.then_some(expr.ty),
+                    }),
                     args: vec![text_operand],
                     dest,
                     target,

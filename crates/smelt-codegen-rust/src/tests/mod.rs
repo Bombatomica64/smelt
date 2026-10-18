@@ -104,4 +104,5 @@ mod closure_capture_frame_tests;
 mod erased_runtime_shape_tests;
 mod python_stdlib_spelling_tests;
 mod drifted_helper_tests;
+mod console_inspect_tests;
 mod rejoin_tests;

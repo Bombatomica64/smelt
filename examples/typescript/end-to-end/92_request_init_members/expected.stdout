@@ -3,8 +3,8 @@ no-store|include|sha256-abc|true|same-origin|manual|https://c.test/|no-referrer
 no-store include sha256-abc
 true same-origin manual
 https://c.test/ no-referrer
-no-store|include|sha256-abc|true|same-origin|manual|https://c.test/|no-referrer
-no-store|include|sha256-abc|true|same-origin|manual|https://c.test/|no-referrer
+no-store|include|sha256-abc|true|same-origin|manual|about:client|
+no-store|include|sha256-abc|true|same-origin|manual|about:client|
 no-store|include|sha256-abc|true|same-origin|manual|about:client|
 no-store|include|sha256-abc|true|same-origin|manual|https://d.test/here|
 no-store|include|sha256-abc|true|same-origin|manual|https://c.test/|no-referrer

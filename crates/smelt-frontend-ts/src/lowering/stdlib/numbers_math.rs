@@ -1409,7 +1409,7 @@ impl ModuleBuilder<'_> {
             span: self.span(call.span.start, call.span.end),
         });
         let value = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("America/Santiago".to_owned())),
+            kind: ExprKind::Literal(Literal::String(smelt_stdlib::NODE_PROFILE_TIMEZONE.to_owned())),
             ty: string_ty,
             span: self.span(call.span.start, call.span.end),
         });
@@ -1517,6 +1517,7 @@ impl ModuleBuilder<'_> {
             "log10" => NumericUnaryFuncOp::Log10,
             "log2" => NumericUnaryFuncOp::Log2,
             "exp" => NumericUnaryFuncOp::Exp,
+            "clz32" => NumericUnaryFuncOp::Clz32,
             _ => return Ok(None),
         };
         if call.arguments.len() != 1 {

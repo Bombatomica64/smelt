@@ -42,23 +42,25 @@ closure ClosureId(2) -> None
   locals
     %0 param items: List<String>
     %1 param cb: fn(String, Float) -> None
-    %2 user i: Float
-    %3 temp: Float
+    %2 user i: usize
+    %3 temp: usize
     %4 temp: Bool
     %5 temp: None
-    %6 temp: Float
+    %6 temp: usize
+    %7 temp: Float
   bb0:
-    %2 = 0.0
+    %2 = 0
     goto bb1
   bb1:
     %3 = len copy %0
     %4 = copy %2 < copy %3
     switch copy %4 ? bb2 : bb4
   bb2:
-    %5 = closure_call copy %1(copy %0[copy %2], copy %2)
+    %7 = primitive_cast_float copy %2
+    %5 = closure_call copy %1(copy %0[copy %2], move %7)
     goto bb3
   bb3:
-    %6 = copy %2 + 1.0
+    %6 = copy %2 + 1
     %2 = copy %6
     goto bb1
   bb4:

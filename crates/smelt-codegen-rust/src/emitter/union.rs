@@ -28,7 +28,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Collect free type parameters retained by a concrete union's members.
-    fn union_type_params(&self, ty: TypeId) -> Result<Vec<Symbol>, EmitError> {
+    pub(super) fn union_type_params(&self, ty: TypeId) -> Result<Vec<Symbol>, EmitError> {
         let Some(members) = self.concrete_union_members(ty) else {
             return Ok(Vec::new());
         };
@@ -86,7 +86,7 @@ impl FunctionEmitter<'_> {
                 self.collect_union_type_params(*yield_ty, params)?;
                 self.collect_union_type_params(*return_ty, params)?;
             }
-            Type::Unknown | Type::Never | Type::None | Type::Bool | Type::Int | Type::Float | Type::String => {}
+            Type::Unknown | Type::Never | Type::None | Type::Bool | Type::Int | Type::FixedInt(_) | Type::Float | Type::String => {}
         }
         Ok(())
     }
@@ -216,7 +216,7 @@ impl FunctionEmitter<'_> {
                 self.union_member_is_concrete(*yield_ty)
                     && self.union_member_is_concrete(*return_ty)
             }
-            Some(Type::Bool | Type::Int | Type::Float | Type::String) => true,
+            Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::Float | Type::String) => true,
             // Nullish unions remain `Option`/erased-boundary work. Keeping them
             // out of tagged unions preserves missing-property/default semantics;
             // the concrete-union feature targets distinct value-bearing arms.

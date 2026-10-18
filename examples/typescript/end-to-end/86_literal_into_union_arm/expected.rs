@@ -3435,8 +3435,8 @@ pub(crate) fn total(rows: SmeltUnion7) -> String {
     let _smelt_tmp_4: String;
     let _smelt_tmp_5: String;
     let _smelt_tmp_6: SmeltList<(f64, f64)>;
-    let mut _smelt_tmp_7: f64;
-    let mut _smelt_tmp_8: f64;
+    let mut _smelt_tmp_7: usize;
+    let mut _smelt_tmp_8: usize;
     let mut _smelt_tmp_9: bool;
     let mut _smelt_tmp_10: f64;
     let mut _smelt_tmp_11: f64;
@@ -3452,18 +3452,18 @@ pub(crate) fn total(rows: SmeltUnion7) -> String {
     }
     sum = 0.0;
     _smelt_tmp_6 = Into::<SmeltList<_>>::into(match rows.clone() { SmeltUnion7::M1(value) => value, _ => unreachable!("union guard selected an excluded member") });
-    _smelt_tmp_7 = 0.0;
+    _smelt_tmp_7 = 0;
     loop {
-    _smelt_tmp_8 = _smelt_tmp_6.len() as f64;
+    _smelt_tmp_8 = _smelt_tmp_6.len();
     _smelt_tmp_9 = _smelt_tmp_7 < _smelt_tmp_8;
     if !(_smelt_tmp_9) { break; }
-    row = _smelt_tmp_6.borrow().get({ let smelt_normalized = _smelt_tmp_7 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (0.0, 0.0));
+    row = _smelt_tmp_6.borrow().get(_smelt_tmp_7).cloned().unwrap_or_else(|| (0.0, 0.0));
     _smelt_tmp_10 = row.clone().0.clone();
     _smelt_tmp_11 = row.1.clone();
     _smelt_tmp_12 = _smelt_tmp_10 * _smelt_tmp_11;
     _smelt_tmp_13 = sum + _smelt_tmp_12;
     sum = _smelt_tmp_13;
-    _smelt_tmp_7 = _smelt_tmp_7 + 1.0;
+    _smelt_tmp_7 = _smelt_tmp_7 + 1;
     }
     _smelt_tmp_14 = smelt_number_to_string(sum);
     _smelt_tmp_15 = "sum:".to_owned() + &_smelt_tmp_14;

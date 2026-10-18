@@ -108,8 +108,8 @@ fn main (FuncId(4)) -> None
     %43 temp: None
     %44 temp: None
     %45 temp: List<String | File>
-    %46 temp: Float
-    %47 temp: Float
+    %46 temp: usize
+    %47 temp: usize
     %48 temp: Bool
     %49 temp: Bool
     %50 temp: File
@@ -197,7 +197,7 @@ fn main (FuncId(4)) -> None
     goto bb27
   bb27:
     %45 = form_data_values move %1
-    %46 = 0.0
+    %46 = 0
     goto bb29
   bb28:
     goto bb27
@@ -210,7 +210,7 @@ fn main (FuncId(4)) -> None
     %49 = instanceof copy %5, class15
     switch move %49 ? bb33 : bb34
   bb31:
-    %46 = copy %46 + 1.0
+    %46 = copy %46 + 1
     goto bb29
   bb32:
     return none

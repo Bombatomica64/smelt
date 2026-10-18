@@ -6,8 +6,8 @@ fn defer (FuncId(0)) -> None
     %3 temp: List<fn() -> None>
     %4 temp: fn(fn() -> None) -> None
     %5 temp: None
-    %6 temp: Float
-    %7 temp: Float
+    %6 temp: usize
+    %7 temp: usize
     %8 temp: Bool
     %9 temp: None
   bb0:
@@ -15,7 +15,7 @@ fn defer (FuncId(0)) -> None
     %1 = move %3
     %4 = closure ClosureId(0) [copy %1]
     %5 = closure_call copy %0(move %4)
-    %6 = 0.0
+    %6 = 0
     goto bb1
   bb1:
     %7 = len copy %1
@@ -26,7 +26,7 @@ fn defer (FuncId(0)) -> None
     %9 = closure_call move %2()
     goto bb3
   bb3:
-    %6 = copy %6 + 1.0
+    %6 = copy %6 + 1
     goto bb1
   bb4:
     return none
