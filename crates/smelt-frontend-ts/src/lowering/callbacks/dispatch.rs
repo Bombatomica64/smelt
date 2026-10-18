@@ -9,6 +9,7 @@ use crate::lowering::{
     ObjectPropertyKind, PropertyKey, SmeltError, Span, Type, UnaryOp, UnaryOperator, UnknownKind,
 };
 use crate::{ObjectConst, ObjectConstValue};
+use smelt_hir::ErasureReason;
 use oxc::span::GetSpan;
 
 impl ModuleBuilder<'_> {
@@ -182,7 +183,9 @@ impl ModuleBuilder<'_> {
             let param_ty = expected_param_tys
                 .first()
                 .copied()
-                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                .unwrap_or_else(|| {
+                    self.erase_with(ErasureReason::MissingAnnotation, "callback parameter")
+                });
             let expr = self.builtin_unary_closure_expression(
                 param_ty,
                 param_ty,
@@ -220,7 +223,9 @@ impl ModuleBuilder<'_> {
             let param_ty = expected_param_tys
                 .first()
                 .copied()
-                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                .unwrap_or_else(|| {
+                    self.erase_with(ErasureReason::MissingAnnotation, "callback parameter")
+                });
             let return_ty = self.ctx.krate.types.intern(Type::Bool);
             let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: vec![param_ty],
@@ -729,6 +734,15 @@ impl ModuleBuilder<'_> {
                     Some(Type::Function(function)) => function.return_ty,
                     _ => fallback_return_ty,
                 };
+                // Callers pass an `unknown` fallback as "no return hint" (see
+                // the array-callback lowering in `list_ops.rs`); when the
+                // closure's return is still erased after body lowering, that
+                // is the erasure decision.
+                if self.ctx.krate.types.get(fallback_return_ty) == Some(&Type::Unknown)
+                    && self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown)
+                {
+                    let _ = self.erase_with(ErasureReason::MissingAnnotation, context);
+                }
                 Ok(ClosureCallback { expr, return_ty })
             }
             Err(error) => Err(error),
@@ -993,7 +1007,7 @@ impl ModuleBuilder<'_> {
     /// Collapse tuple item types into the element type used by array callbacks.
     pub(in crate::lowering) fn tuple_items_element_type(&mut self, items: &[smelt_hir::TypeId]) -> smelt_hir::TypeId {
         match items {
-            [] => self.ctx.krate.types.intern(Type::Unknown),
+            [] => self.erase_with(ErasureReason::MissingAnnotation, "empty tuple element"),
             [single] => *single,
             [first, rest @ ..] if rest.iter().all(|item| item == first) => *first,
             _ => self.ctx.krate.types.intern(Type::Union(items.to_vec())),
@@ -1119,7 +1133,10 @@ impl ModuleBuilder<'_> {
                     if self.source_contains_forward_callable(identifier.name.as_str()) {
                         return Ok(CallbackExpr {
                             kind: CallbackExprKind::Literal(Literal::None),
-                            ty: self.ctx.krate.types.intern(Type::Unknown),
+                            ty: self.erase_with(
+                                ErasureReason::ByName,
+                                identifier.name.as_str(),
+                            ),
                         });
                     }
                     return Err(SmeltError::for_unresolved_name(
@@ -1268,17 +1285,16 @@ impl ModuleBuilder<'_> {
                                     "callback dynamic computed access index must be a number",
                                 ));
                             }
-                            let item_ty = match self
-                                .ctx
-                                .krate
-                                .types
-                                .get(self.type_param_constraint_or_self(receiver.ty))
-                            {
+                            let receiver_ty = self.type_param_constraint_or_self(receiver.ty);
+                            let item_ty = match self.ctx.krate.types.get(receiver_ty) {
                                 Some(Type::List(item_ty)) => *item_ty,
                                 Some(Type::String) => self.ctx.krate.types.intern(Type::String),
-                                Some(Type::Unknown | Type::TypeParam { .. }) => {
-                                    self.ctx.krate.types.intern(Type::Unknown)
-                                }
+                                Some(Type::Unknown | Type::TypeParam { .. }) => self
+                                    .callback_erase_unless_unknown(
+                                        receiver_ty,
+                                        ErasureReason::DynamicOperator,
+                                        "computed index",
+                                    ),
                                 Some(Type::Union(union_items))
                                     if union_items.iter().any(|item| {
                                         matches!(
@@ -1291,9 +1307,16 @@ impl ModuleBuilder<'_> {
                                         )
                                     }) =>
                                 {
-                                    self.ctx.krate.types.intern(Type::Unknown)
+                                    self.callback_erase_unless_unknown(
+                                        receiver_ty,
+                                        ErasureReason::DynamicOperator,
+                                        "computed index",
+                                    )
                                 }
-                                _ => self.ctx.krate.types.intern(Type::Unknown),
+                                _ => self.erase_with(
+                                    ErasureReason::DynamicOperator,
+                                    "computed index",
+                                ),
                             };
                             CallbackExpr {
                                 kind: CallbackExprKind::DynamicIndex {
@@ -1329,7 +1352,7 @@ impl ModuleBuilder<'_> {
                         self.ctx.krate.types.intern(Type::Union(item_tys))
                     }
                 } else {
-                    self.ctx.krate.types.intern(Type::Unknown)
+                    self.erase_with(ErasureReason::MissingAnnotation, "empty array")
                 };
                 Ok(CallbackExpr {
                     kind: CallbackExprKind::ListLit(items),
@@ -1361,7 +1384,10 @@ impl ModuleBuilder<'_> {
             }
             Expression::ObjectExpression(object) => {
                 let key_ty = self.ctx.krate.types.intern(Type::String);
-                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                // The compact callback IR has no record node: every field value
+                // is widened into one string-keyed map of erased values.
+                let value_ty =
+                    self.erase_with(ErasureReason::DynamicOperator, "callback object literal");
                 let mut entries = Vec::new();
                 for property in &object.properties {
                     let ObjectPropertyKind::ObjectProperty(property) = property else {
@@ -1455,15 +1481,17 @@ impl ModuleBuilder<'_> {
                     };
                     let value = self.callback_expression(argument, params, body)?;
                     let string_ty = self.ctx.krate.types.intern(Type::String);
-                    let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
                     let item_ty = match member.property.name.as_str() {
                         "keys" => string_ty,
-                        "entries" => self
-                            .ctx
-                            .krate
-                            .types
-                            .intern(Type::Tuple(vec![string_ty, unknown_ty])),
-                        _ => unknown_ty,
+                        "entries" => {
+                            let unknown_ty =
+                                self.erase_with(ErasureReason::UntypedBuiltin, "Object.entries");
+                            self.ctx
+                                .krate
+                                .types
+                                .intern(Type::Tuple(vec![string_ty, unknown_ty]))
+                        }
+                        _ => self.erase_with(ErasureReason::UntypedBuiltin, "Object.values"),
                     };
                     let ty = self.ctx.krate.types.intern(Type::List(item_ty));
                     return Ok(CallbackExpr {
@@ -1473,7 +1501,9 @@ impl ModuleBuilder<'_> {
                                     receiver: Box::new(value),
                                     field: self.intern_source_name(member.property.name.as_str()),
                                 },
-                                ty: self.ctx.krate.types.intern(Type::Unknown),
+                                // not a new erasure: callee placeholder of the
+                                // builtin projection; its result type is above.
+                                ty: self.unknown_type(),
                             }),
                             args: Vec::new(),
                         },
@@ -1672,7 +1702,11 @@ impl ModuleBuilder<'_> {
                             .first()
                             .is_some_and(Self::argument_is_callback_like)
                     {
-                        let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                        let item_ty = self.callback_erase_unless_unknown(
+                            receiver.ty,
+                            ErasureReason::ByName,
+                            member.property.name.as_str(),
+                        );
                         return Ok(CallbackExpr {
                             kind: CallbackExprKind::MethodCall {
                                 receiver: Box::new(receiver),
@@ -1720,8 +1754,14 @@ impl ModuleBuilder<'_> {
                         | "getSeconds" | "getMilliseconds" | "getTime" => {
                             self.ctx.krate.types.intern(Type::Float)
                         }
-                        _ => declared_method_return
-                            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown)),
+                        _ => match declared_method_return {
+                            Some(return_ty) => return_ty,
+                            None => self.callback_erase_unless_unknown(
+                                receiver.ty,
+                                ErasureReason::ByName,
+                                member.property.name.as_str(),
+                            ),
+                        },
                     };
                     let mut args = Vec::new();
                     for arg in &call.arguments {
@@ -1757,10 +1797,11 @@ impl ModuleBuilder<'_> {
                 let callee = self.callback_expression(&call.callee, params, body)?;
                 let return_ty = match self.ctx.krate.types.get(callee.ty) {
                     Some(Type::Function(function)) => function.return_ty,
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => {
-                        self.ctx.krate.types.intern(Type::Unknown)
-                    }
-                    _ => self.ctx.krate.types.intern(Type::Unknown),
+                    _ => self.callback_erase_unless_unknown(
+                        callee.ty,
+                        ErasureReason::ByName,
+                        "callback callee",
+                    ),
                 };
                 let mut args = Vec::new();
                 for arg in &call.arguments {
@@ -1837,10 +1878,11 @@ impl ModuleBuilder<'_> {
                     Some(Type::Dict(_, value) | Type::JsMap(_, value)) => *value,
                     Some(Type::Optional(_)) => self.class_field_type(receiver.ty, field)?,
                     Some(Type::Class { .. }) => self.class_field_type(receiver.ty, field)?,
-                    Some(Type::Unknown | Type::TypeParam { .. }) => {
-                        self.ctx.krate.types.intern(Type::Unknown)
-                    }
-                    _ => self.ctx.krate.types.intern(Type::Unknown),
+                    _ => self.callback_erase_unless_unknown(
+                        receiver.ty,
+                        ErasureReason::ByName,
+                        member.property.name.as_str(),
+                    ),
                 };
                 Ok(CallbackExpr {
                     kind: CallbackExprKind::Field {
@@ -1931,9 +1973,12 @@ impl ModuleBuilder<'_> {
                         }
                         Some(Type::List(item_ty)) => *item_ty,
                         Some(Type::String) => self.ctx.krate.types.intern(Type::String),
-                        Some(Type::Unknown | Type::TypeParam { .. }) => {
-                            self.ctx.krate.types.intern(Type::Unknown)
-                        }
+                        Some(Type::Unknown | Type::TypeParam { .. }) => self
+                            .callback_erase_unless_unknown(
+                                receiver.ty,
+                                ErasureReason::DynamicOperator,
+                                "computed index",
+                            ),
                         _ => {
                             return Err(SmeltError::unsupported(
                                 self.span(member.span.start, member.span.end),
@@ -1985,7 +2030,11 @@ impl ModuleBuilder<'_> {
                         Some(Type::List(_) | Type::Tuple(_) | Type::String)
                     );
                 if erased_numeric_index {
-                    index.ty = self.ctx.krate.types.intern(Type::Unknown);
+                    index.ty = self.callback_erase_unless_unknown(
+                        index_ty,
+                        ErasureReason::DynamicOperator,
+                        "computed index",
+                    );
                 }
                 if !numeric_index && !string_key_index && !erased_numeric_index {
                     return Err(SmeltError::unsupported(
@@ -1997,9 +2046,12 @@ impl ModuleBuilder<'_> {
                     Some(Type::List(item_ty)) => *item_ty,
                     Some(Type::String) => self.ctx.krate.types.intern(Type::String),
                     Some(Type::Dict(_, value_ty) | Type::JsMap(_, value_ty)) => *value_ty,
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => {
-                        self.ctx.krate.types.intern(Type::Unknown)
-                    }
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => self
+                        .callback_erase_unless_unknown(
+                            receiver_ty,
+                            ErasureReason::DynamicOperator,
+                            "computed index",
+                        ),
                     Some(Type::Union(items))
                         if items.iter().any(|item| {
                             matches!(
@@ -2013,9 +2065,13 @@ impl ModuleBuilder<'_> {
                             )
                         }) =>
                     {
-                        self.ctx.krate.types.intern(Type::Unknown)
+                        self.callback_erase_unless_unknown(
+                            receiver_ty,
+                            ErasureReason::DynamicOperator,
+                            "computed index",
+                        )
                     }
-                    _ => self.ctx.krate.types.intern(Type::Unknown),
+                    _ => self.erase_with(ErasureReason::DynamicOperator, "computed index"),
                 };
                 Ok(CallbackExpr {
                     kind: CallbackExprKind::DynamicIndex {
@@ -2306,7 +2362,9 @@ impl ModuleBuilder<'_> {
                                     kind: CallbackExprKind::Literal(Literal::String(
                                         "String".to_owned(),
                                     )),
-                                    ty: self.ctx.krate.types.intern(Type::Unknown),
+                                    // not a new erasure: names the `String(..)`
+                                    // helper callee; the call result is typed.
+                                    ty: self.unknown_type(),
                                 }),
                                 args: vec![CallbackCallArg {
                                     expr: field,

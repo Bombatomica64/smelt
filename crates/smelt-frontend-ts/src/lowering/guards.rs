@@ -7,7 +7,7 @@ use oxc::ast::ast::{Argument, BindingPattern, Expression, Statement, TSType, TST
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{BinaryOperator, UnaryOperator};
 use smelt_hir::{
-    AsyncOp, BinOp, Body, DatePart, Expr, ExprKind, FunctionType, Literal, PrimitiveCastOp, Stmt,
+    AsyncOp, BinOp, Body, DatePart, ErasureReason, Expr, ExprKind, FunctionType, Literal, PrimitiveCastOp, Stmt,
     Type, UnaryOp, UnknownKind,
 };
 use smelt_stdlib::RuleId;
@@ -1373,7 +1373,7 @@ impl ModuleBuilder<'_> {
             Argument::ArrowFunctionExpression(arrow) => self.arrow_function_expression(arrow, body),
             Argument::FunctionExpression(function) => {
                 if function.r#async {
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let ty = self.erase_with(ErasureReason::UnmodeledType, "async function expression argument");
                     return Ok(body.push_expr(Expr {
                         kind: ExprKind::Literal(Literal::None),
                         ty,
@@ -1630,7 +1630,7 @@ impl ModuleBuilder<'_> {
             });
             let mut args = vec![duration];
             args.extend(reason);
-            let unknown = self.ctx.krate.types.intern(Type::Unknown);
+            let unknown = self.erase_with(ErasureReason::UntypedBuiltin, "Promise.reject");
             let ty = self.ctx.krate.types.intern(Type::Future(unknown));
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::AsyncOp {
@@ -1865,7 +1865,8 @@ impl ModuleBuilder<'_> {
                 } else {
                     None
                 };
-                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                // not a new erasure: only compared against the inferred output below
+                let unknown_ty = self.unknown_type();
                 match resolved {
                     // `unknown` is exactly the erased resolver the executor
                     // was just lowered against, so only the output changes.
@@ -1947,7 +1948,8 @@ impl ModuleBuilder<'_> {
     /// primitives (semaphore/mutex). A valueless `Promise<void>` still takes an
     /// erased (ignored) resolve value.
     fn promise_executor_type(&mut self, output_ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // runtime-helper signature: a valueless promise's resolve takes an ignored tagged value
+        let unknown_ty = self.unknown_type();
         let none_ty = self.ctx.krate.types.intern(Type::None);
         let resolve_value_ty = if output_ty == none_ty { unknown_ty } else { output_ty };
         let resolve_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
@@ -2002,7 +2004,7 @@ impl ModuleBuilder<'_> {
         let resolved = if calls.argument_types.iter().all(|ty| *ty == first) {
             first
         } else {
-            self.ctx.krate.types.intern(Type::Unknown)
+            self.erase_with(ErasureReason::MissingAnnotation, "Promise resolve types disagree")
         };
         if calls.has_empty_call && !self.is_nullishable_type(resolved) {
             return Some(self.ctx.krate.types.intern(Type::Optional(resolved)));
@@ -2128,7 +2130,7 @@ impl ModuleBuilder<'_> {
                         ty: float_ty,
                         span,
                     });
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let ty = self.erase_with(ErasureReason::UntypedBuiltin, "timer id");
                     return Ok(Some(body.push_expr(Expr {
                         kind: ExprKind::AsyncOp {
                             op: AsyncOp::SetTimeout,
@@ -2158,7 +2160,7 @@ impl ModuleBuilder<'_> {
                 };
                 let callback = self.argument(callback, body)?;
                 let duration = self.argument(duration, body)?;
-                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                let ty = self.erase_with(ErasureReason::UntypedBuiltin, "timer id");
                 Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::AsyncOp {
                         op: AsyncOp::SetTimeout,
@@ -2197,7 +2199,7 @@ impl ModuleBuilder<'_> {
                 };
                 let callback = self.argument(callback, body)?;
                 let duration = self.argument(duration, body)?;
-                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                let ty = self.erase_with(ErasureReason::UntypedBuiltin, "timer id");
                 Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::AsyncOp {
                         op: AsyncOp::SetInterval,
@@ -2244,7 +2246,7 @@ impl ModuleBuilder<'_> {
                 };
                 let callback = self.argument(callback_arg, body)?;
                 let duration = self.argument(duration_arg, body)?;
-                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "timer id");
                 let span = self.span(call.span.start, call.span.end);
                 let op = if callee.name == "setTimeout" {
                     AsyncOp::SetTimeout

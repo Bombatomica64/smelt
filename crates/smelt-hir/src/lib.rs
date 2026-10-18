@@ -39,6 +39,8 @@
 
 /// HIR body structures and control-flow nodes.
 mod body;
+/// Erasure reasons recorded where lowering chooses `Type::Unknown`.
+pub mod erasure;
 /// HIR expression nodes and operators.
 mod expr;
 /// Compact HIR formatting utilities.
@@ -92,6 +94,10 @@ pub use expr::{
     StringNormalizeForm,
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
     UnknownKind, UriTranscodeOp, UrlField, bin_op_text,
+};
+pub use erasure::{
+    ERASURE_REASONS, ErasureClass, ErasureReason, ErasureReasonInfo, ErasureRecord,
+    ErasureSeverity, line_col, normalize_erasures,
 };
 pub use format::{format_compact, type_display};
 /// The stdlib element table, re-exported so MIR and codegen name the SAME

@@ -18,7 +18,7 @@ mod text_codec;
 use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
 use smelt_hir::{
-    BinOp, Body, Expr, ExprKind, ListCallbackOp, ListProjectionOp, ListSpliceItem, Literal,
+    BinOp, Body, ErasureReason, Expr, ExprKind, ListCallbackOp, ListProjectionOp, ListSpliceItem, Literal,
     Pattern, RegexMatchOp, Stmt, Type, UnaryOp,
 };
 use smelt_stdlib::RuleId;
@@ -45,6 +45,27 @@ pub(in crate::lowering) fn is_test_mock_namespace(name: &str) -> bool {
 }
 
 impl ModuleBuilder<'_> {
+    /// The erased type for a result derived from `input`, recording `reason`
+    /// only when the erasure is new.
+    ///
+    /// When `input` is itself exactly `Type::Unknown`, the result is unknown
+    /// purely by propagation — the input's erasure was recorded where it was
+    /// decided — so nothing is recorded. Any other input (a type parameter, a
+    /// class, a union) carried a static shape that this site drops, so the
+    /// decision is recorded for `reason` at the current anchor span. Either way
+    /// the returned id is the same interned `Type::Unknown`.
+    pub(in crate::lowering) fn erase_unless_unknown(
+        &mut self,
+        input: smelt_hir::TypeId,
+        reason: ErasureReason,
+    ) -> smelt_hir::TypeId {
+        if self.ctx.krate.types.get(input) == Some(&Type::Unknown) {
+            self.unknown_type()
+        } else {
+            self.erase(reason)
+        }
+    }
+
     /// Lower TypeScript `Object.assign(target, ...sources)` for homogeneous record values.
     pub(super) fn object_assign_call(
         &mut self,
@@ -81,7 +102,7 @@ impl ModuleBuilder<'_> {
             && self.expr_is_global_alias(target_expression)
         {
             let target = self.argument(target_arg, body)?;
-            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let unknown_ty = self.erase_with(ErasureReason::ByName, "globalThis");
             let mut sources = Vec::with_capacity(source_args.len());
             for source_arg in source_args {
                 sources.push(self.argument(source_arg, body)?);
@@ -108,7 +129,7 @@ impl ModuleBuilder<'_> {
                 ));
             }
             let (props, spreads) = self.object_assign_callable_props(source_args, body)?;
-            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let unknown_ty = self.erase_with(ErasureReason::UnmodeledType, "callable object");
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::CallableObjectAssign {
                     callable: target,
@@ -235,7 +256,7 @@ impl ModuleBuilder<'_> {
     /// Build the fallback record type for object-like assign sources without a record source.
     fn object_assign_generic_record_type(&mut self) -> smelt_hir::TypeId {
         let key_ty = self.ctx.krate.types.intern(Type::String);
-        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let value_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object.assign");
         self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
     }
 
@@ -384,7 +405,7 @@ impl ModuleBuilder<'_> {
             .first()
             .map(|implementation| self.argument(implementation, body))
             .transpose()?;
-        let ty = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.erase_with(ErasureReason::TestHarness, "vi.fn");
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::VitestMockFn { implementation },
             ty,
@@ -437,7 +458,7 @@ impl ModuleBuilder<'_> {
         // mock back onto the target. Library code that later reads the member
         // therefore calls the mock, which is what makes the recorded calls the
         // ones the program actually made.
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::TestHarness, "vi.spyOn");
         let target_expr = Self::erase_to_unknown(target_expr, unknown_ty, span, body);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::VitestSpyOn {
@@ -583,7 +604,7 @@ impl ModuleBuilder<'_> {
                 args: Vec::new(),
             })
         } else {
-            self.ctx.krate.types.intern(Type::Unknown)
+            self.erase_with(ErasureReason::TestHarness, "mock handle")
         };
         body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::None),
@@ -737,7 +758,7 @@ impl ModuleBuilder<'_> {
                 "@date-fns/tz tz(...) requires a time zone string",
             ));
         }
-        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown = self.erase_with(ErasureReason::UntypedPackage, "@date-fns/tz");
         let ty = self
             .ctx
             .krate
@@ -904,7 +925,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<(), SmeltError> {
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::TestHarness, "rejects payload");
 
         let did_throw = body.push_local(smelt_hir::LocalDecl {
             name: Some(self.intern_source_name("did_throw")),
@@ -1358,7 +1379,7 @@ impl ModuleBuilder<'_> {
     /// Return the fallback type for untyped `JSON.parse(text)`.
     fn json_parse_fallback_type(&mut self) -> smelt_hir::TypeId {
         let key_ty = self.ctx.krate.types.intern(Type::String);
-        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let value_ty = self.erase_with(ErasureReason::ExternalType, "JSON.parse");
         self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
     }
 
@@ -3082,8 +3103,11 @@ impl ModuleBuilder<'_> {
                 {
                     Some(Type::List(flat_item_ty)) => *flat_item_ty,
                     Some(Type::Tuple(items)) => self.flattened_tuple_item_type(items.clone()),
-                    Some(Type::Unknown | Type::TypeParam { .. }) => {
-                        self.ctx.krate.types.intern(Type::Unknown)
+                    // not a new erasure: the element is already erased
+                    Some(Type::Unknown) => self.unknown_type(),
+                    // `T[]`'s flattened item is the type-level `FlatArray<T, D>`.
+                    Some(Type::TypeParam { .. }) => {
+                        self.erase_with(ErasureReason::TypeLevel, "FlatArray")
                     }
                     _ => return Ok(None),
                 };
@@ -3305,8 +3329,12 @@ impl ModuleBuilder<'_> {
                     _ => Some(self.ctx.krate.types.intern(Type::Union(item_tys))),
                 }
             }
-            Some(Type::Unknown | Type::TypeParam { .. }) => {
-                Some(self.ctx.krate.types.intern(Type::Unknown))
+            // not a new erasure: the callback already returns an erased value
+            Some(Type::Unknown) => Some(self.unknown_type()),
+            // A generic callback result flattens through the type-level
+            // `FlatArray<U, 1>`, which Smelt does not evaluate.
+            Some(Type::TypeParam { .. }) => {
+                Some(self.erase_with(ErasureReason::TypeLevel, "FlatArray"))
             }
             Some(_) | None => None,
         }

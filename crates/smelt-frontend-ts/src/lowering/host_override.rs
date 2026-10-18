@@ -12,7 +12,7 @@ use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::{AssignmentTarget, Expression};
 use oxc::syntax::operator::AssignmentOperator;
 use smelt_hir::{
-    Body, ClosureExpr, Expr, ExprKind, FunctionType, Item, LocalDecl, Param, Span, Stmt, Type,
+    Body, ClosureExpr, ErasureReason, Expr, ExprKind, FunctionType, Item, LocalDecl, Param, Span, Stmt, Type,
     UnaryOp, UnknownKind,
 };
 
@@ -38,7 +38,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         let class = self.intern_type_name(name);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::ByName, "host global");
         body.push_expr(Expr {
             kind: ExprKind::HostGlobalRead { class },
             ty: unknown_ty,
@@ -139,7 +139,7 @@ impl ModuleBuilder<'_> {
             ));
         }
         let class = self.intern_type_name(&name);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::ByName, "host global write");
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::HostGlobalWrite { class, value },
             ty: unknown_ty,
@@ -344,7 +344,7 @@ impl ModuleBuilder<'_> {
             return Ok(native);
         }
         let span = self.span(new_expr.span.start, new_expr.span.end);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::ByName, "host global new");
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let callee = self.host_global_read_expr(name, new_expr.span.start, new_expr.span.end, body);
         let is_ctor = body.push_expr(Expr {
@@ -392,7 +392,8 @@ impl ModuleBuilder<'_> {
         if matches!(self.ctx.krate.types.get(value_ty), Some(Type::Unknown)) {
             return value;
         }
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure: joins the erased sibling slot-dispatch branch (recorded in wrap_host_global_new)
+        let unknown_ty = self.unknown_type();
         body.push_expr(Expr {
             kind: ExprKind::UnknownCast {
                 value,

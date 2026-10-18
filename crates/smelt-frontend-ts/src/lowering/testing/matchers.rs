@@ -7,9 +7,9 @@ use oxc::ast::ast::{Argument, BindingPattern, Expression, PropertyKey, Statement
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
 use smelt_hir::{
-    BinOp, Body, CallbackExpr, CallbackExprKind, CaptureMode, ClosureCapture, Expr, ExprKind,
-    FileId, FunctionType, Literal, LocalDecl, Param, Pattern, PrimitiveCastOp, PropertyLookup,
-    Span, Stmt, Type, UnaryOp, UnknownKind,
+    BinOp, Body, CallbackExpr, CallbackExprKind, CaptureMode, ClosureCapture, ErasureReason, Expr,
+    ExprKind, FileId, FunctionType, Literal, LocalDecl, Param, Pattern, PrimitiveCastOp,
+    PropertyLookup, Span, Stmt, Type, UnaryOp, UnknownKind,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -98,7 +98,7 @@ impl ModuleBuilder<'_> {
         let span = self.span(call.span.start, call.span.end);
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::TestHarness, "asymmetric matcher");
         let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
         let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
 
@@ -185,7 +185,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         let span = self.span(span.start, span.end);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::TestHarness, "asymmetric equality");
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let actual = Self::erase_to_unknown(actual, unknown_ty, span, body);
         let expected = Self::erase_to_unknown(expected, unknown_ty, span, body);
@@ -846,7 +846,7 @@ impl ModuleBuilder<'_> {
         {
             return (actual, expected);
         }
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::TestHarness, "matcher operands");
         let span = self.span(span.start, span.end);
         let erased_actual = body.push_expr(Expr {
             kind: ExprKind::TypeAssert { value: actual },
@@ -1058,7 +1058,8 @@ impl ModuleBuilder<'_> {
         if !matches!(self.ctx.krate.types.get(actual_ty), Some(Type::Optional(_)))
             && self.assertion_type_contains_unknown(actual_ty)
         {
-            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            // not a new erasure: the actual's type already contains `unknown`
+            let unknown_ty = self.unknown_type();
             actual = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: actual },
                 ty: unknown_ty,
@@ -1204,7 +1205,7 @@ impl ModuleBuilder<'_> {
             )
         })?;
         let span = self.span(call.span.start, call.span.end);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::TestHarness, "toMatchObject");
         let expected = self.argument_with_hint(expected_arg, body, Some(unknown_ty))?;
         let expected = Self::erase_to_unknown(expected, unknown_ty, span, body);
         let matcher = self.vitest_matcher_record_expr("matchObject", vec![expected], span, body);
@@ -1240,7 +1241,7 @@ impl ModuleBuilder<'_> {
     ) -> smelt_hir::ExprId {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::TestHarness, "matcher record");
         let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
         let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
         let sample = body.push_expr(Expr {
@@ -1309,7 +1310,7 @@ impl ModuleBuilder<'_> {
             ));
         };
         let span = self.span(call.span.start, call.span.end);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::TestHarness, "toHaveBeenNthCalledWith");
         let float_ty = self.ctx.krate.types.intern(Type::Float);
         let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
         let nth = self.argument(nth_arg, body)?;
@@ -1672,7 +1673,7 @@ impl ModuleBuilder<'_> {
         if !is_class(actual_ty) && !is_class(expected_ty) {
             return (actual, expected);
         }
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::TestHarness, "deep equality operands");
         let span = self.span(span.start, span.end);
         let erase = |value: smelt_hir::ExprId, ty: smelt_hir::TypeId, body: &mut Body| {
             if ty == unknown_ty {
@@ -1744,7 +1745,7 @@ impl ModuleBuilder<'_> {
             // precisely where the static type is not trusted.
             TestMatcher::BeTypeOf => {
                 let span_hir = self.span(span.start, span.end);
-                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let unknown_ty = self.erase_with(ErasureReason::TestHarness, "toBeTypeOf");
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 let value = Self::erase_to_unknown(actual, unknown_ty, span_hir, body);
                 let type_name = body.push_expr(Expr {
@@ -2205,7 +2206,8 @@ impl ModuleBuilder<'_> {
         let hir_span = self.span(span.start, span.end);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure: only an already-erased actual reaches this path
+        let unknown_ty = self.unknown_type();
         let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
         let expected_ty = Self::expr_ty(body, expected);
         let value = Self::erase_to_unknown(actual, unknown_ty, hir_span, body);
@@ -2955,7 +2957,8 @@ impl ModuleBuilder<'_> {
                 local_ty
                     .and_then(|ty| self.function_member_type(ty))
                     .unwrap_or_else(|| {
-                        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                        let unknown_ty =
+                            self.erase_with(ErasureReason::RuntimeNarrowing, "typeof function");
                         self.ctx.krate.types.intern(Type::Function(FunctionType {
                             params: vec![unknown_ty],
                             rest: None,
@@ -2983,7 +2986,9 @@ impl ModuleBuilder<'_> {
             // tagged runtime value is the honest type for it.
             "object" => self
                 .typeof_object_arms(name, body)
-                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown)),
+                .unwrap_or_else(|| {
+                    self.erase_with(ErasureReason::RuntimeNarrowing, "typeof object")
+                }),
             _ => return None,
         };
         Some((name.to_owned(), ty))
@@ -3313,7 +3318,7 @@ impl ModuleBuilder<'_> {
     /// boundary, so the result is `unknown` — narrowed again by whatever the
     /// caller does with it.
     fn variadic_interface_call_type(&mut self, arg_count: usize) -> smelt_hir::TypeId {
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::TypeLevel, "variadic interface call");
         self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: vec![unknown_ty; arg_count],
             rest: None,
@@ -3348,7 +3353,7 @@ impl ModuleBuilder<'_> {
         candidates: &[FunctionType],
         arg_count: usize,
     ) -> smelt_hir::TypeId {
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::TypeLevel, "ambiguous interface overload");
         let params = (0..arg_count)
             .map(|index| {
                 let mut positional = candidates.iter().map(|candidate| {
@@ -3442,7 +3447,7 @@ impl ModuleBuilder<'_> {
             let narrowed = self.intern_filtered_union(members)?;
             return Some((name.to_owned(), narrowed));
         }
-        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown = self.erase_with(ErasureReason::RuntimeNarrowing, name);
         Some((
             name.to_owned(),
             self.ctx.krate.types.intern(Type::List(unknown)),
@@ -3908,7 +3913,7 @@ impl ModuleBuilder<'_> {
             .as_ref()
             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
             .transpose()?
-            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            .unwrap_or_else(|| self.erase_with(ErasureReason::ExternalType, "catch binding"));
         let name = binding.name.as_str();
         let symbol = self.intern_source_name(name);
         let local = body.push_local(LocalDecl {
@@ -4023,7 +4028,10 @@ impl ModuleBuilder<'_> {
                 let ty = if let Some(arrow) = direct_arrow {
                     self.local_arrow_function_type(arrow, annotated_ty)
                         .unwrap_or_else(|_| {
-                            let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                            let unknown = self.erase_with(
+                                ErasureReason::MissingAnnotation,
+                                binding.name.as_str(),
+                            );
                             let return_ty = self
                                 .contextual_function_type(annotated_ty)
                                 .map_or(unknown, |function| function.return_ty);
@@ -4038,7 +4046,9 @@ impl ModuleBuilder<'_> {
                             }))
                         })
                 } else {
-                    annotated_ty.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown))
+                    annotated_ty.unwrap_or_else(|| {
+                        self.erase_with(ErasureReason::MissingAnnotation, binding.name.as_str())
+                    })
                 };
                 let symbol = self.intern_source_name(binding.name.as_str());
                 let local = body.push_local(LocalDecl {
@@ -4212,7 +4222,9 @@ impl ModuleBuilder<'_> {
                     .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                     .transpose()?
                     .unwrap_or_else(|| {
-                        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                        // not a new erasure: provisional return, replaced by the
+                        // inferred one once the body lowers
+                        let unknown = self.unknown_type();
                         if function.r#async {
                             self.ctx.krate.types.intern(Type::Future(unknown))
                         } else {
@@ -4421,7 +4433,8 @@ impl ModuleBuilder<'_> {
                 &declarator.id
                 && matches!(declarator.init, Some(Expression::FunctionExpression(_)))
             {
-                let ty = annotated_ty.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                // not a new erasure: provisional self-binding while the initializer lowers
+                let ty = annotated_ty.unwrap_or_else(|| self.unknown_type());
                 let symbol = self.intern_source_name(binding.name.as_str());
                 let local = body.push_local(LocalDecl {
                     name: Some(symbol),
@@ -4633,7 +4646,9 @@ impl ModuleBuilder<'_> {
                 let ty = params
                     .get(index)
                     .copied()
-                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                    .unwrap_or_else(|| {
+                        self.erase_with(ErasureReason::MissingAnnotation, "closure parameter")
+                    });
                 Self::bind_local_callback_default_param(
                     &param.pattern,
                     index,
@@ -4694,6 +4709,8 @@ impl ModuleBuilder<'_> {
                     _ => self.arrow_callback_from_params(arrow, &params, body),
                 }
             };
+            let no_return_hint =
+                return_ty.is_none() && contextual_function.is_none() && callback_result.is_err();
             let mut return_ty = return_ty
                 .or_else(|| {
                     contextual_function
@@ -4702,7 +4719,9 @@ impl ModuleBuilder<'_> {
                 })
                 .unwrap_or_else(|| {
                     callback_result.as_ref().map_or_else(
-                        |_| self.ctx.krate.types.intern(Type::Unknown),
+                        // not a new erasure: "no return hint" sentinel; recorded
+                        // after closure-body lowering if the return stays erased
+                        |_| self.unknown_type(),
                         |callback| callback.ty,
                     )
                 });
@@ -4809,6 +4828,9 @@ impl ModuleBuilder<'_> {
                 return Ok(());
             }
             let value = self.arrow_closure_body_expr(arrow, &params, return_ty, body)?;
+            if no_return_hint {
+                self.record_unhinted_closure_return(value, body);
+            }
             // `fn_ty` was interned before the body was lowered, so its
             // `may_throw` is the syntactic guess `false`. The lowered closure
             // KNOWS whether its body throws
@@ -5135,7 +5157,9 @@ impl ModuleBuilder<'_> {
                     .as_ref()
                     .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                     .transpose()?
-                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                    .unwrap_or_else(|| {
+                        self.erase_with(ErasureReason::MissingAnnotation, "rest parameter")
+                    });
                 let Ok((ty, _item_ty)) = self.rest_param_array_type(source_ty) else {
                     return Err(SmeltError::unsupported(
                         self.span(rest_param.span.start, rest_param.span.end),
@@ -5171,8 +5195,10 @@ impl ModuleBuilder<'_> {
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?;
+            // not a new erasure: provisional return, replaced by the inferred
+            // one once the body is lowered.
             let provisional_return_ty =
-                declared_return_ty.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                declared_return_ty.unwrap_or_else(|| self.unknown_type());
             let provisional_fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: param_tys.clone(),
                 rest: rest_index,
@@ -5383,7 +5409,9 @@ impl ModuleBuilder<'_> {
                     .as_ref()
                     .map(|function| function.return_ty)
             })
-            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            // not a new erasure: provisional pre-pass return, refined from the
+            // lowered body
+            .unwrap_or_else(|| self.unknown_type());
         let mutable_params = self.mutable_params_from_returned_tuple_state(&params, return_ty);
         Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
@@ -5484,7 +5512,9 @@ impl ModuleBuilder<'_> {
             BindingPattern::BindingIdentifier(binding) => {
                 let ty = annotated_ty
                     .or_else(|| value.map(|expr_id| Self::expr_ty(body, expr_id)))
-                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                    .unwrap_or_else(|| {
+                        self.erase_with(ErasureReason::MissingAnnotation, binding.name.as_str())
+                    });
                 if annotated_ty.is_some()
                     && value.is_some()
                     && matches!(self.ctx.krate.types.get(ty), Some(Type::Never))
@@ -5684,7 +5714,8 @@ impl ModuleBuilder<'_> {
                             Vec::new()
                         };
                         let item_ty = match selected.as_slice() {
-                            [] => self.ctx.krate.types.intern(Type::Unknown),
+                            [] => self
+                                .erase_with(ErasureReason::MissingAnnotation, "empty tuple rest"),
                             [single] => *single,
                             _ => {
                                 let mut unique = Vec::new();
@@ -5918,7 +5949,12 @@ impl ModuleBuilder<'_> {
             Self::expr_ty(body, receiver)
         } else {
             let key_ty = self.ctx.krate.types.intern(Type::String);
-            let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let receiver_ty = Self::expr_ty(body, receiver);
+            let value_ty = self.callback_erase_unless_unknown(
+                receiver_ty,
+                ErasureReason::DynamicOperator,
+                "object rest",
+            );
             self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
         };
         let receiver_span = Self::body_expr_span(body, receiver);

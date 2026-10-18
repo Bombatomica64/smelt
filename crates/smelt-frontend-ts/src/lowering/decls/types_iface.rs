@@ -12,7 +12,8 @@ use oxc::ast::ast::{
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{AssignmentOperator, BinaryOperator, UnaryOperator};
 use smelt_hir::{
-    AsyncOp, BinOp, Body, DictProjectionOp, Expr, ExprKind, Field, FunctionType, Interface, Item,
+    AsyncOp, BinOp, Body, DictProjectionOp, ErasureReason, Expr, ExprKind, Field, FunctionType,
+    Interface, Item,
     Literal, LocalDecl, MatchArm, MethodSig, ParamSig, Pattern, SetProjectionOp, Stmt, Type,
     UnaryOp, Visibility,
 };
@@ -405,9 +406,10 @@ impl ModuleBuilder<'_> {
         if let Some(merged) = self.merged_overload_call_signature(call_signatures) {
             return Some(self.ctx.krate.types.intern(Type::Function(merged)));
         }
-        let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let item_ty = self.erase(ErasureReason::TypeLevel);
         let rest_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
-        let return_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure: same overload-slot decision recorded for the rest item
+        let return_ty = self.unknown_type();
         Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: vec![rest_list_ty],
             rest: Some(0),
@@ -511,6 +513,7 @@ impl ModuleBuilder<'_> {
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
         let previous_statement_block = self.current_statement_block.replace(block);
+        let anchor = self.push_erasure_anchor(self.statement_span(statement));
         let result = match statement {
             Statement::EmptyStatement(_) => Ok(()),
             Statement::VariableDeclaration(decl) => self.variable_declaration(decl, body, block),
@@ -1048,6 +1051,7 @@ impl ModuleBuilder<'_> {
                 format!("statement kind is not lowered yet: {statement:?}"),
             )),
         };
+        self.restore_erasure_anchor(anchor);
         self.current_statement_block = previous_statement_block;
         result
     }
@@ -1449,7 +1453,12 @@ impl ModuleBuilder<'_> {
                 value_ty
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => {
-                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                // An already-erased receiver was recorded where it was decided.
+                let item_ty = if self.ctx.krate.types.get(iter_ty) == Some(&Type::Unknown) {
+                    self.unknown_type()
+                } else {
+                    self.erase(ErasureReason::ByName)
+                };
                 let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 iter = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: iter },
@@ -1471,7 +1480,7 @@ impl ModuleBuilder<'_> {
                     )
                 }) =>
             {
-                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let item_ty = self.erase(ErasureReason::ByName);
                 let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 iter = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: iter },
@@ -2940,7 +2949,7 @@ impl ModuleBuilder<'_> {
                             .as_ref()
                             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                             .transpose()?
-                            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                            .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
                         let mut params = Vec::new();
                         for param in &signature.params.items {
                             let ty = param
@@ -2950,7 +2959,7 @@ impl ModuleBuilder<'_> {
                                     self.ts_type_to_hir(&annotation.type_annotation)
                                 })
                                 .transpose()?
-                                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                                .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
                             params.push(ty);
                         }
                         Ok::<_, SmeltError>((return_ty, params))

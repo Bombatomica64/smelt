@@ -9,6 +9,7 @@ use crate::lowering::{
     Literal, LocalDecl, LogicalOperator, ModuleBuilder, ObjectPropertyKind, Param, PropertyKey,
     SimpleAssignmentTarget, SmeltError, Span, Statement, Stmt, Type,
 };
+use smelt_hir::ErasureReason;
 use super::super::support::{arrow_block_statements, statement_terminates};
 use oxc::span::GetSpan;
 
@@ -810,7 +811,10 @@ impl ModuleBuilder<'_> {
         body: &Body,
     ) -> Result<CallbackExpr, SmeltError> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // `Error` objects are not modeled as classes: they lower to the erased
+        // `{ __smelt_error, message, stack, cause? }` record shared with the
+        // statement path, so the record's values are erased.
+        let unknown_ty = self.erase_with(ErasureReason::UnmodeledType, "Error record");
         let class_name = match &new_expr.callee {
             Expression::Identifier(callee) => callee.name.to_string(),
             _ => "Error".to_owned(),
@@ -997,9 +1001,12 @@ impl ModuleBuilder<'_> {
                         // destructured name to `Default::default()` instead of
                         // reading the field, so routing it there would answer
                         // `({ length }) => length < 3` with a default.
-                        Some(Type::Unknown | Type::TypeParam { .. }) => {
-                            self.ctx.krate.types.intern(Type::Unknown)
-                        }
+                        Some(Type::Unknown | Type::TypeParam { .. }) => self
+                            .callback_erase_unless_unknown(
+                                value.ty,
+                                ErasureReason::ByName,
+                                field_text,
+                            ),
                         _ => {
                             return Err(SmeltError::unsupported(
                                 self.span(property.span.start, property.span.end),
@@ -1047,7 +1054,10 @@ impl ModuleBuilder<'_> {
                 (BindingPattern::BindingIdentifier(_), None) => {
                     self.infer_unannotated_arrow_param_type(arrow, index)
                 }
-                (_, None) => self.ctx.krate.types.intern(Type::Unknown),
+                (_, None) => self.erase_with(
+                    ErasureReason::MissingAnnotation,
+                    "destructured closure parameter",
+                ),
             };
             // An optional parameter (`x?: T`) has type `T | undefined` inside the
             // body, matching the function-type lowering in `function_type_to_hir`
@@ -1091,14 +1101,20 @@ impl ModuleBuilder<'_> {
                         }
                         let item_ty = match item_tys.as_slice() {
                             [single] => *single,
-                            [] => self.ctx.krate.types.intern(Type::Unknown),
+                            [] => self.erase_with(
+                                ErasureReason::MissingAnnotation,
+                                "closure rest parameter",
+                            ),
                             _ => self.ctx.krate.types.intern(Type::Union(item_tys)),
                         };
                         self.ctx.krate.types.intern(Type::List(item_ty))
                     })
                 })
                 .unwrap_or_else(|| {
-                    let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let item_ty = self.erase_with(
+                        ErasureReason::MissingAnnotation,
+                        "closure rest parameter",
+                    );
                     self.ctx.krate.types.intern(Type::List(item_ty))
                 });
             let Ok((ty, _)) = self.rest_param_array_type(ty) else {
@@ -1143,6 +1159,35 @@ impl ModuleBuilder<'_> {
         function.params.get(index).copied()
     }
 
+    /// Record a `MissingAnnotation` erasure when a closure lowered with no
+    /// return annotation and no contextual return type still returns `unknown`
+    /// (or `Promise<unknown>`).
+    ///
+    /// Such closures are lowered with the `unknown` "no hint" sentinel so the
+    /// body's own returns can be inferred; only when that inference fails is
+    /// the return value actually erased, and that is recorded here at the
+    /// current anchor. `closure` must be the closure expression in `body`.
+    pub(in crate::lowering) fn record_unhinted_closure_return(
+        &mut self,
+        closure: smelt_hir::ExprId,
+        body: &Body,
+    ) {
+        let return_ty = match self.ctx.krate.types.get(Self::expr_ty(body, closure)) {
+            Some(Type::Function(function)) => function.return_ty,
+            _ => return,
+        };
+        let erased = match self.ctx.krate.types.get(return_ty) {
+            Some(Type::Unknown) => true,
+            Some(Type::Future(inner)) => {
+                matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown))
+            }
+            _ => false,
+        };
+        if erased {
+            let _ = self.erase_with(ErasureReason::MissingAnnotation, "closure return");
+        }
+    }
+
     /// Infer a conservative type for an unannotated arrow parameter.
     ///
     /// TypeScript normally gets these from contextual typing. When Smelt loses
@@ -1160,12 +1205,12 @@ impl ModuleBuilder<'_> {
             .get(index)
             .and_then(|param| Self::simple_binding_pattern_name(&param.pattern))
         else {
-            return self.ctx.krate.types.intern(Type::Unknown);
+            return self.erase_with(ErasureReason::MissingAnnotation, "closure parameter");
         };
         if self.arrow_param_used_as_number(arrow, param_name) {
             self.ctx.krate.types.intern(Type::Float)
         } else {
-            self.ctx.krate.types.intern(Type::Unknown)
+            self.erase_with(ErasureReason::MissingAnnotation, param_name)
         }
     }
 
@@ -2031,19 +2076,27 @@ impl ModuleBuilder<'_> {
                     Err(error) => return Err(error),
                 }
             }
+            let no_return_hint = explicit_return_ty.is_none() && contextual_function.is_none();
             let mut return_ty = explicit_return_ty
                 .or_else(|| {
                     contextual_function
                         .as_ref()
                         .map(|function| function.return_ty)
                 })
-                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                // not a new erasure: `unknown` is the "no return hint" sentinel
+                // of closure-body lowering (it infers block returns); a return
+                // that stays erased is recorded below.
+                .unwrap_or_else(|| self.unknown_type());
             if arrow.r#async
                 && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
             {
                 return_ty = self.ctx.krate.types.intern(Type::Future(return_ty));
             }
-            self.arrow_closure_body_expr(arrow, &params, return_ty, body)
+            let closure = self.arrow_closure_body_expr(arrow, &params, return_ty, body)?;
+            if no_return_hint {
+                self.record_unhinted_closure_return(closure, body);
+            }
+            Ok(closure)
         })();
         self.pop_type_parameter_scope();
         result

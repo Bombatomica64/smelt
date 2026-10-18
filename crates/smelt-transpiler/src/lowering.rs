@@ -349,6 +349,11 @@ pub(crate) struct ManifestDiagnostic {
     /// 1-based column (in UTF-8 bytes) of the span start; see `line`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) column: Option<u32>,
+    /// `warning` or `error` for an erasure diagnostic; omitted for lowering
+    /// diagnostics, which are always errors (the field is additive so existing
+    /// consumers of the JSON keep working).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) severity: Option<&'static str>,
 }
 
 /// RAII guard that silences panic backtraces and restores the prior hook on drop.
@@ -1056,9 +1061,14 @@ fn manifest_source_error(source: &ManifestSource, diagnostics: &[ManifestDiagnos
 /// with the remaining modules (imports into already-lowered modules still
 /// resolve). A frontend panic on a file is reported as an `internal` diagnostic
 /// and stops the pass, since the shared crate cannot be recovered past a panic.
+///
+/// With `erasure` settings, every frontend erasure they mark `warn`/`deny` is
+/// appended as an `erasure` diagnostic carrying its severity; `None` (the
+/// probe) reports lowering blockers only.
 pub(crate) fn collect_manifest_diagnostics(
     config: &crate::config::Config,
     manifest_path: &Path,
+    erasure: Option<&crate::erasure::ErasureSettings>,
 ) -> Result<Vec<ManifestDiagnostic>, Box<dyn std::error::Error>> {
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     let root_sources = manifest_root_paths(config, manifest_dir)?
@@ -1086,13 +1096,19 @@ pub(crate) fn collect_manifest_diagnostics(
     state.ts_module_identities = manifest_module_identities(&ordered_sources);
     (krate, state) = predeclare_manifest_type_declarations(krate, state, &ordered_sources)?;
     let mut diagnostics = Vec::new();
+    // `None` once a frontend panic consumed the crate; the erasure diagnostics
+    // below then have nothing to read.
+    let mut surviving = Some(krate);
     for (idx, source) in ordered_sources.iter().enumerate() {
+        let Some(current) = surviving.take() else {
+            break;
+        };
         let lowered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            lower_manifest_source(krate, state, source, idx, &specialization)
+            lower_manifest_source(current, state, source, idx, &specialization)
         }));
         match lowered {
             Ok((next_krate, next_state, outcome)) => {
-                krate = next_krate;
+                surviving = Some(next_krate);
                 state = next_state;
                 if let Err(file_diagnostics) = outcome {
                     diagnostics.extend(file_diagnostics);
@@ -1108,12 +1124,44 @@ pub(crate) fn collect_manifest_diagnostics(
                         .to_owned(),
                     line: None,
                     column: None,
+                    severity: None,
                 });
                 break;
             }
         }
     }
+    if let (Some(settings), Some(krate)) = (erasure, &surviving) {
+        diagnostics.extend(erasure_diagnostics(krate, manifest_dir, settings));
+    }
     Ok(diagnostics)
+}
+
+/// The frontend erasures `settings` marks `warn`/`deny`, as diagnostics.
+fn erasure_diagnostics(
+    krate: &smelt_hir::Crate,
+    manifest_dir: &Path,
+    settings: &crate::erasure::ErasureSettings,
+) -> Vec<ManifestDiagnostic> {
+    crate::erasure::resolve(krate, &[], manifest_dir, settings)
+        .into_iter()
+        .filter_map(|record| {
+            let severity = match record.severity.as_str() {
+                "warn" => "warning",
+                "deny" => "error",
+                _ => return None,
+            };
+            let reason = smelt_hir::ErasureReason::named(&record.reason)?;
+            Some(ManifestDiagnostic {
+                file: record.file.clone(),
+                category: DiagnosticCategory::Erasure,
+                code: reason.info().code,
+                message: crate::erasure::message(&record),
+                line: Some(record.line),
+                column: Some(record.column),
+                severity: Some(severity),
+            })
+        })
+        .collect()
 }
 
 /// Lowers one manifest file, returning the (possibly mutated) crate and state
@@ -1294,6 +1342,7 @@ pub(crate) fn manifest_diagnostics(
                 message,
                 line,
                 column,
+                severity: None,
             }
         })
         .collect()
@@ -1304,12 +1353,7 @@ pub(crate) fn manifest_diagnostics(
 /// The column counts UTF-8 bytes from the line start. Returns `None` for an
 /// offset past the end of `source` (a span from synthesized code).
 fn source_line_column(source: &str, offset: u32) -> Option<(u32, u32)> {
-    let offset = usize::try_from(offset).ok()?;
-    let prefix = source.get(..offset)?;
-    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
-    let line_start = prefix.rfind('\n').map_or(0, |index| index + 1);
-    let column = offset - line_start + 1;
-    Some((u32::try_from(line).ok()?, u32::try_from(column).ok()?))
+    smelt_hir::line_col(source, offset)
 }
 
 /// Returns the generated Rust function name for a manifest module body.

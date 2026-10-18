@@ -242,6 +242,7 @@ pub(crate) fn lower_manifest_source(
         message: PYTHON_NOT_COMPILED_MESSAGE.to_owned(),
         line: None,
         column: None,
+        severity: None,
     }];
     (krate, module_namespaces, enum_members, Err(diagnostics))
 }

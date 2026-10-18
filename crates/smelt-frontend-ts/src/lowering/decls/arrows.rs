@@ -18,7 +18,7 @@ use oxc::syntax::operator::{
     BinaryOperator, UnaryOperator,
 };
 use smelt_hir::{
-    Body, Expr, ExprKind, Function, FunctionOwner, FunctionType, Item, Literal, LocalDecl, Param, Span, Stmt, Type,
+    Body, ErasureReason, Expr, ExprKind, Function, FunctionOwner, FunctionType, Item, Literal, LocalDecl, Param, Span, Stmt, Type,
 };
 
 impl ModuleBuilder<'_> {
@@ -141,7 +141,10 @@ impl ModuleBuilder<'_> {
                         .as_ref()
                         .and_then(|function| function.params.get(params.len()).copied())
                 })
-                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                .unwrap_or_else(|| {
+                    let param_span = self.span(param.span.start, param.span.end);
+                    self.erase_at(ErasureReason::MissingAnnotation, param_span, "")
+                });
             if param.optional && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
                 ty = self.ctx.krate.types.intern(Type::Optional(ty));
             }
@@ -581,7 +584,7 @@ impl ModuleBuilder<'_> {
         let Some(Type::Function(function)) = self.ctx.krate.types.get(inferred).cloned() else {
             return inferred;
         };
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase(ErasureReason::UnmodeledType);
         let return_ty = match self.ctx.krate.types.get(function.return_ty) {
             Some(Type::Future(_)) => self.ctx.krate.types.intern(Type::Future(unknown_ty)),
             _ => unknown_ty,
@@ -613,7 +616,7 @@ return_ty,
             if found.iter().all(|ty| *ty == first) {
                 return Some(first);
             }
-            return Some(self.ctx.krate.types.intern(Type::Unknown));
+            return Some(self.erase(ErasureReason::MissingAnnotation));
         }
         let root = body.blocks.get(usize::try_from(body.root.0).ok()?)?;
         let last_stmt = root.stmts.last()?;
@@ -854,7 +857,7 @@ return_ty: target_function.return_ty,
             })?,
             _ => return Ok(()),
         };
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase(ErasureReason::MissingAnnotation);
         let body_index = usize::try_from(body_id.0).unwrap_or(usize::MAX);
         let body = self.ctx.krate.bodies.get_mut(body_index).ok_or_else(|| {
             SmeltError::unsupported(
@@ -1314,7 +1317,7 @@ return_ty: target_function.return_ty,
         if let Some(description) = Self::symbol_for_call_description(call) {
             return Ok(ConstLiteral {
                 literal: Literal::Symbol(call_dispatch::registry_symbol_spelling(description)),
-                ty: self.ctx.krate.types.intern(Type::Unknown),
+                ty: self.erase(ErasureReason::UnmodeledType),
             });
         }
         if matches!(&call.callee, Expression::Identifier(callee) if callee.name == "Symbol") {
@@ -1336,7 +1339,7 @@ return_ty: target_function.return_ty,
                     description,
                     self.span(call.span.start, call.span.end),
                 )),
-                ty: self.ctx.krate.types.intern(Type::Unknown),
+                ty: self.erase(ErasureReason::UnmodeledType),
             });
         }
         let Some(op) = stdlib_dispatch::pure_math_call(call) else {

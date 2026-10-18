@@ -6,6 +6,7 @@ use crate::lowering::{
     Argument, Body, DictProjectionOp, Expr, ExprKind, Expression, FunctionType, ListCallbackOp,
     Literal, ModuleBuilder, SmeltError, Type,
 };
+use smelt_hir::ErasureReason;
 use oxc::span::GetSpan;
 
 impl ModuleBuilder<'_> {
@@ -103,7 +104,8 @@ impl ModuleBuilder<'_> {
                     )
                 }) =>
             {
-                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let item_ty =
+                    self.callback_erase_unless_unknown(ty, ErasureReason::ByName, "concat receiver");
                 ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 left = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: left },
@@ -113,7 +115,8 @@ impl ModuleBuilder<'_> {
                 item_ty
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) | None => {
-                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let item_ty =
+                    self.callback_erase_unless_unknown(ty, ErasureReason::ByName, "concat receiver");
                 ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 left = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: left },
@@ -544,7 +547,10 @@ impl ModuleBuilder<'_> {
                     ));
                 }
             };
-            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let unknown_ty = self.erase_with(
+                ErasureReason::UntypedPackage,
+                member.property.name.as_str(),
+            );
             let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
             let return_ty = match op {
                 ListCallbackOp::Map | ListCallbackOp::Filter => list_ty,
@@ -614,7 +620,11 @@ impl ModuleBuilder<'_> {
                     )
                 }) =>
             {
-                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let item_ty = self.callback_erase_unless_unknown(
+                    list_ty,
+                    ErasureReason::ByName,
+                    "array callback receiver",
+                );
                 let asserted_ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 list = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: list },
@@ -624,7 +634,11 @@ impl ModuleBuilder<'_> {
                 asserted_ty
             }
             _ => {
-                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let item_ty = self.callback_erase_unless_unknown(
+                    list_ty,
+                    ErasureReason::ByName,
+                    "array callback receiver",
+                );
                 let asserted_ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 list = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: list },
@@ -643,7 +657,10 @@ impl ModuleBuilder<'_> {
         let element_ty = *list_element_ty;
         let index_ty = self.ctx.krate.types.intern(Type::Int);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure: an `unknown` return hint means "no hint" to
+        // closure-body lowering; a return that stays erased is recorded in
+        // `callback_argument_with_body_fallback`.
+        let unknown_ty = self.unknown_type();
         let fallback_return_ty = match op {
             ListCallbackOp::Map | ListCallbackOp::FlatMap => unknown_ty,
             ListCallbackOp::Filter
@@ -784,7 +801,11 @@ impl ModuleBuilder<'_> {
                 (projected_ty, value_ty)
             }
             _ => {
-                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let item_ty = self.callback_erase_unless_unknown(
+                    list_ty,
+                    ErasureReason::ByName,
+                    "forEach collection",
+                );
                 let asserted_ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 list = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: list },
@@ -859,7 +880,11 @@ impl ModuleBuilder<'_> {
                 (asserted_ty, item_ty)
             }
             _ => {
-                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let item_ty = self.callback_erase_unless_unknown(
+                    list_ty,
+                    ErasureReason::ByName,
+                    "async.map collection",
+                );
                 let asserted_ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 list = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: list },
@@ -873,7 +898,9 @@ impl ModuleBuilder<'_> {
             let _ = self.argument(arg, body)?;
         }
         let index_ty = self.ctx.krate.types.intern(Type::Int);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure: an `unknown` return hint means "no hint"; a return
+        // that stays erased is recorded in `callback_argument_with_body_fallback`.
+        let unknown_ty = self.unknown_type();
         let callback_param_tys = [item_ty, index_ty, list_ty];
         let callback = self.callback_argument_with_body_fallback(
             callback_arg,
@@ -1051,7 +1078,11 @@ impl ModuleBuilder<'_> {
         let initial = if let Some(initial_arg) = rest.first() {
             self.argument(initial_arg, body)?
         } else {
-            let ty = self.ctx.krate.types.intern(Type::Unknown);
+            let ty = self.callback_erase_unless_unknown(
+                collection_ty,
+                ErasureReason::ByName,
+                "reduce collection",
+            );
             body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::None),
                 ty,
@@ -1094,7 +1125,11 @@ impl ModuleBuilder<'_> {
                 list_ty = asserted_ty;
                 item_ty
             } else {
-                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let item_ty = self.callback_erase_unless_unknown(
+                    list_ty,
+                    ErasureReason::ByName,
+                    "reduce receiver",
+                );
                 let asserted_ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 list = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: list },

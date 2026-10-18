@@ -86,6 +86,11 @@ pub(crate) struct UnknownReportOptions<'a> {
     /// nonzero. Defaults to `false`, preserving the historic advisory-only
     /// behavior.
     pub(crate) fail_on_regression: bool,
+    /// Explicit `smelt-erasure.json` sidecars to read (`--erasure`). Besides
+    /// these, a sidecar beside a scanned directory (`<root>/../smelt-erasure.json`,
+    /// the layout `smelt build` writes next to `src/`) or inside it is read
+    /// automatically.
+    pub(crate) erasure_sidecars: &'a [PathBuf],
 }
 
 /// A detected avoidable-erasure regression versus a baseline.
@@ -192,6 +197,11 @@ pub(crate) struct UnknownReport {
     category_totals: BTreeMap<String, usize>,
     /// Distinct shape groups, most frequent first.
     shapes: Vec<ShapeGroup>,
+    /// Per-reason / per-source-line breakdown from `smelt-erasure.json`
+    /// sidecars, when any were found. Optional so baselines written before the
+    /// sidecar existed (and corpora without one) keep parsing unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    erasure: Option<crate::erasure::ErasureBreakdown>,
 }
 
 impl UnknownReport {
@@ -218,7 +228,11 @@ pub(crate) fn unknown_report(
     options: &UnknownReportOptions<'_>,
 ) -> CliResult<UnknownReportOutcome> {
     let files = discover_rust_files(options.roots)?;
-    let scan = scan_files(&files)?;
+    let mut scan = scan_files(&files)?;
+    let sidecars = discover_erasure_sidecars(options.roots, options.erasure_sidecars)?;
+    if !sidecars.is_empty() {
+        scan.report.erasure = Some(crate::erasure::breakdown(&sidecars));
+    }
     let report = &scan.report;
     let baseline = match &options.baseline {
         Some(path) => Some(load_baseline(path)?),
@@ -237,6 +251,33 @@ pub(crate) fn unknown_report(
         rendered,
         regression,
     })
+}
+
+/// Load the explicit sidecars plus any found beside or inside a scanned
+/// directory root, each path once, in a stable order.
+fn discover_erasure_sidecars(
+    roots: &[PathBuf],
+    explicit: &[PathBuf],
+) -> CliResult<Vec<crate::erasure::ErasureSidecar>> {
+    let mut paths = explicit.to_vec();
+    for root in roots.iter().filter(|root| root.is_dir()) {
+        let inside = root.join(crate::erasure::SIDECAR_FILE_NAME);
+        let beside = root
+            .parent()
+            .map(|parent| parent.join(crate::erasure::SIDECAR_FILE_NAME));
+        paths.extend(
+            [Some(inside), beside]
+                .into_iter()
+                .flatten()
+                .filter(|path| path.is_file()),
+        );
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    paths.retain(|path| seen.insert(path.canonicalize().unwrap_or_else(|_| path.clone())));
+    paths
+        .iter()
+        .map(|path| crate::erasure::load_sidecar(path).map_err(Into::into))
+        .collect()
 }
 
 /// Compute an avoidable-erasure [`Regression`] versus `baseline`, if any.
@@ -435,6 +476,7 @@ fn scan_files(files: &[PathBuf]) -> CliResult<ScanResult> {
             total,
             category_totals,
             shapes,
+            erasure: None,
         },
         avoidable_by_file,
     })
@@ -1053,6 +1095,10 @@ fn render_markdown(report: &UnknownReport, baseline: Option<&UnknownReport>) -> 
 
     if let Some(baseline_report) = baseline {
         render_baseline_delta(&mut out, report, baseline_report);
+    }
+
+    if let Some(breakdown) = &report.erasure {
+        crate::erasure::render_breakdown_markdown(&mut out, breakdown);
     }
 
     render_shape_table(&mut out, report);
@@ -1881,6 +1927,7 @@ mod tests {
                 2usize,
             )]),
             shapes: Vec::new(),
+            erasure: None,
         };
         let current = UnknownReport {
             files_scanned: 1,
@@ -1890,6 +1937,7 @@ mod tests {
                 5usize,
             )]),
             shapes: Vec::new(),
+            erasure: None,
         };
         let markdown = render_markdown(&current, Some(&baseline));
         assert!(markdown.contains("## Occurrences by category"));
@@ -1908,6 +1956,7 @@ mod tests {
                 4usize,
             )]),
             shapes: Vec::new(),
+            erasure: None,
         };
         let current = baseline.clone();
         let markdown = render_markdown(&current, Some(&baseline));
@@ -1926,6 +1975,7 @@ mod tests {
                     avoidable,
                 )]),
                 shapes: Vec::new(),
+                erasure: None,
             },
             avoidable_by_file: avoidable_by_file
                 .iter()
@@ -1944,6 +1994,7 @@ mod tests {
                 avoidable,
             )]),
             shapes: Vec::new(),
+            erasure: None,
         }
     }
 

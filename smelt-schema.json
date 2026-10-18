@@ -38,6 +38,17 @@
           "type": "null"
         }
       ]
+    },
+    "erasure": {
+      "description": "Erasure-reason severities (`[erasure]`); see `crate::erasure`.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ErasureConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [
@@ -273,6 +284,83 @@
             "null"
           ]
         }
+      }
+    },
+    "ErasureConfig": {
+      "description": "The `[erasure]` table of `Smelt.toml`.",
+      "type": "object",
+      "properties": {
+        "default": {
+          "description": "Severity for every reason, applied before the per-reason levels.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErasureLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scope": {
+          "description": "Per-path settings, applied in order after the table's own levels.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ErasureScopeConfig"
+          }
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/ErasureLevel"
+      }
+    },
+    "ErasureLevel": {
+      "description": "A severity as spelled in `Smelt.toml`.",
+      "oneOf": [
+        {
+          "description": "Record only.",
+          "type": "string",
+          "const": "allow"
+        },
+        {
+          "description": "Print a warning.",
+          "type": "string",
+          "const": "warn"
+        },
+        {
+          "description": "Print an error and fail `build`/`check`.",
+          "type": "string",
+          "const": "deny"
+        }
+      ]
+    },
+    "ErasureScopeConfig": {
+      "description": "One `[[erasure.scope]]` entry.",
+      "type": "object",
+      "properties": {
+        "paths": {
+          "description": "Manifest-relative globs (`*` within a segment, `**` across segments).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "default": {
+          "description": "Severity for every reason in matching files.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErasureLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "additionalProperties": {
+        "$ref": "#/$defs/ErasureLevel"
       }
     }
   }

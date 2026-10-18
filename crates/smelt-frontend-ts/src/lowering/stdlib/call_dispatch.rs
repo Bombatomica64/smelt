@@ -11,7 +11,7 @@ use oxc::ast::ast::{Argument, ArrayExpressionElement, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
     AsyncOp, Body, CaptureMode, ClosureCapture, Expr, ExprKind, Field, FunctionType,
-    GeneratorResumeKind, Item, Literal, LocalDecl, Param, Pattern, Span, Stmt, Type,
+    ErasureReason, GeneratorResumeKind, Item, Literal, LocalDecl, Param, Pattern, Span, Stmt, Type,
     TypeParamDef,
 };
 use smelt_stdlib::RuleId;
@@ -286,7 +286,8 @@ impl<'builder> ModuleBuilder<'builder> {
                 }));
             }
             if matches!(self.ctx.krate.types.get(callee_ty), Some(Type::Unknown)) {
-                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                // not a new erasure: the computed callee is already erased
+                let ty = self.unknown_type();
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::None),
                     ty,
@@ -404,7 +405,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 }));
             }
             if self.erased_or_union_surface(callee_ty) {
-                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let unknown_ty = self.erase_unless_unknown(callee_ty, ErasureReason::ByName);
                 if self.call_has_spread_arguments_or_source_spread(call) {
                     let args = self.packed_spread_call_arguments(unknown_ty, call, body)?;
                     return Ok(body.push_expr(Expr {
@@ -455,7 +456,8 @@ impl<'builder> ModuleBuilder<'builder> {
                     // any assertion over the result then compared the wrong
                     // value (`expect(makeAdder(2)(3)).toBe(5)` became a test that
                     // `5` is not nullish).
-                    let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                    // not a new erasure: the inner call already returned `unknown`
+                    let unknown_ty = self.unknown_type();
                     let args = call
                         .arguments
                         .iter()
@@ -507,7 +509,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 // here with unknown arity; dispatch those through the
                 // arity-independent erased ABI rather than synthesizing a typed
                 // `None` for a non-optional parameter.
-                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let unknown_ty = self.erase_with(ErasureReason::UnfilledGeneric, "arity shortfall");
                 let callee = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: callee },
                     ty: unknown_ty,
@@ -546,7 +548,7 @@ impl<'builder> ModuleBuilder<'builder> {
                     for arg in &call.arguments {
                         let _ = self.argument(arg, body)?;
                     }
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let ty = self.erase_unless_unknown(callee_ty, ErasureReason::ByName);
                     return Ok(body.push_expr(Expr {
                         kind: ExprKind::Literal(Literal::None),
                         ty,
@@ -600,7 +602,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 else {
                     if self.erased_or_union_surface(callee_ty) {
                         if self.call_has_spread_arguments_or_source_spread(call) {
-                            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                            let unknown_ty = self.erase_unless_unknown(callee_ty, ErasureReason::ByName);
                             let args = self.packed_spread_call_arguments(unknown_ty, call, body)?;
                             let callee = if self.ctx.krate.types.get(callee_ty)
                                 == Some(&Type::Unknown)
@@ -624,7 +626,7 @@ impl<'builder> ModuleBuilder<'builder> {
                             .iter()
                             .map(|arg| self.argument(arg, body))
                             .collect::<Result<Vec<_>, _>>()?;
-                        let ty = self.ctx.krate.types.intern(Type::Unknown);
+                        let ty = self.erase_unless_unknown(callee_ty, ErasureReason::ByName);
                         let callee = if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown)
                         {
                             callee
@@ -674,7 +676,7 @@ impl<'builder> ModuleBuilder<'builder> {
                             Some(Type::List(item_ty)) => Some(*item_ty),
                             _ => None,
                         })
-                        .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                        .unwrap_or_else(|| self.erase_with(ErasureReason::DynamicOperator, "spread call"));
                     let spread_args = self.packed_spread_call_arguments(item_ty, call, body)?;
                     return Ok(body.push_expr(Expr {
                         kind: ExprKind::ClosureCallSpread {
@@ -715,7 +717,7 @@ impl<'builder> ModuleBuilder<'builder> {
                             span: self.span(call.span.start, call.span.end),
                         }));
                     }
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let ty = self.erase_with(ErasureReason::ByName, "module global");
                     return Ok(body.push_expr(Expr {
                         kind: ExprKind::Literal(Literal::None),
                         ty,
@@ -726,7 +728,7 @@ impl<'builder> ModuleBuilder<'builder> {
                     for arg in &call.arguments {
                         let _ = self.argument(arg, body)?;
                     }
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let ty = self.erase(ErasureReason::UntypedPackage);
                     return Ok(body.push_expr(Expr {
                         kind: ExprKind::Literal(Literal::None),
                         ty,
@@ -737,7 +739,7 @@ impl<'builder> ModuleBuilder<'builder> {
                     for arg in &call.arguments {
                         let _ = self.argument(arg, body)?;
                     }
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let ty = self.erase_with(ErasureReason::ByName, "forward callable");
                     return Ok(body.push_expr(Expr {
                         kind: ExprKind::Literal(Literal::None),
                         ty,
@@ -773,7 +775,7 @@ impl<'builder> ModuleBuilder<'builder> {
                     for arg in &call.arguments {
                         let _ = self.argument(arg, body)?;
                     }
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let ty = self.erase(ErasureReason::UntypedPackage);
                     return Ok(body.push_expr(Expr {
                         kind: ExprKind::Literal(Literal::None),
                         ty,
@@ -785,7 +787,9 @@ impl<'builder> ModuleBuilder<'builder> {
                             item,
                             self.span(callee_ident.span.start, callee_ident.span.end),
                         )
-                        .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown));
+                        // not a new erasure: a non-function falls through to the
+                        // recorded `ByName` site below
+                        .unwrap_or_else(|_| self.unknown_type());
                     if let Some(Type::Function(function)) =
                         self.ctx.krate.types.get(item_ty).cloned()
                     {
@@ -818,7 +822,7 @@ impl<'builder> ModuleBuilder<'builder> {
                     for arg in &call.arguments {
                         let _ = self.argument(arg, body)?;
                     }
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let ty = self.erase(ErasureReason::ByName);
                     return Ok(body.push_expr(Expr {
                         kind: ExprKind::Literal(Literal::None),
                         ty,
@@ -1259,7 +1263,12 @@ impl<'builder> ModuleBuilder<'builder> {
                     Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_)
                 )
             {
-                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                let ty = if property_name == "test" {
+                    self.erase(ErasureReason::TestHarness)
+                } else {
+                    // not a new erasure: the method's result is already erased
+                    self.unknown_type()
+                };
                 args.push(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::None),
                     ty,
@@ -1283,7 +1292,8 @@ impl<'builder> ModuleBuilder<'builder> {
             && self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown)
             && !self.receiver_declares_in_progress_method(access_receiver_ty, method, member_span)?
         {
-            let ty = self.ctx.krate.types.intern(Type::Unknown);
+            // not a new erasure: the resolved method already returns `unknown`
+            let ty = self.unknown_type();
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::None),
                 ty,
@@ -2483,7 +2493,7 @@ impl<'builder> ModuleBuilder<'builder> {
         };
         let _ = self.argument(argument, body)?;
         let key_ty = self.ctx.krate.types.intern(Type::String);
-        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let value_ty = self.erase_with(ErasureReason::ByName, "require");
         let ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::DictLit(Vec::new()),
@@ -2520,7 +2530,8 @@ impl<'builder> ModuleBuilder<'builder> {
         // objects (Date/Map/Set/Error) whose graph must be deep-copied with fresh
         // identities to honor `structuredClone`'s reference semantics; route those
         // through the `smelt_structured_clone` runtime helper.
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure: only compared against the operand's type
+        let unknown_ty = self.unknown_type();
         let operand_ty = body
             .exprs
             .get(usize::try_from(operand.0).unwrap_or(usize::MAX))
@@ -3034,7 +3045,7 @@ impl<'builder> ModuleBuilder<'builder> {
         let receiver_dispatches_dynamically =
             self.static_member_receiver_dispatches_dynamically(member, body);
         if has_spread && (callee_dispatches_dynamically || receiver_dispatches_dynamically) {
-            let unknown = self.ctx.krate.types.intern(Type::Unknown);
+            let unknown = self.erase_unless_unknown(callee_ty, ErasureReason::DynamicOperator);
             // Re-type the callee operand as `SmeltUnknown` whenever it would
             // otherwise be emitted as a concrete Rust function: an erased
             // callable object, or a field read whose *declared* type is a
@@ -3162,7 +3173,12 @@ impl<'builder> ModuleBuilder<'builder> {
                 };
                 (function_ty, function)
             } else if self.is_nullishable_type(callee_ty) || self.type_contains_unknown(callee_ty) {
-                let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                let unknown = if self.type_contains_unknown(callee_ty) {
+                    // not a new erasure: the callee already carries an erased type
+                    self.unknown_type()
+                } else {
+                    self.erase(ErasureReason::ByName)
+                };
                 let params = args
                     .iter()
                     .map(|arg| Self::expr_ty(body, *arg))
@@ -3314,7 +3330,12 @@ impl<'builder> ModuleBuilder<'builder> {
             None if self.is_nullishable_type(callee_ty)
                 || self.type_contains_unknown(callee_ty) =>
             {
-                let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                let unknown = if self.type_contains_unknown(callee_ty) {
+                    // not a new erasure: the callee already carries an erased type
+                    self.unknown_type()
+                } else {
+                    self.erase(ErasureReason::ByName)
+                };
                 let params = args
                     .iter()
                     .map(|arg| Self::expr_ty(body, *arg))
@@ -3734,7 +3755,9 @@ impl<'builder> ModuleBuilder<'builder> {
         let [callback_arg, ..] = call.arguments.as_slice() else {
             return Ok(Some(receiver));
         };
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure: only the contextual return hint for the callback,
+        // whose real result is inferred from its body below.
+        let unknown_ty = self.unknown_type();
         // The continuation parameter type is contextual, but its return type is
         // inferred from the callback body. `Promise.then` is generic in that
         // return (`U | PromiseLike<U>`); forcing `void` here erased values such
@@ -3752,7 +3775,9 @@ impl<'builder> ModuleBuilder<'builder> {
         // outcome); `onRejected` gets the erased reason, `onFulfilled` the value.
         let callback_params = match method {
             "finally" => Vec::new(),
-            "catch" => vec![unknown_ty],
+            // The rejection reason is `any` in TypeScript's own lib: any value
+            // may be thrown anywhere in the awaited call graph.
+            "catch" => vec![self.erase_with(ErasureReason::ExternalType, "rejection reason")],
             _ => vec![inner_ty],
         };
         let callback_required = callback_params.len();
@@ -3784,7 +3809,8 @@ impl<'builder> ModuleBuilder<'builder> {
                 Some(Type::Future(item)) => *item,
                 _ => return_ty,
             },
-            _ => unknown_ty,
+            // No closure or function type to read the callback's result from.
+            _ => self.erase_with(ErasureReason::MissingAnnotation, "promise callback result"),
         };
         let (op, output_ty) = if method == "catch" {
             (AsyncOp::Catch, receiver_ty)
@@ -4061,7 +4087,7 @@ impl<'builder> ModuleBuilder<'builder> {
         let checked_description = description_arg
             .map(|argument| self.argument(argument, body))
             .transpose()?;
-        let ty = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.erase_with(ErasureReason::UnmodeledType, "symbol");
         if let Some(description) = checked_description
             && !matches!(
                 self.ctx.krate.types.get(Self::expr_ty(body, description)),
@@ -5688,7 +5714,13 @@ impl<'builder> ModuleBuilder<'builder> {
                 Some(Type::Unknown | Type::TypeParam { .. })
             ) || self.is_callable_object_erased_class(callee_ty) =>
             {
-                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                let ty = if self.is_callable_object_erased_class(callee_ty) {
+                    self.erase(ErasureReason::UnmodeledType)
+                } else {
+                    // `unknown` propagates without a record; a type-parameter
+                    // callee's result is resolved by name at runtime.
+                    self.erase_unless_unknown(callee_ty, ErasureReason::ByName)
+                };
                 let callee = if self.is_callable_object_erased_class(callee_ty) {
                     body.push_expr(Expr {
                         kind: ExprKind::TypeAssert { value: callee },
@@ -5760,7 +5792,9 @@ impl<'builder> ModuleBuilder<'builder> {
         // parameter absorbs the trailing list, not for a dynamic dispatch that
         // would otherwise wrap the rest list in a single extra `Array` argument.
         if self.call_has_spread_arguments_or_source_spread(call) && callee_dispatches_dynamically {
-            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            // not a new erasure: names the tagged item type of the runtime
+            // call ABI's packed argument list; the call keeps its typed result
+            let unknown_ty = self.unknown_type();
             let packed = self.packed_spread_call_arguments(unknown_ty, call, body)?;
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::ClosureCallSpread {
@@ -5780,7 +5814,7 @@ impl<'builder> ModuleBuilder<'builder> {
             }
             match self.ctx.krate.types.get(*param) {
                 Some(Type::List(item_ty)) => Some(*item_ty),
-                Some(Type::Never) => Some(self.ctx.krate.types.intern(Type::Unknown)),
+                Some(Type::Never) => Some(self.erase_with(ErasureReason::TypeLevel, "never parameter")),
                 _ => None,
             }
         });
@@ -6456,7 +6490,7 @@ impl<'builder> ModuleBuilder<'builder> {
         if callee.name != "$typed" || !self.allow_unknown_index_access {
             return None;
         }
-        let ty = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.erase_with(ErasureReason::TestHarness, "$typed");
         Some(body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::None),
             ty,
@@ -6509,7 +6543,7 @@ impl<'builder> ModuleBuilder<'builder> {
                     .params
                     .get(index)
                     .copied()
-                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                    .unwrap_or_else(|| self.erase(ErasureReason::Unclassified));
                 args.push(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::None),
                     ty: param_ty,
@@ -6524,7 +6558,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 .get(rest_index)
                 .copied()
                 .unwrap_or_else(|| {
-                    let item = self.ctx.krate.types.intern(Type::Unknown);
+                    let item = self.erase(ErasureReason::Unclassified);
                     self.ctx.krate.types.intern(Type::List(item))
                 });
             args.push(body.push_expr(Expr {

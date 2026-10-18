@@ -1,6 +1,7 @@
 //! TypeScript AST lowering into Smelt HIR.
 
 mod ambient_globals;
+mod erasure;
 mod arguments_forwarding;
 mod asserted_member_read;
 mod function_statics;
@@ -925,6 +926,9 @@ struct ModuleBuilder<'ctx> {
     /// nested type, so depth `0` is exactly the whole-type position. See
     /// `lowering::int32`.
     int32_type_depth: usize,
+    /// Innermost source node being lowered, where an erasure decision is
+    /// recorded when its site has no finer span; see `lowering::erasure`.
+    erasure_anchor: Span,
 }
 
 /// One value import whose module resolved to no source item.

@@ -98,6 +98,7 @@ impl Drop for HoistedModuleItemScope<'_, '_> {
 /// in a couple of instructions and removes that cost without changing behavior.
 pub(crate) type BlockIdSet = rustc_hash::FxHashSet<smelt_mir::BlockId>;
 
+mod backend_erasure;
 mod binary_ops;
 mod call;
 mod call_runtime;
@@ -253,6 +254,9 @@ pub(crate) struct EmitContext {
     /// the crate root must carry the `SmeltInspect` runtime (see
     /// [`console_inspect`]). Set while bodies are emitted, read after.
     console_inspect_used: ::std::cell::Cell<bool>,
+    /// Erasures `rust_type` decided in the backend (erased generics and
+    /// unions, unresolved classes, `never`); see `emitter::backend_erasure`.
+    pub(crate) backend_erasures: RefCell<Vec<smelt_hir::ErasureRecord>>,
 }
 
 impl EmitContext {
@@ -357,6 +361,7 @@ impl EmitContext {
             erased_view_write_through: view_write_through::program_writes_erased_fields(mir),
             program_reads_this: receiver_bound_slot::program_reads_this(mir),
             console_inspect_used: ::std::cell::Cell::new(false),
+            backend_erasures: RefCell::new(Vec::new()),
         })
     }
 

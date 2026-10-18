@@ -31,6 +31,10 @@ pub enum DiagnosticCategory {
     UnresolvedReference,
     /// Internal invariant violation or a not-yet-classified diagnostic.
     Internal,
+    /// A value erased to the tagged runtime value, reported because its
+    /// erasure reason is configured `warn` or `deny` (see
+    /// `smelt_hir::erasure`). Lowering succeeded; the code names the reason.
+    Erasure,
 }
 
 impl DiagnosticCategory {
@@ -44,6 +48,7 @@ impl DiagnosticCategory {
             Self::TypeConstraint => "type-constraint",
             Self::UnresolvedReference => "unresolved-reference",
             Self::Internal => "internal",
+            Self::Erasure => "erasure",
         }
     }
 
@@ -57,6 +62,7 @@ impl DiagnosticCategory {
             Self::TypeConstraint => "typed-subset violation",
             Self::UnresolvedReference => "unresolved reference",
             Self::Internal => "internal",
+            Self::Erasure => "erasure",
         }
     }
 }

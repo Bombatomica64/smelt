@@ -457,6 +457,22 @@ pub fn emit_crate_with_modules(
     output_path: impl AsRef<Path>,
     options: &EmitOptions,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    emit_crate_with_modules_reporting(mir, krate, modules, output_path, options).map(|_| ())
+}
+
+/// [`emit_crate_with_modules`], also returning the backend's erasures.
+///
+/// These are the erasures decided while rendering types (erased generics and
+/// unions, unresolved classes, `never`). See `emitter::backend_erasure` for the
+/// span each record carries. The records are unsorted and may repeat;
+/// normalize them with [`smelt_hir::normalize_erasures`].
+pub fn emit_crate_with_modules_reporting(
+    mir: &Mir,
+    krate: &smelt_hir::Crate,
+    modules: &[(String, smelt_hir::ModuleId)],
+    output_path: impl AsRef<Path>,
+    options: &EmitOptions,
+) -> Result<Vec<smelt_hir::ErasureRecord>, Box<dyn std::error::Error>> {
     let output_dir = output_path.as_ref();
     let src_dir = output_dir.join("src");
     fs::create_dir_all(&src_dir)?;
@@ -477,7 +493,7 @@ pub fn emit_crate_with_modules(
         let module_path = src_dir.join(format!("{}.rs", module.name));
         write_if_changed(module_path, &module.source)?;
     }
-    Ok(())
+    Ok(mapped.erasures)
 }
 
 /// Writes the configured crate root and removes the stale opposite root.
@@ -621,6 +637,7 @@ pub fn emit_source_with_allocator(
     emit_source_with_free_function_router(mir, allocator, |_function, _context, source| {
         Ok(Some(source))
     })
+    .map(|(source, _erasures)| source)
 }
 
 /// Emits Rust source code while allowing callers to route free functions.
@@ -636,7 +653,7 @@ fn emit_source_with_free_function_router(
         &EmitContext,
         String,
     ) -> Result<Option<String>, EmitError>,
-) -> Result<String, EmitError> {
+) -> Result<(String, Vec<smelt_hir::ErasureRecord>), EmitError> {
     let mut writer = CodeWriter::new();
     let context = EmitContext::new(mir)?;
     // Decide, once, which free functions emit real Rust generics (signature
@@ -6535,13 +6552,16 @@ fn emit_source_with_free_function_router(
         out.push_str("\nfn main() {}\n");
     }
 
-    Ok(out)
+    Ok((out, context.take_backend_erasures()))
 }
 
 /// Rust sources split by original source module.
 struct MappedSources {
     /// Crate root source.
     root: String,
+    /// Erasures the backend decided while emitting; see
+    /// `emitter::backend_erasure`.
+    erasures: Vec<smelt_hir::ErasureRecord>,
     /// Generated sibling module sources.
     modules: Vec<MappedModuleSource>,
 }
@@ -6574,7 +6594,7 @@ fn emit_mapped_sources(
     let mut module_chunks = HashMap::<String, Vec<String>>::new();
     let mut module_paths = HashMap::<String, String>::new();
 
-    let mut root =
+    let (mut root, erasures) =
         emit_source_with_free_function_router(mir, allocator, |function, context, function_source| {
             let HirOrigin::Body(body) = function.origin else {
                 return Ok(Some(function_source));
@@ -6629,6 +6649,7 @@ fn emit_mapped_sources(
 
     Ok(MappedSources {
         root,
+        erasures,
         modules: mapped_modules,
     })
 }

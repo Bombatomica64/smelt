@@ -45,6 +45,11 @@ pub enum Command {
         /// (`.sound/`, `@sound/*`) applies; it does not substitute them.
         #[arg(long = "define", value_name = "KEY=VALUE", value_parser = parse_define)]
         define: Vec<(String, String)>,
+
+        /// Set an erasure reason's severity: `<reason>[:<glob>]=<allow|warn|deny>`
+        /// (`all` for every reason). Repeatable; overrides `[erasure]`.
+        #[arg(long = "erasure", value_name = "REASON=LEVEL")]
+        erasure: Vec<String>,
     },
     /// Type-check and validate without generating Rust
     ///
@@ -55,6 +60,11 @@ pub enum Command {
         /// every module's categorized diagnostics in one recoverable pass).
         #[arg(long = "message-format", default_value = "human")]
         message_format: String,
+
+        /// Set an erasure reason's severity: `<reason>[:<glob>]=<allow|warn|deny>`
+        /// (`all` for every reason). Repeatable; overrides `[erasure]`.
+        #[arg(long = "erasure", value_name = "REASON=LEVEL")]
+        erasure: Vec<String>,
     },
     /// Scaffold a new smelt project (not implemented yet)
     New {
@@ -202,6 +212,12 @@ pub enum Command {
         /// default: the report stays advisory unless a gate opts in.
         #[arg(long)]
         fail_on_regression: bool,
+
+        /// A `smelt-erasure.json` sidecar to explain avoidable erasure by
+        /// reason and source line. Repeatable. A sidecar beside a scanned
+        /// `src/` directory is read automatically.
+        #[arg(long = "erasure", value_name = "PATH")]
+        erasure: Vec<String>,
 
         /// Write the report to this file instead of stdout.
         #[arg(long, value_name = "PATH")]

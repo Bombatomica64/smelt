@@ -7,6 +7,7 @@ use crate::lowering::{
     CaptureMode, ClosureCapture, Expr, ExprKind, Expression, FunctionType, HashMap, Item,
     Literal, LocalDecl, ModuleBuilder, Param, SmeltError, Span, Type, UnaryOp,
 };
+use smelt_hir::ErasureReason;
 use oxc::span::GetSpan;
 use crate::lowering::support::arrow_block_statements;
 
@@ -708,12 +709,12 @@ impl ModuleBuilder<'_> {
         let item_ty = expected_param_tys
             .first()
             .copied()
-            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            .unwrap_or_else(|| self.erase_with(ErasureReason::MissingAnnotation, "iteratee element"));
         let params = HashMap::default();
         let value = self.callback_expression(value_expression, &params, body)?;
         let field = self.intern_source_name(path.value.as_str());
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let field_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let field_ty = self.erase_with(ErasureReason::ByName, path.value.as_str());
         Ok(Some(CallbackExpr {
             kind: CallbackExprKind::Binary {
                 op: BinOp::JsStrictEq,
@@ -818,7 +819,7 @@ impl ModuleBuilder<'_> {
                     }),
                     field: self.intern_source_name(field.value.as_str()),
                 },
-                ty: self.ctx.krate.types.intern(Type::Unknown),
+                ty: self.erase_with(ErasureReason::ByName, field.value.as_str()),
             }));
         }
         if Self::is_identifier_callee(&call.callee, "emitEvent") && call.arguments.len() == 1 {
@@ -830,7 +831,7 @@ impl ModuleBuilder<'_> {
         if Self::is_static_member_callee(&call.callee, "async", "pipe") {
             return Ok(Some(CallbackExpr {
                 kind: CallbackExprKind::Literal(Literal::None),
-                ty: self.ctx.krate.types.intern(Type::Unknown),
+                ty: self.erase_with(ErasureReason::UntypedPackage, "async.pipe"),
             }));
         }
         if Self::is_static_member_callee(&call.callee, "_", "negate")
@@ -1102,7 +1103,13 @@ impl ModuleBuilder<'_> {
         local_ty: smelt_hir::TypeId,
         expected_param_tys: &[smelt_hir::TypeId],
     ) -> CallbackExpr {
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = if self.ctx.krate.types.get(local_ty) == Some(&Type::Unknown) {
+            // not a new erasure: the callee local is already erased
+            self.unknown_type()
+        } else {
+            // A type-parameter or function-union callee has no single return type.
+            self.erase_with(ErasureReason::TypeLevel, "opaque local callback")
+        };
         let args = expected_param_tys
             .iter()
             .copied()
@@ -1129,7 +1136,7 @@ impl ModuleBuilder<'_> {
 
     /// Build an opaque callback expression for imported predicate/function members.
     pub(in crate::lowering) fn opaque_member_callback(&mut self, expected_param_tys: &[smelt_hir::TypeId]) -> CallbackExpr {
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::UntypedPackage, "opaque member callback");
         let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: expected_param_tys.to_vec(),
             rest: None,
@@ -1316,7 +1323,9 @@ impl ModuleBuilder<'_> {
                         }
                     })
                     .or_else(|| rest_items.first().map(|item| item.ty))
-                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                    .unwrap_or_else(|| {
+                        self.erase_with(ErasureReason::MissingAnnotation, binding.name.as_str())
+                    });
                 params.insert(
                     binding.name.as_str(),
                     CallbackExpr {

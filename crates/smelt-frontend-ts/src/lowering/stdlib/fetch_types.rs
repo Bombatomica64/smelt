@@ -29,7 +29,7 @@ use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::Expression;
 use oxc::span::GetSpan;
 use smelt_hir::{
-    Body, EventEmitterOp, Expr, ExprKind, HeadersOp, RequestInitMember, RequestOp, ResponseOp,
+    Body, ErasureReason, EventEmitterOp, Expr, ExprKind, HeadersOp, RequestInitMember, RequestOp, ResponseOp,
     Type,
 };
 use smelt_stdlib::RuleId;
@@ -816,7 +816,7 @@ impl ModuleBuilder<'_> {
             }
             // `json()` is `Promise<any>`: parsed JSON has no static shape.
             ResponseOp::Json => {
-                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let unknown_ty = self.erase_with(ErasureReason::ExternalType, "Response.json()");
                 self.ctx.krate.types.intern(Type::Future(unknown_ty))
             }
             // `formData()` is `Promise<FormData>`: a future over the modeled
@@ -1064,7 +1064,7 @@ impl ModuleBuilder<'_> {
             // and `request.signal.addEventListener(..)` resolve through the
             // one abort member path rather than a second one. It is never
             // `null` in the spec, so the type is not optional.
-            RequestOp::Signal => self.ctx.krate.types.intern(Type::Unknown),
+            RequestOp::Signal => self.erase_with(ErasureReason::UntypedBuiltin, "Request.signal"),
             // Every stored init member is a WebIDL enumeration surfaced as a
             // `string`, except `keepalive`, which is a `boolean`.
             RequestOp::Init(member) => {
@@ -1080,7 +1080,7 @@ impl ModuleBuilder<'_> {
             }
             // `json()` is `Promise<any>`, as on `Response`.
             RequestOp::Json => {
-                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let unknown_ty = self.erase_with(ErasureReason::ExternalType, "Request.json()");
                 self.ctx.krate.types.intern(Type::Future(unknown_ty))
             }
             // `formData()` is `Promise<FormData>`, the same reader as `text()`
@@ -1256,7 +1256,8 @@ impl ModuleBuilder<'_> {
                 // stand in for the receiver: the interface is not in the crate,
                 // so there is no struct to read a field from — the shape is
                 // only present in the record the caller's literal became.
-                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                // not a new erasure: the ambient receiver is already an erased record
+                let unknown_ty = self.unknown_type();
                 let erased = body.push_expr(Expr {
                     kind: ExprKind::Field {
                         receiver: source,

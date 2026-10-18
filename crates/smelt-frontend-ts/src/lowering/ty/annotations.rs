@@ -10,7 +10,8 @@ use oxc::ast::ast::{
 use oxc::span::GetSpan;
 use oxc::syntax::operator::UnaryOperator;
 use smelt_hir::{
-    BinOp, Body, Class, ExprKind, Field, FunctionType, Item, Literal, Type, UnaryOp, Visibility,
+    BinOp, Body, Class, ErasureReason, ExprKind, Field, FunctionType, Item, Literal, Type,
+    UnaryOp, Visibility,
 };
 
 impl ModuleBuilder<'_> {
@@ -32,7 +33,9 @@ impl ModuleBuilder<'_> {
                 .intern(Type::FixedInt(smelt_hir::IntWidth::I32)));
         }
         self.int32_type_depth += 1;
+        let anchor = self.push_erasure_anchor(self.span(ty.span().start, ty.span().end));
         let lowered = self.ts_type_shape_to_hir(ty);
+        self.restore_erasure_anchor(anchor);
         self.int32_type_depth -= 1;
         Ok(self.int32_only_as_whole_type(lowered?, whole))
     }
@@ -40,9 +43,9 @@ impl ModuleBuilder<'_> {
     /// Lower the shape of a TypeScript type annotation; see [`Self::ts_type_to_hir`].
     fn ts_type_shape_to_hir(&mut self, ty: &TSType<'_>) -> Result<smelt_hir::TypeId, SmeltError> {
         match ty {
-            TSType::TSAnyKeyword(_) | TSType::TSUnknownKeyword(_) | TSType::TSObjectKeyword(_) => {
-                Ok(self.ctx.krate.types.intern(Type::Unknown))
-            }
+            TSType::TSAnyKeyword(_) => Ok(self.erase(ErasureReason::ExplicitAny)),
+            TSType::TSUnknownKeyword(_) => Ok(self.erase(ErasureReason::SourceUnknown)),
+            TSType::TSObjectKeyword(_) => Ok(self.erase(ErasureReason::OpenLayout)),
             TSType::TSTypeQuery(query) => Ok(self.type_query_to_hir(query)),
             TSType::TSNumberKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Float)),
             TSType::TSBigIntKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Int)),
@@ -52,7 +55,7 @@ impl ModuleBuilder<'_> {
             TSType::TSBooleanKeyword(_) | TSType::TSTypePredicate(_) => {
                 Ok(self.ctx.krate.types.intern(Type::Bool))
             }
-            TSType::TSSymbolKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            TSType::TSSymbolKeyword(_) => Ok(self.erase(ErasureReason::UnmodeledType)),
             TSType::TSNeverKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Never)),
             TSType::TSVoidKeyword(_) | TSType::TSNullKeyword(_) | TSType::TSUndefinedKeyword(_) => {
                 Ok(self.ctx.krate.types.intern(Type::None))
@@ -93,7 +96,7 @@ impl ModuleBuilder<'_> {
                     if matches!(self.ctx.krate.types.get(member_ty), Some(Type::Function(_)))
                         && self.ts_type_is_known_callable_object_surface(member)
                     {
-                        member_ty = self.ctx.krate.types.intern(Type::Unknown);
+                        member_ty = self.erase(ErasureReason::UnmodeledType);
                     }
                     // Flatten members that are themselves unions/optionals so the
                     // resulting union has only concrete top-level arms. Type
@@ -147,9 +150,9 @@ impl ModuleBuilder<'_> {
                     let first_shape = shapes.next();
                     let arities_differ = shapes.any(|shape| Some(shape) != first_shape);
                     if arities_differ {
-                        let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                        let item_ty = self.erase(ErasureReason::TypeLevel);
                         let rest_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
-                        let return_ty = self.ctx.krate.types.intern(Type::Unknown);
+                        let return_ty = self.unknown_type(); // not a new erasure: same mixed-arity decision recorded for the rest item above
                         let unified =
                             self.ctx.krate.types.intern(Type::Function(FunctionType {
                                 params: vec![rest_list_ty],
@@ -201,10 +204,11 @@ impl ModuleBuilder<'_> {
                 if let Some(class_ty) = self.anonymous_callable_object_type(ty) {
                     return Ok(class_ty);
                 }
-                if Self::ts_type_is_callable_object_surface(ty)
-                    || Self::ts_type_is_opaque_object_intersection_surface(ty)
-                {
-                    return Ok(self.ctx.krate.types.intern(Type::Unknown));
+                if Self::ts_type_is_callable_object_surface(ty) {
+                    return Ok(self.erase(ErasureReason::UnmodeledType));
+                }
+                if Self::ts_type_is_opaque_object_intersection_surface(ty) {
+                    return Ok(self.erase(ErasureReason::TypeLevel));
                 }
                 let mut meaningful = Vec::new();
                 let mut fields = Vec::new();
@@ -260,7 +264,7 @@ impl ModuleBuilder<'_> {
                 if true_erased == false_erased {
                     Ok(true_erased)
                 } else {
-                    Ok(self.ctx.krate.types.intern(Type::Unknown))
+                    Ok(self.erase(ErasureReason::TypeLevel))
                 }
             }
             TSType::TSArrayType(array) => {
@@ -316,7 +320,7 @@ impl ModuleBuilder<'_> {
                     .as_ref()
                     .map(|annotation| self.ts_type_to_hir(annotation))
                     .transpose()?
-                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                    .unwrap_or_else(|| self.erase(ErasureReason::TypeLevel));
                 if let TSType::TSTypeOperatorType(operator) = &mapped.constraint
                     && operator.operator == oxc::ast::ast::TSTypeOperatorOperator::Keyof
                 {
@@ -335,7 +339,7 @@ impl ModuleBuilder<'_> {
             }
             TSType::TSThisType(_this_ty) => {
                 let Some(class_name) = self.current_class.clone() else {
-                    return Ok(self.ctx.krate.types.intern(Type::Unknown));
+                    return Ok(self.erase(ErasureReason::TypeLevel));
                 };
                 // `this` in a method/return position resolves to the enclosing
                 // class type. Prefer the fully lowered class item when it is
@@ -419,7 +423,7 @@ return_ty: function.return_ty,
                             may_throw: false,
             }));
         }
-        self.ctx.krate.types.intern(Type::Unknown)
+        self.erase(ErasureReason::TypeLevel)
     }
 
     /// The resolved type of a VALUE binding named in a type position.
@@ -446,7 +450,11 @@ return_ty: function.return_ty,
         ty: &TSType<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
         if matches!(ty, TSType::TSAnyKeyword(_) | TSType::TSUnknownKeyword(_)) {
-            let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let item_ty = if matches!(ty, TSType::TSAnyKeyword(_)) {
+                self.erase(ErasureReason::ExplicitAny)
+            } else {
+                self.erase(ErasureReason::SourceUnknown)
+            };
             return Ok(self.ctx.krate.types.intern(Type::List(item_ty)));
         }
         if matches!(ty, TSType::TSNeverKeyword(_)) {
@@ -466,8 +474,13 @@ return_ty: function.return_ty,
         let ty = self.type_param_constraint_or_self(ty);
         match self.ctx.krate.types.get(ty).cloned() {
             Some(Type::List(item_ty)) => Ok((ty, item_ty)),
-            Some(Type::Unknown | Type::TypeParam { .. }) => {
-                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+            Some(Type::Unknown) => {
+                // not a new erasure: the rest annotation is already erased
+                let item_ty = self.unknown_type();
+                Ok((self.ctx.krate.types.intern(Type::List(item_ty)), item_ty))
+            }
+            Some(Type::TypeParam { .. }) => {
+                let item_ty = self.erase(ErasureReason::UnfilledGeneric);
                 Ok((self.ctx.krate.types.intern(Type::List(item_ty)), item_ty))
             }
             Some(Type::Tuple(items)) => {
@@ -533,12 +546,13 @@ return_ty: function.return_ty,
         &mut self,
         items: Vec<smelt_hir::TypeId>,
     ) -> smelt_hir::TypeId {
-        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure: an erased item was recorded where it was decided
+        let unknown = self.unknown_type();
         if items.contains(&unknown) {
             return unknown;
         }
         match items.as_slice() {
-            [] => unknown,
+            [] => self.erase_with(ErasureReason::TypeLevel, "empty item set"),
             [single] => *single,
             _ => self.ctx.krate.types.intern(Type::Union(items)),
         }
@@ -683,7 +697,7 @@ return_ty: function.return_ty,
                     .as_ref()
                     .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                     .transpose()?
-                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                    .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
                 let mut params = Vec::new();
                 for param in &signature.params.items {
                     let ty = param
@@ -691,7 +705,7 @@ return_ty: function.return_ty,
                         .as_ref()
                         .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                         .transpose()?
-                        .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                        .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
                     params.push(if param.optional {
                         self.ctx.krate.types.intern(Type::Optional(ty))
                     } else {
@@ -748,7 +762,7 @@ return_ty: function.return_ty,
                     .as_ref()
                     .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                     .transpose()?
-                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                    .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
                 let mut params = Vec::new();
                 for param in &signature.params.items {
                     let ty = param
@@ -756,7 +770,7 @@ return_ty: function.return_ty,
                         .as_ref()
                         .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                         .transpose()?
-                        .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                        .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
                     params.push(ty);
                 }
                 let rest = if let Some(rest) = &signature.params.rest {
@@ -765,7 +779,7 @@ return_ty: function.return_ty,
                         .as_ref()
                         .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                         .transpose()?
-                        .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                        .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
                     let index = params.len();
                     params.push(rest_ty);
                     Some(index)
@@ -809,7 +823,7 @@ return_ty: function.return_ty,
             }
         }
         let value_ty = match value_tys.as_slice() {
-            [] => self.ctx.krate.types.intern(Type::Unknown),
+            [] => self.erase(ErasureReason::OpenLayout),
             [single] => *single,
             _ => self.ctx.krate.types.intern(Type::Union(value_tys)),
         };
@@ -1007,7 +1021,7 @@ return_ty: function.return_ty,
             }
             let ty = match value_tys.as_slice() {
                 [single] => *single,
-                [] => self.ctx.krate.types.intern(Type::Unknown),
+                [] => self.unknown_type(), // not a new erasure: unreachable, every grouped field contributes a type
                 _ => self.ctx.krate.types.intern(Type::Union(value_tys)),
             };
             out.push(Field {
@@ -1045,7 +1059,7 @@ return_ty: function.return_ty,
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?
-                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
             fields.push(Field {
                 name,
                 ty,
@@ -1069,13 +1083,15 @@ return_ty: function.return_ty,
                     return Ok(items
                         .get(index)
                         .copied()
-                        .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown)));
+                        .unwrap_or_else(|| self.erase(ErasureReason::TypeLevel)));
                 }
-                Ok(self.ctx.krate.types.intern(Type::Unknown))
+                Ok(self.erase(ErasureReason::TypeLevel))
             }
             Some(Type::List(item) | Type::Set(item)) => Ok(*item),
             Some(Type::Dict(_, value)) => Ok(*value),
-            _ => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            // not a new erasure: the indexed object is already erased
+            Some(Type::Unknown) => Ok(self.unknown_type()),
+            _ => Ok(self.erase(ErasureReason::TypeLevel)),
         }
     }
 
@@ -1314,8 +1330,8 @@ return_ty: function.return_ty,
         for member in members {
             let member_value = match self.ctx.krate.types.get(*member) {
                 Some(Type::Dict(_, field_ty)) => *field_ty,
-                Some(Type::Class { .. }) => self.ctx.krate.types.intern(Type::Unknown),
-                _ => return self.ctx.krate.types.intern(Type::Unknown),
+                Some(Type::Class { .. }) => self.erase(ErasureReason::TypeLevel),
+                _ => return self.erase(ErasureReason::TypeLevel),
             };
             match value_ty {
                 None => value_ty = Some(member_value),
@@ -1323,11 +1339,11 @@ return_ty: function.return_ty,
                 // Two different field types under one key: the merged record's
                 // value type is their union, which for unrelated shapes is the
                 // erased boundary.
-                Some(_) => value_ty = Some(self.ctx.krate.types.intern(Type::Unknown)),
+                Some(_) => value_ty = Some(self.erase(ErasureReason::TypeLevel)),
             }
         }
         let Some(value_ty) = value_ty else {
-            return self.ctx.krate.types.intern(Type::Unknown);
+            return self.erase(ErasureReason::TypeLevel);
         };
         let key_ty = self.ctx.krate.types.intern(Type::String);
         self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
@@ -1424,11 +1440,13 @@ return_ty: function.return_ty,
                 let item_ty = match self.ctx.krate.types.get(rest_ty).cloned() {
                     Some(Type::List(item_ty)) => item_ty,
                     Some(Type::Never) => return Ok(None),
-                    _ => self.ctx.krate.types.intern(Type::Unknown),
+                    // not a new erasure: the rest type is already erased
+                    Some(Type::Unknown) => self.unknown_type(),
+                    _ => self.erase(ErasureReason::TypeLevel),
                 };
                 list_item_ty = Some(match list_item_ty {
                     Some(previous) if previous == item_ty => previous,
-                    Some(_) => self.ctx.krate.types.intern(Type::Unknown),
+                    Some(_) => self.erase(ErasureReason::TypeLevel),
                     None => item_ty,
                 });
             }
@@ -1523,8 +1541,8 @@ return_ty: function.return_ty,
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
             TSTupleElement::TSBooleanKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Bool)),
-            TSTupleElement::TSAnyKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
-            TSTupleElement::TSUnknownKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            TSTupleElement::TSAnyKeyword(_) => Ok(self.erase(ErasureReason::ExplicitAny)),
+            TSTupleElement::TSUnknownKeyword(_) => Ok(self.erase(ErasureReason::SourceUnknown)),
             TSTupleElement::TSNeverKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Never)),
             TSTupleElement::TSNullKeyword(_)
             | TSTupleElement::TSUndefinedKeyword(_)
@@ -1567,10 +1585,10 @@ return_ty: function.return_ty,
                 oxc::ast::ast::TSLiteral::BooleanLiteral(_) => {
                     Ok(self.ctx.krate.types.intern(Type::Bool))
                 }
-                _ => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+                _ => Ok(self.erase(ErasureReason::UnmodeledType)),
             },
             TSTupleElement::TSIndexedAccessType(_) => {
-                Ok(self.ctx.krate.types.intern(Type::Unknown))
+                Ok(self.erase(ErasureReason::TypeLevel))
             }
             TSTupleElement::TSConditionalType(conditional) => {
                 let true_ty = self.ts_type_to_hir(&conditional.true_type)?;
@@ -2158,7 +2176,7 @@ return_ty: function.return_ty,
             }
             ("TuplePrefix" | "RemovePrefix" | "TupleSuffix" | "RemoveSuffix", _)
             | ("IterableContainer", []) => {
-                let item = self.ctx.krate.types.intern(Type::Unknown);
+                let item = self.erase(ErasureReason::TypeLevel);
                 Ok(self.ctx.krate.types.intern(Type::List(item)))
             }
             ("Partial" | "Readonly" | "Required", [item]) => self.ts_type_to_hir(item),
@@ -2212,7 +2230,7 @@ return_ty: function.return_ty,
             (kind @ ("Generator" | "AsyncGenerator"), [yielded]) => {
                 let yield_ty = self.ts_type_to_hir(yielded)?;
                 let return_ty = self.ctx.krate.types.intern(Type::None);
-                let next_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let next_ty = self.erase(ErasureReason::UnfilledGeneric);
                 Ok(self.ctx.krate.types.intern(Type::Generator {
                     is_async: kind == "AsyncGenerator",
                     yield_ty,
@@ -2223,7 +2241,7 @@ return_ty: function.return_ty,
             (kind @ ("Generator" | "AsyncGenerator"), [yielded, returned]) => {
                 let yield_ty = self.ts_type_to_hir(yielded)?;
                 let return_ty = self.ts_type_to_hir(returned)?;
-                let next_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let next_ty = self.erase(ErasureReason::UnfilledGeneric);
                 Ok(self.ctx.krate.types.intern(Type::Generator {
                     is_async: kind == "AsyncGenerator",
                     yield_ty,
@@ -2272,7 +2290,7 @@ return_ty: function.return_ty,
                     // host constructor with no modeled signature, or a type
                     // parameter. The honest answer is then "some arguments,
                     // shape unknown", which is what an erased array says.
-                    let item = self.ctx.krate.types.intern(Type::Unknown);
+                    let item = self.erase(ErasureReason::TypeLevel);
                     Ok(self.ctx.krate.types.intern(Type::List(item)))
                 }
             }
@@ -2282,7 +2300,7 @@ return_ty: function.return_ty,
                 {
                     Ok(function_ty_data.return_ty)
                 } else {
-                    Ok(self.ctx.krate.types.intern(Type::Unknown))
+                    Ok(self.erase(ErasureReason::TypeLevel))
                 }
             }
             _ => {
@@ -2872,15 +2890,17 @@ return_ty: function.return_ty,
                 let inner_field = self.class_field_type(inner, field)?;
                 Ok(self.optional_chain_result_type(inner_field))
             }
-            Type::Unknown | Type::TypeParam { .. } => Ok(self.ctx.krate.types.intern(Type::Unknown)),
-            Type::Tuple(_) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            // not a new erasure: the receiver is already erased
+            Type::Unknown => Ok(self.unknown_type()),
+            Type::TypeParam { .. } => Ok(self.erase(ErasureReason::ByName)),
+            Type::Tuple(_) => Ok(self.erase(ErasureReason::ByName)),
             Type::Bool => {
-                Ok(self.ctx.krate.types.intern(Type::Unknown))
+                Ok(self.erase(ErasureReason::ByName))
             }
             Type::Float | Type::Int
                 if self.ctx.krate.symbols.get(field) == Some("constructor") =>
             {
-                Ok(self.ctx.krate.types.intern(Type::Unknown))
+                Ok(self.erase(ErasureReason::ByName))
             }
             Type::String if self.ctx.krate.symbols.get(field) == Some("length") => {
                 Ok(self.ctx.krate.types.intern(Type::Float))
@@ -2892,10 +2912,10 @@ return_ty: function.return_ty,
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
             Type::String if self.ctx.krate.symbols.get(field) == Some("prototype") => {
-                Ok(self.ctx.krate.types.intern(Type::Unknown))
+                Ok(self.erase(ErasureReason::ByName))
             }
             Type::String if self.allow_unknown_index_access => {
-                Ok(self.ctx.krate.types.intern(Type::Unknown))
+                Ok(self.erase(ErasureReason::ByName))
             }
             // Any remaining property read on a string value is a bound stdlib
             // method reference taken as a value — `''.slice`, `str.split`, etc.
@@ -2913,7 +2933,7 @@ return_ty: function.return_ty,
             // read: `string_field_text` emits an erased value for an unmodeled
             // string field. This keeps field resolution general for strings
             // instead of rejecting source that TypeScript accepts.
-            Type::String => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            Type::String => Ok(self.erase(ErasureReason::UntypedBuiltin)),
             Type::Function(_) => {
                 if let Some(field) = self.types.callable_fields(receiver_ty)
                     .and_then(|fields| fields.iter().find(|item| item.name == field))
@@ -2924,7 +2944,7 @@ return_ty: function.return_ty,
                         field.ty
                     });
                 }
-                Ok(self.ctx.krate.types.intern(Type::Unknown))
+                Ok(self.erase(ErasureReason::ByName))
             }
             Type::Union(items) => {
                 let matches = items
@@ -2933,7 +2953,7 @@ return_ty: function.return_ty,
                     .collect::<Vec<_>>();
                 match matches.as_slice() {
                     [single] => Ok(*single),
-                    [] => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+                    [] => Ok(self.erase(ErasureReason::ByName)),
                     [first, rest @ ..] if rest.iter().all(|item| item == first) => Ok(*first),
                     _ => {
                         let mut union_items = Vec::new();
@@ -2957,7 +2977,7 @@ return_ty: function.return_ty,
                     self.ctx.krate.symbols.get(field),
                     Some("constructor" | "prototype")
                 ) {
-                    return Ok(self.ctx.krate.types.intern(Type::Unknown));
+                    return Ok(self.erase(ErasureReason::ByName));
                 }
                 // `RegExp` is a builtin stdlib class backed by the generated
                 // `SmeltRegExp` runtime type, whose data properties have
@@ -3167,7 +3187,7 @@ return_ty: function.return_ty,
                 // residual unresolvable case falls through to the boundary
                 // instead of the old per-field (`id`) / interface-exists /
                 // has-base escape hatches.
-                Ok(self.ctx.krate.types.intern(Type::Unknown))
+                Ok(self.erase(ErasureReason::ByName))
             }
             _ => Err(SmeltError::unsupported(
                 self.span(0, 0),
@@ -3240,7 +3260,7 @@ return_ty: function.return_ty,
                 .get(parent.parent)
                 .is_some_and(|parent_name| parent_name.contains('.'))
             {
-                return Ok(Some(self.ctx.krate.types.intern(Type::Unknown)));
+                return Ok(Some(self.erase(ErasureReason::UnmodeledType)));
             }
             let parent_args = parent
                 .args
@@ -3312,7 +3332,7 @@ return_ty: function.return_ty,
         match self.ctx.krate.types.get(receiver_ty).cloned() {
             Some(Type::Dict(_, value)) => value,
             Some(Type::Unknown) if self.allow_unknown_index_access => {
-                self.ctx.krate.types.intern(Type::Unknown)
+                self.unknown_type() // not a new erasure: receiver already erased
             }
             Some(Type::Class { name, .. }) => {
                 let fields = self.types.alias_fields(name)
@@ -3331,7 +3351,7 @@ return_ty: function.return_ty,
                 }
                 match value_tys.as_slice() {
                     [single] => *single,
-                    [] => self.ctx.krate.types.intern(Type::Unknown),
+                    [] => self.erase(ErasureReason::DynamicOperator),
                     _ => self.ctx.krate.types.intern(Type::Union(value_tys)),
                 }
             }
@@ -3345,11 +3365,13 @@ return_ty: function.return_ty,
                 }
                 match value_tys.as_slice() {
                     [single] => *single,
-                    [] => self.ctx.krate.types.intern(Type::Unknown),
+                    [] => self.unknown_type(), // not a new erasure: unreachable, only an empty union yields no arm
                     _ => self.ctx.krate.types.intern(Type::Union(value_tys)),
                 }
             }
-            _ => self.ctx.krate.types.intern(Type::Unknown),
+            // not a new erasure: the receiver is already erased
+            Some(Type::Unknown) => self.unknown_type(),
+            _ => self.erase(ErasureReason::DynamicOperator),
         }
     }
 
@@ -3667,7 +3689,12 @@ return_ty: function.return_ty,
                 let Some(Type::Function(function)) =
                     self.ctx.krate.types.get(field_ty).cloned()
                 else {
-                    let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                    // An erased member type was recorded by `class_field_type`.
+                    let unknown = if self.ctx.krate.types.get(field_ty) == Some(&Type::Unknown) {
+                        self.unknown_type()
+                    } else {
+                        self.erase(ErasureReason::ByName)
+                    };
                     return Ok((unknown, smelt_hir::ItemId(u32::MAX)));
                 };
                 let return_ty = function.return_ty;
@@ -3677,7 +3704,7 @@ return_ty: function.return_ty,
             }
             let return_ty = match return_types.as_slice() {
                 [single] => *single,
-                [] => self.ctx.krate.types.intern(Type::Unknown),
+                [] => self.unknown_type(), // not a new erasure: unreachable, only an empty union yields no arm
                 _ => self.ctx.krate.types.intern(Type::Union(return_types)),
             };
             // A union call has no single static method item. MIR retains the
@@ -3689,7 +3716,12 @@ return_ty: function.return_ty,
             // the dynamic-dispatch boundary so records, interfaces, concrete
             // unions, and erased/builtin values (`string`, `number`, optionals,
             // tuples, ...) all lower uniformly instead of being rejected.
-            let ty = self.ctx.krate.types.intern(Type::Unknown);
+            // An already-erased receiver was recorded where it was decided.
+            let ty = if self.ctx.krate.types.get(receiver_ty) == Some(&Type::Unknown) {
+                self.unknown_type()
+            } else {
+                self.erase(ErasureReason::ByName)
+            };
             return Ok((ty, smelt_hir::ItemId(u32::MAX)));
         };
         let Some(class) = self.class_by_symbol(name).cloned() else {
@@ -3810,7 +3842,7 @@ return_ty: function.return_ty,
             .get(method)
             .is_some_and(|method_text| matches!(method_text, "call" | "apply" | "bind" | "flush"))
         {
-            let ty = self.ctx.krate.types.intern(Type::Unknown);
+            let ty = self.erase(ErasureReason::ByName);
             return Ok((ty, smelt_hir::ItemId(u32::MAX)));
         }
         let method_name = self.ctx.krate.symbols.get(method).unwrap_or("<unknown>");
@@ -3895,7 +3927,9 @@ return_ty: function.return_ty,
             Some(Type::List(item)) => Ok(*item),
             Some(Type::String) => Ok(self.ctx.krate.types.intern(Type::String)),
             Some(Type::Dict(_, value)) => Ok(*value),
-            Some(Type::Unknown | Type::None) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            // not a new erasure: the receiver is already erased
+            Some(Type::Unknown) => Ok(self.unknown_type()),
+            Some(Type::None) => Ok(self.erase(ErasureReason::DynamicOperator)),
             // Dynamically indexing a JavaScript boolean primitive with a key is a
             // property lookup on the autoboxed `Boolean` wrapper. For an
             // arbitrary key that has no own indexed element this yields
@@ -3905,7 +3939,7 @@ return_ty: function.return_ty,
             // Numeric primitives are intentionally excluded: iterating or
             // indexing a bare number is almost always a real source error (e.g.
             // `for (x of 1)`) that should stay an honest blocker.
-            Some(Type::Bool) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            Some(Type::Bool) => Ok(self.erase(ErasureReason::DynamicOperator)),
             // A numbered index into a RegExp match result (`m[0]`, `m[2]`) reads a
             // capture group: a string when the group matched and `undefined`
             // otherwise, so the element type is `Optional(String)` rather than the
@@ -3924,11 +3958,11 @@ return_ty: function.return_ty,
                 if self.classes.has_index_value(*name) =>
             {
                 let value_ty = self.classes.index_value(*name)
-                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                    .unwrap_or_else(|| self.erase(ErasureReason::DynamicOperator));
                 Ok(self.optional_chain_result_type(value_ty))
             }
             Some(Type::TypeParam { .. } | Type::Class { .. }) => {
-                Ok(self.ctx.krate.types.intern(Type::Unknown))
+                Ok(self.erase(ErasureReason::DynamicOperator))
             }
             Some(Type::Tuple(items)) => {
                 let mut union_items = Vec::new();
@@ -3939,7 +3973,7 @@ return_ty: function.return_ty,
                 }
                 match union_items.as_slice() {
                     [single] => Ok(*single),
-                    [] => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+                    [] => Ok(self.erase(ErasureReason::DynamicOperator)),
                     _ => Ok(self.ctx.krate.types.intern(Type::Union(union_items))),
                 }
             }
@@ -3954,11 +3988,11 @@ return_ty: function.return_ty,
                 }
                 match union_items.as_slice() {
                     [single] => Ok(*single),
-                    [] => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+                    [] => Ok(self.erase(ErasureReason::DynamicOperator)),
                     _ => Ok(self.ctx.krate.types.intern(Type::Union(union_items))),
                 }
             }
-            None => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            None => Ok(self.erase(ErasureReason::Unclassified)),
             _ => Err(SmeltError::unsupported(
                 self.span(0, 0),
                 format!(

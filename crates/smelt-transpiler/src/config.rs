@@ -59,6 +59,9 @@ pub struct Config {
     build: Build,
     /// Optional strict mode configuration.
     strict: Option<Strict>,
+    /// Erasure-reason severities (`[erasure]`); see `crate::erasure`.
+    #[serde(default)]
+    erasure: Option<crate::erasure::ErasureConfig>,
 }
 
 impl Config {
@@ -145,6 +148,12 @@ impl Config {
     /// command line replaces the manifest's value, as a later `--define` does.
     pub fn extend_defines(&mut self, defines: impl IntoIterator<Item = (String, String)>) {
         self.build.define.extend(defines);
+    }
+
+    /// Get the `[erasure]` table, when the manifest has one.
+    #[must_use]
+    pub fn erasure(&self) -> Option<&crate::erasure::ErasureConfig> {
+        self.erasure.as_ref()
     }
 
     /// Whether the generated output should be built automatically.

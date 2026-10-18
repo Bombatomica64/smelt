@@ -61,7 +61,7 @@ use oxc::ast::ast::BindingPattern;
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
-use smelt_hir::{Body, Expr, ExprKind, LocalDecl, LocalId, Literal, Param, Pattern, Stmt, Type};
+use smelt_hir::{Body, ErasureReason, Expr, ExprKind, LocalDecl, LocalId, Literal, Param, Pattern, Stmt, Type};
 
 /// The synthetic rest-parameter name holding a variadic function's argument list.
 ///
@@ -166,7 +166,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         let span = self.span(function.span.start, function.span.end);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::ByName, "arguments");
         let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
         let float_ty = self.ctx.krate.types.intern(Type::Float);
         let list_symbol = self.intern_source_name(ARGUMENTS_LIST_NAME);

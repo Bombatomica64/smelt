@@ -13,6 +13,7 @@ use crate::lowering::{
     Argument, Body, Expr, ExprKind, Expression, FunctionType, Literal, ModuleBuilder,
     PrimitiveCastOp, SmeltError, Span, StringPadOp, Type,
 };
+use smelt_hir::ErasureReason;
 use oxc::span::GetSpan;
 
 impl ModuleBuilder<'_> {
@@ -624,7 +625,12 @@ impl ModuleBuilder<'_> {
         let items_ty = match self.ctx.krate.types.get(items_ty) {
             Some(Type::List(_)) => items_ty,
             Some(Type::Unknown | Type::TypeParam { .. }) => {
-                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                // An already-erased receiver was recorded where it was decided.
+                let item_ty = if self.ctx.krate.types.get(items_ty) == Some(&Type::Unknown) {
+                    self.unknown_type()
+                } else {
+                    self.erase(ErasureReason::UnfilledGeneric)
+                };
                 let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 items = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: items },
@@ -641,7 +647,7 @@ impl ModuleBuilder<'_> {
                     )
                 }) =>
             {
-                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let item_ty = self.erase(ErasureReason::ByName);
                 let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 items = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: items },

@@ -64,7 +64,8 @@ impl ModuleBuilder<'_> {
         };
         let exprs_before = body.exprs.len();
         let receiver = self.expression(operand, body)?;
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure: compared against, and the receiver is already erased
+        let unknown_ty = self.unknown_type();
         if Self::expr_ty(body, receiver) != unknown_ty {
             // A plain read has no effect, so the probe is dropped and the
             // ordinary assertion path lowers the operand itself.

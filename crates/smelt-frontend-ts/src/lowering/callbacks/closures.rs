@@ -7,7 +7,7 @@ use crate::lowering::{
     FunctionType, HashMap, ListSearchOp, Literal, LocalCallbackDefault, LocalDecl, ModuleBuilder,
     Param, PrimitiveCastOp, SmeltError, Span, Stmt, StringAffixOp, StringCaseOp, Type,
 };
-use smelt_hir::{PropertyLookup, StringTrimSide};
+use smelt_hir::{ErasureReason, PropertyLookup, StringTrimSide};
 
 impl ModuleBuilder<'_> {
     /// Validate the inferred callback return type for an array method.
@@ -638,7 +638,11 @@ impl ModuleBuilder<'_> {
                     && !callee_is_item
                     && !matches!(self.ctx.krate.types.get(callee_ty), Some(Type::Function(_)))
                 {
-                    let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let item_ty = self.callback_erase_unless_unknown(
+                        callee_ty,
+                        ErasureReason::DynamicOperator,
+                        "spread call",
+                    );
                     let packed =
                         self.callback_packed_spread_call_args(item_ty, call_args, args, body, span)?;
                     return Ok(body.push_expr(Expr {
@@ -1472,7 +1476,8 @@ impl ModuleBuilder<'_> {
             && raw_args.first().is_some_and(|arg| arg.spread)
             && let Some(spread_args) = callback_args.first().copied()
         {
-            let unknown = self.ctx.krate.types.intern(Type::Unknown);
+            let unknown =
+                self.callback_erase_unless_unknown(receiver_ty, ErasureReason::ByName, "call");
             let field = self.intern_source_name("call");
             let callee = body.push_expr(Expr {
                 kind: ExprKind::Field { receiver, field },
@@ -1495,7 +1500,9 @@ impl ModuleBuilder<'_> {
             let field = self.intern_source_name("call");
             let field_ty = self
                 .class_field_type(receiver_ty, field)
-                .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown));
+                .unwrap_or_else(|_| {
+                    self.callback_erase_unless_unknown(receiver_ty, ErasureReason::ByName, "call")
+                });
             let function = self
                 .ctx
                 .krate
@@ -1616,7 +1623,8 @@ impl ModuleBuilder<'_> {
         // program whose only erased value is this argument list still declares the
         // carrier it is about to emit, instead of failing at emit time with
         // "type table does not contain literal operand type Unknown".
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure: names the runtime call-ABI carrier type only.
+        let unknown_ty = self.unknown_type();
         self.ctx.krate.types.intern(Type::List(unknown_ty));
         Ok(body.push_expr(Expr {
             kind: ExprKind::ClosureCallSpread {
@@ -1750,7 +1758,11 @@ impl ModuleBuilder<'_> {
                     Some(Type::List(flat_item_ty)) => flat_item_ty,
                     Some(Type::Tuple(items)) => self.flattened_tuple_item_type(items),
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
-                        self.ctx.krate.types.intern(Type::Unknown)
+                        self.callback_erase_unless_unknown(
+                            item_ty,
+                            ErasureReason::TypeLevel,
+                            "flat",
+                        )
                     }
                     _ => item_ty,
                 };
@@ -1761,7 +1773,11 @@ impl ModuleBuilder<'_> {
                 self.ctx.krate.types.intern(Type::List(item_ty))
             }
             _ => {
-                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let item_ty = self.callback_erase_unless_unknown(
+                    receiver_ty,
+                    ErasureReason::ByName,
+                    "flat receiver",
+                );
                 self.ctx.krate.types.intern(Type::List(item_ty))
             }
         }
@@ -1882,7 +1898,11 @@ impl ModuleBuilder<'_> {
         } else {
             // Coerce erased/type-param receivers to an unknown-element list so the
             // join lowering has a concrete list surface to operate on.
-            let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let item_ty = self.callback_erase_unless_unknown(
+                receiver_ty,
+                ErasureReason::ByName,
+                "join receiver",
+            );
             let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
             body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: receiver },

@@ -1085,7 +1085,13 @@ impl ModuleBuilder<'_> {
                 .collect::<Vec<_>>();
             let item_ty = rest_items
                 .first()
-                .map_or_else(|| self.intern_type(Type::Unknown), |item| item.ty);
+                .map_or_else(
+                    || {
+                        let span = self.span(lambda.range);
+                        self.erase(smelt_hir::ErasureReason::MissingAnnotation, span, "*args")
+                    },
+                    |item| item.ty,
+                );
             callback_params.insert(
                 vararg.name.as_str(),
                 CallbackExpr {
@@ -1097,7 +1103,9 @@ impl ModuleBuilder<'_> {
         if let Some(kwarg) = &params.kwarg {
             let kwarg_ty = expected_param_tys.last().copied().unwrap_or_else(|| {
                 let string_ty = self.intern_type(Type::String);
-                let unknown_ty = self.intern_type(Type::Unknown);
+                let span = self.span(lambda.range);
+                let unknown_ty =
+                    self.erase(smelt_hir::ErasureReason::MissingAnnotation, span, "**kwargs");
                 self.intern_type(Type::Dict(string_ty, unknown_ty))
             });
             callback_params.insert(

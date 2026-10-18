@@ -1047,7 +1047,16 @@ impl ModuleBuilder<'_> {
                     may_throw: signature.throws,
                 })
             }
-            smelt_specialize::StaticType::DynamicMetadata => Type::Unknown,
+            smelt_specialize::StaticType::DynamicMetadata => {
+                // A specialized signature carries no source span; the record
+                // points at the start of the module being lowered.
+                let span = Span::new(self.file_id, 0, 0);
+                return self.erase(
+                    smelt_hir::ErasureReason::DynamicMetadata,
+                    span,
+                    "specialized signature",
+                );
+            }
         };
         self.intern_type(hir)
     }

@@ -47,7 +47,8 @@ impl ModuleBuilder<'_> {
             // `Unknown`/`List<Unknown>` for every projection would change which
             // record backing the other arms pick.
             DictProjectionOp::Symbols => {
-                let symbol_key_ty = self.intern_type(Type::Unknown);
+                let symbol_key_ty =
+                    self.erase(smelt_hir::ErasureReason::UnmodeledType, span, "symbol key");
                 self.intern_type(Type::List(symbol_key_ty))
             }
             DictProjectionOp::Values => self.intern_type(Type::List(value_ty)),

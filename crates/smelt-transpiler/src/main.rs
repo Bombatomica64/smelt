@@ -40,6 +40,7 @@ pub mod cli_parser;
 pub mod config;
 pub mod config_parser;
 mod diagnostics;
+mod erasure;
 mod list_escape_report;
 mod lowering;
 mod manifest;
@@ -162,6 +163,7 @@ fn main() -> CliResult<()> {
         format,
         baseline,
         fail_on_regression,
+        erasure: erasure_sidecars,
         output,
     } = &args.command
     {
@@ -173,11 +175,13 @@ fn main() -> CliResult<()> {
             }
         };
         let root_paths = roots.iter().map(PathBuf::from).collect::<Vec<_>>();
+        let sidecar_paths = erasure_sidecars.iter().map(PathBuf::from).collect::<Vec<_>>();
         let outcome = unknown_report::unknown_report(&unknown_report::UnknownReportOptions {
             roots: &root_paths,
             format: report_format,
             baseline: baseline.as_deref().map(PathBuf::from),
             fail_on_regression: *fail_on_regression,
+            erasure_sidecars: &sidecar_paths,
         })?;
         if let Some(output_path) = output {
             std::fs::write(output_path, &outcome.rendered)?;
@@ -225,11 +229,21 @@ fn main() -> CliResult<()> {
             .ok_or("manifest path contains invalid UTF-8")?,
     )?;
     match args.command {
-        Command::Check { message_format } => match message_format.as_str() {
-            "human" => pipeline::check_manifest(&config, &manifest_path)?,
+        Command::Check {
+            message_format,
+            erasure,
+        } => match message_format.as_str() {
+            "human" => pipeline::check_manifest(
+                &config,
+                &manifest_path,
+                &erasure::ErasureSettings::new(config.erasure(), &erasure)?,
+            )?,
             "json" => {
-                let diagnostics =
-                    lowering::collect_manifest_diagnostics(&config, &manifest_path)?;
+                let diagnostics = lowering::collect_manifest_diagnostics(
+                    &config,
+                    &manifest_path,
+                    Some(&erasure::ErasureSettings::new(config.erasure(), &erasure)?),
+                )?;
                 let mut stdout = io::stdout().lock();
                 writeln!(stdout, "{}", serde_json::to_string_pretty(&diagnostics)?)?;
             }
@@ -243,6 +257,7 @@ fn main() -> CliResult<()> {
             hir,
             hir_debug,
             define,
+            erasure,
         } => {
             config.extend_defines(define);
             if hir || hir_debug {
@@ -250,7 +265,8 @@ fn main() -> CliResult<()> {
                 pipeline::print_hir(&krate, &modules, hir_debug);
                 return Ok(());
             }
-            pipeline::build_rust_crate(&config, &manifest_path)?;
+            let settings = erasure::ErasureSettings::new(config.erasure(), &erasure)?;
+            pipeline::build_rust_crate_with_erasure(&config, &manifest_path, &settings)?;
         }
         Command::New { name, python } => {
             return Err(format!(

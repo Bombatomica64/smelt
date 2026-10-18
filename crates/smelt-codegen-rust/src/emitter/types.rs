@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::rust::RustIdent;
-use smelt_hir::FunctionType;
+use smelt_hir::{ErasureReason, FunctionType};
 
 /// The default value of the erased-function carrier, `SmeltErasedFunction`.
 ///
@@ -1500,7 +1500,10 @@ impl FunctionEmitter<'_> {
             Type::Float => Ok(RustType::raw("f64")),
             Type::String => Ok(RustType::raw("String")),
             Type::Unknown => Ok(RustType::raw("SmeltUnknown")),
-            Type::Never => Ok(RustType::raw("SmeltUnknown")),
+            Type::Never => {
+                self.note_backend_erasure(ErasureReason::NeverValue, String::new());
+                Ok(RustType::raw("SmeltUnknown"))
+            }
             Type::TypeParam { name } => match substitution.resolve(*name)? {
                 Resolved::Spelled(param) => Ok(RustType::raw(
                     RustIdent::new(self.symbol_name(param)?).into_string(),
@@ -1518,7 +1521,11 @@ impl FunctionEmitter<'_> {
                     self.debug_assert_substituted_binding_is_not_erased(*name, bound, &rendered);
                     Ok(rendered)
                 }
-                Resolved::Erased => Ok(RustType::raw("SmeltUnknown")),
+                Resolved::Erased => {
+                    let param = self.symbol_name(*name).unwrap_or("?").to_owned();
+                    self.note_backend_erasure(ErasureReason::ErasedGeneric, param);
+                    Ok(RustType::raw("SmeltUnknown"))
+                }
             },
             Type::Class { name, args } => {
                 if self.is_regexp_class_symbol(*name)? {
@@ -1607,6 +1614,8 @@ impl FunctionEmitter<'_> {
                         .iter()
                         .any(|interface| interface.name == *name)
                 {
+                    let class = self.symbol_name(*name).unwrap_or("?").to_owned();
+                    self.note_backend_erasure(ErasureReason::UnresolvedClass, class);
                     return Ok(RustType::raw("SmeltUnknown"));
                 }
                 let type_name = sanitize_ident(self.symbol_name(*name)?);
@@ -1719,7 +1728,13 @@ impl FunctionEmitter<'_> {
                 // own, separately byte-verified change.
                 self.union_type_text(ty).map(RustType::raw)
             }
-            Type::Union(_) => Ok(RustType::raw("SmeltUnknown")),
+            Type::Union(arms) => {
+                self.note_backend_erasure(
+                    ErasureReason::ErasedUnion,
+                    format!("union of {} arms", arms.len()),
+                );
+                Ok(RustType::raw("SmeltUnknown"))
+            }
             Type::Function(function) => {
                 if self.is_erased_unknown_rest_function(function) && !function.may_throw {
                     return Ok(RustType::raw("SmeltErasedFunction"));
