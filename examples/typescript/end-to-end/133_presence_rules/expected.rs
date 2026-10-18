@@ -623,6 +623,23 @@ impl<K, V> serde::Serialize for SmeltRecord<K, V> where K: Eq + ::std::hash::Has
     }
 }
 
+impl<'de, K, V> serde::Deserialize<'de> for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + serde::Deserialize<'de>, V: serde::Deserialize<'de> {
+    /// Deserialize a JSON object into a record, entry by entry.
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct SmeltRecordVisitor<K, V>(::std::marker::PhantomData<(K, V)>);
+        impl<'de, K, V> serde::de::Visitor<'de> for SmeltRecordVisitor<K, V> where K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + serde::Deserialize<'de>, V: serde::Deserialize<'de> {
+            type Value = SmeltRecord<K, V>;
+            fn expecting(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("an object") }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let record = SmeltRecord::new();
+                while let Some((key, value)) = map.next_entry::<K, V>()? { record.insert(key, value); }
+                Ok(record)
+            }
+        }
+        deserializer.deserialize_map(SmeltRecordVisitor(::std::marker::PhantomData))
+    }
+}
+
 trait SmeltOwnedOptionCloned<T> {
     /// Return owned optional values unchanged when generated shared lookup code calls `.cloned()`.
     fn cloned(self) -> Option<T>;
@@ -3517,6 +3534,10 @@ impl SmeltBody {
     pub fn id(&self) -> usize { self.id }
     /// The spec's `bodyUsed`.
     pub fn body_used(&self) -> bool { self.used.get() }
+    /// `ReadableStream.locked`: the body has no reader API in this model, so
+    /// it is locked exactly when it has been consumed (see
+    /// `smelt_stdlib::host_data_property`).
+    pub fn locked(&self) -> bool { self.used.get() }
     /// The `Content-Type` this body implies, when it implies one.
     pub fn content_type(&self) -> Option<String> { self.content_type.clone() }
     /// Whether there is no body at all (the spec's null body).
@@ -3783,21 +3804,21 @@ impl SmeltFromUnknown for Wrapper {
 
 #[derive(Clone)]
 pub enum SmeltUnion4 {
-    M0(Wrapper),
-    M1(SmeltRequest),
+    M0(SmeltRequest),
+    M1(Wrapper),
 }
 impl IntoSmeltUnknown for SmeltUnion4 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
-            Self::M0(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("raw".to_owned(), smelt_object_value.0.borrow().raw.clone().into_smelt_unknown())); smelt_object_entries.push(("count".to_owned(), SmeltUnknown::Number(smelt_object_value.0.borrow().count.clone() as f64))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Wrapper".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); SmeltUnknown::Object(SmeltObject::with_id(smelt_reference_object_identity(::std::rc::Rc::as_ptr(&smelt_struct_value.0) as usize), smelt_object_entries).smelt_with_origin(smelt_struct_value.clone())) },
-            Self::M1(value) => value.clone().into_smelt_unknown(),
+            Self::M0(value) => value.clone().into_smelt_unknown(),
+            Self::M1(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("raw".to_owned(), smelt_object_value.0.borrow().raw.clone().into_smelt_unknown())); smelt_object_entries.push(("count".to_owned(), SmeltUnknown::Number(smelt_object_value.0.borrow().count.clone() as f64))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Wrapper".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); SmeltUnknown::Object(SmeltObject::with_id(smelt_reference_object_identity(::std::rc::Rc::as_ptr(&smelt_struct_value.0) as usize), smelt_object_entries).smelt_with_origin(smelt_struct_value.clone())) },
         }
     }
 }
 impl SmeltUnion4 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("raw")) && matches!(&value, SmeltUnknown::Object(map) if map.contains_key("count"))) { return Self::M0(Default::default()); }
-        Self::M1(<SmeltRequest as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
+        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("raw")) && matches!(&value, SmeltUnknown::Object(map) if map.contains_key("count"))) { return Self::M1(Default::default()); }
+        Self::M0(<SmeltRequest as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
     }
 }
 impl PartialEq for SmeltUnion4 {
@@ -3819,7 +3840,7 @@ impl ::std::fmt::Debug for SmeltUnion4 {
 }
 impl Default for SmeltUnion4 {
     fn default() -> Self {
-        Self::M0(Default::default())
+        Self::M0(SmeltRequest::from_parts("about:blank", "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty()))
     }
 }
 
@@ -3889,23 +3910,23 @@ fn main() {
     let _smelt_tmp_3: SmeltRequest = SmeltRequest::from_parts_with_init(&"https://x/".to_owned(), "POST".to_owned(), SmeltHeaders::from_pairs(_smelt_tmp_2.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"a".to_owned()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     let req: SmeltRequest = _smelt_tmp_3;
     let _smelt_tmp_4 = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion4| {
-    let _smelt_tmp_1: bool = matches!(closure_arg_0.clone(), SmeltUnion4::M1(_));
+    let _smelt_tmp_1: bool = matches!(closure_arg_0.clone(), SmeltUnion4::M0(_));
     _smelt_tmp_1
     });
-    let _smelt_tmp_5: bool = (_smelt_tmp_4)(SmeltUnion4::M1(req.clone()));
+    let _smelt_tmp_5: bool = (_smelt_tmp_4)(SmeltUnion4::M0(req.clone()));
     let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion4| {
-    let _smelt_tmp_1: bool = matches!(closure_arg_0.clone(), SmeltUnion4::M1(_));
+    let _smelt_tmp_1: bool = matches!(closure_arg_0.clone(), SmeltUnion4::M0(_));
     _smelt_tmp_1
     });
     let _smelt_tmp_7: Wrapper = Wrapper::new(req.clone());
-    _smelt_tmp_8 = (_smelt_tmp_6)(SmeltUnion4::M0(_smelt_tmp_7));
+    _smelt_tmp_8 = (_smelt_tmp_6)(SmeltUnion4::M1(_smelt_tmp_7));
     let _ = { println!("{} {}", _smelt_tmp_5, _smelt_tmp_8); };
     _smelt_tmp_10 = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion4| {
-    let _smelt_tmp_1: bool = matches!(closure_arg_0.clone(), SmeltUnion4::M1(_));
+    let _smelt_tmp_1: bool = matches!(closure_arg_0.clone(), SmeltUnion4::M0(_));
     _smelt_tmp_1
     });
     let _smelt_tmp_11: Wrapper = Wrapper::new(req.clone());
-    _smelt_tmp_12 = (_smelt_tmp_10)(SmeltUnion4::M1(_smelt_tmp_11.0.borrow().raw.clone()));
+    _smelt_tmp_12 = (_smelt_tmp_10)(SmeltUnion4::M0(_smelt_tmp_11.0.borrow().raw.clone()));
     let _smelt_tmp_13: Wrapper = Wrapper::new(req.clone());
     let _smelt_tmp_14: String = _smelt_tmp_13.header();
     let _ = { println!("{} {}", _smelt_tmp_12, _smelt_tmp_14); };
@@ -3981,7 +4002,7 @@ pub(crate) fn segments(path: String) -> SmeltList<String> {
     let mut p: String;
     let mut __smelt_update_tmp: f64;
     let mut next: Option<String>;
-    let mut _smelt_tmp_10: f64;
+    let mut _smelt_tmp_10: usize;
     let mut _smelt_tmp_11: bool;
     let mut _smelt_tmp_12: f64;
     let mut _smelt_tmp_13: bool;
@@ -3994,12 +4015,12 @@ pub(crate) fn segments(path: String) -> SmeltList<String> {
     let _smelt_tmp_8: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
     let mut out: SmeltList<String> = Into::<SmeltList<_>>::into(_smelt_tmp_8);
     let mut i: f64 = 0.0;
-    let mut _smelt_tmp_9: f64 = 0.0;
+    let mut _smelt_tmp_9: usize = 0;
     loop {
-    _smelt_tmp_10 = parts.len() as f64;
+    _smelt_tmp_10 = parts.len();
     _smelt_tmp_11 = _smelt_tmp_9 < _smelt_tmp_10;
     if !(_smelt_tmp_11) { break; }
-    p = parts.borrow().get({ let smelt_normalized = _smelt_tmp_9 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
+    p = parts.borrow().get(_smelt_tmp_9).cloned().unwrap_or_else(|| String::new());
     _smelt_tmp_12 = i + 1.0;
     __smelt_update_tmp = _smelt_tmp_12;
     i = __smelt_update_tmp;
@@ -4010,12 +4031,12 @@ pub(crate) fn segments(path: String) -> SmeltList<String> {
     _smelt_tmp_16 = _smelt_tmp_15 + &"<last>".to_owned();
     _smelt_tmp_14 = _smelt_tmp_16;
     _smelt_tmp_17 = { let smelt_push_item = _smelt_tmp_14; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
-    _smelt_tmp_9 = _smelt_tmp_9 + 1.0;
+    _smelt_tmp_9 = _smelt_tmp_9 + 1;
     continue;
     } else {
     _smelt_tmp_14 = p;
     _smelt_tmp_17 = { let smelt_push_item = _smelt_tmp_14; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
-    _smelt_tmp_9 = _smelt_tmp_9 + 1.0;
+    _smelt_tmp_9 = _smelt_tmp_9 + 1;
     continue;
     }
     }
@@ -4040,7 +4061,7 @@ pub(crate) fn buckets() -> String {
     let mut __smelt_logical_4: SmeltList<String>;
     let mut __smelt_logical_value_5: SmeltList<String>;
     let mut target: SmeltList<String>;
-    let mut _smelt_tmp_13: f64;
+    let mut _smelt_tmp_13: usize;
     let mut _smelt_tmp_14: bool;
     let mut _smelt_tmp_15: f64;
     let mut _smelt_tmp_16: String;
@@ -4056,12 +4077,12 @@ pub(crate) fn buckets() -> String {
     let _smelt_tmp_9: (f64, String) = (1.0, "b".to_owned());
     let _smelt_tmp_10: (f64, String) = (0.0, "c".to_owned());
     let _smelt_tmp_11: SmeltList<(f64, String)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(f64, String)> = vec![_smelt_tmp_8.clone(), _smelt_tmp_9.clone(), _smelt_tmp_10.clone()]; smelt_list_items }));
-    let mut _smelt_tmp_12: f64 = 0.0;
+    let mut _smelt_tmp_12: usize = 0;
     loop {
-    _smelt_tmp_13 = _smelt_tmp_11.len() as f64;
+    _smelt_tmp_13 = _smelt_tmp_11.len();
     _smelt_tmp_14 = _smelt_tmp_12 < _smelt_tmp_13;
     if !(_smelt_tmp_14) { break; }
-    __smelt_for_item = _smelt_tmp_11.borrow().get({ let smelt_normalized = _smelt_tmp_12 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (0.0, String::new()));
+    __smelt_for_item = _smelt_tmp_11.borrow().get(_smelt_tmp_12).cloned().unwrap_or_else(|| (0.0, String::new()));
     _smelt_tmp_15 = __smelt_for_item.clone().0.clone();
     count = _smelt_tmp_15;
     _smelt_tmp_16 = __smelt_for_item.1.clone();
@@ -4077,13 +4098,13 @@ pub(crate) fn buckets() -> String {
     __smelt_logical_4 = Into::<SmeltList<_>>::into(__smelt_logical_value_5);
     target = Into::<SmeltList<_>>::into(__smelt_logical_4);
     _smelt_tmp_21 = { let smelt_push_item = item; target.borrow_mut().push(smelt_push_item); target.len() as f64 };
-    _smelt_tmp_12 = _smelt_tmp_12 + 1.0;
+    _smelt_tmp_12 = _smelt_tmp_12 + 1;
     continue;
     } else {
     __smelt_logical_4 = Into::<SmeltList<_>>::into(queue.borrow().get({ let smelt_normalized = count as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltList::new(Vec::<String>::new())));
     target = Into::<SmeltList<_>>::into(__smelt_logical_4);
     _smelt_tmp_21 = { let smelt_push_item = item; target.borrow_mut().push(smelt_push_item); target.len() as f64 };
-    _smelt_tmp_12 = _smelt_tmp_12 + 1.0;
+    _smelt_tmp_12 = _smelt_tmp_12 + 1;
     continue;
     }
     }

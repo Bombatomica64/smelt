@@ -178,7 +178,7 @@ use super::*;
 
 pub(crate) fn defer(body: &dyn Fn(::std::rc::Rc<dyn Fn(::std::rc::Rc<dyn Fn() -> ()>) -> ()>) -> ()) -> () {
     let mut cleanup: ::std::rc::Rc<dyn Fn() -> ()>;
-    let mut _smelt_tmp_7: f64;
+    let mut _smelt_tmp_7: usize;
     let mut _smelt_tmp_8: bool;
     let mut _smelt_tmp_9: ();
     let _smelt_tmp_3: SmeltList<::std::rc::Rc<dyn Fn() -> ()>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<::std::rc::Rc<dyn Fn() -> ()>> = vec![]; smelt_list_items }));
@@ -191,14 +191,14 @@ pub(crate) fn defer(body: &dyn Fn(::std::rc::Rc<dyn Fn(::std::rc::Rc<dyn Fn() ->
     }
 });
     let _smelt_tmp_5: () = body(_smelt_tmp_4.clone());
-    let mut _smelt_tmp_6: f64 = 0.0;
+    let mut _smelt_tmp_6: usize = 0;
     loop {
-    _smelt_tmp_7 = (*smelt_capture_cleanups.borrow()).len() as f64;
+    _smelt_tmp_7 = (*smelt_capture_cleanups.borrow()).len();
     _smelt_tmp_8 = _smelt_tmp_6 < _smelt_tmp_7;
     if !(_smelt_tmp_8) { break; }
-    cleanup = ((*smelt_capture_cleanups.borrow()).borrow().get({ let smelt_normalized = _smelt_tmp_6 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ()> = ::std::rc::Rc::new(move || -> () { () }); smelt_default_callback })).clone();
+    cleanup = ((*smelt_capture_cleanups.borrow()).borrow().get(_smelt_tmp_6).cloned().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ()> = ::std::rc::Rc::new(move || -> () { () }); smelt_default_callback })).clone();
     _smelt_tmp_9 = (cleanup)();
-    _smelt_tmp_6 = _smelt_tmp_6 + 1.0;
+    _smelt_tmp_6 = _smelt_tmp_6 + 1;
     }
     return;
 }

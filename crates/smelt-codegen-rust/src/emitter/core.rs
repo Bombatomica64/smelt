@@ -62,6 +62,7 @@ impl<'mir> FunctionEmitter<'mir> {
             static_typeof_str_locals: typeof_str_locals::static_typeof_str_locals(mir, function),
             folded_throw_payloads,
             termination_cache: RefCell::new(HashMap::new()),
+            post_dominators: RefCell::new(None),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
             by_reference_param_locals: HashSet::new(),
@@ -1826,6 +1827,12 @@ impl<'mir> FunctionEmitter<'mir> {
             };
             let value = if let Some(value) = receiver_bound {
                 value
+            } else if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty)
+                && self.record_value_misses_concrete_union(source_value, *inner)
+            {
+                // The record's values cannot be this field's type, so the key
+                // is absent from any value the source holds.
+                "None".to_owned()
             } else if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
                 if self.can_render_dict_value_as(source_value, *inner) {
                     let mapped = self.value_at_type_text("value", source_value, *inner, scope)?;
@@ -1972,6 +1979,26 @@ impl<'mir> FunctionEmitter<'mir> {
             || self.can_adapt_rendered_function_value(source, target)
     }
 
+    /// Whether a record whose values are `source` can never hold a value of
+    /// the field type `target`, because `target` is a union emitted as a
+    /// concrete enum and `source` is none of its arms.
+    ///
+    /// Projecting `{ method: 'HEAD' }` (`Record<string, string>`) into
+    /// `RequestInit` reaches `headers: Record | Headers | [string, string][]`;
+    /// a string is not a header list, so the key is absent for every value the
+    /// record can hold. An erased or union-typed source is still projected at
+    /// run time.
+    fn record_value_misses_concrete_union(&self, source: TypeId, target: TypeId) -> bool {
+        source != target
+            && !matches!(
+                self.mir.types.get(source),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
+            && self
+                .concrete_union_members(target)
+                .is_some_and(|members| !members.contains(&source))
+    }
+
     /// Returns whether a non-callback dictionary value can populate a field.
     fn can_render_non_function_dict_value_as(&self, source: TypeId, target: TypeId) -> bool {
         if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
@@ -1996,6 +2023,9 @@ impl<'mir> FunctionEmitter<'mir> {
                 (self.mir.types.get(source), self.mir.types.get(target)),
                 (Some(Type::Int), Some(Type::Float))
                     | (Some(Type::Float), Some(Type::Int))
+                    // A Bun `int32` field the frontend proved every literal
+                    // store into (`lowering::int32`).
+                    | (Some(Type::Float), Some(Type::FixedInt(_)))
                     | (
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)),
                         _
@@ -2582,6 +2612,7 @@ impl<'mir> FunctionEmitter<'mir> {
             static_typeof_str_locals: HashSet::new(),
             folded_throw_payloads: HashSet::new(),
             termination_cache: RefCell::new(HashMap::new()),
+            post_dominators: RefCell::new(None),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
             by_reference_param_locals: HashSet::new(),
@@ -2642,6 +2673,7 @@ impl<'mir> FunctionEmitter<'mir> {
             static_typeof_str_locals: HashSet::new(),
             folded_throw_payloads: HashSet::new(),
             termination_cache: RefCell::new(HashMap::new()),
+            post_dominators: RefCell::new(None),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
             by_reference_param_locals: HashSet::new(),
@@ -2689,6 +2721,7 @@ impl<'mir> FunctionEmitter<'mir> {
             static_typeof_str_locals: HashSet::new(),
             folded_throw_payloads: HashSet::new(),
             termination_cache: RefCell::new(HashMap::new()),
+            post_dominators: RefCell::new(None),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
             by_reference_param_locals: HashSet::new(),
@@ -2801,15 +2834,15 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Whether a place reads a scalar that lowers to a `Copy` Rust type.
     ///
-    /// `bool`, `i64` and `f64` are `Copy`, so a place read of one is already an
-    /// owned value and needs no `.clone()`. Only these three are accepted: every
+    /// `bool`, the integers and `f64` are `Copy`, so a place read of one is already an
+    /// owned value and needs no `.clone()`. Only these scalars are accepted: every
     /// other Smelt type either owns a heap allocation (`String`, `SmeltList`) or
     /// lowers to a type whose `Copy`-ness depends on its parameters, and a wrong
     /// answer here would emit a move out of a borrowed place.
     fn place_type_is_copy_scalar(&self, place: &Place) -> Result<bool, EmitError> {
         Ok(matches!(
             self.mir.types.get(self.place_ty(place)?),
-            Some(Type::Bool | Type::Int | Type::Float)
+            Some(Type::Bool | Type::Int | Type::Float | Type::FixedInt(_))
         ))
     }
 
@@ -5129,6 +5162,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 Type::None
                 | Type::Bool
                 | Type::Int
+                | Type::FixedInt(_)
                 | Type::Float
                 | Type::String
                 | Type::Never
@@ -5189,7 +5223,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// therefore use the generated linear `SmeltJsMap` runtime container.
     pub(super) fn dict_uses_js_key_map(&self, key_ty: TypeId) -> bool {
         match self.mir.types.get(key_ty) {
-            Some(Type::Bool | Type::Int | Type::String) => false,
+            Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::String) => false,
             Some(Type::Float) => true,
             Some(Type::Optional(inner) | Type::Future(inner)) => self.dict_uses_js_key_map(*inner),
             Some(Type::Union(items)) => items.iter().any(|item| self.dict_uses_js_key_map(*item)),

@@ -651,6 +651,23 @@ impl<K, V> serde::Serialize for SmeltRecord<K, V> where K: Eq + ::std::hash::Has
     }
 }
 
+impl<'de, K, V> serde::Deserialize<'de> for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + serde::Deserialize<'de>, V: serde::Deserialize<'de> {
+    /// Deserialize a JSON object into a record, entry by entry.
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct SmeltRecordVisitor<K, V>(::std::marker::PhantomData<(K, V)>);
+        impl<'de, K, V> serde::de::Visitor<'de> for SmeltRecordVisitor<K, V> where K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + serde::Deserialize<'de>, V: serde::Deserialize<'de> {
+            type Value = SmeltRecord<K, V>;
+            fn expecting(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("an object") }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let record = SmeltRecord::new();
+                while let Some((key, value)) = map.next_entry::<K, V>()? { record.insert(key, value); }
+                Ok(record)
+            }
+        }
+        deserializer.deserialize_map(SmeltRecordVisitor(::std::marker::PhantomData))
+    }
+}
+
 trait SmeltOwnedOptionCloned<T> {
     /// Return owned optional values unchanged when generated shared lookup code calls `.cloned()`.
     fn cloned(self) -> Option<T>;
@@ -2659,6 +2676,7 @@ async fn smelt_promise_race<T>(mut racers: Vec<::std::pin::Pin<Box<dyn ::std::fu
             if let ::std::task::Poll::Ready(result) = ::std::future::Future::poll(racer.as_mut(), &mut cx) { return result; }
         }
         smelt_drain_promise_tasks().await;
+        if SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; continue; }
         let id_barrier = SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get);
         let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());
         if let Some(earliest) = earliest {
@@ -3873,6 +3891,10 @@ impl SmeltBody {
     pub fn id(&self) -> usize { self.id }
     /// The spec's `bodyUsed`.
     pub fn body_used(&self) -> bool { self.used.get() }
+    /// `ReadableStream.locked`: the body has no reader API in this model, so
+    /// it is locked exactly when it has been consumed (see
+    /// `smelt_stdlib::host_data_property`).
+    pub fn locked(&self) -> bool { self.used.get() }
     /// The `Content-Type` this body implies, when it implies one.
     pub fn content_type(&self) -> Option<String> { self.content_type.clone() }
     /// Whether there is no body at all (the spec's null body).
@@ -4301,6 +4323,19 @@ fn smelt_decode_integer(value: &SmeltUnknown, path: &mut String) -> Result<i64, 
     match value { SmeltUnknown::Number(number) if number.fract() == 0.0 && number.abs() < 9_007_199_254_740_992.0 => Ok(*number as i64), other => smelt_decode_fail(path, "integer", other) }
 }
 
+/// Decode a JSON number that is Bun's `int32`: a whole number from -2^31 to
+/// 2^31 - 1. `-0` is rejected: an `i32` slot cannot hold it, so accepting it
+/// would silently turn `Object.is(v, -0)` false.
+fn smelt_decode_int32(value: &SmeltUnknown, path: &mut String) -> Result<i32, SmeltDecodeIssue> {
+    match value { SmeltUnknown::Number(number) if number.fract() == 0.0 && *number >= -2_147_483_648.0 && *number <= 2_147_483_647.0 && !(*number == 0.0 && number.is_sign_negative()) => Ok(*number as i32), other => smelt_decode_fail(path, "int32", other) }
+}
+
+/// Decode a JSON number that is a whole, non-negative number below 2^53 (a
+/// `usize` slot proven never negative).
+fn smelt_decode_index(value: &SmeltUnknown, path: &mut String) -> Result<usize, SmeltDecodeIssue> {
+    match value { SmeltUnknown::Number(number) if number.fract() == 0.0 && *number >= 0.0 && *number < 9_007_199_254_740_992.0 && !number.is_sign_negative() => Ok(*number as usize), other => smelt_decode_fail(path, "integer", other) }
+}
+
 /// Decode a JSON string.
 fn smelt_decode_string(value: &SmeltUnknown, path: &mut String) -> Result<String, SmeltDecodeIssue> {
     match value { SmeltUnknown::String(text) => Ok(text.to_string()), other => smelt_decode_fail(path, "string", other) }
@@ -4614,21 +4649,21 @@ pub(crate) fn area(shape: SmeltUnion2) -> f64 {
 
 pub(crate) fn count_nodes(tree: Tree) -> f64 {
     let mut child: Tree;
-    let mut _smelt_tmp_5: f64;
+    let mut _smelt_tmp_5: usize;
     let mut _smelt_tmp_6: bool;
     let mut _smelt_tmp_8: f64;
     let mut total: f64 = 1.0;
     let _smelt_tmp_3: SmeltList<Tree> = Into::<SmeltList<_>>::into(tree.children.clone());
-    let mut _smelt_tmp_4: f64 = 0.0;
+    let mut _smelt_tmp_4: usize = 0;
     loop {
-    _smelt_tmp_5 = _smelt_tmp_3.len() as f64;
+    _smelt_tmp_5 = _smelt_tmp_3.len();
     _smelt_tmp_6 = _smelt_tmp_4 < _smelt_tmp_5;
     if !(_smelt_tmp_6) { break; }
-    child = _smelt_tmp_3.borrow().get({ let smelt_normalized = _smelt_tmp_4 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default());
+    child = _smelt_tmp_3.borrow().get(_smelt_tmp_4).cloned().unwrap_or_else(|| Default::default());
     let _smelt_tmp_7: f64 = count_nodes(child);
     _smelt_tmp_8 = total + _smelt_tmp_7;
     total = _smelt_tmp_8;
-    _smelt_tmp_4 = _smelt_tmp_4 + 1.0;
+    _smelt_tmp_4 = _smelt_tmp_4 + 1;
     }
     return total;
 }

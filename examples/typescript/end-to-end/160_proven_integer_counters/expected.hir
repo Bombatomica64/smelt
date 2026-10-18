@@ -1,0 +1,224 @@
+module examples/typescript/end-to-end/160_proven_integer_counters/input.ts (ModuleId(0))
+  body BodyId(12)
+  items
+    global mut k: Float
+    fn sum_pairs owner Module
+    fn last_index_down owner Module
+    fn step_two owner Module
+    fn chars owner Module
+    fn grid owner Module
+    fn unguarded owner Module
+    fn flip owner Module
+    fn halve owner Module
+    fn captured owner Module
+    fn from_start owner Module
+    fn below_bound owner Module
+  locals
+    %0 let i: Float
+    %1 let z: Float
+    %2 let j: Float
+    %3 const m: Float
+  exprs
+    #0: Float = 1.0
+    #1: Float = 2.0
+    #2: Float = 3.0
+    #3: Float = 4.0
+    #4: List<Float> = [#0, #1, #2, #3]
+    #5: fn(List<Float>) -> Float = @1(sum_pairs)
+    #6: Float = call #5(#4)
+    #7: List<Float> = []
+    #8: fn(List<Float>) -> Float = @1(sum_pairs)
+    #9: Float = call #8(#7)
+    #10: Float = 5.0
+    #11: List<Float> = [#10]
+    #12: fn(List<Float>) -> Float = @1(sum_pairs)
+    #13: Float = call #12(#11)
+    #14: None = @12(console_log)
+    #15: None = call #14(#6, #9, #13)
+    #16: String = "a"
+    #17: String = "stop"
+    #18: String = "b"
+    #19: List<String> = [#16, #17, #18]
+    #20: fn(List<String>) -> Float = @2(last_index_down)
+    #21: Float = call #20(#19)
+    #22: List<String> = []
+    #23: fn(List<String>) -> Float = @2(last_index_down)
+    #24: Float = call #23(#22)
+    #25: String = "x"
+    #26: List<String> = [#25]
+    #27: fn(List<String>) -> Float = @2(last_index_down)
+    #28: Float = call #27(#26)
+    #29: None = @13(console_log)
+    #30: None = call #29(#21, #24, #28)
+    #31: Float = 10.0
+    #32: Float = 20.0
+    #33: Float = 30.0
+    #34: List<Float> = [#31, #32, #33]
+    #35: fn(List<Float>) -> String = @3(step_two)
+    #36: String = call #35(#34)
+    #37: List<Float> = []
+    #38: fn(List<Float>) -> String = @3(step_two)
+    #39: String = call #38(#37)
+    #40: Float = 1.0
+    #41: Float = 2.0
+    #42: List<Float> = [#40, #41]
+    #43: fn(List<Float>) -> String = @3(step_two)
+    #44: String = call #43(#42)
+    #45: None = @14(console_log)
+    #46: None = call #45(#36, #39, #44)
+    #47: String = "hello"
+    #48: fn(String) -> String = @4(chars)
+    #49: String = call #48(#47)
+    #50: String = ""
+    #51: fn(String) -> String = @4(chars)
+    #52: String = call #51(#50)
+    #53: None = @15(console_log)
+    #54: None = call #53(#49, #52)
+    #55: Float = 1.0
+    #56: Float = 2.0
+    #57: List<Float> = [#55, #56]
+    #58: Float = 3.0
+    #59: List<Float> = [#58]
+    #60: List<Float> = []
+    #61: List<List<Float>> = [#57, #59, #60]
+    #62: fn(List<List<Float>>) -> Float = @5(grid)
+    #63: Float = call #62(#61)
+    #64: List<List<Float>> = []
+    #65: fn(List<List<Float>>) -> Float = @5(grid)
+    #66: Float = call #65(#64)
+    #67: None = @16(console_log)
+    #68: None = call #67(#63, #66)
+    #69: Float = 10.0
+    #70: fn(Float) -> Float = @6(unguarded)
+    #71: Float = call #70(#69)
+    #72: Float = 0.5
+    #73: fn(Float) -> Float = @7(flip)
+    #74: Float = call #73(#72)
+    #75: fn() -> Float = @8(halve)
+    #76: Float = call #75()
+    #77: Float = 1.0
+    #78: Float = 2.0
+    #79: Float = 3.0
+    #80: List<Float> = [#77, #78, #79]
+    #81: fn(List<Float>) -> Float = @9(captured)
+    #82: Float = call #81(#80)
+    #83: None = @17(console_log)
+    #84: None = call #83(#71, #74, #76, #82)
+    #85: Float = 1.0
+    #86: Float = 1.0
+    #87: Float = 2.0
+    #88: Float = 3.0
+    #89: List<Float> = [#86, #87, #88]
+    #90: fn(Float, List<Float>) -> Float = @10(from_start)
+    #91: Float = call #90(#85, #89)
+    #92: Float = 2.5
+    #93: fn(Float) -> Float = @11(below_bound)
+    #94: Float = call #93(#92)
+    #95: Float = 1.0
+    #96: Float = Neg #95
+    #97: fn(Float) -> Float = @11(below_bound)
+    #98: Float = call #97(#96)
+    #99: None = @18(console_log)
+    #100: None = call #99(#91, #94, #98)
+    #101: Float = 0.0
+    #102: Float = %0
+    #103: Float = 3.0
+    #104: Bool = Lt #102, #103
+    #105: Float = %0
+    #106: String = "i="
+    #107: Float = %0
+    #108: String = Add #106, #107
+    #109: String = "t"
+    #110: Float = %0
+    #111: String = Add #109, #110
+    #112: Float = %0
+    #113: Float = 1.0
+    #114: Float = Sub #112, #113
+    #115: Float = %0
+    #116: String = primitive_cast_string #115
+    #117: Float = %0
+    #118: Float = 2.0
+    #119: Float = Div #117, #118
+    #120: None = @19(console_log)
+    #121: None = call #120(#105, #108, #111, #114, #116, #119)
+    #122: Float = %0
+    #123: Float = 1.0
+    #124: Float = Add #122, #123
+    #125: Float = global_get @0(k)
+    #126: Float = 0.0
+    #127: Bool = Gt #125, #126
+    #128: Float = global_get @0(k)
+    #129: Float = 2.0
+    #130: Float = Sub #128, #129
+    #131: Float = global_set @0(k) = #130
+    #132: Float = global_get @0(k)
+    #133: None = @20(console_log)
+    #134: None = call #133(#132)
+    #135: Float = 0.0
+    #136: Float = 0.0
+    #137: Float = %2
+    #138: Float = 2.0
+    #139: Bool = Lt #137, #138
+    #140: Float = %2
+    #141: Float = 1.0
+    #142: Float = Sub #140, #141
+    #143: Float = %1
+    #144: Float = %3
+    #145: Float = %2
+    #146: Float = Mul #144, #145
+    #147: Float = %1
+    #148: None = @21(console_log)
+    #149: None = call #148(#147)
+    #150: Float = %2
+    #151: Float = 1.0
+    #152: Float = Add #150, #151
+  stmts
+    s0: #15
+    s1: #30
+    s2: #46
+    s3: #54
+    s4: #68
+    s5: #84
+    s6: #100
+    s7: let %0: Float = #101
+    s8: #121
+    s9: #122 = #124
+    s10: while #104 BlockId(1) update-block BlockId(2)
+    s11: #131
+    s12: while #127 BlockId(3)
+    s13: #134
+    s14: let %1: Float = #135
+    s15: let %2: Float = #136
+    s16: let %3: Float = #142
+    s17: #143 = #146
+    s18: #149
+    s19: #150 = #152
+    s20: while #139 BlockId(4) update-block BlockId(5)
+
+interned types
+  t0 = Float
+  t1 = List<Float>
+  t2 = fn(List<Float>) -> Float
+  t3 = String
+  t4 = List<String>
+  t5 = fn(List<String>) -> Float
+  t6 = fn(List<Float>) -> String
+  t7 = fn(String) -> String
+  t8 = List<List<Float>>
+  t9 = fn(List<List<Float>>) -> Float
+  t10 = fn(Float) -> Float
+  t11 = fn() -> Float
+  t12 = fn(Float, List<Float>) -> Float
+  t13 = Bool
+  t14 = Int
+  t15 = Unknown
+  t16 = None
+  t17 = fn(Float, Int, List<Float>) -> None
+  t18 = fn(List<Float>) -> Float
+  t19 = fn(List<String>) -> Float
+  t20 = fn(List<Float>) -> String
+  t21 = fn(String) -> String
+  t22 = fn(List<List<Float>>) -> Float
+  t23 = fn(Float) -> Float
+  t24 = fn() -> Float
+  t25 = fn(Float, List<Float>) -> Float

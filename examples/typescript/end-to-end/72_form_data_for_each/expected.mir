@@ -30,8 +30,8 @@ fn main (FuncId(0)) -> None
     %27 temp: None
     %28 temp: List<String>
     %29 temp: List<(String, String | File)>
-    %30 temp: Float
-    %31 temp: Float
+    %30 temp: usize
+    %31 temp: usize
     %32 temp: Bool
     %33 temp: String | File
     %34 temp: String
@@ -49,16 +49,16 @@ fn main (FuncId(0)) -> None
     %46 temp: None
     %47 temp: List<String>
     %48 temp: List<String | File>
-    %49 temp: Float
-    %50 temp: Float
+    %49 temp: usize
+    %50 temp: usize
     %51 temp: Bool
     %52 temp: String
     %53 temp: Float
     %54 temp: String
     %55 temp: None
     %56 temp: List<(String, String | File)>
-    %57 temp: Float
-    %58 temp: Float
+    %57 temp: usize
+    %58 temp: usize
     %59 temp: Bool
     %60 temp: String | File
     %61 temp: String
@@ -68,8 +68,8 @@ fn main (FuncId(0)) -> None
     %65 temp: Map<String, Float>
     %66 temp: List<String>
     %67 temp: List<(String, Float)>
-    %68 temp: Float
-    %69 temp: Float
+    %68 temp: usize
+    %69 temp: usize
     %70 temp: Bool
     %71 temp: Float
     %72 temp: String
@@ -80,8 +80,8 @@ fn main (FuncId(0)) -> None
     %77 temp: String
     %78 temp: None
     %79 temp: List<(String, Float)>
-    %80 temp: Float
-    %81 temp: Float
+    %80 temp: usize
+    %81 temp: usize
     %82 temp: Bool
     %83 temp: Float
     %84 temp: String
@@ -96,7 +96,7 @@ fn main (FuncId(0)) -> None
     %28 = []
     %1 = move %28
     %29 = form_data_entries copy %0
-    %30 = 0.0
+    %30 = 0
     goto bb1
   bb1:
     %31 = len copy %29
@@ -120,7 +120,7 @@ fn main (FuncId(0)) -> None
     %44 = list_push copy %1, move %43
     goto bb3
   bb3:
-    %30 = copy %30 + 1.0
+    %30 = copy %30 + 1
     goto bb1
   bb4:
     %45 = string_join move %1, ","
@@ -129,7 +129,7 @@ fn main (FuncId(0)) -> None
     %47 = []
     %5 = move %47
     %48 = form_data_values copy %0
-    %49 = 0.0
+    %49 = 0
     goto bb6
   bb6:
     %50 = len copy %48
@@ -141,7 +141,7 @@ fn main (FuncId(0)) -> None
     %53 = list_push copy %5, move %52
     goto bb8
   bb8:
-    %49 = copy %49 + 1.0
+    %49 = copy %49 + 1
     goto bb6
   bb9:
     %54 = string_join move %5, ","
@@ -150,7 +150,7 @@ fn main (FuncId(0)) -> None
     %7 = 0.0
     %8 = copy %0
     %56 = form_data_entries copy %0
-    %57 = 0.0
+    %57 = 0
     goto bb11
   bb11:
     %58 = len copy %56
@@ -166,7 +166,7 @@ fn main (FuncId(0)) -> None
     %62 = form_data_has copy %0, move %11
     switch move %62 ? bb15 : bb16
   bb13:
-    %57 = copy %57 + 1.0
+    %57 = copy %57 + 1
     goto bb11
   bb14:
     %64 = call @console_log(move %7) -> bb17
@@ -182,7 +182,7 @@ fn main (FuncId(0)) -> None
     %66 = []
     %14 = move %66
     %67 = dict_entries copy %13
-    %68 = 0.0
+    %68 = 0
     goto bb18
   bb18:
     %69 = len copy %67
@@ -200,7 +200,7 @@ fn main (FuncId(0)) -> None
     %76 = list_push copy %14, move %75
     goto bb20
   bb20:
-    %68 = copy %68 + 1.0
+    %68 = copy %68 + 1
     goto bb18
   bb21:
     %77 = string_join move %14, ","
@@ -209,7 +209,7 @@ fn main (FuncId(0)) -> None
     %18 = 0.0
     %19 = copy %13
     %79 = dict_entries copy %13
-    %80 = 0.0
+    %80 = 0
     goto bb23
   bb23:
     %81 = len copy %79
@@ -226,7 +226,7 @@ fn main (FuncId(0)) -> None
     %18 = move %85
     goto bb25
   bb25:
-    %80 = copy %80 + 1.0
+    %80 = copy %80 + 1
     goto bb23
   bb26:
     %86 = call @console_log(move %18) -> bb27

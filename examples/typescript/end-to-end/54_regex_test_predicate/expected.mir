@@ -4,7 +4,7 @@ fn main (FuncId(0)) -> None
     %1 user sticky: RegExp
     %2 user built: RegExp
     %3 user matched: Float
-    %4 user index: Float
+    %4 user index: usize
     %5 user words: List<String>
     %6 temp: Bool
     %7 temp: None
@@ -42,7 +42,7 @@ fn main (FuncId(0)) -> None
     %39 temp: RegExp
     %40 temp: Bool
     %41 temp: Float
-    %42 temp: Float
+    %42 temp: usize
     %43 temp: None
     %44 temp: List<String>
     %45 temp: fn(String, Int, List<String>) -> Bool
@@ -104,17 +104,17 @@ c"
     %37 = call @console_log(move %34, move %35, move %36) -> bb11
   bb11:
     %3 = 0.0
-    %4 = 0.0
+    %4 = 0
     goto bb12
   bb12:
-    %38 = copy %4 < 3.0
+    %38 = copy %4 < 3
     switch move %38 ? bb13 : bb15
   bb13:
     %39 = external_new0("a", "g")
     %40 = regex_test move %39 "aa"
     switch move %40 ? bb16 : bb17
   bb14:
-    %42 = move %4 + 1.0
+    %42 = move %4 + 1
     %4 = move %42
     goto bb12
   bb15:

@@ -158,25 +158,27 @@ closure ClosureId(0) -> String
     %0 param key: String
     %1 user out: String
     %2 user ch: String
-    %3 temp: Float
-    %4 temp: Float
+    %3 temp: usize
+    %4 temp: usize
     %5 temp: Bool
     %6 temp: String
+    %7 temp: Float
   bb0:
     %1 = ""
-    %3 = 0.0
+    %3 = 0
     goto bb1
   bb1:
     %4 = len copy %0
     %5 = copy %3 < copy %4
     switch copy %5 ? bb2 : bb4
   bb2:
-    %2 = copy %0[copy %3]
+    %7 = primitive_cast_float copy %3
+    %2 = copy %0[move %7]
     %6 = copy %1 + copy %2
     %1 = copy %6
     goto bb3
   bb3:
-    %3 = copy %3 + 1.0
+    %3 = copy %3 + 1
     goto bb1
   bb4:
     return copy %1
@@ -223,27 +225,29 @@ closure ClosureId(4) -> Float
     %0 param key: String
     %1 user total: Float
     %2 user ch: String
-    %3 temp: Float
-    %4 temp: Float
+    %3 temp: usize
+    %4 temp: usize
     %5 temp: Bool
     %6 temp: Float
     %7 temp: Float
+    %8 temp: Float
   bb0:
     %1 = 0.0
-    %3 = 0.0
+    %3 = 0
     goto bb1
   bb1:
     %4 = len copy %0
     %5 = copy %3 < copy %4
     switch copy %5 ? bb2 : bb4
   bb2:
-    %2 = copy %0[copy %3]
+    %8 = primitive_cast_float copy %3
+    %2 = copy %0[move %8]
     %6 = len copy %2
     %7 = copy %1 + copy %6
     %1 = copy %7
     goto bb3
   bb3:
-    %3 = copy %3 + 1.0
+    %3 = copy %3 + 1
     goto bb1
   bb4:
     return copy %1

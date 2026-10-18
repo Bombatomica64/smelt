@@ -29,15 +29,15 @@ fn count_nodes (FuncId(1)) -> Float
     %1 user total: Float
     %2 user child: Tree
     %3 temp: List<Tree>
-    %4 temp: Float
-    %5 temp: Float
+    %4 temp: usize
+    %5 temp: usize
     %6 temp: Bool
     %7 temp: Float
     %8 temp: Float
   bb0:
     %1 = 1.0
     %3 = copy %0.field19
-    %4 = 0.0
+    %4 = 0
     goto bb1
   bb1:
     %5 = len copy %3
@@ -47,7 +47,7 @@ fn count_nodes (FuncId(1)) -> Float
     %2 = copy %3[copy %4]
     %7 = call fn1(move %2) -> bb5
   bb3:
-    %4 = copy %4 + 1.0
+    %4 = copy %4 + 1
     goto bb1
   bb4:
     return move %1

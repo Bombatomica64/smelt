@@ -84,6 +84,8 @@ pub enum NumericUnaryFuncOp {
     Log2,
     /// Exponential function.
     Exp,
+    /// `Math.clz32`: the number of leading zero bits of `ToUint32(x)`.
+    Clz32,
 }
 
 /// A directly lowered primitive conversion operation.
@@ -95,6 +97,12 @@ pub enum PrimitiveCastOp {
     ToInt,
     /// Convert to floating-point number.
     ToFloat,
+    /// Store a `number` the TypeScript frontend PROVED to be a whole number in
+    /// `[-2^31, 2^31 - 1]` (and not `-0`) into a Bun `int32` slot
+    /// (an `I32` [`crate::Type::FixedInt`], or its optional form). The
+    /// conversion is exact for every such value, so it neither wraps nor
+    /// checks; the proof is `smelt_frontend_ts`'s `lowering::int32`.
+    ToInt32,
     /// Parse a JavaScript-coerced string as a floating-point number.
     ParseFloat,
     /// Convert with JavaScript `Number(...)` and unary-plus semantics.

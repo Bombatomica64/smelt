@@ -5,6 +5,7 @@ mod arguments_forwarding;
 mod asserted_member_read;
 mod function_statics;
 mod hoisting;
+mod int32;
 mod presence_tested_locals;
 mod promise_resolution;
 mod specialization;
@@ -13,6 +14,7 @@ mod state;
 mod stdlib;
 mod stdlib_dispatch;
 mod support;
+mod symbol_consts;
 mod type_predicates;
 mod union_member_read;
 mod ty;
@@ -524,6 +526,10 @@ pub fn predeclare_type_declarations_with_path(
     builder.predeclare_import_provenance(&parsed.program);
     builder.predeclare_class_method_fields(&parsed.program);
     builder.predeclare_type_alias_items(&parsed.program);
+    // After the aliases: a call signature routinely names one of its own
+    // module's aliases (`headers?: HeaderRecord`), and it must lower to the
+    // same type the interface's full lowering will give it.
+    builder.predeclare_interface_call_signatures(&parsed.program);
     // Class type-parameter DEFAULTS have to be readable crate-wide before any
     // body is lowered: a dependency cycle through a barrel file routinely
     // lowers a consumer before the module that declares the class it
@@ -532,6 +538,33 @@ pub fn predeclare_type_declarations_with_path(
     // `ModuleBuilder::collect_class_type_parameter_defaults`.
     builder.collect_class_type_parameter_defaults(&parsed.program);
     Ok(())
+}
+
+/// Record the module-level unique-symbol consts one TypeScript source declares
+/// (`const K = Symbol()`), crate-wide, before any module body is lowered.
+///
+/// The transpiler runs this over every source ahead of
+/// [`predeclare_type_declarations_with_path`], so a module an import cycle
+/// lowers early can still resolve `c[K]` and `get [K]()` to the member they
+/// name (see `lowering::symbol_consts`). Parse failures record nothing; the
+/// real lowering pass reports them.
+pub fn predeclare_unique_symbol_consts_with_path(
+    source: &str,
+    file_id: FileId,
+    path: &str,
+    ctx: &mut HirCtx,
+) {
+    if is_generated_declaration_file(path, source) || is_typescript_declaration_path(path) {
+        return;
+    }
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, source, SourceType::default().with_typescript(true))
+        .with_options(ParseOptions::default())
+        .parse();
+    if !parsed.diagnostics.is_empty() {
+        return;
+    }
+    symbol_consts::record_unique_symbol_consts(&parsed.program, file_id, path, ctx);
 }
 
 /// Scan one TypeScript source for modeled host constructors it reassigns via
@@ -885,6 +918,13 @@ struct ModuleBuilder<'ctx> {
     /// Consulted by `classify_pending_host_imports`; see
     /// [`FrontendOptions::excluded_modules`].
     excluded_modules: Vec<String>,
+    /// How deep inside a type annotation lowering currently is.
+    ///
+    /// Bun's `int32` is an int32 only as the WHOLE type of a slot; nested in
+    /// another type it is a `number`. `ts_type_to_hir` is re-entered for every
+    /// nested type, so depth `0` is exactly the whole-type position. See
+    /// `lowering::int32`.
+    int32_type_depth: usize,
 }
 
 /// One value import whose module resolved to no source item.

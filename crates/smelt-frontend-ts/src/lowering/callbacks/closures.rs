@@ -1264,6 +1264,14 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a callback method call whose receiver has a callable field.
+    ///
+    /// The member may be typed as a function or as a callable interface
+    /// (`get text(): TextRespond`, `interface TextRespond { (t: string): R }`):
+    /// both are callable values read off the receiver, and an overloaded
+    /// callable interface picks the signature matching the call's arity, the
+    /// same selection the ordinary member-call path makes. The read keeps its
+    /// declared type and is asserted to the selected signature, so the call
+    /// goes through the member read (getter or field) rather than a method.
     pub(in crate::lowering) fn callback_callable_field_method_to_body_expr(
         &mut self,
         receiver: smelt_hir::ExprId,
@@ -1276,16 +1284,15 @@ impl ModuleBuilder<'_> {
         span: Span,
     ) -> Option<smelt_hir::ExprId> {
         let field_ty = self.class_field_type(receiver_ty, method).ok()?;
-        let function = self
-            .ctx
-            .krate
-            .types
-            .get(self.type_param_constraint_or_self(field_ty))
-            .and_then(|field_type| match field_type {
-                Type::Function(function) => Some(function.clone()),
-                _ => None,
-            })?;
-        let callee = body.push_expr(Expr {
+        let constrained_ty = self.type_param_constraint_or_self(field_ty);
+        let function_ty = match self.ctx.krate.types.get(constrained_ty) {
+            Some(Type::Function(_)) => constrained_ty,
+            _ => self.function_member_type_for_arg_count(constrained_ty, Some(raw_args.len()))?,
+        };
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty).cloned() else {
+            return None;
+        };
+        let read = body.push_expr(Expr {
             kind: ExprKind::Field {
                 receiver,
                 field: method,
@@ -1293,6 +1300,20 @@ impl ModuleBuilder<'_> {
             ty: field_ty,
             span,
         });
+        // A callable interface this module only knows by its predeclared call
+        // signatures is called AS the record, through its own slot; see
+        // `callable_interface_known_only_by_predeclaration`.
+        let callee = if function_ty == constrained_ty
+            || self.callable_interface_known_only_by_predeclaration(constrained_ty)
+        {
+            read
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: read },
+                ty: function_ty,
+                span,
+            })
+        };
         let args = self
             .callback_spread_call_args_to_body_exprs(
                 &function,

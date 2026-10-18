@@ -146,9 +146,15 @@ impl FunctionEmitter<'_> {
     /// non-recursive parts.
     fn json_decodable(&self, ty: TypeId, visiting: &mut Vec<TypeId>) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None | Type::Unknown) => {
-                true
-            }
+            Some(
+                Type::Bool
+                | Type::Int
+                | Type::FixedInt(_)
+                | Type::Float
+                | Type::String
+                | Type::None
+                | Type::Unknown,
+            ) => true,
             Some(Type::List(item) | Type::Optional(item)) => self.json_decodable(*item, visiting),
             Some(Type::Tuple(items)) => items.iter().all(|item| self.json_decodable(*item, visiting)),
             Some(Type::Dict(key, value)) => {
@@ -229,6 +235,8 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(ty) {
             Some(Type::Bool) => "boolean".to_owned(),
             Some(Type::Int) => "integer".to_owned(),
+            Some(Type::FixedInt(smelt_hir::IntWidth::I32)) => "int32".to_owned(),
+            Some(Type::FixedInt(_)) => "integer".to_owned(),
             Some(Type::Float) => "number".to_owned(),
             Some(Type::String) => "string".to_owned(),
             Some(Type::None) => "null".to_owned(),
@@ -280,6 +288,9 @@ impl FunctionEmitter<'_> {
         let primitive = match self.mir.types.get(ty) {
             Some(Type::Bool) => Some("smelt_decode_boolean"),
             Some(Type::Int) => Some("smelt_decode_integer"),
+            Some(Type::FixedInt(smelt_hir::IntWidth::I32)) => Some("smelt_decode_int32"),
+            Some(Type::FixedInt(smelt_hir::IntWidth::I64)) => Some("smelt_decode_integer"),
+            Some(Type::FixedInt(smelt_hir::IntWidth::Usize)) => Some("smelt_decode_index"),
             Some(Type::Float) => Some("smelt_decode_number"),
             Some(Type::String) => Some("smelt_decode_string"),
             Some(Type::None) => Some("smelt_decode_null"),
@@ -725,6 +736,19 @@ fn smelt_decode_number(value: &SmeltUnknown, path: &mut String) -> Result<f64, S
 /// Decode a JSON number that is a whole number in `i64` range.
 fn smelt_decode_integer(value: &SmeltUnknown, path: &mut String) -> Result<i64, SmeltDecodeIssue> {{
     match value {{ SmeltUnknown::Number(number) if number.fract() == 0.0 && number.abs() < 9_007_199_254_740_992.0 => Ok(*number as i64), other => smelt_decode_fail(path, "integer", other) }}
+}}
+
+/// Decode a JSON number that is Bun's `int32`: a whole number from -2^31 to
+/// 2^31 - 1. `-0` is rejected: an `i32` slot cannot hold it, so accepting it
+/// would silently turn `Object.is(v, -0)` false.
+fn smelt_decode_int32(value: &SmeltUnknown, path: &mut String) -> Result<i32, SmeltDecodeIssue> {{
+    match value {{ SmeltUnknown::Number(number) if number.fract() == 0.0 && *number >= -2_147_483_648.0 && *number <= 2_147_483_647.0 && !(*number == 0.0 && number.is_sign_negative()) => Ok(*number as i32), other => smelt_decode_fail(path, "int32", other) }}
+}}
+
+/// Decode a JSON number that is a whole, non-negative number below 2^53 (a
+/// `usize` slot proven never negative).
+fn smelt_decode_index(value: &SmeltUnknown, path: &mut String) -> Result<usize, SmeltDecodeIssue> {{
+    match value {{ SmeltUnknown::Number(number) if number.fract() == 0.0 && *number >= 0.0 && *number < 9_007_199_254_740_992.0 && !number.is_sign_negative() => Ok(*number as usize), other => smelt_decode_fail(path, "integer", other) }}
 }}
 
 /// Decode a JSON string.

@@ -150,6 +150,9 @@ struct FrontendLoweringState {
     /// Crate-unique module identity per module path, from
     /// [`manifest_module_names`]; see `HirCtx::module_identities`.
     ts_module_identities: HashMap<String, String>,
+    /// Crate-wide module-level unique-symbol consts; see
+    /// `HirCtx::predeclared_unique_symbols`.
+    ts_predeclared_unique_symbols: HashMap<String, HashMap<String, String>>,
     /// Python module/package namespaces visible through `import package`.
     py_module_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// Python `IntEnum` member values visible to later manifest entries.
@@ -336,6 +339,13 @@ pub(crate) struct ManifestDiagnostic {
     pub(crate) code: &'static str,
     /// Human-readable message.
     pub(crate) message: String,
+    /// 1-based line of the diagnostic's span start, when the frontend
+    /// reported a span inside this file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) line: Option<u32>,
+    /// 1-based column (in UTF-8 bytes) of the span start; see `line`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) column: Option<u32>,
 }
 
 /// RAII guard that silences panic backtraces and restores the prior hook on drop.
@@ -879,7 +889,22 @@ fn predeclare_manifest_type_declarations(
         project_sources_outside_crate: state.ts_project_sources_outside_crate,
         type_renames: state.ts_type_renames,
         module_identities: state.ts_module_identities,
+        predeclared_unique_symbols: state.ts_predeclared_unique_symbols,
     };
+    // Unique-symbol consts first, for EVERY source: a class surface below may
+    // key a member by a symbol another module (possibly one ordered later in
+    // an import cycle) declares.
+    for (idx, source) in sources.iter().enumerate() {
+        let path = source.path.display().to_string();
+        if SourceLang::from_path(&path).is_ok_and(SourceLang::is_typescript) {
+            smelt_frontend_ts::predeclare_unique_symbol_consts_with_path(
+                &source.source,
+                FileId(u32::try_from(idx).unwrap_or(u32::MAX)),
+                &path,
+                &mut ctx,
+            );
+        }
+    }
     for (idx, source) in sources.iter().enumerate() {
         let path = source.path.display().to_string();
         if SourceLang::from_path(&path).is_ok_and(SourceLang::is_typescript) {
@@ -923,6 +948,7 @@ fn predeclare_manifest_type_declarations(
     state.ts_project_sources_outside_crate = ctx.project_sources_outside_crate;
     state.ts_type_renames = ctx.type_renames;
     state.ts_module_identities = ctx.module_identities;
+    state.ts_predeclared_unique_symbols = ctx.predeclared_unique_symbols;
     Ok((krate, state))
 }
 
@@ -1025,6 +1051,8 @@ pub(crate) fn collect_manifest_diagnostics(
                     message: "frontend panicked while lowering this file; \
                               remaining modules were not scanned"
                         .to_owned(),
+                    line: None,
+                    column: None,
                 });
                 break;
             }
@@ -1086,6 +1114,7 @@ fn lower_manifest_source(
                 project_sources_outside_crate: state.ts_project_sources_outside_crate,
                 type_renames: state.ts_type_renames,
                 module_identities: state.ts_module_identities,
+                predeclared_unique_symbols: state.ts_predeclared_unique_symbols,
             };
             let outcome = smelt_frontend_ts::to_hir_with_options(
                 &source.source,
@@ -1100,9 +1129,15 @@ fn lower_manifest_source(
             .map_err(|errors| {
                 manifest_diagnostics(
                     &file_string,
-                    errors
-                        .iter()
-                        .map(|e| (e.category, e.code, e.message.clone())),
+                    &source.source,
+                    errors.iter().map(|e| {
+                        (
+                            e.category,
+                            e.code,
+                            e.message.clone(),
+                            (e.span.file == file_id).then_some(e.span.start),
+                        )
+                    }),
                 )
             });
             let next_state = FrontendLoweringState {
@@ -1131,6 +1166,7 @@ fn lower_manifest_source(
                 ts_project_sources_outside_crate: ctx.project_sources_outside_crate,
                 ts_type_renames: ctx.type_renames,
                 ts_module_identities: ctx.module_identities,
+                ts_predeclared_unique_symbols: ctx.predeclared_unique_symbols,
                 py_module_namespaces: state.py_module_namespaces,
                 py_enum_members: state.py_enum_members,
             };
@@ -1173,6 +1209,7 @@ fn lower_manifest_source(
                 ts_project_sources_outside_crate: state.ts_project_sources_outside_crate,
                 ts_type_renames: state.ts_type_renames,
                 ts_module_identities: state.ts_module_identities,
+                ts_predeclared_unique_symbols: state.ts_predeclared_unique_symbols,
                 py_module_namespaces,
                 py_enum_members,
             };
@@ -1182,18 +1219,43 @@ fn lower_manifest_source(
 }
 
 /// Build per-file [`ManifestDiagnostic`]s from a frontend's categorized errors.
+///
+/// Each error carries the byte offset of its span start when the span lies in
+/// `file` (`None` otherwise); it is resolved against `source` to the 1-based
+/// line/column a reader can jump to.
 pub(crate) fn manifest_diagnostics(
     file: &str,
-    errors: impl Iterator<Item = (DiagnosticCategory, &'static str, String)>,
+    source: &str,
+    errors: impl Iterator<Item = (DiagnosticCategory, &'static str, String, Option<u32>)>,
 ) -> Vec<ManifestDiagnostic> {
     errors
-        .map(|(category, code, message)| ManifestDiagnostic {
-            file: file.to_owned(),
-            category,
-            code,
-            message,
+        .map(|(category, code, message, offset)| {
+            let (line, column) = offset
+                .and_then(|offset| source_line_column(source, offset))
+                .map_or((None, None), |(line, column)| (Some(line), Some(column)));
+            ManifestDiagnostic {
+                file: file.to_owned(),
+                category,
+                code,
+                message,
+                line,
+                column,
+            }
         })
         .collect()
+}
+
+/// Resolve a byte offset in `source` to a 1-based `(line, column)` pair.
+///
+/// The column counts UTF-8 bytes from the line start. Returns `None` for an
+/// offset past the end of `source` (a span from synthesized code).
+fn source_line_column(source: &str, offset: u32) -> Option<(u32, u32)> {
+    let offset = usize::try_from(offset).ok()?;
+    let prefix = source.get(..offset)?;
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let line_start = prefix.rfind('\n').map_or(0, |index| index + 1);
+    let column = offset - line_start + 1;
+    Some((u32::try_from(line).ok()?, u32::try_from(column).ok()?))
 }
 
 /// Returns the generated Rust function name for a manifest module body.

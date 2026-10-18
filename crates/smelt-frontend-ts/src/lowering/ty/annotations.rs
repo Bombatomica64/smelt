@@ -18,7 +18,27 @@ impl ModuleBuilder<'_> {
     ///
     /// `never` is preserved as a bottom marker instead of being converted to
     /// `None` or `Unknown`; callers that need executable values must reject it.
+    ///
+    /// Bun's `int32` is an int32 slot type only as the WHOLE annotation; every
+    /// nested type lowers through this same function one level deeper, where
+    /// it is a `number` (see `lowering::int32`).
     pub(in crate::lowering) fn ts_type_to_hir(&mut self, ty: &TSType<'_>) -> Result<smelt_hir::TypeId, SmeltError> {
+        let whole = self.int32_type_depth == 0;
+        if whole && self.is_bun_int32_annotation(ty) {
+            return Ok(self
+                .ctx
+                .krate
+                .types
+                .intern(Type::FixedInt(smelt_hir::IntWidth::I32)));
+        }
+        self.int32_type_depth += 1;
+        let lowered = self.ts_type_shape_to_hir(ty);
+        self.int32_type_depth -= 1;
+        Ok(self.int32_only_as_whole_type(lowered?, whole))
+    }
+
+    /// Lower the shape of a TypeScript type annotation; see [`Self::ts_type_to_hir`].
+    fn ts_type_shape_to_hir(&mut self, ty: &TSType<'_>) -> Result<smelt_hir::TypeId, SmeltError> {
         match ty {
             TSType::TSAnyKeyword(_) | TSType::TSUnknownKeyword(_) | TSType::TSObjectKeyword(_) => {
                 Ok(self.ctx.krate.types.intern(Type::Unknown))
@@ -1949,6 +1969,7 @@ return_ty: function.return_ty,
             Some(
                 Type::Bool
                 | Type::Int
+                | Type::FixedInt(_)
                 | Type::Float
                 | Type::String
                 | Type::Unknown
@@ -1983,6 +2004,11 @@ return_ty: function.return_ty,
         &mut self,
         reference: &oxc::ast::ast::TSTypeReference<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
+        // Bun's `int32` nested in another type is a `number`; the whole-type
+        // position never reaches here (`ts_type_to_hir` answers it first).
+        if self.is_bun_int32_reference(reference) {
+            return Ok(self.ctx.krate.types.intern(Type::Float));
+        }
         let name_text = match &reference.type_name {
             TSTypeName::IdentifierReference(name) => name.name.to_string(),
             TSTypeName::QualifiedName(qualified) => Self::qualified_type_name_text(qualified),
@@ -2945,6 +2971,9 @@ return_ty: function.return_ty,
                 // scrutinee, and would drop the erasure adapter when the read
                 // flows into a `SmeltUnknown` slot.
                 if let Some(field_ty) = self.regexp_field_type_for(name, field) {
+                    return Ok(field_ty);
+                }
+                if let Some(field_ty) = self.host_data_property_type(receiver_ty, field) {
                     return Ok(field_ty);
                 }
                 let class_item = self.class_by_symbol(name).cloned();

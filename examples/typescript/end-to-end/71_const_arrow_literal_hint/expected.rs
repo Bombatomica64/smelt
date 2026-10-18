@@ -189,33 +189,19 @@ fn main() {
     let _smelt_tmp_1: bool = !(closure_arg_0.status.clone().is_none());
     if _smelt_tmp_1 {
     _smelt_tmp_2 = closure_arg_0.status.clone();
-    _smelt_tmp_3 = "required ".to_owned() + &_smelt_tmp_2.clone().map_or_else(|| "undefined".to_owned(), |value| value.to_string());
-    _smelt_tmp_4 = _smelt_tmp_3.clone() + &" ".to_owned();
-    _smelt_tmp_5 = !(closure_arg_0.label.clone().is_none());
-    if _smelt_tmp_5 {
-    _smelt_tmp_6 = closure_arg_0.label.clone();
-    _smelt_tmp_7 = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_7.clone()
-    } else {
-    _smelt_tmp_6 = Some("-".to_owned());
-    _smelt_tmp_7 = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_7.clone()
-    }
     } else {
     _smelt_tmp_2 = Some(0.0);
+    }
     _smelt_tmp_3 = "required ".to_owned() + &_smelt_tmp_2.clone().map_or_else(|| "undefined".to_owned(), |value| value.to_string());
     _smelt_tmp_4 = _smelt_tmp_3.clone() + &" ".to_owned();
     _smelt_tmp_5 = !(closure_arg_0.label.clone().is_none());
     if _smelt_tmp_5 {
     _smelt_tmp_6 = closure_arg_0.label.clone();
-    _smelt_tmp_7 = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_7.clone()
     } else {
     _smelt_tmp_6 = Some("-".to_owned());
+    }
     _smelt_tmp_7 = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone().unwrap_or_else(|| "undefined".to_owned());
     _smelt_tmp_7.clone()
-    }
-    }
     });
     _smelt_tmp_11 = Opts { status: Some(9.0), label: Some("req".to_owned()) };
     _smelt_tmp_12 = (_smelt_tmp_10)(_smelt_tmp_11);
@@ -230,56 +216,42 @@ fn main() {
     let _smelt_tmp_1: bool = !(closure_arg_0.status.clone().is_none());
     if _smelt_tmp_1 {
     _smelt_tmp_2 = closure_arg_0.status.clone();
-    _smelt_tmp_3 = "required ".to_owned() + &_smelt_tmp_2.clone().map_or_else(|| "undefined".to_owned(), |value| value.to_string());
-    _smelt_tmp_4 = _smelt_tmp_3.clone() + &" ".to_owned();
-    _smelt_tmp_5 = !(closure_arg_0.label.clone().is_none());
-    if _smelt_tmp_5 {
-    _smelt_tmp_6 = closure_arg_0.label.clone();
-    _smelt_tmp_7 = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_7.clone()
-    } else {
-    _smelt_tmp_6 = Some("-".to_owned());
-    _smelt_tmp_7 = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_7.clone()
-    }
     } else {
     _smelt_tmp_2 = Some(0.0);
+    }
     _smelt_tmp_3 = "required ".to_owned() + &_smelt_tmp_2.clone().map_or_else(|| "undefined".to_owned(), |value| value.to_string());
     _smelt_tmp_4 = _smelt_tmp_3.clone() + &" ".to_owned();
     _smelt_tmp_5 = !(closure_arg_0.label.clone().is_none());
     if _smelt_tmp_5 {
     _smelt_tmp_6 = closure_arg_0.label.clone();
-    _smelt_tmp_7 = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_7.clone()
     } else {
     _smelt_tmp_6 = Some("-".to_owned());
+    }
     _smelt_tmp_7 = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone().unwrap_or_else(|| "undefined".to_owned());
     _smelt_tmp_7.clone()
-    }
-    }
     });
     _smelt_tmp_15 = Opts { status: None::<f64>, label: Some("partial".to_owned()) };
     _smelt_tmp_16 = (_smelt_tmp_14)(_smelt_tmp_15);
     let _ = { println!("{}", _smelt_tmp_16); };
-    _smelt_tmp_18 = (show_optional)(None::<Opts>);
+    _smelt_tmp_18 = (show_optional)(None);
     let _ = { println!("{}", _smelt_tmp_18); };
     _smelt_tmp_20 = ::std::rc::Rc::new(|closure_arg_0: &SmeltList<Opts>| {
     let mut item: Opts;
-    let mut _smelt_tmp_4: f64;
+    let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: f64;
     let mut _smelt_tmp_7: f64;
     let mut sum: f64 = 0.0;
-    let mut _smelt_tmp_3: f64 = 0.0;
+    let mut _smelt_tmp_3: usize = 0;
     loop {
-    _smelt_tmp_4 = closure_arg_0.len() as f64;
+    _smelt_tmp_4 = closure_arg_0.len();
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if _smelt_tmp_5 {
-    item = closure_arg_0.borrow().get({ let smelt_normalized = _smelt_tmp_3 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default());
+    item = closure_arg_0.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| Default::default());
     _smelt_tmp_6 = item.status.clone().clone().unwrap_or(0.0);
     _smelt_tmp_7 = sum + _smelt_tmp_6;
     sum = _smelt_tmp_7;
-    _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
+    _smelt_tmp_3 = _smelt_tmp_3 + 1;
     } else {
     return sum;
     }

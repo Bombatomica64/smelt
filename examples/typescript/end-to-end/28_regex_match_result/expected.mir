@@ -13,8 +13,8 @@ fn main (FuncId(0)) -> None
     %10 user found: Optional<__SmeltMatch>
     %11 temp: RegExp
     %12 temp: List<__SmeltMatch>
-    %13 temp: Float
-    %14 temp: Float
+    %13 temp: usize
+    %14 temp: usize
     %15 temp: Bool
     %16 temp: Optional<String>
     %17 temp: __SmeltMatchGroups
@@ -52,7 +52,7 @@ fn main (FuncId(0)) -> None
     %0 = move %11
     %12 = regex_match_all move %0, "a1 b c3"
     %1 = move %12
-    %13 = 0.0
+    %13 = 0
     goto bb1
   bb1:
     %14 = len copy %1
@@ -68,7 +68,7 @@ fn main (FuncId(0)) -> None
     %5 = move %18
     %19 = call @console_log(move %3) -> bb5
   bb3:
-    %13 = copy %13 + 1.0
+    %13 = copy %13 + 1
     goto bb1
   bb4:
     %30 = external_new0("(?P<year>\d{4})-(\d{2})", "")

@@ -1882,6 +1882,35 @@ impl ModuleBuilder<'_> {
             }
         };
         let fallback_ty = Self::expr_ty(body, fallback);
+        // `||` is a TRUTHINESS test, and `OptionalCoalesce` below is a
+        // PRESENCE test: the two agree only when every present value is truthy
+        // (objects). A present `''`, `0`, `NaN` or `false` is falsy, so for a
+        // primitive left operand (`pattern[2] || LABEL`, `opts.port || 80`)
+        // the fallback is taken for those too. `optional` is one HIR value,
+        // evaluated once and read by both the test and the selected arm.
+        if matches!(
+            self.ctx.krate.types.get(ty),
+            Some(Type::String | Type::Float | Type::Int | Type::Bool)
+        ) && (fallback_ty == ty
+            || self.is_string_compatible_type(ty) && self.is_string_compatible_type(fallback_ty))
+        {
+            let span = self.span(logical.span.start, logical.span.end);
+            let cond = self.lowered_condition_expression(optional, span, body)?;
+            let present = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: optional },
+                ty,
+                span,
+            });
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Conditional {
+                    cond,
+                    then_expr: present,
+                    else_expr: fallback,
+                },
+                ty,
+                span,
+            })));
+        }
         let ty = if fallback_ty == ty {
             ty
         } else if matches!(
@@ -2845,6 +2874,7 @@ impl ModuleBuilder<'_> {
                     "unary plus requires a numeric or DateArg-compatible operand",
                 ));
             }
+            UnaryOperator::BitwiseNot => return self.bitwise_not_expression(unary, body),
             _ => {
                 return Err(SmeltError::unsupported(
                     self.span(unary.span.start, unary.span.end),
@@ -3615,6 +3645,15 @@ impl ModuleBuilder<'_> {
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let mut record_ty = self.dict_type_from_hint(type_hint);
+        // Without a contextual record type the result's type is the join of
+        // ALL its pieces, not the first piece's: `{ path: '/', ...opt, secure:
+        // true }` has string AND boolean values. Pieces that disagree make the
+        // literal the erased record, exactly as a plain heterogeneous literal
+        // is (`object_literal_type`). `chunks` are the explicit-property runs
+        // that then need re-typing.
+        let hinted = record_ty.is_some();
+        let mut heterogeneous = false;
+        let mut chunks: Vec<smelt_hir::ExprId> = Vec::new();
         let mut sources = Vec::new();
         let mut pending_entries = Vec::new();
         let mut erased_spread_requires_unknown_record = false;
@@ -3661,6 +3700,9 @@ impl ModuleBuilder<'_> {
                         body,
                         object.span,
                     );
+                    if !hinted {
+                        self.note_spread_chunk_join(&sources, &mut chunks, record_ty, &mut heterogeneous, body);
+                    }
                     if let Some(source) = self.conditional_object_spread_source(
                         &spread.argument,
                         record_ty,
@@ -3677,15 +3719,32 @@ impl ModuleBuilder<'_> {
                         sources.push(source);
                         continue;
                     }
-                    let mut source =
-                        self.expression_with_hint(&spread.argument, body, record_ty)?;
+                    let mut source = self.expression_with_hint(
+                        &spread.argument,
+                        body,
+                        if hinted { record_ty } else { None },
+                    )?;
                     let source_ty = Self::expr_ty(body, source);
+                    // Unhinted: a record source whose value type differs from
+                    // the pieces so far joins them into the erased record
+                    // rather than being judged against the first piece.
+                    let source_record = match self.ctx.krate.types.get(source_ty) {
+                        Some(Type::Optional(inner)) => *inner,
+                        _ => source_ty,
+                    };
+                    let joins_erased = !hinted
+                        && record_ty.is_some_and(|record| record != source_record)
+                        && matches!(self.ctx.krate.types.get(source_record), Some(Type::Dict(_, _)));
+                    if joins_erased {
+                        heterogeneous = true;
+                    }
                     // A source that erases to `{}`, or one the record cannot
                     // accept, contributes an empty record of the result type.
                     if self.object_spread_source_erases_to_empty(source_ty)
-                        || self
-                            .accept_object_spread_source(source_ty, record_ty, spread.span)
-                            .is_err()
+                        || (!joins_erased
+                            && self
+                                .accept_object_spread_source(source_ty, record_ty, spread.span)
+                                .is_err())
                     {
                         let ty = record_ty.unwrap_or_else(|| {
                             let key_ty = self.ctx.krate.types.intern(Type::String);
@@ -3726,9 +3785,20 @@ impl ModuleBuilder<'_> {
             body,
             object.span,
         );
-
+        if !hinted {
+            self.note_spread_chunk_join(&sources, &mut chunks, record_ty, &mut heterogeneous, body);
+        }
         let key_ty = self.ctx.krate.types.intern(Type::String);
         let fallback_value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        if heterogeneous {
+            let erased = self.ctx.krate.types.intern(Type::Dict(key_ty, fallback_value_ty));
+            for chunk in &chunks {
+                if let Some(expr) = usize::try_from(chunk.0).ok().and_then(|index| body.exprs.get_mut(index)) {
+                    expr.ty = erased;
+                }
+            }
+            record_ty = Some(erased);
+        }
         let record_ty = record_ty.unwrap_or_else(|| {
             self.ctx
                 .krate
@@ -4481,6 +4551,37 @@ impl ModuleBuilder<'_> {
             ty: record_ty.unwrap_or(chunk_ty),
             span: self.span(span.start, span.end),
         }));
+    }
+
+    /// Record the explicit-property chunk `flush_object_spread_entries` just
+    /// pushed (the last of `sources`, if it is a new `DictLit`) and whether its
+    /// own type disagrees with the record type so far — the unhinted join rule
+    /// of [`Self::object_expression_with_spread`].
+    pub(in crate::lowering) fn note_spread_chunk_join(
+        &mut self,
+        sources: &[smelt_hir::ExprId],
+        chunks: &mut Vec<smelt_hir::ExprId>,
+        record_ty: Option<smelt_hir::TypeId>,
+        heterogeneous: &mut bool,
+        body: &Body,
+    ) {
+        let Some(&last) = sources.last() else { return };
+        if chunks.contains(&last) {
+            return;
+        }
+        let Some(ExprKind::DictLit(entries)) = usize::try_from(last.0)
+            .ok()
+            .and_then(|index| body.exprs.get(index))
+            .map(|expr| &expr.kind)
+        else {
+            return;
+        };
+        let entries = entries.clone();
+        chunks.push(last);
+        let own = self.object_literal_type(&entries, None, body);
+        if record_ty.is_some_and(|record| record != own) {
+            *heterogeneous = true;
+        }
     }
 
     /// Return whether every explicit property in a spread chunk is callable.

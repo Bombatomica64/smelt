@@ -4437,8 +4437,12 @@ function shiftRaw(raw: bigint): bigint {
         source.contains("let radix = ((2.0 as f64).trunc() as u32).clamp(2, 36);"),
         "{source}"
     );
-    assert!(source.contains("<<"), "{source}");
-    assert!(source.contains(">>"), "{source}");
+    // The module-level `1n << 8n` reaches codegen as a `number` shift (the
+    // frontend types those literals as numbers), and a `number` shift is
+    // JavaScript's int32 shift: `ToInt32(a)` shifted by `ToUint32(b) & 31`.
+    // Only a real `bigint` operand keeps the wide shift below.
+    assert!(source.contains(".wrapping_shl("), "{source}");
+    assert!(source.contains(".wrapping_shr("), "{source}");
     assert!(source.contains("fn shift_raw(raw: i64) -> i64"), "{source}");
     assert!(
         source.contains("(((raw as f64).trunc() as i128) >>"),
@@ -12552,7 +12556,7 @@ export function fireAndForget(cb: () => Promise<string>): void {
 /// The `try` matters: it routes the call through the throwing-call terminator,
 /// which renders its callee with `call_text` instead of the statement path that
 /// receives an already-padded argument list from MIR. The load-bearing
-/// assertion is the emitted `None::<String>` inside `catch_unwind`: the
+/// assertion is the emitted `None` padding inside `catch_unwind`: the
 /// static-call ladder has always padded missing trailing parameters, and this
 /// proves the value-callable form now agrees with it instead of dropping the
 /// arity.
@@ -12585,10 +12589,14 @@ export function outer(): number {
         source.contains("|closure_arg_0: Option<String>|"),
         "the callback's optional parameter must survive into its Rust type:\n{source}"
     );
+    // The padding is a bare `None`: `work` is a closure VALUE, whose own
+    // signature types the `Option` (`closure_value_padding_text`). The
+    // requirement is unchanged — the argument is present, not dropped; only
+    // the turbofish the caller's view used to spell is gone, because that view
+    // can be less precise than the callee's real signature.
     assert!(
-        source.contains("(work)(None::<String>)"),
-        "the omitted optional argument must be padded with its default, not \
-         dropped (E0057):\n{source}"
+        source.contains("(work)(None)"),
+        "the omitted optional argument must be padded, not dropped (E0057):\n{source}"
     );
     assert!(
         !source.contains("(work)()"),

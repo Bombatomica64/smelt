@@ -23,9 +23,14 @@ impl FunctionEmitter<'_> {
 
     /// Converts a length rvalue to Rust text for the destination numeric type.
     pub(super) fn len_text(&self, operand: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let fixed_width = match self.mir.types.get(dest_ty) {
+            Some(Type::FixedInt(width)) => Some(*width),
+            _ => None,
+        };
         let cast = match self.mir.types.get(dest_ty) {
             Some(Type::Int) => "i64",
             Some(Type::Float) => "f64",
+            Some(Type::FixedInt(width)) => width.rust_name(),
             _ => {
                 return Ok("Default::default()".to_owned());
             }
@@ -123,6 +128,9 @@ impl FunctionEmitter<'_> {
             Some(Type::Tuple(items)) => format!("{}", items.len()),
             _ => format!("{receiver_text}.len()"),
         };
+        if let Some(width) = fixed_width {
+            return Ok(Self::fixed_int_len_text(len_expr, width));
+        }
         Ok(format!("{len_expr} as {cast}"))
     }
 
@@ -333,7 +341,15 @@ impl FunctionEmitter<'_> {
                 "numeric unary function operand must be numeric",
             ));
         }
+        if op == smelt_hir::NumericUnaryFuncOp::Clz32 {
+            let operand_text = self.float_operand_text(operand)?;
+            return Ok(format!(
+                "f64::from({}.leading_zeros())",
+                Self::js_to_uint32_text(&operand_text)
+            ));
+        }
         let method_name = match op {
+            smelt_hir::NumericUnaryFuncOp::Clz32 => "leading_zeros",
             smelt_hir::NumericUnaryFuncOp::Sqrt => "sqrt",
             smelt_hir::NumericUnaryFuncOp::Cbrt => "cbrt",
             smelt_hir::NumericUnaryFuncOp::Sign => "signum",

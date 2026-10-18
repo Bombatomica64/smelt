@@ -1017,7 +1017,10 @@ for (let ch: string of word) {
     // rule and must not drift into each other.
     assert!(source.contains("let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }"));
     assert!(source.contains(".chars().nth({ let smelt_normalized = 0.0 as i64;"));
-    assert!(source.contains(".chars().count() as f64"));
+    // The `for...of` index counter is proven a `usize` (integer range
+    // analysis), so the string length is read as one, with no `f64` cast.
+    assert!(source.contains(".chars().count();"), "{source}");
+    assert!(!source.contains(".chars().count() as f64"), "{source}");
     assert!(source.contains("let smelt_index = _smelt_tmp_"));
 }
 

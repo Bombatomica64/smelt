@@ -666,6 +666,23 @@ impl<K, V> serde::Serialize for SmeltRecord<K, V> where K: Eq + ::std::hash::Has
     }
 }
 
+impl<'de, K, V> serde::Deserialize<'de> for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + serde::Deserialize<'de>, V: serde::Deserialize<'de> {
+    /// Deserialize a JSON object into a record, entry by entry.
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct SmeltRecordVisitor<K, V>(::std::marker::PhantomData<(K, V)>);
+        impl<'de, K, V> serde::de::Visitor<'de> for SmeltRecordVisitor<K, V> where K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + serde::Deserialize<'de>, V: serde::Deserialize<'de> {
+            type Value = SmeltRecord<K, V>;
+            fn expecting(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("an object") }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let record = SmeltRecord::new();
+                while let Some((key, value)) = map.next_entry::<K, V>()? { record.insert(key, value); }
+                Ok(record)
+            }
+        }
+        deserializer.deserialize_map(SmeltRecordVisitor(::std::marker::PhantomData))
+    }
+}
+
 trait SmeltOwnedOptionCloned<T> {
     /// Return owned optional values unchanged when generated shared lookup code calls `.cloned()`.
     fn cloned(self) -> Option<T>;
@@ -2674,6 +2691,7 @@ async fn smelt_promise_race<T>(mut racers: Vec<::std::pin::Pin<Box<dyn ::std::fu
             if let ::std::task::Poll::Ready(result) = ::std::future::Future::poll(racer.as_mut(), &mut cx) { return result; }
         }
         smelt_drain_promise_tasks().await;
+        if SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; continue; }
         let id_barrier = SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get);
         let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());
         if let Some(earliest) = earliest {
@@ -3781,6 +3799,10 @@ impl SmeltBody {
     pub fn id(&self) -> usize { self.id }
     /// The spec's `bodyUsed`.
     pub fn body_used(&self) -> bool { self.used.get() }
+    /// `ReadableStream.locked`: the body has no reader API in this model, so
+    /// it is locked exactly when it has been consumed (see
+    /// `smelt_stdlib::host_data_property`).
+    pub fn locked(&self) -> bool { self.used.get() }
     /// The `Content-Type` this body implies, when it implies one.
     pub fn content_type(&self) -> Option<String> { self.content_type.clone() }
     /// Whether there is no body at all (the spec's null body).
@@ -5043,22 +5065,11 @@ smelt_local.block_on(&smelt_runtime, async move {
     if _smelt_tmp_4 {
     _smelt_tmp_5 = closure_arg_1.clone().set_status_code(201.0);
     _smelt_tmp_6 = { closure_arg_1.clone().set_header(&"content-type".to_owned(), &"application/json".to_owned()); closure_arg_1.clone().clone() };
-    _smelt_tmp_10 = closure_arg_0.clone().method();
-    _smelt_tmp_11 = closure_arg_0.clone().url();
-    _smelt_tmp_12 = closure_arg_1.clone().status_code();
-    _smelt_tmp_13 = "".to_owned() + &smelt_number_to_string(_smelt_tmp_12);
-    _smelt_tmp_14 = closure_arg_1.clone().get_header(&"content-type".to_owned());
-    _smelt_tmp_15 = _smelt_tmp_14.clone().clone().unwrap_or("".to_owned());
-    _smelt_tmp_16 = closure_arg_1.clone().get_header(&"x-set-first".to_owned());
-    _smelt_tmp_17 = _smelt_tmp_16.clone().clone().unwrap_or("".to_owned());
-    _smelt_tmp_18 = SmeltRecord::from([("method".to_owned(), _smelt_tmp_10.clone()), ("url".to_owned(), _smelt_tmp_11.clone()), ("body".to_owned(), (*smelt_capture_received.borrow()).clone()), ("status".to_owned(), _smelt_tmp_13.clone()), ("sentType".to_owned(), _smelt_tmp_15.clone()), ("kept".to_owned(), _smelt_tmp_17.clone())]);
-    _smelt_tmp_19 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_18.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) }).expect("JSON serialization failed");
-    _smelt_tmp_20 = closure_arg_1.clone().end(Some(_smelt_tmp_19.clone()));
-    ()
     } else {
     _smelt_tmp_7 = { closure_arg_1.clone().set_header(&"x-set-first".to_owned(), &"kept".to_owned()); closure_arg_1.clone().clone() };
     _smelt_tmp_8 = SmeltRecord::from([("content-type".to_owned(), "application/json".to_owned())]);
     _smelt_tmp_9 = closure_arg_1.clone().write_head(200.0, Some(SmeltHeaders::from_pairs(_smelt_tmp_8.clone().iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()).entries_in_insertion_order()));
+    }
     _smelt_tmp_10 = closure_arg_0.clone().method();
     _smelt_tmp_11 = closure_arg_0.clone().url();
     _smelt_tmp_12 = closure_arg_1.clone().status_code();
@@ -5071,7 +5082,6 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_19 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_18.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) }).expect("JSON serialization failed");
     _smelt_tmp_20 = closure_arg_1.clone().end(Some(_smelt_tmp_19.clone()));
     ()
-    }
     }
 });
     let _smelt_tmp_6: SmeltIncomingMessage = { let smelt_listener = match { let smelt_function_value = _smelt_tmp_5.clone(); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { (smelt_function_value)(); Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } } { SmeltUnknown::Function(smelt_function) => smelt_function, _ => ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Undefined)) }; closure_arg_0.clone().add(&"end".to_owned(), smelt_listener, false) };

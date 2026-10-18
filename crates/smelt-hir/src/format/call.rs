@@ -158,6 +158,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 crate::expr::NumericUnaryFuncOp::Log10 => "log10",
                 crate::expr::NumericUnaryFuncOp::Log2 => "log2",
                 crate::expr::NumericUnaryFuncOp::Exp => "exp",
+                crate::expr::NumericUnaryFuncOp::Clz32 => "clz32",
             };
             format!("numeric_{op_name} {}", expr_ref(*operand))
         }
@@ -197,6 +198,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 crate::expr::PrimitiveCastOp::ToBool => "bool",
                 crate::expr::PrimitiveCastOp::ToInt => "int",
                 crate::expr::PrimitiveCastOp::ToFloat => "float",
+                crate::expr::PrimitiveCastOp::ToInt32 => "int32",
                 crate::expr::PrimitiveCastOp::ParseFloat => "parse_float",
                 crate::expr::PrimitiveCastOp::FromCharCodes => "from_char_codes",
                 crate::expr::PrimitiveCastOp::FromCodePoints => "from_code_points",
@@ -1456,6 +1458,7 @@ fn async_op_text(op: AsyncOp, args: &[ExprId]) -> String {
         AsyncOp::Promise => "async_promise",
         AsyncOp::Then => "async_then",
         AsyncOp::Catch => "async_catch",
+        AsyncOp::Finally => "async_finally",
         AsyncOp::SpawnLocal => "async_spawn_local",
         AsyncOp::CreateTask => "async_create_task",
         AsyncOp::WaitFor => "async_wait_for",

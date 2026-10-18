@@ -69,21 +69,23 @@ fn smelt_string_to_number(text: &str) -> f64 {
 // @smelt:prelude-end — generated program below
 fn main() {
     let mut _smelt_tmp_2: bool;
-    let mut _smelt_tmp_3: f64;
+    let mut _smelt_tmp_3: usize;
     let mut _smelt_tmp_4: bool;
     let mut _smelt_tmp_5: f64;
-    let mut i: f64 = 0.0;
+    let mut _smelt_tmp_7: f64;
+    let mut i: usize = 0;
     let mut sum: f64 = 0.0;
     loop {
-    _smelt_tmp_2 = i < 6.0;
+    _smelt_tmp_2 = i < 6;
     if !(_smelt_tmp_2) { break; }
-    _smelt_tmp_3 = i + 1.0;
+    _smelt_tmp_3 = i + 1;
     i = _smelt_tmp_3;
-    _smelt_tmp_4 = i == 2.0;
+    _smelt_tmp_4 = i == 2;
     if _smelt_tmp_4 {
     continue;
     } else {
-    _smelt_tmp_5 = sum + i;
+    _smelt_tmp_7 = i as f64;
+    _smelt_tmp_5 = sum + _smelt_tmp_7;
     sum = _smelt_tmp_5;
     continue;
     }

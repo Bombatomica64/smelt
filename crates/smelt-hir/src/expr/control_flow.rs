@@ -53,6 +53,11 @@ pub enum AsyncOp {
     Then,
     /// Run a Promise rejection continuation.
     Catch,
+    /// `promise.finally(onFinally)`: run `onFinally` (no arguments) when the
+    /// promise settles either way, then settle with the ORIGINAL outcome —
+    /// unless `onFinally` throws or returns a rejected promise, whose rejection
+    /// then wins (ECMA-262 `Promise.prototype.finally`).
+    Finally,
     /// Schedule an ignored future for cooperative local execution.
     SpawnLocal,
     /// Create a task from a future.

@@ -48,6 +48,10 @@ parse unchanged. Python's `json.loads` is unchanged: it never decodes.
 
 * **Primitives** by JSON kind, without coercion: a `number` must be a JSON
   number (`"3"` is not), likewise `string`, `boolean`, `null`.
+* **`int32`** (Bun's `import type { int32 } from "bun"`, stored as a Rust
+  `i32`): a whole JSON number from -2^31 to 2^31 - 1, as Bun's validator
+  checks it. `1.5`, `2147483648` and `-0` (which an `i32` cannot hold) are
+  `expected int32` issues.
 * **Literal types** by value: `kind: "circle"`, `mode: "a" | "b"` (directly or
   through a type alias), numeric and boolean literals.
 * **Properties**: a missing required property is reported as `got undefined`.
@@ -128,4 +132,4 @@ nullish values.
   (`emits_strict_json_decoders_for_declared_targets`,
   `keeps_dynamic_json_parse_for_undecodable_targets`), the runtime tier in
   `crates/smelt-codegen-rust/tests/stdlib_boundary_runtime.rs`, and the
-  end-to-end example `158_json_typed_entry_decode`.
+  end-to-end example `162_json_typed_entry_decode`.

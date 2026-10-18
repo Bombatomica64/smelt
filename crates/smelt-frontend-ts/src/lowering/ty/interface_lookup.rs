@@ -106,9 +106,9 @@ impl ModuleBuilder<'_> {
             }
             // A bare identifier reference folds to its const value when known;
             // a `Symbol.for(...)`-aliased const yields a synthetic symbol key.
-            PropertyKey::Identifier(identifier) => self
-                .resolve_const_literal_by_name(identifier.name.as_str())
-                .and_then(|literal| Self::const_computed_key_name(&literal)),
+            PropertyKey::Identifier(identifier) => {
+                self.identifier_computed_key_name(identifier.name.as_str())
+            }
             // Erased type-level wrappers around any of the above still name the
             // inner static key (`[K as const]`, `[(K)]`, `[K!]`).
             PropertyKey::ParenthesizedExpression(inner) => {
@@ -145,9 +145,9 @@ impl ModuleBuilder<'_> {
             Expression::CallExpression(call) => {
                 Self::symbol_for_call_key(call).map(|symbol_key| (symbol_key, true))
             }
-            Expression::Identifier(identifier) => self
-                .resolve_const_literal_by_name(identifier.name.as_str())
-                .and_then(|literal| Self::const_computed_key_name(&literal)),
+            Expression::Identifier(identifier) => {
+                self.identifier_computed_key_name(identifier.name.as_str())
+            }
             Expression::StringLiteral(literal) => Some((literal.value.to_string(), false)),
             Expression::ParenthesizedExpression(inner) => {
                 self.resolve_static_computed_key_name_expr(&inner.expression)
@@ -226,6 +226,23 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn is_resolvable_property_key(&mut self, key: &PropertyKey<'_>) -> bool {
         crate::lowering::support::is_static_property_key(key)
             || self.resolve_static_computed_key_name(key).is_some()
+    }
+
+    /// The member key a computed key spelled as the bare identifier `name`
+    /// names, when it is static.
+    ///
+    /// A const with a known folded value answers from it. Failing that, a
+    /// module-level unique symbol the crate-wide pre-pass recorded answers
+    /// with its symbol key: that is the case of an import cycle lowering this
+    /// module before the symbol's declaring module (see
+    /// `crate::lowering::symbol_consts`).
+    fn identifier_computed_key_name(&self, name: &str) -> Option<(String, bool)> {
+        if let Some(literal) = self.resolve_const_literal_by_name(name) {
+            return Self::const_computed_key_name(&literal);
+        }
+        let spelling = self.predeclared_unique_symbol(name)?;
+        crate::lowering::ty::computed_key_symbols::unique_symbol_key(&spelling)
+            .map(|key| (key, true))
     }
 
     /// Resolve a const binding's folded literal to the member key it names.
@@ -508,6 +525,17 @@ impl ModuleBuilder<'_> {
                     ));
                 };
                 if !field_type_satisfies(&self.ctx.krate, actual.ty, required) {
+                    // Bun's `int32` on one side only is its own diagnostic.
+                    if let Some(error) = self.int32_member_mismatch(
+                        class.name,
+                        interface.name,
+                        required.name,
+                        actual.ty,
+                        required.ty,
+                        actual.span,
+                    ) {
+                        return Err(error);
+                    }
                     let name = self
                         .ctx
                         .krate

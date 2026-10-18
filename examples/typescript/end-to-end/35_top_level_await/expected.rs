@@ -2608,6 +2608,7 @@ async fn smelt_promise_race<T>(mut racers: Vec<::std::pin::Pin<Box<dyn ::std::fu
             if let ::std::task::Poll::Ready(result) = ::std::future::Future::poll(racer.as_mut(), &mut cx) { return result; }
         }
         smelt_drain_promise_tasks().await;
+        if SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; continue; }
         let id_barrier = SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get);
         let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());
         if let Some(earliest) = earliest {
@@ -3490,19 +3491,19 @@ pub(crate) async fn greet(name: String) -> Result<String, Box<dyn std::error::Er
 
 pub(crate) async fn sum(values: SmeltList<f64>) -> Result<f64, Box<dyn std::error::Error>> {
     let mut value: f64;
-    let mut _smelt_tmp_4: f64;
+    let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: f64;
     let mut total: f64 = 0.0;
-    let mut _smelt_tmp_3: f64 = 0.0;
+    let mut _smelt_tmp_3: usize = 0;
     loop {
-    _smelt_tmp_4 = values.len() as f64;
+    _smelt_tmp_4 = values.len();
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if !(_smelt_tmp_5) { break; }
-    value = values.borrow().get({ let smelt_normalized = _smelt_tmp_3 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    value = values.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| 0.0);
     _smelt_tmp_6 = total + value;
     total = _smelt_tmp_6;
-    _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
+    _smelt_tmp_3 = _smelt_tmp_3 + 1;
     }
     return Ok(total);
 }

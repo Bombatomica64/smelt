@@ -532,6 +532,31 @@ impl FunctionEmitter<'_> {
                     "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => {{ {settle} Ok::<_, Box<dyn std::error::Error>>({recovered}) }} }} }})) }}"
                 ))
             }
+            smelt_hir::AsyncOp::Finally => {
+                let [future, callback] = args else {
+                    return Err(EmitError::new(
+                        "Promise.finally requires future and callback operands",
+                    ));
+                };
+                let Some(Type::Future(_)) = self.mir.types.get(self.operand_ty(future)?) else {
+                    return Err(EmitError::new("Promise.finally receiver must be a future"));
+                };
+                let future_text = self.await_operand_text(future)?;
+                let (prelude, callback_expr) = self.promise_callback_hoist(callback)?;
+                // `onFinally` takes no argument; the invocation helper drops the
+                // placeholder for a zero-parameter callback.
+                let invocation =
+                    self.promise_callback_invocation_with(callback, &callback_expr, "()")?;
+                // The settle step awaits a returned promise and propagates a
+                // throw or rejection with `?` — which is exactly the case where
+                // `finally`'s own rejection replaces the original outcome.
+                // Otherwise the callback's value is discarded and the ORIGINAL
+                // result (value or rejection) is the settled one.
+                let (settle, _) = self.promise_callback_settle(callback, &invocation)?;
+                Ok(format!(
+                    "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ let smelt_outcome = {future_text}.await; {settle} let _ = smelt_callback_value; smelt_outcome }})) }}"
+                ))
+            }
             smelt_hir::AsyncOp::SpawnLocal => {
                 let [future] = args else {
                     return Err(EmitError::new("spawn local requires one future operand"));
@@ -1595,7 +1620,7 @@ impl FunctionEmitter<'_> {
                     // The parameter is `&T` (see `callback_param_is_shared_reference`).
                     self.shared_reference_argument_text(arg, target_ty)
                 } else {
-                    self.value_at_type(arg, target_ty)
+                    self.closure_value_argument_text(arg, target_ty)
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -1620,7 +1645,7 @@ impl FunctionEmitter<'_> {
                 function,
                 index,
                 abi_param(index, target_ty),
-                self.default_value(target_ty)?,
+                self.closure_value_padding_text(target_ty)?,
             ));
         }
         Ok(rendered_args.join(", "))

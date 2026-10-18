@@ -26,8 +26,8 @@ pub use builtin_members::{
 };
 pub use category::DiagnosticCategory;
 pub use classes::{
-    ARRAY_NON_MUTATING_METHODS, MATCH_CLASS_NAME, MATCH_GROUPS_CLASS_NAME, OBJECT_PROTOTYPE_MEMBERS,
-    StdlibClass, TYPED_ARRAY_CLASS_NAMES, is_array_non_mutating_method, is_object_prototype_member,
+    ARRAY_NON_MUTATING_METHODS, HostDataProperty, HostPrimitive, MATCH_CLASS_NAME,
+    MATCH_GROUPS_CLASS_NAME, OBJECT_PROTOTYPE_MEMBERS, StdlibClass, host_data_property, TYPED_ARRAY_CLASS_NAMES, is_array_non_mutating_method, is_object_prototype_member,
     is_typed_array_class_name, stdlib_class_instance_has_property, typescript_stdlib_class,
 };
 pub use deps::BackendDependency;

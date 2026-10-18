@@ -1598,3 +1598,177 @@ export function isContainerTag(tag: string): boolean {
 
     Ok(())
 }
+
+/// A temporary project and the path of its `Smelt.toml`, or why it could not be written.
+type ManifestProject = Result<(TempProject, String), Box<dyn std::error::Error>>;
+
+/// Write a manifest-built project whose files are `files` (path, source),
+/// entered from `src/main.ts`, and return it with its manifest path.
+fn multi_module_project(
+    name: &str,
+    build: bool,
+    files: &[(&str, &str)],
+) -> ManifestProject {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    let crate_name = name.replace('-', "_");
+    fs::write(
+        project_path.join("Smelt.toml"),
+        format!(
+            "[project]\nname = \"{name}\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"src/main.ts\"]\n\n\
+[output]\ntarget = \"./dist\"\ncrate-name = \"{crate_name}\"\nbuild = {build}\n\n\
+[runtime]\nclone-strategy = \"aggressive\"\n"
+        ),
+    )?;
+    for (path, source) in files {
+        fs::write(project_path.join(path), source)?;
+    }
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    Ok((project, manifest_arg))
+}
+
+/// The module sources of [`build_types_cycle_early_reads_of_a_pending_class`].
+///
+/// `main.ts` imports `holder.ts` FIRST, so the depth-first manifest order is
+/// `constants, app, types, holder, main`: `app.ts` lowers before the class it
+/// reads (`holder -> types -(type-only)-> app -> holder` is a cycle), exactly
+/// the shape Hono v5's `hono-base.ts -> context.ts` takes. Node prints
+/// `205 417`.
+const CYCLE_EARLY_FILES: &[(&str, &str)] = &[
+    (
+        "src/constants.ts",
+        "export const GET_VALUE: unique symbol = Symbol()\n",
+    ),
+    (
+        "src/types.ts",
+        "import type { App } from './app'\nexport type AppLike = App<string>\n",
+    ),
+    (
+        "src/holder.ts",
+        r"import { GET_VALUE } from './constants'
+import type { AppLike } from './types'
+
+interface TextRespond {
+  (text: string, status?: number): number
+}
+
+export class Holder<E = string> {
+  #res: Response | undefined = new Response('hi', { status: 201 })
+  owner: AppLike | undefined
+  finalized: boolean = false
+  get label(): string {
+    return 'lbl'
+  }
+  get text(): TextRespond {
+    return (text: string, status?: number): number => text.length + (status ?? 0)
+  }
+  get [GET_VALUE](): Response | undefined {
+    return this.#res
+  }
+}
+",
+    ),
+    (
+        "src/app.ts",
+        r"import { GET_VALUE } from './constants'
+import type { Holder } from './holder'
+
+const notFound = (c: Holder<number>): number => c.text('404 Not Found', 404)
+
+export class App<E = string> {
+  #dispatchInternal(method: string, c: Holder<E>): number {
+    const label = c.label
+    const done = c.finalized
+    const res = c[GET_VALUE]
+    if (res && !done) {
+      const copy = new Response(res.body, res)
+      return copy.status + label.length + c.text('x')
+    }
+    return method.length
+  }
+  run(c: Holder<E>): number {
+    return this.#dispatchInternal('GET', c)
+  }
+  miss(c: Holder<number>): number {
+    return notFound(c)
+  }
+}
+",
+    ),
+    (
+        "src/main.ts",
+        r"import { Holder } from './holder'
+import { App } from './app'
+const app = new App<number>()
+console.log(app.run(new Holder<number>()), app.miss(new Holder<number>()))
+",
+    ),
+];
+
+#[test]
+fn build_types_cycle_early_reads_of_a_pending_class() -> TestResult {
+    // A module an import cycle lowers BEFORE the class it reads only sees the
+    // class's predeclared surface. Behaviour: the program must print what
+    // Node prints. Types: the reads must keep their declared types instead of
+    // erasing to `SmeltUnknown` — an annotated getter (`label: string`), an
+    // annotated data property (`finalized: boolean`), a getter keyed by an
+    // IMPORTED unique symbol (`Response | undefined`), and a getter returning a
+    // callable interface, called through the getter read rather than as a
+    // method the class does not have (that last one used to stop MIR lowering
+    // with "class method `text` is not resolvable").
+    let (project, manifest) = multi_module_project("cycle-early-reads", false, CYCLE_EARLY_FILES)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let generated = fs::read_to_string(project.path().join("dist/src/main.rs"))?;
+    for typed in [
+        "let label: String = c.__smelt_get_label()",
+        "let done: bool = c.finalized",
+        "let res: Option<SmeltResponse> = c.__smelt_get___smelt_symbol_unique__at_",
+    ] {
+        ensure(generated.contains(typed), format!("expected `{typed}` in the cycle-early module"))?;
+    }
+    ensure(
+        generated.contains("c.__smelt_get_text().clone().__smelt_call"),
+        "the callable-interface getter must be read, then called",
+    )?;
+    let (project, manifest) = multi_module_project("cycle-early-reads", true, CYCLE_EARLY_FILES)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
+    ensure_eq(&stdout, &"205 417\n".to_owned(), "unexpected stdout")?;
+    Ok(())
+}
+
+#[test]
+fn build_keeps_same_offset_unique_symbols_of_two_modules_distinct() -> TestResult {
+    // `KEY_A` and `KEY_B` are `Symbol()` calls at the SAME byte offset of two
+    // different modules. They are two symbols (Node prints `1 2 false`), so
+    // they must name two members; a site identity of offset alone gave both
+    // getters the one name `__smelt_get___smelt_symbol_unique__at_36`.
+    let files: &[(&str, &str)] = &[
+        ("src/a.ts", "export const KEY_A: unique symbol = Symbol()\n"),
+        ("src/b.ts", "export const KEY_B: unique symbol = Symbol()\n"),
+        (
+            "src/main.ts",
+            r"import { KEY_A } from './a'
+import { KEY_B } from './b'
+
+class Pair {
+  get [KEY_A](): number {
+    return 1
+  }
+  get [KEY_B](): number {
+    return 2
+  }
+}
+
+const p = new Pair()
+console.log(p[KEY_A], p[KEY_B], KEY_A === KEY_B)
+",
+        ),
+    ];
+    let (project, manifest) = multi_module_project("symbol-site-identity", true, files)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
+    ensure_eq(&stdout, &"1 2 false\n".to_owned(), "unexpected stdout")?;
+    Ok(())
+}

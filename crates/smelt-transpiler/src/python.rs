@@ -115,7 +115,15 @@ pub(crate) fn lower_manifest_source(
     .map_err(|errors| {
         crate::lowering::manifest_diagnostics(
             file_string,
-            errors.iter().map(|e| (e.category, e.code, e.message.clone())),
+            source,
+            errors.iter().map(|e| {
+                (
+                    e.category,
+                    e.code,
+                    e.message.clone(),
+                    (e.span.file == file_id).then_some(e.span.start),
+                )
+            }),
         )
     });
     (ctx.krate, ctx.module_namespaces, ctx.enum_members, outcome)
@@ -232,6 +240,8 @@ pub(crate) fn lower_manifest_source(
         category: smelt_stdlib::DiagnosticCategory::Internal,
         code: PYTHON_NOT_COMPILED_CODE,
         message: PYTHON_NOT_COMPILED_MESSAGE.to_owned(),
+        line: None,
+        column: None,
     }];
     (krate, module_namespaces, enum_members, Err(diagnostics))
 }

@@ -15,6 +15,17 @@ pub enum Type {
     Int,
     /// Floating-point type.
     Float,
+    /// A JavaScript `number` proven to be an integer of a fixed Rust width.
+    ///
+    /// Every value of this type is exactly representable both as the Rust
+    /// integer of [`IntWidth`] and as an `f64`, so converting it to a `number`
+    /// context is the exact `as f64`, and printing it matches JavaScript's
+    /// `Number::toString` for that value. Two producers create it: MIR range
+    /// analysis (`smelt_mir::opt::IntegerRange`), which retypes a local whose
+    /// every definition it proved integral and bounded, and the TypeScript
+    /// frontend for Bun's `import type { int32 } from "bun"` annotation, whose
+    /// every store the frontend proves. Python's integers stay [`Type::Int`].
+    FixedInt(IntWidth),
     /// String type.
     String,
     /// TypeScript `unknown`, carried as an opaque safe boundary type.
@@ -106,7 +117,7 @@ impl Type {
     pub const fn runtime_kind(&self) -> Option<UnknownKind> {
         match self {
             Self::Bool => Some(UnknownKind::Bool),
-            Self::Int | Self::Float => Some(UnknownKind::Number),
+            Self::Int | Self::Float | Self::FixedInt(_) => Some(UnknownKind::Number),
             Self::String => Some(UnknownKind::String),
             Self::Function(_) => Some(UnknownKind::Function),
             Self::List(_) | Self::Tuple(_) => Some(UnknownKind::Array),
@@ -123,6 +134,29 @@ impl Type {
             | Self::None
             | Self::Optional(_)
             | Self::Union(_) => None,
+        }
+    }
+}
+
+/// The Rust width of a [`Type::FixedInt`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum IntWidth {
+    /// Rust `i32`: Bun's `int32`, a whole number from -2^31 to 2^31 - 1.
+    I32,
+    /// Rust `i64`: a counter proven integral and bounded that can be negative.
+    I64,
+    /// Rust `usize`: a counter or index proven never negative.
+    Usize,
+}
+
+impl IntWidth {
+    /// The Rust primitive type name for this width.
+    #[must_use]
+    pub const fn rust_name(self) -> &'static str {
+        match self {
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::Usize => "usize",
         }
     }
 }

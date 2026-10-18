@@ -616,6 +616,23 @@ impl<K, V> serde::Serialize for SmeltRecord<K, V> where K: Eq + ::std::hash::Has
     }
 }
 
+impl<'de, K, V> serde::Deserialize<'de> for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + serde::Deserialize<'de>, V: serde::Deserialize<'de> {
+    /// Deserialize a JSON object into a record, entry by entry.
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct SmeltRecordVisitor<K, V>(::std::marker::PhantomData<(K, V)>);
+        impl<'de, K, V> serde::de::Visitor<'de> for SmeltRecordVisitor<K, V> where K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + serde::Deserialize<'de>, V: serde::Deserialize<'de> {
+            type Value = SmeltRecord<K, V>;
+            fn expecting(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("an object") }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let record = SmeltRecord::new();
+                while let Some((key, value)) = map.next_entry::<K, V>()? { record.insert(key, value); }
+                Ok(record)
+            }
+        }
+        deserializer.deserialize_map(SmeltRecordVisitor(::std::marker::PhantomData))
+    }
+}
+
 trait SmeltOwnedOptionCloned<T> {
     /// Return owned optional values unchanged when generated shared lookup code calls `.cloned()`.
     fn cloned(self) -> Option<T>;
@@ -3841,8 +3858,8 @@ fn main() {
     let _smelt_tmp_79: String;
     let _smelt_tmp_81: SmeltList<f64>;
     let _smelt_tmp_82: SmeltList<f64>;
-    let mut _smelt_tmp_83: f64;
-    let mut _smelt_tmp_84: f64;
+    let mut _smelt_tmp_83: usize;
+    let mut _smelt_tmp_84: usize;
     let mut _smelt_tmp_85: bool;
     let mut _smelt_tmp_86: f64;
     let mut _smelt_tmp_87: String;
@@ -3976,14 +3993,14 @@ fn main() {
     _smelt_tmp_81 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![]; smelt_list_items }));
     collected = Into::<SmeltList<_>>::into(_smelt_tmp_81);
     _smelt_tmp_82 = Into::<SmeltList<_>>::into(SmeltList::new(wide.clone().to_elements()));
-    _smelt_tmp_83 = 0.0;
+    _smelt_tmp_83 = 0;
     loop {
-    _smelt_tmp_84 = _smelt_tmp_82.len() as f64;
+    _smelt_tmp_84 = _smelt_tmp_82.len();
     _smelt_tmp_85 = _smelt_tmp_83 < _smelt_tmp_84;
     if !(_smelt_tmp_85) { break; }
-    element = _smelt_tmp_82.borrow().get({ let smelt_normalized = _smelt_tmp_83 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    element = _smelt_tmp_82.borrow().get(_smelt_tmp_83).cloned().unwrap_or_else(|| 0.0);
     _smelt_tmp_86 = { let smelt_push_item = element; collected.borrow_mut().push(smelt_push_item); collected.len() as f64 };
-    _smelt_tmp_83 = _smelt_tmp_83 + 1.0;
+    _smelt_tmp_83 = _smelt_tmp_83 + 1;
     }
     _smelt_tmp_87 = collected.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&"-".to_owned());
     let _ = { println!("{}", _smelt_tmp_87); };

@@ -10166,3 +10166,85 @@ export type WithoutNumber = Exclude<Named, number>;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+/// An object literal with spreads and no contextual type joins ALL its pieces.
+///
+/// `{ path: '/', ...opt, secure: true }` has string and boolean values and an
+/// optional record source. The record type used to be frozen by the first
+/// chunk (`Record<string, string>`), which rejected `...opt` and replaced it by
+/// an EMPTY record (Node keeps `opt`'s `path`). The pieces now join into the
+/// erased record and every source is kept.
+#[test]
+fn unhinted_spread_with_heterogeneous_values_keeps_its_sources() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+function describe(opt: unknown): string {
+  return JSON.stringify(opt);
+}
+function withDefaults(opt?: { path?: string; secure?: boolean }): string {
+  return describe({ path: '/', ...opt, secure: true });
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 1)?;
+    let body = function_body(&ctx, function)?;
+    let sources = body
+        .exprs
+        .iter()
+        .find_map(|expr| match &expr.kind {
+            ExprKind::DictAssign { sources, .. } => Some(sources.clone()),
+            _ => None,
+        })
+        .ok_or("expected a DictAssign for the spread literal")?;
+    ensure!(sources.len() == 3, "two property chunks and the spread source, got {}", sources.len());
+    let dropped = sources.iter().any(|source| {
+        matches!(
+            body.exprs.get(usize::try_from(source.0).unwrap_or(usize::MAX)).map(|expr| &expr.kind),
+            Some(ExprKind::DictLit(entries)) if entries.is_empty()
+        )
+    });
+    ensure!(!dropped, "the `...opt` source must not be replaced by an empty record");
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// `build(path).test(text)`, where `build` is a module function declared to
+/// return `RegExp`, is the regex's own `test` (`RegexTest`), exactly as when
+/// the regex is first stored in a `const`.
+///
+/// The receiver gate was syntactic: a call receiver qualified only when it
+/// was `RegExp(..)` itself, so this call fell through to a generic member
+/// call whose callee was the regex VALUE and answered `null`. Node prints
+/// `true`; Hono's `RegExpRouter.findMiddleware` asks exactly this
+/// (`buildWildcardRegExp(k).test(path)`), and every wildcard middleware went
+/// unmatched.
+#[test]
+fn regexp_test_on_a_call_result_typed_regexp_is_a_regex_test() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+function build(pattern: string): RegExp {
+  return new RegExp(pattern);
+}
+function matches(pattern: string, text: string): boolean {
+  return build(pattern).test(text);
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 1)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(expr.kind, ExprKind::RegexTest { .. })),
+        "expected `build(pattern).test(text)` to lower to RegexTest"
+    );
+    ensure!(
+        !body.exprs.iter().any(|expr| matches!(expr.kind, ExprKind::BindThis { .. })),
+        "the regex value must not be bound as a callee"
+    );
+    Ok(())
+}

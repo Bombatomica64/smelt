@@ -388,8 +388,10 @@ async function run(): Promise<number> {
         let output = optimized_mir(
             "let total = 0;\nlet index = 0;\nwhile (index < 3) {\n  total = total + index;\n  index = index + 1;\n}\nconsole.log(total);\n",
         );
+        // `index` is a counter the integer range analysis proves to stay in
+        // `0..=3`, so it is a `usize` and the bound is the integer constant `3`.
         assert!(
-            output.contains("copy %1 < 3.0"),
+            output.contains("copy %1 < 3\n"),
             "the loop-carried index read in the condition must stay a copy:\n{output}"
         );
         assert!(

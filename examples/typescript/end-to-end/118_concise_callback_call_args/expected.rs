@@ -3221,17 +3221,19 @@ fn main() {
     });
     let _smelt_tmp_4: () = (apply)(_smelt_tmp_3.clone());
     let _smelt_tmp_5 = ::std::rc::Rc::new(|closure_arg_0: &SmeltList<String>, closure_arg_1: ::std::rc::Rc<dyn Fn(String, f64) -> ()>| {
-    let mut _smelt_tmp_3: f64;
+    let mut _smelt_tmp_3: usize;
     let mut _smelt_tmp_4: bool;
     let mut _smelt_tmp_5: ();
-    let mut _smelt_tmp_6: f64;
-    let mut i: f64 = 0.0;
+    let mut _smelt_tmp_6: usize;
+    let mut _smelt_tmp_7: f64;
+    let mut i: usize = 0;
     loop {
-    _smelt_tmp_3 = closure_arg_0.len() as f64;
+    _smelt_tmp_3 = closure_arg_0.len();
     _smelt_tmp_4 = i < _smelt_tmp_3;
     if _smelt_tmp_4 {
-    _smelt_tmp_5 = (closure_arg_1)(closure_arg_0.borrow().get({ let smelt_normalized = i as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()), i);
-    _smelt_tmp_6 = i + 1.0;
+    _smelt_tmp_7 = i as f64;
+    _smelt_tmp_5 = (closure_arg_1)(closure_arg_0.borrow().get(i).cloned().unwrap_or_else(|| String::new()), _smelt_tmp_7);
+    _smelt_tmp_6 = i + 1;
     i = _smelt_tmp_6;
     } else {
     return ();

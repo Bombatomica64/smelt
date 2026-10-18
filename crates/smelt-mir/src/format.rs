@@ -497,6 +497,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::NumericUnaryFuncOp::Log10 => "log10",
                 smelt_hir::NumericUnaryFuncOp::Log2 => "log2",
                 smelt_hir::NumericUnaryFuncOp::Exp => "exp",
+                smelt_hir::NumericUnaryFuncOp::Clz32 => "clz32",
             };
             format!("numeric_{op_text} {}", operand_text(operand))
         }
@@ -544,6 +545,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::PrimitiveCastOp::ToBool => "bool",
                 smelt_hir::PrimitiveCastOp::ToInt => "int",
                 smelt_hir::PrimitiveCastOp::ToFloat => "float",
+                smelt_hir::PrimitiveCastOp::ToInt32 => "int32",
                 smelt_hir::PrimitiveCastOp::ParseFloat => "parse_float",
                 smelt_hir::PrimitiveCastOp::FromCharCodes => "from_char_codes",
                 smelt_hir::PrimitiveCastOp::FromCodePoints => "from_code_points",
@@ -1818,6 +1820,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::AsyncOp::Promise => "async_promise",
                 smelt_hir::AsyncOp::Then => "async_then",
                 smelt_hir::AsyncOp::Catch => "async_catch",
+                smelt_hir::AsyncOp::Finally => "async_finally",
                 smelt_hir::AsyncOp::SpawnLocal => "async_spawn_local",
                 smelt_hir::AsyncOp::CreateTask => "async_create_task",
                 smelt_hir::AsyncOp::WaitFor => "async_wait_for",
@@ -2010,6 +2013,7 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
         Type::Bool => "Bool".to_owned(),
         Type::Int => "Int".to_owned(),
         Type::Float => "Float".to_owned(),
+        Type::FixedInt(width) => width.rust_name().to_owned(),
         Type::String => "String".to_owned(),
         Type::Unknown => "Unknown".to_owned(),
         Type::Never => "Never".to_owned(),

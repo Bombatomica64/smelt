@@ -1357,6 +1357,14 @@ impl FunctionEmitter<'_> {
         for statement in &block.statements {
             self.emit_statement(statement, out)?;
         }
+        let switch_join = match terminator {
+            Terminator::Switch {
+                then_block,
+                else_block,
+                ..
+            } => self.closure_branch_join(block.id, *then_block, *else_block, active, stop),
+            _ => None,
+        };
         let result = match terminator {
             Terminator::Return(operand) if in_loop => {
                 // A `Return` reached inside a loop-shaped closure body can only
@@ -1504,6 +1512,29 @@ impl FunctionEmitter<'_> {
                 cond,
                 then_block,
                 else_block,
+            } if switch_join.is_some() => {
+                let Some(join) = switch_join else {
+                    return Err(EmitError::new("closure branch join vanished"));
+                };
+                // The arms rejoin at `join`: emit each up to it, then `join`
+                // once. Following each arm to the end instead re-emits the
+                // whole continuation per path (exponential in sequential
+                // branches). Statements follow the `if`, so an arm that returns
+                // must say `return` (the loop-body rule, `in_loop`).
+                let branch_declared = self.declared_locals_snapshot();
+                out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+                self.emit_closure_block_inner(self.block(*then_block)?, out, active, Some(join), true)?;
+                out.push_str("    } else {\n");
+                self.restore_declared_locals(branch_declared.clone());
+                self.emit_closure_block_inner(self.block(*else_block)?, out, active, Some(join), true)?;
+                out.push_str("    }\n");
+                self.restore_declared_locals(branch_declared);
+                self.emit_closure_block_inner(self.block(join)?, out, active, stop, in_loop)
+            }
+            Terminator::Switch {
+                cond,
+                then_block,
+                else_block,
             } => {
                 let branch_declared = self.declared_locals_snapshot();
                 out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
@@ -1544,6 +1575,44 @@ impl FunctionEmitter<'_> {
         };
         active.pop();
         result
+    }
+
+    /// The block where the two arms of the closure-body branch at
+    /// `switch_block` rejoin, when the branch can be emitted as one structured
+    /// `if` followed by that block: its immediate post-dominator `J`
+    /// (`post_dominance`).
+    ///
+    /// `None` keeps the per-path emission, which is right when there is
+    /// nothing to rejoin or the join lies outside the region being emitted:
+    /// * no post-dominator, or it is the region's own `stop` (the region ends
+    ///   there anyway) or already on the emission path;
+    /// * an arm can reach `stop` or a block on the emission path (an
+    ///   enclosing loop header, the branch itself) without passing `J`: that
+    ///   is a loop edge or region exit the plain emission owns.
+    fn closure_branch_join(
+        &self,
+        switch_block: smelt_mir::BlockId,
+        then_block: smelt_mir::BlockId,
+        else_block: smelt_mir::BlockId,
+        active: &[smelt_mir::BlockId],
+        stop: Option<smelt_mir::BlockId>,
+    ) -> Option<smelt_mir::BlockId> {
+        let join = self.immediate_post_dominator(switch_block)?;
+        if Some(join) == stop || active.contains(&join) {
+            return None;
+        }
+        let exits = active.iter().copied().chain(stop).collect::<Vec<_>>();
+        for arm in [then_block, else_block] {
+            if arm == join {
+                continue;
+            }
+            if exits.iter().any(|exit| {
+                self.block_reaches_target_avoiding(arm, *exit, &[join], &mut BlockIdSet::default())
+            }) {
+                return None;
+            }
+        }
+        Some(join)
     }
 
     /// Emits a MIR match inside a Rust closure body.

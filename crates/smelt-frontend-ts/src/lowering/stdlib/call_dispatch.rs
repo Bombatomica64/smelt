@@ -20,14 +20,20 @@ use std::collections::HashMap;
 /// Render the opaque runtime string that stands for a *unique* `Symbol(...)`.
 ///
 /// A unique symbol has fresh identity per evaluation site, so the spelling is
-/// keyed by the call's source offset; the description is carried along because
+/// keyed by the call's source SITE — its module and offset, packed into one
+/// decimal number (`file << 32 | offset`) so the spelling keeps the
+/// `Symbol(d)@<digits>` shape the runtime key derivation parses. The module is
+/// part of the identity because two modules routinely declare
+/// `export const A: unique symbol = Symbol()` at the same offset, and those are
+/// two symbols; module 0 keeps its bare offset. The description is carried along because
 /// two spellings of the same symbol are compared as plain strings at runtime
 /// (`js_strict_eq`), so a description-less variant would compare unequal to the
 /// described one for the very same source symbol. Every path that materializes a
 /// unique symbol — the ordinary call-lowering path and the const-initializer
 /// folding path — must go through here so the two cannot drift apart.
-pub(in crate::lowering) fn unique_symbol_spelling(description: &str, span_start: u32) -> String {
-    format!("Symbol({description})@{span_start}")
+pub(in crate::lowering) fn unique_symbol_spelling(description: &str, site: Span) -> String {
+    let site = (u64::from(site.file.0) << 32_u32) | u64::from(site.start);
+    format!("Symbol({description})@{site}")
 }
 
 /// Render the opaque runtime string that stands for a registry `Symbol.for(...)`.
@@ -3188,7 +3194,16 @@ impl<'builder> ModuleBuilder<'builder> {
         // unaffected by it.
         let span = self.span(call.span.start, call.span.end);
         let callee = self.bind_member_call_receiver(callee, member, body, span);
-        let callable = if callee_ty == function_ty {
+        let callable = if callee_ty == function_ty
+            || self.callable_interface_known_only_by_predeclaration(callee_ty)
+        {
+            // A callable interface this module only knows through its
+            // predeclared call signatures (an import cycle lowers this module
+            // first) is called AS the record: the emitter invokes its
+            // `__smelt_call` slot with the slot's own signature, which the
+            // interface's full lowering makes more precise than the
+            // predeclaration can be (see
+            // `ModuleBuilder::predeclare_interface_call_signatures`).
             callee
         } else {
             body.push_expr(Expr {
@@ -3697,7 +3712,8 @@ impl<'builder> ModuleBuilder<'builder> {
         })))
     }
 
-    /// Lower Promise/Future `.then(...)` and `.catch(...)` continuation calls.
+    /// Lower Promise/Future `.then(...)`, `.catch(...)` and `.finally(...)`
+    /// continuation calls.
     pub(in crate::lowering) fn promise_continuation_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -3707,7 +3723,7 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(None);
         };
         let method = member.property.name.as_str();
-        if !matches!(method, "then" | "catch") {
+        if !matches!(method, "then" | "catch" | "finally") {
             return Ok(None);
         }
         let receiver = self.expression(&member.object, body)?;
@@ -3724,16 +3740,26 @@ impl<'builder> ModuleBuilder<'builder> {
         // return (`U | PromiseLike<U>`); forcing `void` here erased values such
         // as a returned `Generator<Y, R, N>` before the surrounding `await` and
         // made typed `yield* await promise.then(...)` impossible.
-        let callback_return_ty = unknown_ty;
-        let callback_param_ty = if method == "catch" {
-            unknown_ty
+        // `onFinally`'s result is discarded (only a returned promise is
+        // awaited, and an `async` callback is a future by its own `async`), so
+        // its contextual return is `void`, not an erased value.
+        let callback_return_ty = if method == "finally" {
+            self.ctx.krate.types.intern(Type::None)
         } else {
-            inner_ty
+            unknown_ty
         };
+        // `onFinally` is called with no arguments (it cannot observe the
+        // outcome); `onRejected` gets the erased reason, `onFulfilled` the value.
+        let callback_params = match method {
+            "finally" => Vec::new(),
+            "catch" => vec![unknown_ty],
+            _ => vec![inner_ty],
+        };
+        let callback_required = callback_params.len();
         let callback_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-            params: vec![callback_param_ty],
+            params: callback_params,
             rest: None,
-            required_params: Some(1),
+            required_params: Some(callback_required),
             mutable_params: Vec::new(),
             return_ty: callback_return_ty,
             is_async: false,
@@ -3762,6 +3788,9 @@ impl<'builder> ModuleBuilder<'builder> {
         };
         let (op, output_ty) = if method == "catch" {
             (AsyncOp::Catch, receiver_ty)
+        } else if method == "finally" {
+            // The outcome passes through unchanged, so the type does too.
+            (AsyncOp::Finally, receiver_ty)
         } else {
             (
                 AsyncOp::Then,
@@ -4053,7 +4082,7 @@ impl<'builder> ModuleBuilder<'builder> {
         let value = if global {
             registry_symbol_spelling(&description)
         } else {
-            unique_symbol_spelling(&description, call.span.start)
+            unique_symbol_spelling(&description, self.span(call.span.start, call.span.end))
         };
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::Symbol(value)),
@@ -4687,6 +4716,9 @@ impl<'builder> ModuleBuilder<'builder> {
         if let Some(expr) = self.math_pow_call(call, body)? {
             return Ok(Some(expr));
         }
+        if let Some(expr) = self.math_imul_call(call, body)? {
+            return Ok(Some(expr));
+        }
         self.math_atan2_call(call, body)
     }
 
@@ -5166,6 +5198,7 @@ impl<'builder> ModuleBuilder<'builder> {
             Some(
                 Type::Bool
                 | Type::Int
+                | Type::FixedInt(_)
                 | Type::Float
                 | Type::String
                 | Type::Unknown

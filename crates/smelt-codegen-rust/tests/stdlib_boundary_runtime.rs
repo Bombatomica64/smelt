@@ -586,3 +586,37 @@ test("a json() body read decodes into its declared type", async () => {
 "#;
     run_fixture(source, "smelt_json_body_decode");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn json_decodes_an_int32_slot_as_a_whole_number_in_range() {
+    // Where item 1 (typed JSON decode) meets item 6b (Bun's `int32`): Bun's
+    // validator "checks an `int32` property as a whole number in range", and
+    // smelt stores the slot as a Rust `i32`. A whole number in range decodes;
+    // a fraction, a value past 2^31 - 1 and `-0` (which an `i32` cannot hold)
+    // throw a catchable `TypeError` naming `int32`.
+    let source = r#"
+import { test, expect } from "vitest";
+import type { int32 } from "bun";
+
+interface Cell { column: int32; label: string }
+
+function read(text: string): string {
+  try {
+    const cell: Cell = JSON.parse(text);
+    return "ok " + (cell.column + 1) + " " + cell.label;
+  } catch (error) {
+    return (error as Error).name + ": " + (error as Error).message;
+  }
+}
+
+test("JSON decodes an int32 slot as a whole number in range", () => {
+  expect(read('{"column":7,"label":"a"}')).toBe("ok 8 a");
+  expect(read('{"column":-2147483648,"label":"b"}')).toBe("ok -2147483647 b");
+  expect(read('{"column":1.5,"label":"c"}')).toBe("TypeError: expected int32, got number 1.5 at .column");
+  expect(read('{"column":2147483648,"label":"d"}')).toBe("TypeError: expected int32, got number 2147483648 at .column");
+  expect(read('{"column":-0,"label":"e"}')).toBe("TypeError: expected int32, got number -0 at .column");
+});
+"#;
+    run_fixture(source, "smelt_json_decode_int32");
+}

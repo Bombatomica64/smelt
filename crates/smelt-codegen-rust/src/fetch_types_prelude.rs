@@ -630,6 +630,10 @@ fn emit_body_inherent_impl(writer: &mut CodeWriter, needs_unknown: bool) {
         impl_writer.line("pub fn id(&self) -> usize { self.id }");
         impl_writer.line("/// The spec's `bodyUsed`.");
         impl_writer.line("pub fn body_used(&self) -> bool { self.used.get() }");
+        impl_writer.line("/// `ReadableStream.locked`: the body has no reader API in this model, so");
+        impl_writer.line("/// it is locked exactly when it has been consumed (see");
+        impl_writer.line("/// `smelt_stdlib::host_data_property`).");
+        impl_writer.line("pub fn locked(&self) -> bool { self.used.get() }");
         impl_writer.line("/// The `Content-Type` this body implies, when it implies one.");
         impl_writer.line(
             "pub fn content_type(&self) -> Option<String> { self.content_type.clone() }",

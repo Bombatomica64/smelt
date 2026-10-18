@@ -552,6 +552,64 @@ pub fn stdlib_class_instance_has_property(class: StdlibClass, member: &str) -> O
     Some(own.iter().any(|members| members.contains(&member)) || is_object_prototype_member(member))
 }
 
+/// The primitive type of a modeled host data property; see
+/// [`host_data_property`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum HostPrimitive {
+    /// A JavaScript `number` (`f64`).
+    Number,
+    /// A JavaScript `boolean`.
+    Bool,
+    /// A JavaScript `string`.
+    String,
+}
+
+/// How a modeled host class's primitive-valued data property is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct HostDataProperty {
+    /// The property's type.
+    pub ty: HostPrimitive,
+    /// The runtime type's zero-argument accessor that answers it
+    /// (`status()` on `SmeltResponse`).
+    pub accessor: &'static str,
+}
+
+/// The modeled read of `class.member` when it is a primitive-valued data
+/// property of a modeled host class, or `None`.
+///
+/// These properties are computed by the runtime type rather than stored as
+/// struct fields, so every reader of one — the direct read, an optional chain
+/// (`res?.status`), a union arm — must type it by this table and render it
+/// through the accessor, never as a field. One table so the frontend's type and
+/// the emitter's rendering cannot disagree.
+///
+/// `ReadableStream.locked` is modeled because Smelt's body handle exposes no
+/// reader API (`getReader` is a blocker), so the only way a modeled stream gets
+/// a reader is being consumed (`text()`, `json()`, ...): within the model a
+/// stream is locked exactly when its body was used, which is what Node reports
+/// for a consumed body (`await r.text(); r.body.locked === true`).
+#[must_use]
+pub fn host_data_property(class: StdlibClass, member: &str) -> Option<HostDataProperty> {
+    use HostPrimitive::{Bool, Number, String};
+    // Both spellings of a camel-case member: the source name, and the Rust
+    // field rendering a lowered member symbol may carry (`status_text`).
+    let (ty, accessor) = match (class, member) {
+        (StdlibClass::Response, "status") => (Number, "status"),
+        (StdlibClass::Response, "ok") => (Bool, "ok"),
+        (StdlibClass::Response, "statusText" | "status_text") => (String, "status_text"),
+        (StdlibClass::Response | StdlibClass::Request, "bodyUsed" | "body_used") => {
+            (Bool, "body_used")
+        }
+        (StdlibClass::Request, "url") => (String, "url"),
+        (StdlibClass::Request, "method") => (String, "method"),
+        (StdlibClass::ReadableStream, "locked") => (Bool, "locked"),
+        _ => return None,
+    };
+    Some(HostDataProperty { ty, accessor })
+}
+
 /// `Request`'s own members (the `Body` mixin is listed separately).
 const REQUEST_MEMBERS: &[&str] = &[
     "method",

@@ -6,6 +6,18 @@
 - CI: `.github/workflows/ci.yml`'s `hono` job now hard-gates `smelt build` + `cargo check` on `dist-smelt` (mirroring radash); `cargo test` and the SmeltUnknown erasure report stay advisory until the phase-3 test baseline is stable.
 
 
+## Phase 4 — Hono v5.0.0-rc.1 (`claude/hono-v5-phase4`)
+
+The probe is pinned to **v5.0.0-rc.1 (`0f5ad7b6`)**. `src/adapter/**` (19 test files, 18 tests that
+used to run) moved out of core and leaves the denominator. With `main`'s binary, v5 does not build
+(`hono-base.ts`: "Response init is an erased value"). With this branch: **364 passed / 90 failed
+of 454** (old pin: 318 / 9 of 327). One previously passing test fails (`timeout::no timeout should
+pass`). Five test files are back in scope: `cors`, `pretty-json`, `trailing-slash`, `preset/tiny`
+and `utils/cookie`. `cookie.test` had been a 616 MB module; it is now 114 KB, because branch and
+`try` continuations rejoin instead of being emitted once per path.
+
+Families, numbers, SmeltUnknown deltas and the remaining queue: `hono-v5-phase4.md`.
+
 ## Phase 3 round 3 — the test binary runs to completion (`claude/blocker-logs-hono-current-s5qmdu`)
 
 `cargo test` on `dist-smelt` no longer hangs: **192 passed / 88 failed** of 280 (round 2: 71 passed,

@@ -4,8 +4,8 @@ fn main (FuncId(0)) -> None
     %1 user sum: Float
     %2 user x: Float
     %3 temp: List<Float>
-    %4 temp: Float
-    %5 temp: Float
+    %4 temp: usize
+    %5 temp: usize
     %6 temp: Bool
     %7 temp: Float
     %8 temp: None
@@ -13,7 +13,7 @@ fn main (FuncId(0)) -> None
     %3 = [1.0, 2.0, 3.0]
     %0 = move %3
     %1 = 0.0
-    %4 = 0.0
+    %4 = 0
     goto bb1
   bb1:
     %5 = len copy %0
@@ -25,7 +25,7 @@ fn main (FuncId(0)) -> None
     %1 = move %7
     goto bb3
   bb3:
-    %4 = copy %4 + 1.0
+    %4 = copy %4 + 1
     goto bb1
   bb4:
     %8 = call @console_log(move %1) -> bb5

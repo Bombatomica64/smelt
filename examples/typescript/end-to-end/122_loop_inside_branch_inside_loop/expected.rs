@@ -137,86 +137,91 @@ impl<T: Clone> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Se
 // @smelt:prelude-end — generated program below
 fn main() {
     let mut row: SmeltList<f64>;
-    let mut i_1: f64;
-    let mut len_1: f64;
+    let mut i_1: usize;
+    let mut len_1: usize;
     let mut total: f64;
-    let mut k: f64;
-    let mut j: f64;
+    let mut k: usize;
+    let mut j: usize;
     let mut x: String;
     let mut x_1: String;
     let mut seen: SmeltList<String>;
     let mut rows: SmeltList<SmeltList<String>>;
-    let mut r: f64;
-    let mut j_1: f64;
-    let mut row_count: f64;
+    let mut r: usize;
+    let mut j_1: usize;
+    let mut row_count: usize;
     let mut p: String;
     let mut _smelt_tmp_18: bool;
     let mut _smelt_tmp_19: SmeltList<f64>;
     let mut _smelt_tmp_20: bool;
-    let mut _smelt_tmp_21: f64;
+    let mut _smelt_tmp_21: usize;
     let mut _smelt_tmp_22: bool;
     let mut _smelt_tmp_23: String;
     let mut _smelt_tmp_24: f64;
-    let mut _smelt_tmp_25: f64;
+    let mut _smelt_tmp_25: usize;
     let mut _smelt_tmp_26: String;
     let mut _smelt_tmp_27: f64;
-    let mut _smelt_tmp_28: f64;
+    let mut _smelt_tmp_28: usize;
     let mut _smelt_tmp_29: String;
     let mut _smelt_tmp_31: bool;
     let mut _smelt_tmp_32: f64;
     let mut _smelt_tmp_33: bool;
-    let mut _smelt_tmp_34: f64;
+    let mut _smelt_tmp_34: usize;
     let mut _smelt_tmp_35: bool;
     let mut _smelt_tmp_36: f64;
-    let mut _smelt_tmp_37: f64;
-    let mut _smelt_tmp_38: f64;
+    let mut _smelt_tmp_37: usize;
+    let mut _smelt_tmp_38: usize;
     let mut _smelt_tmp_42: SmeltList<String>;
     let mut _smelt_tmp_43: SmeltList<String>;
     let mut _smelt_tmp_44: SmeltList<String>;
     let mut _smelt_tmp_45: SmeltList<SmeltList<String>>;
     let mut _smelt_tmp_46: bool;
-    let mut _smelt_tmp_47: f64;
+    let mut _smelt_tmp_47: usize;
     let mut _smelt_tmp_48: bool;
     let mut _smelt_tmp_49: bool;
     let mut _smelt_tmp_50: f64;
     let mut _smelt_tmp_51: SmeltList<String>;
-    let mut _smelt_tmp_52: f64;
-    let mut _smelt_tmp_53: f64;
+    let mut _smelt_tmp_52: usize;
+    let mut _smelt_tmp_53: usize;
     let mut _smelt_tmp_54: bool;
     let mut _smelt_tmp_55: bool;
     let mut _smelt_tmp_56: f64;
     let mut _smelt_tmp_57: f64;
-    let mut _smelt_tmp_58: f64;
-    let mut _smelt_tmp_59: f64;
+    let mut _smelt_tmp_58: usize;
+    let mut _smelt_tmp_59: usize;
     let mut _smelt_tmp_60: String;
+    let mut _smelt_tmp_62: f64;
+    let mut _smelt_tmp_63: f64;
+    let mut _smelt_tmp_64: f64;
     let _smelt_tmp_17: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
     let mut out: SmeltList<String> = Into::<SmeltList<_>>::into(_smelt_tmp_17);
-    let mut i: f64 = 0.0;
-    let len: f64 = 3.0;
+    let mut i: usize = 0;
+    let len: usize = 3;
     loop {
     _smelt_tmp_18 = i < len;
     if !(_smelt_tmp_18) { break; }
     _smelt_tmp_19 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![10.0, 20.0]; smelt_list_items }));
     row = Into::<SmeltList<_>>::into(_smelt_tmp_19);
-    _smelt_tmp_20 = i != 1.0;
+    _smelt_tmp_20 = i != 1;
     if _smelt_tmp_20 {
-    i_1 = 0.0;
-    _smelt_tmp_21 = row.len() as f64;
+    i_1 = 0;
+    _smelt_tmp_21 = row.len();
     len_1 = _smelt_tmp_21;
     while i_1 < len_1 {
-    _smelt_tmp_23 = "".to_owned() + &smelt_number_to_string(row.borrow().get({ let smelt_normalized = i_1 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0));
+    _smelt_tmp_23 = "".to_owned() + &smelt_number_to_string(row.borrow().get(i_1).cloned().unwrap_or_else(|| 0.0));
     _smelt_tmp_24 = { let smelt_push_item = _smelt_tmp_23; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
-    _smelt_tmp_25 = i_1 + 1.0;
+    _smelt_tmp_25 = i_1 + 1;
     i_1 = _smelt_tmp_25;
     }
-    _smelt_tmp_26 = "/".to_owned() + &smelt_number_to_string(i);
+    _smelt_tmp_62 = i as f64;
+    _smelt_tmp_26 = "/".to_owned() + &smelt_number_to_string(_smelt_tmp_62);
     _smelt_tmp_27 = { let smelt_push_item = _smelt_tmp_26; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
-    _smelt_tmp_28 = i + 1.0;
+    _smelt_tmp_28 = i + 1;
     i = _smelt_tmp_28;
     } else {
-    _smelt_tmp_26 = "/".to_owned() + &smelt_number_to_string(i);
+    _smelt_tmp_62 = i as f64;
+    _smelt_tmp_26 = "/".to_owned() + &smelt_number_to_string(_smelt_tmp_62);
     _smelt_tmp_27 = { let smelt_push_item = _smelt_tmp_26; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
-    _smelt_tmp_28 = i + 1.0;
+    _smelt_tmp_28 = i + 1;
     i = _smelt_tmp_28;
     continue;
     }
@@ -224,27 +229,29 @@ fn main() {
     _smelt_tmp_29 = out.borrow().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_29); };
     total = 0.0;
-    k = 0.0;
+    k = 0;
     loop {
-    _smelt_tmp_31 = k < 3.0;
+    _smelt_tmp_31 = k < 3;
     if !(_smelt_tmp_31) { break; }
-    _smelt_tmp_32 = k % 2.0;
+    _smelt_tmp_63 = k as f64;
+    _smelt_tmp_32 = _smelt_tmp_63 % 2.0;
     _smelt_tmp_33 = _smelt_tmp_32 == 0.0;
     if _smelt_tmp_33 {
-    j = 0.0;
+    j = 0;
     loop {
-    _smelt_tmp_34 = k + 1.0;
+    _smelt_tmp_34 = k + 1;
     _smelt_tmp_35 = j < _smelt_tmp_34;
     if !(_smelt_tmp_35) { break; }
-    _smelt_tmp_36 = total + j;
+    _smelt_tmp_64 = j as f64;
+    _smelt_tmp_36 = total + _smelt_tmp_64;
     total = _smelt_tmp_36;
-    _smelt_tmp_37 = j + 1.0;
+    _smelt_tmp_37 = j + 1;
     j = _smelt_tmp_37;
     }
-    _smelt_tmp_38 = k + 1.0;
+    _smelt_tmp_38 = k + 1;
     k = _smelt_tmp_38;
     } else {
-    _smelt_tmp_38 = k + 1.0;
+    _smelt_tmp_38 = k + 1;
     k = _smelt_tmp_38;
     continue;
     }
@@ -260,61 +267,61 @@ fn main() {
     _smelt_tmp_44 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["b".to_owned()]; smelt_list_items }));
     _smelt_tmp_45 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_43.clone(), _smelt_tmp_44.clone()]; smelt_list_items }));
     rows = Into::<SmeltList<_>>::into(_smelt_tmp_45);
-    r = 0.0;
+    r = 0;
     loop {
-    _smelt_tmp_46 = r < 2.0;
+    _smelt_tmp_46 = r < 2;
     if !(_smelt_tmp_46) { break; }
-    j_1 = 0.0;
-    _smelt_tmp_47 = rows.len() as f64;
+    j_1 = 0;
+    _smelt_tmp_47 = rows.len();
     row_count = _smelt_tmp_47;
     while j_1 < row_count {
-    _smelt_tmp_49 = r == 1.0;
+    _smelt_tmp_49 = r == 1;
     if _smelt_tmp_49 {
     _smelt_tmp_50 = { let smelt_push_item = "last".to_owned(); seen.borrow_mut().push(smelt_push_item); seen.len() as f64 };
-    _smelt_tmp_51 = Into::<SmeltList<_>>::into(rows.borrow().get({ let smelt_normalized = j_1 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltList::new(Vec::<String>::new())));
-    _smelt_tmp_52 = 0.0;
+    _smelt_tmp_51 = Into::<SmeltList<_>>::into(rows.borrow().get(j_1).cloned().unwrap_or_else(|| SmeltList::new(Vec::<String>::new())));
+    _smelt_tmp_52 = 0;
     loop {
-    _smelt_tmp_53 = _smelt_tmp_51.len() as f64;
+    _smelt_tmp_53 = _smelt_tmp_51.len();
     _smelt_tmp_54 = _smelt_tmp_52 < _smelt_tmp_53;
     if !(_smelt_tmp_54) { break; }
-    p = _smelt_tmp_51.borrow().get({ let smelt_normalized = _smelt_tmp_52 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
+    p = _smelt_tmp_51.borrow().get(_smelt_tmp_52).cloned().unwrap_or_else(|| String::new());
     _smelt_tmp_55 = p.clone() == "*".to_owned();
     if _smelt_tmp_55 {
     _smelt_tmp_56 = { let smelt_push_item = "star".to_owned(); seen.borrow_mut().push(smelt_push_item); seen.len() as f64 };
-    _smelt_tmp_52 = _smelt_tmp_52 + 1.0;
+    _smelt_tmp_52 = _smelt_tmp_52 + 1;
     continue;
     } else {
     _smelt_tmp_57 = { let smelt_push_item = p; seen.borrow_mut().push(smelt_push_item); seen.len() as f64 };
-    _smelt_tmp_52 = _smelt_tmp_52 + 1.0;
+    _smelt_tmp_52 = _smelt_tmp_52 + 1;
     continue;
     }
     }
-    _smelt_tmp_58 = j_1 + 1.0;
+    _smelt_tmp_58 = j_1 + 1;
     j_1 = _smelt_tmp_58;
     } else {
-    _smelt_tmp_51 = Into::<SmeltList<_>>::into(rows.borrow().get({ let smelt_normalized = j_1 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltList::new(Vec::<String>::new())));
-    _smelt_tmp_52 = 0.0;
+    _smelt_tmp_51 = Into::<SmeltList<_>>::into(rows.borrow().get(j_1).cloned().unwrap_or_else(|| SmeltList::new(Vec::<String>::new())));
+    _smelt_tmp_52 = 0;
     loop {
-    _smelt_tmp_53 = _smelt_tmp_51.len() as f64;
+    _smelt_tmp_53 = _smelt_tmp_51.len();
     _smelt_tmp_54 = _smelt_tmp_52 < _smelt_tmp_53;
     if !(_smelt_tmp_54) { break; }
-    p = _smelt_tmp_51.borrow().get({ let smelt_normalized = _smelt_tmp_52 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
+    p = _smelt_tmp_51.borrow().get(_smelt_tmp_52).cloned().unwrap_or_else(|| String::new());
     _smelt_tmp_55 = p.clone() == "*".to_owned();
     if _smelt_tmp_55 {
     _smelt_tmp_56 = { let smelt_push_item = "star".to_owned(); seen.borrow_mut().push(smelt_push_item); seen.len() as f64 };
-    _smelt_tmp_52 = _smelt_tmp_52 + 1.0;
+    _smelt_tmp_52 = _smelt_tmp_52 + 1;
     continue;
     } else {
     _smelt_tmp_57 = { let smelt_push_item = p; seen.borrow_mut().push(smelt_push_item); seen.len() as f64 };
-    _smelt_tmp_52 = _smelt_tmp_52 + 1.0;
+    _smelt_tmp_52 = _smelt_tmp_52 + 1;
     continue;
     }
     }
-    _smelt_tmp_58 = j_1 + 1.0;
+    _smelt_tmp_58 = j_1 + 1;
     j_1 = _smelt_tmp_58;
     }
     }
-    _smelt_tmp_59 = r + 1.0;
+    _smelt_tmp_59 = r + 1;
     r = _smelt_tmp_59;
     }
     _smelt_tmp_60 = seen.borrow().join(&",".to_owned());

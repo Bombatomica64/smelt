@@ -212,6 +212,7 @@ fn type_param_in_dict_key(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
             Type::TypeParam { .. }
             | Type::Bool
             | Type::Int
+            | Type::FixedInt(_)
             | Type::Float
             | Type::String
             | Type::Unknown
@@ -937,6 +938,7 @@ fn type_param_preserved_in_emitted_type(mir: &Mir, ty: TypeId, name: Symbol) -> 
             | Type::Function(_)
             | Type::Bool
             | Type::Int
+            | Type::FixedInt(_)
             | Type::Float
             | Type::String
             | Type::Unknown
@@ -1013,6 +1015,7 @@ pub(crate) fn type_param_in_callback(mir: &Mir, ty: TypeId, name: Symbol) -> boo
             Type::TypeParam { .. }
             | Type::Bool
             | Type::Int
+            | Type::FixedInt(_)
             | Type::Float
             | Type::String
             | Type::Unknown
@@ -1441,6 +1444,7 @@ fn type_holds_function_seen(
             | Type::GeneratorResult { .. }
             | Type::Bool
             | Type::Int
+            | Type::FixedInt(_)
             | Type::Float
             | Type::String
             | Type::None
