@@ -9,6 +9,15 @@ entries = ["src/main.ts"]
 # Optional: extra roots searched during import resolution.
 roots = ["src"]
 
+# `hono` from npm ships compiled JavaScript only; Smelt lowers the TypeScript
+# source of the same release, the version package.json resolves to on Node.
+# The RPC client (`new Proxy`) and the testing helper are not used by this app
+# and are outside Smelt's profile, as in .github/compat/hono/Smelt.toml.
+[packages.hono]
+git = "https://github.com/honojs/hono.git"
+rev = "v4.13.7"
+exclude = ["src/client/**", "src/helper/testing/**"]
+
 [output]
 target = "./dist-smelt"
 crate-name = "hono_crud"

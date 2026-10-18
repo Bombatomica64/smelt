@@ -34,6 +34,13 @@
           "type": "null"
         }
       ]
+    },
+    "packages": {
+      "description": "TypeScript sources for dependencies imported by bare specifier.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/PackageSource"
+      }
     }
   },
   "required": [
@@ -256,6 +263,51 @@
           ]
         }
       }
+    },
+    "PackageSource": {
+      "description": "Where the TypeScript sources of one dependency live: `[packages.<name>]`.\n\nA package published to npm usually ships compiled JavaScript and `.d.ts`\ndeclarations only, and Smelt lowers TypeScript SOURCE, so a bare import of\nit (`import { Hono } from 'hono'`) has nothing to resolve to in\n`node_modules`. This section names the sources instead: a local directory\n(`path`) or a repository pinned to a revision (`git` + `rev`), the way a\nCargo dependency is pinned. Exactly one of `path` and `git` is given.",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Directory holding the package's sources, relative to `Smelt.toml`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "git": {
+          "description": "Repository to fetch the sources from (`git clone` URL).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rev": {
+          "description": "Revision to check out: a tag or a commit. Required with `git`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "entry": {
+          "description": "Entry module, relative to the package root. Defaults to `src/index.ts`,\nthen `index.ts`. Subpath imports (`name/sub`) resolve next to it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exclude": {
+          "description": "Package-root-relative globs of modules left out of the crate, with the\nsame syntax and pruning as `[sources] exclude`.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

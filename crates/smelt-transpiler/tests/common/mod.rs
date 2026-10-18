@@ -53,6 +53,25 @@ pub(crate) fn smelt(args: &[&str]) -> TestResult<String> {
     Ok(String::from_utf8(output.stdout)?)
 }
 
+/// Runs the `smelt` binary from the workspace root with extra environment.
+pub(crate) fn smelt_with_env(args: &[&str], env: &[(&str, &Path)]) -> TestResult<String> {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_smelt"));
+    command.current_dir(workspace_root()?).args(args);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let output = command.output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "smelt failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+        .into());
+    }
+    Ok(String::from_utf8(output.stdout)?)
+}
+
 /// Runs the `smelt` binary from `dir` and returns stdout.
 ///
 /// The companion of [`smelt`], which always runs from the workspace root. A
