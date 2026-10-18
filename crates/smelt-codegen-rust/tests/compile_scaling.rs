@@ -73,6 +73,10 @@ const MIN_MEASURED: Duration = Duration::from_millis(50);
 /// Upper bound on the calibrated `n`, so a pathological shape still finishes.
 const MAX_N: usize = 1 << 14;
 
+/// Calibration ceiling for shapes whose size is a nesting depth; see
+/// [`assert_linear_up_to`].
+const MAX_NESTING: usize = 128;
+
 /// Serializes the shapes: timings taken while another shape runs on the next
 /// core measure contention, not growth.
 static SERIAL: Mutex<()> = Mutex::new(());
@@ -157,24 +161,24 @@ fn net(time: Duration, baseline: Duration) -> Duration {
 /// Runs on a thread with a large stack: deeply nested shapes recurse in the
 /// parser and the lowering, and the default test-thread stack is sized for
 /// ordinary programs, not for the 4× size of a calibrated one.
-fn growth(shape: &str, start: usize, generate: fn(usize) -> String) -> f64 {
+fn growth(shape: &str, start: usize, max_n: usize, generate: fn(usize) -> String) -> f64 {
     let _guard = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let shape_name = shape.to_owned();
     let worker = std::thread::Builder::new()
         .stack_size(256 * 1024 * 1024)
-        .spawn(move || measure_growth(&shape_name, start, generate))
+        .spawn(move || measure_growth(&shape_name, start, max_n, generate))
         .expect("spawn the measuring thread");
     worker.join().unwrap_or_else(|payload| std::panic::resume_unwind(payload))
 }
 
 /// The body of [`growth`], on the large-stack thread.
-fn measure_growth(shape: &str, start: usize, generate: fn(usize) -> String) -> f64 {
+fn measure_growth(shape: &str, start: usize, max_n: usize, generate: fn(usize) -> String) -> f64 {
     let baseline_phases = measure(&generate(1));
     let baseline = baseline_phases.total();
     let baseline_bytes = baseline_phases.emitted_bytes;
     let mut n = start;
     let mut small = measure(&generate(n));
-    while net(small.total(), baseline) < MIN_MEASURED && n < MAX_N {
+    while net(small.total(), baseline) < MIN_MEASURED && n < max_n {
         n *= 2;
         small = measure(&generate(n));
     }
@@ -202,7 +206,21 @@ fn measure_growth(shape: &str, start: usize, generate: fn(usize) -> String) -> f
 
 /// Assert the measured growth of `shape` is within [`MAX_GROWTH`].
 fn assert_linear(shape: &str, start: usize, generate: fn(usize) -> String) {
-    let ratio = growth(shape, start, generate);
+    assert_linear_up_to(shape, start, MAX_N, generate);
+}
+
+/// [`assert_linear`] for a shape whose size is a NESTING depth, calibrated no
+/// further than `max_n`.
+///
+/// A nested shape recurses once per level through the parser, the lowering
+/// and the emitter, and under coverage instrumentation each debug frame is
+/// large enough that a calibrated depth of a few hundred (×[`SCALE`] for the
+/// large run) can exhaust even the measuring thread's stack. Where calibration
+/// lands depends on the machine's speed, so without a cap the test overflowed
+/// on some CI runs and not others. The cap keeps the depth deterministic; the
+/// shape still measures growth, from a smaller absolute time.
+fn assert_linear_up_to(shape: &str, start: usize, max_n: usize, generate: fn(usize) -> String) {
+    let ratio = growth(shape, start, max_n, generate);
     assert!(
         ratio < MAX_GROWTH,
         "{shape}: t({SCALE}n)/t(n) = {ratio:.2}, above the linear bound {MAX_GROWTH} \
@@ -439,12 +457,12 @@ fn array_push_statements_scale_linearly() {
 #[test]
 #[ignore = "quadratic emitted output (nested type annotations); see the comment"]
 fn nested_generic_type_scales_linearly() {
-    assert_linear("nested generic type", 4, nested_generic_type);
+    assert_linear_up_to("nested generic type", 4, MAX_NESTING, nested_generic_type);
 }
 
 #[test]
 fn generic_call_chain_scales_linearly() {
-    assert_linear("nested generic call chain", 8, generic_call_chain);
+    assert_linear_up_to("nested generic call chain", 8, MAX_NESTING, generic_call_chain);
 }
 
 /// IGNORED: quadratic in codegen, same cause as `array_push_statements`.
