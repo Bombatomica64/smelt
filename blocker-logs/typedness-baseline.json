@@ -2,17 +2,17 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 7196,
+      "concrete": 7249,
       "generic": 74,
       "erased": 51
     },
     "reads": {
-      "concrete": 714,
+      "concrete": 722,
       "generic": 21,
       "erased": 34
     },
     "calls": {
-      "concrete": 1695,
+      "concrete": 1706,
       "generic": 5,
       "erased": 2
     }
@@ -1072,7 +1072,24 @@
         "erased": 0
       }
     },
-    "examples/typescript/end-to-end/166_proven_integer_counters/input.ts": {
+    "examples/typescript/end-to-end/166_closure_stored_on_its_receiver/input.ts": {
+      "values": {
+        "concrete": 53,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 8,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 11,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/167_proven_integer_counters/input.ts": {
       "values": {
         "concrete": 175,
         "generic": 0,
@@ -1089,7 +1106,7 @@
         "erased": 0
       }
     },
-    "examples/typescript/end-to-end/167_bun_int32_slots/input.ts": {
+    "examples/typescript/end-to-end/168_bun_int32_slots/input.ts": {
       "values": {
         "concrete": 149,
         "generic": 0,
@@ -1106,7 +1123,7 @@
         "erased": 0
       }
     },
-    "examples/typescript/end-to-end/168_json_typed_entry_decode/input.ts": {
+    "examples/typescript/end-to-end/169_json_typed_entry_decode/input.ts": {
       "values": {
         "concrete": 76,
         "generic": 0,

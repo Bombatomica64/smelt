@@ -363,11 +363,10 @@ pub mod host_override {
 /// erased callable answered `0`. Real code branches on it: es-toolkit `rest(func)`
 /// defaults its split point to `func.length - 1`, and `ary(func)` to `func.length`.
 ///
-/// The arity is therefore recorded in a thread-local registry keyed by the erased
-/// callable's allocation address, in the same shape as the sibling
-/// `SMELT_FUNCTION_IDENTITIES` / `SMELT_FUNCTION_ORIGINS` registries, and read back
-/// through the canonical identity so a chain of erasure wrappers resolves to the
-/// arity of the function the chain started from.
+/// The arity is therefore recorded on the callable's shared function-identity
+/// token (`SmeltFunctionIdentity`, emitted by `callable_registry`), so it is read
+/// back through the canonical identity and a chain of erasure wrappers resolves to
+/// the arity of the function the chain started from.
 pub mod function_length {
     /// Records an erased callable's source arity at the erasure site.
     pub const REGISTER: &str = "smelt_register_function_length";

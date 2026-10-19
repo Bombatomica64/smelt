@@ -1,4 +1,4 @@
-module examples/typescript/end-to-end/167_bun_int32_slots/input.ts (ModuleId(0))
+module examples/typescript/end-to-end/168_bun_int32_slots/input.ts (ModuleId(0))
   body BodyId(6)
   items
     class Cursor fields [Public line: i32, Public column: i32] constructor Some(ItemId(5)) methods [] implements []

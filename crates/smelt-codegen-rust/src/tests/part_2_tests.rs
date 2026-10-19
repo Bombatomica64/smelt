@@ -1069,7 +1069,7 @@ console.log(enc instanceof TextEncoder);
     );
     // And the live value is retained, so narrowing hands back the same object.
     assert!(
-        source.contains("smelt_register_host_origin(smelt_id, self.clone())"),
+        source.contains("let smelt_host_origin = self.clone(); smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(smelt_id,"),
         "{source}"
     );
     // The check is the shared marker probe, no longer a folded `false`.
@@ -1118,11 +1118,12 @@ console.log(erased instanceof Server);
     );
 }
 
-/// The host-origin registry is pay-for-use.
+/// The host-origin helpers are pay-for-use.
 ///
-/// Only the six classes whose state is not a record retain their live value, so
-/// a program that erases none of them must not carry the registry — sixteen
-/// example goldens grew by it before the gate was added.
+/// Only the classes whose state is not a record retain their live value (in the
+/// erased record's origin slot), so a program that erases none of them must not
+/// carry the helpers — sixteen example goldens grew by them before the gate was
+/// added.
 #[test]
 fn the_host_origin_registry_is_pay_for_use() {
     let without = source_for(
@@ -1131,7 +1132,7 @@ const value: unknown = { a: 1 };
 console.log(value);
 ",
     );
-    assert!(!without.contains("SMELT_HOST_ORIGINS"), "{without}");
+    assert!(!without.contains("fn smelt_with_host_origin"), "{without}");
 
     let with = source_for(
         r"
@@ -1139,7 +1140,7 @@ const enc: unknown = new TextEncoder();
 console.log(enc);
 ",
     );
-    assert!(with.contains("SMELT_HOST_ORIGINS"), "{with}");
+    assert!(with.contains("fn smelt_with_host_origin"), "{with}");
 }
 
 /// A class backed by a generated runtime type is not reflectively constructible
@@ -1176,4 +1177,33 @@ console.log(value);
         );
     }
     assert!(table.contains("(\"Blob\", \"blob\")"), "{table}");
+}
+
+/// Every host-object marker lives in the internal `__smelt` key namespace.
+///
+/// The erased field store counts its keys in that namespace
+/// (`SmeltFieldStore::has_internal_keys`), and every marker probe —
+/// `smelt_object_has_host_marker`, `smelt_host_buffer_marker`, the
+/// regexp/error/arguments checks of `for...in` — answers `false` without
+/// scanning when the count is zero. A marker outside the namespace would make
+/// that fast path report a host object as a plain record.
+#[test]
+fn every_host_marker_is_in_the_internal_key_namespace() {
+    for marker in smelt_stdlib::host_object_markers() {
+        assert!(marker.starts_with("__smelt"), "host marker {marker} is outside the internal namespace");
+    }
+    let source = source_for(
+        r"
+const enc: unknown = new TextEncoder();
+console.log(JSON.stringify(enc), JSON.stringify({ a: 1 }));
+",
+    );
+    assert!(
+        source.contains("fn smelt_is_internal_key(&self) -> bool { self.starts_with(\"__smelt\") }"),
+        "{source}"
+    );
+    assert!(
+        source.contains("object.store.borrow().has_internal_keys() && "),
+        "{source}"
+    );
 }

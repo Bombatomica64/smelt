@@ -11558,7 +11558,7 @@ export function f(a: number, b: number): any {
     );
     assert!(
         generated.contains(
-            "!(object.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\"))"
+            "!(shape.arguments && matches!(key, \"__smelt_arguments\" | \"length\"))"
         ),
         "`length` must stay out of an `arguments` object's own-key enumeration:\n{generated}"
     );

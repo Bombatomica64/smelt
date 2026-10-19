@@ -2580,7 +2580,7 @@ impl FunctionEmitter<'_> {
         // yields this instance rather than a rebuilt copy (`reference_origin`).
         let object_ctor = if self.is_reference_class_type(target) {
             crate::reference_origin::with_origin_text(
-                "SmeltObject::with_id(smelt_reference_object_identity(::std::rc::Rc::as_ptr(&smelt_struct_value.0) as usize), smelt_object_entries)",
+                "SmeltObject::with_id(smelt_reference_object_identity(&smelt_struct_value.0), smelt_object_entries)",
                 "smelt_struct_value",
             )
         } else {
@@ -3422,8 +3422,22 @@ impl FunctionEmitter<'_> {
                     converted_return_text
                 };
                 let default_callback = self.default_value(target)?;
+                // A callable OBJECT whose `__smelt_call` is the erasure of a
+                // typed callable restores that callable, and the object is then
+                // recorded against the restored callback so erasing it again
+                // answers the object with its properties. Recorded against the
+                // restored callable ITSELF, the entry would own a path back to
+                // its own key (object -> `__smelt_call` adapter -> captured
+                // origin) and could never be swept (`callable_registry`), so the
+                // object is recorded against a fresh forwarding callable
+                // instead: the same JavaScript function (it is linked to the
+                // same identity below), and an allocation only the program holds.
+                let forwarded_args = (0..function.params.len())
+                    .map(|index| format!("arg{index}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 Ok(format!(
-                    "{{ let smelt_source_value = {smelt_owned_text}; let smelt_function = match smelt_source_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: {target_text} = if let Some(smelt_original) = smelt_restore_function_origin::<{target_text}>(&smelt_function) {{ smelt_original }} else {{ ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }}) }}; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback }} else {{ {default_callback} }} }}"
+                    "{{ let smelt_source_value = {smelt_owned_text}; let smelt_function = match smelt_source_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: {target_text} = if let Some(smelt_original) = smelt_restore_function_origin::<{target_text}>(&smelt_function) {{ if matches!(smelt_source_value, SmeltUnknown::Object(_)) {{ ::std::rc::Rc::new(move |{params}| (smelt_original)({forwarded_args})) }} else {{ smelt_original }} }} else {{ ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }}) }}; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback }} else {{ {default_callback} }} }}"
                 ))
             }
             // An already-erased `SmeltUnknown` at a `Type::Future` position is a
@@ -3682,7 +3696,7 @@ fn erased_to_list_text(text: &str, item_text: Option<&str>, char_text: &str) -> 
         // The aliasing re-wrap: same identity, same buffer, no copy.
         None => "SmeltList::with_storage(values.id, values.storage())".to_owned(),
         Some(item) => format!(
-            "SmeltList::with_id(values.id, values.into_iter().map(|value| {item}).collect::<Vec<_>>())"
+            "{{ let smelt_list_id = values.id; let smelt_list = SmeltList::with_id(smelt_list_id, values.into_iter().map(|value| {item}).collect::<Vec<_>>()); smelt_array_props_adopt(smelt_list_id, &smelt_list.storage()); smelt_list }}"
         ),
     };
     let string_arm =

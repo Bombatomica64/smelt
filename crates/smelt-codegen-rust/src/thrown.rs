@@ -375,7 +375,7 @@ pub(crate) fn emit_unknown_assign_support(writer: &mut CodeWriter) {
     writer.line(format!(
         "fn {UNKNOWN_ASSIGN_FN}(target: &mut SmeltUnknown, source: &SmeltUnknown) {{ \
          let entries: Vec<(String, SmeltUnknown)> = match source {{ \
-         SmeltUnknown::Object(object) => object.iter().filter(|(key, _)| smelt_is_for_in_object_key(object, key)).collect(), \
+         SmeltUnknown::Object(object) => {{ let shape = smelt_for_in_object_shape(object); object.iter().filter(|(key, _)| smelt_is_for_in_shape_key(shape, key)).collect() }}, \
          SmeltUnknown::Array(values) => values.clone().into_vec().into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect(), \
          SmeltUnknown::String(text) => text.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string().into()))).collect(), \
          _ => Vec::new() }}; \

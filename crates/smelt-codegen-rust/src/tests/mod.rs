@@ -106,3 +106,4 @@ mod python_stdlib_spelling_tests;
 mod drifted_helper_tests;
 mod console_inspect_tests;
 mod rejoin_tests;
+mod weak_receiver_tests;

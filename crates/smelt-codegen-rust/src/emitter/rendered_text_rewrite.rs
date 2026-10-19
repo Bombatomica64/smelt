@@ -19,9 +19,12 @@ pub(super) fn shared_capture_cell_name(text: &str) -> Option<&str> {
     // expression instead produced `let smelt_capture_x.upgrade().expect(..) = ..`,
     // which is not a pattern and does not parse. radash's `async_test` was the case
     // that caught it -- a self-recursive closure that a nested closure also captures.
+    // A weak-receiver capture (`emitter::weak_receiver`) carries its upgrade the
+    // same way and is stripped for the same reason.
     Some(
         inner
             .strip_suffix(SELF_RECURSIVE_UPGRADE)
+            .or_else(|| inner.strip_suffix(WEAK_RECEIVER_UPGRADE))
             .unwrap_or(inner),
     )
 }
@@ -32,6 +35,10 @@ pub(super) fn shared_capture_cell_name(text: &str) -> Option<&str> {
 /// on this text exactly, so it lives here once rather than being spelled at each site.
 pub(super) const SELF_RECURSIVE_UPGRADE: &str =
     ".upgrade().expect(\"self-recursive closure called after its defining scope returned\")";
+
+/// The upgrade carried by a weak-receiver capture's access form (see
+/// `emitter::weak_receiver`): a fresh capture cell around the upgraded instance.
+pub(super) const WEAK_RECEIVER_UPGRADE: &str = ".smelt_receiver_cell()";
 
 /// Rewrites emitted closure text so shared captures use their `RefCell` storage.
 ///

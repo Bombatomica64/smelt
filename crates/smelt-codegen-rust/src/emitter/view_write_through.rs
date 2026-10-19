@@ -155,6 +155,13 @@ impl FunctionEmitter<'_> {
             else {
                 continue;
             };
+            // A closure capturing this instance weakly holds it strongly once
+            // erased (see `emitter::weak_receiver`).
+            let erased = if self.weak_receiver_field(field.name) {
+                format!("smelt_keep_receiver_alive({erased}, self)")
+            } else {
+                erased
+            };
             arms.push_str(&format!("{key:?} => {erased}, "));
         }
         // One line on purpose: the whole method is the erased-view read
@@ -198,7 +205,17 @@ impl FunctionEmitter<'_> {
                 crate::rust::RustIdent::new(self.mir.symbols.get(field.name).unwrap_or("field"))
                     .into_string();
             arms.push_str(&format!(
-                "            {key:?} => {{ let smelt_field_value = {converted}; self.0.borrow_mut().{field_name} = smelt_field_value; }}\n"
+                "            {key:?} => {{ let smelt_field_value = {converted}; {pin}self.0.borrow_mut().{field_name} = smelt_field_value; }}\n",
+                // Overwriting a weak-receiver closure someone else still holds
+                // (see `emitter::weak_receiver`) keeps the instance alive for it.
+                pin = if self.weak_receiver_field(field.name) {
+                    format!(
+                        "if self.0.borrow().{field_name}{}.smelt_closure_shared() {{ smelt_pin_receiver(self); }} ",
+                        super::weak_receiver::closure_slot(self.mir, field.ty).unwrap_or("")
+                    )
+                } else {
+                    String::new()
+                }
             ));
         }
         Ok(format!(

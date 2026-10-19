@@ -159,6 +159,7 @@ mod types;
 mod union;
 /// Property writes through an erased view of a reference-class instance.
 pub(crate) mod view_write_through;
+pub(crate) mod weak_receiver;
 
 pub(crate) use literals::method_mutates_this;
 use literals::{assigned_locals, constant_text};
@@ -256,6 +257,9 @@ pub(crate) struct EmitContext {
     /// `Rc<RefCell<Inner>>`), computed once by [`crate::classify`]. Every class
     /// not in this set stays a by-value value class with its current emission.
     reference_classes: HashSet<Symbol>,
+    /// Closures stored on the instance they capture, which capture it weakly
+    /// (see [`weak_receiver`]).
+    weak_receivers: weak_receiver::WeakReceiverPlan,
     /// Which declared type-parameter positions each generated class and
     /// interface keeps in its emitted Rust, computed once by
     /// [`crate::generic_elision::compute`].
@@ -380,6 +384,7 @@ impl EmitContext {
                 ::std::collections::BTreeMap::new(),
             ),
             generic_functions: RefCell::new(HashSet::new()),
+            weak_receivers: weak_receiver::WeakReceiverPlan::of(mir, &crate::classify::reference_classes(mir)),
             reference_classes: crate::classify::reference_classes(mir),
             type_param_elision: crate::generic_elision::compute(mir),
             erased_view_write_through: view_write_through::program_writes_erased_fields(mir),
@@ -417,6 +422,11 @@ impl EmitContext {
     /// only an erasure of a reference record ever stamps one.
     pub(crate) fn has_reference_classes(&self) -> bool {
         !self.reference_classes.is_empty()
+    }
+
+    /// The closures that capture their receiver weakly (see [`weak_receiver`]).
+    pub(crate) fn weak_receivers(&self) -> &weak_receiver::WeakReceiverPlan {
+        &self.weak_receivers
     }
 
     /// Return whether the class named `symbol` is emitted as a reference class.

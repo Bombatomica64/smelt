@@ -480,8 +480,8 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     //
     // Their state is closures, cells and a tokio shutdown sender, so unlike
     // `Headers` or `Blob` they cannot be REBUILT from a record. Their erasure
-    // therefore retains the live value in `SMELT_HOST_ORIGINS` keyed by the
-    // record's object id, and `SmeltFromUnknown` hands back that same object —
+    // therefore retains the live value in the erased record's own origin slot
+    // (`smelt_with_host_origin`), and `SmeltFromUnknown` hands back that same object —
     // which is what JavaScript erasure does anyway: `const x: unknown = emitter`
     // must reach the same listener list.
     host("TextEncoder", "__smelt_textencoder"),
