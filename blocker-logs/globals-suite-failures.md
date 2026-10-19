@@ -68,6 +68,12 @@ read/write/call path in the prelude.
 
 ### C. bigint literal wider than i64 (remeda, 2 tests) — needs a bigint type
 
+**Landed** (branch `feat/bigint-type`): `Type::BigInt` / `Literal::BigInt`,
+emitted as `num_bigint::BigInt`, with a `SmeltUnknown::BigInt` tag that only
+exists in a crate holding a bigint. All four `randomBigInt` tests pass and the
+remeda pin is `ok. 1789 passed; 0 failed`. The design below is kept as the
+record of the decision.
+
 `randomBigInt.test.ts` "tiny ranges with huge numbers" (plain and crypto
 polyfill) uses `9_999_999_999_999_999_999_999n`. Today TS `bigint` lowers to
 `Type::Int` (`i64`) and a literal that does not fit falls back to `f64`, so

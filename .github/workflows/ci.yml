@@ -367,7 +367,7 @@ jobs:
 
   # Regression gate: transpile the Remeda library at a pinned ref with the smelt
   # built from THIS commit, then compile and run its generated Rust test suite.
-  # The corpus currently has 1789 tests with exactly two pinned failures; this job fails if a codegen,
+  # The corpus currently has 1789 tests, all passing; this job fails if a codegen,
   # frontend, or MIR change regresses any of them. Builds smelt from source (not
   # the smelt-nightly asset) so pull requests are gated against their own code.
   # ==========================================================================
@@ -420,16 +420,16 @@ jobs:
         run: target/debug/smelt --manifest-path target/compat-repos/remeda/Smelt.toml build
 
       - name: Compile and run generated Remeda tests (regression gate)
-        # Pinned-failure ratchet: 1789 tests, of which exactly 2 are known to
-        # fail (`randomBigInt` "huge numbers" x2: a bigint literal wider than
-        # i64 needs a real BigInt type -- blocker-logs/globals-suite-failures.md).
-        # The pin fails on ANY other failure and on a change to the total, so a
-        # regression cannot hide behind the known two; when BigInt lands the
-        # assertion goes back to `ok. 1789 passed; 0 failed;`.
+        # All 1789 tests pass. The four `randomBigInt` tests that used to fail
+        # needed a real bigint: a literal wider than i64
+        # (`9_999_999_999_999_999_999_999n`) and an accumulator past 2^63, which
+        # `num_bigint::BigInt` now carries exactly
+        # (blocker-logs/globals-suite-failures.md section C). The pin fails on
+        # any failure and on a change to the total.
         run: |
           cargo test --manifest-path target/compat-repos/remeda/dist-smelt/Cargo.toml \
             --no-fail-fast 2>&1 | tee remeda-tests.log || true
-          grep -F "test result: FAILED. 1787 passed; 2 failed;" remeda-tests.log
+          grep -F "test result: ok. 1789 passed; 0 failed;" remeda-tests.log
 
       # Advisory SmeltUnknown metric: classify generated erasure and surface any
       # rise in avoidable erasure against remeda's OWN committed baseline.
