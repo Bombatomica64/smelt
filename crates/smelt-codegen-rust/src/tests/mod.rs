@@ -107,3 +107,4 @@ mod drifted_helper_tests;
 mod console_inspect_tests;
 mod rejoin_tests;
 mod weak_receiver_tests;
+mod bigint_tests;

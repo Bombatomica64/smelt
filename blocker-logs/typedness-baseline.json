@@ -2,17 +2,17 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 7249,
-      "generic": 74,
+      "concrete": 7440,
+      "generic": 77,
       "erased": 51
     },
     "reads": {
-      "concrete": 722,
+      "concrete": 724,
       "generic": 21,
       "erased": 34
     },
     "calls": {
-      "concrete": 1706,
+      "concrete": 1764,
       "generic": 5,
       "erased": 2
     }
@@ -1153,6 +1153,23 @@
       },
       "calls": {
         "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/170_bigint_arbitrary_precision/input.ts": {
+      "values": {
+        "concrete": 191,
+        "generic": 3,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 58,
         "generic": 0,
         "erased": 0
       }

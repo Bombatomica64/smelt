@@ -1,0 +1,6 @@
+-3 RangeError: Division by zero
+-1 RangeError: Division by zero
+1024 RangeError
+9007199254740992 RangeError: The number 1.5 cannot be converted to a BigInt because it is not an integer RangeError: The number NaN cannot be converted to a BigInt because it is not an integer
+SyntaxError: Cannot convert -0b1 to a BigInt 5 SyntaxError: Cannot convert 1.5 to a BigInt 0
+-1 RangeError
