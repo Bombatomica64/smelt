@@ -87,6 +87,7 @@ mod builtin_member_prelude;
 mod callable_registry;
 mod erased_method_prelude;
 mod erased_list_alias;
+mod bigint_prelude;
 mod byte_buffer_prelude;
 mod event_emitter_prelude;
 mod host_value_erasure;
@@ -687,6 +688,10 @@ fn emit_source_with_free_function_router(
     let needs_regex =
         stdlib::backend_dependencies(mir).contains(&smelt_stdlib::BackendDependency::Regex);
     let needs_unknown = stdlib::needs_unknown_type(mir);
+    // A JavaScript `bigint` is pay-for-use: its `num-bigint` runtime and the
+    // `SmeltUnknown::BigInt` tag exist only in a crate that holds one, and
+    // every exhaustive match over the erased carrier names that arm only then.
+    let needs_bigint = stdlib::needs_bigint_runtime(mir);
     // The fetch types are pay-for-use: a crate that never mentions `Headers`
     // carries none of `SmeltHeaders`.
     let needs_headers = stdlib::needs_headers_runtime(mir);
@@ -2070,6 +2075,9 @@ fn emit_source_with_free_function_router(
         writer.line("        SmeltUnknown::Undefined => 1_u8.hash(&mut hasher),");
         writer.line("        SmeltUnknown::Bool(value) => { 2_u8.hash(&mut hasher); value.hash(&mut hasher); },");
         writer.line("        SmeltUnknown::Number(value) => { 3_u8.hash(&mut hasher); let bits = if value.is_nan() { f64::NAN.to_bits() } else if *value == 0.0 { 0_f64.to_bits() } else { value.to_bits() }; bits.hash(&mut hasher); },");
+        if needs_bigint {
+            writer.line("        SmeltUnknown::BigInt(value) => { 9_u8.hash(&mut hasher); value.hash(&mut hasher); },");
+        }
         writer.line("        SmeltUnknown::String(value) => { 4_u8.hash(&mut hasher); value.hash(&mut hasher); },");
         writer.line("        SmeltUnknown::Symbol(value) => { 5_u8.hash(&mut hasher); value.hash(&mut hasher); },");
         writer.line("        SmeltUnknown::Array(value) => { 6_u8.hash(&mut hasher); value.id.hash(&mut hasher); },");
@@ -2126,7 +2134,7 @@ fn emit_source_with_free_function_router(
         writer.line("    fn js_strict_eq(&self, other: &Self) -> bool;");
         writer.line("}");
         writer.line("impl SmeltJsStrictEq for SmeltUnknown {");
-        writer.line("    fn js_strict_eq(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Null, SmeltUnknown::Null) => true, (SmeltUnknown::Undefined, SmeltUnknown::Undefined) => true, (SmeltUnknown::Bool(left), SmeltUnknown::Bool(right)) => left == right, (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) => left == right, (SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right, (SmeltUnknown::Symbol(left), SmeltUnknown::Symbol(right)) => left == right, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => smelt_same_erased_function(left, right), (SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id, _ => false } }");
+        writer.line(with_bigint_arm(needs_bigint, "    fn js_strict_eq(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Null, SmeltUnknown::Null) => true, (SmeltUnknown::Undefined, SmeltUnknown::Undefined) => true, (SmeltUnknown::Bool(left), SmeltUnknown::Bool(right)) => left == right, (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) => left == right, (SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right, (SmeltUnknown::Symbol(left), SmeltUnknown::Symbol(right)) => left == right, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => smelt_same_erased_function(left, right), (SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id, _ => false } }", "(SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right,", "(SmeltUnknown::BigInt(left), SmeltUnknown::BigInt(right)) => left == right,"));
         writer.line("}");
         writer.line("impl SmeltJsStrictEq for String { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }");
         writer.line("impl SmeltJsStrictEq for bool { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }");
@@ -2429,7 +2437,7 @@ fn emit_source_with_free_function_router(
         // rather than being inlined -- and re-allocated -- at each site.
         if needs_typeof {
             writer.line("/// Resolve the JavaScript `typeof` spelling for an erased value.");
-            writer.line("fn smelt_typeof(value: &SmeltUnknown) -> &'static str { match value { SmeltUnknown::Undefined => \"undefined\", SmeltUnknown::Bool(_) => \"boolean\", SmeltUnknown::Number(_) => \"number\", SmeltUnknown::String(_) => \"string\", SmeltUnknown::Symbol(_) => \"symbol\", SmeltUnknown::Function(_) => \"function\", SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => \"object\" } }");
+            writer.line(with_bigint_arm(needs_bigint, "fn smelt_typeof(value: &SmeltUnknown) -> &'static str { match value { SmeltUnknown::Undefined => \"undefined\", SmeltUnknown::Bool(_) => \"boolean\", SmeltUnknown::Number(_) => \"number\", SmeltUnknown::String(_) => \"string\", SmeltUnknown::Symbol(_) => \"symbol\", SmeltUnknown::Function(_) => \"function\", SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => \"object\" } }", "SmeltUnknown::String(_) =>", "SmeltUnknown::BigInt(_) => \"bigint\","));
         }
         writer.blank_line();
         writer.blank_line();
@@ -2522,9 +2530,14 @@ fn emit_source_with_free_function_router(
                     arms
                 },
             );
-            writer.line(format!(
+            writer.line(with_bigint_arm(
+            needs_bigint,
+            format!(
                 "fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String {{ match value {{ SmeltUnknown::Null => \"[object Null]\".to_owned(), SmeltUnknown::Undefined => \"[object Undefined]\".to_owned(), SmeltUnknown::Bool(_) => \"[object Boolean]\".to_owned(), SmeltUnknown::Number(_) => \"[object Number]\".to_owned(), SmeltUnknown::String(_) => \"[object String]\".to_owned(), SmeltUnknown::Symbol(_) => \"[object Symbol]\".to_owned(), SmeltUnknown::Array(_) => \"[object Array]\".to_owned(), SmeltUnknown::Function(_) => \"[object Function]\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned(), SmeltUnknown::Object(map) => {{ if let Some(SmeltUnknown::String(tag)) = map.get({to_string_tag_key:?}) {{ return format!(\"[object {{tag}}]\"); }} if map.contains_key(\"__smelt_date\") {{ return \"[object Date]\".to_owned(); }} if map.contains_key(\"__smelt_regexp\") {{ return \"[object RegExp]\".to_owned(); }} if map.contains_key(\"__smelt_error\") {{ return \"[object Error]\".to_owned(); }} if map.contains_key(\"__smelt_global_object\") {{ return \"[object global]\".to_owned(); }} if map.contains_key(\"__smelt_map\") {{ return \"[object Map]\".to_owned(); }} if map.contains_key(\"__smelt_set\") {{ return \"[object Set]\".to_owned(); }} if map.contains_key(\"__smelt_arguments\") {{ return \"[object Arguments]\".to_owned(); }} {host_tag_arms}if map.contains_key(\"__smelt_builtin_namespace\") {{ if let Some(SmeltUnknown::String(name)) = map.get(\"name\") {{ return format!(\"[object {{name}}]\"); }} }} \"[object Object]\".to_owned() }} }} }}",
-            ));
+            ),
+            "SmeltUnknown::String(_) =>",
+            "SmeltUnknown::BigInt(_) => \"[object BigInt]\".to_owned(),",
+        ));
         }
         writer.blank_line();
         writer.line("impl PartialEq for SmeltObject { fn eq(&self, other: &Self) -> bool { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_eq(self, other, &mut smelt_seen) } }");
@@ -3395,6 +3408,14 @@ fn emit_source_with_free_function_router(
             unknown_writer.line("Undefined,");
             unknown_writer.line("Bool(bool),");
             unknown_writer.line("Number(f64),");
+            // A JavaScript `bigint` keeps its own tag in the erased carrier, so
+            // `typeof` answers `"bigint"` and the value is never rounded to
+            // `f64`. This is the bigint face of the existing dynamic boundary
+            // (`unknown`, `any`, unions, generic erasure), not a new one: a
+            // bigint only arrives here through the same erasure a number does.
+            if needs_bigint {
+                unknown_writer.line(format!("BigInt({}),", bigint_prelude::BIGINT_TYPE));
+            }
             // JavaScript strings are immutable, so the erased tag shares one
             // heap buffer across clones instead of copying it: `Rc<str>` turns
             // `SmeltUnknown::clone` -- and therefore every `SmeltObject::get`
@@ -3414,6 +3435,9 @@ fn emit_source_with_free_function_router(
                     match_writer.line("Self::Undefined => Self::Undefined,");
                     match_writer.line("Self::Bool(value) => Self::Bool(*value),");
                     match_writer.line("Self::Number(value) => Self::Number(*value),");
+                    if needs_bigint {
+                        match_writer.line("Self::BigInt(value) => Self::BigInt(value.clone()),");
+                    }
                     match_writer.line("Self::String(value) => Self::String(value.clone()),");
                     match_writer.line("Self::Symbol(value) => Self::Symbol(value.clone()),");
                     match_writer.line("Self::Array(values) => Self::Array(values.clone()),");
@@ -3423,6 +3447,9 @@ fn emit_source_with_free_function_router(
                 });
             });
         });
+        if needs_bigint {
+            bigint_prelude::emit(&mut writer);
+        }
         if needs_erased_function {
             writer.blank_line();
             writer.line("#[derive(Clone)]");
@@ -3975,7 +4002,7 @@ fn emit_source_with_free_function_router(
         // A symbol key keeps its `__smelt_symbol:` prefix, which is the storage
         // form symbol-keyed properties use, so a symbol round-trips as a distinct
         // key rather than colliding with its own description string.
-        writer.line("fn smelt_property_key(value: SmeltUnknown) -> String { match value { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(\",\"), SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() } }");
+        writer.line(with_bigint_arm(needs_bigint, "fn smelt_property_key(value: SmeltUnknown) -> String { match value { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(\",\"), SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() } }", "SmeltUnknown::Bool(value) => value.to_string(),", "SmeltUnknown::BigInt(value) => value.to_string(),"));
         writer.blank_line();
         // JavaScript `Array.prototype.concat` normalizes each argument with
         // `IsConcatSpreadable`: an array contributes its elements, and any other
@@ -4382,6 +4409,9 @@ fn emit_source_with_free_function_router(
             "        (SmeltUnknown::Bool(left), SmeltUnknown::Bool(right)) => left == right,",
         );
         writer.line("        (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) => left == right || (left.is_nan() && right.is_nan()),");
+        if needs_bigint {
+            writer.line("        (SmeltUnknown::BigInt(left), SmeltUnknown::BigInt(right)) => left == right,");
+        }
         writer.line(
             // JavaScript strings are immutable and `SmeltUnknown::String` shares
             // one `Rc<str>` between every copy of a value, so two strings that are
@@ -4449,6 +4479,9 @@ fn emit_source_with_free_function_router(
         writer
             .line("        SmeltUnknown::Bool(value) => { 1_u8.hash(state); value.hash(state); }");
         writer.line("        SmeltUnknown::Number(value) => { 2_u8.hash(state); if value.is_nan() { f64::NAN.to_bits().hash(state); } else { value.to_bits().hash(state); } }");
+        if needs_bigint {
+            writer.line("        SmeltUnknown::BigInt(value) => { 10_u8.hash(state); value.hash(state); }");
+        }
         writer.line(
             "        SmeltUnknown::String(value) => { 3_u8.hash(state); value.hash(state); }",
         );
@@ -4489,6 +4522,9 @@ fn emit_source_with_free_function_router(
                         match_writer.line("Self::Undefined => formatter.write_str(\"Undefined\"),");
                         match_writer.line("Self::Bool(value) => formatter.debug_tuple(\"Bool\").field(value).finish(),");
                         match_writer.line("Self::Number(value) => formatter.debug_tuple(\"Number\").field(value).finish(),");
+                        if needs_bigint {
+                            match_writer.line("Self::BigInt(value) => formatter.debug_tuple(\"BigInt\").field(value).finish(),");
+                        }
                         match_writer.line("Self::String(value) => formatter.debug_tuple(\"String\").field(value).finish(),");
                         match_writer.line("Self::Symbol(value) => formatter.debug_tuple(\"Symbol\").field(value).finish(),");
                         match_writer.line("Self::Array(values) => formatter.debug_tuple(\"Array\").field(values).finish(),");
@@ -4901,7 +4937,7 @@ fn emit_source_with_free_function_router(
                     match_writer.line("Self::String(value) => value.chars().count(),");
                     match_writer.line("Self::Array(value) => value.len(),");
                     match_writer.line("Self::Object(value) => value.len(),");
-                    match_writer.line("Self::Null | Self::Undefined | Self::Bool(_) | Self::Number(_) | Self::Symbol(_) | Self::Function(_) | Self::Promise(_) => 0,");
+                    match_writer.line(with_bigint_arm(needs_bigint, "Self::Null | Self::Undefined | Self::Bool(_) | Self::Number(_) | Self::Symbol(_) | Self::Function(_) | Self::Promise(_) => 0,", "Self::Null", "Self::BigInt(_) => 0,"));
                 });
             });
             impl_writer.line("/// Return a JavaScript-like weekday for erased Date-compatible numeric timestamps.");
@@ -4930,7 +4966,7 @@ fn emit_source_with_free_function_router(
                 fn_writer.line("    Self::Object(value) => match value.get(\"__smelt_date\") { Some(Self::Number(value)) => value, _ => f64::NAN },");
                 fn_writer.line("    Self::String(value) => smelt_string_to_number(value),");
                 fn_writer.line("    Self::Bool(value) => if *value { 1.0 } else { 0.0 },");
-                fn_writer.line("    Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Function(_) | Self::Promise(_) => f64::NAN,");
+                fn_writer.line(with_bigint_arm(needs_bigint, "    Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Function(_) | Self::Promise(_) => f64::NAN,", "Self::Null", "Self::BigInt(value) => smelt_bigint_to_number(value),"));
                 fn_writer.line("};");
                 fn_writer.line("chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_else(|| \"Invalid Date\".to_owned())");
             });
@@ -4980,6 +5016,9 @@ fn emit_source_with_free_function_router(
                         ));
                         match_writer.line("Self::String(value) => formatter.write_str(value),");
                         match_writer.line("Self::Symbol(value) => formatter.write_str(value),");
+                        if needs_bigint {
+                            match_writer.line("Self::BigInt(value) => write!(formatter, \"{value}\"),");
+                        }
                         match_writer.line("Self::Array(_) | Self::Object(_) => formatter.write_str(\"[object Object]\"),");
                         match_writer.line("Self::Function(_) => formatter.write_str(\"function () { [native code] }\"),");
                         match_writer.line("Self::Promise(_) => formatter.write_str(\"[object Promise]\"),");
@@ -5006,7 +5045,7 @@ fn emit_source_with_free_function_router(
         // name `SmeltDataView` and `SmeltTypedArrayKind`, both emitted with the
         // byte family above, so they come after it.
         if stdlib::needs_data_view_access_runtime(mir) {
-            thrown::emit_data_view_access_support(&mut writer);
+            thrown::emit_data_view_access_support(&mut writer, needs_bigint);
         }
         // The base64 codec, same channel and same ABI dependency. Both
         // directions throw, so both adapters are emitted together.
@@ -5073,6 +5112,9 @@ fn emit_source_with_free_function_router(
                 |fn_writer| {
                     fn_writer.block("match self", |match_writer| {
                         match_writer.line("Self::Number(value) => value.partial_cmp(other),");
+                        if needs_bigint {
+                            match_writer.line("Self::BigInt(value) => smelt_bigint_compare_number(value, *other),");
+                        }
                         match_writer.line("Self::String(value) => smelt_string_to_number(value).partial_cmp(other),");
                         match_writer.line("Self::Bool(value) => (if *value { 1.0 } else { 0.0 }).partial_cmp(other),");
                         match_writer.line("Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Object(_) | Self::Function(_) | Self::Promise(_) => None,");
@@ -5129,6 +5171,9 @@ fn emit_source_with_free_function_router(
                     match_writer.line("SmeltUnknown::Undefined => 8,");
                     match_writer.line("SmeltUnknown::Bool(_) => 1,");
                     match_writer.line("SmeltUnknown::Number(_) => 2,");
+                    if needs_bigint {
+                        match_writer.line("SmeltUnknown::BigInt(_) => 2,");
+                    }
                     match_writer.line("SmeltUnknown::String(_) => 3,");
                     match_writer.line("SmeltUnknown::Symbol(_) => 4,");
                     match_writer.line("SmeltUnknown::Array(_) => 5,");
@@ -5153,6 +5198,13 @@ fn emit_source_with_free_function_router(
             |fn_writer| {
                 fn_writer.block("match (left, right)", |match_writer| {
                     match_writer.line("(SmeltUnknown::String(left), SmeltUnknown::String(right)) => Some(left.cmp(right)),");
+                    // A bigint compares with a bigint exactly and with any other
+                    // value by mathematical value, never through `f64`.
+                    if needs_bigint {
+                        match_writer.line("(SmeltUnknown::BigInt(left), SmeltUnknown::BigInt(right)) => Some(left.cmp(right)),");
+                        match_writer.line("(SmeltUnknown::BigInt(left), right) => smelt_bigint_compare_number(left, smelt_unknown_to_number(right)),");
+                        match_writer.line("(left, SmeltUnknown::BigInt(right)) => smelt_bigint_compare_number(right, smelt_unknown_to_number(left)).map(::std::cmp::Ordering::reverse),");
+                    }
                     match_writer.line("_ => smelt_unknown_to_number(left).partial_cmp(&smelt_unknown_to_number(right)),");
                 });
             },
@@ -5168,6 +5220,9 @@ fn emit_source_with_free_function_router(
             |fn_writer| {
                 fn_writer.block("match value", |match_writer| {
                     match_writer.line("SmeltUnknown::Number(value) => *value,");
+                    if needs_bigint {
+                        match_writer.line("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(value),");
+                    }
                     match_writer.line("SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN },");
                     match_writer.line("SmeltUnknown::String(value) => smelt_string_to_number(value),");
                     match_writer.line("SmeltUnknown::Bool(value) => if *value { 1.0 } else { 0.0 },");
@@ -5245,7 +5300,7 @@ fn emit_source_with_free_function_router(
             impl_writer.block(
                 "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
                 |fn_writer| {
-                    fn_writer.line("match value { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }");
+                    fn_writer.line(with_bigint_arm(needs_bigint, "match value { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }", "SmeltUnknown::String(value) => !value.is_empty(),", "SmeltUnknown::BigInt(value) => !::num_traits::Zero::is_zero(&value),"));
                 },
             );
         });
@@ -5254,7 +5309,7 @@ fn emit_source_with_free_function_router(
             impl_writer.block(
                 "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
                 |fn_writer| {
-                    fn_writer.line("match value { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }");
+                    fn_writer.line(with_bigint_arm(needs_bigint, "match value { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }", "SmeltUnknown::String(value) =>", "SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),"));
                 },
             );
         });
@@ -5263,7 +5318,7 @@ fn emit_source_with_free_function_router(
             impl_writer.block(
                 "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
                 |fn_writer| {
-                    fn_writer.line("match value { SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }, SmeltUnknown::String(value) => smelt_string_to_number(&value) as i64, SmeltUnknown::Bool(value) => if value { 1_i64 } else { 0_i64 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }");
+                    fn_writer.line(with_bigint_arm(needs_bigint, "match value { SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }, SmeltUnknown::String(value) => smelt_string_to_number(&value) as i64, SmeltUnknown::Bool(value) => if value { 1_i64 } else { 0_i64 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }", "SmeltUnknown::String(value) =>", "SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value) as i64,"));
                 },
             );
         });
@@ -5272,7 +5327,7 @@ fn emit_source_with_free_function_router(
             impl_writer.block(
                 "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
                 |fn_writer| {
-                    fn_writer.line("match value { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }");
+                    fn_writer.line(with_bigint_arm(needs_bigint, "match value { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }", "SmeltUnknown::Number(value) =>", "SmeltUnknown::BigInt(value) => value.to_string(),"));
                 },
             );
         });
@@ -5445,7 +5500,7 @@ fn emit_source_with_free_function_router(
             "impl<K, T> IntoSmeltUnknown for ::std::collections::HashMap<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash, T: IntoSmeltUnknown",
             |impl_writer| {
                 impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-                    fn_writer.line("SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))");
+                    fn_writer.line(with_bigint_arm(needs_bigint, "SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))", "SmeltUnknown::Number(value) => smelt_number_to_string(value),", "SmeltUnknown::BigInt(value) => value.to_string(),"));
                 });
             },
         );
@@ -5454,13 +5509,13 @@ fn emit_source_with_free_function_router(
             "impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, T: IntoSmeltUnknown + Clone",
             |impl_writer| {
                 impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-                    fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))");
+                    fn_writer.line(with_bigint_arm(needs_bigint, "SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))", "SmeltUnknown::Number(value) => smelt_number_to_string(value),", "SmeltUnknown::BigInt(value) => value.to_string(),"));
                 });
             },
         );
         writer.blank_line();
         if needs_serde_json {
-            emit_unknown_serde_impls(&mut writer);
+            emit_unknown_serde_impls(&mut writer, needs_bigint);
         }
     }
 
@@ -5908,7 +5963,7 @@ fn emit_source_with_free_function_router(
     // The byte view is emitted before the codecs and the blob, which mention it
     // in their signatures.
     if needs_byte_array {
-        text_codec_prelude::emit_byte_array(&mut writer, needs_unknown, needs_data_view);
+        text_codec_prelude::emit_byte_array(&mut writer, needs_unknown, needs_data_view, needs_bigint);
     }
     if needs_blob {
         blob_prelude::emit(&mut writer, needs_unknown);
@@ -7101,7 +7156,7 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool, needs_smelt_li
 }
 
 /// Emit natural JSON serde support for `SmeltUnknown`.
-fn emit_unknown_serde_impls(writer: &mut CodeWriter) {
+fn emit_unknown_serde_impls(writer: &mut CodeWriter, needs_bigint: bool) {
     writer.block("impl serde::Serialize for SmeltUnknown", |impl_writer| {
         impl_writer.block(
             "fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer",
@@ -7116,6 +7171,10 @@ fn emit_unknown_serde_impls(writer: &mut CodeWriter) {
                     // `1.0`), `-0` is `0`, and a non-finite number is `null`
                     // because JSON has no NaN or Infinity.
                     match_writer.line("Self::Number(value) => if !value.is_finite() { serializer.serialize_none() } else if *value == value.trunc() && value.abs() < 1e21 { serializer.serialize_i64(*value as i64) } else { serializer.serialize_f64(*value) },");
+                    // `JSON.stringify(1n)` throws: JSON has no bigint.
+                    if needs_bigint {
+                        match_writer.line("Self::BigInt(_) => Err(serde::ser::Error::custom(\"Do not know how to serialize a BigInt\")),");
+                    }
                     match_writer.line("Self::String(value) => serializer.serialize_str(value),");
                     match_writer.line("Self::Symbol(_) => serializer.serialize_none(),");
                     match_writer.line("Self::Array(values) => serde::Serialize::serialize(&*values.values.borrow(), serializer),");
@@ -8051,6 +8110,7 @@ fn type_supports_partial_eq(
             Type::Bool
             | Type::Int
             | Type::FixedInt(_)
+            | Type::BigInt
             | Type::Float
             | Type::String
             | Type::None
@@ -8391,6 +8451,24 @@ pub(crate) fn record_field_from_unknown_text(
     ))
 }
 
+/// Splices the `SmeltUnknown::BigInt` arm `arm` into one exhaustive prelude
+/// match, in front of the first occurrence of `anchor`.
+///
+/// The bigint tag only exists in a crate that carries a bigint (see
+/// `stdlib::needs_bigint_runtime`): a crate without one keeps its prelude
+/// byte-for-byte, and a crate with one gains the arm in every match that names
+/// all of the carrier's tags. `anchor` is the arm the bigint arm is placed in
+/// front of, and it must occur in `line` -- a missing anchor is a codegen bug,
+/// not a program the crate can compile.
+fn with_bigint_arm(needs_bigint: bool, line: impl Into<String>, anchor: &str, arm: &str) -> String {
+    let text = line.into();
+    if !needs_bigint {
+        return text;
+    }
+    debug_assert!(text.contains(anchor), "bigint arm anchor `{anchor}` is missing");
+    text.replacen(anchor, &format!("{arm} {anchor}"), 1)
+}
+
 /// Renders a generated record field as a `SmeltUnknown` expression.
 pub(crate) fn record_field_unknown_text(mir: &Mir, value_text: &str, ty: TypeId) -> Result<String, EmitError> {
     Ok(match mir.types.get(ty) {
@@ -8409,6 +8487,7 @@ pub(crate) fn record_field_unknown_text(mir: &Mir, value_text: &str, ty: TypeId)
         }
         Some(Type::Bool) => format!("SmeltUnknown::Bool({value_text})"),
         Some(Type::Int | Type::FixedInt(_) | Type::Float) => format!("SmeltUnknown::Number({value_text} as f64)"),
+        Some(Type::BigInt) => format!("SmeltUnknown::BigInt(({value_text}).clone())"),
         Some(Type::String) => erased_string(value_text),
         Some(Type::Optional(inner)) => {
             let inner_text = record_field_unknown_text(mir, "value", *inner)?;

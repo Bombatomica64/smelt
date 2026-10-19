@@ -1461,6 +1461,27 @@ impl LoweringCtx<'_> {
                 self.current_block = target;
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::BigIntCall { op, args } => {
+                // Fallible: a zero divisor, a negative exponent, a fractional
+                // `BigInt(1.5)` or an out-of-range `asIntN` width throws a
+                // catchable `RangeError`. Routed through the call terminator
+                // for the reason `DataViewAccess` above is.
+                let call_args = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                let target = self.function.push_block(expr.span);
+                self.set_terminator(Terminator::Call {
+                    callee: Callee::Builtin(BuiltinFn::BigInt(*op)),
+                    args: call_args,
+                    dest,
+                    target,
+                    unwind: self.current_exception_handler(),
+                })?;
+                self.current_block = target;
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::ByteArrayOp { op, bytes, args } => {
                 let bytes_operand = self.lower_expr(*bytes)?;
                 let arg_operands = args

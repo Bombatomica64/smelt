@@ -1395,7 +1395,7 @@ impl FunctionEmitter<'_> {
                 let scrutinee =
                     self.erase_concrete_union_text(&cloned_value_text(&index_text), index_ty);
                 format!(
-                    "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
+                    "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
                 )
             }
             _ => "f64::NAN".to_owned(),
@@ -1428,6 +1428,7 @@ fn descriptor_literal_text(literal: &smelt_hir::Literal) -> String {
     match literal {
         smelt_hir::Literal::Bool(boolean) => boolean.to_string(),
         smelt_hir::Literal::Int(integer) => integer.to_string(),
+        smelt_hir::Literal::BigInt(digits) => crate::bigint_prelude::literal_text(digits),
         smelt_hir::Literal::Float(number) => {
             if number.is_nan() {
                 "f64::NAN".to_owned()

@@ -497,6 +497,10 @@ impl SmeltInspect for SmeltUnknown {
 /// Which generated containers this crate emits, so the prelude only names the
 /// ones that exist.
 #[derive(Debug, Clone, Copy)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is an independent pay-for-use gate of one emitted impl family"
+)]
 pub struct InspectContainers {
     /// `SmeltList` is emitted (`needs_smelt_list`).
     pub list: bool,
@@ -504,7 +508,20 @@ pub struct InspectContainers {
     pub prim_set: bool,
     /// The erased carrier family is emitted (`needs_unknown`).
     pub unknown: bool,
+    /// The crate carries a JavaScript `bigint`, so `num_bigint::BigInt` and
+    /// the `SmeltUnknown::BigInt` tag exist (`needs_bigint_runtime`).
+    pub bigint: bool,
 }
+
+/// `util.inspect` of a bigint: its digits followed by `n` (`10n`).
+///
+/// Node groups and right-aligns a long array of bigints exactly as it does an
+/// array of numbers, so a bigint answers `true` to the numeric question too.
+const BIGINT_IMPL: &str = r#"impl SmeltInspect for ::num_bigint::BigInt {
+    fn smelt_inspect(&self, _ctx: &mut SmeltInspectContext, _depth: usize) -> String { format!("{self}n") }
+    fn smelt_inspect_is_number(&self) -> bool { true }
+}
+"#;
 
 /// Render the runtime half of the formatter: [`CORE`] plus the container impls
 /// whose containers this crate emits.
@@ -519,9 +536,30 @@ pub fn runtime_text(containers: InspectContainers) -> String {
         text.push('\n');
         text.push_str(PRIM_SET_IMPL);
     }
+    if containers.bigint {
+        text.push('\n');
+        text.push_str(BIGINT_IMPL);
+    }
     if containers.unknown {
         text.push('\n');
-        text.push_str(UNKNOWN_FAMILY_IMPLS);
+        if containers.bigint {
+            // The erased carrier's own `BigInt` tag only exists in a bigint
+            // crate, so its two arms are spliced in rather than spelled in the
+            // shared text.
+            text.push_str(
+                &UNKNOWN_FAMILY_IMPLS
+                    .replace(
+                        "            Self::Number(value) => smelt_console_number(*value),\n",
+                        "            Self::Number(value) => smelt_console_number(*value),\n            Self::BigInt(value) => format!(\"{value}n\"),\n",
+                    )
+                    .replace(
+                        "matches!(self, Self::Number(_))",
+                        "matches!(self, Self::Number(_) | Self::BigInt(_))",
+                    ),
+            );
+        } else {
+            text.push_str(UNKNOWN_FAMILY_IMPLS);
+        }
     }
     text
 }
@@ -602,7 +640,7 @@ mod tests {
     /// layout routines it reproduces.
     #[test]
     fn core_names_the_node_layout_routines() {
-        let text = runtime_text(InspectContainers { list: false, prim_set: false, unknown: false });
+        let text = runtime_text(InspectContainers { list: false, prim_set: false, unknown: false, bigint: false });
         for expected in [
             "trait SmeltInspect",
             "fn smelt_console_text(&self) -> String",
@@ -623,7 +661,7 @@ mod tests {
     /// Each container impl is gated on its own container.
     #[test]
     fn container_impls_follow_their_gates() {
-        let text = runtime_text(InspectContainers { list: true, prim_set: true, unknown: true });
+        let text = runtime_text(InspectContainers { list: true, prim_set: true, unknown: true, bigint: false });
         assert!(text.contains("SmeltInspect for SmeltList<T>"));
         assert!(text.contains("SmeltInspect for SmeltPrimSet<T>"));
         assert!(text.contains("SmeltInspect for SmeltJsMap<K, V>"));

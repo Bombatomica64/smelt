@@ -683,6 +683,14 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 format!("typed_array_new {class_name} {args_text}")
             }
         }
+        ExprKind::BigIntCall { op, args } => {
+            let args_text = args
+                .iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(" ");
+            format!("{} {args_text}", op.name())
+        }
         ExprKind::DataViewAccess {
             write,
             element,

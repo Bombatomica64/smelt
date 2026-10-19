@@ -883,6 +883,7 @@ impl FunctionEmitter<'_> {
             Callee::Builtin(BuiltinFn::DataViewAccess { write, element }) => {
                 self.data_view_access_text(*write, *element, args)
             }
+            Callee::Builtin(BuiltinFn::BigInt(op)) => self.bigint_builtin_call_text(*op, args),
             Callee::Builtin(BuiltinFn::HostModule(op)) => self.host_module_call_text(*op, args),
             Callee::Builtin(BuiltinFn::RegExpCompile) => {
                 let pattern = args.first().map_or_else(
@@ -3054,6 +3055,9 @@ impl FunctionEmitter<'_> {
             // adapter wraps a typed helper, and only the throw crosses the
             // erased channel.
             Callee::Builtin(BuiltinFn::Base64(_)) => return self.type_id(Type::String),
+            // Every bigint builtin answers a typed `BigInt`; only the throw
+            // crosses the erased channel.
+            Callee::Builtin(BuiltinFn::BigInt(_)) => return self.type_id(Type::BigInt),
             // A run-time compile answers the concrete `SmeltRegExp`; only the
             // `SyntaxError` crosses the erased channel.
             Callee::Builtin(BuiltinFn::HostModule(op)) => {
@@ -3067,9 +3071,11 @@ impl FunctionEmitter<'_> {
             // A read answers a number; a write answers `undefined`. Both come
             // back from a typed adapter, so only the throw crosses the erased
             // channel — the same shape the decoders and the base64 pair have.
-            Callee::Builtin(BuiltinFn::DataViewAccess { write, .. }) => {
+            Callee::Builtin(BuiltinFn::DataViewAccess { write, element }) => {
                 if *write {
                     self.none_ty
+                } else if element.is_bigint() {
+                    return self.type_id(Type::BigInt);
                 } else {
                     return self.type_id(Type::Float);
                 }
@@ -3174,6 +3180,10 @@ impl FunctionEmitter<'_> {
             // wrapper. `{:?}` on an `Option` put `Some("ada")` / `None` into
             // program output, which is a shape no JavaScript runtime prints.
             Ok(("{}", self.console_optional_text(operand, absent)?))
+        } else if matches!(self.mir.types.get(ty), Some(Type::BigInt)) {
+            // `console.log(10n)` prints `10n`: the console shows a bigint with
+            // its suffix, where `String(10n)` (and a template) is `"10"`.
+            Ok(("{}n", self.operand_text(operand)?))
         } else if matches!(self.mir.types.get(ty), Some(Type::Int | Type::Float)) {
             // A NUMBER goes through the console's own formatter, not Rust's
             // `Display`: JavaScript switches to exponential notation at both

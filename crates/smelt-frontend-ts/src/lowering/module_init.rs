@@ -5811,10 +5811,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     continue;
                 }
                 ArrayExpressionElement::BigIntLiteral(literal) => {
-                    let ty = self.ctx.krate.types.intern(Type::Int);
-                    let value = literal.value.parse::<i64>().unwrap_or(0);
+                    let digits = Self::canonical_bigint_digits(literal.value.as_str())
+                        .ok_or_else(|| {
+                            SmeltError::unsupported(
+                                self.span(literal.span.start, literal.span.end),
+                                "bigint literal is not a decimal integer",
+                            )
+                        })?;
+                    let ty = self.ctx.krate.types.intern(Type::BigInt);
                     items.push(ObjectConstEntryValue {
-                        value: ObjectConstValue::Literal(Literal::Int(value)),
+                        value: ObjectConstValue::Literal(Literal::BigInt(digits)),
                         ty,
                     });
                     continue;

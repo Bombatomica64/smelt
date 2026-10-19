@@ -65,7 +65,7 @@ pub use body::{
     MatchArm, Pattern, Stmt,
 };
 pub use expr::{
-    AsyncOp, BinOp, BoolFoldOp, CallbackCallArg, CallbackExpr, CallbackExprKind, CaptureMode,
+    AsyncOp, BigIntOp, BinOp, BoolFoldOp, CallbackCallArg, CallbackExpr, CallbackExprKind, CaptureMode,
     ClosureCapture, ClosureExpr, DatePart, DictProjectionOp, Expr, ExprKind, GeneratorResumeKind,
     ListCallbackOp,
     ListProjectionOp, ListSearchOp, ListSpliceItem, Literal, NumericExtremaOp, NumericPredicateOp,

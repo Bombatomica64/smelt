@@ -109,6 +109,14 @@ impl TypedArrayElement {
         }
     }
 
+    /// Whether this element is a JavaScript `bigint` (`BigInt64Array`,
+    /// `BigUint64Array`, `getBigInt64`): its reads answer a bigint, and its
+    /// writes take one and keep its low 64 bits.
+    #[must_use]
+    pub const fn is_bigint(self) -> bool {
+        matches!(self, Self::BigInt64 | Self::BigUint64)
+    }
+
     /// Whether `DataView` has a `get`/`set` accessor pair for this element.
     ///
     /// True for every element type but `Uint8Clamped`: clamping is a WRITE

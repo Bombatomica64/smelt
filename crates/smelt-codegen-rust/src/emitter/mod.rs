@@ -99,6 +99,7 @@ impl Drop for HoistedModuleItemScope<'_, '_> {
 pub(crate) type BlockIdSet = rustc_hash::FxHashSet<smelt_mir::BlockId>;
 
 mod backend_erasure;
+mod bigint;
 pub(crate) mod typedness;
 mod binary_ops;
 mod call;
@@ -275,6 +276,11 @@ pub(crate) struct EmitContext {
     /// Whether any body reads the dynamic `this` receiver channel (see
     /// [`receiver_bound_slot`]).
     program_reads_this: bool,
+    /// Whether the crate carries a JavaScript `bigint` (see
+    /// `stdlib::needs_bigint_runtime`). The `SmeltUnknown::BigInt` tag only
+    /// exists in such a crate, so an exhaustive match over the erased carrier
+    /// names that arm only when this is set.
+    needs_bigint: bool,
     /// Whether some `console.log` argument took the `util.inspect` route, so
     /// the crate root must carry the `SmeltInspect` runtime (see
     /// [`console_inspect`]). Set while bodies are emitted, read after.
@@ -389,6 +395,7 @@ impl EmitContext {
             type_param_elision: crate::generic_elision::compute(mir),
             erased_view_write_through: view_write_through::program_writes_erased_fields(mir),
             program_reads_this: receiver_bound_slot::program_reads_this(mir),
+            needs_bigint: crate::stdlib::needs_bigint_runtime(mir),
             console_inspect_used: ::std::cell::Cell::new(false),
             backend_erasures: RefCell::new(Vec::new()),
         })
@@ -402,6 +409,12 @@ impl EmitContext {
     /// Whether any `console.log` argument rendered through `SmeltInspect`.
     pub(crate) fn console_inspect_used(&self) -> bool {
         self.console_inspect_used.get()
+    }
+
+    /// Whether the crate carries a JavaScript `bigint`, and therefore the
+    /// `SmeltUnknown::BigInt` tag.
+    pub(crate) const fn needs_bigint(&self) -> bool {
+        self.needs_bigint
     }
 
     /// Return whether property writes through an erased view reach the

@@ -56,6 +56,7 @@ fn literal_key(value: &Literal) -> Option<(u8, u64, &str)> {
         Literal::Float(number) => Some((2, (if *number == 0.0 { 0.0_f64 } else { *number }).to_bits(), "")),
         Literal::String(text) => Some((3, 0, text.as_str())),
         Literal::Symbol(text) => Some((4, 0, text.as_str())),
+        Literal::BigInt(digits) => Some((7, 0, digits.as_str())),
         Literal::Undefined => Some((5, 0, "")),
         Literal::None => Some((6, 0, "")),
     }

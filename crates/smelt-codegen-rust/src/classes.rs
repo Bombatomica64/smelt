@@ -213,6 +213,7 @@ fn type_param_in_dict_key(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
             | Type::Bool
             | Type::Int
             | Type::FixedInt(_)
+            | Type::BigInt
             | Type::Float
             | Type::String
             | Type::Unknown
@@ -939,6 +940,7 @@ fn type_param_preserved_in_emitted_type(mir: &Mir, ty: TypeId, name: Symbol) -> 
             | Type::Bool
             | Type::Int
             | Type::FixedInt(_)
+            | Type::BigInt
             | Type::Float
             | Type::String
             | Type::Unknown
@@ -1016,6 +1018,7 @@ pub(crate) fn type_param_in_callback(mir: &Mir, ty: TypeId, name: Symbol) -> boo
             | Type::Bool
             | Type::Int
             | Type::FixedInt(_)
+            | Type::BigInt
             | Type::Float
             | Type::String
             | Type::Unknown
@@ -1445,6 +1448,7 @@ fn type_holds_function_seen(
             | Type::Bool
             | Type::Int
             | Type::FixedInt(_)
+            | Type::BigInt
             | Type::Float
             | Type::String
             | Type::None
@@ -1569,6 +1573,7 @@ pub(crate) fn materialized_static_value_text(literal: Option<&smelt_hir::Literal
         }
         Some(smelt_hir::Literal::Float(value)) => format!("{value:?}"),
         Some(smelt_hir::Literal::String(value)) => format!("{value:?}.to_owned()"),
+        Some(smelt_hir::Literal::BigInt(digits)) => crate::bigint_prelude::literal_text(digits),
         Some(
             smelt_hir::Literal::Symbol(_)
             | smelt_hir::Literal::Undefined

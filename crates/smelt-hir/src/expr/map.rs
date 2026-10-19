@@ -604,6 +604,13 @@ impl ExprKind {
                     args: mapped,
                 }
             }
+            Self::BigIntCall { op, args } => {
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::BigIntCall { op, args: mapped }
+            }
             Self::ByteArrayOp { op, bytes, args } => {
                 let bytes = f(bytes)?;
                 let mut mapped = Vec::with_capacity(args.len());

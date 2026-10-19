@@ -1301,6 +1301,10 @@ impl ModuleBuilder<'_> {
         if binary.operator == BinaryOperator::Exponential {
             let base = self.expression(&binary.left, body)?;
             let exponent = self.expression(&binary.right, body)?;
+            let span = self.span(binary.span.start, binary.span.end);
+            if let Some(power) = self.bigint_power(base, exponent, span, body) {
+                return Ok(power);
+            }
             let ty = self.ctx.krate.types.intern(Type::Float);
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::NumericPow { base, exponent },
@@ -1356,10 +1360,14 @@ impl ModuleBuilder<'_> {
         let lhs_ty = Self::expr_ty(body, lhs);
         let rhs_ty = Self::expr_ty(body, rhs);
         let ty = self.binary_result_type(op, lhs_ty, rhs_ty);
+        let span = self.span(binary.span.start, binary.span.end);
+        if let Some(call) = self.bigint_fallible_binary(op, lhs, rhs, span, body) {
+            return Ok(call);
+        }
         Ok(body.push_expr(Expr {
             kind: ExprKind::BinOp { op, lhs, rhs },
             ty,
-            span: self.span(binary.span.start, binary.span.end),
+            span,
         }))
     }
 

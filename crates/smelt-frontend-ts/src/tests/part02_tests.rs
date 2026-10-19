@@ -1321,14 +1321,17 @@ const zero = 0n;
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
-    // `0n` is a `bigint`, so it lowers to `Int` -- the type a `bigint`
-    // annotation lowers to. It used to lower to `Float(0.0)`, which let a
-    // bigint shift be mistaken for a 32-bit number shift downstream.
-    ensure!(
-        body.exprs
-            .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Int(0))))
-    );
+    // `0n` is a `bigint`, so it lowers to a bigint literal of type `BigInt`
+    // -- the type a `bigint` annotation lowers to. It used to lower to
+    // `Float(0.0)`, which let a bigint shift be mistaken for a 32-bit number
+    // shift downstream, and then to `Int(0)`, which shared the bounded `i64`
+    // type and wrapped past 2^63. The guarantee this pins is the same one
+    // (the literal is never a `number`); the carrier is now the unbounded
+    // bigint type itself.
+    ensure!(body.exprs.iter().any(|expr| {
+        matches!(&expr.kind, ExprKind::Literal(Literal::BigInt(digits)) if digits == "0")
+            && ctx.krate.types.get(expr.ty) == Some(&Type::BigInt)
+    }));
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }

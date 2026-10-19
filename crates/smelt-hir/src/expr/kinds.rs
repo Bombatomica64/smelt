@@ -592,6 +592,16 @@ pub enum ExprKind {
         /// The accessor arguments, as written.
         args: Vec<ExprId>,
     },
+    /// A fallible JavaScript `bigint` operation (see [`crate::BigIntOp`]):
+    /// `BigInt(x)`, `BigInt.asIntN`/`asUintN`, and the bigint `/`, `%` and
+    /// `**`, each of which can throw a catchable `RangeError`.
+    BigIntCall {
+        /// Which operation this is.
+        op: crate::BigIntOp,
+        /// The operands in source order (`[value]`, `[bits, value]`, or
+        /// `[lhs, rhs]`).
+        args: Vec<ExprId>,
+    },
     /// A member read or method call on the concrete typed-array family.
     ByteArrayOp {
         /// Which member this reads or calls.

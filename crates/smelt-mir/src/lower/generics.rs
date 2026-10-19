@@ -243,6 +243,7 @@ pub(super) fn substitute_type_id(
             Type::Bool
             | Type::Int
             | Type::FixedInt(_)
+            | Type::BigInt
             | Type::Float
             | Type::String
             | Type::Unknown

@@ -26,6 +26,17 @@ pub enum Type {
     /// frontend for Bun's `import type { int32 } from "bun"` annotation, whose
     /// every store the frontend proves. Python's integers stay [`Type::Int`].
     FixedInt(IntWidth),
+    /// A JavaScript `bigint`: an arbitrary-precision signed integer.
+    ///
+    /// Separate from [`Type::Int`] on purpose. `Int` is the bounded integer
+    /// type (Python's `int`, list indices, timestamps) and lowers to `i64`; a
+    /// `bigint` is unbounded in JavaScript, so it lowers to Rust's
+    /// `num_bigint::BigInt` and every operation on it keeps JavaScript's
+    /// bigint semantics (truncating division, flooring `>>`, infinite
+    /// two's-complement bitwise operators) without ever passing through `f64`.
+    /// Its runtime kind is [`UnknownKind::BigInt`] (`typeof` answers
+    /// `"bigint"`), never `"number"`.
+    BigInt,
     /// String type.
     String,
     /// TypeScript `unknown`, carried as an opaque safe boundary type.
@@ -118,6 +129,7 @@ impl Type {
         match self {
             Self::Bool => Some(UnknownKind::Bool),
             Self::Int | Self::Float | Self::FixedInt(_) => Some(UnknownKind::Number),
+            Self::BigInt => Some(UnknownKind::BigInt),
             Self::String => Some(UnknownKind::String),
             Self::Function(_) => Some(UnknownKind::Function),
             Self::List(_) | Self::Tuple(_) => Some(UnknownKind::Array),
@@ -295,6 +307,7 @@ mod tests {
         assert_eq!(Type::List(float).runtime_kind(), Some(UnknownKind::Array));
         assert_eq!(Type::Future(float).runtime_kind(), Some(UnknownKind::Promise));
         assert_eq!(Type::Int.runtime_kind(), Some(UnknownKind::Number));
+        assert_eq!(Type::BigInt.runtime_kind(), Some(UnknownKind::BigInt));
         assert_eq!(Type::Union(vec![string, float]).runtime_kind(), None);
         assert_eq!(Type::Optional(float).runtime_kind(), None);
         assert_eq!(Type::None.runtime_kind(), None);

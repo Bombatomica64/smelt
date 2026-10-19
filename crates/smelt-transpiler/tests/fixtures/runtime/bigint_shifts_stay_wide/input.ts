@@ -1,5 +1,5 @@
 // A bigint shift is never JavaScript's 32-bit number shift. Bigint literals
-// are typed `bigint` (smelt's `Int`), so `result << 8n` keeps the wide shift:
+// are typed `bigint` (smelt's `BigInt`), so `result << 8n` keeps the wide shift:
 // five bytes build 4328719365n here, where an int32 shift would wrap after
 // four (remeda's `randomBigInt` builds its value this way). Number shifts on
 // the same page keep ToInt32 semantics.

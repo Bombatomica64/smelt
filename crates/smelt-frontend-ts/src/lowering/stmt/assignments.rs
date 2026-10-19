@@ -2039,6 +2039,9 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
+        if callee.name == "BigInt" {
+            return self.bigint_conversion_call(call, body).map(Some);
+        }
         if callee.name == "parseFloat" {
             let operand = self.parse_float_operand("parseFloat", call, body)?;
             let ty = self.ctx.krate.types.intern(Type::Float);
@@ -2054,7 +2057,6 @@ impl ModuleBuilder<'_> {
         let (op, result_ty) = match callee.name.as_str() {
             "String" => (PrimitiveCastOp::ToString, Type::String),
             "Number" => (PrimitiveCastOp::ToJsNumber, Type::Float),
-            "BigInt" => (PrimitiveCastOp::ToFloat, Type::Float),
             "Boolean" => (PrimitiveCastOp::ToBool, Type::Bool),
             _ => return Ok(None),
         };
@@ -2120,7 +2122,7 @@ impl ModuleBuilder<'_> {
             return !matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Never));
         }
         match self.ctx.krate.types.get(operand_ty) {
-            Some(Type::Bool | Type::String | Type::Int | Type::Float | Type::Unknown) => true,
+            Some(Type::Bool | Type::String | Type::Int | Type::BigInt | Type::Float | Type::Unknown) => true,
             Some(Type::TypeParam { .. } | Type::Class { .. }) => {
                 matches!(
                     op,
@@ -2228,6 +2230,7 @@ impl ModuleBuilder<'_> {
             UpdateOperator::Increment => BinOp::Add,
             UpdateOperator::Decrement => BinOp::Sub,
         };
+        let step = self.unit_step_literal(ty);
         let build_set = |target_body: &mut Body| {
             let current = target_body.push_expr(Expr {
                 kind: ExprKind::GlobalGet { item },
@@ -2235,7 +2238,7 @@ impl ModuleBuilder<'_> {
                 span,
             });
             let one = target_body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Float(1.0)),
+                kind: ExprKind::Literal(step.clone()),
                 ty,
                 span,
             });
@@ -2384,25 +2387,33 @@ impl ModuleBuilder<'_> {
                     }
                 };
                 let ty = Self::expr_ty(body, target);
-                body.push_expr(Expr {
-                    kind: ExprKind::BinOp {
-                        op,
-                        lhs: target,
-                        rhs: right,
-                    },
-                    ty,
-                    span: self.span(assign.span.start, assign.span.end),
-                })
+                let span = self.span(assign.span.start, assign.span.end);
+                self.bigint_fallible_binary(op, target, right, span, body)
+                    .unwrap_or_else(|| {
+                        body.push_expr(Expr {
+                            kind: ExprKind::BinOp {
+                                op,
+                                lhs: target,
+                                rhs: right,
+                            },
+                            ty,
+                            span,
+                        })
+                    })
             }
-            // `**=` is the one compound operator left, and naming it here rather
-            // than catching it with a wildcard keeps the list honest: it is
-            // missing because `BinOp` has no exponentiation arm, so it needs the
-            // same lowering the binary `**` uses, not this rule.
+            // `**=` is the one compound operator `BinOp` has no arm for, so it
+            // takes the lowering the binary `**` uses: the fallible bigint
+            // power when both sides are bigints. The `number` form is still not
+            // lowered here.
             AssignmentOperator::Exponential => {
-                return Err(SmeltError::unsupported(
-                    self.span(assign.span.start, assign.span.end),
-                    "assignment operator is not lowered yet: Exponential",
-                ));
+                let span = self.span(assign.span.start, assign.span.end);
+                let Some(power) = self.bigint_power(target, right, span, body) else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "assignment operator is not lowered yet: Exponential",
+                    ));
+                };
+                power
             }
         };
         self.apply_assignment_observed_type(&assign.left, Self::expr_ty(body, value), body);
@@ -2928,7 +2939,7 @@ impl ModuleBuilder<'_> {
         let target = self.simple_assignment_target_expr(&update.argument, body)?;
         let one_ty = Self::expr_ty(body, target);
         let one = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Float(1.0)),
+            kind: ExprKind::Literal(self.unit_step_literal(one_ty)),
             ty: one_ty,
             span: self.span(update.span.start, update.span.end),
         });

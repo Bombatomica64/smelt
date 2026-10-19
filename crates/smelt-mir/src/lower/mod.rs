@@ -699,9 +699,16 @@ fn intern_fallible_builtin_return_types(mir: &mut Mir) {
                 // was lowered — the frontend types the node. Interning them
                 // anyway costs nothing and keeps the arm honest about what the
                 // call produces.
-                BuiltinFn::DataViewAccess { write, .. } => {
-                    needed.push(if *write { Type::None } else { Type::Float });
+                BuiltinFn::DataViewAccess { write, element } => {
+                    needed.push(if *write {
+                        Type::None
+                    } else if element.is_bigint() {
+                        Type::BigInt
+                    } else {
+                        Type::Float
+                    });
                 }
+                BuiltinFn::BigInt(_) => needed.push(Type::BigInt),
                 // The result is the frontend's `RegExp` class type, which it
                 // interned when it typed the node.
                 BuiltinFn::ConsoleLog { .. }
@@ -748,6 +755,7 @@ fn lower_literal(literal: &HirLiteral) -> Constant {
         HirLiteral::Bool(value) => Constant::Bool(*value),
         HirLiteral::Int(value) => Constant::Int(*value),
         HirLiteral::Float(value) => Constant::Float(*value),
+        HirLiteral::BigInt(digits) => Constant::BigInt(digits.clone()),
         HirLiteral::String(value) => Constant::String(value.clone()),
         HirLiteral::Symbol(value) => Constant::Symbol(value.clone()),
         HirLiteral::Undefined => Constant::Undefined,

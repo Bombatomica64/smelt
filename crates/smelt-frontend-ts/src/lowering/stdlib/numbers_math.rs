@@ -1081,6 +1081,7 @@ impl ModuleBuilder<'_> {
             Some(
                 Type::Int
                     | Type::Float
+                    | Type::BigInt
                     | Type::String
                     | Type::Unknown
                     | Type::TypeParam { .. }

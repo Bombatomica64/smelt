@@ -149,6 +149,8 @@ pub const TYPESCRIPT_CALLS: &[CallRecognition] = &[
     static_call("Number", "isNaN", RuleId::TsNumberPredicate),
     static_call("Number", "parseFloat", RuleId::TsNumberParseFloat),
     static_call("Number", "parseInt", RuleId::TsNumberParseInt),
+    static_call("BigInt", "asIntN", RuleId::TsBigIntStatic),
+    static_call("BigInt", "asUintN", RuleId::TsBigIntStatic),
     static_call("String", "fromCharCode", RuleId::TsStringFromCodes),
     static_call("String", "fromCodePoint", RuleId::TsStringFromCodes),
     static_call("Promise", "resolve", RuleId::TsPromiseStatic),

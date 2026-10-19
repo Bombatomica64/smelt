@@ -2948,6 +2948,7 @@ impl ModuleBuilder<'_> {
         let ty = match kind {
             "boolean" => self.ctx.krate.types.intern(Type::Bool),
             "number" => self.ctx.krate.types.intern(Type::Float),
+            "bigint" => self.ctx.krate.types.intern(Type::BigInt),
             "string" => self.ctx.krate.types.intern(Type::String),
             "function" => {
                 let local_ty = self.scope.lookup(name).map(|local| {

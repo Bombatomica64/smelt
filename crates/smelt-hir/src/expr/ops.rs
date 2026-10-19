@@ -117,6 +117,48 @@ pub enum PrimitiveCastOp {
     FromCodePoints,
 }
 
+/// A JavaScript `bigint` operation that can THROW a catchable error.
+///
+/// Every one of these raises a `RangeError` (or, for a malformed string, a
+/// `SyntaxError`) on some input, and JavaScript lets a `try` catch it. MIR's
+/// exception edges live on call terminators, so each lowers to a fallible
+/// builtin call rather than an rvalue; see
+/// `blocker-logs/standards-throwing-rvalue.md`. The infallible bigint
+/// operators (`+ - * & | ^ << >>`, comparisons) stay ordinary rvalues.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BigIntOp {
+    /// `BigInt(value)`: a number must be an integer (else `RangeError`), a
+    /// string must parse as an integer literal (else `SyntaxError`), a boolean
+    /// is `0n`/`1n`, and a bigint is returned unchanged.
+    From,
+    /// `BigInt.asIntN(bits, value)`: `value` wrapped into a signed `bits`-wide
+    /// two's-complement range. `bits` outside `[0, 2^53 - 1]` is a `RangeError`.
+    AsIntN,
+    /// `BigInt.asUintN(bits, value)`: `value` modulo `2^bits`.
+    AsUintN,
+    /// `a / b`, truncating toward zero; a zero divisor is a `RangeError`.
+    Div,
+    /// `a % b`, taking the dividend's sign; a zero divisor is a `RangeError`.
+    Rem,
+    /// `a ** b`; a negative exponent is a `RangeError`.
+    Pow,
+}
+
+impl BigIntOp {
+    /// The JavaScript spelling of the operation, for dumps and diagnostics.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::From => "BigInt",
+            Self::AsIntN => "BigInt.asIntN",
+            Self::AsUintN => "BigInt.asUintN",
+            Self::Div => "bigint_div",
+            Self::Rem => "bigint_rem",
+            Self::Pow => "bigint_pow",
+        }
+    }
+}
+
 /// A directly lowered numeric predicate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NumericPredicateOp {

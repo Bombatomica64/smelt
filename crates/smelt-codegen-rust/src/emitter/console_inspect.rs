@@ -123,7 +123,9 @@ impl FunctionEmitter<'_> {
         }
         let needs_unknown = crate::stdlib::needs_unknown_type(self.mir);
         let result = match self.mir.types.get(ty) {
-            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None) => true,
+            Some(Type::Bool | Type::Int | Type::Float | Type::BigInt | Type::String | Type::None) => {
+                true
+            }
             Some(Type::Unknown) => needs_unknown,
             Some(Type::Optional(inner)) => {
                 self.inspectable_in(self.flatten_optional_inner(*inner), records, visiting)
@@ -294,6 +296,7 @@ pub(crate) fn emit_console_inspect_support(
         list: crate::stdlib::needs_smelt_list(mir),
         prim_set: crate::stdlib::needs_prim_set(mir),
         unknown: needs_unknown,
+        bigint: crate::stdlib::needs_bigint_runtime(mir),
     });
     let records = inspect_records(mir, context);
     let mut ordered = records.iter().collect::<Vec<_>>();

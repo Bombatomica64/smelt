@@ -349,6 +349,7 @@ pub(crate) fn substituted_type_id(
         Type::Bool
         | Type::Int
         | Type::FixedInt(_)
+        | Type::BigInt
         | Type::Float
         | Type::String
         | Type::Unknown
@@ -557,6 +558,7 @@ fn literal_type(mir: &Mir, constant: &Constant) -> Option<TypeId> {
         Constant::Bool(_) => Type::Bool,
         Constant::Int(_) => Type::Int,
         Constant::Float(_) => Type::Float,
+        Constant::BigInt(_) => Type::BigInt,
         Constant::String(_) => Type::String,
         Constant::None | Constant::Undefined => Type::None,
         Constant::Symbol(_) => Type::Unknown,
@@ -791,6 +793,7 @@ pub(crate) fn type_param_occurs(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
             Type::Bool
             | Type::Int
             | Type::FixedInt(_)
+            | Type::BigInt
             | Type::Float
             | Type::String
             | Type::Unknown
@@ -851,6 +854,7 @@ fn collect_type_param_occurrences(mir: &Mir, ty: TypeId, names: &mut HashSet<Sym
             Type::Bool
             | Type::Int
             | Type::FixedInt(_)
+            | Type::BigInt
             | Type::Float
             | Type::String
             | Type::Unknown

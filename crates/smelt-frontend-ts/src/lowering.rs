@@ -1,6 +1,7 @@
 //! TypeScript AST lowering into Smelt HIR.
 
 mod ambient_globals;
+mod bigint;
 mod erasure;
 mod arguments_forwarding;
 mod asserted_member_read;
@@ -114,6 +115,8 @@ impl ConstLiteral {
         match &self.literal {
             Literal::String(value) => Some(value.clone()),
             Literal::Int(value) => Some(value.to_string()),
+            // `obj[10n]` reads the property `"10"`: a bigint key is its digits.
+            Literal::BigInt(digits) => Some(digits.clone()),
             Literal::Float(value) => Some(ModuleBuilder::numeric_property_key_name(*value)),
             Literal::Symbol(value) => Self::symbol_literal_member_name(value),
             Literal::Bool(_) | Literal::Undefined | Literal::None => None,

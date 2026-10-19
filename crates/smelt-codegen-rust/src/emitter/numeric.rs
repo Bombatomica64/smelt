@@ -435,6 +435,20 @@ impl FunctionEmitter<'_> {
         operand: &Operand,
         radix: &Operand,
     ) -> Result<String, EmitError> {
+        // `bigint.toString(radix)` keeps every digit: the value is never
+        // narrowed to a machine integer first.
+        if self.is_bigint_type(self.operand_ty(operand)?) {
+            let radix_operand = self.operand_text(radix)?;
+            let radix_text = if matches!(self.mir.types.get(self.operand_ty(radix)?), Some(Type::Float)) {
+                radix_operand
+            } else {
+                format!("{radix_operand} as f64")
+            };
+            return Ok(format!(
+                "smelt_bigint_to_string_radix({}, {radix_text})",
+                self.bigint_ref_text(operand)?
+            ));
+        }
         // An ERASED receiver decides at run time, as JavaScript does:
         // `Number.prototype.toString(radix)` for a number, and the receiver's
         // own `toString` (which ignores the argument) for anything else.
@@ -456,8 +470,11 @@ impl FunctionEmitter<'_> {
             let radix_text = self.operand_text(radix)?;
             let number_text = self.radix_digits_text("smelt_radix_value", &radix_text);
             return Ok(format!(
-                "match {}.clone() {{ SmeltUnknown::Number(smelt_radix_value) => {number_text}, _ => {fallback} }}",
-                self.operand_text(operand)?
+                "match {}.clone() {{ SmeltUnknown::Number(smelt_radix_value) => {number_text}, {}_ => {fallback} }}",
+                self.operand_text(operand)?,
+                self.bigint_unknown_arm(&format!(
+                    "SmeltUnknown::BigInt(smelt_radix_value) => smelt_bigint_to_string_radix(&smelt_radix_value, {radix_text} as f64),"
+                ))
             ));
         }
         if !matches!(

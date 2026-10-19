@@ -2228,6 +2228,10 @@ impl ModuleBuilder<'_> {
                 if binary.operator == BinaryOperator::Exponential {
                     let base = self.expression(&binary.left, body)?;
                     let exponent = self.expression(&binary.right, body)?;
+                    let span = self.span(binary.span.start, binary.span.end);
+                    if let Some(power) = self.bigint_power(base, exponent, span, body) {
+                        return Ok(power);
+                    }
                     let ty = self.ctx.krate.types.intern(Type::Float);
                     return Ok(body.push_expr(Expr {
                         kind: ExprKind::NumericPow { base, exponent },
@@ -2294,10 +2298,14 @@ impl ModuleBuilder<'_> {
                 } else {
                     self.binary_result_type(op, lhs_ty, rhs_ty)
                 };
+                let span = self.span(binary.span.start, binary.span.end);
+                if let Some(call) = self.bigint_fallible_binary(op, lhs, rhs, span, body) {
+                    return Ok(call);
+                }
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::BinOp { op, lhs, rhs },
                     ty,
-                    span: self.span(binary.span.start, binary.span.end),
+                    span,
                 }))
             }
             Expression::LogicalExpression(logical) => {
@@ -2589,41 +2597,46 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Lower a TypeScript bigint literal into Smelt's current numeric runtime value.
+    /// Lower a TypeScript bigint literal (`123n`) to a `bigint` value.
+    ///
+    /// The literal keeps its exact digits ([`Literal::BigInt`]) and the
+    /// `bigint` type, at every magnitude: `9_999_999_999_999_999_999_999n` is
+    /// the same kind of value as `1n`. It used to share `Int` (`i64`) with the
+    /// bounded integers and fall back to an `f64` past `i64`, which saturated
+    /// the wide literal and wrapped `i64` arithmetic (remeda's `randomBigInt`).
     pub(super) fn bigint_literal_expression(
         &mut self,
         value: &str,
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        // A bigint literal has TypeScript type `bigint`, which smelt carries as
-        // `Int` -- the same type a `bigint` annotation lowers to. Typing it
-        // `Float` lost the bigint-ness downstream: `result << 8n` then looked
-        // like a NUMBER shift and took JS's 32-bit ToInt32 semantics, wrapping
-        // a bigint after four bytes (remeda's `randomBigInt`). A literal wider
-        // than `i64` has no exact `Int`; it keeps the approximate `Float`
-        // carrier below until smelt models arbitrary-precision bigints.
-        let digits = value.trim_end_matches('n').replace('_', "");
-        if let Ok(exact) = digits.parse::<i64>() {
-            let ty = self.ctx.krate.types.intern(Type::Int);
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Int(exact)),
-                ty,
-                span: self.span(span.start, span.end),
-            }));
-        }
-        let value = value.parse::<f64>().map_err(|err| {
+        let digits = Self::canonical_bigint_digits(value).ok_or_else(|| {
             SmeltError::unsupported(
                 self.span(span.start, span.end),
-                format!("bigint literal cannot be represented numerically: {err}"),
+                format!("bigint literal is not a decimal integer: {value}"),
             )
         })?;
-        let ty = self.ctx.krate.types.intern(Type::Float);
+        let ty = self.ctx.krate.types.intern(Type::BigInt);
         Ok(body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Float(value)),
+            kind: ExprKind::Literal(Literal::BigInt(digits)),
             ty,
             span: self.span(span.start, span.end),
         }))
+    }
+
+    /// The canonical digits of a bigint literal's base-10 `value`.
+    ///
+    /// The parser hands over the value in base 10 without separators (a `0x`
+    /// literal is already converted); this strips a trailing `n`, any `_`, and
+    /// leading zeros so equal literals share one spelling. `None` when the text
+    /// is not a run of decimal digits.
+    pub(in crate::lowering) fn canonical_bigint_digits(value: &str) -> Option<String> {
+        let digits = value.trim_end_matches('n').replace('_', "");
+        if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        let trimmed = digits.trim_start_matches('0');
+        Some(if trimmed.is_empty() { "0".to_owned() } else { trimmed.to_owned() })
     }
 
     /// Lower JavaScript `typeof value` to a string result when used as a value.
@@ -3495,10 +3508,12 @@ impl ModuleBuilder<'_> {
                 span,
             }));
         }
-        if matches!(self.ctx.krate.types.get(cond_ty), Some(Type::Int | Type::Float)) {
+        if matches!(self.ctx.krate.types.get(cond_ty), Some(Type::Int | Type::Float | Type::BigInt)) {
             let zero = body.push_expr(Expr {
                 kind: match self.ctx.krate.types.get(cond_ty) {
                     Some(Type::Int) => ExprKind::Literal(Literal::Int(0)),
+                    // `0n` is the one falsy bigint.
+                    Some(Type::BigInt) => ExprKind::Literal(Literal::BigInt("0".to_owned())),
                     _ => ExprKind::Literal(Literal::Float(0.0)),
                 },
                 ty: cond_ty,
@@ -3857,7 +3872,14 @@ impl ModuleBuilder<'_> {
                 .any(|item| {
                     matches!(
                         self.ctx.krate.types.get(item),
-                        Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None)
+                        Some(
+                            Type::Bool
+                                | Type::Int
+                                | Type::Float
+                                | Type::BigInt
+                                | Type::String
+                                | Type::None
+                        )
                     ) || self.type_is_truthy_condition_surface(item)
                 }),
             _ => false,

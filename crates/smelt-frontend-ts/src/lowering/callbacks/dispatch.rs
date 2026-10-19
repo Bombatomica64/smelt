@@ -1171,15 +1171,15 @@ impl ModuleBuilder<'_> {
                 ty: self.ctx.krate.types.intern(Type::Float),
             }),
             Expression::BigIntLiteral(literal) => {
-                let value = literal.value.as_str().parse::<f64>().map_err(|err| {
+                let digits = Self::canonical_bigint_digits(literal.value.as_str()).ok_or_else(|| {
                     SmeltError::unsupported(
                         self.span(literal.span.start, literal.span.end),
-                        format!("bigint literal cannot be represented numerically: {err}"),
+                        "bigint literal is not a decimal integer",
                     )
                 })?;
                 Ok(CallbackExpr {
-                    kind: CallbackExprKind::Literal(Literal::Float(value)),
-                    ty: self.ctx.krate.types.intern(Type::Float),
+                    kind: CallbackExprKind::Literal(Literal::BigInt(digits)),
+                    ty: self.ctx.krate.types.intern(Type::BigInt),
                 })
             }
             Expression::StringLiteral(literal) => Ok(CallbackExpr {
@@ -1215,17 +1215,16 @@ impl ModuleBuilder<'_> {
                             ty: self.ctx.krate.types.intern(Type::Float),
                         },
                         ArrayExpressionElement::BigIntLiteral(literal) => {
-                            let value = literal.value.as_str().parse::<f64>().map_err(|err| {
-                                SmeltError::unsupported(
-                                    self.span(literal.span.start, literal.span.end),
-                                    format!(
-                                        "bigint literal cannot be represented numerically: {err}"
-                                    ),
-                                )
-                            })?;
+                            let digits = Self::canonical_bigint_digits(literal.value.as_str())
+                                .ok_or_else(|| {
+                                    SmeltError::unsupported(
+                                        self.span(literal.span.start, literal.span.end),
+                                        "bigint literal is not a decimal integer",
+                                    )
+                                })?;
                             CallbackExpr {
-                                kind: CallbackExprKind::Literal(Literal::Float(value)),
-                                ty: self.ctx.krate.types.intern(Type::Float),
+                                kind: CallbackExprKind::Literal(Literal::BigInt(digits)),
+                                ty: self.ctx.krate.types.intern(Type::BigInt),
                             }
                         }
                         ArrayExpressionElement::StringLiteral(literal) => CallbackExpr {

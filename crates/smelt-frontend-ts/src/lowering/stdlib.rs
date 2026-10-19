@@ -2535,6 +2535,9 @@ impl ModuleBuilder<'_> {
             | Type::String
             | Type::Unknown
             | Type::TypeParam { .. } => true,
+            // `JSON.stringify(1n)` throws `TypeError: Do not know how to
+            // serialize a BigInt`; there is no JSON spelling to emit.
+            Type::BigInt => false,
             Type::List(item) | Type::Set(item) | Type::Optional(item) => {
                 self.is_json_serializable_type_inner(item, seen, true)
             }

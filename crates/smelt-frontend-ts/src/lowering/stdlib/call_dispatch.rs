@@ -4769,6 +4769,7 @@ impl<'builder> ModuleBuilder<'builder> {
             RuleId::TsNumberPredicate => self.number_predicate_call(call, body),
             RuleId::TsNumberParseFloat => self.number_parse_float_call(call, body),
             RuleId::TsNumberParseInt => self.number_parse_int_call(call, body),
+            RuleId::TsBigIntStatic => self.bigint_static_call(call, body),
             RuleId::TsStringFromCodes => self.string_from_codes_call(call, body),
             RuleId::TsObjectStatic => self.exact_object_static_call(call, body),
             RuleId::TsArrayStatic => self.exact_array_static_call(call, body),
@@ -5292,6 +5293,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 Type::Bool
                 | Type::Int
                 | Type::FixedInt(_)
+                | Type::BigInt
                 | Type::Float
                 | Type::String
                 | Type::Unknown

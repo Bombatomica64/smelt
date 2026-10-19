@@ -48,7 +48,7 @@ impl ModuleBuilder<'_> {
             TSType::TSObjectKeyword(_) => Ok(self.erase(ErasureReason::OpenLayout)),
             TSType::TSTypeQuery(query) => Ok(self.type_query_to_hir(query)),
             TSType::TSNumberKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Float)),
-            TSType::TSBigIntKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Int)),
+            TSType::TSBigIntKeyword(_) => Ok(self.ctx.krate.types.intern(Type::BigInt)),
             TSType::TSStringKeyword(_) | TSType::TSTemplateLiteralType(_) => {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
@@ -68,7 +68,7 @@ impl ModuleBuilder<'_> {
                     Ok(self.ctx.krate.types.intern(Type::Float))
                 }
                 oxc::ast::ast::TSLiteral::BigIntLiteral(_) => {
-                    Ok(self.ctx.krate.types.intern(Type::Int))
+                    Ok(self.ctx.krate.types.intern(Type::BigInt))
                 }
                 oxc::ast::ast::TSLiteral::UnaryExpression(unary)
                     if unary.operator == UnaryOperator::UnaryNegation
@@ -1536,7 +1536,7 @@ return_ty: function.return_ty,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
         match item {
             TSTupleElement::TSNumberKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Float)),
-            TSTupleElement::TSBigIntKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Int)),
+            TSTupleElement::TSBigIntKeyword(_) => Ok(self.ctx.krate.types.intern(Type::BigInt)),
             TSTupleElement::TSStringKeyword(_) | TSTupleElement::TSTemplateLiteralType(_) => {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
@@ -1580,7 +1580,7 @@ return_ty: function.return_ty,
                     Ok(self.ctx.krate.types.intern(Type::Float))
                 }
                 oxc::ast::ast::TSLiteral::BigIntLiteral(_) => {
-                    Ok(self.ctx.krate.types.intern(Type::Int))
+                    Ok(self.ctx.krate.types.intern(Type::BigInt))
                 }
                 oxc::ast::ast::TSLiteral::BooleanLiteral(_) => {
                     Ok(self.ctx.krate.types.intern(Type::Bool))
@@ -1988,6 +1988,7 @@ return_ty: function.return_ty,
                 Type::Bool
                 | Type::Int
                 | Type::FixedInt(_)
+                | Type::BigInt
                 | Type::Float
                 | Type::String
                 | Type::Unknown
@@ -3944,6 +3945,12 @@ return_ty: function.return_ty,
             // capture group: a string when the group matched and `undefined`
             // otherwise, so the element type is `Optional(String)` rather than the
             // erased dynamic boundary.
+            // An index into a `BigInt64Array`/`BigUint64Array` reads a bigint.
+            // (The other views' element reads keep the erased answer they have
+            // always had.)
+            Some(Type::Class { .. }) if self.is_bigint_view_type(receiver_ty) => {
+                Ok(self.ctx.krate.types.intern(Type::BigInt))
+            }
             Some(Type::Class { name, .. }) if self.match_stdlib_class(*name).is_some() => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 Ok(self.ctx.krate.types.intern(Type::Optional(string_ty)))
@@ -4090,6 +4097,25 @@ return_ty: function.return_ty,
         }
         if op == BinOp::Add && (self.has_static_string_type(lhs_ty) || self.has_static_string_type(rhs_ty)) {
             return self.ctx.krate.types.intern(Type::String);
+        }
+        // A bigint operand makes every arithmetic, bitwise and shift result a
+        // bigint: TypeScript rejects mixing it with a `number`, and an erased
+        // partner either holds a bigint at run time or throws `TypeError`.
+        // Typing the result `number` (the erased-numeric rule below) would
+        // round it through `f64`.
+        if self.is_bigint_type(lhs_ty) || self.is_bigint_type(rhs_ty) {
+            return self.ctx.krate.types.intern(Type::BigInt);
+        }
+        // An operand that may hold EITHER a bigint or a number (a
+        // `number | bigint` union) gives a result that may be either: two
+        // bigints add to a bigint and two numbers to a number, decided at run
+        // time. `number` (below) would drop the bigint arm.
+        if !matches!(op, BinOp::And | BinOp::Or | BinOp::IMul)
+            && (self.type_may_hold_bigint(lhs_ty) || self.type_may_hold_bigint(rhs_ty))
+        {
+            let float = self.ctx.krate.types.intern(Type::Float);
+            let bigint = self.ctx.krate.types.intern(Type::BigInt);
+            return self.ctx.krate.types.intern(Type::Union(vec![float, bigint]));
         }
         if matches!(
             op,

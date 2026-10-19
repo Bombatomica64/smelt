@@ -85,6 +85,8 @@ fn literal_condition(value_text: &str, literal: &smelt_hir::Literal) -> Option<S
         smelt_hir::Literal::Float(number) => Some(format!(
             "matches!({value_text}, SmeltUnknown::Number(number) if *number == {number:?}_f64)"
         )),
+        // JSON has no bigint, so no parsed value is ever a bigint literal.
+        smelt_hir::Literal::BigInt(_) => None,
         smelt_hir::Literal::Int(number) => Some(format!(
             "matches!({value_text}, SmeltUnknown::Number(number) if *number == {number}_f64)"
         )),
@@ -101,6 +103,7 @@ fn literal_condition(value_text: &str, literal: &smelt_hir::Literal) -> Option<S
 fn literal_type_text(literal: &smelt_hir::Literal) -> String {
     match literal {
         smelt_hir::Literal::String(text) => format!("{text:?}"),
+        smelt_hir::Literal::BigInt(digits) => format!("{digits}n"),
         smelt_hir::Literal::Float(number) => {
             if number.fract() == 0.0 && number.abs() < 1e21 {
                 format!("{number:.0}")
@@ -155,6 +158,9 @@ impl FunctionEmitter<'_> {
                 | Type::None
                 | Type::Unknown,
             ) => true,
+            // JSON has no bigint: `JSON.parse` can never produce one, so a
+            // bigint target is not a decodable shape.
+            Some(Type::BigInt) => false,
             Some(Type::List(item) | Type::Optional(item)) => self.json_decodable(*item, visiting),
             Some(Type::Tuple(items)) => items.iter().all(|item| self.json_decodable(*item, visiting)),
             Some(Type::Dict(key, value)) => {

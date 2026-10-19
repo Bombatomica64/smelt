@@ -3624,12 +3624,18 @@ function addUnknown(total: number, value: unknown): number {
   return total + narrowed;
 }
 
-function truncateDifference(left: bigint, right: number): bigint {
-  return left - right;
+function elapsedSince(right: number): number {
+  return Date.now() - right;
 }
 ",
     );
 
+    // The `i64` destination comes from `Date.now()`, which is an integer
+    // timestamp. This used to be `bigint - number` typed `Int`, which `tsc`
+    // rejects (a bigint never mixes with a number) and which is no longer an
+    // `Int` at all: a `bigint` is its own unbounded type. The coercion under
+    // test -- a `number` operand truncated into an integer destination -- is
+    // unchanged, so a valid program pins it now.
     assert!(
         source.contains("(right as f64).trunc() as i64"),
         "{source}"
@@ -4435,8 +4441,10 @@ function shiftRaw(raw: bigint): bigint {
 ",
     );
 
+    // `bigint.toString(radix)` keeps every digit: the runtime renders the
+    // unbounded value in the radix (it used to narrow it to `i128` first).
     assert!(
-        source.contains("let radix = ((2.0 as f64).trunc() as u32).clamp(2, 36);"),
+        source.contains("smelt_bigint_to_string_radix(&::num_bigint::BigInt::from(10_i64), 2.0)"),
         "{source}"
     );
     // A `number` shift is JavaScript's int32 shift: `ToInt32(a)` shifted by
@@ -4444,18 +4452,24 @@ function shiftRaw(raw: bigint): bigint {
     assert!(source.contains(".wrapping_shl("), "{source}");
     assert!(source.contains(".wrapping_shr("), "{source}");
     // A `bigint` shift is NOT: `1n << 8n` is `256n` and `(1n << 40n)` is
-    // `1099511627776n` in Node, with no 32-bit wrap. Bigint literals are typed
-    // `Int` (as `bigint` annotations are), so module-level bigint shifts keep
-    // the wide shift. This test used to assert the opposite -- that
-    // `1n << 8n` was an int32 shift -- which encoded the literal mistyping and
-    // made remeda's `asBigInt` (`(result << 8n) + BigInt(byte)`) wrap after
-    // four bytes.
-    assert!(source.contains("let left: i64"), "{source}");
-    assert!(source.contains("fn shift_raw(raw: i64) -> i64"), "{source}");
+    // `1099511627776n` in Node, with no 32-bit wrap. This test first asserted
+    // the opposite -- that `1n << 8n` was an int32 shift -- which encoded the
+    // literal mistyping and made remeda's `asBigInt`
+    // (`(result << 8n) + BigInt(byte)`) wrap after four bytes. It then
+    // asserted an `i64` carrier shifted through `(x as f64) as i128`, which
+    // dropped low bits past 2^53 and wrapped past 2^63. A bigint is now its
+    // own unbounded type, `num_bigint::BigInt`, and its shift is the runtime's
+    // arithmetic shift, never a float round trip.
+    assert!(source.contains("let left: ::num_bigint::BigInt"), "{source}");
     assert!(
-        source.contains("(((raw as f64).trunc() as i128) >>"),
+        source.contains("fn shift_raw(raw: ::num_bigint::BigInt) -> ::num_bigint::BigInt"),
         "{source}"
     );
+    assert!(
+        source.contains("smelt_bigint_shr(&raw, &::num_bigint::BigInt::from(1_i64))"),
+        "{source}"
+    );
+    assert!(!source.contains("as i128) >>"), "{source}");
     assert!(source.contains("rem_euclid(4294967296.0)"), "{source}");
 }
 

@@ -81,6 +81,9 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if needs_base64_runtime(mir) {
         deps.push(BackendDependency::Base64);
     }
+    if needs_bigint_runtime(mir) {
+        deps.push(BackendDependency::BigInt);
+    }
     // `createHash` names its algorithm at run time, so every hasher it can
     // answer is linked: the SHA family and MD5.
     if needs_node_hash_runtime(mir) {
@@ -1069,6 +1072,14 @@ fn mir_catches_a_call(mir: &Mir) -> bool {
     })
 }
 
+/// Returns true when the generated crate carries a JavaScript `bigint`.
+pub(crate) fn needs_bigint_runtime(mir: &Mir) -> bool {
+    // The frontend interns `Type::BigInt` for every bigint literal, annotation
+    // and conversion, so the type table alone answers "does this program hold
+    // a bigint?" -- the same pay-for-use question `RegExp` asks of it.
+    mir.types.all().iter().any(|ty| matches!(ty, Type::BigInt))
+}
+
 /// Returns true when generated Rust needs the opaque `unknown` carrier type.
 pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
     // `Type::Union` values are emitted as `SmeltUnknown` (see the type-text
@@ -1127,6 +1138,11 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
         // erased value of its own — but its `RangeError` payload is a branded
         // `SmeltUnknown::Object` and its adapters live in this block.
         || needs_data_view_access_runtime(mir)
+        // A bigint program is the same case again: `BigInt(1.5)`, `1n / 0n`
+        // and `2n ** -1n` throw a branded `RangeError` record, and an erased
+        // bigint is the `SmeltUnknown::BigInt` tag, which only exists in this
+        // block (see `bigint_prelude`).
+        || needs_bigint_runtime(mir)
         // A `Set` whose element type is not a value-equality primitive is
         // emitted as the `SmeltJsSet` runtime container, whose SameValueZero
         // membership projects elements through `IntoSmeltUnknown`. That carrier

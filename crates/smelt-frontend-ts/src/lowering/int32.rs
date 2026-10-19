@@ -570,8 +570,11 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<ExprId, SmeltError> {
         let operand = self.expression(&unary.argument, body)?;
-        let float = self.ctx.krate.types.intern(Type::Float);
         let span = self.span(unary.span.start, unary.span.end);
+        if let Some(not) = self.bigint_bitwise_not(operand, span, body) {
+            return Ok(not);
+        }
+        let float = self.ctx.krate.types.intern(Type::Float);
         let all_ones = body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::Float(-1.0)),
             ty: float,

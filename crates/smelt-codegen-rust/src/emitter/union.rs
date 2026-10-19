@@ -86,7 +86,7 @@ impl FunctionEmitter<'_> {
                 self.collect_union_type_params(*yield_ty, params)?;
                 self.collect_union_type_params(*return_ty, params)?;
             }
-            Type::Unknown | Type::Never | Type::None | Type::Bool | Type::Int | Type::FixedInt(_) | Type::Float | Type::String => {}
+            Type::Unknown | Type::Never | Type::None | Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::Float | Type::String => {}
         }
         Ok(())
     }
@@ -216,7 +216,7 @@ impl FunctionEmitter<'_> {
                 self.union_member_is_concrete(*yield_ty)
                     && self.union_member_is_concrete(*return_ty)
             }
-            Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::Float | Type::String) => true,
+            Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::Float | Type::String) => true,
             // Nullish unions remain `Option`/erased-boundary work. Keeping them
             // out of tagged unions preserves missing-property/default semantics;
             // the concrete-union feature targets distinct value-bearing arms.
@@ -644,6 +644,7 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(member).and_then(Type::runtime_kind) {
             Some(Kind::Bool) => "SmeltUnknown::Bool(_)",
             Some(Kind::Number) => "SmeltUnknown::Number(_)",
+            Some(Kind::BigInt) => "SmeltUnknown::BigInt(_)",
             Some(Kind::String) => "SmeltUnknown::String(_)",
             Some(Kind::Function) => "SmeltUnknown::Function(_)",
             Some(Kind::Array) => "SmeltUnknown::Array(_)",

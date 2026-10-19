@@ -1935,6 +1935,7 @@ fn callee_text(callee: &Callee) -> String {
         Callee::Builtin(BuiltinFn::JsonParse { target: Some(_) }) => "@json_decode".to_owned(),
         Callee::Builtin(BuiltinFn::Base64(op)) => format!("@{}", op.name()),
         Callee::Builtin(BuiltinFn::RegExpCompile) => "@regexp_compile".to_owned(),
+        Callee::Builtin(BuiltinFn::BigInt(op)) => format!("@{}", op.name()),
         Callee::Builtin(BuiltinFn::HostModule(op)) => format!("@{}", op.name()),
         Callee::Builtin(BuiltinFn::DataViewAccess { write, element }) => format!(
             "@data_view_{}{}",
@@ -1992,6 +1993,7 @@ fn constant_text(constant: &Constant) -> String {
                 value.to_string()
             }
         }
+        Constant::BigInt(digits) => format!("{digits}n"),
         Constant::String(value) => format!("\"{value}\""),
         Constant::Symbol(value) => format!("symbol({value:?})"),
         Constant::Undefined => "undefined".to_owned(),
@@ -2014,6 +2016,7 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
         Type::Int => "Int".to_owned(),
         Type::Float => "Float".to_owned(),
         Type::FixedInt(width) => width.rust_name().to_owned(),
+        Type::BigInt => "BigInt".to_owned(),
         Type::String => "String".to_owned(),
         Type::Unknown => "Unknown".to_owned(),
         Type::Never => "Never".to_owned(),

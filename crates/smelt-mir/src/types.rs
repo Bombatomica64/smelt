@@ -684,6 +684,9 @@ pub enum Constant {
     Int(i64),
     /// Floating-point constant.
     Float(f64),
+    /// JavaScript bigint constant, as canonical decimal digits (see
+    /// `smelt_hir::Literal::BigInt`).
+    BigInt(String),
     /// String constant.
     String(String),
     /// JavaScript symbol constant.
@@ -2537,6 +2540,13 @@ pub enum BuiltinFn {
     /// `smelt_hir::HostModuleOp::is_fallible`); the infallible ones are
     /// [`Rvalue::HostModuleCall`].
     HostModule(smelt_hir::HostModuleOp),
+    /// A fallible JavaScript `bigint` operation (`BigInt(x)`, `asIntN`,
+    /// `asUintN`, and the bigint `/`, `%`, `**`), which throws a catchable
+    /// `RangeError` (or `SyntaxError`) on some inputs.
+    ///
+    /// A builtin for the reason [`Self::JsonParse`] is: the throw has to reach
+    /// an enclosing `try`, and only a call terminator carries an unwind edge.
+    BigInt(smelt_hir::BigIntOp),
 }
 
 impl BuiltinFn {
@@ -2557,7 +2567,8 @@ impl BuiltinFn {
             | Self::Base64(_)
             | Self::RegExpCompile
             | Self::HostModule(_)
-            | Self::DataViewAccess { .. } => true,
+            | Self::DataViewAccess { .. }
+            | Self::BigInt(_) => true,
             Self::ConsoleLog { .. } | Self::ConsoleWrite | Self::ConsoleErrorWrite => false,
         }
     }

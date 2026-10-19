@@ -5128,6 +5128,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Operand::Const(Constant::Bool(_)) => self.type_id(Type::Bool),
             Operand::Const(Constant::Int(_)) => self.type_id(Type::Int),
             Operand::Const(Constant::Float(_)) => self.type_id(Type::Float),
+            Operand::Const(Constant::BigInt(_)) => self.type_id(Type::BigInt),
             Operand::Const(Constant::String(_)) => self.type_id(Type::String),
             Operand::Const(Constant::Symbol(_)) => self.type_id(Type::Unknown),
         }
@@ -5215,6 +5216,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 | Type::Bool
                 | Type::Int
                 | Type::FixedInt(_)
+                | Type::BigInt
                 | Type::Float
                 | Type::String
                 | Type::Never
@@ -5275,7 +5277,8 @@ impl<'mir> FunctionEmitter<'mir> {
     /// therefore use the generated linear `SmeltJsMap` runtime container.
     pub(super) fn dict_uses_js_key_map(&self, key_ty: TypeId) -> bool {
         match self.mir.types.get(key_ty) {
-            Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::String) => false,
+            // A bigint key hashes by value, which is SameValueZero for bigints.
+            Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::String) => false,
             Some(Type::Float) => true,
             Some(Type::Optional(inner) | Type::Future(inner)) => self.dict_uses_js_key_map(*inner),
             Some(Type::Union(items)) => items.iter().any(|item| self.dict_uses_js_key_map(*item)),
