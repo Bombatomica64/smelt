@@ -2194,6 +2194,7 @@ dependencies = [
  "smelt-runtime",
  "smelt-specialize",
  "smelt-stdlib",
+ "stacker",
  "tempfile",
 ]
 

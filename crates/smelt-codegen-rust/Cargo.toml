@@ -38,6 +38,10 @@ indexmap = "2"
 # Serializes the typedness measurement (`emitter::typedness`) for the
 # `smelt-typedness.json` sidecar and baselines.
 serde = { workspace = true }
+# Grows the stack on demand while `emit_block` recurses down a long
+# straight-line chain of blocks (every call terminator ends a block), so the
+# recursion guard can scale with the function instead of a fixed ceiling.
+stacker = "0.1.25"
 
 [dev-dependencies]
 insta = "1.48"

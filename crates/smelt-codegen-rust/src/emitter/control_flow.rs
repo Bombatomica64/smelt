@@ -172,8 +172,16 @@ pub(super) fn last_emit_diverged() -> bool {
 
 impl FunctionEmitter<'_> {
     /// Emits a basic block's statements and terminator.
+    ///
+    /// Emission recurses once per successor, so a straight-line function of
+    /// `n` blocks is `n` frames deep. The guard below only exists to stop a
+    /// cyclic region from recursing forever, so it scales with the function:
+    /// it used to be capped at 64, which silently replaced the tail of any
+    /// longer straight-line body with a default `return` (a module that
+    /// performed more than 64 calls in a row lost its last statements). The
+    /// stack grows on demand so a long body cannot overflow it instead.
     pub(super) fn emit_block(&self, block: &BasicBlock, out: &mut String) -> Result<(), EmitError> {
-        let limit = self.function.blocks.len().saturating_mul(2).clamp(16, 64);
+        let limit = self.function.blocks.len().saturating_mul(2).max(16);
         let too_deep = EMIT_BLOCK_DEPTH.with(|depth| {
             let current = depth.get();
             if current > limit {
@@ -189,7 +197,9 @@ impl FunctionEmitter<'_> {
             set_last_emit_diverged(true);
             return Ok(());
         }
-        let result = self.emit_block_body(block, out);
+        let result = stacker::maybe_grow(256 * 1024, 4 * 1024 * 1024, || {
+            self.emit_block_body(block, out)
+        });
         EMIT_BLOCK_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
         result
     }
