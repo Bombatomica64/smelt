@@ -69,6 +69,15 @@ pub enum BackendDependency {
     /// It is the `RustCrypto` crate beside `sha1`/`sha2`, sharing their `digest`
     /// traits, so one `Digest` import drives all three.
     Md5,
+    /// `num-bigint` (with its `num-traits`/`num-integer` companions) for
+    /// JavaScript `bigint` values.
+    ///
+    /// One dependency rather than three because the generated bigint runtime
+    /// needs all three at once: the `BigInt` type, the `ToPrimitive` /
+    /// `FromPrimitive` / `Zero` traits its conversions go through, and
+    /// `Integer::mod_floor` for `BigInt.asIntN`. A program with no `bigint`
+    /// pays for none of them.
+    BigInt,
 }
 
 impl BackendDependency {
@@ -108,6 +117,9 @@ impl BackendDependency {
             Self::Sha => "sha1 = \"0.10\"\nsha2 = \"0.10\"\n",
             Self::Base64 => "base64 = \"0.22\"\n",
             Self::Md5 => "md-5 = \"0.10\"\n",
+            Self::BigInt => {
+                "num-bigint = \"0.4\"\nnum-traits = \"0.2\"\nnum-integer = \"0.1\"\n"
+            }
         }
     }
 }

@@ -37,6 +37,13 @@ pub struct Crate {
     pub symbols: SymbolInterner,
     /// Table of original names before any transformations.
     pub names: OriginalNameTable,
+    /// Every decision a frontend made to erase a value to `Type::Unknown`,
+    /// with its reason and source span; see [`crate::erasure`].
+    ///
+    /// A side table rather than a field on the type: `Type::Unknown` is
+    /// interned once, so the reason cannot live on the `TypeId`.
+    #[serde(default)]
+    pub erasures: Vec<crate::erasure::ErasureRecord>,
 }
 
 impl Crate {

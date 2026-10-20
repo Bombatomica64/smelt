@@ -98,6 +98,9 @@ impl Drop for HoistedModuleItemScope<'_, '_> {
 /// in a couple of instructions and removes that cost without changing behavior.
 pub(crate) type BlockIdSet = rustc_hash::FxHashSet<smelt_mir::BlockId>;
 
+mod backend_erasure;
+mod bigint;
+pub(crate) mod typedness;
 mod binary_ops;
 mod call;
 mod call_runtime;
@@ -107,12 +110,14 @@ mod cfg_queries;
 mod closures;
 mod coercion;
 mod control_flow;
+mod console_inspect;
 mod construct;
 mod control_flow_match;
 mod core;
 mod dict_entry_update;
 mod blob;
 mod fetch_types;
+mod fixed_int;
 mod abort_signal;
 mod crypto;
 mod host_module;
@@ -121,6 +126,7 @@ mod text_codec;
 mod typed_array;
 mod host_member_read;
 mod host_interop;
+mod json_decode;
 mod http_server;
 mod list;
 mod list_mutation;
@@ -161,6 +167,8 @@ use literals::{assigned_locals, constant_text};
 use rendered_value::{Precedence, RenderedValue};
 use types::MutablePrefix;
 pub(crate) use union::emit_union_definitions;
+pub(crate) use json_decode::emit_json_decoders;
+pub(crate) use console_inspect::emit_console_inspect_support;
 pub(crate) use core::is_erased_unknown_rest_function_in;
 
 /// Process-wide runtime state an emitted native test resets before its body,
@@ -268,6 +276,18 @@ pub(crate) struct EmitContext {
     /// Whether any body reads the dynamic `this` receiver channel (see
     /// [`receiver_bound_slot`]).
     program_reads_this: bool,
+    /// Whether the crate carries a JavaScript `bigint` (see
+    /// `stdlib::needs_bigint_runtime`). The `SmeltUnknown::BigInt` tag only
+    /// exists in such a crate, so an exhaustive match over the erased carrier
+    /// names that arm only when this is set.
+    needs_bigint: bool,
+    /// Whether some `console.log` argument took the `util.inspect` route, so
+    /// the crate root must carry the `SmeltInspect` runtime (see
+    /// [`console_inspect`]). Set while bodies are emitted, read after.
+    console_inspect_used: ::std::cell::Cell<bool>,
+    /// Erasures `rust_type` decided in the backend (erased generics and
+    /// unions, unresolved classes, `never`); see `emitter::backend_erasure`.
+    pub(crate) backend_erasures: RefCell<Vec<smelt_hir::ErasureRecord>>,
 }
 
 impl EmitContext {
@@ -375,7 +395,26 @@ impl EmitContext {
             type_param_elision: crate::generic_elision::compute(mir),
             erased_view_write_through: view_write_through::program_writes_erased_fields(mir),
             program_reads_this: receiver_bound_slot::program_reads_this(mir),
+            needs_bigint: crate::stdlib::needs_bigint_runtime(mir),
+            console_inspect_used: ::std::cell::Cell::new(false),
+            backend_erasures: RefCell::new(Vec::new()),
         })
+    }
+
+    /// Record that a `console.log` argument renders through `SmeltInspect`.
+    pub(crate) fn mark_console_inspect_used(&self) {
+        self.console_inspect_used.set(true);
+    }
+
+    /// Whether any `console.log` argument rendered through `SmeltInspect`.
+    pub(crate) fn console_inspect_used(&self) -> bool {
+        self.console_inspect_used.get()
+    }
+
+    /// Whether the crate carries a JavaScript `bigint`, and therefore the
+    /// `SmeltUnknown::BigInt` tag.
+    pub(crate) const fn needs_bigint(&self) -> bool {
+        self.needs_bigint
     }
 
     /// Return whether property writes through an erased view reach the
@@ -1161,6 +1200,10 @@ pub(crate) struct FunctionEmitter<'mir> {
     folded_throw_payloads: HashSet<LocalId>,
     /// Cached termination queries for this function CFG.
     termination_cache: RefCell<HashMap<smelt_mir::BlockId, bool>>,
+    /// Per-local write facts for this function, built in one pass on first use
+    /// (see `local_analysis::LocalWriteIndex`), so per-local mutability queries
+    /// do not each rescan every block.
+    local_write_index: std::cell::OnceCell<local_analysis::LocalWriteIndex>,
     /// Immediate post-dominator of every block of this function CFG, computed
     /// on first use (see `post_dominance`).
     post_dominators: RefCell<Option<Vec<Option<smelt_mir::BlockId>>>>,

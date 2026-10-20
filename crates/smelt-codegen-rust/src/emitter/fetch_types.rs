@@ -383,10 +383,23 @@ impl FunctionEmitter<'_> {
         signal: Option<&Operand>,
         init_members: &[(smelt_hir::RequestInitMember, Operand)],
     ) -> Result<String, EmitError> {
-        // The spec's "if init is not empty" test. It decides whether a
-        // `Request` input's referrer survives, so it is the presence of ANY
-        // init key -- an empty literal (`new Request(src, {})`) is empty and
-        // copies, which is what Node answers.
+        // The spec's "if init is not empty" test decides whether a `Request`
+        // input's referrer survives a re-construction: by the WHATWG text an
+        // absent or empty init (`new Request(src)`, `new Request(src, {})`)
+        // copies it, and Node 22 (undici 6) agreed.
+        //
+        // The pinned oracle is Node 24, whose undici 7 converts EVERY init
+        // through a `RequestInit` dictionary that defaults `priority` to
+        // `'auto'` -- so the converted init is never empty, and every
+        // re-construction from a `Request` resets `referrer` to
+        // `about:client` and `referrerPolicy` to `''`. Node is the oracle the
+        // corpus is checked against (`verify_end_to_end_example`), so the
+        // generated program answers what Node 24 answers; the example
+        // `92_request_init_members` records the version dependence. (For a
+        // STRING input the reset is a no-op -- the defaults are already the
+        // reset values -- so only the copy path observes this, and the string
+        // paths keep the spelled-keys test their emitted text was built on.)
+        let source_init_resets_referrer = true;
         let init_is_non_empty = method.is_some()
             || headers.is_some()
             || body.is_some()
@@ -413,7 +426,7 @@ impl FunctionEmitter<'_> {
                 &format!("SmeltBody::take_from_source(&{source}.body())"),
                 &format!("{source}.init()"),
                 init_members,
-                init_is_non_empty,
+                source_init_resets_referrer,
             )?
         } else if matches!(self.mir.types.get(input_ty), Some(Type::String)) {
             self.request_from_parts_text(
@@ -449,7 +462,7 @@ impl FunctionEmitter<'_> {
                 "SmeltBody::take_from_source(&smelt_input_request.body())",
                 "smelt_input_request.init()",
                 init_members,
-                init_is_non_empty,
+                source_init_resets_referrer,
             )?;
             let source_url = self.request_from_parts_text(
                 method,

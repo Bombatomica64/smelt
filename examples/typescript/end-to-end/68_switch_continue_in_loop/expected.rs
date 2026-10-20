@@ -166,112 +166,126 @@ use super::*;
 pub(crate) fn escape_html(str: String) -> String {
     let mut code: f64;
     let mut replacement: String;
-    let mut _smelt_tmp_6: f64;
+    let mut _smelt_tmp_6: usize;
     let mut _smelt_tmp_7: bool;
     let mut _smelt_tmp_8: f64;
     let mut _smelt_tmp_9: String;
     let mut _smelt_tmp_10: String;
     let mut _smelt_tmp_11: String;
-    let mut _smelt_tmp_12: f64;
-    let mut _smelt_tmp_13: f64;
+    let mut _smelt_tmp_12: usize;
+    let mut _smelt_tmp_13: usize;
     let mut _smelt_tmp_14: f64;
     let mut _smelt_tmp_15: String;
     let mut _smelt_tmp_16: String;
+    let mut _smelt_tmp_17: f64;
+    let mut _smelt_tmp_18: f64;
+    let mut _smelt_tmp_19: f64;
+    let mut _smelt_tmp_20: f64;
     let mut out: String = "".to_owned();
-    let mut last_index: f64 = 0.0;
-    let mut i: f64 = 0.0;
+    let mut last_index: usize = 0;
+    let mut i: usize = 0;
     loop {
-    _smelt_tmp_6 = str.chars().count() as f64;
+    _smelt_tmp_6 = str.chars().count();
     _smelt_tmp_7 = i < _smelt_tmp_6;
     if !(_smelt_tmp_7) { break; }
-    _smelt_tmp_8 = str.clone().chars().nth(i as usize).map_or(f64::NAN, |ch| ch as u32 as f64);
+    _smelt_tmp_17 = i as f64;
+    _smelt_tmp_8 = str.clone().chars().nth(_smelt_tmp_17 as usize).map_or(f64::NAN, |ch| ch as u32 as f64);
     code = _smelt_tmp_8;
     replacement = "".to_owned();
     match code {
         34.0 => {
     replacement = "&quot;".to_owned();
-    _smelt_tmp_9 = str.clone().chars().skip({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = last_index as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = i as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = last_index as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
+    _smelt_tmp_19 = last_index as f64;
+    _smelt_tmp_20 = i as f64;
+    _smelt_tmp_9 = str.clone().chars().skip({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_19 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_20 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_19 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
     _smelt_tmp_10 = _smelt_tmp_9 + &replacement;
     _smelt_tmp_11 = out + &_smelt_tmp_10;
     out = _smelt_tmp_11;
-    _smelt_tmp_12 = i + 1.0;
+    _smelt_tmp_12 = i + 1;
     last_index = _smelt_tmp_12;
-    _smelt_tmp_13 = i + 1.0;
+    _smelt_tmp_13 = i + 1;
     i = _smelt_tmp_13;
     continue;
         }
         38.0 => {
     replacement = "&amp;".to_owned();
-    _smelt_tmp_9 = str.clone().chars().skip({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = last_index as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = i as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = last_index as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
+    _smelt_tmp_19 = last_index as f64;
+    _smelt_tmp_20 = i as f64;
+    _smelt_tmp_9 = str.clone().chars().skip({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_19 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_20 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_19 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
     _smelt_tmp_10 = _smelt_tmp_9 + &replacement;
     _smelt_tmp_11 = out + &_smelt_tmp_10;
     out = _smelt_tmp_11;
-    _smelt_tmp_12 = i + 1.0;
+    _smelt_tmp_12 = i + 1;
     last_index = _smelt_tmp_12;
-    _smelt_tmp_13 = i + 1.0;
+    _smelt_tmp_13 = i + 1;
     i = _smelt_tmp_13;
     continue;
         }
         60.0 => {
     replacement = "&lt;".to_owned();
-    _smelt_tmp_9 = str.clone().chars().skip({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = last_index as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = i as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = last_index as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
+    _smelt_tmp_19 = last_index as f64;
+    _smelt_tmp_20 = i as f64;
+    _smelt_tmp_9 = str.clone().chars().skip({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_19 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_20 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_19 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
     _smelt_tmp_10 = _smelt_tmp_9 + &replacement;
     _smelt_tmp_11 = out + &_smelt_tmp_10;
     out = _smelt_tmp_11;
-    _smelt_tmp_12 = i + 1.0;
+    _smelt_tmp_12 = i + 1;
     last_index = _smelt_tmp_12;
-    _smelt_tmp_13 = i + 1.0;
+    _smelt_tmp_13 = i + 1;
     i = _smelt_tmp_13;
     continue;
         }
         62.0 => {
     replacement = "&gt;".to_owned();
-    _smelt_tmp_9 = str.clone().chars().skip({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = last_index as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = i as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = last_index as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
+    _smelt_tmp_19 = last_index as f64;
+    _smelt_tmp_20 = i as f64;
+    _smelt_tmp_9 = str.clone().chars().skip({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_19 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_20 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_19 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
     _smelt_tmp_10 = _smelt_tmp_9 + &replacement;
     _smelt_tmp_11 = out + &_smelt_tmp_10;
     out = _smelt_tmp_11;
-    _smelt_tmp_12 = i + 1.0;
+    _smelt_tmp_12 = i + 1;
     last_index = _smelt_tmp_12;
-    _smelt_tmp_13 = i + 1.0;
+    _smelt_tmp_13 = i + 1;
     i = _smelt_tmp_13;
     continue;
         }
         _ => {
-    _smelt_tmp_13 = i + 1.0;
+    _smelt_tmp_13 = i + 1;
     i = _smelt_tmp_13;
     continue;
         }
     }
     }
     _smelt_tmp_14 = str.chars().count() as f64;
-    _smelt_tmp_15 = str.clone().chars().skip({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = last_index as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_14 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = last_index as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
+    _smelt_tmp_18 = last_index as f64;
+    _smelt_tmp_15 = str.clone().chars().skip({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_18 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_14 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_18 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
     _smelt_tmp_16 = out + &_smelt_tmp_15;
     return _smelt_tmp_16;
 }
 
 pub(crate) fn sum_odd(values: SmeltList<f64>) -> f64 {
     let mut value: f64;
-    let mut _smelt_tmp_4: f64;
+    let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: f64;
     let mut _smelt_tmp_7: f64;
     let mut total: f64 = 0.0;
-    let mut _smelt_tmp_3: f64 = 0.0;
+    let mut _smelt_tmp_3: usize = 0;
     loop {
-    _smelt_tmp_4 = values.len() as f64;
+    _smelt_tmp_4 = values.len();
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if !(_smelt_tmp_5) { break; }
-    value = values.borrow().get({ let smelt_normalized = _smelt_tmp_3 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    value = values.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| 0.0);
     _smelt_tmp_6 = value % 2.0;
     match _smelt_tmp_6 {
         0.0 => {
-    _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
+    _smelt_tmp_3 = _smelt_tmp_3 + 1;
     continue;
         }
         _ => {
     _smelt_tmp_7 = total + value;
     total = _smelt_tmp_7;
-    _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
+    _smelt_tmp_3 = _smelt_tmp_3 + 1;
     continue;
         }
     }
@@ -281,29 +295,29 @@ pub(crate) fn sum_odd(values: SmeltList<f64>) -> f64 {
 
 pub(crate) fn classify(values: SmeltList<f64>) -> String {
     let mut value: f64;
-    let mut _smelt_tmp_4: f64;
+    let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: String;
     let mut _smelt_tmp_7: String;
     let mut _smelt_tmp_8: String;
     let mut seen: String = "".to_owned();
-    let mut _smelt_tmp_3: f64 = 0.0;
+    let mut _smelt_tmp_3: usize = 0;
     loop {
-    _smelt_tmp_4 = values.len() as f64;
+    _smelt_tmp_4 = values.len();
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if !(_smelt_tmp_5) { break; }
-    value = values.borrow().get({ let smelt_normalized = _smelt_tmp_3 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    value = values.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| 0.0);
     match value {
         1.0 => {
     _smelt_tmp_6 = seen + &"one".to_owned();
     seen = _smelt_tmp_6;
     _smelt_tmp_8 = seen + &".".to_owned();
     seen = _smelt_tmp_8;
-    _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
+    _smelt_tmp_3 = _smelt_tmp_3 + 1;
     continue;
         }
         2.0 => {
-    _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
+    _smelt_tmp_3 = _smelt_tmp_3 + 1;
     continue;
         }
         _ => {
@@ -311,7 +325,7 @@ pub(crate) fn classify(values: SmeltList<f64>) -> String {
     seen = _smelt_tmp_7;
     _smelt_tmp_8 = seen + &".".to_owned();
     seen = _smelt_tmp_8;
-    _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
+    _smelt_tmp_3 = _smelt_tmp_3 + 1;
     continue;
         }
     }

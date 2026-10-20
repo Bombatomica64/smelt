@@ -4210,7 +4210,7 @@ pub(crate) fn segments(path: String) -> SmeltList<String> {
     let mut p: String;
     let mut __smelt_update_tmp: f64;
     let mut next: Option<String>;
-    let mut _smelt_tmp_10: f64;
+    let mut _smelt_tmp_10: usize;
     let mut _smelt_tmp_11: bool;
     let mut _smelt_tmp_12: f64;
     let mut _smelt_tmp_13: bool;
@@ -4223,12 +4223,12 @@ pub(crate) fn segments(path: String) -> SmeltList<String> {
     let _smelt_tmp_8: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
     let mut out: SmeltList<String> = Into::<SmeltList<_>>::into(_smelt_tmp_8);
     let mut i: f64 = 0.0;
-    let mut _smelt_tmp_9: f64 = 0.0;
+    let mut _smelt_tmp_9: usize = 0;
     loop {
-    _smelt_tmp_10 = parts.len() as f64;
+    _smelt_tmp_10 = parts.len();
     _smelt_tmp_11 = _smelt_tmp_9 < _smelt_tmp_10;
     if !(_smelt_tmp_11) { break; }
-    p = parts.borrow().get({ let smelt_normalized = _smelt_tmp_9 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
+    p = parts.borrow().get(_smelt_tmp_9).cloned().unwrap_or_else(|| String::new());
     _smelt_tmp_12 = i + 1.0;
     __smelt_update_tmp = _smelt_tmp_12;
     i = __smelt_update_tmp;
@@ -4239,12 +4239,12 @@ pub(crate) fn segments(path: String) -> SmeltList<String> {
     _smelt_tmp_16 = _smelt_tmp_15 + &"<last>".to_owned();
     _smelt_tmp_14 = _smelt_tmp_16;
     _smelt_tmp_17 = { let smelt_push_item = _smelt_tmp_14; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
-    _smelt_tmp_9 = _smelt_tmp_9 + 1.0;
+    _smelt_tmp_9 = _smelt_tmp_9 + 1;
     continue;
     } else {
     _smelt_tmp_14 = p;
     _smelt_tmp_17 = { let smelt_push_item = _smelt_tmp_14; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
-    _smelt_tmp_9 = _smelt_tmp_9 + 1.0;
+    _smelt_tmp_9 = _smelt_tmp_9 + 1;
     continue;
     }
     }
@@ -4269,7 +4269,7 @@ pub(crate) fn buckets() -> String {
     let mut __smelt_logical_4: SmeltList<String>;
     let mut __smelt_logical_value_5: SmeltList<String>;
     let mut target: SmeltList<String>;
-    let mut _smelt_tmp_13: f64;
+    let mut _smelt_tmp_13: usize;
     let mut _smelt_tmp_14: bool;
     let mut _smelt_tmp_15: f64;
     let mut _smelt_tmp_16: String;
@@ -4285,12 +4285,12 @@ pub(crate) fn buckets() -> String {
     let _smelt_tmp_9: (f64, String) = (1.0, "b".to_owned());
     let _smelt_tmp_10: (f64, String) = (0.0, "c".to_owned());
     let _smelt_tmp_11: SmeltList<(f64, String)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(f64, String)> = vec![_smelt_tmp_8.clone(), _smelt_tmp_9.clone(), _smelt_tmp_10.clone()]; smelt_list_items }));
-    let mut _smelt_tmp_12: f64 = 0.0;
+    let mut _smelt_tmp_12: usize = 0;
     loop {
-    _smelt_tmp_13 = _smelt_tmp_11.len() as f64;
+    _smelt_tmp_13 = _smelt_tmp_11.len();
     _smelt_tmp_14 = _smelt_tmp_12 < _smelt_tmp_13;
     if !(_smelt_tmp_14) { break; }
-    __smelt_for_item = _smelt_tmp_11.borrow().get({ let smelt_normalized = _smelt_tmp_12 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (0.0, String::new()));
+    __smelt_for_item = _smelt_tmp_11.borrow().get(_smelt_tmp_12).cloned().unwrap_or_else(|| (0.0, String::new()));
     _smelt_tmp_15 = __smelt_for_item.clone().0.clone();
     count = _smelt_tmp_15;
     _smelt_tmp_16 = __smelt_for_item.1.clone();
@@ -4306,13 +4306,13 @@ pub(crate) fn buckets() -> String {
     __smelt_logical_4 = Into::<SmeltList<_>>::into(__smelt_logical_value_5);
     target = Into::<SmeltList<_>>::into(__smelt_logical_4);
     _smelt_tmp_21 = { let smelt_push_item = item; target.borrow_mut().push(smelt_push_item); target.len() as f64 };
-    _smelt_tmp_12 = _smelt_tmp_12 + 1.0;
+    _smelt_tmp_12 = _smelt_tmp_12 + 1;
     continue;
     } else {
     __smelt_logical_4 = Into::<SmeltList<_>>::into(queue.borrow().get({ let smelt_normalized = count as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltList::new(Vec::<String>::new())));
     target = Into::<SmeltList<_>>::into(__smelt_logical_4);
     _smelt_tmp_21 = { let smelt_push_item = item; target.borrow_mut().push(smelt_push_item); target.len() as f64 };
-    _smelt_tmp_12 = _smelt_tmp_12 + 1.0;
+    _smelt_tmp_12 = _smelt_tmp_12 + 1;
     continue;
     }
     }

@@ -3716,22 +3716,22 @@ impl Bag {
     }
     fn reduce(&self, cb: &dyn Fn(f64, f64) -> f64, init: f64) -> f64 {
     let mut x: f64;
-    let mut _smelt_tmp_7: f64;
+    let mut _smelt_tmp_7: usize;
     let mut _smelt_tmp_8: bool;
     let mut _smelt_tmp_9: f64;
     let mut _smelt_tmp_10: f64;
     let mut acc: f64 = init;
     let _smelt_tmp_5: SmeltList<f64> = Into::<SmeltList<_>>::into(self.items.clone());
-    let mut _smelt_tmp_6: f64 = 0.0;
+    let mut _smelt_tmp_6: usize = 0;
     loop {
-    _smelt_tmp_7 = _smelt_tmp_5.len() as f64;
+    _smelt_tmp_7 = _smelt_tmp_5.len();
     _smelt_tmp_8 = _smelt_tmp_6 < _smelt_tmp_7;
     if !(_smelt_tmp_8) { break; }
-    x = _smelt_tmp_5.borrow().get({ let smelt_normalized = _smelt_tmp_6 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    x = _smelt_tmp_5.borrow().get(_smelt_tmp_6).cloned().unwrap_or_else(|| 0.0);
     _smelt_tmp_9 = cb(acc, x);
     _smelt_tmp_10 = _smelt_tmp_9 + 1.0;
     acc = _smelt_tmp_10;
-    _smelt_tmp_6 = _smelt_tmp_6 + 1.0;
+    _smelt_tmp_6 = _smelt_tmp_6 + 1;
     }
     return acc;
     }

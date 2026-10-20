@@ -40,7 +40,8 @@ pub(super) fn item_name<'a>(krate: &'a smelt_hir::Crate, item: &Item) -> Option<
 pub(super) fn unknown_kind_from_typeof(kind: &str) -> Option<UnknownKind> {
     match kind {
         "boolean" => Some(UnknownKind::Bool),
-        "bigint" | "number" => Some(UnknownKind::Number),
+        "number" => Some(UnknownKind::Number),
+        "bigint" => Some(UnknownKind::BigInt),
         "string" => Some(UnknownKind::String),
         "undefined" => Some(UnknownKind::Undefined),
         "symbol" => Some(UnknownKind::Symbol),

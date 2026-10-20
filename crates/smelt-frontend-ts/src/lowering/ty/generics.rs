@@ -10,7 +10,7 @@ use oxc::ast::ast::{Class as TSClass, Declaration, Program, Statement};
 
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
-use smelt_hir::{Field, FunctionType, MethodSig, Span, Type, TypeParamDef};
+use smelt_hir::{ErasureReason, Field, FunctionType, MethodSig, Span, Type, TypeParamDef};
 
 impl ModuleBuilder<'_> {
     /// Lower a TypeScript type parameter declaration and push its symbols as an active scope.
@@ -312,7 +312,7 @@ impl ModuleBuilder<'_> {
         {
             return;
         }
-        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown = self.erase(ErasureReason::UnfilledGeneric);
         for param in type_params {
             substitutions.entry(param.name).or_insert(unknown);
         }
@@ -556,6 +556,8 @@ impl ModuleBuilder<'_> {
             }
             Type::Bool
             | Type::Int
+            | Type::FixedInt(_)
+            | Type::BigInt
             | Type::Float
             | Type::String
             | Type::Unknown

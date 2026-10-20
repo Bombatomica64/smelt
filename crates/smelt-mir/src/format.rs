@@ -497,6 +497,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::NumericUnaryFuncOp::Log10 => "log10",
                 smelt_hir::NumericUnaryFuncOp::Log2 => "log2",
                 smelt_hir::NumericUnaryFuncOp::Exp => "exp",
+                smelt_hir::NumericUnaryFuncOp::Clz32 => "clz32",
             };
             format!("numeric_{op_text} {}", operand_text(operand))
         }
@@ -544,6 +545,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::PrimitiveCastOp::ToBool => "bool",
                 smelt_hir::PrimitiveCastOp::ToInt => "int",
                 smelt_hir::PrimitiveCastOp::ToFloat => "float",
+                smelt_hir::PrimitiveCastOp::ToInt32 => "int32",
                 smelt_hir::PrimitiveCastOp::ParseFloat => "parse_float",
                 smelt_hir::PrimitiveCastOp::FromCharCodes => "from_char_codes",
                 smelt_hir::PrimitiveCastOp::FromCodePoints => "from_code_points",
@@ -1929,9 +1931,11 @@ fn callee_text(callee: &Callee) -> String {
         Callee::Builtin(BuiltinFn::ConsoleLog { .. }) => "@console_log".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleWrite) => "@console_write".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleErrorWrite) => "@console_error_write".to_owned(),
-        Callee::Builtin(BuiltinFn::JsonParse) => "@json_parse".to_owned(),
+        Callee::Builtin(BuiltinFn::JsonParse { target: None }) => "@json_parse".to_owned(),
+        Callee::Builtin(BuiltinFn::JsonParse { target: Some(_) }) => "@json_decode".to_owned(),
         Callee::Builtin(BuiltinFn::Base64(op)) => format!("@{}", op.name()),
         Callee::Builtin(BuiltinFn::RegExpCompile) => "@regexp_compile".to_owned(),
+        Callee::Builtin(BuiltinFn::BigInt(op)) => format!("@{}", op.name()),
         Callee::Builtin(BuiltinFn::HostModule(op)) => format!("@{}", op.name()),
         Callee::Builtin(BuiltinFn::DataViewAccess { write, element }) => format!(
             "@data_view_{}{}",
@@ -1989,6 +1993,7 @@ fn constant_text(constant: &Constant) -> String {
                 value.to_string()
             }
         }
+        Constant::BigInt(digits) => format!("{digits}n"),
         Constant::String(value) => format!("\"{value}\""),
         Constant::Symbol(value) => format!("symbol({value:?})"),
         Constant::Undefined => "undefined".to_owned(),
@@ -2010,6 +2015,8 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
         Type::Bool => "Bool".to_owned(),
         Type::Int => "Int".to_owned(),
         Type::Float => "Float".to_owned(),
+        Type::FixedInt(width) => width.rust_name().to_owned(),
+        Type::BigInt => "BigInt".to_owned(),
         Type::String => "String".to_owned(),
         Type::Unknown => "Unknown".to_owned(),
         Type::Never => "Never".to_owned(),

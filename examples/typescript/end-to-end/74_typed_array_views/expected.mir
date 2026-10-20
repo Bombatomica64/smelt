@@ -83,8 +83,8 @@ fn main (FuncId(0)) -> None
     %80 temp: None
     %81 temp: List<Float>
     %82 temp: List<Float>
-    %83 temp: Float
-    %84 temp: Float
+    %83 temp: usize
+    %84 temp: usize
     %85 temp: Bool
     %86 temp: Float
     %87 temp: String
@@ -260,7 +260,7 @@ fn main (FuncId(0)) -> None
     %81 = []
     %10 = move %81
     %82 = byte_array_elements copy %6
-    %83 = 0.0
+    %83 = 0
     goto bb20
   bb20:
     %84 = len copy %82
@@ -271,7 +271,7 @@ fn main (FuncId(0)) -> None
     %86 = list_push copy %10, move %11
     goto bb22
   bb22:
-    %83 = copy %83 + 1.0
+    %83 = copy %83 + 1
     goto bb20
   bb23:
     %87 = string_join move %10, "-"

@@ -62,7 +62,7 @@ pub fn element_kind_expression(element: smelt_stdlib::TypedArrayElement) -> Stri
 ///
 /// Order matters: the kind table is referenced by both types, and the view
 /// names the buffer.
-pub fn emit(writer: &mut CodeWriter, needs_unknown: bool, needs_data_view: bool) {
+pub fn emit(writer: &mut CodeWriter, needs_unknown: bool, needs_data_view: bool, needs_bigint: bool) {
     emit_kind(writer);
     emit_array_buffer(writer, needs_unknown);
     emit_typed_array(writer, needs_unknown);
@@ -71,8 +71,63 @@ pub fn emit(writer: &mut CodeWriter, needs_unknown: bool, needs_data_view: bool)
     if needs_data_view {
         emit_data_view(writer, needs_unknown);
     }
+    if needs_bigint {
+        emit_bigint_elements(writer, needs_data_view);
+    }
     if needs_unknown {
         emit_origin_write_through(writer);
+    }
+}
+
+/// Emit the BIGINT element access of `BigInt64Array`, `BigUint64Array` and
+/// `DataView.getBigInt64`/`getBigUint64` (and their setters).
+///
+/// The `f64` element path every other kind uses cannot carry these: a 64-bit
+/// element above 2^53 has no exact `f64`. A bigint element is therefore read
+/// straight from its eight bytes into a `num_bigint::BigInt` at the kind's
+/// signedness, and written as the low 64 bits of the value's two's complement
+/// -- `BigInt.asIntN(64, v)` for `BigInt64`, `BigInt.asUintN(64, v)` for
+/// `BigUint64`, which are the same eight bytes. The storage stays the shared
+/// `Vec<u8>`; only the boundary converts.
+fn emit_bigint_elements(writer: &mut CodeWriter, needs_data_view: bool) {
+    const B: &str = crate::bigint_prelude::BIGINT_TYPE;
+    writer.line("/// The low 64 bits of a bigint's two's complement (`BigInt.asUintN(64, value)`).");
+    writer.line(format!(
+        "fn smelt_bigint_low_u64(value: &{B}) -> u64 {{ let (sign, digits) = value.to_u64_digits(); let low = digits.first().copied().unwrap_or(0); if sign == ::num_bigint::Sign::Minus {{ low.wrapping_neg() }} else {{ low }} }}"
+    ));
+    writer.line("/// A bigint element from eight little-endian bytes, at `kind`'s signedness.");
+    writer.line(format!(
+        "fn smelt_bigint_from_element(kind: SmeltTypedArrayKind, raw: [u8; 8]) -> {B} {{ match kind {{ SmeltTypedArrayKind::BigUint64 => {B}::from(u64::from_le_bytes(raw)), _ => {B}::from(i64::from_le_bytes(raw)) }} }}"
+    ));
+    writer.line("#[allow(dead_code)]");
+    writer.block("impl SmeltTypedArray", |impl_writer| {
+        impl_writer.line("/// A bigint view of `kind` over the given elements, in fresh storage.");
+        impl_writer.line(format!(
+            "pub fn with_bigint_elements(kind: SmeltTypedArrayKind, elements: &[{B}]) -> Self {{ Self::with_bytes(kind, elements.iter().flat_map(|element| smelt_bigint_low_u64(element).to_le_bytes()).collect()) }}"
+        ));
+        impl_writer.line("/// An indexed bigint element read; `None` past the end.");
+        impl_writer.line(format!(
+            "pub fn get_bigint(&self, index: f64) -> Option<{B}> {{ if index < 0.0 || index.fract() != 0.0 || index as usize >= self.length {{ return None; }} let at = self.byte_offset + index as usize * 8; let bytes = self.bytes.borrow(); let raw: [u8; 8] = bytes.get(at..at + 8)?.try_into().ok()?; Some(smelt_bigint_from_element(self.kind, raw)) }}"
+        ));
+        impl_writer.line("/// An indexed bigint element write of the value's low 64 bits; dropped past the end.");
+        impl_writer.line(format!(
+            "pub fn set_bigint(&self, index: f64, value: &{B}) {{ if index < 0.0 || index.fract() != 0.0 || index as usize >= self.length {{ return; }} let at = self.byte_offset + index as usize * 8; if let Some(slot) = self.bytes.borrow_mut().get_mut(at..at + 8) {{ slot.copy_from_slice(&smelt_bigint_low_u64(value).to_le_bytes()); }} }}"
+        ));
+    });
+    writer.blank_line();
+    if needs_data_view {
+        writer.line("#[allow(dead_code)]");
+        writer.block("impl SmeltDataView", |impl_writer| {
+            impl_writer.line("/// `getBigInt64`/`getBigUint64`, answering `None` when the offset is out of range.");
+            impl_writer.line(format!(
+                "pub fn get_bigint_checked(&self, kind: SmeltTypedArrayKind, offset: usize, little_endian: bool) -> Option<{B}> {{ if !self.in_bounds(kind, offset) {{ return None; }} let at = self.byte_offset + offset; let bytes = self.bytes.borrow(); let mut raw: [u8; 8] = bytes.get(at..at + 8)?.try_into().ok()?; if !little_endian {{ raw.reverse(); }} Some(smelt_bigint_from_element(kind, raw)) }}"
+            ));
+            impl_writer.line("/// `setBigInt64`/`setBigUint64`, answering `false` when the offset is out of range.");
+            impl_writer.line(format!(
+                "pub fn set_bigint_checked(&self, kind: SmeltTypedArrayKind, offset: usize, value: &{B}, little_endian: bool) -> bool {{ if !self.in_bounds(kind, offset) {{ return false; }} let mut raw = smelt_bigint_low_u64(value).to_le_bytes(); if !little_endian {{ raw.reverse(); }} let at = self.byte_offset + offset; self.bytes.borrow_mut()[at..at + 8].copy_from_slice(&raw); true }}"
+            ));
+        });
+        writer.blank_line();
     }
 }
 
@@ -997,7 +1052,7 @@ mod tests {
     #[test]
     fn the_emitted_family_keeps_the_byte_view_and_its_storage() {
         let mut writer = CodeWriter::new();
-        emit(&mut writer, true, true);
+        emit(&mut writer, true, true, false);
         let text = writer.finish();
         for expected in [
             "pub type SmeltUint8Array = SmeltTypedArray;",
@@ -1015,7 +1070,7 @@ mod tests {
         // boundary does not emit the carrier, so the impls must not be emitted
         // either.
         let mut typed_only = CodeWriter::new();
-        emit(&mut typed_only, false, false);
+        emit(&mut typed_only, false, false, false);
         let typed_only = typed_only.finish();
         assert!(
             !typed_only.contains("impl IntoSmeltUnknown for SmeltTypedArray"),
@@ -1033,7 +1088,7 @@ mod tests {
     #[test]
     fn the_data_view_half_is_gated_and_shares_the_kind_table() {
         let mut with_view = CodeWriter::new();
-        emit(&mut with_view, true, true);
+        emit(&mut with_view, true, true, false);
         let with_view = with_view.finish();
         for expected in [
             "pub struct SmeltDataView",
@@ -1050,7 +1105,7 @@ mod tests {
             assert!(with_view.contains(expected), "missing `{expected}`");
         }
         let mut without = CodeWriter::new();
-        emit(&mut without, true, false);
+        emit(&mut without, true, false, false);
         let without = without.finish();
         assert!(
             !without.contains("pub struct SmeltDataView"),
@@ -1069,7 +1124,7 @@ mod tests {
     #[test]
     fn shared_storage_carries_its_species() {
         let mut writer = CodeWriter::new();
-        emit(&mut writer, true, false);
+        emit(&mut writer, true, false, false);
         let text = writer.finish();
         for expected in [
             "pub fn new_shared(byte_length: usize) -> Self",

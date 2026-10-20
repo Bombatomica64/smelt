@@ -11,7 +11,7 @@ use smelt_hir::format_compact;
 
 use crate::{
     config::{Allocator, Config, OutputKind, ReleaseProfile},
-    lowering,
+    erasure, lowering, typedness_report,
     manifest::resolve_manifest_path,
     stubs, timing,
 };
@@ -76,10 +76,26 @@ pub(crate) fn lower_to_optimized_mir(
     Ok(mir)
 }
 
-/// Builds a Rust crate from manifest configuration.
+/// Builds a Rust crate from manifest configuration, with the manifest's own
+/// `[erasure]` settings (no CLI overrides).
 pub(crate) fn build_rust_crate(
     config: &Config,
     manifest_path: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let settings = erasure::ErasureSettings::new(config.erasure(), &[])?;
+    build_rust_crate_with_erasure(config, manifest_path, &settings)
+}
+
+/// Builds a Rust crate from manifest configuration.
+///
+/// Besides the crate, writes `<output>/smelt-erasure.json` (every erasure the
+/// frontends and the backend decided, resolved to source lines) and prints the
+/// erasures `settings` marks `warn`/`deny`; any `deny` fails the build after
+/// the output is written.
+pub(crate) fn build_rust_crate_with_erasure(
+    config: &Config,
+    manifest_path: &Path,
+    settings: &erasure::ErasureSettings,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (krate, modules) = timing::measure("manifest.lower", || {
         lowering::lower_manifest_entries(config, manifest_path)
@@ -94,8 +110,8 @@ pub(crate) fn build_rust_crate(
         .output_crate_name()
         .unwrap_or_else(|| config.project_name())
         .replace('-', "_");
-    timing::measure("rust.emit_crate", || {
-        smelt_codegen_rust::emit_crate_with_modules(
+    let backend_erasures = timing::measure("rust.emit_crate", || {
+        smelt_codegen_rust::emit_crate_with_modules_reporting(
             &mir,
             &krate,
             &modules,
@@ -106,6 +122,19 @@ pub(crate) fn build_rust_crate(
                 .with_release_profile(codegen_release_profile(config.rust_release_profile())),
         )
     })?;
+    let erasures = erasure::resolve(&krate, &backend_erasures, manifest_dir, settings);
+    erasure::write_sidecar(&output_dir, &erasures)?;
+    let typedness = typedness_report::TypednessReport::from_programs(
+        typedness_report::programs_of(&smelt_codegen_rust::measure_typedness(&mir)?, manifest_dir),
+    );
+    typedness_report::write_report_if_changed(
+        &output_dir.join(typedness_report::SIDECAR_FILE_NAME),
+        &typedness,
+    )?;
+    let denied = erasure::print_diagnostics(&erasures);
+    if denied > 0 {
+        return Err(erasure::denied_error(denied));
+    }
 
     if config.should_build_output() {
         timing::measure("rust.cargo_build", || build_generated_crate(&output_dir))?;
@@ -115,9 +144,13 @@ pub(crate) fn build_rust_crate(
 }
 
 /// Checks manifest entries and emits declaration stubs without Rust generation.
+///
+/// Prints the frontend erasures `settings` marks `warn`/`deny` (the backend's
+/// erasures are only known to `build`); any `deny` fails the check.
 pub(crate) fn check_manifest(
     config: &Config,
     manifest_path: &Path,
+    settings: &erasure::ErasureSettings,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (krate, modules) = timing::measure("manifest.lower", || {
         lowering::lower_manifest_entries(config, manifest_path)
@@ -125,6 +158,12 @@ pub(crate) fn check_manifest(
     timing::measure("stubs.emit", || {
         stubs::emit_type_declarations(&krate, &modules)
     })?;
+    let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let erasures = erasure::resolve(&krate, &[], manifest_dir, settings);
+    let denied = erasure::print_diagnostics(&erasures);
+    if denied > 0 {
+        return Err(erasure::denied_error(denied));
+    }
     Ok(())
 }
 

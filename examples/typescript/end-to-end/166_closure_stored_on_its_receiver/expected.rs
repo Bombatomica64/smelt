@@ -3748,19 +3748,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut _smelt_tmp_4: bool;
     let mut _smelt_tmp_6: f64;
     let mut _smelt_tmp_7: f64;
-    let mut _smelt_tmp_8: f64;
+    let mut _smelt_tmp_8: usize;
     let mut _smelt_tmp_11: String;
     let mut _smelt_tmp_12: String;
+    let mut _smelt_tmp_16: f64;
     let mut total: f64 = 0.0;
-    let mut i: f64 = 0.0;
+    let mut i: usize = 0;
     loop {
-    _smelt_tmp_4 = i < 3.0;
+    _smelt_tmp_4 = i < 3;
     if !(_smelt_tmp_4) { break; }
-    let _smelt_tmp_5: String = use_once(i)?;
+    _smelt_tmp_16 = i as f64;
+    let _smelt_tmp_5: String = use_once(_smelt_tmp_16)?;
     _smelt_tmp_6 = _smelt_tmp_5.chars().count() as f64;
     _smelt_tmp_7 = total + _smelt_tmp_6;
     total = _smelt_tmp_7;
-    _smelt_tmp_8 = i + 1.0;
+    _smelt_tmp_8 = i + 1;
     i = _smelt_tmp_8;
     }
     let _smelt_tmp_9 = escape_field().clone();

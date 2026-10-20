@@ -1,0 +1,181 @@
+module examples/typescript/end-to-end/169_json_typed_entry_decode/input.ts (ModuleId(0))
+  body BodyId(6)
+  items
+    interface Circle fields [Public kind: String, Public radius: Float] methods []
+    interface Square fields [Public kind: String, Public side: Float] methods []
+    type Shape = Circle | Square
+    type Priority = String
+    interface Tree fields [Public label: String, Public children: List<Tree>] methods []
+    interface Order fields [Public id: Float, Public note?: Optional<String>, Public priority: String, Public shapes: List<Circle | Square>, Public totals: Dict<String, Float>, Public range: (Float, Float), Public tree: Tree] methods []
+    fn area owner Module
+    fn count_nodes owner Module
+    fn load_order owner Module
+    fn double owner Module
+    fn read_bodies owner Module
+  locals
+    %0 const text: String
+    %1 const order: Order
+    %2 const noted: Order
+    %3 const pair: (String, Bool)
+    %4 const counts: List<Float>
+  exprs
+    #0: String = "{"id":42,"priority":"high","shapes":[{"kind":"circle","radius":2},{"kind":"square","side":3}],"
+    #1: String = ""totals":{"net":10,"tax":2},"range":[1,5],"
+    #2: String = Add #0, #1
+    #3: String = ""tree":{"label":"root","children":[{"label":"a","children":[]},{"label":"b","children":[{"label":"c","children":[]}]}]},"
+    #4: String = Add #2, #3
+    #5: String = ""ignored":"undeclared properties are dropped"}"
+    #6: String = Add #4, #5
+    #7: String = %0
+    #8: fn(String) -> Order = @6(load_order)
+    #9: Order = call #8(#7)
+    #10: Order = %1
+    #11: Float = #10.id
+    #12: Order = %1
+    #13: String = #12.priority
+    #14: Order = %1
+    #15: Optional<String> = #14.note
+    #16: None = undefined
+    #17: Bool = JsStrictEq #15, #16
+    #18: None = @17(console_log)
+    #19: None = call #18(#11, #13, #17)
+    #20: Order = %1
+    #21: List<Circle | Square> = #20.shapes
+    #22: fn(Circle | Square) -> Float = closure BodyId(5) captures 0 -> Float
+    #23: List<Float> = list_map #21, #22
+    #24: String = ","
+    #25: String = string_join #23, #24
+    #26: None = @18(console_log)
+    #27: None = call #26(#25)
+    #28: Order = %1
+    #29: Dict<String, Float> = #28.totals
+    #30: List<String> = dict_keys #29
+    #31: String = "+"
+    #32: String = string_join #30, #31
+    #33: Order = %1
+    #34: Dict<String, Float> = #33.totals
+    #35: String = "net"
+    #36: Float = #34[#35]
+    #37: Order = %1
+    #38: Dict<String, Float> = #37.totals
+    #39: String = "tax"
+    #40: Float = #38[#39]
+    #41: Float = Add #36, #40
+    #42: None = @19(console_log)
+    #43: None = call #42(#32, #41)
+    #44: Order = %1
+    #45: (Float, Float) = #44.range
+    #46: Float = 1.0
+    #47: Float = tuple_index #45, 1
+    #48: Order = %1
+    #49: (Float, Float) = #48.range
+    #50: Float = 0.0
+    #51: Float = tuple_index #49, 0
+    #52: Float = Sub #47, #51
+    #53: Order = %1
+    #54: Tree = #53.tree
+    #55: fn(Tree) -> Float = @5(count_nodes)
+    #56: Float = call #55(#54)
+    #57: None = @20(console_log)
+    #58: None = call #57(#52, #56)
+    #59: String = %0
+    #60: String = %0
+    #61: String = ""id":42"
+    #62: String = ""id":7,"note":"rush""
+    #63: String = string_replace_first #60, #61, #62
+    #64: Order = json_decode #63
+    #65: Order = %2
+    #66: Float = #65.id
+    #67: Order = %2
+    #68: Optional<String> = #67.note
+    #69: None = @21(console_log)
+    #70: None = call #69(#66, #68)
+    #71: String = "21"
+    #72: Float = json_decode #71
+    #73: fn(Float) -> Float = @7(double)
+    #74: Float = call #73(#72)
+    #75: None = @22(console_log)
+    #76: None = call #75(#74)
+    #77: String = "["left",true]"
+    #78: (String, Bool) = json_decode #77
+    #79: (String, Bool) = %3
+    #80: Float = 0.0
+    #81: String = tuple_index #79, 0
+    #82: (String, Bool) = %3
+    #83: Float = 1.0
+    #84: Bool = tuple_index #82, 1
+    #85: None = @23(console_log)
+    #86: None = call #85(#81, #84)
+    #87: String = "[3,1,2]"
+    #88: List<Float> = json_decode #87
+    #89: List<Float> = %4
+    #90: Float = len #89
+    #91: List<Float> = %4
+    #92: Float = 0.0
+    #93: Float = #91[#92]
+    #94: None = @24(console_log)
+    #95: None = call #94(#90, #93)
+    #96: async fn() -> Future<None> = @8(read_bodies)
+    #97: Future<None> = call #96()
+    #98: None = await #97
+    #99: Future<None> = async_exit_drain()
+    #100: None = await #99
+  stmts
+    s0: let %0: String = #6
+    s1: let %1: Order = #9
+    s2: #19
+    s3: #27
+    s4: #43
+    s5: #58
+    s6: let %2: Order = #64
+    s7: #70
+    s8: #76
+    s9: let %3: (String, Bool) = #78
+    s10: #86
+    s11: let %4: List<Float> = #88
+    s12: #95
+    s13: #98
+    s14: #100
+  async state machine
+    states [state0, state1, state2]
+    suspend #98 on #97 -> state99
+    suspend #100 on #99 -> state101
+
+interned types
+  t0 = Circle
+  t1 = Square
+  t2 = Circle | Square
+  t3 = String
+  t4 = Unknown
+  t5 = Dict<String, Unknown>
+  t6 = Order
+  t7 = Bool
+  t8 = (String, Bool)
+  t9 = Float
+  t10 = List<Float>
+  t11 = fn(Circle | Square) -> Float
+  t12 = Tree
+  t13 = fn(Tree) -> Float
+  t14 = fn(String) -> Order
+  t15 = fn(Float) -> Float
+  t16 = None
+  t17 = Future<None>
+  t18 = async fn() -> Future<None>
+  t19 = List<Tree>
+  t20 = Optional<String>
+  t21 = List<Circle | Square>
+  t22 = Dict<String, Float>
+  t23 = (Float, Float)
+  t24 = Unknown | Float
+  t25 = fn(Tree) -> Float
+  t26 = Future<Circle>
+  t27 = Response
+  t28 = Future<Unknown>
+  t29 = Request
+  t30 = Future<Square>
+  t31 = fn(Circle | Square) -> Float
+  t32 = fn(String) -> Order
+  t33 = Int
+  t34 = List<String>
+  t35 = fn(Float) -> Float
+  t36 = async fn() -> Future<None>

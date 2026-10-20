@@ -627,27 +627,14 @@ impl FunctionEmitter<'_> {
     /// Mutating captures observe the same JavaScript binding as reads and
     /// assignments in their defining function, so all access must use one
     /// generated `RefCell`.
+    ///
+    /// Answered from the function's write index, which gathers every closure
+    /// capture needing shared access in one pass; scanning every block per
+    /// local made this quadratic in the body length.
     pub(super) fn local_uses_shared_capture_storage(&self, local: LocalId) -> bool {
-        self.function.blocks.iter().any(|block| {
-            block.statements.iter().any(|statement| {
-                let Statement::Assign {
-                    value: Rvalue::Closure { id, .. },
-                    ..
-                } = statement
-                else {
-                    return false;
-                };
-                self.mir
-                    .closures
-                    .get(usize::try_from(id.0).unwrap_or(usize::MAX))
-                    .is_some_and(|closure| {
-                        closure.captures.iter().any(|capture| {
-                            capture.source_local == local
-                                && self.closure_capture_needs_shared_access(closure, capture)
-                        })
-                    })
-            })
-        })
+        self.local_write_index()
+            .shared_capture_locals
+            .contains(&local)
     }
 
     /// Returns whether an escaping closure mutates a captured source binding.

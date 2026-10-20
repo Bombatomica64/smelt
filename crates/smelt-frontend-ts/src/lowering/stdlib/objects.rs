@@ -7,7 +7,7 @@ use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator};
 use smelt_hir::{
-    BinOp, Body, DictProjectionOp, Expr, ExprKind, FunctionType, Literal, PrimitiveCastOp,
+    BinOp, Body, DictProjectionOp, ErasureReason, Expr, ExprKind, FunctionType, Literal, PrimitiveCastOp,
     PropertyLookup,
     StringAffixOp, StringCaseOp, StringNormalizeForm, StringReplaceOp, StringSearchOp,
     Span, StringTrimSide, Type, UnknownKind,
@@ -169,6 +169,50 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower direct TypeScript `Math.imul(a, b)` calls to the int32 product operator.
+    pub(in crate::lowering) fn math_imul_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Math" || member.property.name != "imul" {
+            return Ok(None);
+        }
+        let [lhs_argument, rhs_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Math.imul requires exactly two arguments",
+            ));
+        };
+        let lhs = self.argument(lhs_argument, body)?;
+        let rhs = self.argument(rhs_argument, body)?;
+        if [lhs, rhs]
+            .iter()
+            .any(|arg| self.ctx.krate.types.get(Self::expr_ty(body, *arg)) != Some(&Type::Float))
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Math.imul requires number arguments",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Float);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op: smelt_hir::BinOp::IMul,
+                lhs,
+                rhs,
+            },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower direct TypeScript `Math.atan2` calls.
     pub(in crate::lowering) fn math_atan2_call(
         &mut self,
@@ -276,7 +320,7 @@ impl ModuleBuilder<'_> {
                 | Type::Bool,
             ) => {
                 let key_ty = self.ctx.krate.types.intern(Type::String);
-                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let value_ty = self.erase_unless_unknown(dict_ty, ErasureReason::UntypedBuiltin);
                 let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
                 dict = body.push_expr(Expr {
                     kind: ExprKind::UnknownCast { value: dict, target },
@@ -287,7 +331,7 @@ impl ModuleBuilder<'_> {
             }
             Some(Type::Union(items)) if items.iter().all(|item| self.object_keys_compatible_type(*item)) => {
                 let key_ty = self.ctx.krate.types.intern(Type::String);
-                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let value_ty = self.erase(ErasureReason::UntypedBuiltin);
                 let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
                 dict = body.push_expr(Expr {
                     kind: ExprKind::UnknownCast { value: dict, target },
@@ -298,7 +342,7 @@ impl ModuleBuilder<'_> {
             }
             _ => {
                 let key_ty = self.ctx.krate.types.intern(Type::String);
-                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let value_ty = self.erase(ErasureReason::UntypedBuiltin);
                 let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
                 dict = body.push_expr(Expr {
                     kind: ExprKind::UnknownCast {
@@ -327,7 +371,7 @@ impl ModuleBuilder<'_> {
             // already has everywhere else (see the `Symbols` arm below), and the
             // dynamic index paths map that tag back to the storage key.
             DictProjectionOp::OwnKeys => {
-                let own_key_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let own_key_ty = self.erase_with(ErasureReason::UnmodeledType, "symbol");
                 self.ctx.krate.types.intern(Type::List(own_key_ty))
             }
             // A symbol-keyed property list holds symbol VALUES, not their
@@ -341,7 +385,7 @@ impl ModuleBuilder<'_> {
             // `Unknown`/`List<Unknown>` for every projection would change which
             // record backing the other arms pick.
             DictProjectionOp::Symbols => {
-                let symbol_key_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let symbol_key_ty = self.erase_with(ErasureReason::UnmodeledType, "symbol");
                 self.ctx.krate.types.intern(Type::List(symbol_key_ty))
             }
             DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(value_ty)),
@@ -402,7 +446,7 @@ impl ModuleBuilder<'_> {
         };
         let value = self.argument(argument, body)?;
         let key_ty = self.ctx.krate.types.intern(Type::String);
-        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let value_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object.getOwnPropertySymbols");
         let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
         let dict = body.push_expr(Expr {
             kind: ExprKind::UnknownCast { value, target },
@@ -414,7 +458,7 @@ impl ModuleBuilder<'_> {
         // this list has to index the receiver again (`source[symbols[i]]`), which
         // only works if it still carries the symbol tag the property-key mapping
         // turns into the internal `__smelt_symbol:` key.
-        let symbol_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let symbol_ty = self.erase_with(ErasureReason::UnmodeledType, "symbol");
         let ty = self.ctx.krate.types.intern(Type::List(symbol_ty));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::DictProjection {
@@ -458,7 +502,7 @@ impl ModuleBuilder<'_> {
         // which carry a hidden `__smelt_class` marker (see `class_unknown_object_text`).
         let value = self.argument(value, body)?;
         let span = self.span(call.span.start, call.span.end);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object.getPrototypeOf");
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::PrototypeSentinel {
                 value,
@@ -497,7 +541,7 @@ impl ModuleBuilder<'_> {
         {
             return Ok(None);
         }
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object(value)");
         let span = self.span(call.span.start, call.span.end);
         let Some(argument) = call.arguments.first() else {
             // `Object()` with no argument is `{}`.
@@ -573,7 +617,7 @@ impl ModuleBuilder<'_> {
             ));
         };
         let prototype = self.argument(prototype, body)?;
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object.create");
         let span = self.span(call.span.start, call.span.end);
         let prototype = if Self::expr_ty(body, prototype) == unknown_ty {
             prototype
@@ -622,7 +666,9 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         let span = self.span(call.span.start, call.span.end);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure yet: the call may still decline below, so the
+        // decision is recorded only once the rule applies (before the result).
+        let unknown_ty = self.unknown_type();
         let (target, descriptors) = match member.property.name.as_str() {
             "defineProperties" => {
                 let [target, descriptors] = call.arguments.as_slice() else {
@@ -654,6 +700,7 @@ impl ModuleBuilder<'_> {
             }
             _ => return Ok(None),
         };
+        let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object.defineProperties");
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::DefineProperties {
                 target,
@@ -717,7 +764,7 @@ impl ModuleBuilder<'_> {
         for argument in &call.arguments {
             let _ = self.argument(argument, body)?;
         }
-        let ty = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object metadata mutation");
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::None),
             ty,
@@ -792,8 +839,8 @@ impl ModuleBuilder<'_> {
         for argument in &call.arguments {
             let _ = self.argument(argument, body)?;
         }
-        let param_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let return_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let param_ty = self.erase_with(ErasureReason::UntypedPackage, "lodash/fp");
+        let return_ty = self.erase_with(ErasureReason::UntypedPackage, "lodash/fp");
         let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: vec![param_ty],
             rest: None,
@@ -860,7 +907,9 @@ return_ty,
                     if let Some((_key_ty, value_ty)) = self.entries_tuple_item_types(entry_ty) {
                         let string_ty = self.ctx.krate.types.intern(Type::String);
                         let ty = self.ctx.krate.types.intern(Type::Dict(string_ty, value_ty));
-                        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                        // not a new erasure: the entries list is only re-viewed as the
+                        // tagged runtime-helper operand; the result keeps `value_ty`.
+                        let unknown = self.unknown_type();
                         let entries = body.push_expr(Expr {
                             kind: ExprKind::TypeAssert { value },
                             ty: unknown,
@@ -877,7 +926,7 @@ return_ty,
                     }
                     if self.erased_or_union_surface(entry_ty) {
                         let key_ty = self.ctx.krate.types.intern(Type::String);
-                        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                        let value_ty = self.erase_unless_unknown(entry_ty, ErasureReason::UntypedBuiltin);
                         let ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
                         return Ok(Some(body.push_expr(Expr {
                             kind: ExprKind::DictLit(Vec::new()),
@@ -888,7 +937,7 @@ return_ty,
                 }
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => {
                     let key_ty = self.ctx.krate.types.intern(Type::String);
-                    let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let value_ty = self.erase_unless_unknown(Self::expr_ty(body, value), ErasureReason::UntypedBuiltin);
                     let ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
                     return Ok(Some(body.push_expr(Expr {
                         kind: ExprKind::DictLit(Vec::new()),
@@ -900,7 +949,7 @@ return_ty,
             }
             if !matches!(argument, Argument::ArrayExpression(_)) {
                 let key_ty = self.ctx.krate.types.intern(Type::String);
-                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let value_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object.fromEntries");
                 let ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
                 return Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::DictLit(Vec::new()),
@@ -1007,7 +1056,9 @@ return_ty,
         }
         let span = self.span(call.span.start, call.span.end);
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure yet: `read_pair` may still decline; the
+        // descriptor's `any` value is recorded once both reads succeed.
+        let unknown_ty = self.unknown_type();
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let record_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
         let read_pair = |this: &mut Self, target: &mut Body| -> Result<Option<(smelt_hir::ExprId, smelt_hir::ExprId)>, SmeltError> {
@@ -1041,6 +1092,8 @@ return_ty,
         let Some((read_record, read_key)) = read_pair(self, body)? else {
             return Ok(None);
         };
+        // `PropertyDescriptor.value` is `any` in TypeScript's own lib.
+        let _ = self.erase_with(ErasureReason::ExternalType, "PropertyDescriptor.value");
         let is_own = body.push_expr(Expr {
             kind: ExprKind::DictContainsKey {
                 dict: tested_record,
@@ -1271,7 +1324,7 @@ return_ty,
             )
         {
             let span = self.span(call.span.start, call.span.end);
-            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let unknown_ty = self.erase_with(ErasureReason::ByName, "array named property");
             dict = body.push_expr(Expr {
                 kind: ExprKind::UnknownCast {
                     value: dict,
@@ -1349,7 +1402,7 @@ return_ty,
                 // record, matching the `for...in` lowering that casts the same
                 // value to `Record<string, unknown>`.
                 let key_ty = self.ctx.krate.types.intern(Type::String);
-                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let value_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object.hasOwn");
                 let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
                 dict = body.push_expr(Expr {
                     kind: ExprKind::UnknownCast {
@@ -1373,7 +1426,7 @@ return_ty,
                 // `T extends object` generic) is treated as a string-keyed
                 // record, mirroring the explicit TypeParam/Class coercion above.
                 let key_ty = self.ctx.krate.types.intern(Type::String);
-                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let value_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object.hasOwn");
                 let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
                 dict = body.push_expr(Expr {
                     kind: ExprKind::UnknownCast {

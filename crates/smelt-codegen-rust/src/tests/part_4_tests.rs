@@ -135,8 +135,11 @@ export function count(a: boolean, b: boolean): number {
     );
 
     assert!(source.contains("return f64::NAN;"), "{source}");
-    assert!(source.contains("result + 1.0"), "{source}");
-    assert!(source.contains("return result;"), "{source}");
+    // `result` is a counter proven to stay in `0..=1`, so integer range
+    // analysis makes it an integer and the step is the integer `+ 1`.
+    assert!(source.contains("result + 1;"), "{source}");
+    // The `number` result is the counter's exact conversion.
+    assert!(source.contains("= result as f64;"), "{source}");
 }
 
 #[test]
@@ -517,11 +520,16 @@ values: list[int] = json.loads(text)
 
     // `JSON.parse` / `json.loads` is fallible in both source languages, so it
     // goes through the one adapter that reports a malformed document on the
-    // error channel instead of aborting. The declared destination type is then
-    // reached by the ordinary coercion off the parsed dynamic value -- which is
-    // also what makes the destination assertion as lenient as the source
-    // languages are, rather than as strict as a typed `serde` deserialization.
-    assert!(ts_source.contains("smelt_json_parse(&"), "{ts_source}");
+    // error channel instead of aborting. A TypeScript `JSON.parse<T>` names a
+    // declared target, so it is a typed entry boundary: the call decodes the
+    // parsed value strictly into `T` (`emitter::json_decode`, adapted from
+    // Bun's `--aot` entry checks) instead of coercing it leniently. Python's
+    // `json.loads` keeps the dynamic parse and the ordinary coercion.
+    assert!(
+        ts_source.contains(": SmeltList<f64> = smelt_json_decode_"),
+        "{ts_source}"
+    );
+    assert!(ts_source.contains("smelt_json_parse(text)?"), "{ts_source}");
     assert!(py_source.contains("smelt_json_parse(&"), "{py_source}");
     assert!(!ts_source.contains("JSON parse failed"), "{ts_source}");
     assert!(!py_source.contains("JSON parse failed"), "{py_source}");
@@ -573,10 +581,19 @@ const bag = JSON.parse(text) as Record<string, unknown>;
         )
     );
     // Every destination -- a generated interface struct as much as a
-    // `Record<string, unknown>` -- is reached by coercing the parsed dynamic
-    // value, so there is one parse shape and no non-`Deserialize` destination
-    // is ever named to `serde`.
-    assert!(ts_source.contains("smelt_json_parse(&"), "{ts_source}");
+    // `Record<string, unknown>` -- is decoded from the parsed dynamic value by
+    // a generated strict decoder (`emitter::json_decode`), so there is one
+    // parse shape and no non-`Deserialize` destination is ever named to
+    // `serde`.
+    assert!(
+        ts_source.contains(": ServerConfig = smelt_json_decode_"),
+        "{ts_source}"
+    );
+    assert!(
+        ts_source.contains(": SmeltRecord<String, SmeltUnknown> = smelt_json_decode_"),
+        "{ts_source}"
+    );
+    assert!(ts_source.contains("smelt_json_parse(text)?"), "{ts_source}");
     assert!(
         ts_source.contains("serde_json::from_str::<SmeltUnknown>(text)"),
         "{ts_source}"
@@ -586,6 +603,165 @@ const bag = JSON.parse(text) as Record<string, unknown>;
         "{ts_source}"
     );
     assert!(ts_source.contains("impl<'de> serde::Deserialize<'de> for SmeltUnknown"));
+}
+
+/// A declared `JSON.parse` target emits a strict per-type decoder into the
+/// target's CONCRETE Rust type (type preservation): the struct is built field
+/// by field from checked JSON kinds, a literal property is compared by value,
+/// optional / nullable properties follow their declared nullish arms, and the
+/// mismatch is thrown as a `TypeError` record.
+#[test]
+fn emits_strict_json_decoders_for_declared_targets() {
+    let ts_source = source_for(
+        r#"
+type Mode = "fast" | "slow";
+interface Item { sku: string; quantity: number }
+interface Order {
+  kind: "order";
+  mode: Mode;
+  note?: string;
+  discount: number | null;
+  items: Item[];
+  totals: Record<string, number>;
+}
+const order: Order = JSON.parse("{}");
+"#,
+    );
+
+    // The call site binds the concrete struct straight from the entry adapter;
+    // no `SmeltUnknown` is stored past the boundary.
+    assert!(
+        ts_source.contains(": Order = smelt_json_decode_"),
+        "{ts_source}"
+    );
+    assert!(
+        ts_source.contains("-> Result<Order, Box<dyn ::std::error::Error>>"),
+        "{ts_source}"
+    );
+    // Per-type decoders answer the concrete storage types.
+    assert!(
+        ts_source.contains("path: &mut String) -> Result<Order, SmeltDecodeIssue>"),
+        "{ts_source}"
+    );
+    assert!(
+        ts_source.contains("path: &mut String) -> Result<SmeltList<Item>, SmeltDecodeIssue>"),
+        "{ts_source}"
+    );
+    assert!(
+        ts_source.contains("path: &mut String) -> Result<SmeltRecord<String, f64>, SmeltDecodeIssue>"),
+        "{ts_source}"
+    );
+    // A number is a JSON number: no string coercion.
+    assert!(
+        ts_source.contains(
+            "match value { SmeltUnknown::Number(number) => Ok(*number), other => smelt_decode_fail(path, \"number\", other) }"
+        ),
+        "{ts_source}"
+    );
+    // Literal properties are checked by value, including through an alias.
+    assert!(
+        ts_source.contains("matches!(&field, SmeltUnknown::String(text) if &**text == \"order\")"),
+        "{ts_source}"
+    );
+    assert!(
+        ts_source.contains(
+            "matches!(&field, SmeltUnknown::String(text) if &**text == \"fast\") || matches!(&field, SmeltUnknown::String(text) if &**text == \"slow\")"
+        ),
+        "{ts_source}"
+    );
+    // `note?: string` may be absent but not null; `discount: number | null`
+    // may be null but not absent.
+    assert!(
+        ts_source.contains(
+            "match object.get(\"note\") { Some(field) => { Some(smelt_decode_string(&field, path)"
+        ),
+        "{ts_source}"
+    );
+    assert!(
+        ts_source.contains("None => None };"),
+        "{ts_source}"
+    );
+    assert!(
+        ts_source.contains(
+            "match object.get(\"discount\") { Some(SmeltUnknown::Null) => None, Some(field) =>"
+        ),
+        "{ts_source}"
+    );
+    assert!(
+        ts_source.contains(
+            "None => return smelt_decode_fail(path, \"number | null\", &SmeltUnknown::Undefined)"
+        ),
+        "{ts_source}"
+    );
+    // Undeclared properties have no slot: the struct literal names exactly the
+    // declared fields.
+    assert!(
+        ts_source.contains("Ok(Order { kind: field_0, mode: field_1, note: field_2, discount: field_3, items: field_4, totals: field_5 })"),
+        "{ts_source}"
+    );
+    // The mismatch is a catchable `TypeError` record on the throw channel.
+    assert!(
+        ts_source.contains("SmeltUnknown::String(\"TypeError\".into())"),
+        "{ts_source}"
+    );
+}
+
+/// A property smelt already stores as a dynamic value (an object-literal type
+/// alias names no generated struct) is passed through unchecked, so it does
+/// not switch the checks off for the rest of the object; the same alias as the
+/// WHOLE target keeps the dynamic parse.
+#[test]
+fn passes_dynamically_stored_properties_through_unchecked() {
+    let ts_source = source_for(
+        r#"
+type Pair = { a: number; b: string };
+interface Holder { id: number; pair: Pair }
+const holder: Holder = JSON.parse("{}");
+const bare: Pair = JSON.parse("{}");
+"#,
+    );
+    assert!(
+        ts_source.contains(": Holder = smelt_json_decode_"),
+        "{ts_source}"
+    );
+    assert!(
+        ts_source.contains("match object.get(\"pair\") { Some(field) => { smelt_decode_unknown(&field, path)? }"),
+        "{ts_source}"
+    );
+    assert!(
+        ts_source.contains("match object.get(\"id\") { Some(field) => { smelt_decode_number(&field, path)? }"),
+        "{ts_source}"
+    );
+    assert!(
+        ts_source.contains(": SmeltUnknown = smelt_json_parse(&"),
+        "{ts_source}"
+    );
+}
+
+/// A target with no decodable shape -- a class (prototype identity and
+/// methods) -- keeps the existing dynamic parse and its coercion, and Python's
+/// `json.loads` never decodes.
+#[test]
+fn keeps_dynamic_json_parse_for_undecodable_targets() {
+    let ts_source = source_for(
+        r#"
+class Counter {
+  count = 0;
+  bump(): number { return this.count + 1; }
+}
+const counter = JSON.parse("{}") as Counter;
+"#,
+    );
+    assert!(!ts_source.contains("smelt_json_decode_"), "{ts_source}");
+    assert!(ts_source.contains("smelt_json_parse(&"), "{ts_source}");
+
+    let py_source = source_for_py(
+        r#"
+import json
+values: list[int] = json.loads("[1]")
+"#,
+    );
+    assert!(!py_source.contains("smelt_json_decode_"), "{py_source}");
 }
 
 #[test]

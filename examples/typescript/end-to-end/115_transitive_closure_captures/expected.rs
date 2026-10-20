@@ -3510,19 +3510,19 @@ fn main() {
     let smelt_captured_closure_arg_0 = smelt_captured_closure_arg_0.clone();
     move || {
     let mut part: String;
-    let mut _smelt_tmp_5: f64;
+    let mut _smelt_tmp_5: usize;
     let mut _smelt_tmp_6: bool;
     let mut _smelt_tmp_7: bool;
     let mut _smelt_tmp_8: String;
     let mut _smelt_tmp_9: String;
     let mut _smelt_tmp_10: String;
     let mut out: String = "".to_owned();
-    let mut _smelt_tmp_4: f64 = 0.0;
+    let mut _smelt_tmp_4: usize = 0;
     loop {
-    _smelt_tmp_5 = smelt_captured_closure_arg_0.len() as f64;
+    _smelt_tmp_5 = smelt_captured_closure_arg_0.len();
     _smelt_tmp_6 = _smelt_tmp_4 < _smelt_tmp_5;
     if _smelt_tmp_6 {
-    part = smelt_captured_closure_arg_0.borrow().get({ let smelt_normalized = _smelt_tmp_4 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
+    part = smelt_captured_closure_arg_0.borrow().get(_smelt_tmp_4).cloned().unwrap_or_else(|| String::new());
     _smelt_tmp_7 = out.clone() == "".to_owned();
     if _smelt_tmp_7 {
     _smelt_tmp_8 = part.clone();
@@ -3532,7 +3532,7 @@ fn main() {
     _smelt_tmp_8 = _smelt_tmp_10.clone();
     }
     out = _smelt_tmp_8.clone();
-    _smelt_tmp_4 = _smelt_tmp_4 + 1.0;
+    _smelt_tmp_4 = _smelt_tmp_4 + 1;
     } else {
     return out.clone();
     }

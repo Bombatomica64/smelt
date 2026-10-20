@@ -18,8 +18,8 @@ mod text_codec;
 use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
 use smelt_hir::{
-    BinOp, Body, Expr, ExprKind, ListCallbackOp, ListProjectionOp, ListSpliceItem, Literal, LocalDecl,
-    Pattern, PropertyLookup, RegexMatchOp, Stmt, Type, UnaryOp,
+    BinOp, Body, ErasureReason, Expr, ExprKind, ListCallbackOp, ListProjectionOp, ListSpliceItem, Literal,
+    LocalDecl, Pattern, PropertyLookup, RegexMatchOp, Stmt, Type, UnaryOp,
 };
 use smelt_stdlib::RuleId;
 
@@ -45,6 +45,27 @@ pub(in crate::lowering) fn is_test_mock_namespace(name: &str) -> bool {
 }
 
 impl ModuleBuilder<'_> {
+    /// The erased type for a result derived from `input`, recording `reason`
+    /// only when the erasure is new.
+    ///
+    /// When `input` is itself exactly `Type::Unknown`, the result is unknown
+    /// purely by propagation — the input's erasure was recorded where it was
+    /// decided — so nothing is recorded. Any other input (a type parameter, a
+    /// class, a union) carried a static shape that this site drops, so the
+    /// decision is recorded for `reason` at the current anchor span. Either way
+    /// the returned id is the same interned `Type::Unknown`.
+    pub(in crate::lowering) fn erase_unless_unknown(
+        &mut self,
+        input: smelt_hir::TypeId,
+        reason: ErasureReason,
+    ) -> smelt_hir::TypeId {
+        if self.ctx.krate.types.get(input) == Some(&Type::Unknown) {
+            self.unknown_type()
+        } else {
+            self.erase(reason)
+        }
+    }
+
     /// Lower TypeScript `Object.assign(target, ...sources)` for homogeneous record values.
     pub(super) fn object_assign_call(
         &mut self,
@@ -81,7 +102,7 @@ impl ModuleBuilder<'_> {
             && self.expr_is_global_alias(target_expression)
         {
             let target = self.argument(target_arg, body)?;
-            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let unknown_ty = self.erase_with(ErasureReason::ByName, "globalThis");
             let mut sources = Vec::with_capacity(source_args.len());
             for source_arg in source_args {
                 sources.push(self.argument(source_arg, body)?);
@@ -111,7 +132,7 @@ impl ModuleBuilder<'_> {
                 ));
             }
             let (props, spreads) = self.object_assign_callable_props(source_args, body)?;
-            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let unknown_ty = self.erase_with(ErasureReason::UnmodeledType, "callable object");
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::CallableObjectAssign {
                     callable: target,
@@ -257,7 +278,9 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         let span = self.span(call.span.start, call.span.end);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // Each source is read key by key at run time (`Object.assign` copies
+        // whatever own properties the value has), so it is carried erased.
+        let unknown_ty = self.erase_with(ErasureReason::ByName, "Object.assign source");
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         for source_arg in source_args {
@@ -469,7 +492,7 @@ impl ModuleBuilder<'_> {
     /// Build the fallback record type for object-like assign sources without a record source.
     fn object_assign_generic_record_type(&mut self) -> smelt_hir::TypeId {
         let key_ty = self.ctx.krate.types.intern(Type::String);
-        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let value_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object.assign");
         self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
     }
 
@@ -618,7 +641,7 @@ impl ModuleBuilder<'_> {
             .first()
             .map(|implementation| self.argument(implementation, body))
             .transpose()?;
-        let ty = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.erase_with(ErasureReason::TestHarness, "vi.fn");
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::VitestMockFn { implementation },
             ty,
@@ -671,7 +694,7 @@ impl ModuleBuilder<'_> {
         // mock back onto the target. Library code that later reads the member
         // therefore calls the mock, which is what makes the recorded calls the
         // ones the program actually made.
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::TestHarness, "vi.spyOn");
         let target_expr = Self::erase_to_unknown(target_expr, unknown_ty, span, body);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::VitestSpyOn {
@@ -817,7 +840,7 @@ impl ModuleBuilder<'_> {
                 args: Vec::new(),
             })
         } else {
-            self.ctx.krate.types.intern(Type::Unknown)
+            self.erase_with(ErasureReason::TestHarness, "mock handle")
         };
         body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::None),
@@ -971,7 +994,7 @@ impl ModuleBuilder<'_> {
                 "@date-fns/tz tz(...) requires a time zone string",
             ));
         }
-        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown = self.erase_with(ErasureReason::UntypedPackage, "@date-fns/tz");
         let ty = self
             .ctx
             .krate
@@ -1138,7 +1161,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<(), SmeltError> {
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::TestHarness, "rejects payload");
 
         let did_throw = body.push_local(smelt_hir::LocalDecl {
             name: Some(self.intern_source_name("did_throw")),
@@ -1503,6 +1526,12 @@ impl ModuleBuilder<'_> {
         };
         let value = self.argument(argument, body)?;
         let value_ty = Self::expr_ty(body, value);
+        if !self.is_json_serializable_type(value_ty)
+            && self.is_json_serializable_type_but_bigints(value_ty)
+        {
+            let span = self.span(call.span.start, call.span.end);
+            return Ok(Some(self.bigint_json_stringify(value, span, body)));
+        }
         if !self.is_json_serializable_type(value_ty) {
             // Name the offending type. Without it the diagnostic says only that
             // SOMETHING in a possibly deep union/record is not serializable,
@@ -1578,8 +1607,12 @@ impl ModuleBuilder<'_> {
             ));
         }
         let text = self.json_parse_text_argument(argument, body, "JSON.parse<T>()")?;
+        // Only a source-written `<T>` is a declared target; the fallback
+        // `Record<string, unknown>` is the frontend's guess, and decoding
+        // against it would reject arrays and primitives Node accepts.
+        let decode = call.type_arguments.is_some();
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::JsonParse { text },
+            kind: ExprKind::JsonParse { text, decode },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -1597,7 +1630,7 @@ impl ModuleBuilder<'_> {
     /// than the erased carrier; a source that knows the shape spells it with
     /// `JSON.parse<T>` or an `as T` assertion, which keep their typed targets.
     fn json_parse_fallback_type(&mut self) -> smelt_hir::TypeId {
-        self.ctx.krate.types.intern(Type::Unknown)
+        self.erase_with(ErasureReason::ExternalType, "JSON.parse")
     }
 
     /// Lower `JSON.parse(text) as T` using the assertion type as parse target.
@@ -1631,10 +1664,125 @@ impl ModuleBuilder<'_> {
         }
         let text = self.json_parse_text_argument(argument, body, "JSON.parse()")?;
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::JsonParse { text },
+            kind: ExprKind::JsonParse { text, decode: true },
             ty: target,
             span: self.span(span.start, span.end),
         })))
+    }
+
+    /// Lower an untyped `JSON.parse(text)` whose value flows into a declared type.
+    ///
+    /// `const v: T = JSON.parse(s)`, `f(JSON.parse(s))` with `f(x: T)` and
+    /// `return JSON.parse(s)` from a `T`-returning function all hand the parse a
+    /// contextual type the SOURCE wrote. TypeScript types `JSON.parse` as `any`,
+    /// so the value enters typed code exactly there: this lowers the parse with
+    /// `T` as its decode target, the same expression `JSON.parse(s) as T`
+    /// produces, instead of the `Record<string, unknown>` fallback that is later
+    /// coerced (leniently) into `T`. Design adapted from Bun's `--aot` rule that a
+    /// value which does not match its type throws a `TypeError` where it enters
+    /// typed code (oven-sh/bun#45631, `docs/bundler/aot-adoption.mdx`).
+    ///
+    /// Behavioral requirement: JSON that matches `T` yields the value Node yields.
+    /// Type-preservation requirement: the parse is typed `T`, so the backend can
+    /// store the decoded value at `T`'s concrete Rust type.
+    ///
+    /// Returns `None` (keeping the untyped lowering) for a call that is not an
+    /// untyped single-argument `JSON.parse`, for a hint that is not a real
+    /// declared shape (`unknown`/`any`, a bare type parameter, `void`), and for a
+    /// hint `JSON.stringify` could not round-trip — a contextual type never
+    /// turns an accepted program into a rejected one.
+    pub(super) fn json_parse_call_with_hint(
+        &mut self,
+        call: &CallExpression<'_>,
+        hint: Option<smelt_hir::TypeId>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Some(target) = hint else {
+            return Ok(None);
+        };
+        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsJsonParse)
+            || call.type_arguments.is_some()
+            || call.arguments.len() != 1
+        {
+            return Ok(None);
+        }
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if !matches!(&member.object, Expression::Identifier(object) if object.name == "JSON")
+            || member.property.name != "parse"
+        {
+            return Ok(None);
+        }
+        if !self.is_json_decode_hint(target) {
+            return Ok(None);
+        }
+        let [argument] = call.arguments.as_slice() else {
+            return Ok(None);
+        };
+        let text = self.json_parse_text_argument(argument, body, "JSON.parse()")?;
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::JsonParse { text, decode: true },
+            ty: target,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Whether a contextual type is a declared shape a JSON value can be
+    /// decoded into: not `unknown`/`any`, a bare type parameter, `void` or
+    /// `never`, and a type `JSON.stringify` could round-trip.
+    fn is_json_decode_hint(&mut self, target: smelt_hir::TypeId) -> bool {
+        !matches!(
+            self.ctx.krate.types.get(target),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::None | Type::Never) | None
+        ) && self.is_json_serializable_type(target)
+    }
+
+    /// Give a `Response`/`Request` `json()` body read its declared target.
+    ///
+    /// `const v: T = await response.json()` awaits a `Promise<any>` whose value
+    /// enters typed code at `T`, exactly as `JSON.parse(text)` does in
+    /// [`Self::json_parse_call_with_hint`]. The await hands the operand the
+    /// context `Promise<T>`; when `value` is a `json()` read still typed
+    /// `Promise<unknown>`, this retypes it `Promise<T>` so the backend decodes
+    /// the body strictly into `T` (a catchable `TypeError` on mismatch) instead
+    /// of coercing the erased value afterwards. Any other expression, or a hint
+    /// that is not a decodable declared shape, is returned unchanged.
+    pub(super) fn adopt_json_body_read_target(
+        &mut self,
+        value: smelt_hir::ExprId,
+        hint: Option<smelt_hir::TypeId>,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let Some(Type::Future(target)) = hint.and_then(|hint| self.ctx.krate.types.get(hint)).cloned()
+        else {
+            return value;
+        };
+        let Some(expr) = body.exprs.get(usize::try_from(value.0).unwrap_or(usize::MAX)) else {
+            return value;
+        };
+        let is_json_read = matches!(
+            expr.kind,
+            ExprKind::ResponseOp {
+                op: smelt_hir::ResponseOp::Json,
+                ..
+            } | ExprKind::RequestOp {
+                op: smelt_hir::RequestOp::Json,
+                ..
+            }
+        );
+        let still_untyped = matches!(
+            self.ctx.krate.types.get(expr.ty),
+            Some(Type::Future(inner)) if self.ctx.krate.types.get(*inner) == Some(&Type::Unknown)
+        );
+        if !is_json_read || !still_untyped || !self.is_json_decode_hint(target) {
+            return value;
+        }
+        let future_ty = self.ctx.krate.types.intern(Type::Future(target));
+        if let Some(read) = body.exprs.get_mut(usize::try_from(value.0).unwrap_or(usize::MAX)) {
+            read.ty = future_ty;
+        }
+        value
     }
 
     /// Lower and coerce the text operand accepted by `JSON.parse`.
@@ -2372,7 +2520,17 @@ impl ModuleBuilder<'_> {
 
     /// Return whether a HIR type can be serialized by the JSON mapping.
     fn is_json_serializable_type(&mut self, ty: smelt_hir::TypeId) -> bool {
-        self.is_json_serializable_type_inner(ty, &mut Vec::new(), false)
+        self.is_json_serializable_type_inner(ty, &mut Vec::new(), false, false)
+    }
+
+    /// Return whether a HIR type would be serializable if its bigints were.
+    ///
+    /// A bigint has no JSON spelling, but `JSON.stringify` over one is a
+    /// run-time `TypeError` that a `try` can catch, not a compile error. A
+    /// type that fails [`Self::is_json_serializable_type`] only because of a
+    /// bigint lowers to the fallible `BigIntOp::JsonStringify` call.
+    fn is_json_serializable_type_but_bigints(&mut self, ty: smelt_hir::TypeId) -> bool {
+        self.is_json_serializable_type_inner(ty, &mut Vec::new(), false, true)
     }
 
     /// Return whether a HIR type can be serialized without recursing forever.
@@ -2381,6 +2539,7 @@ impl ModuleBuilder<'_> {
         ty: smelt_hir::TypeId,
         seen: &mut Vec<smelt_hir::Symbol>,
         nested: bool,
+        bigint_ok: bool,
     ) -> bool {
         let Some(ty_kind) = self.ctx.krate.types.get(ty).cloned() else {
             return false;
@@ -2388,22 +2547,27 @@ impl ModuleBuilder<'_> {
         match ty_kind {
             Type::Bool
             | Type::Int
+            | Type::FixedInt(_)
             | Type::Float
             | Type::String
             | Type::Unknown
             | Type::TypeParam { .. } => true,
+            // `JSON.stringify(1n)` throws `TypeError: Do not know how to
+            // serialize a BigInt`; there is no JSON spelling to emit. Only the
+            // `bigint_ok` walk accepts it, to pick the fallible lowering.
+            Type::BigInt => bigint_ok,
             Type::List(item) | Type::Set(item) | Type::Optional(item) => {
-                self.is_json_serializable_type_inner(item, seen, true)
+                self.is_json_serializable_type_inner(item, seen, true, bigint_ok)
             }
             Type::Tuple(items) => items
                 .iter()
-                .all(|item| self.is_json_serializable_type_inner(*item, seen, true)),
+                .all(|item| self.is_json_serializable_type_inner(*item, seen, true, bigint_ok)),
             Type::Union(items) => items
                 .iter()
-                .all(|item| self.is_json_serializable_type_inner(*item, seen, true)),
+                .all(|item| self.is_json_serializable_type_inner(*item, seen, true, bigint_ok)),
             Type::Dict(key, value) | Type::JsMap(key, value) => {
                 matches!(self.ctx.krate.types.get(key), Some(Type::String))
-                    && self.is_json_serializable_type_inner(value, seen, true)
+                    && self.is_json_serializable_type_inner(value, seen, true, bigint_ok)
             }
             Type::Class { name, args } => {
                 // A HOST OBJECT serializes as `{}`: none of its state is an own
@@ -2453,7 +2617,7 @@ impl ModuleBuilder<'_> {
                 // own lowered shape is serializable answers the real question.
                 if let Some(alias) = self.find_type_alias(name).cloned() {
                     seen.push(name);
-                    let serializable = self.is_json_serializable_type_inner(alias.ty, seen, true);
+                    let serializable = self.is_json_serializable_type_inner(alias.ty, seen, true, bigint_ok);
                     seen.pop();
                     if serializable {
                         return true;
@@ -2463,7 +2627,7 @@ impl ModuleBuilder<'_> {
                     seen.push(name);
                     let serializable = fields
                         .iter()
-                        .all(|field| self.is_json_serializable_type_inner(field.ty, seen, true));
+                        .all(|field| self.is_json_serializable_type_inner(field.ty, seen, true, bigint_ok));
                     seen.pop();
                     serializable
                 })
@@ -3204,8 +3368,11 @@ impl ModuleBuilder<'_> {
                 {
                     Some(Type::List(flat_item_ty)) => *flat_item_ty,
                     Some(Type::Tuple(items)) => self.flattened_tuple_item_type(items.clone()),
-                    Some(Type::Unknown | Type::TypeParam { .. }) => {
-                        self.ctx.krate.types.intern(Type::Unknown)
+                    // not a new erasure: the element is already erased
+                    Some(Type::Unknown) => self.unknown_type(),
+                    // `T[]`'s flattened item is the type-level `FlatArray<T, D>`.
+                    Some(Type::TypeParam { .. }) => {
+                        self.erase_with(ErasureReason::TypeLevel, "FlatArray")
                     }
                     _ => return Ok(None),
                 };
@@ -3427,8 +3594,12 @@ impl ModuleBuilder<'_> {
                     _ => Some(self.ctx.krate.types.intern(Type::Union(item_tys))),
                 }
             }
-            Some(Type::Unknown | Type::TypeParam { .. }) => {
-                Some(self.ctx.krate.types.intern(Type::Unknown))
+            // not a new erasure: the callback already returns an erased value
+            Some(Type::Unknown) => Some(self.unknown_type()),
+            // A generic callback result flattens through the type-level
+            // `FlatArray<U, 1>`, which Smelt does not evaluate.
+            Some(Type::TypeParam { .. }) => {
+                Some(self.erase_with(ErasureReason::TypeLevel, "FlatArray"))
             }
             Some(_) | None => None,
         }

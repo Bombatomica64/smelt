@@ -10,6 +10,12 @@ fn push_fmt(out: &mut String, args: std::fmt::Arguments<'_>) {
 
 /// Emit `.d.ts` and `.pyi` files next to each lowered source module.
 ///
+/// A module inside an installed package (a path with a `node_modules`
+/// component) gets no stub: Smelt never writes into installed packages. Such a
+/// module is a file a package's typed version lays over the installed package,
+/// in memory only (see `crate::sound`), and its stub would overwrite the
+/// package's own `index.d.ts` or add files to it.
+///
 /// # Errors
 ///
 /// Returns an error if any declaration file cannot be written.
@@ -18,7 +24,7 @@ pub fn emit_type_declarations(
     modules: &[(String, ModuleId)],
 ) -> Result<(), Box<dyn std::error::Error>> {
     for (path, module_id) in modules {
-        if is_declaration_path(path) {
+        if is_declaration_path(path) || is_installed_package_path(path) {
             continue;
         }
         let source_path = Path::new(path);
@@ -31,6 +37,13 @@ pub fn emit_type_declarations(
         fs::write(python_path, python_declaration(krate, *module_id))?;
     }
     Ok(())
+}
+
+/// Return whether a path lies inside an installed package (`node_modules`).
+fn is_installed_package_path(path: &str) -> bool {
+    Path::new(path)
+        .components()
+        .any(|component| component.as_os_str() == "node_modules")
 }
 
 /// Return whether a path is already a declaration/stub file.
@@ -337,7 +350,8 @@ fn is_ts_reserved_property_name(name: &str) -> bool {
 fn ts_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
     match krate.types.get(ty) {
         Some(Type::Bool) => "boolean".to_owned(),
-        Some(Type::Int | Type::Float) => "number".to_owned(),
+        Some(Type::Int | Type::FixedInt(_) | Type::Float) => "number".to_owned(),
+        Some(Type::BigInt) => "bigint".to_owned(),
         Some(Type::String) => "string".to_owned(),
         Some(Type::Unknown) | None => "unknown".to_owned(),
         Some(Type::Never) => "never".to_owned(),
@@ -417,7 +431,8 @@ fn ts_union_member_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
 fn py_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
     match krate.types.get(ty) {
         Some(Type::Bool) => "bool".to_owned(),
-        Some(Type::Int) => "int".to_owned(),
+        // Python's `int` is already arbitrary-precision.
+        Some(Type::Int | Type::FixedInt(_) | Type::BigInt) => "int".to_owned(),
         Some(Type::Float) => "float".to_owned(),
         Some(Type::String) => "str".to_owned(),
         Some(Type::Unknown) | None => "typing.Any".to_owned(),

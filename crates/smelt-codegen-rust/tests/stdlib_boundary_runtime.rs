@@ -21,6 +21,13 @@
 //!    and `$<name>` stand for parts of the match; the runtime pushed the
 //!    replacement text verbatim, so `'\\$&'` inserted the two characters `$&`.
 //!
+//! 5. **JSON enters typed code at its declared type.** A `JSON.parse` /
+//!    `json()` value flowing into a declared type is decoded strictly into
+//!    that type's concrete Rust storage and a mismatch throws a catchable
+//!    `TypeError` (Bun `--aot`'s typed entry check, oven-sh/bun#45631); the
+//!    lenient coercion it replaced defaulted or NaN-ed the wrong value with no
+//!    error. See `docs/json-entry-decoding.md`.
+//!
 //! Each case is a TypeScript Vitest test: lowering emits a `#[test]`, and a
 //! green `cargo test` on the generated crate means every `expect(...)` held.
 //! None of these can be pinned by a string golden — cases 1 and 3 need the
@@ -411,4 +418,205 @@ test("a bounded repetition with a large upper bound compiles and matches", () =>
 });
 "#;
     run_fixture(source, "smelt_regex_large_bounded_repetition");
+}
+
+/// Shared TypeScript declarations for the strict JSON entry-decode cases.
+///
+/// The shapes cover every decodable family `emitter::json_decode` handles:
+/// nested interfaces, an optional property, a nullable property, a literal
+/// union reached through an alias, a discriminated union of interfaces, a
+/// `Record`, a tuple, a recursive interface and an `unknown` leaf. `VALID`
+/// matches `Order` and also carries an undeclared `extra` property.
+const JSON_DECODE_DECLARATIONS: &str = r#"
+interface Circle { kind: "circle"; r: number }
+interface Square { kind: "square"; side: number }
+type Shape = Circle | Square;
+type Mode = "fast" | "slow";
+interface Tree { value: number; children: Tree[] }
+interface Point { x: number; y: number }
+interface Order {
+  id: number;
+  note?: string;
+  discount: number | null;
+  mode: Mode;
+  shapes: Shape[];
+  totals: Record<string, number>;
+  range: [number, number];
+  tree: Tree;
+  meta: unknown;
+}
+
+function decodeOrder(text: string): Order {
+  return JSON.parse(text);
+}
+
+function failure(text: string): string {
+  try {
+    const order: Order = JSON.parse(text);
+    return "decoded " + order.id;
+  } catch (error) {
+    if (error instanceof TypeError) {
+      return "TypeError: " + (error as Error).message;
+    }
+    return "other: " + (error as Error).name;
+  }
+}
+
+const VALID = '{"id":7,"discount":null,"mode":"fast","shapes":[{"kind":"square","side":3},{"kind":"circle","r":1.5}],"totals":{"a":1,"b":2},"range":[1,9],"tree":{"value":1,"children":[{"value":2,"children":[]}]},"meta":{"any":[1,"x"]},"extra":true}';
+
+function withField(field: string): string {
+  return VALID.replace('"id":7,', field);
+}
+"#;
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn json_matching_a_declared_type_decodes_into_concrete_values() {
+    // The behavioral half of the strict-decode rule: JSON that matches the
+    // declared type yields the values Node yields (every expectation below was
+    // checked against `node --experimental-transform-types`) -- through a
+    // return type, an annotation, a tuple annotation and `JSON.parse<T>`.
+    // The one deliberate difference is the last `point` line: a property the
+    // type does not declare is dropped (Node keeps `"z":3`), as `Bun.validate`
+    // drops it.
+    let source = format!(
+        r#"
+import {{ test, expect }} from "vitest";
+{JSON_DECODE_DECLARATIONS}
+test("JSON matching a declared type decodes", () => {{
+  const order = decodeOrder(VALID);
+  expect(order.id).toBe(7);
+  expect(order.note).toBe(undefined);
+  expect(order.mode).toBe("fast");
+  expect(order.shapes.length).toBe(2);
+  const first = order.shapes[0];
+  if (first.kind === "square") {{
+    expect(first.side).toBe(3);
+  }} else {{
+    expect("circle").toBe("square");
+  }}
+  expect(order.totals["b"]).toBe(2);
+  expect(order.range[1]).toBe(9);
+  expect(order.tree.children[0].value).toBe(2);
+  expect(order.tree.children[0].children.length).toBe(0);
+  const pair: [string, boolean] = JSON.parse('["a",true]');
+  expect(pair[0]).toBe("a");
+  expect(pair[1]).toBe(true);
+  expect(JSON.parse<number[]>("[1,2,3]").length).toBe(3);
+  const point: Point = JSON.parse('{{"x":1,"y":2,"z":3}}');
+  expect(JSON.stringify(point)).toBe('{{"x":1,"y":2}}');
+}});
+"#
+    );
+    run_fixture(&source, "smelt_json_decode_valid");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn json_not_matching_a_declared_type_throws_a_catchable_type_error() {
+    // The Bun-aligned divergence: Node carries each wrong value silently (it
+    // prints `decoded 7` / `decoded undefined` for every line); the decoder
+    // throws a catchable `TypeError` naming the expected type, the received
+    // value and the path. Each line is one mismatch class a broken decoder
+    // would let through: kind (string for number), missing required property,
+    // `null` where only `undefined` is admitted, nullable kind, literal value,
+    // nested kind inside a union arm, no union arm, record value, tuple arity,
+    // recursive element, top-level kind -- and a malformed document still
+    // throws the parse's `SyntaxError`, not a `TypeError`.
+    let source = format!(
+        r#"
+import {{ test, expect }} from "vitest";
+{JSON_DECODE_DECLARATIONS}
+test("JSON not matching a declared type throws a catchable TypeError", () => {{
+  expect(failure(VALID)).toBe("decoded 7");
+  expect(failure(withField('"id":"7",'))).toBe('TypeError: expected number, got string "7" at .id');
+  expect(failure(withField(""))).toBe("TypeError: expected number, got undefined at .id");
+  expect(failure(withField('"id":7,"note":null,'))).toBe("TypeError: expected string | undefined, got null at .note");
+  expect(failure(VALID.replace('"discount":null', '"discount":"5"'))).toBe('TypeError: expected number | null, got string "5" at .discount');
+  expect(failure(VALID.replace('"fast"', '"medium"'))).toBe('TypeError: expected "fast" | "slow", got string "medium" at .mode');
+  expect(failure(VALID.replace('"side":3', '"side":"3"'))).toBe('TypeError: expected number, got string "3" at .shapes[0].side');
+  expect(failure(VALID.replace('{{"kind":"square","side":3}}', '{{"kind":"hexagon"}}'))).toBe("TypeError: expected Circle | Square, got object at .shapes[0]");
+  expect(failure(VALID.replace('"b":2', '"b":true'))).toBe("TypeError: expected number, got boolean true at .totals.b");
+  expect(failure(VALID.replace("[1,9]", "[1,9,10]"))).toBe("TypeError: expected [number, number], got array of length 3 at .range");
+  expect(failure(VALID.replace('"value":2', '"value":null'))).toBe("TypeError: expected number, got null at .tree.children[0].value");
+  expect(failure("[1]")).toBe("TypeError: expected Order, got array");
+  expect(failure("{{nope")).toBe("other: SyntaxError");
+}});
+"#
+    );
+    run_fixture(&source, "smelt_json_decode_mismatch");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_json_body_read_decodes_into_its_declared_type() {
+    // `await response.json()` / `await request.json()` flowing into a declared
+    // type is the same entry boundary as `JSON.parse`: a matching body decodes,
+    // a mismatching one rejects with a catchable `TypeError`.
+    let source = r#"
+import { test, expect } from "vitest";
+
+interface Point { x: number; y: number }
+
+async function readResponse(body: string): Promise<string> {
+  try {
+    const point: Point = await new Response(body).json();
+    return "ok " + (point.x + point.y);
+  } catch (error) {
+    return (error as Error).name + ": " + (error as Error).message;
+  }
+}
+
+async function readRequest(body: string): Promise<string> {
+  const request = new Request("http://example.test/", { method: "POST", body });
+  try {
+    const point: Point = await request.json();
+    return "ok " + (point.x + point.y);
+  } catch (error) {
+    return (error as Error).name + ": " + (error as Error).message;
+  }
+}
+
+test("a json() body read decodes into its declared type", async () => {
+  expect(await readResponse('{"x":1,"y":2}')).toBe("ok 3");
+  expect(await readResponse('{"x":1,"y":"2"}')).toBe('TypeError: expected number, got string "2" at .y');
+  expect(await readRequest('{"x":3,"y":4}')).toBe("ok 7");
+  expect(await readRequest('{"x":3}')).toBe("TypeError: expected number, got undefined at .y");
+});
+"#;
+    run_fixture(source, "smelt_json_body_decode");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn json_decodes_an_int32_slot_as_a_whole_number_in_range() {
+    // Where item 1 (typed JSON decode) meets item 6b (Bun's `int32`): Bun's
+    // validator "checks an `int32` property as a whole number in range", and
+    // smelt stores the slot as a Rust `i32`. A whole number in range decodes;
+    // a fraction, a value past 2^31 - 1 and `-0` (which an `i32` cannot hold)
+    // throw a catchable `TypeError` naming `int32`.
+    let source = r#"
+import { test, expect } from "vitest";
+import type { int32 } from "bun";
+
+interface Cell { column: int32; label: string }
+
+function read(text: string): string {
+  try {
+    const cell: Cell = JSON.parse(text);
+    return "ok " + (cell.column + 1) + " " + cell.label;
+  } catch (error) {
+    return (error as Error).name + ": " + (error as Error).message;
+  }
+}
+
+test("JSON decodes an int32 slot as a whole number in range", () => {
+  expect(read('{"column":7,"label":"a"}')).toBe("ok 8 a");
+  expect(read('{"column":-2147483648,"label":"b"}')).toBe("ok -2147483647 b");
+  expect(read('{"column":1.5,"label":"c"}')).toBe("TypeError: expected int32, got number 1.5 at .column");
+  expect(read('{"column":2147483648,"label":"d"}')).toBe("TypeError: expected int32, got number 2147483648 at .column");
+  expect(read('{"column":-0,"label":"e"}')).toBe("TypeError: expected int32, got number -0 at .column");
+});
+"#;
+    run_fixture(source, "smelt_json_decode_int32");
 }

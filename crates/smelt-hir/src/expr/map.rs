@@ -604,6 +604,13 @@ impl ExprKind {
                     args: mapped,
                 }
             }
+            Self::BigIntCall { op, args } => {
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::BigIntCall { op, args: mapped }
+            }
             Self::ByteArrayOp { op, bytes, args } => {
                 let bytes = f(bytes)?;
                 let mut mapped = Vec::with_capacity(args.len());
@@ -918,7 +925,10 @@ impl ExprKind {
                 separator: f(separator)?,
             },
             Self::JsonStringify { value } => Self::JsonStringify { value: f(value)? },
-            Self::JsonParse { text } => Self::JsonParse { text: f(text)? },
+            Self::JsonParse { text, decode } => Self::JsonParse {
+                text: f(text)?,
+                decode,
+            },
             Self::HttpGetText { url } => Self::HttpGetText { url: f(url)? },
             Self::DateSetNow { timestamp } => Self::DateSetNow {
                 timestamp: f(timestamp)?,

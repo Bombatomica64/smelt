@@ -206,6 +206,8 @@ mod tests {
             ("Promise.all(values);", RuleId::TsPromiseStatic),
             ("Math.floor(value);", RuleId::TsMathNumeric),
             ("Number.parseInt(text);", RuleId::TsNumberParseInt),
+            ("BigInt.asIntN(64, value);", RuleId::TsBigIntStatic),
+            ("BigInt.asUintN(64, value);", RuleId::TsBigIntStatic),
             ("Object.fromEntries(entries);", RuleId::TsObjectStatic),
             ("Object.create(proto);", RuleId::TsObjectStatic),
             ("Array.isArray(value);", RuleId::TsArrayStatic),

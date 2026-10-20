@@ -1,0 +1,11 @@
+-3 RangeError: Division by zero
+-1 RangeError: Division by zero
+1024 RangeError
+9007199254740992 RangeError: The number 1.5 cannot be converted to a BigInt because it is not an integer RangeError: The number NaN cannot be converted to a BigInt because it is not an integer
+SyntaxError: Cannot convert -0b1 to a BigInt 5 SyntaxError: Cannot convert 1.5 to a BigInt 0
+-1 RangeError
+18446744073709551616 RangeError: Maximum BigInt size exceeded -1
+-5 RangeError: Maximum BigInt size exceeded
+ff -11111111 RangeError: toString() radix argument must be between 2 and 36 RangeError: toString() radix argument must be between 2 and 36
+TypeError: Do not know how to serialize a BigInt
+"plain" TypeError: Do not know how to serialize a BigInt

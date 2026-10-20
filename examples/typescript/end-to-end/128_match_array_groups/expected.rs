@@ -3530,8 +3530,8 @@ pub(crate) fn describe(text: String) -> () {
     let _smelt_tmp_21: String;
     let _smelt_tmp_23: SmeltMatch;
     let _smelt_tmp_24: SmeltList<Option<String>>;
-    let mut _smelt_tmp_25: f64;
-    let mut _smelt_tmp_26: f64;
+    let mut _smelt_tmp_25: usize;
+    let mut _smelt_tmp_26: usize;
     let mut _smelt_tmp_27: bool;
     let mut _smelt_tmp_28: bool;
     let mut _smelt_tmp_29: String;
@@ -3589,23 +3589,23 @@ pub(crate) fn describe(text: String) -> () {
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_13), _smelt_tmp_16, _smelt_tmp_21); };
     _smelt_tmp_23 = m.clone().clone().expect("optional value was absent after narrowing");
     _smelt_tmp_24 = Into::<SmeltList<_>>::into((_smelt_tmp_23).to_array_view());
-    _smelt_tmp_25 = 0.0;
+    _smelt_tmp_25 = 0;
     loop {
-    _smelt_tmp_26 = _smelt_tmp_24.len() as f64;
+    _smelt_tmp_26 = _smelt_tmp_24.len();
     _smelt_tmp_27 = _smelt_tmp_25 < _smelt_tmp_26;
     if !(_smelt_tmp_27) { break; }
-    group = _smelt_tmp_24.borrow().get({ let smelt_normalized = _smelt_tmp_25 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| None::<String>);
+    group = _smelt_tmp_24.borrow().get(_smelt_tmp_25).cloned().unwrap_or_else(|| None::<String>);
     _smelt_tmp_28 = group.clone().is_none();
     if _smelt_tmp_28 {
     _smelt_tmp_29 = "undefined".to_owned();
     let _ = { println!("{}", _smelt_tmp_29); };
-    _smelt_tmp_25 = _smelt_tmp_25 + 1.0;
+    _smelt_tmp_25 = _smelt_tmp_25 + 1;
     continue;
     } else {
     _smelt_tmp_30 = group.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_29 = _smelt_tmp_30;
     let _ = { println!("{}", _smelt_tmp_29); };
-    _smelt_tmp_25 = _smelt_tmp_25 + 1.0;
+    _smelt_tmp_25 = _smelt_tmp_25 + 1;
     continue;
     }
     }

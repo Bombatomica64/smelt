@@ -30,7 +30,7 @@ use oxc::ast::ast::{
 };
 use oxc::span::GetSpan;
 use smelt_hir::{
-    Body, ConstItem, Expr, ExprKind, Field, FileId, Function, FunctionOwner, FunctionType, Import, Item,
+    Body, ConstItem, ErasureReason, Expr, ExprKind, Field, FileId, Function, FunctionOwner, FunctionType, Import, Item,
     Language, Literal, Module, ModuleId, Param, SourceFile, Span, Type, Visibility,
 };
 
@@ -503,6 +503,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             specialization,
             pending_host_imports: Vec::new(),
             excluded_modules,
+            int32_type_depth: 0,
+            erasure_anchor: Span::new(file_id, 0, 0),
         }
     }
 
@@ -588,6 +590,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// Lower a TypeScript program to HIR module.
     pub(super) fn program(&mut self, program: &Program<'_>) -> Result<ModuleId, Vec<SmeltError>> {
         let span = self.span(program.span.start, program.span.end);
+        // Bodies this module lowers, for the int32 store proofs that run once
+        // every signature they consult exists (see `finish_int32_bodies`).
+        let first_body = self.ctx.krate.bodies.len();
         let mut body = Body::new(None, span);
         let mut errors = Vec::new();
         self.presence_widened_bindings =
@@ -619,6 +624,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let mut top_level_test_setup = Vec::new();
         for statement in &program.body {
             if let Statement::ImportDeclaration(import) = statement {
+                self.erasure_anchor = self.span(statement.span().start, statement.span().end);
                 self.import_declaration(import, &mut module);
             }
         }
@@ -738,6 +744,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Statement::ImportDeclaration(_) = statement {
                 continue;
             }
+            self.erasure_anchor = self.span(statement.span().start, statement.span().end);
             // A queued arrow still waiting on a class is lowered no later than
             // its own source position, where every class above it is lowered.
             if let Some(start) = Self::variable_statement_start(statement) {
@@ -964,6 +971,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
 
         for statement in &program.body {
+            self.erasure_anchor = self.span(statement.span().start, statement.span().end);
             if matches!(
                 statement,
                 Statement::FunctionDeclaration(_)
@@ -1052,6 +1060,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         let body_id = self.ctx.krate.push_body(body);
         module.body = Some(body_id);
+        self.finish_int32_bodies(first_body, &module.items)
+            .map_err(|error| vec![error])?;
         Ok(self.ctx.krate.push_module(module))
     }
 
@@ -1484,7 +1494,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     oxc::ast::ast::VariableDeclarationKind::Const
                         | oxc::ast::ast::VariableDeclarationKind::Let
                 ) {
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let span = self.span(declarator.span.start, declarator.span.end);
+                    let ty = self.erase_at(
+                        ErasureReason::DynamicOperator,
+                        span,
+                        "module-level destructuring",
+                    );
                     Self::collect_module_global_pattern_bindings(
                         &declarator.id,
                         ty,
@@ -1592,7 +1607,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 {
                     let ty = self
                         .infer_module_global_initializer_type(init)
-                        .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown));
+                        .unwrap_or_else(|_| {
+                            let span = self.span(init.span().start, init.span().end);
+                            self.erase_at(
+                                ErasureReason::MissingAnnotation,
+                                span,
+                                "module global initializer",
+                            )
+                        });
                     self.module_globals
                         .insert(binding.name.as_str().to_owned(), ty);
                     if let Some(collection) = self.const_collection_from_initializer(init, ty) {
@@ -1608,7 +1630,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 {
                     let ty = self
                         .infer_module_global_initializer_type(init)
-                        .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown));
+                        .unwrap_or_else(|_| {
+                            let span = self.span(init.span().start, init.span().end);
+                            self.erase_at(
+                                ErasureReason::MissingAnnotation,
+                                span,
+                                "module global initializer",
+                            )
+                        });
                     self.module_globals
                         .insert(binding.name.as_str().to_owned(), ty);
                 }
@@ -3014,7 +3043,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         object: &oxc::ast::ast::ObjectExpression<'_>,
     ) -> Option<ConstCollection> {
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // Not recorded yet: the erasure is recorded once below, only when the
+        // collection is actually built.
+        let unknown_ty = self.unknown_type();
         let optional_unknown_ty = self.ctx.krate.types.intern(Type::Optional(unknown_ty));
         let mut items = Vec::new();
         for property in &object.properties {
@@ -3026,6 +3057,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             items.push(self.const_unknown_value_item(&object_property.value, unknown_ty));
         }
+        let span = self.span(object.span.start, object.span.end);
+        // Same interned `Type::Unknown` as `unknown_ty`; called for the record.
+        let _ = self.erase_at(
+            ErasureReason::DynamicOperator,
+            span,
+            "Object.values of a heterogeneous object",
+        );
         let ty = self.ctx.krate.types.intern(Type::List(optional_unknown_ty));
         Some(ConstCollection {
             items,
@@ -3321,7 +3359,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
         };
         let return_ty = self
             .function_return_type_or_overload(function, name_text)
-            .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown));
+            .unwrap_or_else(|_| {
+                let span = self.span(function.span.start, function.span.end);
+                self.erase_at(ErasureReason::MissingAnnotation, span, "function return")
+            });
         let mutable_params = self.mutable_params_from_returned_tuple_state(&params, return_ty);
         let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
@@ -3626,7 +3667,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         let return_ty = self
             .function_return_type_or_overload(function, name_text)
-            .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown));
+            .unwrap_or_else(|_| {
+                let span = self.span(function.span.start, function.span.end);
+                self.erase_at(ErasureReason::MissingAnnotation, span, "function return")
+            });
         let required_params = function
             .params
             .items
@@ -4046,7 +4090,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     .mark_unresolved_value_import(candidate.local, blocker);
                 continue;
             }
-            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let unknown_ty = self.erase_with(ErasureReason::UntypedPackage, &candidate.module);
             self.module_globals.insert(candidate.local, unknown_ty);
         }
     }
@@ -5700,7 +5744,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         if matches!(expression, Expression::Identifier(identifier) if identifier.name == "undefined")
         {
-            let ty = self.ctx.krate.types.intern(Type::Unknown);
+            let span = self.span(expression.span().start, expression.span().end);
+            let ty = self.erase_at(ErasureReason::MissingAnnotation, span, "undefined property");
             return Ok((ObjectConstValue::Literal(Literal::Undefined), ty));
         }
         if let Ok(literal) = self.literal_const_expression(expression) {
@@ -5766,10 +5811,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     continue;
                 }
                 ArrayExpressionElement::BigIntLiteral(literal) => {
-                    let ty = self.ctx.krate.types.intern(Type::Int);
-                    let value = literal.value.parse::<i64>().unwrap_or(0);
+                    let digits = Self::canonical_bigint_digits(literal.value.as_str())
+                        .ok_or_else(|| {
+                            SmeltError::unsupported(
+                                self.span(literal.span.start, literal.span.end),
+                                "bigint literal is not a decimal integer",
+                            )
+                        })?;
+                    let ty = self.ctx.krate.types.intern(Type::BigInt);
                     items.push(ObjectConstEntryValue {
-                        value: ObjectConstValue::Literal(Literal::Int(value)),
+                        value: ObjectConstValue::Literal(Literal::BigInt(digits)),
                         ty,
                     });
                     continue;
@@ -5842,7 +5893,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .first()
             .map(|item| item.ty)
             .filter(|first_ty| items.iter().all(|item| item.ty == *first_ty))
-            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            .unwrap_or_else(|| {
+                if items.is_empty() {
+                    self.erase_with(ErasureReason::MissingAnnotation, "empty const array")
+                } else {
+                    self.erase_with(ErasureReason::DynamicOperator, "heterogeneous const array")
+                }
+            });
         let ty = self.ctx.krate.types.intern(Type::List(item_ty));
         Ok((ObjectConstValue::List(items), ty))
     }
@@ -5862,7 +5919,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let first_value_ty = entries.first().map(|entry| entry.value_ty);
         let value_ty = first_value_ty
             .filter(|first_ty| entries.iter().all(|entry| entry.value_ty == *first_ty))
-            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            .unwrap_or_else(|| {
+                if entries.is_empty() {
+                    self.erase_with(ErasureReason::MissingAnnotation, "empty const object")
+                } else {
+                    self.erase_with(ErasureReason::DynamicOperator, "heterogeneous const object")
+                }
+            });
         self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
     }
 

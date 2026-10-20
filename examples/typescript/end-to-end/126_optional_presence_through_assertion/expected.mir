@@ -25,11 +25,11 @@ fn lookup (FuncId(1)) -> List<String>
     %0 param this: Table
     %1 param method: String
     %2 user found: List<String>
-    %3 user i: Float
+    %3 user i: usize
     %4 user m: Dict<String, HandlerSet>
     %5 user set: Optional<HandlerParamsSet>
     %6 temp: List<String>
-    %7 temp: Float
+    %7 temp: usize
     %8 temp: Bool
     %9 temp: List<Dict<String, HandlerSet>>
     %10 temp: Optional<HandlerSet>
@@ -42,11 +42,11 @@ fn lookup (FuncId(1)) -> List<String>
     %17 temp: HandlerParamsSet
     %18 temp: String
     %19 temp: Float
-    %20 temp: Float
+    %20 temp: usize
   bb0:
     %6 = []
     %2 = move %6
-    %3 = 0.0
+    %3 = 0
     goto bb1
   bb1:
     %7 = len copy %0.field6
@@ -63,7 +63,7 @@ fn lookup (FuncId(1)) -> List<String>
     %14 = copy %5 != none
     switch move %14 ? bb5 : bb6
   bb3:
-    %20 = move %3 + 1.0
+    %20 = move %3 + 1
     %3 = move %20
     goto bb1
   bb4:

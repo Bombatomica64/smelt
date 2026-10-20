@@ -84,6 +84,8 @@ pub enum NumericUnaryFuncOp {
     Log2,
     /// Exponential function.
     Exp,
+    /// `Math.clz32`: the number of leading zero bits of `ToUint32(x)`.
+    Clz32,
 }
 
 /// A directly lowered primitive conversion operation.
@@ -95,6 +97,12 @@ pub enum PrimitiveCastOp {
     ToInt,
     /// Convert to floating-point number.
     ToFloat,
+    /// Store a `number` the TypeScript frontend PROVED to be a whole number in
+    /// `[-2^31, 2^31 - 1]` (and not `-0`) into a Bun `int32` slot
+    /// (an `I32` [`crate::Type::FixedInt`], or its optional form). The
+    /// conversion is exact for every such value, so it neither wraps nor
+    /// checks; the proof is `smelt_frontend_ts`'s `lowering::int32`.
+    ToInt32,
     /// Parse a JavaScript-coerced string as a floating-point number.
     ParseFloat,
     /// Convert with JavaScript `Number(...)` and unary-plus semantics.
@@ -107,6 +115,73 @@ pub enum PrimitiveCastOp {
     /// `String.fromCodePoint(...points)`: the operand is a list of numbers,
     /// each one Unicode code point.
     FromCodePoints,
+}
+
+/// A JavaScript `bigint` operation that can THROW a catchable error.
+///
+/// Every one of these raises a `RangeError` (or, for a malformed string, a
+/// `SyntaxError`; for a serialized bigint, a `TypeError`) on some input, and JavaScript lets a `try` catch it. MIR's
+/// exception edges live on call terminators, so each lowers to a fallible
+/// builtin call rather than an rvalue; see
+/// `blocker-logs/standards-throwing-rvalue.md`. The infallible bigint
+/// operators (`+ - * & | ^`, comparisons) stay ordinary rvalues.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BigIntOp {
+    /// `BigInt(value)`: a number must be an integer (else `RangeError`), a
+    /// string must parse as an integer literal (else `SyntaxError`), a boolean
+    /// is `0n`/`1n`, and a bigint is returned unchanged.
+    From,
+    /// `BigInt.asIntN(bits, value)`: `value` wrapped into a signed `bits`-wide
+    /// two's-complement range. `bits` outside `[0, 2^53 - 1]` is a `RangeError`.
+    AsIntN,
+    /// `BigInt.asUintN(bits, value)`: `value` modulo `2^bits`.
+    AsUintN,
+    /// `a / b`, truncating toward zero; a zero divisor is a `RangeError`.
+    Div,
+    /// `a % b`, taking the dividend's sign; a zero divisor is a `RangeError`.
+    Rem,
+    /// `a ** b`; a negative exponent is a `RangeError`.
+    Pow,
+    /// `a << b`; a result past V8's 2^30-bit cap is a `RangeError`. A
+    /// negative count shifts right.
+    Shl,
+    /// `a >> b`, rounding toward negative infinity. A negative count shifts
+    /// left, so it shares `Shl`'s size `RangeError`.
+    Shr,
+    /// `bigint.toString(radix)`; a radix outside `2..=36` is a `RangeError`.
+    /// The only operation here whose result is a `string`, not a `bigint`
+    /// (see [`Self::returns_string`]).
+    ToStringRadix,
+    /// `JSON.stringify(value)` over a value whose type can hold a bigint: a
+    /// bigint anywhere in the value is a `TypeError` (`Do not know how to
+    /// serialize a BigInt`), since JSON has no bigint spelling. A value whose
+    /// type cannot hold one keeps the infallible `JsonStringify` rvalue.
+    JsonStringify,
+}
+
+impl BigIntOp {
+    /// The JavaScript spelling of the operation, for dumps and diagnostics.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::From => "BigInt",
+            Self::AsIntN => "BigInt.asIntN",
+            Self::AsUintN => "BigInt.asUintN",
+            Self::Div => "bigint_div",
+            Self::Rem => "bigint_rem",
+            Self::Pow => "bigint_pow",
+            Self::Shl => "bigint_shl",
+            Self::Shr => "bigint_shr",
+            Self::ToStringRadix => "bigint_to_string_radix",
+            Self::JsonStringify => "bigint_json_stringify",
+        }
+    }
+
+    /// Whether the operation answers a `string` rather than a `bigint`.
+    #[must_use]
+    pub const fn returns_string(self) -> bool {
+        matches!(self, Self::ToStringRadix | Self::JsonStringify)
+    }
 }
 
 /// A directly lowered numeric predicate.
@@ -558,7 +633,10 @@ impl RequestInitMember {
     /// re-initialized is a new request as far as referrer leakage goes. Node 22
     /// agrees: `new Request(src, { method: 'POST' }).referrer` is
     /// `"about:client"` even though `src.referrer` was set, while
-    /// `new Request(src, {}).referrer` still copies.
+    /// `new Request(src, {}).referrer` still copies. Node 24 (undici 7) treats
+    /// EVERY init as non-empty (its dictionary defaults `priority`), so there
+    /// the reset applies to `new Request(src)` and `new Request(src, {})` too;
+    /// the Rust backend follows the pinned Node 24 (see `request_new_text`).
     #[must_use]
     pub const fn resets_on_non_empty_init(self) -> bool {
         matches!(self, Self::Referrer | Self::ReferrerPolicy)

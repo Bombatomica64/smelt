@@ -159,9 +159,9 @@ fn main() {
     let mut __smelt_spread_4: (String, String, f64);
     let mut one_route: SmeltList<(String, String, f64)>;
     let mut __smelt_spread_5: (String, String, f64);
-    let mut _smelt_tmp_15: f64;
+    let mut _smelt_tmp_15: usize;
     let mut _smelt_tmp_16: bool;
-    let mut _smelt_tmp_19: f64;
+    let mut _smelt_tmp_19: usize;
     let mut _smelt_tmp_20: (String, f64);
     let mut _smelt_tmp_23: ::std::rc::Rc<dyn Fn(String, String, f64) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, String, f64) -> String> = ::std::rc::Rc::new(move |arg0: String, arg1: String, arg2: f64| -> String { String::new() }); smelt_default_callback };
     let mut _smelt_tmp_24: String;
@@ -173,15 +173,15 @@ fn main() {
     let _smelt_tmp_13: (String, String, f64) = ("POST".to_owned(), "/b".to_owned(), 2.0);
     let _smelt_tmp_14: SmeltList<(String, String, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String, f64)> = vec![_smelt_tmp_12.clone(), _smelt_tmp_13.clone()]; smelt_list_items }));
     let routes: SmeltList<(String, String, f64)> = Into::<SmeltList<_>>::into(_smelt_tmp_14);
-    let mut i: f64 = 0.0;
+    let mut i: usize = 0;
     loop {
-    _smelt_tmp_15 = routes.len() as f64;
+    _smelt_tmp_15 = routes.len();
     _smelt_tmp_16 = i < _smelt_tmp_15;
     if !(_smelt_tmp_16) { break; }
-    __smelt_spread = routes.borrow().get({ let smelt_normalized = i as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new(), 0.0));
+    __smelt_spread = routes.borrow().get(i).cloned().unwrap_or_else(|| (String::new(), String::new(), 0.0));
     let _smelt_tmp_17: String = record(__smelt_spread.0.clone(), __smelt_spread.1.clone(), __smelt_spread.2);
     let _ = { println!("{}", _smelt_tmp_17); };
-    _smelt_tmp_19 = i + 1.0;
+    _smelt_tmp_19 = i + 1;
     i = _smelt_tmp_19;
     }
     _smelt_tmp_20 = ("/c".to_owned(), 7.0);

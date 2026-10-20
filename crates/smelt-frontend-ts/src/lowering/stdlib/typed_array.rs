@@ -122,6 +122,23 @@ impl ModuleBuilder<'_> {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::TypedArray)
     }
 
+    /// Return whether a lowered type is a `BigInt64Array` / `BigUint64Array`
+    /// view, whose elements are bigints rather than numbers.
+    pub(in crate::lowering) fn is_bigint_view_type(&self, ty: smelt_hir::TypeId) -> bool {
+        if !self.is_typed_array_view_type(ty) {
+            return false;
+        }
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(ty) else {
+            return false;
+        };
+        self.ctx
+            .krate
+            .symbols
+            .get(*name)
+            .and_then(smelt_stdlib::typed_array_element)
+            .is_some_and(smelt_stdlib::TypedArrayElement::is_bigint)
+    }
+
     /// Return whether a lowered type is the family's byte STORAGE.
     pub(in crate::lowering) fn is_array_buffer_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::ArrayBuffer)
@@ -184,9 +201,12 @@ impl ModuleBuilder<'_> {
             .take(arity)
             .map(|argument| self.argument(argument, body))
             .collect::<Result<Vec<_>, _>>()?;
-        // A read answers a number; a write answers `undefined`.
+        // A read answers a number (a bigint for `getBigInt64`/`getBigUint64`);
+        // a write answers `undefined`.
         let ty = if write {
             self.ctx.krate.types.intern(Type::None)
+        } else if element.is_bigint() {
+            self.ctx.krate.types.intern(Type::BigInt)
         } else {
             self.ctx.krate.types.intern(Type::Float)
         };

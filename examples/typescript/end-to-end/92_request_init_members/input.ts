@@ -13,9 +13,16 @@
 //    source" form;
 //  * but a NON-EMPTY init puts `referrer` and `referrerPolicy` back to their
 //    defaults, because a request being re-initialized must not inherit the
-//    source's referrer. An EMPTY init (`new Request(src, {})`) is still empty,
-//    so it copies. Node 22 agrees on all three, and every line below is diffed
-//    against it.
+//    source's referrer.
+//
+// VERSION DEPENDENCE. Which inits count as empty differs between Node
+// releases. By the WHATWG text, and in Node 22 (undici 6), an absent or empty
+// init (`new Request(src)`, `new Request(src, {})`) is empty, so it copies the
+// referrer pair. Node 24 (undici 7) converts every init through a dictionary
+// that defaults `priority` to 'auto', so the converted init is NEVER empty and
+// those two lines reset the pair to `about:client|` as well. `expected.stdout`
+// is Node 24's output, the version CI pins for the oracle check that diffs
+// every line below against `node`.
 //
 // A spelled `referrer` is stored as its URL SERIALIZATION, the same rule the
 // request URL itself goes through: `"https://c.test"` reads back as
@@ -56,10 +63,11 @@ console.log(full.cache, full.credentials, full.integrity);
 console.log(full.keepalive, full.mode, full.redirect);
 console.log(full.referrer, full.referrerPolicy);
 
-// A `Request` input with NO init copies the whole group, referrer included.
+// A `Request` input with NO init copies the whole group; Node 24 resets the
+// referrer pair (see the version note above).
 console.log(describe(new Request(full)));
 
-// An EMPTY init is still an empty init: it copies too.
+// An EMPTY init: the same as no init (the pair resets under Node 24).
 console.log(describe(new Request(full, {})));
 
 // A NON-EMPTY init copies the rest and resets the referrer pair.

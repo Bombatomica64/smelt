@@ -287,6 +287,19 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
+      # The end-to-end corpus checks every golden stdout against real Node
+      # (`ensure_node_agrees` in crates/smelt-transpiler/tests/common/mod.rs),
+      # and Node is the oracle, so its version is pinned: the runner image's
+      # default Node is older than the 22.7 that `--experimental-transform-types`
+      # needs (the oracle would silently skip), and Node releases disagree on
+      # observable behaviour (`92_request_init_members` records one such
+      # difference between Node 22 and 24). Bump this deliberately and
+      # re-check the goldens when it moves.
+      - name: Install Node (pinned oracle for the end-to-end goldens)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+
       # Without these the sandbox-backed specialization tests skip themselves,
       # and `smelt-specialize` reports ~50% line / ~36% branch coverage for code
       # that never ran. `SMELT_REQUIRE_SANDBOX` is deliberately NOT set here: a
@@ -354,7 +367,7 @@ jobs:
 
   # Regression gate: transpile the Remeda library at a pinned ref with the smelt
   # built from THIS commit, then compile and run its generated Rust test suite.
-  # The corpus currently has 1789 tests with exactly two pinned failures; this job fails if a codegen,
+  # The corpus currently has 1789 tests, all passing; this job fails if a codegen,
   # frontend, or MIR change regresses any of them. Builds smelt from source (not
   # the smelt-nightly asset) so pull requests are gated against their own code.
   # ==========================================================================
@@ -407,16 +420,16 @@ jobs:
         run: target/debug/smelt --manifest-path target/compat-repos/remeda/Smelt.toml build
 
       - name: Compile and run generated Remeda tests (regression gate)
-        # Pinned-failure ratchet: 1789 tests, of which exactly 2 are known to
-        # fail (`randomBigInt` "huge numbers" x2: a bigint literal wider than
-        # i64 needs a real BigInt type -- blocker-logs/globals-suite-failures.md).
-        # The pin fails on ANY other failure and on a change to the total, so a
-        # regression cannot hide behind the known two; when BigInt lands the
-        # assertion goes back to `ok. 1789 passed; 0 failed;`.
+        # All 1789 tests pass. The four `randomBigInt` tests that used to fail
+        # needed a real bigint: a literal wider than i64
+        # (`9_999_999_999_999_999_999_999n`) and an accumulator past 2^63, which
+        # `num_bigint::BigInt` now carries exactly
+        # (blocker-logs/globals-suite-failures.md section C). The pin fails on
+        # any failure and on a change to the total.
         run: |
           cargo test --manifest-path target/compat-repos/remeda/dist-smelt/Cargo.toml \
             --no-fail-fast 2>&1 | tee remeda-tests.log || true
-          grep -F "test result: FAILED. 1787 passed; 2 failed;" remeda-tests.log
+          grep -F "test result: ok. 1789 passed; 0 failed;" remeda-tests.log
 
       # Advisory SmeltUnknown metric: classify generated erasure and surface any
       # rise in avoidable erasure against remeda's OWN committed baseline.
@@ -441,6 +454,22 @@ jobs:
             echo "No generated Remeda crate to scan; skipping SmeltUnknown report."
           fi
 
+      # Advisory typedness ratchet (Bun `--aot` typedness tests, oven-sh/bun#45631):
+      # how many values, property reads and calls of each remeda file reach Rust
+      # concrete, generic or erased, read from the `smelt-typedness.json` sidecar
+      # the build wrote. Non-blocking, like remeda's SmeltUnknown report; see
+      # `## Typedness ratchet` in AGENTS.md.
+      - name: Typedness report (advisory)
+        if: ${{ always() }}
+        run: |
+          if [ -f target/compat-repos/remeda/dist-smelt/smelt-typedness.json ]; then
+            target/debug/smelt typedness-report \
+              target/compat-repos/remeda/dist-smelt \
+              --baseline blocker-logs/typedness-baseline-remeda.json || true
+          else
+            echo "No remeda typedness sidecar; skipping typedness report."
+          fi
+
       # Blocking invariant: the checked-in example corpus must hold ZERO
       # avoidable erasure. AGENTS.md calls this a hard invariant, but nothing in
       # CI checked it until 2026-08-23 — it was enforced by policy alone. The
@@ -453,6 +482,17 @@ jobs:
         run: |
           target/debug/smelt smelt-unknown-report examples \
             --baseline blocker-logs/smelt-unknown-baseline.json \
+            --fail-on-regression
+
+      # Blocking typedness ratchet over the end-to-end examples: each
+      # `input.ts` is lowered in-process (no Rust build) and may never become
+      # less typed than its record in the baseline (erased count up or typed
+      # share down for values, reads or calls). See `## Typedness ratchet`.
+      - name: Typedness examples ratchet (blocking)
+        if: ${{ always() }}
+        run: |
+          target/debug/smelt typedness-report examples/typescript/end-to-end/*/input.ts \
+            --baseline blocker-logs/typedness-baseline.json \
             --fail-on-regression
 
   # Regression gate: transpile Radash at the ref pinned in
@@ -745,6 +785,22 @@ jobs:
             echo "No es-toolkit SmeltUnknown baseline at $baseline; skipping ratchet."
           else
             target/debug/smelt smelt-unknown-report "$crate_src" \
+              --baseline "$baseline" \
+              --fail-on-regression
+          fi
+
+      # Typedness ratchet (blocking): no es-toolkit file may become less typed
+      # than its record in the baseline. Reads the sidecar the build wrote next
+      # to the generated `src/`; skips cleanly when the build aborted.
+      - name: Typedness ratchet (blocking)
+        if: ${{ always() }}
+        run: |
+          crate_dir="target/compat-repos/es-toolkit/dist-smelt"
+          baseline="blocker-logs/typedness-baseline-es-toolkit.json"
+          if [ ! -f "$crate_dir/smelt-typedness.json" ]; then
+            echo "No es-toolkit typedness sidecar; skipping typedness ratchet."
+          else
+            target/debug/smelt typedness-report "$crate_dir" \
               --baseline "$baseline" \
               --fail-on-regression
           fi

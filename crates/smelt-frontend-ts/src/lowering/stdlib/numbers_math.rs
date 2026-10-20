@@ -9,7 +9,7 @@ use crate::SmeltError;
 use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
-    Body, Expr, ExprKind, FunctionType, Literal, NumericExtremaOp, NumericPredicateOp,
+    Body, ErasureReason, Expr, ExprKind, FunctionType, Literal, NumericExtremaOp, NumericPredicateOp,
     NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, Span, StringReplaceOp, Type, UrlField,
 };
 use smelt_stdlib::RuleId;
@@ -1081,6 +1081,7 @@ impl ModuleBuilder<'_> {
             Some(
                 Type::Int
                     | Type::Float
+                    | Type::BigInt
                     | Type::String
                     | Type::Unknown
                     | Type::TypeParam { .. }
@@ -1120,10 +1121,14 @@ impl ModuleBuilder<'_> {
                     "number.toString radix argument must be numeric",
                 ));
             }
+            let span = self.span(call.span.start, call.span.end);
+            if let Some(call) = self.bigint_to_string_radix(operand, radix, span, body) {
+                return Ok(Some(call));
+            }
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::NumericToStringRadix { operand, radix },
                 ty,
-                span: self.span(call.span.start, call.span.end),
+                span,
             })));
         }
         if !call.arguments.is_empty() {
@@ -1409,7 +1414,7 @@ impl ModuleBuilder<'_> {
             span: self.span(call.span.start, call.span.end),
         });
         let value = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("America/Santiago".to_owned())),
+            kind: ExprKind::Literal(Literal::String(smelt_stdlib::NODE_PROFILE_TIMEZONE.to_owned())),
             ty: string_ty,
             span: self.span(call.span.start, call.span.end),
         });
@@ -1424,7 +1429,7 @@ impl ModuleBuilder<'_> {
     /// Build the opaque object used for the supported `Intl.DateTimeFormat` surface.
     pub(in crate::lowering) fn intl_date_time_format_object_expr(&mut self, body: &mut Body, span: Span) -> smelt_hir::ExprId {
         let key = self.ctx.krate.types.intern(Type::String);
-        let value = self.ctx.krate.types.intern(Type::Unknown);
+        let value = self.erase_with(ErasureReason::UntypedBuiltin, "Intl.DateTimeFormat");
         let ty = self.ctx.krate.types.intern(Type::Dict(key, value));
         body.push_expr(Expr {
             kind: ExprKind::DictLit(Vec::new()),
@@ -1517,6 +1522,7 @@ impl ModuleBuilder<'_> {
             "log10" => NumericUnaryFuncOp::Log10,
             "log2" => NumericUnaryFuncOp::Log2,
             "exp" => NumericUnaryFuncOp::Exp,
+            "clz32" => NumericUnaryFuncOp::Clz32,
             _ => return Ok(None),
         };
         if call.arguments.len() != 1 {

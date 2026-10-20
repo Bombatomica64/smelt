@@ -103,8 +103,8 @@ closure ClosureId(0) -> Dict<String, String | List<String>>
     %9 temp: List<String>
     %10 temp: List<String>
     %11 temp: List<List<String>>
-    %12 temp: Float
-    %13 temp: Float
+    %12 temp: usize
+    %13 temp: usize
     %14 temp: Bool
     %15 temp: Optional<String>
     %16 temp: Optional<String>
@@ -125,7 +125,7 @@ closure ClosureId(0) -> Dict<String, String | List<String>>
     %10 = ["x", "1"]
     %11 = [copy %8, copy %9, copy %10]
     %2 = copy %11
-    %12 = 0.0
+    %12 = 0
     goto bb1
   bb1:
     %13 = len copy %2
@@ -139,7 +139,7 @@ closure ClosureId(0) -> Dict<String, String | List<String>>
     %5 = copy %16
     switch copy %0 ? bb5 : bb6
   bb3:
-    %12 = copy %12 + 1.0
+    %12 = copy %12 + 1
     goto bb1
   bb4:
     return copy %1

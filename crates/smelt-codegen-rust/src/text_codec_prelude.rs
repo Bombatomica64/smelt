@@ -61,8 +61,13 @@ use crate::rust::CodeWriter;
 /// `needs_data_view` gates the `DataView` half of the family, which is
 /// pay-for-use on its own: most programs that hold a typed array never mention
 /// one.
-pub fn emit_byte_array(writer: &mut CodeWriter, needs_unknown: bool, needs_data_view: bool) {
-    crate::typed_array_prelude::emit(writer, needs_unknown, needs_data_view);
+pub fn emit_byte_array(
+    writer: &mut CodeWriter,
+    needs_unknown: bool,
+    needs_data_view: bool,
+    needs_bigint: bool,
+) {
+    crate::typed_array_prelude::emit(writer, needs_unknown, needs_data_view, needs_bigint);
 }
 
 

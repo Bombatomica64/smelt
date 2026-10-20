@@ -3719,19 +3719,19 @@ pub(crate) async fn greet(name: String) -> Result<String, Box<dyn std::error::Er
 
 pub(crate) async fn sum(values: SmeltList<f64>) -> Result<f64, Box<dyn std::error::Error>> {
     let mut value: f64;
-    let mut _smelt_tmp_4: f64;
+    let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: f64;
     let mut total: f64 = 0.0;
-    let mut _smelt_tmp_3: f64 = 0.0;
+    let mut _smelt_tmp_3: usize = 0;
     loop {
-    _smelt_tmp_4 = values.len() as f64;
+    _smelt_tmp_4 = values.len();
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if !(_smelt_tmp_5) { break; }
-    value = values.borrow().get({ let smelt_normalized = _smelt_tmp_3 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    value = values.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| 0.0);
     _smelt_tmp_6 = total + value;
     total = _smelt_tmp_6;
-    _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
+    _smelt_tmp_3 = _smelt_tmp_3 + 1;
     }
     return Ok(total);
 }

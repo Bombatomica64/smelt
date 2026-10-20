@@ -254,7 +254,7 @@ fn scan_files(
     let mut seen_by_file: BTreeMap<String, std::collections::BTreeSet<BlockerKey>> =
         BTreeMap::new();
 
-    let mut diagnostics = lowering::collect_manifest_diagnostics(config, manifest_path)?;
+    let mut diagnostics = lowering::collect_manifest_diagnostics(config, manifest_path, None)?;
     diagnostics.sort_by(|left, right| left.file.cmp(&right.file));
     for diagnostic in diagnostics {
             let path = diagnostic.file.clone();

@@ -60,6 +60,10 @@ pub enum BinOp {
     /// Bitwise XOR operator (`^`), with the same `ToInt32` JavaScript semantics
     /// as [`BinOp::BitAnd`].
     BitXor,
+    /// `Math.imul(a, b)`: the low 32 bits of `ToInt32(a) * ToInt32(b)`, read as
+    /// a signed int32. An operator rather than a call so it is visible to the
+    /// int32 proofs like the bitwise operators it belongs with.
+    IMul,
 }
 
 /// Returns the text representation of a binary operator.
@@ -85,6 +89,7 @@ pub const fn bin_op_text(op: BinOp) -> &'static str {
         BinOp::BitAnd => "&",
         BinOp::BitOr => "|",
         BinOp::BitXor => "^",
+        BinOp::IMul => "imul",
     }
 }
 

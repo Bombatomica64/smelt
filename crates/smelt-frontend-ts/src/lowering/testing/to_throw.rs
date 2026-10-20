@@ -28,7 +28,9 @@ use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
-use smelt_hir::{Body, Expr, ExprId, ExprKind, LocalDecl, LocalId, Span, Type, TypeId};
+use smelt_hir::{
+    Body, ErasureReason, Expr, ExprId, ExprKind, LocalDecl, LocalId, Span, Type, TypeId,
+};
 
 impl ModuleBuilder<'_> {
     /// Build the catch local and the predicate "the caught value matches
@@ -57,7 +59,8 @@ impl ModuleBuilder<'_> {
             _ => None,
         };
         let instance_of = |this: &mut Self, name: &str, target: &mut Body| {
-            let unknown_ty = this.ctx.krate.types.intern(Type::Unknown);
+            // The thrown value reaches the test as an untyped caught error.
+            let unknown_ty = this.erase_at(ErasureReason::TestHarness, span, "toThrow class");
             let caught = this.caught_local(unknown_ty, span, target);
             let value = Self::caught_read(caught, unknown_ty, span, target);
             let class = this.intern_type_name(name);

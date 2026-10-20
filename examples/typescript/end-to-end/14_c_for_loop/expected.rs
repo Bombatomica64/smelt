@@ -70,15 +70,17 @@ fn smelt_string_to_number(text: &str) -> f64 {
 fn main() {
     let mut _smelt_tmp_2: bool;
     let mut _smelt_tmp_3: f64;
-    let mut _smelt_tmp_4: f64;
+    let mut _smelt_tmp_4: usize;
+    let mut _smelt_tmp_6: f64;
     let mut sum: f64 = 0.0;
-    let mut i: f64 = 0.0;
+    let mut i: usize = 0;
     loop {
-    _smelt_tmp_2 = i < 4.0;
+    _smelt_tmp_2 = i < 4;
     if !(_smelt_tmp_2) { break; }
-    _smelt_tmp_3 = sum + i;
+    _smelt_tmp_6 = i as f64;
+    _smelt_tmp_3 = sum + _smelt_tmp_6;
     sum = _smelt_tmp_3;
-    _smelt_tmp_4 = i + 1.0;
+    _smelt_tmp_4 = i + 1;
     i = _smelt_tmp_4;
     }
     let _ = { println!("{}", smelt_console_number(sum)); };

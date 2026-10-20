@@ -15,6 +15,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::ids::{Symbol, id_index};
 
+/// A symbol's identity pair: `(source key, rendering)`.
+type SymbolIdentity = (String, String);
+
 /// Interns strings into compact `Symbol` identifiers.
 ///
 /// A symbol's identity is the **pair** (rendered name, source spelling), so a
@@ -33,6 +36,18 @@ pub struct SymbolInterner {
     /// interners, where a missing entry means "source spelling == rendering".
     #[serde(default)]
     sources: Vec<String>,
+    /// `(source key, rendering)` -> symbol: the identity pair, inverted so
+    /// interning is a hash lookup rather than a scan.
+    ///
+    /// A derived cache, never serialized; [`SymbolInterner::intern_rendered`]
+    /// rebuilds it when it is out of step with `symbols` (a deserialized
+    /// interner). The linear scan it replaces made every intern O(symbols),
+    /// quadratic over a program -- measured by `tests/compile_scaling.rs` in
+    /// `smelt-codegen-rust`, where a long intersection spent most of its
+    /// frontend time here. `intern_rendered` is the only writer of `symbols`,
+    /// so the index answers exactly the slot the scan found (the first match).
+    #[serde(skip)]
+    index: std::collections::HashMap<SymbolIdentity, Symbol>,
 }
 
 impl SymbolInterner {
@@ -67,17 +82,39 @@ impl SymbolInterner {
     /// silently owns the key string both are read with
     /// (`OriginalNameTable::record` is last-writer-wins).
     pub fn intern_rendered(&mut self, key: &str, rendered: &str) -> Symbol {
-        for idx in 0..self.symbols.len() {
-            if self.slot_matches(idx, key, rendered) {
-                return Symbol(id_index(idx));
-            }
+        if self.index.len() != self.symbols.len() {
+            self.rebuild_index();
+        }
+        if let Some(symbol) = self.index.get(&(key.to_owned(), rendered.to_owned())) {
+            debug_assert!(
+                self.slot_matches(symbol.0 as usize, key, rendered),
+                "the symbol index must agree with the slot it names"
+            );
+            return *symbol;
         }
         let id = Symbol(id_index(self.symbols.len()));
+        self.index.insert((key.to_owned(), rendered.to_owned()), id);
         self.symbols.push(rendered.to_owned());
         self.sources.resize(self.symbols.len() - 1, String::new());
         self.sources
             .push(if key == rendered { String::new() } else { key.to_owned() });
         id
+    }
+
+    /// Rebuild the identity index from the stored slots, first slot winning.
+    ///
+    /// A slot's identity key is its stored source spelling, or its rendering
+    /// when none is stored -- the same rule [`Self::slot_matches`] applies.
+    fn rebuild_index(&mut self) {
+        let mut index = std::collections::HashMap::with_capacity(self.symbols.len());
+        for (idx, rendered) in self.symbols.iter().enumerate() {
+            let stored = self.sources.get(idx).map_or("", String::as_str);
+            let key = if stored.is_empty() { rendered.as_str() } else { stored };
+            index
+                .entry((key.to_owned(), rendered.clone()))
+                .or_insert_with(|| Symbol(id_index(idx)));
+        }
+        self.index = index;
     }
 
     #[must_use]

@@ -244,6 +244,20 @@ return_ty: none_ty,
         self.ctx.krate.types.intern(ty)
     }
 
+    /// Erase a value to `Type::Unknown` for `reason`, recording the decision
+    /// at `span` in [`smelt_hir::Crate::erasures`].
+    ///
+    /// Design adapted from Bun's `--aot` (oven-sh/bun#45631),
+    /// `src/sema/aot_rules.rs`: the reason is named where the erasure is
+    /// decided, so reports can explain each erased value by source line.
+    fn erase(&mut self, reason: smelt_hir::ErasureReason, span: Span, detail: &str) -> TypeId {
+        self.ctx
+            .krate
+            .erasures
+            .push(smelt_hir::ErasureRecord::new(reason, span, detail));
+        self.intern_type(Type::Unknown)
+    }
+
     // -----------------------------------------------------------------------
     // Span helpers
     // -----------------------------------------------------------------------

@@ -217,6 +217,12 @@ pub(crate) const DATA_VIEW_GET_FN: &str = "smelt_data_view_get_throwing";
 /// Name of the generated fallible `DataView` WRITE adapter.
 pub(crate) const DATA_VIEW_SET_FN: &str = "smelt_data_view_set_throwing";
 
+/// Name of the generated fallible `DataView` BIGINT read adapter.
+pub(crate) const DATA_VIEW_GET_BIGINT_FN: &str = "smelt_data_view_get_bigint_throwing";
+
+/// Name of the generated fallible `DataView` BIGINT write adapter.
+pub(crate) const DATA_VIEW_SET_BIGINT_FN: &str = "smelt_data_view_set_bigint_throwing";
+
 /// Emits the fallible `DataView` accessor adapters into the generated prelude.
 ///
 /// An offset outside the view is a `RangeError` in JavaScript, and it is the
@@ -239,7 +245,7 @@ pub(crate) const DATA_VIEW_SET_FN: &str = "smelt_data_view_set_throwing";
 /// Node. Clamping the offset at the emit site instead would have turned that
 /// throw into a silent read of byte 0, and casting a huge `f64` to `usize`
 /// would have made the window test overflow rather than answer.
-pub(crate) fn emit_data_view_access_support(writer: &mut CodeWriter) {
+pub(crate) fn emit_data_view_access_support(writer: &mut CodeWriter, needs_bigint: bool) {
     // Node's own message, verbatim, because a program can read it: `catch (e) {
     // e.message }` is ordinary JavaScript.
     let payload = error_payload_record_expr(
@@ -267,6 +273,23 @@ pub(crate) fn emit_data_view_access_support(writer: &mut CodeWriter) {
     writer.line(format!(
         "fn {DATA_VIEW_SET_FN}(view: &SmeltDataView, kind: SmeltTypedArrayKind, offset: f64, value: f64, little_endian: bool) -> Result<(), Box<dyn ::std::error::Error>> {{ if {DATA_VIEW_INDEX_FN}(offset).is_some_and(|index| view.set_checked(kind, index, value, little_endian)) {{ Ok(()) }} else {{ Err({THROW_FN}({payload})) }} }}"
     ));
+    // The bigint accessors (`getBigInt64`, `setBigUint64`, ...) answer and take
+    // a `bigint`, exact at all 64 bits, through the same bound and the same
+    // `RangeError`.
+    if needs_bigint {
+        writer.line(
+            "/// `DataView.prototype.getBigInt64`/`getBigUint64`, throwing a catchable `RangeError`.",
+        );
+        writer.line(format!(
+            "fn {DATA_VIEW_GET_BIGINT_FN}(view: &SmeltDataView, kind: SmeltTypedArrayKind, offset: f64, little_endian: bool) -> Result<::num_bigint::BigInt, Box<dyn ::std::error::Error>> {{ match {DATA_VIEW_INDEX_FN}(offset).and_then(|index| view.get_bigint_checked(kind, index, little_endian)) {{ Some(value) => Ok(value), None => Err({THROW_FN}({payload})) }} }}"
+        ));
+        writer.line(
+            "/// `DataView.prototype.setBigInt64`/`setBigUint64`, throwing a catchable `RangeError`.",
+        );
+        writer.line(format!(
+            "fn {DATA_VIEW_SET_BIGINT_FN}(view: &SmeltDataView, kind: SmeltTypedArrayKind, offset: f64, value: &::num_bigint::BigInt, little_endian: bool) -> Result<(), Box<dyn ::std::error::Error>> {{ if {DATA_VIEW_INDEX_FN}(offset).is_some_and(|index| view.set_bigint_checked(kind, index, value, little_endian)) {{ Ok(()) }} else {{ Err({THROW_FN}({payload})) }} }}"
+        ));
+    }
 }
 
 /// Name of the generated fallible `btoa` adapter.

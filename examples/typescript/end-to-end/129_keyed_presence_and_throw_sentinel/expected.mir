@@ -68,14 +68,14 @@ fn insert (FuncId(2)) -> None throws
     %3 user token: String
     %4 user next: Optional<TrieNode>
     %5 user key: String
-    %6 temp: Float
-    %7 temp: Float
+    %6 temp: usize
+    %7 temp: usize
     %8 temp: Bool
     %9 temp: Optional<TrieNode>
     %10 temp: Bool
     %11 temp: List<String>
-    %12 temp: Float
-    %13 temp: Float
+    %12 temp: usize
+    %13 temp: usize
     %14 temp: Bool
     %15 temp: String
     %16 temp: String
@@ -88,7 +88,7 @@ fn insert (FuncId(2)) -> None throws
     %23 temp: TrieNode
   bb0:
     %2 = copy %0
-    %6 = 0.0
+    %6 = 0
     goto bb1
   bb1:
     %7 = len copy %1
@@ -102,13 +102,13 @@ fn insert (FuncId(2)) -> None throws
     %10 = !copy %4
     switch move %10 ? bb5 : bb6
   bb3:
-    %6 = copy %6 + 1.0
+    %6 = copy %6 + 1
     goto bb1
   bb4:
     switch copy %2.field15 ? bb14 : bb15
   bb5:
     %11 = dict_for_in_keys copy %2.field14
-    %12 = 0.0
+    %12 = 0
     goto bb7
   bb6:
     %2 = move %4
@@ -128,7 +128,7 @@ fn insert (FuncId(2)) -> None throws
     %21 = move %17 != move %20
     switch move %21 ? bb11 : bb12
   bb9:
-    %12 = copy %12 + 1.0
+    %12 = copy %12 + 1
     goto bb7
   bb10:
     %22 = copy %2.field14
@@ -222,8 +222,8 @@ fn add (FuncId(5)) -> None throws
     %10 temp: Dict<String, List<String>>
     %11 temp: Dict<String, Dict<String, List<String>>>
     %12 temp: List<String>
-    %13 temp: Float
-    %14 temp: Float
+    %13 temp: usize
+    %14 temp: usize
     %15 temp: Bool
     %16 temp: Dict<String, Dict<String, List<String>>>
     %17 temp: Dict<String, List<String>>
@@ -268,7 +268,7 @@ fn add (FuncId(5)) -> None throws
     %0.field24 = move %9
     %11 = copy %0.field24
     %12 = dict_for_in_keys copy %11["ALL"]
-    %13 = 0.0
+    %13 = 0
     goto bb4
   bb4:
     %14 = len copy %12
@@ -287,7 +287,7 @@ fn add (FuncId(5)) -> None throws
     %0.field24 = move %16
     %22 = call fn4(copy %0, copy %1, move %4) -> bb8
   bb6:
-    %13 = copy %13 + 1.0
+    %13 = copy %13 + 1
     goto bb4
   bb7:
     goto bb2

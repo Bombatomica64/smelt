@@ -8,6 +8,7 @@ pub(crate) fn constant_text(constant: &Constant) -> String {
     match constant {
         Constant::Bool(value) => value.to_string(),
         Constant::Int(value) => value.to_string(),
+        Constant::BigInt(digits) => crate::bigint_prelude::literal_text(digits),
         Constant::Float(value) => {
             if value.is_infinite() {
                 return if value.is_sign_negative() {

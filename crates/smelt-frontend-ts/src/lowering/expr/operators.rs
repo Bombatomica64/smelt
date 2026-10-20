@@ -8,7 +8,7 @@
 //! emit the concrete HIR construction and projection kinds.
 
 use crate::RestParam;
-use smelt_hir::PropertyLookup;
+use smelt_hir::{ErasureReason, PropertyLookup};
 use crate::lowering::{
     Argument, ArrayExpressionElement, AsyncOp, BinOp, BinaryOperator, BindingPattern, Body,
     CaptureMode, ClosureCapture, DictProjectionOp, Expr, ExprKind, Expression, Field, FunctionType,
@@ -69,7 +69,6 @@ impl ModuleBuilder<'_> {
         if !matches!(source_arg, Argument::ObjectExpression(_)) {
             let source = self.argument(source_arg, body)?;
             let source_ty = self.type_param_constraint_or_self(Self::expr_ty(body, source));
-            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
             // `Array.from(view)` is the view's elements, decoded by the family
             // rather than read back out of an erased record. Asked before the
             // arms below, whose class fallback erases.
@@ -110,7 +109,11 @@ impl ModuleBuilder<'_> {
                         span: self.span(call.span.start, call.span.end),
                     })));
                 }
-                _ => self.ctx.krate.types.intern(Type::List(unknown_ty)),
+                _ => {
+                    let unknown_ty =
+                        self.erase_with(ErasureReason::UntypedBuiltin, "Array.from(iterable)");
+                    self.ctx.krate.types.intern(Type::List(unknown_ty))
+                }
             };
             if let Some(mapper_arg) = mapper_arg {
                 let _ = self.argument(mapper_arg, body)?;
@@ -154,7 +157,7 @@ impl ModuleBuilder<'_> {
             }
         }
         let Some(mapper_arg) = mapper_arg else {
-            let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let item_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Array.from of a length object");
             let ty = self.ctx.krate.types.intern(Type::List(item_ty));
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::ListFromLength { length },
@@ -162,7 +165,7 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         };
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Array.from mapper element");
         let index_ty = self.ctx.krate.types.intern(Type::Float);
         let callback = self.callback_argument_with_body_fallback(
             mapper_arg,
@@ -381,7 +384,7 @@ impl ModuleBuilder<'_> {
                     })
                 };
                 let item_ty = annotated_item_ty
-                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                    .unwrap_or_else(|| self.erase_with(ErasureReason::MissingAnnotation, "Array(n)"));
                 let ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::ListFromLength { length },
@@ -409,7 +412,7 @@ impl ModuleBuilder<'_> {
         }
         let item_ty = annotated_item_ty.unwrap_or_else(|| {
             if items.is_empty() {
-                self.ctx.krate.types.intern(Type::Unknown)
+                self.erase_with(ErasureReason::MissingAnnotation, "Array()")
             } else {
                 self.array_literal_item_type(&items, body)
             }
@@ -450,7 +453,8 @@ impl ModuleBuilder<'_> {
             return value;
         }
         let unknown_list_ty = {
-            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            // not a new erasure: only compared against below
+            let unknown_ty = self.unknown_type();
             self.ctx.krate.types.intern(Type::List(unknown_ty))
         };
         if let Some(expr) = body.exprs.get_mut(usize::try_from(value.0).unwrap_or(usize::MAX))
@@ -737,7 +741,7 @@ impl ModuleBuilder<'_> {
                 {
                     set_ty
                 } else {
-                    let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let item_ty = self.erase_with(ErasureReason::MissingAnnotation, "new Set()");
                     self.ctx.krate.types.intern(Type::Set(item_ty))
                 };
                 (Vec::new(), ty)
@@ -794,7 +798,7 @@ impl ModuleBuilder<'_> {
                     let item_ty = self.ts_type_to_hir(item)?;
                     self.ctx.krate.types.intern(Type::Set(item_ty))
                 } else {
-                    let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let item_ty = self.erase_with(ErasureReason::MissingAnnotation, "new Set([])");
                     self.ctx.krate.types.intern(Type::Set(item_ty))
                 };
                 (items, ty)
@@ -862,7 +866,15 @@ impl ModuleBuilder<'_> {
                         string_ty
                     }
                     _ if self.erased_or_union_surface(list_ty) => {
-                        let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                        let item_ty = if matches!(
+                            self.ctx.krate.types.get(list_ty),
+                            Some(Type::Unknown)
+                        ) {
+                            // not a new erasure: the iterable is already erased
+                            self.unknown_type()
+                        } else {
+                            self.erase_with(ErasureReason::DynamicOperator, "new Set(union)")
+                        };
                         let asserted_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
                         list = body.push_expr(Expr {
                             kind: ExprKind::TypeAssert { value: list },
@@ -940,7 +952,7 @@ impl ModuleBuilder<'_> {
                     let (key_ty, value_ty) = (*key_ty, *value_ty);
                     self.ctx.krate.types.intern(Type::JsMap(key_ty, value_ty))
                 } else {
-                    let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                    let unknown = self.erase_with(ErasureReason::MissingAnnotation, "new Map()");
                     self.ctx.krate.types.intern(Type::JsMap(unknown, unknown))
                 };
                 (Vec::new(), ty)
@@ -983,7 +995,7 @@ impl ModuleBuilder<'_> {
                     // marker, so re-intern the declared components as `JsMap`.
                     self.ctx.krate.types.intern(Type::JsMap(key_ty, value_ty))
                 } else if entries.is_empty() {
-                    let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                    let unknown = self.erase_with(ErasureReason::MissingAnnotation, "new Map([])");
                     self.ctx.krate.types.intern(Type::JsMap(unknown, unknown))
                 } else {
                     // Without an annotation, infer the key and value component
@@ -1007,7 +1019,7 @@ impl ModuleBuilder<'_> {
                 for argument in &new_expr.arguments {
                     let _ = self.argument(argument, body)?;
                 }
-                let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                let unknown = self.erase_with(ErasureReason::UntypedBuiltin, "new Map(iterable)");
                 (
                     Vec::new(),
                     self.ctx.krate.types.intern(Type::JsMap(unknown, unknown)),
@@ -1186,7 +1198,7 @@ impl ModuleBuilder<'_> {
                         ArrayExpressionElement::Elision(_) => {
                             // A hole reads as `undefined` (see the sibling
                             // elision arm in `array_expression`).
-                            let ty = self.ctx.krate.types.intern(Type::Unknown);
+                            let ty = self.erase_with(ErasureReason::DynamicOperator, "array hole");
                             body.push_expr(Expr {
                                 kind: ExprKind::Literal(Literal::Undefined),
                                 ty,
@@ -1289,6 +1301,10 @@ impl ModuleBuilder<'_> {
         if binary.operator == BinaryOperator::Exponential {
             let base = self.expression(&binary.left, body)?;
             let exponent = self.expression(&binary.right, body)?;
+            let span = self.span(binary.span.start, binary.span.end);
+            if let Some(power) = self.bigint_power(base, exponent, span, body) {
+                return Ok(power);
+            }
             let ty = self.ctx.krate.types.intern(Type::Float);
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::NumericPow { base, exponent },
@@ -1344,10 +1360,14 @@ impl ModuleBuilder<'_> {
         let lhs_ty = Self::expr_ty(body, lhs);
         let rhs_ty = Self::expr_ty(body, rhs);
         let ty = self.binary_result_type(op, lhs_ty, rhs_ty);
+        let span = self.span(binary.span.start, binary.span.end);
+        if let Some(call) = self.bigint_fallible_binary(op, lhs, rhs, span, body) {
+            return Ok(call);
+        }
         Ok(body.push_expr(Expr {
             kind: ExprKind::BinOp { op, lhs, rhs },
             ty,
-            span: self.span(binary.span.start, binary.span.end),
+            span,
         }))
     }
 
@@ -1827,7 +1847,8 @@ impl ModuleBuilder<'_> {
                         optional: optional_receiver,
                         fallback,
                     },
-                    ty: self.ctx.krate.types.intern(Type::Unknown),
+                    // not a new erasure: the operand already contains unknown
+                    ty: self.unknown_type(),
                     span: self.span(logical.span.start, logical.span.end),
                 })));
             }
@@ -1870,7 +1891,7 @@ impl ModuleBuilder<'_> {
             let fallback = self.expression(&logical.right, body)?;
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::OptionalCoalesce { optional, fallback },
-                ty: self.ctx.krate.types.intern(Type::Unknown),
+                ty: self.erase_with(ErasureReason::DynamicOperator, "|| over function"),
                 span: self.span(logical.span.start, logical.span.end),
             })));
         }
@@ -1929,11 +1950,12 @@ impl ModuleBuilder<'_> {
             || self.type_contains_unknown(ty)
             || self.type_contains_unknown(fallback_ty)
         {
-            self.ctx.krate.types.intern(Type::Unknown)
+            // not a new erasure: an operand already contains unknown
+            self.unknown_type()
         } else if self.is_structural_object_surface(ty) {
             // Object values are always truthy in JavaScript; keep the selected
             // runtime value when their fallback widens the expression surface.
-            self.ctx.krate.types.intern(Type::Unknown)
+            self.erase_with(ErasureReason::DynamicOperator, "|| over object")
         } else if matches!(self.ctx.krate.types.get(ty), Some(Type::Union(_))) {
             // A union left operand (`Pattern | null`, `Pattern` itself a union
             // of a tuple and a string literal) keeps EVERY arm it can yield:
@@ -2053,7 +2075,7 @@ impl ModuleBuilder<'_> {
                 then_expr: value,
                 else_expr: fallback,
             },
-            ty: self.ctx.krate.types.intern(Type::Unknown),
+            ty: self.erase_with(ErasureReason::DynamicOperator, "|| over objects"),
             span: self.span(logical.span.start, logical.span.end),
         })))
     }
@@ -2075,7 +2097,8 @@ impl ModuleBuilder<'_> {
         if !self.type_contains_unknown(value_ty) {
             return Ok(None);
         }
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure: the left operand already contains unknown
+        let unknown_ty = self.unknown_type();
         let fallback = self.expression_with_hint(&logical.right, body, Some(unknown_ty))?;
         let fallback_ty = Self::expr_ty(body, fallback);
         if !self.type_contains_unknown(fallback_ty) {
@@ -2151,7 +2174,8 @@ impl ModuleBuilder<'_> {
             return Some(self.ctx.krate.types.intern(Type::String));
         }
         if self.type_contains_unknown(value_ty) || self.type_contains_unknown(fallback_ty) {
-            return Some(self.ctx.krate.types.intern(Type::Unknown));
+            // not a new erasure: an operand already contains unknown
+            return Some(self.unknown_type());
         }
         match (
             self.ctx.krate.types.get(value_ty),
@@ -2241,7 +2265,7 @@ impl ModuleBuilder<'_> {
         let result_ty = if self.is_string_compatible_type(fallback_ty) {
             self.ctx.krate.types.intern(Type::String)
         } else if self.is_numeric_like_type(fallback_ty) {
-            self.ctx.krate.types.intern(Type::Unknown)
+            self.erase_with(ErasureReason::DynamicOperator, "string || number")
         } else {
             return Ok(None);
         };
@@ -2422,6 +2446,24 @@ impl ModuleBuilder<'_> {
             } else {
                 hint
             }
+        } else if self.is_declared_record_type(ty)
+            && matches!(
+                self.ctx.krate.types.get(fallback_ty),
+                Some(Type::Bool | Type::Int | Type::Float | Type::String)
+            )
+        {
+            // A RECORD on the left and a primitive fallback: TypeScript's
+            // `NonNullable<typeof a> | typeof b` is a genuine two-arm union
+            // (`server.address() ?? -1` is `AddressInfo | number`). The
+            // class-surface branch below would assert the primitive INTO the
+            // record type, a value no record can hold — the generated Rust
+            // assigned an `f64` to an `AddressInfo` local (E0308). A record
+            // declared by the program has concrete storage, so the union is a
+            // concrete generated enum, not an erasure.
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Union(vec![ty, fallback_ty]))
         } else if !self.erased_or_union_surface(ty)
             && !self.erased_or_union_surface(fallback_ty)
             && !self.concrete_type_requires_never_value(ty)
@@ -2815,7 +2857,7 @@ impl ModuleBuilder<'_> {
                 let receiver = if self.ctx.krate.types.get(receiver_ty) == Some(&Type::Unknown) {
                     receiver
                 } else {
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let ty = self.erase_with(ErasureReason::DynamicOperator, "in");
                     body.push_expr(Expr {
                         kind: ExprKind::TypeAssert { value: receiver },
                         ty,
@@ -2906,6 +2948,7 @@ impl ModuleBuilder<'_> {
                     "unary plus requires a numeric or DateArg-compatible operand",
                 ));
             }
+            UnaryOperator::BitwiseNot => return self.bitwise_not_expression(unary, body),
             _ => {
                 return Err(SmeltError::unsupported(
                     self.span(unary.span.start, unary.span.end),
@@ -3088,7 +3131,7 @@ impl ModuleBuilder<'_> {
                 // to `null` made `[1, , 2]` and `[1, null, 2]` indistinguishable
                 // and `[...new Set([1, , 2])]` produce `null` where JavaScript
                 // produces `undefined`.
-                let ty = element_hint.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                let ty = element_hint.unwrap_or_else(|| self.erase_with(ErasureReason::DynamicOperator, "array hole"));
                 body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::Undefined),
                     ty,
@@ -3116,7 +3159,7 @@ impl ModuleBuilder<'_> {
             let item_ty = self.array_literal_item_type(&items, body);
             self.ctx.krate.types.intern(Type::List(item_ty))
         } else {
-            let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let item_ty = self.erase_with(ErasureReason::MissingAnnotation, "empty array literal");
             self.ctx.krate.types.intern(Type::List(item_ty))
         };
         if self.array_literal_needs_never_value(ty, items.len()) {
@@ -3147,7 +3190,7 @@ impl ModuleBuilder<'_> {
             .map(|item| Self::expr_ty(body, *item))
             .collect::<Vec<_>>();
         let Some(first_ty) = item_tys.first().copied() else {
-            return self.ctx.krate.types.intern(Type::Unknown);
+            return self.erase_with(ErasureReason::MissingAnnotation, "empty array literal");
         };
         if item_tys.iter().all(|item_ty| *item_ty == first_ty) {
             return first_ty;
@@ -3171,7 +3214,7 @@ impl ModuleBuilder<'_> {
                 .types
                 .intern(Type::Optional(first_non_nullish));
         }
-        self.ctx.krate.types.intern(Type::Unknown)
+        self.erase_with(ErasureReason::DynamicOperator, "mixed array literal")
     }
 
     /// Report whether an array literal writes BOTH `null` and `undefined`.
@@ -3309,14 +3352,14 @@ impl ModuleBuilder<'_> {
                     yield_ty,
                     ..
                 }) => *yield_ty,
+                // not a new erasure: the spread operand is already erased
+                Some(Type::Unknown) | None => self.unknown_type(),
                 Some(
-                    Type::Unknown
-                    | Type::TypeParam { .. }
+                    Type::TypeParam { .. }
                     | Type::Class { .. }
                     | Type::Optional(_)
                     | Type::Union(_),
-                )
-                | None => self.ctx.krate.types.intern(Type::Unknown),
+                ) => self.erase_with(ErasureReason::DynamicOperator, "array spread"),
                 _ => {
                     return Err(SmeltError::unsupported(
                         self.span(spread.span.start, spread.span.end),
@@ -3444,7 +3487,8 @@ impl ModuleBuilder<'_> {
         {
             return *item_ty;
         }
-        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+        // Used only to compare candidates against the erased type.
+        let unknown = self.unknown_type();
         let mut unified: Option<smelt_hir::TypeId> = None;
         for &(value, is_spread) in pieces {
             let candidate = if is_spread {
@@ -3457,7 +3501,9 @@ impl ModuleBuilder<'_> {
                         yield_ty,
                         ..
                     }) => *yield_ty,
-                    _ => unknown,
+                    // not a new erasure: the spread operand is already erased
+                    Some(Type::Unknown) => unknown,
+                    _ => self.erase_with(ErasureReason::DynamicOperator, "array spread"),
                 }
             } else {
                 Self::expr_ty(body, value)
@@ -3465,10 +3511,15 @@ impl ModuleBuilder<'_> {
             match unified {
                 None => unified = Some(candidate),
                 Some(existing) if existing == candidate => {}
-                Some(_) => return unknown,
+                // not a new erasure: one piece is already erased
+                Some(existing) if existing == unknown || candidate == unknown => return unknown,
+                Some(_) => {
+                    return self
+                        .erase_with(ErasureReason::DynamicOperator, "mixed array spread items");
+                }
             }
         }
-        unified.unwrap_or(unknown)
+        unified.unwrap_or_else(|| self.erase_with(ErasureReason::MissingAnnotation, "empty array"))
     }
 
     /// Convert an iterable spread operand into the list value required by list concatenation.
@@ -3581,7 +3632,7 @@ impl ModuleBuilder<'_> {
                     continue;
                 }
                 let key = self.object_property_key_expr(object_property, body)?;
-                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let unknown_ty = self.erase_with(ErasureReason::UnmodeledType, "object literal getter");
                 let getter =
                     if let Expression::FunctionExpression(function) = &object_property.value {
                         let getter_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
@@ -3642,7 +3693,7 @@ impl ModuleBuilder<'_> {
                     continue;
                 }
                 let key = self.object_property_key_expr(object_property, body)?;
-                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                let ty = self.erase_with(ErasureReason::UnmodeledType, "object method");
                 let value = body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::None),
                     ty,
@@ -3707,7 +3758,7 @@ impl ModuleBuilder<'_> {
                             continue;
                         }
                         let key = self.object_property_key_expr(object_property, body)?;
-                        let ty = self.ctx.krate.types.intern(Type::Unknown);
+                        let ty = self.erase_with(ErasureReason::UnmodeledType, "object method");
                         let value = body.push_expr(Expr {
                             kind: ExprKind::Literal(Literal::None),
                             ty,
@@ -3779,7 +3830,7 @@ impl ModuleBuilder<'_> {
                     {
                         let ty = record_ty.unwrap_or_else(|| {
                             let key_ty = self.ctx.krate.types.intern(Type::String);
-                            let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                            let value_ty = self.erase_with(ErasureReason::DynamicOperator, "object spread");
                             self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
                         });
                         source = body.push_expr(Expr {
@@ -3820,8 +3871,9 @@ impl ModuleBuilder<'_> {
             self.note_spread_chunk_join(&sources, &mut chunks, record_ty, &mut heterogeneous, body);
         }
         let key_ty = self.ctx.krate.types.intern(Type::String);
-        let fallback_value_ty = self.ctx.krate.types.intern(Type::Unknown);
         if heterogeneous {
+            let fallback_value_ty =
+                self.erase_with(ErasureReason::DynamicOperator, "heterogeneous object spread");
             let erased = self.ctx.krate.types.intern(Type::Dict(key_ty, fallback_value_ty));
             for chunk in &chunks {
                 if let Some(expr) = usize::try_from(chunk.0).ok().and_then(|index| body.exprs.get_mut(index)) {
@@ -3831,6 +3883,7 @@ impl ModuleBuilder<'_> {
             record_ty = Some(erased);
         }
         let record_ty = record_ty.unwrap_or_else(|| {
+            let fallback_value_ty = self.erase_with(ErasureReason::DynamicOperator, "object spread");
             self.ctx
                 .krate
                 .types
@@ -4065,7 +4118,7 @@ impl ModuleBuilder<'_> {
         if matches!(&property.value, Expression::Identifier(identifier) if identifier.name == "undefined")
             && type_hint.is_none()
         {
-            let ty = self.ctx.krate.types.intern(Type::Unknown);
+            let ty = self.erase_with(ErasureReason::MissingAnnotation, "undefined property");
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Undefined),
                 ty,
@@ -4138,7 +4191,7 @@ impl ModuleBuilder<'_> {
         } else if let Some((_, function_ty)) = &hint_function {
             function_ty.return_ty
         } else {
-            self.ctx.krate.types.intern(Type::Unknown)
+            self.erase_with(ErasureReason::MissingAnnotation, "function expression return")
         };
 
         let saved_locals = self.scope.take_bindings();
@@ -4204,7 +4257,7 @@ impl ModuleBuilder<'_> {
                         )
                     })?
                 } else {
-                    self.ctx.krate.types.intern(Type::Unknown)
+                    self.erase_with(ErasureReason::MissingAnnotation, "function expression param")
                 };
                 let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
                     return Err(SmeltError::unsupported(
@@ -4269,7 +4322,7 @@ impl ModuleBuilder<'_> {
                 });
                 let source_ty = annotated_ty
                     .or(hint_rest_ty)
-                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                    .unwrap_or_else(|| self.erase_with(ErasureReason::MissingAnnotation, "function expression rest"));
                 let Ok((ty, item_ty)) = self.rest_param_array_type(source_ty) else {
                     return Err(SmeltError::unsupported(
                         self.span(rest_param.span.start, rest_param.span.end),
@@ -4568,7 +4621,8 @@ impl ModuleBuilder<'_> {
             && !self.object_spread_entries_are_callable(&entries, body);
         let chunk_ty = if force_unknown_record {
             let key_ty = self.ctx.krate.types.intern(Type::String);
-            let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+            // not a new erasure: an earlier erased spread source forces the erased record
+            let value_ty = self.unknown_type();
             self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
         } else {
             self.object_literal_type(&entries, *record_ty, body)
@@ -4758,7 +4812,7 @@ impl ModuleBuilder<'_> {
         {
             string_ty
         } else {
-            self.ctx.krate.types.intern(Type::Unknown)
+            self.erase_with(ErasureReason::DynamicOperator, "object literal key")
         };
         let first_value_ty = entries
             .first()
@@ -4769,7 +4823,13 @@ impl ModuleBuilder<'_> {
                     .iter()
                     .all(|(_, value)| Self::expr_ty(body, *value) == *first_ty)
             })
-            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            .unwrap_or_else(|| {
+                if entries.is_empty() {
+                    self.erase_with(ErasureReason::MissingAnnotation, "empty object literal")
+                } else {
+                    self.erase_with(ErasureReason::DynamicOperator, "heterogeneous object literal")
+                }
+            });
         self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
     }
 
@@ -4954,7 +5014,7 @@ impl ModuleBuilder<'_> {
             .or_else(|| self.items.get(member_name).copied());
         let Some(item) = item else {
             if self.imports.is_namespace(namespace) {
-                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                let ty = self.erase_with(ErasureReason::UntypedPackage, "namespace member");
                 return Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::None),
                     ty,

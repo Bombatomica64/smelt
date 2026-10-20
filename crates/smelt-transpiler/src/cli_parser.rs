@@ -37,6 +37,19 @@ pub enum Command {
         /// Print full debug HIR after frontend lowering and stop
         #[arg(long = "hir-debug")]
         hir_debug: bool,
+
+        /// Define a build-time value, like Bun's `--define`: `KEY=VALUE` where
+        /// VALUE is JSON text, e.g. `--define 'process.env.NODE_ENV="production"'`.
+        /// Repeatable; overrides `[build] define` in Smelt.toml. Smelt consults
+        /// defines only to decide whether a package's typed version
+        /// (`.sound/`, `@sound/*`) applies; it does not substitute them.
+        #[arg(long = "define", value_name = "KEY=VALUE", value_parser = parse_define)]
+        define: Vec<(String, String)>,
+
+        /// Set an erasure reason's severity: `<reason>[:<glob>]=<allow|warn|deny>`
+        /// (`all` for every reason). Repeatable; overrides `[erasure]`.
+        #[arg(long = "erasure", value_name = "REASON=LEVEL")]
+        erasure: Vec<String>,
     },
     /// Type-check and validate without generating Rust
     ///
@@ -47,6 +60,11 @@ pub enum Command {
         /// every module's categorized diagnostics in one recoverable pass).
         #[arg(long = "message-format", default_value = "human")]
         message_format: String,
+
+        /// Set an erasure reason's severity: `<reason>[:<glob>]=<allow|warn|deny>`
+        /// (`all` for every reason). Repeatable; overrides `[erasure]`.
+        #[arg(long = "erasure", value_name = "REASON=LEVEL")]
+        erasure: Vec<String>,
     },
     /// Scaffold a new smelt project (not implemented yet)
     New {
@@ -195,6 +213,52 @@ pub enum Command {
         #[arg(long)]
         fail_on_regression: bool,
 
+        /// A `smelt-erasure.json` sidecar to explain avoidable erasure by
+        /// reason and source line. Repeatable. A sidecar beside a scanned
+        /// `src/` directory is read automatically.
+        #[arg(long = "erasure", value_name = "PATH")]
+        erasure: Vec<String>,
+
+        /// Write the report to this file instead of stdout.
+        #[arg(long, value_name = "PATH")]
+        output: Option<String>,
+    },
+
+    /// Measure and ratchet how much of a program reaches Rust typed
+    #[command(
+        name = "typedness-report",
+        long_about = "Measure, on optimized MIR and through the Rust emitter's own \
+        type rendering, how many values (locals), property reads and calls are \
+        concrete, generic or erased (`SmeltUnknown`), per program. Inputs are \
+        `smelt-typedness.json` sidecars (or directories holding one), `Smelt.toml` \
+        manifests (lowered in-process) or `.ts`/`.py` files (each lowered \
+        in-process as one program). With `--baseline`, a program whose erased \
+        count rose or whose typed share fell for any kind is reported; \
+        `--fail-on-regression` makes that exit nonzero. Design adapted from Bun's \
+        `--aot` typedness tests (oven-sh/bun#45631)."
+    )]
+    TypednessReport {
+        /// Sidecars, directories, manifests or source files to measure.
+        #[arg(value_name = "PATH", required = true)]
+        paths: Vec<String>,
+
+        /// Report format: `md` (default) or `json` (also the baseline format).
+        #[arg(long, default_value = "md", value_name = "FORMAT")]
+        format: String,
+
+        /// Baseline report to compare against.
+        #[arg(long, value_name = "PATH")]
+        baseline: Option<String>,
+
+        /// Exit nonzero when any program became less typed than the baseline.
+        #[arg(long)]
+        fail_on_regression: bool,
+
+        /// Rewrite `--baseline`, taking each program's new record only when it
+        /// is no less typed (a regression keeps its old record).
+        #[arg(long)]
+        update_baseline: bool,
+
         /// Write the report to this file instead of stdout.
         #[arg(long, value_name = "PATH")]
         output: Option<String>,
@@ -240,4 +304,15 @@ pub enum Command {
     Clean,
     /// Print the JSON Schema for Smelt.toml
     DumpSchema,
+}
+
+/// Parse one `--define KEY=VALUE` argument, splitting at the first `=`.
+fn parse_define(argument: &str) -> Result<(String, String), String> {
+    let (key, value) = argument
+        .split_once('=')
+        .ok_or_else(|| format!("`--define {argument}` is not KEY=VALUE"))?;
+    if key.is_empty() {
+        return Err(format!("`--define {argument}` has an empty KEY"));
+    }
+    Ok((key.to_owned(), value.to_owned()))
 }

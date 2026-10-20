@@ -628,7 +628,11 @@ impl ModuleBuilder<'_> {
                 is_async: signature.is_async,
                 may_throw: signature.throws,
             }),
-            smelt_specialize::StaticType::DynamicMetadata => Type::Unknown,
+            // The manifest marks an intentional dynamic-metadata / source
+            // `unknown` boundary; record it rather than interning silently.
+            smelt_specialize::StaticType::DynamicMetadata => {
+                return self.erase(smelt_hir::ErasureReason::DynamicMetadata);
+            }
         };
         self.ctx.krate.types.intern(lowered)
     }

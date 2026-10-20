@@ -16,7 +16,7 @@ use oxc::ast::ast::{
 };
 use oxc::span::GetSpan;
 use smelt_hir::{
-    Body, CLASS_INDEX_STORE_FIELD, Class, Expr, ExprKind,
+    Body, CLASS_INDEX_STORE_FIELD, Class, ErasureReason, Expr, ExprKind,
     Field, Function, FunctionOwner, FunctionType, Item, Literal, LocalDecl, MethodSig, Param,
     ParamSig, Pattern, Span, Stmt, Type, Visibility,
 };
@@ -162,7 +162,7 @@ impl ModuleBuilder<'_> {
             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
             .transpose()?
             .unwrap_or_else(|| {
-                let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                let unknown = self.erase(ErasureReason::MissingAnnotation);
                 if method.value.r#async {
                     self.ctx.krate.types.intern(Type::Future(unknown))
                 } else {
@@ -176,7 +176,7 @@ impl ModuleBuilder<'_> {
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?
-                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
             params.push(ty);
         }
         // `Function.length` counts the leading parameters before the first
@@ -699,10 +699,14 @@ impl ModuleBuilder<'_> {
                 is_async: function.r#async,
             };
         }
-        let yield_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure: `Unknown` here is the "no contextual Generator
+        // type" sentinel the yield lowering compares against; an unannotated
+        // generator's real carrier is inferred from its body by
+        // `inferred_generator_type`, which records its own erasures.
+        let yield_ty = self.unknown_type();
         GeneratorYieldAccumulator {
             yield_ty,
-            next_ty: self.ctx.krate.types.intern(Type::Unknown),
+            next_ty: self.unknown_type(),
             // An unannotated generator may not have a contextual Generator type,
             // but its syntax still determines whether delegation may suspend.
             is_async: function.r#async,
@@ -767,7 +771,7 @@ impl ModuleBuilder<'_> {
             }
         }
         let return_ty = self.reconciled_inferred_types(returned);
-        let next_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let next_ty = self.erase(ErasureReason::MissingAnnotation);
         self.ctx.krate.types.intern(Type::Generator {
             is_async,
             yield_ty,
@@ -1032,7 +1036,7 @@ impl ModuleBuilder<'_> {
             function_ty.return_ty
         } else {
             self.function_return_type_or_overload(function, name_text)
-                .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown))
+                .unwrap_or_else(|_| self.erase(ErasureReason::MissingAnnotation))
         };
         if function.r#async
             && !function.generator
@@ -1359,7 +1363,9 @@ impl ModuleBuilder<'_> {
             Some(Type::Function(function_ty)) => Some(function_ty),
             _ => None,
         });
-        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure: a provisional, body-less slot signature that the
+        // real lift overwrites; the lift decides (and records) these types.
+        let unknown = self.unknown_type();
         let span = self.span(function.span.start, function.span.end);
         let mut params = Vec::new();
         for (index, param) in function.params.items.iter().enumerate() {
@@ -1816,7 +1822,7 @@ impl ModuleBuilder<'_> {
                             .as_ref()
                             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                             .transpose()?
-                            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                            .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
                         fields.push(Field {
                             // The accessor's backing storage, not a source
                             // property: it must stay out of every erased view.
@@ -1876,7 +1882,7 @@ impl ModuleBuilder<'_> {
                     let value = self.expression(default, &mut initializer_body)?;
                     Self::expr_ty(&initializer_body, value)
                 } else {
-                    self.ctx.krate.types.intern(Type::Unknown)
+                    self.erase(ErasureReason::MissingAnnotation)
                 };
                 fields.push(Field {
                     name,
@@ -2109,7 +2115,7 @@ impl ModuleBuilder<'_> {
                                         Some(annotation) => {
                                             self.ts_type_to_hir(&annotation.type_annotation)?
                                         }
-                                        None => self.ctx.krate.types.intern(Type::Unknown),
+                                        None => self.erase(ErasureReason::MissingAnnotation),
                                     };
                                     if let Some(existing) = source_descriptors
                                         .iter_mut()
@@ -2146,7 +2152,7 @@ impl ModuleBuilder<'_> {
                                         Some(annotation) => {
                                             self.ts_type_to_hir(&annotation.type_annotation)?
                                         }
-                                        None => self.ctx.krate.types.intern(Type::Unknown),
+                                        None => self.erase(ErasureReason::MissingAnnotation),
                                     };
                                     if let Some(existing) = source_descriptors
                                         .iter_mut()
@@ -2858,7 +2864,7 @@ impl ModuleBuilder<'_> {
         } else if has_base {
             // A base this lowering cannot reproduce: see the doc comment for why
             // the forwarded argument is a genuine dynamic boundary here.
-            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let unknown_ty = self.erase(ErasureReason::UnmodeledType);
             let arg_ty = self.ctx.krate.types.intern(Type::Optional(unknown_ty));
             let arg_symbol = self.ctx.krate.symbols.intern("_smelt_super_arg");
             let arg_local = body.push_local(LocalDecl {
@@ -3287,7 +3293,7 @@ impl ModuleBuilder<'_> {
             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
             .transpose()?
             .unwrap_or_else(|| {
-                let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                let unknown = self.erase(ErasureReason::MissingAnnotation);
                 if method.value.r#async {
                     self.ctx.krate.types.intern(Type::Future(unknown))
                 } else {
@@ -3306,7 +3312,7 @@ impl ModuleBuilder<'_> {
                         self.infer_module_global_initializer_type(initializer).ok()
                     })
                 })
-                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
             let (name, span) = if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
                 (
                     self.intern_source_name(binding.name.as_str()),
@@ -3508,7 +3514,7 @@ impl ModuleBuilder<'_> {
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?
                 .unwrap_or_else(|| {
-                    let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                    let unknown = self.erase(ErasureReason::MissingAnnotation);
                     if method.value.r#async && !method.value.generator {
                         self.ctx.krate.types.intern(Type::Future(unknown))
                     } else {

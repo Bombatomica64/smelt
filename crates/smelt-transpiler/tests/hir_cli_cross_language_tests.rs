@@ -5,7 +5,7 @@ mod common;
 use std::fs;
 
 use common::{
-    TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, example_dir,
+    TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, ensure_node_agrees, example_dir,
     example_is_selected, smelt, utf8_path, verify_end_to_end_example,
     verify_python_end_to_end_example,
 };
@@ -1202,6 +1202,10 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "162_alias_names_generic_class",
     "165_void_operand_runs",
     "166_closure_stored_on_its_receiver",
+    "167_proven_integer_counters",
+    "168_bun_int32_slots",
+    "169_json_typed_entry_decode",
+    "170_bigint_arbitrary_precision",
     "14_c_for_loop",
     "15_break_continue",
     "16_switch_break_no_fallthrough",
@@ -1346,11 +1350,14 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
 /// Golden-checks the Python example corpus, which no test read before.
 ///
 /// These fixtures shipped with only `input.py` and a `Smelt.toml`, so a Python
-/// lowering or formatting regression could not fail anything. Only the HIR and
-/// MIR tiers are asserted here: the corpus has no generated-Rust or runtime
-/// goldens yet, and adding those needs a `smelt build` per case.
+/// lowering or formatting regression could not fail anything. Three tiers are
+/// asserted: the HIR and MIR dumps, the generated program's stdout against
+/// `expected.stdout`, and that golden against real `python3` (skipped when no
+/// suitable interpreter is installed). The runtime tier is what caught
+/// `print(True)` printing `true` and `print(None)` printing `null`. There is
+/// no generated-Rust golden for this corpus.
 #[test]
-fn python_end_to_end_examples_match_expected_dumps() -> TestResult {
+fn python_end_to_end_examples_match_expected_outputs() -> TestResult {
     for name in [
         "01_number",
         "02_string",
@@ -1449,6 +1456,8 @@ console.log(ns.compose(addOne, addOne, three)())
 /// invariant for reasons unrelated to the rule under test. `input.ts` states
 /// the rule; `expected.stdout` is Node's output.
 const RUNTIME_FIXTURES: &[&str] = &[
+    "bigint_shifts_stay_wide",
+    "bigint_throws_are_catchable",
     "receiver_pinned_class_parameter",
     "class_value_at_interface_type",
     "overloaded_callable_interface_field",
@@ -1495,11 +1504,13 @@ clone-strategy = "aggressive"
 "#
             ),
         )?;
-        fs::write(project_path.join("src/main.ts"), source)?;
+        fs::write(project_path.join("src/main.ts"), &source)?;
         let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
         smelt(&["--manifest-path", &manifest_arg, "build"])?;
         let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
         ensure_eq(&actual_stdout, &expected, format!("unexpected stdout for {name}"))?;
+        // `expected.stdout` is documented as Node's output; check that it is.
+        ensure_node_agrees(&[("main.ts", &source)], "main.ts", &expected, name)?;
     }
     Ok(())
 }

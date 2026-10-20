@@ -5809,9 +5809,166 @@ const bag = JSON.parse(text) as Record<string, unknown>;
     ensure_eq!(
         body.exprs
             .iter()
-            .filter(|expr| matches!(expr.kind, ExprKind::JsonParse { .. }))
+            .filter(|expr| matches!(expr.kind, ExprKind::JsonParse { decode: true, .. }))
             .count(),
         2
+    );
+    Ok(())
+}
+
+/// The declared type each `JSON.parse` in the crate decodes into, rendered,
+/// sorted; untyped (dynamic) parses render as `dynamic`.
+fn json_parse_targets(ctx: &HirCtx) -> Vec<String> {
+    let mut targets = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter_map(|expr| match expr.kind {
+            ExprKind::JsonParse { decode: true, .. } => {
+                Some(smelt_hir::type_display(&ctx.krate, expr.ty))
+            }
+            ExprKind::JsonParse { decode: false, .. } => Some("dynamic".to_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    targets.sort();
+    targets
+}
+
+/// Every source position that declares the type an untyped `JSON.parse` value
+/// enters -- a variable annotation, a parameter, a return type, `as T` and
+/// `JSON.parse<T>` -- makes the parse a typed entry boundary decoded into that
+/// type (Bun `--aot`'s "throws a `TypeError` where it enters typed code").
+/// Parses with no declared target, or whose context is `unknown`, stay dynamic.
+#[test]
+fn json_parse_takes_its_declared_target_from_every_entry_position() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+interface Point { x: number; y: number }
+function sum(p: Point): number { return p.x + p.y; }
+function load(text: string): Point { return JSON.parse(text); }
+const annotated: Point = JSON.parse('{"x":1,"y":2}');
+const argument = sum(JSON.parse('{"x":1,"y":2}'));
+const asserted = JSON.parse('[1]') as number[];
+const explicit = JSON.parse<[number, string]>('[1,"a"]');
+const loose = JSON.parse('{"a":1}');
+const opaque: unknown = JSON.parse('1');
+"#),
+        &mut ctx,
+    )?;
+    ensure_eq!(
+        json_parse_targets(&ctx),
+        vec![
+            "(Float, String)".to_owned(),
+            "List<Float>".to_owned(),
+            "Point".to_owned(),
+            "Point".to_owned(),
+            "Point".to_owned(),
+            "dynamic".to_owned(),
+            "dynamic".to_owned(),
+        ]
+    );
+    Ok(())
+}
+
+/// `await response.json()` / `await request.json()` flowing into a declared
+/// type is the same boundary: the body read is retyped `Promise<T>`.
+#[test]
+fn json_body_read_takes_its_declared_target() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+interface Point { x: number; y: number }
+async function read(response: Response, request: Request): Promise<number> {
+  const fromResponse: Point = await response.json();
+  const fromRequest: Point = await request.json();
+  const loose = await response.clone().json();
+  return fromResponse.x + fromRequest.y;
+}
+"),
+        &mut ctx,
+    )?;
+    let mut targets = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::ResponseOp { op: smelt_hir::ResponseOp::Json, .. }
+                    | ExprKind::RequestOp { op: smelt_hir::RequestOp::Json, .. }
+            )
+        })
+        .map(|expr| smelt_hir::type_display(&ctx.krate, expr.ty))
+        .collect::<Vec<_>>();
+    targets.sort();
+    ensure_eq!(
+        targets,
+        vec![
+            "Future<Point>".to_owned(),
+            "Future<Point>".to_owned(),
+            "Future<Unknown>".to_owned(),
+        ]
+    );
+    Ok(())
+}
+
+/// The literal and nullish facts TypeScript states but HIR storage erases are
+/// recorded per property for the strict decoder: literal unions (directly and
+/// through an alias), `p?: T`, `T | null` and `T | undefined`.
+#[test]
+fn interface_records_json_decode_facts_per_property() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type Mode = "fast" | "slow";
+interface Settings {
+  kind: "settings";
+  mode: Mode;
+  level: 1 | 2 | -3;
+  note?: string;
+  discount: number | null;
+  label: string | undefined;
+  plain: number;
+}
+"#),
+        &mut ctx,
+    )?;
+    let Some(Item::Interface(settings)) = ctx.krate.items.iter().find(|item| {
+        matches!(item, Item::Interface(interface) if ctx.krate.symbols.get(interface.name) == Some("Settings"))
+    }) else {
+        return Err("Settings interface missing".to_owned());
+    };
+    let facts = |name: &str| {
+        settings
+            .decode_facts
+            .iter()
+            .find(|facts| ctx.krate.symbols.get(facts.name) == Some(name))
+            .cloned()
+            .ok_or_else(|| format!("no decode facts for {name}"))
+    };
+    ensure_eq!(facts("kind")?.literals, vec![Literal::String("settings".to_owned())]);
+    ensure_eq!(
+        facts("mode")?.literals,
+        vec![Literal::String("fast".to_owned()), Literal::String("slow".to_owned())]
+    );
+    ensure_eq!(
+        facts("level")?.literals,
+        vec![Literal::Float(1.0), Literal::Float(2.0), Literal::Float(-3.0)]
+    );
+    let note = facts("note")?;
+    ensure!(note.may_be_absent && !note.admits_null, "note?: string admits absence only");
+    let discount = facts("discount")?;
+    ensure!(!discount.may_be_absent && discount.admits_null, "number | null admits null only");
+    let label = facts("label")?;
+    ensure!(label.may_be_absent && !label.admits_null, "string | undefined admits absence only");
+    let plain = facts("plain")?;
+    ensure!(
+        !plain.may_be_absent && !plain.admits_null && plain.literals.is_empty(),
+        "a plain number has no extra facts"
     );
     Ok(())
 }
@@ -6261,11 +6418,19 @@ const pivot = (4 + 10) >>> 1;
         }),
         "bitwise shift operators did not lower"
     );
+    // `(10n).toString(2)` has a bigint receiver, whose radix is range-checked
+    // with a catchable `RangeError`, so it is the fallible
+    // `BigIntOp::ToStringRadix` call rather than the `NumericToStringRadix`
+    // rvalue a `number` receiver keeps.
     ensure!(
-        body.exprs
-            .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::NumericToStringRadix { .. })),
-        "number.toString(radix) did not lower"
+        body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::BigIntCall {
+                op: smelt_hir::BigIntOp::ToStringRadix,
+                ..
+            }
+        )),
+        "bigint.toString(radix) did not lower"
     );
     Ok(())
 }

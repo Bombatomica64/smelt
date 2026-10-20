@@ -103,8 +103,8 @@ fn main (FuncId(1)) -> None
     %25 temp: Float
     %26 temp: None
     %27 temp: List<Float>
-    %28 temp: Float
-    %29 temp: Float
+    %28 temp: usize
+    %29 temp: usize
     %30 temp: Bool
     %31 temp: Float
     %32 temp: None
@@ -156,7 +156,7 @@ fn main (FuncId(1)) -> None
     %27 = [1.0, 2.0, 3.0, 4.0]
     %7 = move %27
     %8 = 0.0
-    %28 = 0.0
+    %28 = 0
     goto bb8
   bb8:
     %29 = len copy %7
@@ -168,7 +168,7 @@ fn main (FuncId(1)) -> None
     %8 = move %31
     goto bb10
   bb10:
-    %28 = copy %28 + 1.0
+    %28 = copy %28 + 1
     goto bb8
   bb11:
     %32 = call @console_log(move %8) -> bb12
