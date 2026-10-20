@@ -1200,6 +1200,10 @@ pub(crate) struct FunctionEmitter<'mir> {
     folded_throw_payloads: HashSet<LocalId>,
     /// Cached termination queries for this function CFG.
     termination_cache: RefCell<HashMap<smelt_mir::BlockId, bool>>,
+    /// Per-local write facts for this function, built in one pass on first use
+    /// (see `local_analysis::LocalWriteIndex`), so per-local mutability queries
+    /// do not each rescan every block.
+    local_write_index: std::cell::OnceCell<local_analysis::LocalWriteIndex>,
     /// Immediate post-dominator of every block of this function CFG, computed
     /// on first use (see `post_dominance`).
     post_dominators: RefCell<Option<Vec<Option<smelt_mir::BlockId>>>>,

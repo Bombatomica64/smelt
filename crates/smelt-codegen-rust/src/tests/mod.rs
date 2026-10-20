@@ -108,3 +108,4 @@ mod console_inspect_tests;
 mod rejoin_tests;
 mod weak_receiver_tests;
 mod bigint_tests;
+mod local_write_index_tests;

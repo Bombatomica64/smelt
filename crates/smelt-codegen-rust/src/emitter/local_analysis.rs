@@ -8,6 +8,162 @@ use super::core::{
 };
 
 impl FunctionEmitter<'_> {
+    /// The function's [`LocalWriteIndex`], built on first use.
+    pub(super) fn local_write_index(&self) -> &LocalWriteIndex {
+        self.local_write_index.get_or_init(|| self.build_local_write_index())
+    }
+
+    /// Scan every block once and record the write facts the per-local
+    /// mutability queries need (see [`LocalWriteIndex`]).
+    fn build_local_write_index(&self) -> LocalWriteIndex {
+        let mut index = LocalWriteIndex::default();
+        for block in &self.function.blocks {
+            for phi in &block.phis {
+                bump_u32(&mut index.writes, phi.dest);
+            }
+            for statement in &block.statements {
+                match statement {
+                    Statement::Assign { dest, value } => {
+                        if let Rvalue::Closure { id, .. } = value
+                            && let Some(closure) = self
+                                .mir
+                                .closures
+                                .get(usize::try_from(id.0).unwrap_or(usize::MAX))
+                        {
+                            index.shared_capture_locals.extend(
+                                closure
+                                    .captures
+                                    .iter()
+                                    .filter(|capture| {
+                                        self.closure_capture_needs_shared_access(closure, capture)
+                                    })
+                                    .map(|capture| capture.source_local),
+                            );
+                        }
+                        bump_u32(&mut index.writes, *dest);
+                        bump_usize(&mut index.assignments, *dest);
+                        index.assign_blocks.entry(*dest).or_default().push(block.id);
+                        // The rvalue's own mutation of a local is only judged
+                        // for OTHER locals: a statement whose destination is
+                        // the local itself is decided by the
+                        // predeclared-in-a-loop rule alone.
+                        for mutated in self.rvalue_mutable_locals(value) {
+                            if mutated != *dest {
+                                index.mutated.insert(mutated);
+                            }
+                        }
+                    }
+                    Statement::AssignPlace { place, .. } => {
+                        if let Place::Local(local) = place {
+                            bump_u32(&mut index.writes, *local);
+                            bump_usize(&mut index.assignments, *local);
+                        }
+                        if let Place::Local(candidate)
+                        | Place::Field {
+                            base: candidate, ..
+                        }
+                        | Place::Index {
+                            base: candidate, ..
+                        } = place
+                        {
+                            index.mutated.insert(*candidate);
+                        }
+                    }
+                    // The container is borrowed mutably through its entry
+                    // accessor (`SmeltJsMap::entry_or_insert` takes `&mut
+                    // self`), exactly like an `Index` assignment target. The
+                    // bound `current` follows the same predeclared-in-a-loop
+                    // rule as a single `Assign` destination.
+                    Statement::DictEntryUpdate { base, current, .. } => {
+                        bump_u32(&mut index.writes, *current);
+                        bump_usize(&mut index.assignments, *current);
+                        index.assign_blocks.entry(*current).or_default().push(block.id);
+                        if self.dict_entry_update_needs_mut_base(*base) {
+                            index.mutated.insert(*base);
+                        }
+                    }
+                    Statement::StorageLive(_) | Statement::StorageDead(_) => {}
+                }
+            }
+            if let Some(Terminator::Call {
+                callee: Callee::Static(function_id),
+                args,
+                ..
+            }) = &block.terminator
+                && let Some(callee) = self
+                    .mir
+                    .functions
+                    .get(usize::try_from(function_id.0).unwrap_or(usize::MAX))
+            {
+                for (arg, param) in args.iter().zip(&callee.params) {
+                    if let Some(local) = operand_local(arg)
+                        && self.parameter_needs_mutable_reference_in(callee, *param)
+                    {
+                        index.mutated.insert(local);
+                    }
+                }
+            }
+        }
+        index.repeat_reachable = repeat_reachable_blocks(self.function);
+        index
+    }
+
+    /// Test hook: the indexed repeat-reachable blocks next to the per-block
+    /// reference predicates' answer, both sorted.
+    #[cfg(test)]
+    pub(crate) fn repeat_reachable_against_reference(
+        &self,
+    ) -> (Vec<smelt_mir::BlockId>, Vec<smelt_mir::BlockId>) {
+        let mut indexed: Vec<_> = self.local_write_index().repeat_reachable.iter().copied().collect();
+        indexed.sort_by_key(|block| block.0);
+        let reference = self
+            .function
+            .blocks
+            .iter()
+            .map(|block| block.id)
+            .filter(|block| {
+                self.block_can_repeat(*block, &mut BlockIdSet::default())
+                    || self.block_is_reached_from_repeating_region(*block)
+            })
+            .collect();
+        (indexed, reference)
+    }
+
+    /// The locals an rvalue mutates in place, borrows mutably, or captures
+    /// into a closure that needs shared access to them.
+    fn rvalue_mutable_locals(&self, value: &Rvalue) -> Vec<LocalId> {
+        let mut locals = Vec::new();
+        if let Some(root) = rvalue_mutation_target(value).and_then(operand_mutation_root) {
+            locals.push(root);
+        }
+        match value {
+            Rvalue::DictAssign { target, .. } | Rvalue::ListCallback { list: target, .. } => {
+                if let Some(local) = operand_local(target)
+                    && self.rvalue_borrows_local_mutably(value, local)
+                {
+                    locals.push(local);
+                }
+            }
+            Rvalue::Closure { id, .. } => {
+                if let Some(closure) = self
+                    .mir
+                    .closures
+                    .get(usize::try_from(id.0).unwrap_or(usize::MAX))
+                {
+                    locals.extend(
+                        closure
+                            .captures
+                            .iter()
+                            .filter(|capture| self.closure_capture_needs_shared_access(closure, capture))
+                            .map(|capture| capture.source_local),
+                    );
+                }
+            }
+            _ => {}
+        }
+        locals
+    }
+
     /// Returns whether the first Rust binding for `local` must be mutable.
     pub(super) fn local_binding_needs_mut(&self, local: LocalId) -> bool {
         // A parameter emitted as `&mut T` needs a mutable binding when it is
@@ -31,112 +187,40 @@ impl FunctionEmitter<'_> {
         if self.local_assignment_count(local) > 1 {
             return true;
         }
-        for block in &self.function.blocks {
-            for statement in &block.statements {
-                match statement {
-                    Statement::Assign { dest, .. } if *dest == local => {
-                        // The repeating-region rule only forces `mut` when the
-                        // binding's `let` lives OUTSIDE the repeating region and
-                        // is therefore reassigned across iterations. A binding
-                        // that reaches this point is assigned exactly once
-                        // (multi-assignment locals already returned `true` above
-                        // via `local_assignment_count`), so the only shape that
-                        // still needs `mut` is a *predeclared* local — one
-                        // hoisted to function scope, whose `let` sits outside the
-                        // loop. A non-predeclared local instead emits its `let`
-                        // inline at the assignment site, re-running as a fresh
-                        // binding each iteration, and needs no `mut`.
-                        //
-                        // `block_is_reached_from_repeating_region` is
-                        // deliberately kept alongside `block_can_repeat`: the
-                        // structured emitter can place a MIR-diverging assignment
-                        // textually inside `loop { .. }`, and Rust's
-                        // definite-assignment rules reject assigning an immutable
-                        // hoisted local from a loop body even when control flow
-                        // always exits. Under-approximating here would turn
-                        // warnings into E0384/E0596 errors in the generated
-                        // crate, so the rule stays conservative.
-                        if self.predeclared_locals.contains(&local)
-                            && (self.block_can_repeat(block.id, &mut BlockIdSet::default())
-                                || self.block_is_reached_from_repeating_region(block.id))
-                        {
-                            return true;
-                        }
-                    }
-                    Statement::AssignPlace {
-                        place:
-                            Place::Local(candidate)
-                            | Place::Field {
-                                base: candidate, ..
-                            }
-                            | Place::Index {
-                                base: candidate, ..
-                            },
-                        ..
-                    } if *candidate == local => return true,
-                    // The container is borrowed mutably through its entry
-                    // accessor (`SmeltJsMap::entry_or_insert` takes `&mut
-                    // self`), exactly like an `Index` assignment target. The
-                    // bound `current` follows the same predeclared-in-a-loop
-                    // rule as a single `Assign` destination.
-                    Statement::DictEntryUpdate { base, current, .. } => {
-                        if *base == local && self.dict_entry_update_needs_mut_base(*base) {
-                            return true;
-                        }
-                        if *current == local
-                            && self.predeclared_locals.contains(&local)
-                            && (self.block_can_repeat(block.id, &mut BlockIdSet::default())
-                                || self.block_is_reached_from_repeating_region(block.id))
-                        {
-                            return true;
-                        }
-                    }
-                    Statement::Assign { value, .. } => {
-                        if self.rvalue_mutates_local(value, local) {
-                            return true;
-                        }
-                        if self.rvalue_borrows_local_mutably(value, local) {
-                            return true;
-                        }
-                        if let Rvalue::Closure { id, .. } = value
-                            && let Some(closure) = self
-                                .mir
-                                .closures
-                                .get(usize::try_from(id.0).unwrap_or(usize::MAX))
-                            && closure.captures.iter().any(|capture| {
-                                capture.source_local == local
-                                    && self.closure_capture_needs_shared_access(closure, capture)
-                            })
-                        {
-                            return true;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            if let Some(Terminator::Call {
-                callee: Callee::Static(function_id),
-                args,
-                ..
-            }) = &block.terminator
-                && args.iter().enumerate().any(|(index, arg)| {
-                    operand_local(arg) == Some(local)
-                        && self
-                            .mir
-                            .functions
-                            .get(usize::try_from(function_id.0).unwrap_or(usize::MAX))
-                            .and_then(|function| {
-                                function.params.get(index).map(|param| {
-                                    self.parameter_needs_mutable_reference_in(function, *param)
-                                })
-                            })
-                            .unwrap_or(false)
-                })
-            {
-                return true;
-            }
+        let index = self.local_write_index();
+        // Written in place, borrowed mutably, captured for shared access, or
+        // passed to a parameter emitted as `&mut T` (see `LocalWriteIndex`).
+        if index.mutated.contains(&local) {
+            return true;
         }
-        false
+        // The repeating-region rule only forces `mut` when the binding's `let`
+        // lives OUTSIDE the repeating region and is therefore reassigned across
+        // iterations. A binding that reaches this point is assigned exactly
+        // once (multi-assignment locals already returned `true` above via
+        // `local_assignment_count`), so the only shape that still needs `mut`
+        // is a *predeclared* local — one hoisted to function scope, whose `let`
+        // sits outside the loop. A non-predeclared local instead emits its
+        // `let` inline at the assignment site, re-running as a fresh binding
+        // each iteration, and needs no `mut`.
+        //
+        // `block_is_reached_from_repeating_region` is deliberately kept
+        // alongside `block_can_repeat`: the structured emitter can place a
+        // MIR-diverging assignment textually inside `loop { .. }`, and Rust's
+        // definite-assignment rules reject assigning an immutable hoisted local
+        // from a loop body even when control flow always exits.
+        // Under-approximating here would turn warnings into E0384/E0596 errors
+        // in the generated crate, so the rule stays conservative.
+        //
+        // `block_can_repeat(b) || block_is_reached_from_repeating_region(b)`
+        // is exactly "b lies on a cycle or is reachable from one", which the
+        // index precomputes once ([`LocalWriteIndex::repeat_reachable`]):
+        // asking it per assignment walked the rest of the function each time.
+        self.predeclared_locals.contains(&local)
+            && index.assign_blocks.get(&local).is_some_and(|blocks| {
+                blocks
+                    .iter()
+                    .any(|block| index.repeat_reachable.contains(block))
+            })
     }
 
     /// The function type a local's value carries in the EMITTED Rust, when the
@@ -267,23 +351,14 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Count direct assignments to a MIR local.
+    /// Count direct assignments to a MIR local (binding a dict entry's value
+    /// to `current` counts as one).
     pub(super) fn local_assignment_count(&self, local: LocalId) -> usize {
-        self.function
-            .blocks
-            .iter()
-            .flat_map(|block| block.statements.iter())
-            .filter(|statement| match statement {
-                Statement::Assign { dest, .. } => *dest == local,
-                Statement::AssignPlace {
-                    place: Place::Local(candidate),
-                    ..
-                } => *candidate == local,
-                // Binding the entry's value to `current` is an assignment.
-                Statement::DictEntryUpdate { current, .. } => *current == local,
-                _ => false,
-            })
-            .count()
+        self.local_write_index()
+            .assignments
+            .get(&local)
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Returns whether the first MIR access to a local reads the previous value.
@@ -361,6 +436,12 @@ impl FunctionEmitter<'_> {
     /// has a value. Immutable Rust locals can be initialized from sibling
     /// branches, but any second assignment on one path requires `mut`.
     pub(super) fn local_may_be_assigned_after_assignment(&self, local: LocalId) -> bool {
+        // The walk below can only answer `true` at a write, so a local with no
+        // phi or statement write (a call destination, say) is answered from
+        // the index without walking every path of the function.
+        if !self.local_write_index().writes.contains_key(&local) {
+            return false;
+        }
         let assigned = self.function.params.contains(&local);
         self.block_may_assign_local_after_assignment(
             self.function.entry,
@@ -423,11 +504,20 @@ impl FunctionEmitter<'_> {
 
     /// Returns whether evaluating `value` mutates `local` in-place.
     ///
+    /// The receiver is [`rvalue_mutation_target`]'s operand.
+    ///
     /// The receiver may be an index place rather than a bare local
     /// (`base[key].push(x)`, the form `smelt_mir::opt::DictEntryInPlaceMutation`
     /// produces): that mutates the CONTAINER in place, so the container is the
     /// local whose binding must be mutable.
     pub(super) fn rvalue_mutates_local(&self, value: &Rvalue, local: LocalId) -> bool {
+        rvalue_mutation_target(value).and_then(operand_mutation_root) == Some(local)
+    }
+}
+
+/// The container operand an rvalue mutates in place, if it is a mutating
+/// collection operation.
+fn rvalue_mutation_target(value: &Rvalue) -> Option<&Operand> {
         let mutated = match value {
             Rvalue::ListPush { list, .. }
             | Rvalue::ListExtend { list, .. }
@@ -451,10 +541,12 @@ impl FunctionEmitter<'_> {
             | Rvalue::DictRemoveKey { dict: list, .. }
             | Rvalue::DictSetDefault { dict: list, .. }
             | Rvalue::DictUpdate { dict: list, .. } => list,
-            _ => return false,
+            _ => return None,
         };
-        operand_mutation_root(mutated) == Some(local)
-    }
+        Some(mutated)
+}
+
+impl FunctionEmitter<'_> {
 
     /// Returns whether rendering an rvalue needs a mutable borrow of `local`.
     pub(super) fn rvalue_borrows_local_mutably(&self, value: &Rvalue, local: LocalId) -> bool {
@@ -591,4 +683,171 @@ impl FunctionEmitter<'_> {
         Ok(false)
     }
 
+}
+
+/// Per-local write facts for one function, gathered in a single pass.
+///
+/// The mutability queries used to rescan every block for every local they
+/// were asked about, which made emitting a body of `n` locals O(n²): a module
+/// of a few hundred nested calls spent most of its codegen time there. The
+/// index answers the same questions from one scan.
+#[derive(Debug, Default)]
+pub(super) struct LocalWriteIndex {
+    /// Writes per local: phi destinations, `Assign` destinations, whole-local
+    /// `AssignPlace` targets and `DictEntryUpdate` bindings. A local absent
+    /// here is never written by a statement or phi.
+    writes: HashMap<LocalId, u32>,
+    /// Direct assignments per local (the writes above, minus phis).
+    assignments: HashMap<LocalId, usize>,
+    /// Blocks holding an `Assign` to the local or a `DictEntryUpdate` binding
+    /// it, for the predeclared-in-a-loop rule.
+    assign_blocks: HashMap<LocalId, Vec<smelt_mir::BlockId>>,
+    /// Locals that need a mutable binding wherever they are declared: an
+    /// `AssignPlace` target or field/index base, a dict entry-update base, an
+    /// in-place mutation root, a mutable borrow, a closure capture needing
+    /// shared access, or an argument to a `&mut T` parameter.
+    mutated: HashSet<LocalId>,
+    /// Locals some closure in the function captures with shared access
+    /// (`closure_capture_needs_shared_access`), whatever the closure's own
+    /// destination.
+    pub(super) shared_capture_locals: HashSet<LocalId>,
+    /// Blocks that lie on a CFG cycle or are reachable from one: the blocks
+    /// for which `block_can_repeat || block_is_reached_from_repeating_region`
+    /// holds (see [`repeat_reachable_blocks`]).
+    repeat_reachable: HashSet<smelt_mir::BlockId>,
+}
+
+/// The blocks of `function` that lie on a cycle, or are reachable from a block
+/// that does.
+///
+/// A block lies on a cycle when its strongly connected component has more
+/// than one block or it has an edge to itself. Components come from
+/// Kosaraju's algorithm (both passes iterative, so a long straight-line body
+/// cannot overflow the stack), and a forward sweep from every cyclic block
+/// adds what they reach. Linear in blocks plus edges.
+fn repeat_reachable_blocks(function: &MirFunction) -> HashSet<smelt_mir::BlockId> {
+    let position: HashMap<smelt_mir::BlockId, usize> = function
+        .blocks
+        .iter()
+        .enumerate()
+        .map(|(position, block)| (block.id, position))
+        .collect();
+    let successors: Vec<Vec<usize>> = function
+        .blocks
+        .iter()
+        .map(|block| {
+            block
+                .terminator
+                .as_ref()
+                .map(terminator_successors)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|successor| position.get(&successor).copied())
+                .collect()
+        })
+        .collect();
+    let count = successors.len();
+    let mut predecessors = vec![Vec::new(); count];
+    for (from, targets) in successors.iter().enumerate() {
+        for &to in targets {
+            if let Some(list) = predecessors.get_mut(to) {
+                list.push(from);
+            }
+        }
+    }
+    // Pass 1: finishing order of a DFS over the forward graph.
+    let mut visited = vec![false; count];
+    let mut finished = Vec::with_capacity(count);
+    for root in 0..count {
+        if visited.get(root).copied().unwrap_or(true) {
+            continue;
+        }
+        let mut stack = vec![(root, 0_usize)];
+        if let Some(seen) = visited.get_mut(root) {
+            *seen = true;
+        }
+        while let Some((node, next)) = stack.pop() {
+            let targets = successors.get(node).map_or(&[][..], Vec::as_slice);
+            if let Some(&target) = targets.get(next) {
+                stack.push((node, next.saturating_add(1)));
+                if let Some(seen) = visited.get_mut(target)
+                    && !*seen
+                {
+                    *seen = true;
+                    stack.push((target, 0));
+                }
+            } else {
+                finished.push(node);
+            }
+        }
+    }
+    // Pass 2: components of the reverse graph, in reverse finishing order.
+    let mut component = vec![usize::MAX; count];
+    let mut component_sizes = Vec::new();
+    for &root in finished.iter().rev() {
+        if component.get(root).copied() != Some(usize::MAX) {
+            continue;
+        }
+        let id = component_sizes.len();
+        let mut size = 0_usize;
+        let mut stack = vec![root];
+        if let Some(slot) = component.get_mut(root) {
+            *slot = id;
+        }
+        while let Some(node) = stack.pop() {
+            size = size.saturating_add(1);
+            for &source in predecessors.get(node).map_or(&[][..], Vec::as_slice) {
+                if let Some(slot) = component.get_mut(source)
+                    && *slot == usize::MAX
+                {
+                    *slot = id;
+                    stack.push(source);
+                }
+            }
+        }
+        component_sizes.push(size);
+    }
+    let cyclic = |node: usize| {
+        component
+            .get(node)
+            .and_then(|id| component_sizes.get(*id))
+            .is_some_and(|size| *size > 1)
+            || successors.get(node).is_some_and(|targets| targets.contains(&node))
+    };
+    // Forward sweep from every cyclic block.
+    let mut reached = vec![false; count];
+    let mut stack: Vec<usize> = (0..count).filter(|node| cyclic(*node)).collect();
+    for &node in &stack {
+        if let Some(seen) = reached.get_mut(node) {
+            *seen = true;
+        }
+    }
+    while let Some(node) = stack.pop() {
+        for &target in successors.get(node).map_or(&[][..], Vec::as_slice) {
+            if let Some(seen) = reached.get_mut(target)
+                && !*seen
+            {
+                *seen = true;
+                stack.push(target);
+            }
+        }
+    }
+    function
+        .blocks
+        .iter()
+        .zip(reached)
+        .filter_map(|(block, is_reached)| is_reached.then_some(block.id))
+        .collect()
+}
+
+/// Add one to `local`'s write count.
+fn bump_u32(counts: &mut HashMap<LocalId, u32>, local: LocalId) {
+    let count = counts.entry(local).or_default();
+    *count = count.saturating_add(1);
+}
+
+/// Add one to `local`'s assignment count.
+fn bump_usize(counts: &mut HashMap<LocalId, usize>, local: LocalId) {
+    let count = counts.entry(local).or_default();
+    *count = count.saturating_add(1);
 }
