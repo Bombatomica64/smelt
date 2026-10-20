@@ -6418,11 +6418,19 @@ const pivot = (4 + 10) >>> 1;
         }),
         "bitwise shift operators did not lower"
     );
+    // `(10n).toString(2)` has a bigint receiver, whose radix is range-checked
+    // with a catchable `RangeError`, so it is the fallible
+    // `BigIntOp::ToStringRadix` call rather than the `NumericToStringRadix`
+    // rvalue a `number` receiver keeps.
     ensure!(
-        body.exprs
-            .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::NumericToStringRadix { .. })),
-        "number.toString(radix) did not lower"
+        body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::BigIntCall {
+                op: smelt_hir::BigIntOp::ToStringRadix,
+                ..
+            }
+        )),
+        "bigint.toString(radix) did not lower"
     );
     Ok(())
 }

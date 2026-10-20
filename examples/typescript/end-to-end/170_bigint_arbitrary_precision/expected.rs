@@ -1889,6 +1889,8 @@ impl Clone for SmeltUnknown {
 
 /// A JavaScript `RangeError` raised by a bigint operation.
 fn smelt_bigint_range_error(message: String) -> Box<dyn ::std::error::Error> { smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("RangeError".into())), ("message".to_owned(), SmeltUnknown::String(message.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])))) }
+/// A JavaScript `TypeError` raised by `JSON.stringify` over a bigint.
+fn smelt_bigint_type_error_value(message: String) -> Box<dyn ::std::error::Error> { smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("TypeError".into())), ("message".to_owned(), SmeltUnknown::String(message.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])))) }
 /// A JavaScript `SyntaxError` raised by `BigInt(string)`.
 fn smelt_bigint_syntax_error(message: String) -> Box<dyn ::std::error::Error> { smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("SyntaxError".into())), ("message".to_owned(), SmeltUnknown::String(message.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])))) }
 /// Throw a JavaScript `TypeError` raised by a bigint operation through the panic route.
@@ -1896,8 +1898,6 @@ fn smelt_bigint_syntax_error(message: String) -> Box<dyn ::std::error::Error> { 
 /// Reached only where the static types cannot rule the operation out:
 /// TypeScript rejects `1n + 1` and `1n >>> 1n` at compile time.
 fn smelt_bigint_type_error(message: &str) -> ! { let message = message.to_owned(); smelt_panic_throw(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("TypeError".into())), ("message".to_owned(), SmeltUnknown::String(message.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))) }
-/// Throw `RangeError: Maximum BigInt size exceeded` (V8 caps a bigint at 2^30 bits) through the panic route.
-fn smelt_bigint_too_big() -> ! { smelt_panic_throw(smelt_bigint_range_error("Maximum BigInt size exceeded".to_owned())) }
 
 /// `lhs / rhs`: truncating division; a zero divisor is a `RangeError`.
 fn smelt_bigint_div(lhs: &::num_bigint::BigInt, rhs: &::num_bigint::BigInt) -> Result<::num_bigint::BigInt, Box<dyn ::std::error::Error>> { if ::num_traits::Zero::is_zero(rhs) { return Err(smelt_bigint_range_error("Division by zero".to_owned())); } Ok(lhs / rhs) }
@@ -1906,9 +1906,9 @@ fn smelt_bigint_rem(lhs: &::num_bigint::BigInt, rhs: &::num_bigint::BigInt) -> R
 /// `base ** exponent`: a negative exponent is a `RangeError`.
 fn smelt_bigint_pow(base: &::num_bigint::BigInt, exponent: &::num_bigint::BigInt) -> Result<::num_bigint::BigInt, Box<dyn ::std::error::Error>> { if exponent.sign() == ::num_bigint::Sign::Minus { return Err(smelt_bigint_range_error("Exponent must be non-negative".to_owned())); } let one = ::num_bigint::BigInt::from(1_i64); if ::num_traits::Zero::is_zero(exponent) { return Ok(one); } if ::num_traits::Zero::is_zero(base) || *base == one { return Ok(base.clone()); } if *base == -&one { return Ok(if ::num_integer::Integer::is_even(exponent) { one } else { -one }); } match u32::try_from(exponent) { Ok(power) if base.bits().saturating_sub(1).saturating_mul(u64::from(power)) <= 1073741824 => Ok(base.pow(power)), _ => Err(smelt_bigint_range_error("Maximum BigInt size exceeded".to_owned())) } }
 /// `value << count`, where a negative count shifts right.
-fn smelt_bigint_shl(value: &::num_bigint::BigInt, count: &::num_bigint::BigInt) -> ::num_bigint::BigInt { if count.sign() == ::num_bigint::Sign::Minus { return smelt_bigint_shr(value, &-count); } if ::num_traits::Zero::is_zero(value) { return value.clone(); } match u64::try_from(count) { Ok(bits) if value.bits().saturating_add(bits) <= 1073741824 => value << bits, _ => smelt_bigint_too_big() } }
+fn smelt_bigint_shl(value: &::num_bigint::BigInt, count: &::num_bigint::BigInt) -> Result<::num_bigint::BigInt, Box<dyn ::std::error::Error>> { if count.sign() == ::num_bigint::Sign::Minus { return smelt_bigint_shr(value, &-count); } if ::num_traits::Zero::is_zero(value) { return Ok(value.clone()); } match u64::try_from(count) { Ok(bits) if value.bits().saturating_add(bits) <= 1073741824 => Ok(value << bits), _ => Err(smelt_bigint_range_error("Maximum BigInt size exceeded".to_owned())) } }
 /// `value >> count`: an arithmetic shift rounding toward negative infinity.
-fn smelt_bigint_shr(value: &::num_bigint::BigInt, count: &::num_bigint::BigInt) -> ::num_bigint::BigInt { if count.sign() == ::num_bigint::Sign::Minus { return smelt_bigint_shl(value, &-count); } match u64::try_from(count) { Ok(bits) if bits < value.bits() => value >> bits, _ => if value.sign() == ::num_bigint::Sign::Minus { ::num_bigint::BigInt::from(-1_i64) } else { ::num_bigint::BigInt::from(0_i64) } } }
+fn smelt_bigint_shr(value: &::num_bigint::BigInt, count: &::num_bigint::BigInt) -> Result<::num_bigint::BigInt, Box<dyn ::std::error::Error>> { if count.sign() == ::num_bigint::Sign::Minus { return smelt_bigint_shl(value, &-count); } Ok(match u64::try_from(count) { Ok(bits) if bits < value.bits() => value >> bits, _ => if value.sign() == ::num_bigint::Sign::Minus { ::num_bigint::BigInt::from(-1_i64) } else { ::num_bigint::BigInt::from(0_i64) } }) }
 
 /// `BigInt(number)`: only an integral, finite number converts; anything else is a `RangeError`.
 fn smelt_bigint_from_number(value: f64) -> Result<::num_bigint::BigInt, Box<dyn ::std::error::Error>> { if value.is_finite() && value.fract() == 0.0 { if let Some(converted) = <::num_bigint::BigInt as ::num_traits::FromPrimitive>::from_f64(value) { return Ok(converted); } } Err(smelt_bigint_range_error(format!("The number {} cannot be converted to a BigInt because it is not an integer", smelt_number_to_string(value)))) }
@@ -1924,8 +1924,8 @@ fn smelt_bigint_width(bits: f64) -> Result<u64, Box<dyn ::std::error::Error>> { 
 fn smelt_bigint_as_int_n(bits: f64, value: &::num_bigint::BigInt) -> Result<::num_bigint::BigInt, Box<dyn ::std::error::Error>> { let bits = smelt_bigint_width(bits)?; if bits == 0 { return Ok(::num_bigint::BigInt::from(0_i64)); } if bits > value.bits().saturating_add(1) { return Ok(value.clone()); } let modulus = ::num_bigint::BigInt::from(1_i64) << bits; let wrapped = ::num_integer::Integer::mod_floor(value, &modulus); Ok(if wrapped >= (&modulus >> 1_u32) { wrapped - modulus } else { wrapped }) }
 /// `BigInt.asUintN(bits, value)`: `value` modulo `2^bits`.
 fn smelt_bigint_as_uint_n(bits: f64, value: &::num_bigint::BigInt) -> Result<::num_bigint::BigInt, Box<dyn ::std::error::Error>> { let bits = smelt_bigint_width(bits)?; if value.sign() != ::num_bigint::Sign::Minus && bits >= value.bits() { return Ok(value.clone()); } if bits > 1073741824 { return Err(smelt_bigint_range_error("Maximum BigInt size exceeded".to_owned())); } let modulus = ::num_bigint::BigInt::from(1_i64) << bits; Ok(::num_integer::Integer::mod_floor(value, &modulus)) }
-/// `bigint.toString(radix)`: a radix outside `2..=36` is a `RangeError`.
-fn smelt_bigint_to_string_radix(value: &::num_bigint::BigInt, radix: f64) -> String { let radix = if radix.is_nan() { 0.0 } else { radix.trunc() }; if !(2.0..=36.0).contains(&radix) { smelt_panic_throw(smelt_bigint_range_error("toString() radix must be between 2 and 36".to_owned())) } value.to_str_radix(radix as u32) }
+/// `bigint.toString(radix)`: a radix outside `2..=36` is a catchable `RangeError`.
+fn smelt_bigint_to_string_radix(value: &::num_bigint::BigInt, radix: f64) -> Result<String, Box<dyn ::std::error::Error>> { let radix = if radix.is_nan() { 0.0 } else { radix.trunc() }; if !(2.0..=36.0).contains(&radix) { return Err(smelt_bigint_range_error("toString() radix argument must be between 2 and 36".to_owned())); } Ok(value.to_str_radix(radix as u32)) }
 
 impl IntoSmeltUnknown for ::num_bigint::BigInt { fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::BigInt(self) } }
 impl SmeltFromUnknown for ::num_bigint::BigInt { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::BigInt(value) => value, SmeltUnknown::Number(value) => smelt_bigint_from_number(value).unwrap_or_default(), SmeltUnknown::Bool(value) => Self::from(i64::from(value)), SmeltUnknown::String(value) => smelt_bigint_from_string(&value).unwrap_or_default(), _ => Self::default() } } }
@@ -1933,7 +1933,7 @@ impl SmeltJsKeyEq for ::num_bigint::BigInt { fn same_js_key(&self, other: &Self)
 impl SmeltJsStrictEq for ::num_bigint::BigInt { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
 
 /// `left <op> right` over two erased values that may be bigints or numbers.
-fn smelt_unknown_arithmetic(op: &str, left: SmeltUnknown, right: SmeltUnknown) -> SmeltUnknown { if op == "+" && (matches!(left, SmeltUnknown::String(_)) || matches!(right, SmeltUnknown::String(_))) { return SmeltUnknown::String(format!("{left}{right}").into()); } match (&left, &right) { (SmeltUnknown::BigInt(left), SmeltUnknown::BigInt(right)) => SmeltUnknown::BigInt(match op { "+" => left + right, "-" => left - right, "*" => left * right, "/" => smelt_bigint_div(left, right).unwrap_or_else(|error| smelt_panic_throw(error)), "%" => smelt_bigint_rem(left, right).unwrap_or_else(|error| smelt_panic_throw(error)), "<<" => smelt_bigint_shl(left, right), ">>" => smelt_bigint_shr(left, right), "&" => left & right, "|" => left | right, "^" => left ^ right, _ => smelt_bigint_type_error("BigInts have no unsigned right shift, use >> instead") }), (SmeltUnknown::BigInt(_), _) | (_, SmeltUnknown::BigInt(_)) => smelt_bigint_type_error("Cannot mix BigInt and other types, use explicit conversions"), _ => { let left = smelt_unknown_to_number(&left); let right = smelt_unknown_to_number(&right); let int32 = |value: f64| if value.is_finite() { value.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0 }; SmeltUnknown::Number(match op { "+" => left + right, "-" => left - right, "*" => left * right, "/" => left / right, "%" => left % right, "<<" => f64::from(int32(left).wrapping_shl(int32(right) as u32 & 31)), ">>" => f64::from(int32(left).wrapping_shr(int32(right) as u32 & 31)), ">>>" => f64::from((int32(left) as u32).wrapping_shr(int32(right) as u32 & 31)), "&" => f64::from(int32(left) & int32(right)), "|" => f64::from(int32(left) | int32(right)), _ => f64::from(int32(left) ^ int32(right)) }) } } }
+fn smelt_unknown_arithmetic(op: &str, left: SmeltUnknown, right: SmeltUnknown) -> SmeltUnknown { if op == "+" && (matches!(left, SmeltUnknown::String(_)) || matches!(right, SmeltUnknown::String(_))) { return SmeltUnknown::String(format!("{left}{right}").into()); } match (&left, &right) { (SmeltUnknown::BigInt(left), SmeltUnknown::BigInt(right)) => SmeltUnknown::BigInt(match op { "+" => left + right, "-" => left - right, "*" => left * right, "/" => smelt_bigint_div(left, right).unwrap_or_else(|error| smelt_panic_throw(error)), "%" => smelt_bigint_rem(left, right).unwrap_or_else(|error| smelt_panic_throw(error)), "<<" => smelt_bigint_shl(left, right).unwrap_or_else(|error| smelt_panic_throw(error)), ">>" => smelt_bigint_shr(left, right).unwrap_or_else(|error| smelt_panic_throw(error)), "&" => left & right, "|" => left | right, "^" => left ^ right, _ => smelt_bigint_type_error("BigInts have no unsigned right shift, use >> instead") }), (SmeltUnknown::BigInt(_), _) | (_, SmeltUnknown::BigInt(_)) => smelt_bigint_type_error("Cannot mix BigInt and other types, use explicit conversions"), _ => { let left = smelt_unknown_to_number(&left); let right = smelt_unknown_to_number(&right); let int32 = |value: f64| if value.is_finite() { value.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0 }; SmeltUnknown::Number(match op { "+" => left + right, "-" => left - right, "*" => left * right, "/" => left / right, "%" => left % right, "<<" => f64::from(int32(left).wrapping_shl(int32(right) as u32 & 31)), ">>" => f64::from(int32(left).wrapping_shr(int32(right) as u32 & 31)), ">>>" => f64::from((int32(left) as u32).wrapping_shr(int32(right) as u32 & 31)), "&" => f64::from(int32(left) & int32(right)), "|" => f64::from(int32(left) | int32(right)), _ => f64::from(int32(left) ^ int32(right)) }) } } }
 /// Compare a bigint with a number by mathematical value; `None` against `NaN`.
 fn smelt_bigint_compare_number(value: &::num_bigint::BigInt, number: f64) -> Option<::std::cmp::Ordering> { if number.is_nan() { return None; } if number.is_infinite() { return Some(if number > 0.0 { ::std::cmp::Ordering::Less } else { ::std::cmp::Ordering::Greater }); } let floor = number.floor(); let floor_value = <::num_bigint::BigInt as ::num_traits::FromPrimitive>::from_f64(floor)?; match value.cmp(&floor_value) { ::std::cmp::Ordering::Equal if number > floor => Some(::std::cmp::Ordering::Less), ordering => Some(ordering) } }
 
@@ -3914,20 +3914,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_34: ::num_bigint::BigInt;
     let _smelt_tmp_36: ::num_bigint::BigInt;
     let _smelt_tmp_37: ::num_bigint::BigInt;
-    let _smelt_tmp_41: ::num_bigint::BigInt;
-    let _smelt_tmp_42: ::num_bigint::BigInt;
     let _smelt_tmp_43: ::num_bigint::BigInt;
-    let _smelt_tmp_44: ::num_bigint::BigInt;
     let _smelt_tmp_45: ::num_bigint::BigInt;
-    let _smelt_tmp_46: ::num_bigint::BigInt;
     let _smelt_tmp_48: ::num_bigint::BigInt;
-    let _smelt_tmp_49: ::num_bigint::BigInt;
-    let _smelt_tmp_50: ::num_bigint::BigInt;
     let _smelt_tmp_51: ::num_bigint::BigInt;
-    let _smelt_tmp_52: ::num_bigint::BigInt;
-    let _smelt_tmp_53: ::num_bigint::BigInt;
     let _smelt_tmp_54: ::num_bigint::BigInt;
-    let _smelt_tmp_55: ::num_bigint::BigInt;
     let _smelt_tmp_57: ::num_bigint::BigInt;
     let _smelt_tmp_58: ::num_bigint::BigInt;
     let _smelt_tmp_59: ::num_bigint::BigInt;
@@ -3958,11 +3949,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_99: ::num_bigint::BigInt;
     let _smelt_tmp_100: bool;
     let _smelt_tmp_102: String;
-    let _smelt_tmp_103: String;
-    let _smelt_tmp_104: String;
     let _smelt_tmp_105: f64;
     let _smelt_tmp_106: ::num_bigint::BigInt;
-    let _smelt_tmp_107: String;
     let _smelt_tmp_109: String;
     let _smelt_tmp_110: String;
     let _smelt_tmp_111: String;
@@ -4037,21 +4025,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_38: ::num_bigint::BigInt = smelt_bigint_rem(&_smelt_tmp_36, &_smelt_tmp_37)?;
     let _smelt_tmp_39: ::num_bigint::BigInt = smelt_bigint_rem(&huge, &two_53)?;
     let _ = { println!("{} {}n {}n {}n {}n", "remainder:".to_owned(), _smelt_tmp_33, _smelt_tmp_35, _smelt_tmp_38, _smelt_tmp_39); };
-    _smelt_tmp_41 = smelt_bigint_shl(&::num_bigint::BigInt::from(1_i64), &::num_bigint::BigInt::from(64_i64));
-    _smelt_tmp_42 = smelt_bigint_shl(&::num_bigint::BigInt::from(1_i64), &::num_bigint::BigInt::from(73_i64));
+    let _smelt_tmp_41: ::num_bigint::BigInt = smelt_bigint_shl(&::num_bigint::BigInt::from(1_i64), &::num_bigint::BigInt::from(64_i64))?;
+    let _smelt_tmp_42: ::num_bigint::BigInt = smelt_bigint_shl(&::num_bigint::BigInt::from(1_i64), &::num_bigint::BigInt::from(73_i64))?;
     _smelt_tmp_43 = -&::num_bigint::BigInt::from(3_i64);
-    _smelt_tmp_44 = smelt_bigint_shl(&_smelt_tmp_43, &::num_bigint::BigInt::from(2_i64));
+    let _smelt_tmp_44: ::num_bigint::BigInt = smelt_bigint_shl(&_smelt_tmp_43, &::num_bigint::BigInt::from(2_i64))?;
     _smelt_tmp_45 = -&::num_bigint::BigInt::from(1_i64);
-    _smelt_tmp_46 = smelt_bigint_shl(&::num_bigint::BigInt::from(5_i64), &_smelt_tmp_45);
+    let _smelt_tmp_46: ::num_bigint::BigInt = smelt_bigint_shl(&::num_bigint::BigInt::from(5_i64), &_smelt_tmp_45)?;
     let _ = { println!("{} {}n {}n {}n {}n", "shift left:".to_owned(), _smelt_tmp_41, _smelt_tmp_42, _smelt_tmp_44, _smelt_tmp_46); };
     _smelt_tmp_48 = -&::num_bigint::BigInt::from(5_i64);
-    _smelt_tmp_49 = smelt_bigint_shr(&_smelt_tmp_48, &::num_bigint::BigInt::from(1_i64));
-    _smelt_tmp_50 = smelt_bigint_shr(&::num_bigint::BigInt::from(5_i64), &::num_bigint::BigInt::from(1_i64));
+    let _smelt_tmp_49: ::num_bigint::BigInt = smelt_bigint_shr(&_smelt_tmp_48, &::num_bigint::BigInt::from(1_i64))?;
+    let _smelt_tmp_50: ::num_bigint::BigInt = smelt_bigint_shr(&::num_bigint::BigInt::from(5_i64), &::num_bigint::BigInt::from(1_i64))?;
     _smelt_tmp_51 = -&::num_bigint::BigInt::from(1_i64);
-    _smelt_tmp_52 = smelt_bigint_shr(&_smelt_tmp_51, &::num_bigint::BigInt::from(100_i64));
-    _smelt_tmp_53 = smelt_bigint_shr(&huge, &::num_bigint::BigInt::from(13_i64));
+    let _smelt_tmp_52: ::num_bigint::BigInt = smelt_bigint_shr(&_smelt_tmp_51, &::num_bigint::BigInt::from(100_i64))?;
+    let _smelt_tmp_53: ::num_bigint::BigInt = smelt_bigint_shr(&huge, &::num_bigint::BigInt::from(13_i64))?;
     _smelt_tmp_54 = -&huge;
-    _smelt_tmp_55 = smelt_bigint_shr(&_smelt_tmp_54, &::num_bigint::BigInt::from(20_i64));
+    let _smelt_tmp_55: ::num_bigint::BigInt = smelt_bigint_shr(&_smelt_tmp_54, &::num_bigint::BigInt::from(20_i64))?;
     let _ = { println!("{} {}n {}n {}n {}n {}n", "shift right:".to_owned(), _smelt_tmp_49, _smelt_tmp_50, _smelt_tmp_52, _smelt_tmp_53, _smelt_tmp_55); };
     _smelt_tmp_57 = &huge & &::num_bigint::BigInt::from(65535_i64);
     _smelt_tmp_58 = -&huge;
@@ -4099,11 +4087,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_100 = &huge != &_smelt_tmp_99;
     let _ = { println!("{} {} {} {}", "strict:".to_owned(), _smelt_tmp_95, _smelt_tmp_98, _smelt_tmp_100); };
     _smelt_tmp_102 = (&huge).to_string();
-    _smelt_tmp_103 = smelt_bigint_to_string_radix(&huge, 16.0);
-    _smelt_tmp_104 = smelt_bigint_to_string_radix(&huge, 2.0);
+    let _smelt_tmp_103: String = smelt_bigint_to_string_radix(&huge, 16.0)?;
+    let _smelt_tmp_104: String = smelt_bigint_to_string_radix(&huge, 2.0)?;
     _smelt_tmp_105 = _smelt_tmp_104.chars().count() as f64;
     _smelt_tmp_106 = -&::num_bigint::BigInt::from(255_i64);
-    _smelt_tmp_107 = smelt_bigint_to_string_radix(&_smelt_tmp_106, 16.0);
+    let _smelt_tmp_107: String = smelt_bigint_to_string_radix(&_smelt_tmp_106, 16.0)?;
     let _ = { println!("{} {} {} {} {}", "toString:".to_owned(), _smelt_tmp_102, _smelt_tmp_103, smelt_console_number(_smelt_tmp_105), _smelt_tmp_107); };
     _smelt_tmp_109 = (&two_64).to_string();
     _smelt_tmp_110 = "".to_owned() + &(&huge).to_string();
@@ -4209,7 +4197,6 @@ pub(crate) fn as_big_int(bytes: SmeltList<f64>) -> Result<::num_bigint::BigInt, 
     let mut byte: f64;
     let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
-    let mut _smelt_tmp_6: ::num_bigint::BigInt;
     let mut _smelt_tmp_8: ::num_bigint::BigInt;
     let mut result: ::num_bigint::BigInt = ::num_bigint::BigInt::from(0_i64);
     let mut _smelt_tmp_3: usize = 0;
@@ -4218,7 +4205,7 @@ pub(crate) fn as_big_int(bytes: SmeltList<f64>) -> Result<::num_bigint::BigInt, 
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if !(_smelt_tmp_5) { break; }
     byte = bytes.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| 0.0);
-    _smelt_tmp_6 = smelt_bigint_shl(&result, &::num_bigint::BigInt::from(8_i64));
+    let _smelt_tmp_6: ::num_bigint::BigInt = smelt_bigint_shl(&result, &::num_bigint::BigInt::from(8_i64))?;
     let _smelt_tmp_7: ::num_bigint::BigInt = smelt_bigint_from_number(byte)?;
     _smelt_tmp_8 = &_smelt_tmp_6 + &_smelt_tmp_7;
     result = _smelt_tmp_8;

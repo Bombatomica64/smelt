@@ -120,11 +120,11 @@ pub enum PrimitiveCastOp {
 /// A JavaScript `bigint` operation that can THROW a catchable error.
 ///
 /// Every one of these raises a `RangeError` (or, for a malformed string, a
-/// `SyntaxError`) on some input, and JavaScript lets a `try` catch it. MIR's
+/// `SyntaxError`; for a serialized bigint, a `TypeError`) on some input, and JavaScript lets a `try` catch it. MIR's
 /// exception edges live on call terminators, so each lowers to a fallible
 /// builtin call rather than an rvalue; see
 /// `blocker-logs/standards-throwing-rvalue.md`. The infallible bigint
-/// operators (`+ - * & | ^ << >>`, comparisons) stay ordinary rvalues.
+/// operators (`+ - * & | ^`, comparisons) stay ordinary rvalues.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BigIntOp {
     /// `BigInt(value)`: a number must be an integer (else `RangeError`), a
@@ -142,6 +142,21 @@ pub enum BigIntOp {
     Rem,
     /// `a ** b`; a negative exponent is a `RangeError`.
     Pow,
+    /// `a << b`; a result past V8's 2^30-bit cap is a `RangeError`. A
+    /// negative count shifts right.
+    Shl,
+    /// `a >> b`, rounding toward negative infinity. A negative count shifts
+    /// left, so it shares `Shl`'s size `RangeError`.
+    Shr,
+    /// `bigint.toString(radix)`; a radix outside `2..=36` is a `RangeError`.
+    /// The only operation here whose result is a `string`, not a `bigint`
+    /// (see [`Self::returns_string`]).
+    ToStringRadix,
+    /// `JSON.stringify(value)` over a value whose type can hold a bigint: a
+    /// bigint anywhere in the value is a `TypeError` (`Do not know how to
+    /// serialize a BigInt`), since JSON has no bigint spelling. A value whose
+    /// type cannot hold one keeps the infallible `JsonStringify` rvalue.
+    JsonStringify,
 }
 
 impl BigIntOp {
@@ -155,7 +170,17 @@ impl BigIntOp {
             Self::Div => "bigint_div",
             Self::Rem => "bigint_rem",
             Self::Pow => "bigint_pow",
+            Self::Shl => "bigint_shl",
+            Self::Shr => "bigint_shr",
+            Self::ToStringRadix => "bigint_to_string_radix",
+            Self::JsonStringify => "bigint_json_stringify",
         }
+    }
+
+    /// Whether the operation answers a `string` rather than a `bigint`.
+    #[must_use]
+    pub const fn returns_string(self) -> bool {
+        matches!(self, Self::ToStringRadix | Self::JsonStringify)
     }
 }
 

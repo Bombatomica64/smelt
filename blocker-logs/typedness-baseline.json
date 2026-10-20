@@ -12,7 +12,7 @@
       "erased": 34
     },
     "calls": {
-      "concrete": 1764,
+      "concrete": 1777,
       "generic": 5,
       "erased": 2
     }
@@ -1169,7 +1169,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 58,
+        "concrete": 71,
         "generic": 0,
         "erased": 0
       }

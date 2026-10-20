@@ -25,15 +25,20 @@ export function below(a: bigint, b: number): boolean {
 ",
     );
     let mix = emitted_function_body(&source, "fn mix(");
+    // `>>` is fallible (a negative count shifts left and can pass the size
+    // cap), so `mix` can throw and returns its bigint through the error
+    // channel. This used to assert a bare `-> ::num_bigint::BigInt`, which
+    // held only while a shift's `RangeError` escaped `try` as a panic.
     assert!(
         mix.contains(
-            "fn mix(a: ::num_bigint::BigInt, b: ::num_bigint::BigInt) -> ::num_bigint::BigInt"
+            "fn mix(a: ::num_bigint::BigInt, b: ::num_bigint::BigInt) -> Result<::num_bigint::BigInt, Box<dyn std::error::Error>>"
         ),
         "{mix}"
     );
     // Operators borrow their operands rather than cloning them.
     assert!(mix.contains("&a * &b"), "{mix}");
-    assert!(mix.contains("smelt_bigint_shr("), "{mix}");
+    assert!(mix.contains("smelt_bigint_shr(&_smelt_tmp_"), "{mix}");
+    assert!(mix.contains("&::num_bigint::BigInt::from(3_i64))?"), "{mix}");
     for narrowed in ["f64", "i64", "i128"] {
         assert!(
             !mix.contains(&format!("as {narrowed}")),
@@ -114,4 +119,38 @@ export function roundTrip(): bigint {
     assert!(body.contains(".set_bigint(1.0, &"), "{body}");
     assert!(body.contains(".get_bigint(0.0)"), "{body}");
     assert!(!body.contains(".get(0.0)"), "{body}");
+}
+
+#[test]
+fn json_stringify_is_fallible_only_where_a_bigint_can_appear() {
+    // `JSON.stringify` over a bigint is a catchable `TypeError` ("Do not know
+    // how to serialize a BigInt"); it used to be a compile-time blocker. Only
+    // a value whose type can hold a bigint takes the fallible call, so every
+    // other `JSON.stringify` keeps its infallible rvalue and its signature.
+    let source = source_for(
+        r"
+interface Ledger {
+  owner: string;
+  balance: bigint;
+}
+export function ledgerJson(ledger: Ledger): string {
+  return JSON.stringify(ledger);
+}
+export function plainJson(owner: string): string {
+  return JSON.stringify({ owner });
+}
+",
+    );
+    let ledger = emitted_function_body(&source, "fn ledger_json(");
+    assert!(
+        ledger.contains("-> Result<String, Box<dyn std::error::Error>>"),
+        "{ledger}"
+    );
+    assert!(
+        ledger.contains("Do not know how to serialize a BigInt\".to_owned()))?"),
+        "{ledger}"
+    );
+    let plain = emitted_function_body(&source, "fn plain_json(");
+    assert!(plain.contains("fn plain_json(owner: String) -> String"), "{plain}");
+    assert!(plain.contains(".expect(\"JSON serialization failed\")"), "{plain}");
 }

@@ -1526,6 +1526,12 @@ impl ModuleBuilder<'_> {
         };
         let value = self.argument(argument, body)?;
         let value_ty = Self::expr_ty(body, value);
+        if !self.is_json_serializable_type(value_ty)
+            && self.is_json_serializable_type_but_bigints(value_ty)
+        {
+            let span = self.span(call.span.start, call.span.end);
+            return Ok(Some(self.bigint_json_stringify(value, span, body)));
+        }
         if !self.is_json_serializable_type(value_ty) {
             // Name the offending type. Without it the diagnostic says only that
             // SOMETHING in a possibly deep union/record is not serializable,
@@ -2514,7 +2520,17 @@ impl ModuleBuilder<'_> {
 
     /// Return whether a HIR type can be serialized by the JSON mapping.
     fn is_json_serializable_type(&mut self, ty: smelt_hir::TypeId) -> bool {
-        self.is_json_serializable_type_inner(ty, &mut Vec::new(), false)
+        self.is_json_serializable_type_inner(ty, &mut Vec::new(), false, false)
+    }
+
+    /// Return whether a HIR type would be serializable if its bigints were.
+    ///
+    /// A bigint has no JSON spelling, but `JSON.stringify` over one is a
+    /// run-time `TypeError` that a `try` can catch, not a compile error. A
+    /// type that fails [`Self::is_json_serializable_type`] only because of a
+    /// bigint lowers to the fallible `BigIntOp::JsonStringify` call.
+    fn is_json_serializable_type_but_bigints(&mut self, ty: smelt_hir::TypeId) -> bool {
+        self.is_json_serializable_type_inner(ty, &mut Vec::new(), false, true)
     }
 
     /// Return whether a HIR type can be serialized without recursing forever.
@@ -2523,6 +2539,7 @@ impl ModuleBuilder<'_> {
         ty: smelt_hir::TypeId,
         seen: &mut Vec<smelt_hir::Symbol>,
         nested: bool,
+        bigint_ok: bool,
     ) -> bool {
         let Some(ty_kind) = self.ctx.krate.types.get(ty).cloned() else {
             return false;
@@ -2536,20 +2553,21 @@ impl ModuleBuilder<'_> {
             | Type::Unknown
             | Type::TypeParam { .. } => true,
             // `JSON.stringify(1n)` throws `TypeError: Do not know how to
-            // serialize a BigInt`; there is no JSON spelling to emit.
-            Type::BigInt => false,
+            // serialize a BigInt`; there is no JSON spelling to emit. Only the
+            // `bigint_ok` walk accepts it, to pick the fallible lowering.
+            Type::BigInt => bigint_ok,
             Type::List(item) | Type::Set(item) | Type::Optional(item) => {
-                self.is_json_serializable_type_inner(item, seen, true)
+                self.is_json_serializable_type_inner(item, seen, true, bigint_ok)
             }
             Type::Tuple(items) => items
                 .iter()
-                .all(|item| self.is_json_serializable_type_inner(*item, seen, true)),
+                .all(|item| self.is_json_serializable_type_inner(*item, seen, true, bigint_ok)),
             Type::Union(items) => items
                 .iter()
-                .all(|item| self.is_json_serializable_type_inner(*item, seen, true)),
+                .all(|item| self.is_json_serializable_type_inner(*item, seen, true, bigint_ok)),
             Type::Dict(key, value) | Type::JsMap(key, value) => {
                 matches!(self.ctx.krate.types.get(key), Some(Type::String))
-                    && self.is_json_serializable_type_inner(value, seen, true)
+                    && self.is_json_serializable_type_inner(value, seen, true, bigint_ok)
             }
             Type::Class { name, args } => {
                 // A HOST OBJECT serializes as `{}`: none of its state is an own
@@ -2599,7 +2617,7 @@ impl ModuleBuilder<'_> {
                 // own lowered shape is serializable answers the real question.
                 if let Some(alias) = self.find_type_alias(name).cloned() {
                     seen.push(name);
-                    let serializable = self.is_json_serializable_type_inner(alias.ty, seen, true);
+                    let serializable = self.is_json_serializable_type_inner(alias.ty, seen, true, bigint_ok);
                     seen.pop();
                     if serializable {
                         return true;
@@ -2609,7 +2627,7 @@ impl ModuleBuilder<'_> {
                     seen.push(name);
                     let serializable = fields
                         .iter()
-                        .all(|field| self.is_json_serializable_type_inner(field.ty, seen, true));
+                        .all(|field| self.is_json_serializable_type_inner(field.ty, seen, true, bigint_ok));
                     seen.pop();
                     serializable
                 })

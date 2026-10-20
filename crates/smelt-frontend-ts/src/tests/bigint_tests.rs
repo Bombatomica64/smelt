@@ -66,7 +66,10 @@ const index = [1, 2].length;
 "),
         &mut ctx,
     )?;
-    // Every bigint operator result is a bigint...
+    // Every bigint operator result is a bigint. `a << b` is not among the
+    // `BinOp`s: a shift can throw a catchable `RangeError` past the size cap,
+    // so it is the fallible `BigIntOp::Shl` call (it used to be a `BinOp`,
+    // whose throw escaped any `try` as a panic)...
     let binary_types = ctx
         .krate
         .bodies
@@ -76,14 +79,15 @@ const index = [1, 2].length;
             matches!(
                 expr.kind,
                 ExprKind::BinOp {
-                    op: BinOp::Shl | BinOp::Add | BinOp::BitAnd | BinOp::BitXor,
+                    op: BinOp::Add | BinOp::BitAnd | BinOp::BitXor,
                     ..
                 }
             )
         })
         .map(|expr| ctx.krate.types.get(expr.ty).cloned())
         .collect::<Vec<_>>();
-    ensure!(binary_types.len() == 4, "{binary_types:?}");
+    ensure!(binary_types.len() == 3, "{binary_types:?}");
+    ensure!(has_bigint_call(&ctx, BigIntOp::Shl));
     ensure!(
         binary_types.iter().all(|ty| *ty == Some(Type::BigInt)),
         "{binary_types:?}"

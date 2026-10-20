@@ -4442,9 +4442,11 @@ function shiftRaw(raw: bigint): bigint {
     );
 
     // `bigint.toString(radix)` keeps every digit: the runtime renders the
-    // unbounded value in the radix (it used to narrow it to `i128` first).
+    // unbounded value in the radix (it used to narrow it to `i128` first). A
+    // radix outside 2..=36 is a catchable `RangeError`, so it is a fallible
+    // call ending in `?` (it used to panic past any enclosing `try`).
     assert!(
-        source.contains("smelt_bigint_to_string_radix(&::num_bigint::BigInt::from(10_i64), 2.0)"),
+        source.contains("smelt_bigint_to_string_radix(&::num_bigint::BigInt::from(10_i64), 2.0)?"),
         "{source}"
     );
     // A `number` shift is JavaScript's int32 shift: `ToInt32(a)` shifted by
@@ -4459,14 +4461,19 @@ function shiftRaw(raw: bigint): bigint {
     // asserted an `i64` carrier shifted through `(x as f64) as i128`, which
     // dropped low bits past 2^53 and wrapped past 2^63. A bigint is now its
     // own unbounded type, `num_bigint::BigInt`, and its shift is the runtime's
-    // arithmetic shift, never a float round trip.
+    // arithmetic shift, never a float round trip. The shift is a fallible
+    // call (a negative count shifts the other way and can pass the size cap,
+    // a catchable `RangeError`), so `shift_raw` returns its bigint through
+    // the error channel; it used to assert a bare `-> ::num_bigint::BigInt`.
     assert!(source.contains("let left: ::num_bigint::BigInt"), "{source}");
     assert!(
-        source.contains("fn shift_raw(raw: ::num_bigint::BigInt) -> ::num_bigint::BigInt"),
+        source.contains(
+            "fn shift_raw(raw: ::num_bigint::BigInt) -> Result<::num_bigint::BigInt, Box<dyn std::error::Error>>"
+        ),
         "{source}"
     );
     assert!(
-        source.contains("smelt_bigint_shr(&raw, &::num_bigint::BigInt::from(1_i64))"),
+        source.contains("smelt_bigint_shr(&raw, &::num_bigint::BigInt::from(1_i64))?"),
         "{source}"
     );
     assert!(!source.contains("as i128) >>"), "{source}");

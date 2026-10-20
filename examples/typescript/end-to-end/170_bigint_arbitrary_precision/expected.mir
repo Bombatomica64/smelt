@@ -19,14 +19,15 @@ fn as_big_int (FuncId(0)) -> BigInt throws
     switch move %5 ? bb2 : bb4
   bb2:
     %2 = copy %0[copy %3]
-    %6 = move %1 << 8n
-    %7 = call @BigInt(move %2) -> bb5
+    %6 = call @bigint_shl(move %1, 8n) -> bb5
   bb3:
     %3 = copy %3 + 1
     goto bb1
   bb4:
     return move %1
   bb5:
+    %7 = call @BigInt(move %2) -> bb6
+  bb6:
     %8 = move %6 + move %7
     %1 = move %8
     goto bb3
@@ -282,24 +283,33 @@ fn main (FuncId(4)) -> None throws
   bb16:
     %40 = call @console_log("remainder:", move %33, move %35, move %38, move %39) -> bb17
   bb17:
-    %41 = 1n << 64n
-    %42 = 1n << 73n
-    %43 = -3n
-    %44 = move %43 << 2n
-    %45 = -1n
-    %46 = 5n << move %45
-    %47 = call @console_log("shift left:", move %41, move %42, move %44, move %46) -> bb18
+    %41 = call @bigint_shl(1n, 64n) -> bb18
   bb18:
-    %48 = -5n
-    %49 = move %48 >> 1n
-    %50 = 5n >> 1n
-    %51 = -1n
-    %52 = move %51 >> 100n
-    %53 = copy %2 >> 13n
-    %54 = -copy %2
-    %55 = move %54 >> 20n
-    %56 = call @console_log("shift right:", move %49, move %50, move %52, move %53, move %55) -> bb19
+    %42 = call @bigint_shl(1n, 73n) -> bb19
   bb19:
+    %43 = -3n
+    %44 = call @bigint_shl(move %43, 2n) -> bb20
+  bb20:
+    %45 = -1n
+    %46 = call @bigint_shl(5n, move %45) -> bb21
+  bb21:
+    %47 = call @console_log("shift left:", move %41, move %42, move %44, move %46) -> bb22
+  bb22:
+    %48 = -5n
+    %49 = call @bigint_shr(move %48, 1n) -> bb23
+  bb23:
+    %50 = call @bigint_shr(5n, 1n) -> bb24
+  bb24:
+    %51 = -1n
+    %52 = call @bigint_shr(move %51, 100n) -> bb25
+  bb25:
+    %53 = call @bigint_shr(copy %2, 13n) -> bb26
+  bb26:
+    %54 = -copy %2
+    %55 = call @bigint_shr(move %54, 20n) -> bb27
+  bb27:
+    %56 = call @console_log("shift right:", move %49, move %50, move %52, move %53, move %55) -> bb28
+  bb28:
     %57 = copy %2 & 65535n
     %58 = -copy %2
     %59 = move %58 & 255n
@@ -310,100 +320,103 @@ fn main (FuncId(4)) -> None throws
     %64 = 5n ^ -1n
     %65 = -copy %2
     %66 = move %65 ^ -1n
-    %67 = call @console_log("bitwise:", move %57, move %59, move %61, move %63, move %64, move %66) -> bb20
-  bb20:
-    %68 = call fn2(2n, 100n) -> bb21
-  bb21:
-    %69 = -3n
-    %70 = call fn2(move %69, 3n) -> bb22
-  bb22:
-    %71 = call fn2(7n, 0n) -> bb23
-  bb23:
-    %72 = call @console_log("power:", move %68, move %70, move %71) -> bb24
-  bb24:
-    %73 = copy %1 - 1n
-    %74 = call @BigInt.asIntN(64.0, move %73) -> bb25
-  bb25:
-    %75 = call @BigInt.asIntN(8.0, 255n) -> bb26
-  bb26:
-    %76 = call @BigInt.asIntN(64.0, copy %2) -> bb27
-  bb27:
-    %77 = call @console_log("asIntN:", move %74, move %75, move %76) -> bb28
-  bb28:
-    %78 = -1n
-    %79 = call @BigInt.asUintN(64.0, move %78) -> bb29
+    %67 = call @console_log("bitwise:", move %57, move %59, move %61, move %63, move %64, move %66) -> bb29
   bb29:
-    %80 = -1n
-    %81 = call @BigInt.asUintN(8.0, move %80) -> bb30
+    %68 = call fn2(2n, 100n) -> bb30
   bb30:
-    %82 = call @BigInt.asUintN(80.0, copy %2) -> bb31
+    %69 = -3n
+    %70 = call fn2(move %69, 3n) -> bb31
   bb31:
-    %83 = call @console_log("asUintN:", move %79, move %81, move %82) -> bb32
+    %71 = call fn2(7n, 0n) -> bb32
   bb32:
+    %72 = call @console_log("power:", move %68, move %70, move %71) -> bb33
+  bb33:
+    %73 = copy %1 - 1n
+    %74 = call @BigInt.asIntN(64.0, move %73) -> bb34
+  bb34:
+    %75 = call @BigInt.asIntN(8.0, 255n) -> bb35
+  bb35:
+    %76 = call @BigInt.asIntN(64.0, copy %2) -> bb36
+  bb36:
+    %77 = call @console_log("asIntN:", move %74, move %75, move %76) -> bb37
+  bb37:
+    %78 = -1n
+    %79 = call @BigInt.asUintN(64.0, move %78) -> bb38
+  bb38:
+    %80 = -1n
+    %81 = call @BigInt.asUintN(8.0, move %80) -> bb39
+  bb39:
+    %82 = call @BigInt.asUintN(80.0, copy %2) -> bb40
+  bb40:
+    %83 = call @console_log("asUintN:", move %79, move %81, move %82) -> bb41
+  bb41:
     %84 = 1n < 1.5
     %85 = 2n == 2.0
     %86 = 2n > 1.5
     %87 = 3n <= 3.0
     %88 = copy %2 > 10000000000000000000000.0
     %89 = copy %2 < 10000000000000000000000.0
-    %90 = call @console_log("compare:", move %84, move %85, move %86, move %87, move %88, move %89) -> bb33
-  bb33:
+    %90 = call @console_log("compare:", move %84, move %85, move %86, move %87, move %88, move %89) -> bb42
+  bb42:
     %91 = 1n < NaN
     %92 = 1n > NaN
     %93 = 1n == NaN
-    %94 = call @console_log("compare NaN:", move %91, move %92, move %93) -> bb34
-  bb34:
+    %94 = call @console_log("compare NaN:", move %91, move %92, move %93) -> bb43
+  bb43:
     %95 = 2n == 2n
     %96 = copy %0 + 1n
     %97 = copy %0 + 1n
     %98 = move %96 == move %97
     %99 = copy %2 + 1n
     %100 = copy %2 != move %99
-    %101 = call @console_log("strict:", move %95, move %98, move %100) -> bb35
-  bb35:
+    %101 = call @console_log("strict:", move %95, move %98, move %100) -> bb44
+  bb44:
     %102 = primitive_cast_string copy %2
-    %103 = numeric_to_string_radix copy %2, 16.0
-    %104 = numeric_to_string_radix copy %2, 2.0
+    %103 = call @bigint_to_string_radix(copy %2, 16.0) -> bb45
+  bb45:
+    %104 = call @bigint_to_string_radix(copy %2, 2.0) -> bb46
+  bb46:
     %105 = len move %104
     %106 = -255n
-    %107 = numeric_to_string_radix move %106, 16.0
-    %108 = call @console_log("toString:", move %102, move %103, move %105, move %107) -> bb36
-  bb36:
+    %107 = call @bigint_to_string_radix(move %106, 16.0) -> bb47
+  bb47:
+    %108 = call @console_log("toString:", move %102, move %103, move %105, move %107) -> bb48
+  bb48:
     %109 = primitive_cast_string copy %1
     %110 = "" + copy %2
     %111 = "x" + 10n
-    %112 = call @console_log("String:", move %109, move %110, move %111) -> bb37
-  bb37:
+    %112 = call @console_log("String:", move %109, move %110, move %111) -> bb49
+  bb49:
     %113 = copy %0 + 1n
     %114 = primitive_cast_js_number move %113
     %115 = primitive_cast_js_number copy %2
     %116 = -copy %1
     %117 = primitive_cast_js_number move %116
-    %118 = call @console_log("Number:", move %114, move %115, move %117) -> bb38
-  bb38:
-    %119 = call @BigInt("123456789012345678901234567890") -> bb39
-  bb39:
-    %120 = call @BigInt("  -42  ") -> bb40
-  bb40:
-    %121 = call @BigInt("0x1f") -> bb41
-  bb41:
+    %118 = call @console_log("Number:", move %114, move %115, move %117) -> bb50
+  bb50:
+    %119 = call @BigInt("123456789012345678901234567890") -> bb51
+  bb51:
+    %120 = call @BigInt("  -42  ") -> bb52
+  bb52:
+    %121 = call @BigInt("0x1f") -> bb53
+  bb53:
     %122 = numeric_pow 2.0, 60.0
-    %123 = call @BigInt(move %122) -> bb42
-  bb42:
-    %124 = call @BigInt(true) -> bb43
-  bb43:
-    %125 = call @console_log("BigInt():", move %119, move %120, move %121, move %123, move %124) -> bb44
-  bb44:
-    %126 = call @console_log("typeof:", "bigint", "bigint", "number") -> bb45
-  bb45:
-    %127 = call fn3(copy %0, copy %2) -> bb46
-  bb46:
+    %123 = call @BigInt(move %122) -> bb54
+  bb54:
+    %124 = call @BigInt(true) -> bb55
+  bb55:
+    %125 = call @console_log("BigInt():", move %119, move %120, move %121, move %123, move %124) -> bb56
+  bb56:
+    %126 = call @console_log("typeof:", "bigint", "bigint", "number") -> bb57
+  bb57:
+    %127 = call fn3(copy %0, copy %2) -> bb58
+  bb58:
     %128 = -1n
-    %129 = call fn3(1n, move %128) -> bb47
-  bb47:
+    %129 = call fn3(1n, move %128) -> bb59
+  bb59:
     %130 = len move %129
-    %131 = call @console_log("generic:", move %127, move %130) -> bb48
-  bb48:
+    %131 = call @console_log("generic:", move %127, move %130) -> bb60
+  bb60:
     %3 = copy %0
     %132 = move %3 + 1n
     %3 = move %132
@@ -411,14 +424,14 @@ fn main (FuncId(4)) -> None throws
     %3 = move %133
     %134 = move %3 - copy %0
     %3 = move %134
-    %135 = call @bigint_div(move %3, 2n) -> bb49
-  bb49:
+    %135 = call @bigint_div(move %3, 2n) -> bb61
+  bb61:
     %3 = move %135
-    %136 = call @bigint_pow(move %3, 2n) -> bb50
-  bb50:
+    %136 = call @bigint_pow(move %3, 2n) -> bb62
+  bb62:
     %3 = move %136
-    %137 = call @console_log("compound:", move %3) -> bb51
-  bb51:
+    %137 = call @console_log("compound:", move %3) -> bb63
+  bb63:
     %4 = copy %1
     %138 = move %4 + 1n
     %4 = move %138
@@ -427,8 +440,8 @@ fn main (FuncId(4)) -> None throws
     %140 = move %4 - 1n
     %4 = move %140
     %141 = copy %4 > copy %1
-    %142 = call @console_log("update:", move %4, move %141) -> bb52
-  bb52:
+    %142 = call @console_log("update:", move %4, move %141) -> bb64
+  bb64:
     %143 = {copy %1: "2^64", copy %2: "huge"}
     %5 = move %143
     %144 = set{1n, 2n, 1n, copy %1, copy %1}
@@ -438,8 +451,8 @@ fn main (FuncId(4)) -> None throws
     %147 = dict_contains_key move %5, move %146, own
     %148 = len copy %6
     %149 = set_contains move %6, move %1
-    %150 = call @console_log("collections:", move %145, move %147, move %148, move %149) -> bb53
-  bb53:
+    %150 = call @console_log("collections:", move %145, move %147, move %148, move %149) -> bb65
+  bb65:
     %151 = -1n
     %152 = [copy %2, move %151, move %0, 0n]
     %153 = closure ClosureId(0) []
@@ -447,31 +460,31 @@ fn main (FuncId(4)) -> None throws
     %7 = move %154
     %155 = closure ClosureId(1) []
     %156 = list_reduce copy %7, 0n, move %155
-    %157 = call @console_log("sorted:", move %7, move %156) -> bb54
-  bb54:
+    %157 = call @console_log("sorted:", move %7, move %156) -> bb66
+  bb66:
     %158 = primitive_cast_bool 0n
     %159 = -1n
     %160 = primitive_cast_bool move %159
     %161 = 0n != 0n
-    switch move %161 ? bb55 : bb56
-  bb55:
+    switch move %161 ? bb67 : bb68
+  bb67:
     %162 = "yes"
-    goto bb57
-  bb56:
+    goto bb69
+  bb68:
     %162 = "no"
-    goto bb57
-  bb57:
+    goto bb69
+  bb69:
     %163 = move %2 != 0n
-    switch move %163 ? bb58 : bb59
-  bb58:
+    switch move %163 ? bb70 : bb71
+  bb70:
     %164 = "yes"
-    goto bb60
-  bb59:
+    goto bb72
+  bb71:
     %164 = "no"
-    goto bb60
-  bb60:
-    %165 = call @console_log("truthy:", move %158, move %160, move %162, move %164) -> bb61
-  bb61:
+    goto bb72
+  bb72:
+    %165 = call @console_log("truthy:", move %158, move %160, move %162, move %164) -> bb73
+  bb73:
     return none
 
 closure ClosureId(0) -> Float

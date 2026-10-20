@@ -75,6 +75,10 @@ pub(crate) fn emit(writer: &mut CodeWriter) {
     writer.line(format!(
         "fn smelt_bigint_range_error(message: String) -> Box<dyn ::std::error::Error> {{ {throw_range} }}"
     ));
+    writer.line("/// A JavaScript `TypeError` raised by `JSON.stringify` over a bigint.");
+    writer.line(format!(
+        "fn smelt_bigint_type_error_value(message: String) -> Box<dyn ::std::error::Error> {{ {throw_type} }}"
+    ));
     writer.line("/// A JavaScript `SyntaxError` raised by `BigInt(string)`.");
     writer.line(format!(
         "fn smelt_bigint_syntax_error(message: String) -> Box<dyn ::std::error::Error> {{ {throw_syntax} }}"
@@ -86,12 +90,6 @@ pub(crate) fn emit(writer: &mut CodeWriter) {
     writer.line(format!(
         "fn smelt_bigint_type_error(message: &str) -> ! {{ let message = message.to_owned(); smelt_panic_throw({throw_type}) }}"
     ));
-    writer.line(
-        "/// Throw `RangeError: Maximum BigInt size exceeded` (V8 caps a bigint at 2^30 bits) through the panic route.",
-    );
-    writer.line(
-        "fn smelt_bigint_too_big() -> ! { smelt_panic_throw(smelt_bigint_range_error(\"Maximum BigInt size exceeded\".to_owned())) }",
-    );
     writer.blank_line();
     writer.line("/// `lhs / rhs`: truncating division; a zero divisor is a `RangeError`.");
     writer.line(format!(
@@ -110,14 +108,15 @@ pub(crate) fn emit(writer: &mut CodeWriter) {
     ));
     // A shift count is itself a bigint and may be negative, which reverses the
     // direction. A right shift past every bit leaves `0n` or `-1n`; a left
-    // shift past V8's size cap throws.
+    // shift past V8's size cap (2^30 bits) is a catchable `RangeError`, so both
+    // return a `Result` and reach a `try` through the fallible call route.
     writer.line("/// `value << count`, where a negative count shifts right.");
     writer.line(format!(
-        "fn smelt_bigint_shl(value: &{BIGINT_TYPE}, count: &{BIGINT_TYPE}) -> {BIGINT_TYPE} {{ if count.sign() == ::num_bigint::Sign::Minus {{ return smelt_bigint_shr(value, &-count); }} if ::num_traits::Zero::is_zero(value) {{ return value.clone(); }} match u64::try_from(count) {{ Ok(bits) if value.bits().saturating_add(bits) <= {MAX_BIGINT_BITS} => value << bits, _ => smelt_bigint_too_big() }} }}"
+        "fn smelt_bigint_shl(value: &{BIGINT_TYPE}, count: &{BIGINT_TYPE}) -> Result<{BIGINT_TYPE}, Box<dyn ::std::error::Error>> {{ if count.sign() == ::num_bigint::Sign::Minus {{ return smelt_bigint_shr(value, &-count); }} if ::num_traits::Zero::is_zero(value) {{ return Ok(value.clone()); }} match u64::try_from(count) {{ Ok(bits) if value.bits().saturating_add(bits) <= {MAX_BIGINT_BITS} => Ok(value << bits), _ => Err(smelt_bigint_range_error(\"Maximum BigInt size exceeded\".to_owned())) }} }}"
     ));
     writer.line("/// `value >> count`: an arithmetic shift rounding toward negative infinity.");
     writer.line(format!(
-        "fn smelt_bigint_shr(value: &{BIGINT_TYPE}, count: &{BIGINT_TYPE}) -> {BIGINT_TYPE} {{ if count.sign() == ::num_bigint::Sign::Minus {{ return smelt_bigint_shl(value, &-count); }} match u64::try_from(count) {{ Ok(bits) if bits < value.bits() => value >> bits, _ => if value.sign() == ::num_bigint::Sign::Minus {{ {BIGINT_TYPE}::from(-1_i64) }} else {{ {BIGINT_TYPE}::from(0_i64) }} }} }}"
+        "fn smelt_bigint_shr(value: &{BIGINT_TYPE}, count: &{BIGINT_TYPE}) -> Result<{BIGINT_TYPE}, Box<dyn ::std::error::Error>> {{ if count.sign() == ::num_bigint::Sign::Minus {{ return smelt_bigint_shl(value, &-count); }} Ok(match u64::try_from(count) {{ Ok(bits) if bits < value.bits() => value >> bits, _ => if value.sign() == ::num_bigint::Sign::Minus {{ {BIGINT_TYPE}::from(-1_i64) }} else {{ {BIGINT_TYPE}::from(0_i64) }} }}) }}"
     ));
     writer.blank_line();
     writer.line("/// `BigInt(number)`: only an integral, finite number converts; anything else is a `RangeError`.");
@@ -155,9 +154,9 @@ pub(crate) fn emit(writer: &mut CodeWriter) {
     writer.line(format!(
         "fn smelt_bigint_as_uint_n(bits: f64, value: &{BIGINT_TYPE}) -> Result<{BIGINT_TYPE}, Box<dyn ::std::error::Error>> {{ let bits = smelt_bigint_width(bits)?; if value.sign() != ::num_bigint::Sign::Minus && bits >= value.bits() {{ return Ok(value.clone()); }} if bits > {MAX_BIGINT_BITS} {{ return Err(smelt_bigint_range_error(\"Maximum BigInt size exceeded\".to_owned())); }} let modulus = {BIGINT_TYPE}::from(1_i64) << bits; Ok(::num_integer::Integer::mod_floor(value, &modulus)) }}"
     ));
-    writer.line("/// `bigint.toString(radix)`: a radix outside `2..=36` is a `RangeError`.");
+    writer.line("/// `bigint.toString(radix)`: a radix outside `2..=36` is a catchable `RangeError`.");
     writer.line(format!(
-        "fn smelt_bigint_to_string_radix(value: &{BIGINT_TYPE}, radix: f64) -> String {{ let radix = if radix.is_nan() {{ 0.0 }} else {{ radix.trunc() }}; if !(2.0..=36.0).contains(&radix) {{ smelt_panic_throw(smelt_bigint_range_error(\"toString() radix must be between 2 and 36\".to_owned())) }} value.to_str_radix(radix as u32) }}"
+        "fn smelt_bigint_to_string_radix(value: &{BIGINT_TYPE}, radix: f64) -> Result<String, Box<dyn ::std::error::Error>> {{ let radix = if radix.is_nan() {{ 0.0 }} else {{ radix.trunc() }}; if !(2.0..=36.0).contains(&radix) {{ return Err(smelt_bigint_range_error(\"toString() radix argument must be between 2 and 36\".to_owned())); }} Ok(value.to_str_radix(radix as u32)) }}"
     ));
     // The erasure adapters. A bigint keeps its own tag in the erased carrier;
     // recovering one at bigint type accepts the tag and, like every other
@@ -187,7 +186,7 @@ pub(crate) fn emit(writer: &mut CodeWriter) {
     // bitwise and shift operators.
     writer.line("/// `left <op> right` over two erased values that may be bigints or numbers.");
     writer.line(
-        "fn smelt_unknown_arithmetic(op: &str, left: SmeltUnknown, right: SmeltUnknown) -> SmeltUnknown { if op == \"+\" && (matches!(left, SmeltUnknown::String(_)) || matches!(right, SmeltUnknown::String(_))) { return SmeltUnknown::String(format!(\"{left}{right}\").into()); } match (&left, &right) { (SmeltUnknown::BigInt(left), SmeltUnknown::BigInt(right)) => SmeltUnknown::BigInt(match op { \"+\" => left + right, \"-\" => left - right, \"*\" => left * right, \"/\" => smelt_bigint_div(left, right).unwrap_or_else(|error| smelt_panic_throw(error)), \"%\" => smelt_bigint_rem(left, right).unwrap_or_else(|error| smelt_panic_throw(error)), \"<<\" => smelt_bigint_shl(left, right), \">>\" => smelt_bigint_shr(left, right), \"&\" => left & right, \"|\" => left | right, \"^\" => left ^ right, _ => smelt_bigint_type_error(\"BigInts have no unsigned right shift, use >> instead\") }), (SmeltUnknown::BigInt(_), _) | (_, SmeltUnknown::BigInt(_)) => smelt_bigint_type_error(\"Cannot mix BigInt and other types, use explicit conversions\"), _ => { let left = smelt_unknown_to_number(&left); let right = smelt_unknown_to_number(&right); let int32 = |value: f64| if value.is_finite() { value.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0 }; SmeltUnknown::Number(match op { \"+\" => left + right, \"-\" => left - right, \"*\" => left * right, \"/\" => left / right, \"%\" => left % right, \"<<\" => f64::from(int32(left).wrapping_shl(int32(right) as u32 & 31)), \">>\" => f64::from(int32(left).wrapping_shr(int32(right) as u32 & 31)), \">>>\" => f64::from((int32(left) as u32).wrapping_shr(int32(right) as u32 & 31)), \"&\" => f64::from(int32(left) & int32(right)), \"|\" => f64::from(int32(left) | int32(right)), _ => f64::from(int32(left) ^ int32(right)) }) } } }",
+        "fn smelt_unknown_arithmetic(op: &str, left: SmeltUnknown, right: SmeltUnknown) -> SmeltUnknown { if op == \"+\" && (matches!(left, SmeltUnknown::String(_)) || matches!(right, SmeltUnknown::String(_))) { return SmeltUnknown::String(format!(\"{left}{right}\").into()); } match (&left, &right) { (SmeltUnknown::BigInt(left), SmeltUnknown::BigInt(right)) => SmeltUnknown::BigInt(match op { \"+\" => left + right, \"-\" => left - right, \"*\" => left * right, \"/\" => smelt_bigint_div(left, right).unwrap_or_else(|error| smelt_panic_throw(error)), \"%\" => smelt_bigint_rem(left, right).unwrap_or_else(|error| smelt_panic_throw(error)), \"<<\" => smelt_bigint_shl(left, right).unwrap_or_else(|error| smelt_panic_throw(error)), \">>\" => smelt_bigint_shr(left, right).unwrap_or_else(|error| smelt_panic_throw(error)), \"&\" => left & right, \"|\" => left | right, \"^\" => left ^ right, _ => smelt_bigint_type_error(\"BigInts have no unsigned right shift, use >> instead\") }), (SmeltUnknown::BigInt(_), _) | (_, SmeltUnknown::BigInt(_)) => smelt_bigint_type_error(\"Cannot mix BigInt and other types, use explicit conversions\"), _ => { let left = smelt_unknown_to_number(&left); let right = smelt_unknown_to_number(&right); let int32 = |value: f64| if value.is_finite() { value.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0 }; SmeltUnknown::Number(match op { \"+\" => left + right, \"-\" => left - right, \"*\" => left * right, \"/\" => left / right, \"%\" => left % right, \"<<\" => f64::from(int32(left).wrapping_shl(int32(right) as u32 & 31)), \">>\" => f64::from(int32(left).wrapping_shr(int32(right) as u32 & 31)), \">>>\" => f64::from((int32(left) as u32).wrapping_shr(int32(right) as u32 & 31)), \"&\" => f64::from(int32(left) & int32(right)), \"|\" => f64::from(int32(left) | int32(right)), _ => f64::from(int32(left) ^ int32(right)) }) } } }",
     );
     // ECMA-262 `BigInt::lessThan` against a Number compares MATHEMATICAL
     // values: `1n < 1.5`, `2n == 2.0`, and nothing is ordered against NaN.

@@ -16,7 +16,10 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if any_rvalue_needs(mir, rvalue_needs_reqwest) {
         deps.push(BackendDependency::Reqwest);
     }
-    if any_rvalue_needs(mir, rvalue_needs_serde_json) || needs_json_parse_runtime(mir) {
+    if any_rvalue_needs(mir, rvalue_needs_serde_json)
+        || needs_json_parse_runtime(mir)
+        || needs_bigint_json_stringify(mir)
+    {
         deps.push(BackendDependency::SerdeJson);
     }
     // A program that only CONSTRUCTS a `RegExp` and reads its `source`/`flags`
@@ -951,6 +954,20 @@ fn terminators(mir: &Mir) -> impl Iterator<Item = &Terminator> {
         .flat_map(|function| function.blocks.iter())
         .chain(mir.closures.iter().flat_map(|closure| closure.blocks.iter()))
         .filter_map(|block| block.terminator.as_ref())
+}
+
+/// Returns true when some `JSON.stringify` takes the fallible bigint route
+/// (`BigIntOp::JsonStringify`), which serializes through Serde JSON.
+fn needs_bigint_json_stringify(mir: &Mir) -> bool {
+    terminators(mir).any(|terminator| {
+        matches!(
+            terminator,
+            Terminator::Call {
+                callee: Callee::Builtin(BuiltinFn::BigInt(smelt_hir::BigIntOp::JsonStringify)),
+                ..
+            }
+        )
+    })
 }
 
 /// Returns true when a MIR rvalue uses Serde JSON APIs.

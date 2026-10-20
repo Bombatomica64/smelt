@@ -10,9 +10,11 @@
 //! operand types already say "bigint" to the backend. The operations here are
 //! the ones that need a different HIR shape:
 //!
-//! * `/`, `%` and `**` over bigints throw a catchable `RangeError` (a zero
-//!   divisor, a negative exponent), so they become a fallible
-//!   [`ExprKind::BigIntCall`] rather than a `BinOp` rvalue;
+//! * `/`, `%`, `**`, `<<` and `>>` over bigints throw a catchable
+//!   `RangeError` (a zero divisor, a negative exponent, a result past the
+//!   size cap), so they become a fallible [`ExprKind::BigIntCall`] rather than
+//!   a `BinOp` rvalue; so does `bigint.toString(radix)`, whose radix is
+//!   range-checked;
 //! * `BigInt(x)` converts with ECMA-262 `ToBigInt` semantics (a fractional
 //!   number is a `RangeError`, a malformed string a `SyntaxError`) instead of
 //!   the `number` cast it used to share with `Number(x)`;
@@ -52,7 +54,8 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Push a fallible bigint operation of `bigint` type.
+    /// Push a fallible bigint operation, typed `string` for
+    /// [`BigIntOp::returns_string`] and `bigint` otherwise.
     fn push_bigint_call(
         &mut self,
         op: BigIntOp,
@@ -60,7 +63,11 @@ impl ModuleBuilder<'_> {
         span: Span,
         body: &mut Body,
     ) -> ExprId {
-        let ty = self.ctx.krate.types.intern(Type::BigInt);
+        let ty = self.ctx.krate.types.intern(if op.returns_string() {
+            Type::String
+        } else {
+            Type::BigInt
+        });
         body.push_expr(Expr {
             kind: ExprKind::BigIntCall { op, args },
             ty,
@@ -69,7 +76,8 @@ impl ModuleBuilder<'_> {
     }
 
     /// The fallible form of `lhs op rhs`, when both operands are bigints and
-    /// the operator can throw (`/` and `%` on a zero divisor).
+    /// the operator can throw (`/` and `%` on a zero divisor, `<<` and `>>`
+    /// past the size cap).
     ///
     /// `None` leaves the ordinary `BinOp` lowering in charge, which is right for
     /// every other bigint operator: their operand types already route them to
@@ -85,6 +93,8 @@ impl ModuleBuilder<'_> {
         let call_op = match op {
             BinOp::Div => BigIntOp::Div,
             BinOp::Rem => BigIntOp::Rem,
+            BinOp::Shl => BigIntOp::Shl,
+            BinOp::Shr => BigIntOp::Shr,
             _ => return None,
         };
         if !self.is_bigint_type(Self::expr_ty(body, lhs))
@@ -110,6 +120,32 @@ impl ModuleBuilder<'_> {
             return None;
         }
         Some(self.push_bigint_call(BigIntOp::Pow, vec![base, exponent], span, body))
+    }
+
+    /// `operand.toString(radix)` over a bigint, which throws on a radix
+    /// outside `2..=36`; `None` for any other receiver.
+    pub(in crate::lowering) fn bigint_to_string_radix(
+        &mut self,
+        operand: ExprId,
+        radix: ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Option<ExprId> {
+        if !self.is_bigint_type(Self::expr_ty(body, operand)) {
+            return None;
+        }
+        Some(self.push_bigint_call(BigIntOp::ToStringRadix, vec![operand, radix], span, body))
+    }
+
+    /// `JSON.stringify(value)` over a value whose type can hold a bigint,
+    /// which throws a catchable `TypeError` when one is present at run time.
+    pub(in crate::lowering) fn bigint_json_stringify(
+        &mut self,
+        value: ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> ExprId {
+        self.push_bigint_call(BigIntOp::JsonStringify, vec![value], span, body)
     }
 
     /// `~operand` over a bigint: `operand ^ -1n`, which is the bitwise NOT of

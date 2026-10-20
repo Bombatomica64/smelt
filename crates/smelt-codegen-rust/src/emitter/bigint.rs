@@ -212,12 +212,18 @@ impl FunctionEmitter<'_> {
                     Type::BigInt,
                 )
             }
-            BinOp::Shl => (format!("smelt_bigint_shl({lhs_ref}, {rhs_ref})"), Type::BigInt),
-            BinOp::Shr => (format!("smelt_bigint_shr({lhs_ref}, {rhs_ref})"), Type::BigInt),
-            // Fallible: the frontend lowers bigint `/` and `%` to a builtin call
-            // (`BigIntOp::Div`/`Rem`), so a `BinOp` never carries them; render
-            // the same helpers here should a pass ever rebuild one, with the
-            // throw routed through the panic channel.
+            // Fallible: the frontend lowers bigint `/`, `%`, `<<` and `>>` to a
+            // builtin call (`BigIntOp::Div`/`Rem`/`Shl`/`Shr`), so a `BinOp`
+            // never carries them; render the same helpers here should a pass
+            // ever rebuild one, with the throw routed through the panic channel.
+            BinOp::Shl => (
+                format!("smelt_bigint_shl({lhs_ref}, {rhs_ref}).unwrap_or_else(|error| smelt_panic_throw(error))"),
+                Type::BigInt,
+            ),
+            BinOp::Shr => (
+                format!("smelt_bigint_shr({lhs_ref}, {rhs_ref}).unwrap_or_else(|error| smelt_panic_throw(error))"),
+                Type::BigInt,
+            ),
             BinOp::Div => (
                 format!("smelt_bigint_div({lhs_ref}, {rhs_ref}).unwrap_or_else(|error| smelt_panic_throw(error))"),
                 Type::BigInt,
@@ -346,10 +352,38 @@ impl FunctionEmitter<'_> {
                 let bits_text = self.bigint_width_text(bits)?;
                 Ok(format!("{helper}({bits_text}, {})?", self.bigint_operand_ref_text(value)?))
             }
-            BigIntOp::Div | BigIntOp::Rem | BigIntOp::Pow => {
+            BigIntOp::JsonStringify => {
+                // Serialized through the erased carrier like every
+                // `JSON.stringify` (see `json_stringify_text`); its
+                // `Serialize` impl is what refuses a `SmeltUnknown::BigInt`,
+                // and that refusal is the only error it can raise.
+                let value = arg(0)?;
+                let erased =
+                    self.erase_value_text(&self.operand_text(value)?, self.operand_ty(value)?)?;
+                Ok(format!(
+                    "serde_json::to_string(&{erased}).map_err(|_| smelt_bigint_type_error_value(\"Do not know how to serialize a BigInt\".to_owned()))?"
+                ))
+            }
+            BigIntOp::ToStringRadix => {
+                let radix = arg(1)?;
+                let radix_operand = self.operand_text(radix)?;
+                let radix_text =
+                    if matches!(self.mir.types.get(self.operand_ty(radix)?), Some(Type::Float)) {
+                        radix_operand
+                    } else {
+                        format!("{radix_operand} as f64")
+                    };
+                Ok(format!(
+                    "smelt_bigint_to_string_radix({}, {radix_text})?",
+                    self.bigint_operand_ref_text(arg(0)?)?
+                ))
+            }
+            BigIntOp::Div | BigIntOp::Rem | BigIntOp::Pow | BigIntOp::Shl | BigIntOp::Shr => {
                 let helper = match op {
                     BigIntOp::Div => "smelt_bigint_div",
                     BigIntOp::Rem => "smelt_bigint_rem",
+                    BigIntOp::Shl => "smelt_bigint_shl",
+                    BigIntOp::Shr => "smelt_bigint_shr",
                     _ => "smelt_bigint_pow",
                 };
                 Ok(format!(

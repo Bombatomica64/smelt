@@ -1121,10 +1121,14 @@ impl ModuleBuilder<'_> {
                     "number.toString radix argument must be numeric",
                 ));
             }
+            let span = self.span(call.span.start, call.span.end);
+            if let Some(call) = self.bigint_to_string_radix(operand, radix, span, body) {
+                return Ok(Some(call));
+            }
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::NumericToStringRadix { operand, radix },
                 ty,
-                span: self.span(call.span.start, call.span.end),
+                span,
             })));
         }
         if !call.arguments.is_empty() {

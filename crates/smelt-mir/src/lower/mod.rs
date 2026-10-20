@@ -708,7 +708,11 @@ fn intern_fallible_builtin_return_types(mir: &mut Mir) {
                         Type::Float
                     });
                 }
-                BuiltinFn::BigInt(_) => needed.push(Type::BigInt),
+                BuiltinFn::BigInt(op) => needed.push(if op.returns_string() {
+                    Type::String
+                } else {
+                    Type::BigInt
+                }),
                 // The result is the frontend's `RegExp` class type, which it
                 // interned when it typed the node.
                 BuiltinFn::ConsoleLog { .. }

@@ -3055,9 +3055,16 @@ impl FunctionEmitter<'_> {
             // adapter wraps a typed helper, and only the throw crosses the
             // erased channel.
             Callee::Builtin(BuiltinFn::Base64(_)) => return self.type_id(Type::String),
-            // Every bigint builtin answers a typed `BigInt`; only the throw
-            // crosses the erased channel.
-            Callee::Builtin(BuiltinFn::BigInt(_)) => return self.type_id(Type::BigInt),
+            // Every bigint builtin answers a typed `BigInt` (or, for
+            // `toString(radix)`, a `String`); only the throw crosses the
+            // erased channel.
+            Callee::Builtin(BuiltinFn::BigInt(op)) => {
+                return self.type_id(if op.returns_string() {
+                    Type::String
+                } else {
+                    Type::BigInt
+                });
+            }
             // A run-time compile answers the concrete `SmeltRegExp`; only the
             // `SyntaxError` crosses the erased channel.
             Callee::Builtin(BuiltinFn::HostModule(op)) => {

@@ -2541,8 +2541,9 @@ pub enum BuiltinFn {
     /// [`Rvalue::HostModuleCall`].
     HostModule(smelt_hir::HostModuleOp),
     /// A fallible JavaScript `bigint` operation (`BigInt(x)`, `asIntN`,
-    /// `asUintN`, and the bigint `/`, `%`, `**`), which throws a catchable
-    /// `RangeError` (or `SyntaxError`) on some inputs.
+    /// `asUintN`, the bigint `/`, `%`, `**`, `<<`, `>>`, `toString(radix)`,
+    /// and `JSON.stringify` over a value that can hold a bigint), which throws
+    /// a catchable `RangeError` (or `SyntaxError`, `TypeError`) on some inputs.
     ///
     /// A builtin for the reason [`Self::JsonParse`] is: the throw has to reach
     /// an enclosing `try`, and only a call terminator carries an unwind edge.

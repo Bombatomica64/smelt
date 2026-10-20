@@ -444,8 +444,11 @@ impl FunctionEmitter<'_> {
             } else {
                 format!("{radix_operand} as f64")
             };
+            // The frontend lowers a bigint receiver to the fallible
+            // `BigIntOp::ToStringRadix` call; this rvalue form only remains
+            // should a pass rebuild one, so its throw takes the panic route.
             return Ok(format!(
-                "smelt_bigint_to_string_radix({}, {radix_text})",
+                "smelt_bigint_to_string_radix({}, {radix_text}).unwrap_or_else(|error| smelt_panic_throw(error))",
                 self.bigint_ref_text(operand)?
             ));
         }
@@ -473,7 +476,7 @@ impl FunctionEmitter<'_> {
                 "match {}.clone() {{ SmeltUnknown::Number(smelt_radix_value) => {number_text}, {}_ => {fallback} }}",
                 self.operand_text(operand)?,
                 self.bigint_unknown_arm(&format!(
-                    "SmeltUnknown::BigInt(smelt_radix_value) => smelt_bigint_to_string_radix(&smelt_radix_value, {radix_text} as f64),"
+                    "SmeltUnknown::BigInt(smelt_radix_value) => smelt_bigint_to_string_radix(&smelt_radix_value, {radix_text} as f64).unwrap_or_else(|error| smelt_panic_throw(error)),"
                 ))
             ));
         }
