@@ -1011,9 +1011,11 @@ export function report(): number {
 "#,
     );
 
+    // The slot's container (`Cell` for a `Copy` scalar, `RefCell` otherwise)
+    // is not what this test is about; the fallible call inside it is.
     assert!(
         source.contains(
-            "::std::cell::RefCell::new(smelt_global_init__size__0().unwrap_or_else(|error| smelt_module_init_failed(error)))"
+            "::new(smelt_global_init__size__0().unwrap_or_else(|error| smelt_module_init_failed(error)))"
         ),
         "{source}"
     );
