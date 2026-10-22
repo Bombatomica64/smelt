@@ -31,7 +31,7 @@ use super::super::ModuleBuilder;
 use crate::error::SmeltError;
 use oxc::ast::ast::Expression;
 use smelt_hir::{
-    Body, Expr, ExprKind, HttpServerOp, IncomingMessageOp, ServerResponseOp, Type,
+    Body, Expr, ExprKind, HttpServerOp, IncomingMessageOp, Literal, ServerResponseOp, Type,
 };
 
 impl ModuleBuilder<'_> {
@@ -69,6 +69,136 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::HttpCreateServer { handler },
             ty,
+            span,
+        })))
+    }
+
+    /// Lower `serve(options, onListen?)` from `@hono/node-server`.
+    ///
+    /// The adapter's whole job, done natively: a `node:http` server whose
+    /// handler converts each request to a fetch `Request`, calls
+    /// `options.fetch`, and writes back the `Response` it answers
+    /// (`HttpCreateFetchServer`), then `listen(port, hostname?, onListen?)` —
+    /// the existing `Server` operation, which answers the server as `serve`
+    /// does. `port` defaults to 3000, as in the adapter.
+    ///
+    /// The handler keeps its own type: a fetch entry point usually declares
+    /// more than the request (Hono's `app.fetch(request, env?, executionCtx?)`)
+    /// and answers a `Response` or a promise of one, and codegen calls it the
+    /// way the adapter does (see `http_create_fetch_server_text`).
+    pub(in crate::lowering) fn hono_node_serve_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if self.host_module_export_path(&call.callee)
+            != Some((smelt_stdlib::HostModuleId::HonoNodeServer, "serve".to_owned()))
+        {
+            return Ok(None);
+        }
+        let span = self.span(call.span.start, call.span.end);
+        let (options, on_listen) = match call.arguments.as_slice() {
+            [options] => (options, None),
+            [options, on_listen] => (options, Some(on_listen)),
+            _ => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "`serve` from @hono/node-server is modeled as `serve(options)` or `serve(options, onListen)`",
+                ));
+            }
+        };
+        let Some(Expression::ObjectExpression(options)) = options.as_expression() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "`serve` from @hono/node-server is modeled with its options written as an object literal",
+            ));
+        };
+        let mut fetch = None;
+        let mut port = None;
+        let mut hostname = None;
+        for property in &options.properties {
+            let oxc::ast::ast::ObjectPropertyKind::ObjectProperty(property) = property else {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "`serve` options are modeled without spread properties",
+                ));
+            };
+            let Some(key) = property.key.static_name() else {
+                return Err(SmeltError::unsupported(span, "`serve` options are modeled with static keys"));
+            };
+            let value = self.expression(&property.value, body)?;
+            match key.as_ref() {
+                "fetch" => fetch = Some(value),
+                "port" => port = Some(value),
+                "hostname" => hostname = Some(value),
+                other => {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        format!("the `{other}` option of `serve` from @hono/node-server is not modeled; `fetch`, `port` and `hostname` are"),
+                    ));
+                }
+            }
+        }
+        let Some(fetch) = fetch else {
+            return Err(SmeltError::unsupported(span, "`serve` from @hono/node-server needs a `fetch` handler"));
+        };
+        if !matches!(self.ctx.krate.types.get(Self::expr_ty(body, fetch)), Some(Type::Function(_))) {
+            return Err(SmeltError::unsupported(span, "the `fetch` option of `serve` must be a function"));
+        }
+        let port = if let Some(port) = port {
+            port
+        } else {
+            let float_ty = self.ctx.krate.types.intern(Type::Float);
+            body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(3000.0)),
+                ty: float_ty,
+                span,
+            })
+        };
+        let mut listen_args = vec![port];
+        // Positional, as `listen` reads them: a callback needs the host slot
+        // filled, with the host `listen(port, cb)` binds (see
+        // `http_listen_arguments`).
+        let hostname = match (hostname, on_listen) {
+            (None, Some(_)) => Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("127.0.0.1".to_owned())),
+                ty: self.ctx.krate.types.intern(Type::String),
+                span,
+            })),
+            (hostname, _) => hostname,
+        };
+        listen_args.extend(hostname);
+        if let Some(on_listen) = on_listen {
+            // The adapter passes the bound address to its callback; the
+            // `listen` operation calls it without one, so only a callback that
+            // declares no parameter is accepted rather than one silently fed
+            // nothing.
+            if let Some(
+                Expression::ArrowFunctionExpression(function),
+            ) = on_listen.as_expression()
+                && !function.params.items.is_empty()
+            {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "the address argument of `serve`'s listening callback is not modeled; declare the callback without parameters",
+                ));
+            }
+            let hint = self.http_listening_callback_type();
+            listen_args.push(self.argument_with_hint(on_listen, body, Some(hint))?);
+        }
+        let server_ty = self.http_server_type();
+        let server = body.push_expr(Expr {
+            kind: ExprKind::HttpCreateFetchServer { fetch },
+            ty: server_ty,
+            span,
+        });
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::HttpServerOp {
+                op: HttpServerOp::Listen,
+                server,
+                args: listen_args,
+            },
+            ty: server_ty,
             span,
         })))
     }

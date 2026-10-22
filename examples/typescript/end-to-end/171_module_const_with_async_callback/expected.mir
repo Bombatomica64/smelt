@@ -1,0 +1,49 @@
+interface Job
+
+fn make_job (FuncId(0)) -> Job
+  locals
+    %0 param job: Job
+  bb0:
+    return copy %0
+
+async fn main (FuncId(1)) -> None throws
+  locals
+    %0 user job: Job
+    %1 temp: async fn(String) -> Future<String>
+    %2 temp: Job
+    %3 temp: Job
+    %4 temp: Future<String>
+    %5 temp: String
+    %6 temp: None
+    %7 temp: Future<None>
+    %8 temp: None
+  bb0:
+    %1 = closure ClosureId(0) []
+    %2 = {"label": "upper", "run": move %1}
+    %3 = call fn0(move %2) -> bb1
+  bb1:
+    %0 = move %3
+    %4 = closure_call copy %0.field8("  hello  ")
+    %5 = await move %4
+    %6 = call @console_log(copy %0.field7, move %5) -> bb2
+  bb2:
+    %7 = async_exit_drain()
+    %8 = await move %7
+    return none
+
+closure ClosureId(0) -> Future<String>
+  locals
+    %0 param input: String
+    %1 user trimmed: String
+    %2 temp: String
+    %3 temp: Future<String>
+    %4 temp: String
+    %5 temp: String
+  bb0:
+    %2 = string_trim_both copy %0
+    %3 = async_resolve(0.0, copy %2)
+    %4 = await copy %3
+    %1 = copy %4
+    %5 = string_upper copy %1
+    return copy %5
+

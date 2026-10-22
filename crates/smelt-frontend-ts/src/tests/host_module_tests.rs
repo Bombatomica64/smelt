@@ -18,11 +18,9 @@ fn declared_host_module_value_blocks_at_first_use() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
         ts!(r"
-import { DatabaseSync } from 'node:sqlite';
+import { backup } from 'node:sqlite';
 
-export function open(path: string): DatabaseSync {
-  return new DatabaseSync(path);
-}
+export const copy = backup;
 "),
         &mut ctx,
     )?;
@@ -42,9 +40,9 @@ fn declared_host_module_import_without_use_is_free() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import type { DatabaseSync } from 'node:sqlite';
+import type { Session } from 'node:sqlite';
 
-export function describeHandle(handle: DatabaseSync): string {
+export function describeHandle(handle: Session): string {
   return typeof handle;
 }
 "),
@@ -421,5 +419,84 @@ export function manifest(): string {
         any_host_expr(&ctx, |kind| matches!(kind, smelt_hir::ExprKind::UnknownCast { .. })),
         "the ambient read must narrow the stored member to its declared type"
     );
+    Ok(())
+}
+
+/// `serve` from `@hono/node-server` lowers to a fetch server that listens.
+#[test]
+fn hono_node_server_serve_lowers_to_a_listening_fetch_server() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+import { serve } from '@hono/node-server';
+
+const fetch = (request: Request): Response => new Response(request.url);
+serve({ fetch, port: 8080 }, (): void => {
+  console.log('up');
+});
+"),
+        &mut ctx,
+    )?;
+    let kinds = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .map(|expr| &expr.kind)
+        .collect::<Vec<_>>();
+    if !kinds.iter().any(|kind| matches!(kind, smelt_hir::ExprKind::HttpCreateFetchServer { .. })) {
+        return Err("serve did not build a fetch server".to_owned());
+    }
+    if !kinds.iter().any(|kind| {
+        matches!(kind, smelt_hir::ExprKind::HttpServerOp { op: smelt_hir::HttpServerOp::Listen, args, .. } if args.len() == 3)
+    }) {
+        return Err("serve did not listen with port, host and callback".to_owned());
+    }
+    Ok(())
+}
+
+/// An option the adapter has but Smelt does not model is a named blocker,
+/// never silently ignored.
+#[test]
+fn hono_node_server_serve_rejects_an_unmodeled_option() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r"
+import { serve } from '@hono/node-server';
+
+const fetch = (request: Request): Response => new Response(request.url);
+serve({ fetch, port: 8080, overrideGlobalObjects: false });
+"),
+        &mut ctx,
+    )?;
+    if errors.iter().any(|error| format!("{error:?}").contains("overrideGlobalObjects")) {
+        Ok(())
+    } else {
+        Err(format!("expected a blocker naming the option, got {errors:?}"))
+    }
+}
+
+/// A locally declared `serve` is the program's own function, not the adapter.
+#[test]
+fn a_local_serve_is_not_the_hono_adapter() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+function serve(options: { port: number }): number {
+  return options.port;
+}
+console.log(serve({ port: 1 }));
+"),
+        &mut ctx,
+    )?;
+    if ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .any(|expr| matches!(expr.kind, smelt_hir::ExprKind::HttpCreateFetchServer { .. }))
+    {
+        return Err("a local serve was lowered as the adapter".to_owned());
+    }
     Ok(())
 }

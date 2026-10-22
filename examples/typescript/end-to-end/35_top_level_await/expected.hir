@@ -57,6 +57,6 @@ interned types
   t6 = Future<Float>
   t7 = async fn(List<Float>) -> Future<Float>
   t8 = async fn(String) -> Future<String>
-  t9 = None
-  t10 = async fn(List<Float>) -> Future<Float>
+  t9 = async fn(List<Float>) -> Future<Float>
+  t10 = None
   t11 = Future<None>

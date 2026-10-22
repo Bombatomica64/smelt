@@ -5,7 +5,9 @@ mod common;
 use std::fs;
 
 use common::{
-    TempProject, TestResult, cargo_run_manifest, cargo_test_manifest, ensure, ensure_eq, smelt,
+    TempProject, TestResult, cargo_run_manifest, cargo_run_manifest_with_env, cargo_test_manifest,
+    ensure, ensure_eq, smelt,
+    smelt_in, smelt_with_env,
     utf8_path,
 };
 
@@ -1178,6 +1180,204 @@ clone-strategy = "aggressive"
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
     ensure_eq(&actual_stdout, &"5\n".to_owned(), "unexpected stdout")?;
 
+    Ok(())
+}
+
+/// A workspace package resolves the same when the manifest path is RELATIVE.
+///
+/// Run from inside the project (`smelt --manifest-path Smelt.toml`), importer
+/// paths are relative and the package search root used to become the empty
+/// path, so `read_dir("")` failed and the package was reported unresolved.
+#[test]
+fn check_resolves_workspace_package_with_a_relative_manifest_path() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::create_dir_all(project_path.join("packages/utility/src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-workspace-relative-manifest"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_workspace_relative_manifest"
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(project_path.join("package.json"), "{\"name\":\"workspace-root\",\"private\":true}\n")?;
+    fs::write(
+        project_path.join("packages/utility/package.json"),
+        "{\"name\":\"utility\",\"source\":\"src/index.ts\"}\n",
+    )?;
+    fs::write(
+        project_path.join("packages/utility/src/index.ts"),
+        "export function increment(value: number): number {\n  return value + 1;\n}\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import { increment } from \"utility\";\nconsole.log(increment(4));\n",
+    )?;
+
+    smelt_in(project_path, &["--manifest-path", "Smelt.toml", "check"])?;
+
+    Ok(())
+}
+
+/// Write a small library: a barrel, a module it re-exports, a subpath module,
+/// and a module the manifest excludes (it imports a package nothing provides,
+/// so reaching it would fail the build).
+fn write_package_sources(root: &std::path::Path) -> TestResult {
+    fs::create_dir_all(root.join("src/extra"))?;
+    fs::write(root.join("src/index.ts"), "export * from \"./increment\";\nexport * from \"./client\";\n")?;
+    fs::write(
+        root.join("src/increment.ts"),
+        "export function increment(value: number): number {\n  return value + 1;\n}\n",
+    )?;
+    fs::write(
+        root.join("src/client.ts"),
+        "import { connect } from \"no-such-package\";\nexport const client = connect();\n",
+    )?;
+    fs::write(
+        root.join("src/extra/index.ts"),
+        "export function twice(value: number): number {\n  return value * 2;\n}\n",
+    )?;
+    Ok(())
+}
+
+/// The manifest and program shared by the `[packages]` tests.
+fn write_package_consumer(project_path: &std::path::Path, package_decl: &str) -> TestResult {
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        format!(
+            r#"[project]
+name = "ts-declared-package"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[packages.utility]
+{package_decl}
+exclude = ["src/client.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_declared_package"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#
+        ),
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import { increment } from \"utility\";\nimport { twice } from \"utility/extra\";\nconsole.log(twice(increment(4)));\n",
+    )?;
+    Ok(())
+}
+
+/// A bare import resolves through `[packages.<name>] path`, including a
+/// subpath next to the entry, and the package's own excludes prune its tree.
+#[test]
+fn build_resolves_a_declared_package_from_a_local_path() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    write_package_sources(&project_path.join("vendor/utility"))?;
+    write_package_consumer(project_path, "path = \"vendor/utility\"")?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"10\n".to_owned(), "unexpected stdout")?;
+    Ok(())
+}
+
+/// `[packages.<name>] git` + `rev` fetches the pinned revision into the
+/// package cache once and reuses it; a later commit on the branch is not seen.
+#[test]
+fn build_resolves_a_declared_package_from_a_pinned_git_revision() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    let repo = project_path.join("upstream");
+    write_package_sources(&repo)?;
+    let git = |args: &[&str]| -> TestResult {
+        let status = std::process::Command::new("git")
+            .current_dir(&repo)
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"])
+            .args(args)
+            .status()?;
+        ensure(status.success(), format!("git {args:?} failed"))
+    };
+    git(&["init", "--quiet"])?;
+    git(&["add", "."])?;
+    git(&["commit", "--quiet", "-m", "v1"])?;
+    git(&["tag", "v1"])?;
+    // A later commit that would change the output if it were picked up.
+    fs::write(
+        repo.join("src/increment.ts"),
+        "export function increment(value: number): number {\n  return value + 100;\n}\n",
+    )?;
+    git(&["commit", "--quiet", "-am", "v2"])?;
+
+    let url = format!("file://{}", utf8_path(&repo)?);
+    write_package_consumer(project_path, &format!("git = \"{url}\"\nrev = \"v1\""))?;
+    let cache = project_path.join("cache");
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    for _ in 0_u8..2 {
+        smelt_with_env(&["--manifest-path", &manifest_arg, "build"], &[("SMELT_PACKAGE_CACHE", &cache)])?;
+        let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+        ensure_eq(&actual_stdout, &"10\n".to_owned(), "unexpected stdout")?;
+    }
+    ensure(cache.join("utility-v1/.git").is_dir(), "the pinned checkout is cached under <name>-<rev>")?;
+    Ok(())
+}
+
+/// `process.env.NAME` reads the real environment at run time, so a server
+/// sees its `PORT`; the profile's timezone stays fixed whatever `TZ` says.
+#[test]
+fn process_env_reads_the_environment_at_run_time() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-process-env"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_process_env"
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "const port = Number(process.env.SMELT_TEST_PORT ?? 3000);\nconsole.log(port, process.env.TZ ?? \"UTC\");\n",
+    )?;
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let manifest = project_path.join("dist/Cargo.toml");
+    let unset = cargo_run_manifest_with_env(&manifest, &[("TZ", "UTC")], &["SMELT_TEST_PORT"])?;
+    ensure_eq(&unset, &"3000 America/Santiago\n".to_owned(), "an unset variable is undefined")?;
+    let set = cargo_run_manifest_with_env(&manifest, &[("SMELT_TEST_PORT", "4321"), ("TZ", "UTC")], &[])?;
+    ensure_eq(&set, &"4321 America/Santiago\n".to_owned(), "a set variable is read")?;
     Ok(())
 }
 

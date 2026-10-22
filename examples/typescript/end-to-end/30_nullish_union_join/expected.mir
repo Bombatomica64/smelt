@@ -2,20 +2,22 @@ fn main (FuncId(0)) -> None
   locals
     %0 user port: Float
     %1 user zone: String
-    %2 temp: String | Float
-    %3 temp: Float
-    %4 temp: String
-    %5 temp: None
+    %2 temp: Optional<String>
+    %3 temp: String | Float
+    %4 temp: Float
+    %5 temp: String
     %6 temp: None
+    %7 temp: None
   bb0:
-    %2 = undefined ?? 3000.0
-    %3 = primitive_cast_js_number move %2
-    %0 = move %3
-    %4 = "America/Santiago" ?? "UTC"
-    %1 = move %4
-    %5 = call @console_log(move %0) -> bb1
+    %2 = process_env_read "PORT"
+    %3 = move %2 ?? 3000.0
+    %4 = primitive_cast_js_number move %3
+    %0 = move %4
+    %5 = "America/Santiago" ?? "UTC"
+    %1 = move %5
+    %6 = call @console_log(move %0) -> bb1
   bb1:
-    %6 = call @console_log(move %1) -> bb2
+    %7 = call @console_log(move %1) -> bb2
   bb2:
     return none
 

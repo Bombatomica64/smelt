@@ -680,6 +680,12 @@ pub enum ExprKind {
     /// by a listener is reported and has no meaning until listeners can be
     /// async here.
     EventEmitterNew,
+    /// `process.env.NAME`: the variable from the process environment, or
+    /// `undefined` when it is not set. Typed `Optional<String>`.
+    ProcessEnvRead {
+        /// The variable's name.
+        name: String,
+    },
     /// An `EventEmitter` member operation on a concrete emitter receiver.
     ///
     /// The receiver is any value whose class
@@ -702,6 +708,32 @@ pub enum ExprKind {
     HttpCreateServer {
         /// The request handler, called once per accepted request.
         handler: ExprId,
+    },
+    /// `new DatabaseSync(path)` from `node:sqlite`.
+    SqliteOpen {
+        /// The database file, or `":memory:"`.
+        path: ExprId,
+    },
+    /// A `node:sqlite` database or statement operation.
+    SqliteOp {
+        /// Which operation.
+        op: crate::expr::SqliteOp,
+        /// The `DatabaseSync` or `StatementSync` receiver.
+        receiver: ExprId,
+        /// The SQL text for `exec`/`prepare`; the bound parameters, erased,
+        /// for `all`/`get`/`run`.
+        args: Vec<ExprId>,
+    },
+    /// A `node:http` server answering requests with a fetch handler.
+    ///
+    /// What `@hono/node-server`'s `serve` builds: every request is converted to
+    /// a fetch `Request`, passed to `fetch`, and the `Response` it answers
+    /// (directly or through a promise) is written back. `fetch` keeps the
+    /// program's own function type; it is called with the request alone, so
+    /// its further parameters are optional.
+    HttpCreateFetchServer {
+        /// The fetch handler, called once per accepted request.
+        fetch: ExprId,
     },
     /// A `node:http` `Server` member operation.
     HttpServerOp {

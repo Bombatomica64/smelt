@@ -395,6 +395,30 @@ pub enum EventEmitterOp {
     ListenerCount,
 }
 
+/// A `node:sqlite` database or statement operation.
+///
+/// The receiver decides the family: `Exec`, `Prepare` and `Close` act on a
+/// `DatabaseSync`, `All`, `Get` and `Run` on a `StatementSync`. Statement
+/// parameters are passed erased, because SQL binds them by position or name
+/// from whatever values the call supplies (`null`, number, bigint, string,
+/// bytes), and rows come back erased because their columns are decided by the
+/// SQL text at run time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SqliteOp {
+    /// `db.exec(sql)`: run one or more statements, no parameters, no result.
+    Exec,
+    /// `db.prepare(sql)`: compile a statement.
+    Prepare,
+    /// `db.close()`.
+    Close,
+    /// `statement.all(...params)`: every row.
+    All,
+    /// `statement.get(...params)`: the first row, or `undefined`.
+    Get,
+    /// `statement.run(...params)`: `{ changes, lastInsertRowid }`.
+    Run,
+}
+
 /// A directly lowered `node:http` `Server` operation.
 ///
 /// Three operations and no more, because that is the whole of what a server

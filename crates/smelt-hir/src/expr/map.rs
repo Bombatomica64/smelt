@@ -406,6 +406,7 @@ impl ExprKind {
             },
             Self::SetProjection { op, set } => Self::SetProjection { op, set: f(set)? },
             Self::EventEmitterNew => Self::EventEmitterNew,
+            Self::ProcessEnvRead { name } => Self::ProcessEnvRead { name },
             Self::EventEmitterOp { op, emitter, args } => {
                 let emitter = f(emitter)?;
                 let mut mapped = Vec::with_capacity(args.len());
@@ -421,6 +422,16 @@ impl ExprKind {
             Self::HttpCreateServer { handler } => Self::HttpCreateServer {
                 handler: f(handler)?,
             },
+            Self::HttpCreateFetchServer { fetch } => Self::HttpCreateFetchServer { fetch: f(fetch)? },
+            Self::SqliteOpen { path } => Self::SqliteOpen { path: f(path)? },
+            Self::SqliteOp { op, receiver, args } => {
+                let receiver = f(receiver)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::SqliteOp { op, receiver, args: mapped }
+            }
             Self::HttpServerOp { op, server, args } => {
                 let server = f(server)?;
                 let mut mapped = Vec::with_capacity(args.len());

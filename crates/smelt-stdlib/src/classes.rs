@@ -57,6 +57,12 @@ pub enum StdlibClass {
     /// `node:http` `ServerResponse`: the response half of one exchange, and the
     /// only modeled class with settable members (`res.statusCode = 200`).
     ServerResponse,
+    /// `node:sqlite` `DatabaseSync`, backed by the generated
+    /// `SmeltSqliteDatabase` (one shared `SQLite` connection).
+    SqliteDatabase,
+    /// `node:sqlite` `StatementSync`, backed by the generated
+    /// `SmeltSqliteStatement` (its connection and its SQL text).
+    SqliteStatement,
     /// WHATWG `ReadableStream`, as it appears at `Response.body` /
     /// `Request.body`: the BODY HANDLE itself, backed by the generated
     /// `SmeltBody`.
@@ -215,6 +221,8 @@ impl StdlibClass {
                 | Self::IncomingMessage
                 | Self::ServerResponse
                 | Self::FormData
+                | Self::SqliteDatabase
+                | Self::SqliteStatement
         )
     }
 
@@ -434,6 +442,9 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         "Server" => Some(StdlibClass::HttpServer),
         "IncomingMessage" => Some(StdlibClass::IncomingMessage),
         "ServerResponse" => Some(StdlibClass::ServerResponse),
+        // `node:sqlite`, under the names the module exports.
+        "DatabaseSync" => Some(StdlibClass::SqliteDatabase),
+        "StatementSync" => Some(StdlibClass::SqliteStatement),
         "FormData" => Some(StdlibClass::FormData),
         "ReadableStream" => Some(StdlibClass::ReadableStream),
         "TextEncoder" => Some(StdlibClass::TextEncoder),

@@ -150,6 +150,7 @@ mod rendered_value;
 mod seam_assertions;
 mod static_call_args;
 mod set;
+mod sqlite;
 mod strings;
 mod strings_io;
 mod throw;

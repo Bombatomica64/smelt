@@ -166,6 +166,26 @@ pub(crate) fn node_runs_typescript() -> bool {
     })
 }
 
+/// Whether `npm` is on `PATH`, probed once per test binary.
+///
+/// Needed only by an oracle program with npm dependencies (see
+/// [`node_typescript_stdout`]); without it that program's oracle check is
+/// skipped with one note, like a missing `node`.
+#[expect(clippy::print_stderr, reason = "a skipped oracle check must say so in the test output")]
+pub(crate) fn npm_available() -> bool {
+    static PROBE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *PROBE.get_or_init(|| {
+        let available = Command::new("npm")
+            .arg("--version")
+            .output()
+            .is_ok_and(|output| output.status.success());
+        if !available {
+            eprintln!("note: `npm` is not on PATH; skipping the Node oracle checks of programs with npm dependencies");
+        }
+        available
+    })
+}
+
 /// Runs a TypeScript program under real Node and returns its stdout.
 ///
 /// `files` are `(relative path, source)` pairs written into a fresh directory;
@@ -174,14 +194,22 @@ pub(crate) fn node_runs_typescript() -> bool {
 ///
 /// # The environment is the target profile's, not the host's
 ///
-/// Smelt compiles for a fixed, deterministic Node profile and resolves
-/// `process.env` against it at COMPILE time (see
-/// `smelt_stdlib::NODE_PROFILE_TIMEZONE`): `TZ` is the profile's zone and every
-/// other variable is absent. Node reads its environment at run time, so the
-/// oracle runs it under exactly that environment — cleared, then `TZ` set —
-/// and the comparison cannot depend on the machine or CI runner it runs on.
+/// Smelt compiles for a fixed Node profile whose `TZ` is fixed at COMPILE time
+/// (see `smelt_stdlib::NODE_PROFILE_TIMEZONE`); every other `process.env`
+/// variable is read at run time. The oracle runs Node under a cleared
+/// environment with only `TZ` set, so a golden cannot depend on the machine or
+/// CI runner it was recorded on.
 /// Only `PATH` is carried over, so `node` itself and anything it spawns
 /// resolve.
+///
+/// # npm dependencies
+///
+/// A program that imports an npm package at run time (not `import type`, which
+/// Node strips) lists the package in a `package.json` among `files`, pinned to
+/// an exact version. The oracle installs it with `npm install` before running
+/// Node; Smelt itself never reads that file (it models or lowers the package).
+/// [`ensure_node_agrees`] skips such a program when `npm` is absent, and an
+/// install that fails is an error, not a skip.
 pub(crate) fn node_typescript_stdout(files: &[(&str, &str)], entry: &str) -> TestResult<String> {
     let project = TempProject::new()?;
     let root = project.path().join("node-oracle");
@@ -191,6 +219,20 @@ pub(crate) fn node_typescript_stdout(files: &[(&str, &str)], entry: &str) -> Tes
             fs::create_dir_all(parent)?;
         }
         fs::write(path, source)?;
+    }
+    if files.iter().any(|(relative, _)| *relative == "package.json") {
+        let output = Command::new("npm")
+            .current_dir(&root)
+            .args(["install", "--no-audit", "--no-fund", "--ignore-scripts", "--loglevel=error"])
+            .output()?;
+        if !output.status.success() {
+            return Err(io::Error::other(format!(
+                "npm install failed for the {entry} oracle\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ))
+            .into());
+        }
     }
     let mut command = Command::new("node");
     command
@@ -235,6 +277,9 @@ pub(crate) fn ensure_node_agrees(
     if !node_runs_typescript() {
         return Ok(());
     }
+    if files.iter().any(|(relative, _)| *relative == "package.json") && !npm_available() {
+        return Ok(());
+    }
     let node_stdout = node_typescript_stdout(files, entry)?;
     ensure(
         node_stdout == expected_stdout,
@@ -242,6 +287,52 @@ pub(crate) fn ensure_node_agrees(
             "{name}: the golden stdout is not what `node` prints for the same source\n--- node\n{node_stdout}--- golden\n{expected_stdout}"
         ),
     )
+}
+
+/// Runs the `smelt` binary from the workspace root with extra environment.
+pub(crate) fn smelt_with_env(args: &[&str], env: &[(&str, &Path)]) -> TestResult<String> {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_smelt"));
+    command.current_dir(workspace_root()?).args(args);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let output = command.output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "smelt failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+        .into());
+    }
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+/// Runs `cargo run --manifest-path` with `env` set (and every name in `unset`
+/// removed) for the generated program, and returns stdout.
+pub(crate) fn cargo_run_manifest_with_env(
+    manifest: &Path,
+    env: &[(&str, &str)],
+    unset: &[&str],
+) -> TestResult<String> {
+    let mut command = Command::new("cargo");
+    command.arg("run").arg("--quiet").arg("--manifest-path").arg(manifest);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    for key in unset {
+        command.env_remove(key);
+    }
+    let output = command.output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "generated crate failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+        .into());
+    }
+    Ok(String::from_utf8(output.stdout)?)
 }
 
 /// Runs `cargo test --manifest-path` for a generated crate and returns stdout.

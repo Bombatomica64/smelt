@@ -609,10 +609,16 @@ impl PartialEq for SmeltFunctionIdentity {
 struct SmeltCallableMeta {
     /// The JavaScript function this allocation denotes; minted on first need.
     identity: Option<SmeltFunctionIdentity>,
-    /// The typed callable an erased adapter wraps (`Box<T>` for its `Rc` type).
+    /// The typed callable an erased adapter wraps, held WEAKLY (`Box<Weak<F>>`
+    /// for its `Rc<F>` type; see `SmeltFunctionOrigin`).
     ///
-    /// The adapter already captures this callable, so holding it here does not
-    /// extend its life past the adapter's.
+    /// The adapter captures this callable, so while the adapter is alive (the
+    /// only time it can be looked up) the upgrade succeeds. A strong handle
+    /// here would outlive the adapter until the next sweep, and that stale
+    /// count is what `SmeltClosureShare` reads: a class-field arrow erased
+    /// through an object view looked shared when its instance's last handle
+    /// went, so the instance was pinned for the rest of the program — every
+    /// Hono 4 `Context`, one per request.
     wrapped: Option<Box<dyn ::std::any::Any>>,
     /// The erased value a typed callable was narrowed from (a callable object,
     /// or the full-arity function an arity-narrowing adapter forwards to).
@@ -683,14 +689,31 @@ fn smelt_erased_function_key(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) 
     smelt_callable_object_key(function)
 }
 
+/// A typed callable that can be recorded as an erased adapter's origin.
+///
+/// The record is a `Weak` (see `SmeltCallableMeta::wrapped`); typed callables
+/// are `Rc<dyn Fn(..)>`, so this is implemented for `Rc` alone.
+trait SmeltFunctionOrigin: Sized + 'static {
+    /// The weak record kept in the callable table.
+    fn smelt_origin_record(&self) -> Box<dyn ::std::any::Any>;
+    /// The callable back out of a record, while it is alive and of this type.
+    fn smelt_from_origin_record(record: &dyn ::std::any::Any) -> Option<Self>;
+}
+
+impl<F: ?Sized + 'static> SmeltFunctionOrigin for ::std::rc::Rc<F> {
+    fn smelt_origin_record(&self) -> Box<dyn ::std::any::Any> { Box::new(::std::rc::Rc::downgrade(self)) }
+    fn smelt_from_origin_record(record: &dyn ::std::any::Any) -> Option<Self> { record.downcast_ref::<::std::rc::Weak<F>>().and_then(::std::rc::Weak::upgrade) }
+}
+
 /// Retain typed callback identity while it crosses an erased ABI.
-fn smelt_register_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, origin: T) {
-    smelt_update_callable(function, |meta| meta.wrapped = Some(Box::new(origin)));
+fn smelt_register_function_origin<T: SmeltFunctionOrigin>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, origin: T) {
+    let record = origin.smelt_origin_record();
+    smelt_update_callable(function, |meta| meta.wrapped = Some(record));
 }
 
 /// Recover a typed callback previously passed through an erased ABI.
-fn smelt_restore_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> Option<T> {
-    smelt_read_callable(function, |meta| meta.wrapped.as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned())
+fn smelt_restore_function_origin<T: SmeltFunctionOrigin>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> Option<T> {
+    smelt_read_callable(function, |meta| meta.wrapped.as_deref().and_then(T::smelt_from_origin_record))
 }
 
 /// Remember the callable object a typed callback was narrowed from.
@@ -1191,8 +1214,8 @@ impl<K, V> SmeltRecord<K, V> {
 }
 
 /// Return whether an erased object key is visible to JavaScript `for...in` iteration.
-fn smelt_object_has_host_marker(object: &SmeltObject) -> bool { object.store.borrow().has_internal_keys() && ["__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_headers", "__smelt_urlsearchparams", "__smelt_request", "__smelt_response", "__smelt_textencoder", "__smelt_textdecoder", "__smelt_eventemitter", "__smelt_httpserver", "__smelt_incomingmessage", "__smelt_serverresponse", "__smelt_formdata", "__smelt_readablestream", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| object.contains_key(marker)) }
-fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool { record.store.borrow().has_internal_keys() && ["__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_headers", "__smelt_urlsearchparams", "__smelt_request", "__smelt_response", "__smelt_textencoder", "__smelt_textdecoder", "__smelt_eventemitter", "__smelt_httpserver", "__smelt_incomingmessage", "__smelt_serverresponse", "__smelt_formdata", "__smelt_readablestream", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| record.contains_key(*marker)) }
+fn smelt_object_has_host_marker(object: &SmeltObject) -> bool { object.store.borrow().has_internal_keys() && ["__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_headers", "__smelt_urlsearchparams", "__smelt_request", "__smelt_response", "__smelt_textencoder", "__smelt_textdecoder", "__smelt_eventemitter", "__smelt_httpserver", "__smelt_incomingmessage", "__smelt_serverresponse", "__smelt_formdata", "__smelt_databasesync", "__smelt_statementsync", "__smelt_readablestream", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| object.contains_key(marker)) }
+fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool { record.store.borrow().has_internal_keys() && ["__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_headers", "__smelt_urlsearchparams", "__smelt_request", "__smelt_response", "__smelt_textencoder", "__smelt_textdecoder", "__smelt_eventemitter", "__smelt_httpserver", "__smelt_incomingmessage", "__smelt_serverresponse", "__smelt_formdata", "__smelt_databasesync", "__smelt_statementsync", "__smelt_readablestream", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| record.contains_key(*marker)) }
 /// Return the byte-backed host marker a record carries, if any.
 ///
 /// The marker doubles as the record's identity, so a slice can rebuild a fresh
@@ -1481,7 +1504,7 @@ fn smelt_reflected_marker_class(map: &SmeltObject) -> Option<String> {
 /// specs assert exactly that on a cloned host object. Unmarked records answer
 /// `None`, so a plain object's `.constructor` stays `undefined` — which is what
 /// makes two plain objects compare as equal instances.
-fn smelt_marker_constructor_class(map: &SmeltObject) -> Option<&'static str> { [("__smelt_date", "Date"), ("__smelt_map", "Map"), ("__smelt_set", "Set"), ("__smelt_regexp", "RegExp"), ("__smelt_error", "Error"), ("__smelt_abortcontroller", "AbortController"), ("__smelt_abortsignal", "AbortSignal"), ("__smelt_arraybuffer", "ArrayBuffer"), ("__smelt_sharedarraybuffer", "SharedArrayBuffer"), ("__smelt_int8array", "Int8Array"), ("__smelt_uint8array", "Uint8Array"), ("__smelt_uint8clampedarray", "Uint8ClampedArray"), ("__smelt_int16array", "Int16Array"), ("__smelt_uint16array", "Uint16Array"), ("__smelt_int32array", "Int32Array"), ("__smelt_uint32array", "Uint32Array"), ("__smelt_float32array", "Float32Array"), ("__smelt_float64array", "Float64Array"), ("__smelt_bigint64array", "BigInt64Array"), ("__smelt_biguint64array", "BigUint64Array"), ("__smelt_buffer", "Buffer"), ("__smelt_dataview", "DataView"), ("__smelt_weakmap", "WeakMap"), ("__smelt_weakset", "WeakSet"), ("__smelt_file", "File"), ("__smelt_blob", "Blob"), ("__smelt_headers", "Headers"), ("__smelt_urlsearchparams", "URLSearchParams"), ("__smelt_request", "Request"), ("__smelt_response", "Response"), ("__smelt_textencoder", "TextEncoder"), ("__smelt_textdecoder", "TextDecoder"), ("__smelt_eventemitter", "EventEmitter"), ("__smelt_httpserver", "Server"), ("__smelt_incomingmessage", "IncomingMessage"), ("__smelt_serverresponse", "ServerResponse"), ("__smelt_formdata", "FormData"), ("__smelt_readablestream", "ReadableStream"), ("__smelt_domexception", "DOMException"), ("__smelt_intl_collator", "Intl.Collator"), ("__smelt_intl_displaynames", "Intl.DisplayNames"), ("__smelt_intl_durationformat", "Intl.DurationFormat"), ("__smelt_intl_listformat", "Intl.ListFormat"), ("__smelt_intl_locale", "Intl.Locale"), ("__smelt_intl_numberformat", "Intl.NumberFormat"), ("__smelt_intl_pluralrules", "Intl.PluralRules"), ("__smelt_intl_segmenter", "Intl.Segmenter"), ("__smelt_number", "Number"), ("__smelt_boolean", "Boolean"), ("__smelt_string", "String"), ("__smelt_symbol", "Symbol")].into_iter().find(|(marker, _)| map.contains_key(marker)).map(|(_, class)| class) }
+fn smelt_marker_constructor_class(map: &SmeltObject) -> Option<&'static str> { [("__smelt_date", "Date"), ("__smelt_map", "Map"), ("__smelt_set", "Set"), ("__smelt_regexp", "RegExp"), ("__smelt_error", "Error"), ("__smelt_abortcontroller", "AbortController"), ("__smelt_abortsignal", "AbortSignal"), ("__smelt_arraybuffer", "ArrayBuffer"), ("__smelt_sharedarraybuffer", "SharedArrayBuffer"), ("__smelt_int8array", "Int8Array"), ("__smelt_uint8array", "Uint8Array"), ("__smelt_uint8clampedarray", "Uint8ClampedArray"), ("__smelt_int16array", "Int16Array"), ("__smelt_uint16array", "Uint16Array"), ("__smelt_int32array", "Int32Array"), ("__smelt_uint32array", "Uint32Array"), ("__smelt_float32array", "Float32Array"), ("__smelt_float64array", "Float64Array"), ("__smelt_bigint64array", "BigInt64Array"), ("__smelt_biguint64array", "BigUint64Array"), ("__smelt_buffer", "Buffer"), ("__smelt_dataview", "DataView"), ("__smelt_weakmap", "WeakMap"), ("__smelt_weakset", "WeakSet"), ("__smelt_file", "File"), ("__smelt_blob", "Blob"), ("__smelt_headers", "Headers"), ("__smelt_urlsearchparams", "URLSearchParams"), ("__smelt_request", "Request"), ("__smelt_response", "Response"), ("__smelt_textencoder", "TextEncoder"), ("__smelt_textdecoder", "TextDecoder"), ("__smelt_eventemitter", "EventEmitter"), ("__smelt_httpserver", "Server"), ("__smelt_incomingmessage", "IncomingMessage"), ("__smelt_serverresponse", "ServerResponse"), ("__smelt_formdata", "FormData"), ("__smelt_databasesync", "DatabaseSync"), ("__smelt_statementsync", "StatementSync"), ("__smelt_readablestream", "ReadableStream"), ("__smelt_domexception", "DOMException"), ("__smelt_intl_collator", "Intl.Collator"), ("__smelt_intl_displaynames", "Intl.DisplayNames"), ("__smelt_intl_durationformat", "Intl.DurationFormat"), ("__smelt_intl_listformat", "Intl.ListFormat"), ("__smelt_intl_locale", "Intl.Locale"), ("__smelt_intl_numberformat", "Intl.NumberFormat"), ("__smelt_intl_pluralrules", "Intl.PluralRules"), ("__smelt_intl_segmenter", "Intl.Segmenter"), ("__smelt_number", "Number"), ("__smelt_boolean", "Boolean"), ("__smelt_string", "String"), ("__smelt_symbol", "Symbol")].into_iter().find(|(marker, _)| map.contains_key(marker)).map(|(_, class)| class) }
 /// Build a modeled host instance of `kind` from constructor arguments.
 ///
 /// This is the one constructor for a host identity: the direct `new X(...)`
@@ -1581,7 +1604,7 @@ fn smelt_function_value_property(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknow
 /// `@@toStringTag`-bearing `name` becomes the tag, matching `[object JSON]` /
 /// `[object Math]`). Class instances and unmarked records are plain
 /// `[object Object]`, exactly like JavaScript objects without a custom tag.
-fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => "[object Null]".to_owned(), SmeltUnknown::Undefined => "[object Undefined]".to_owned(), SmeltUnknown::Bool(_) => "[object Boolean]".to_owned(), SmeltUnknown::Number(_) => "[object Number]".to_owned(), SmeltUnknown::String(_) => "[object String]".to_owned(), SmeltUnknown::Symbol(_) => "[object Symbol]".to_owned(), SmeltUnknown::Array(_) => "[object Array]".to_owned(), SmeltUnknown::Function(_) => "[object Function]".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned(), SmeltUnknown::Object(map) => { if let Some(SmeltUnknown::String(tag)) = map.get("__smelt_symbol_to_string_tag") { return format!("[object {tag}]"); } if map.contains_key("__smelt_date") { return "[object Date]".to_owned(); } if map.contains_key("__smelt_regexp") { return "[object RegExp]".to_owned(); } if map.contains_key("__smelt_error") { return "[object Error]".to_owned(); } if map.contains_key("__smelt_global_object") { return "[object global]".to_owned(); } if map.contains_key("__smelt_map") { return "[object Map]".to_owned(); } if map.contains_key("__smelt_set") { return "[object Set]".to_owned(); } if map.contains_key("__smelt_arguments") { return "[object Arguments]".to_owned(); } if map.contains_key("__smelt_abortcontroller") { return "[object AbortController]".to_owned(); } if map.contains_key("__smelt_abortsignal") { return "[object AbortSignal]".to_owned(); } if map.contains_key("__smelt_arraybuffer") { return "[object ArrayBuffer]".to_owned(); } if map.contains_key("__smelt_sharedarraybuffer") { return "[object SharedArrayBuffer]".to_owned(); } if map.contains_key("__smelt_int8array") { return "[object Int8Array]".to_owned(); } if map.contains_key("__smelt_uint8array") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_uint8clampedarray") { return "[object Uint8ClampedArray]".to_owned(); } if map.contains_key("__smelt_int16array") { return "[object Int16Array]".to_owned(); } if map.contains_key("__smelt_uint16array") { return "[object Uint16Array]".to_owned(); } if map.contains_key("__smelt_int32array") { return "[object Int32Array]".to_owned(); } if map.contains_key("__smelt_uint32array") { return "[object Uint32Array]".to_owned(); } if map.contains_key("__smelt_float32array") { return "[object Float32Array]".to_owned(); } if map.contains_key("__smelt_float64array") { return "[object Float64Array]".to_owned(); } if map.contains_key("__smelt_bigint64array") { return "[object BigInt64Array]".to_owned(); } if map.contains_key("__smelt_biguint64array") { return "[object BigUint64Array]".to_owned(); } if map.contains_key("__smelt_buffer") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_dataview") { return "[object DataView]".to_owned(); } if map.contains_key("__smelt_weakmap") { return "[object WeakMap]".to_owned(); } if map.contains_key("__smelt_weakset") { return "[object WeakSet]".to_owned(); } if map.contains_key("__smelt_file") { return "[object File]".to_owned(); } if map.contains_key("__smelt_blob") { return "[object Blob]".to_owned(); } if map.contains_key("__smelt_headers") { return "[object Headers]".to_owned(); } if map.contains_key("__smelt_urlsearchparams") { return "[object URLSearchParams]".to_owned(); } if map.contains_key("__smelt_request") { return "[object Request]".to_owned(); } if map.contains_key("__smelt_response") { return "[object Response]".to_owned(); } if map.contains_key("__smelt_textencoder") { return "[object TextEncoder]".to_owned(); } if map.contains_key("__smelt_textdecoder") { return "[object TextDecoder]".to_owned(); } if map.contains_key("__smelt_eventemitter") { return "[object EventEmitter]".to_owned(); } if map.contains_key("__smelt_httpserver") { return "[object Server]".to_owned(); } if map.contains_key("__smelt_incomingmessage") { return "[object IncomingMessage]".to_owned(); } if map.contains_key("__smelt_serverresponse") { return "[object ServerResponse]".to_owned(); } if map.contains_key("__smelt_formdata") { return "[object FormData]".to_owned(); } if map.contains_key("__smelt_readablestream") { return "[object ReadableStream]".to_owned(); } if map.contains_key("__smelt_domexception") { return "[object DOMException]".to_owned(); } if map.contains_key("__smelt_intl_collator") { return "[object Intl.Collator]".to_owned(); } if map.contains_key("__smelt_intl_displaynames") { return "[object Intl.DisplayNames]".to_owned(); } if map.contains_key("__smelt_intl_durationformat") { return "[object Intl.DurationFormat]".to_owned(); } if map.contains_key("__smelt_intl_listformat") { return "[object Intl.ListFormat]".to_owned(); } if map.contains_key("__smelt_intl_locale") { return "[object Intl.Locale]".to_owned(); } if map.contains_key("__smelt_intl_numberformat") { return "[object Intl.NumberFormat]".to_owned(); } if map.contains_key("__smelt_intl_pluralrules") { return "[object Intl.PluralRules]".to_owned(); } if map.contains_key("__smelt_intl_segmenter") { return "[object Intl.Segmenter]".to_owned(); } if map.contains_key("__smelt_number") { return "[object Number]".to_owned(); } if map.contains_key("__smelt_boolean") { return "[object Boolean]".to_owned(); } if map.contains_key("__smelt_string") { return "[object String]".to_owned(); } if map.contains_key("__smelt_symbol") { return "[object Symbol]".to_owned(); } if map.contains_key("__smelt_builtin_namespace") { if let Some(SmeltUnknown::String(name)) = map.get("name") { return format!("[object {name}]"); } } "[object Object]".to_owned() } } }
+fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => "[object Null]".to_owned(), SmeltUnknown::Undefined => "[object Undefined]".to_owned(), SmeltUnknown::Bool(_) => "[object Boolean]".to_owned(), SmeltUnknown::Number(_) => "[object Number]".to_owned(), SmeltUnknown::String(_) => "[object String]".to_owned(), SmeltUnknown::Symbol(_) => "[object Symbol]".to_owned(), SmeltUnknown::Array(_) => "[object Array]".to_owned(), SmeltUnknown::Function(_) => "[object Function]".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned(), SmeltUnknown::Object(map) => { if let Some(SmeltUnknown::String(tag)) = map.get("__smelt_symbol_to_string_tag") { return format!("[object {tag}]"); } if map.contains_key("__smelt_date") { return "[object Date]".to_owned(); } if map.contains_key("__smelt_regexp") { return "[object RegExp]".to_owned(); } if map.contains_key("__smelt_error") { return "[object Error]".to_owned(); } if map.contains_key("__smelt_global_object") { return "[object global]".to_owned(); } if map.contains_key("__smelt_map") { return "[object Map]".to_owned(); } if map.contains_key("__smelt_set") { return "[object Set]".to_owned(); } if map.contains_key("__smelt_arguments") { return "[object Arguments]".to_owned(); } if map.contains_key("__smelt_abortcontroller") { return "[object AbortController]".to_owned(); } if map.contains_key("__smelt_abortsignal") { return "[object AbortSignal]".to_owned(); } if map.contains_key("__smelt_arraybuffer") { return "[object ArrayBuffer]".to_owned(); } if map.contains_key("__smelt_sharedarraybuffer") { return "[object SharedArrayBuffer]".to_owned(); } if map.contains_key("__smelt_int8array") { return "[object Int8Array]".to_owned(); } if map.contains_key("__smelt_uint8array") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_uint8clampedarray") { return "[object Uint8ClampedArray]".to_owned(); } if map.contains_key("__smelt_int16array") { return "[object Int16Array]".to_owned(); } if map.contains_key("__smelt_uint16array") { return "[object Uint16Array]".to_owned(); } if map.contains_key("__smelt_int32array") { return "[object Int32Array]".to_owned(); } if map.contains_key("__smelt_uint32array") { return "[object Uint32Array]".to_owned(); } if map.contains_key("__smelt_float32array") { return "[object Float32Array]".to_owned(); } if map.contains_key("__smelt_float64array") { return "[object Float64Array]".to_owned(); } if map.contains_key("__smelt_bigint64array") { return "[object BigInt64Array]".to_owned(); } if map.contains_key("__smelt_biguint64array") { return "[object BigUint64Array]".to_owned(); } if map.contains_key("__smelt_buffer") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_dataview") { return "[object DataView]".to_owned(); } if map.contains_key("__smelt_weakmap") { return "[object WeakMap]".to_owned(); } if map.contains_key("__smelt_weakset") { return "[object WeakSet]".to_owned(); } if map.contains_key("__smelt_file") { return "[object File]".to_owned(); } if map.contains_key("__smelt_blob") { return "[object Blob]".to_owned(); } if map.contains_key("__smelt_headers") { return "[object Headers]".to_owned(); } if map.contains_key("__smelt_urlsearchparams") { return "[object URLSearchParams]".to_owned(); } if map.contains_key("__smelt_request") { return "[object Request]".to_owned(); } if map.contains_key("__smelt_response") { return "[object Response]".to_owned(); } if map.contains_key("__smelt_textencoder") { return "[object TextEncoder]".to_owned(); } if map.contains_key("__smelt_textdecoder") { return "[object TextDecoder]".to_owned(); } if map.contains_key("__smelt_eventemitter") { return "[object EventEmitter]".to_owned(); } if map.contains_key("__smelt_httpserver") { return "[object Server]".to_owned(); } if map.contains_key("__smelt_incomingmessage") { return "[object IncomingMessage]".to_owned(); } if map.contains_key("__smelt_serverresponse") { return "[object ServerResponse]".to_owned(); } if map.contains_key("__smelt_formdata") { return "[object FormData]".to_owned(); } if map.contains_key("__smelt_databasesync") { return "[object DatabaseSync]".to_owned(); } if map.contains_key("__smelt_statementsync") { return "[object StatementSync]".to_owned(); } if map.contains_key("__smelt_readablestream") { return "[object ReadableStream]".to_owned(); } if map.contains_key("__smelt_domexception") { return "[object DOMException]".to_owned(); } if map.contains_key("__smelt_intl_collator") { return "[object Intl.Collator]".to_owned(); } if map.contains_key("__smelt_intl_displaynames") { return "[object Intl.DisplayNames]".to_owned(); } if map.contains_key("__smelt_intl_durationformat") { return "[object Intl.DurationFormat]".to_owned(); } if map.contains_key("__smelt_intl_listformat") { return "[object Intl.ListFormat]".to_owned(); } if map.contains_key("__smelt_intl_locale") { return "[object Intl.Locale]".to_owned(); } if map.contains_key("__smelt_intl_numberformat") { return "[object Intl.NumberFormat]".to_owned(); } if map.contains_key("__smelt_intl_pluralrules") { return "[object Intl.PluralRules]".to_owned(); } if map.contains_key("__smelt_intl_segmenter") { return "[object Intl.Segmenter]".to_owned(); } if map.contains_key("__smelt_number") { return "[object Number]".to_owned(); } if map.contains_key("__smelt_boolean") { return "[object Boolean]".to_owned(); } if map.contains_key("__smelt_string") { return "[object String]".to_owned(); } if map.contains_key("__smelt_symbol") { return "[object Symbol]".to_owned(); } if map.contains_key("__smelt_builtin_namespace") { if let Some(SmeltUnknown::String(name)) = map.get("name") { return format!("[object {name}]"); } } "[object Object]".to_owned() } } }
 
 impl PartialEq for SmeltObject { fn eq(&self, other: &Self) -> bool { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_eq(self, other, &mut smelt_seen) } }
 impl Eq for SmeltObject {}
@@ -4570,7 +4593,7 @@ impl Default for SmeltUnion31 {
 }
 
 #[derive(Clone)]
-pub enum SmeltUnion40 {
+pub enum SmeltUnion41 {
     M0(SmeltTypedArray),
     M1(SmeltTypedArray),
     M2(SmeltTypedArray),
@@ -4585,7 +4608,7 @@ pub enum SmeltUnion40 {
     M11(SmeltDataView),
     M12(SmeltArrayBuffer),
 }
-impl IntoSmeltUnknown for SmeltUnion40 {
+impl IntoSmeltUnknown for SmeltUnion41 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
             Self::M0(value) => value.clone().into_smelt_unknown(),
@@ -4604,7 +4627,7 @@ impl IntoSmeltUnknown for SmeltUnion40 {
         }
     }
 }
-impl SmeltUnion40 {
+impl SmeltUnion41 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M1(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
@@ -4621,24 +4644,24 @@ impl SmeltUnion40 {
         Self::M12(<SmeltArrayBuffer as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
     }
 }
-impl PartialEq for SmeltUnion40 {
+impl PartialEq for SmeltUnion41 {
     fn eq(&self, other: &Self) -> bool {
         self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
     }
 }
-impl SmeltFromUnknown for SmeltUnion40 {
+impl SmeltFromUnknown for SmeltUnion41 {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
 }
-impl SmeltJsKeyEq for SmeltUnion40 {
+impl SmeltJsKeyEq for SmeltUnion41 {
     fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
     fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
 }
-impl ::std::fmt::Debug for SmeltUnion40 {
+impl ::std::fmt::Debug for SmeltUnion41 {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
     }
 }
-impl Default for SmeltUnion40 {
+impl Default for SmeltUnion41 {
     fn default() -> Self {
         Self::M0(SmeltTypedArray::new())
     }
@@ -4816,21 +4839,21 @@ pub(crate) async fn digest_length(data: SmeltUnion31) -> Result<f64, Box<dyn std
     let _smelt_tmp_4: SmeltTextEncoder;
     let _smelt_tmp_5: String;
     let _smelt_tmp_6: SmeltTypedArray;
-    let _smelt_tmp_7: SmeltUnion40;
+    let _smelt_tmp_7: SmeltUnion41;
     let _smelt_tmp_9: SmeltArrayBuffer;
     let _smelt_tmp_10: SmeltTypedArray;
-    let mut source: SmeltUnion40 = SmeltUnion40::M0(SmeltTypedArray::new());
+    let mut source: SmeltUnion41 = SmeltUnion41::M0(SmeltTypedArray::new());
     let _smelt_tmp_3: bool = matches!(data.clone(), SmeltUnion31::M0(_));
     if _smelt_tmp_3 {
     _smelt_tmp_4 = SmeltTextEncoder::new();
     _smelt_tmp_5 = match data.clone() { SmeltUnion31::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_6 = _smelt_tmp_4.encode(&_smelt_tmp_5);
-    source = SmeltUnion40::M0(_smelt_tmp_6);
+    source = SmeltUnion41::M0(_smelt_tmp_6);
     } else {
-    _smelt_tmp_7 = match data.clone() { SmeltUnion31::M1(value) => SmeltUnion40::M0(value), SmeltUnion31::M2(value) => SmeltUnion40::M1(value), SmeltUnion31::M3(value) => SmeltUnion40::M2(value), SmeltUnion31::M4(value) => SmeltUnion40::M3(value), SmeltUnion31::M5(value) => SmeltUnion40::M4(value), SmeltUnion31::M6(value) => SmeltUnion40::M5(value), SmeltUnion31::M7(value) => SmeltUnion40::M6(value), SmeltUnion31::M8(value) => SmeltUnion40::M7(value), SmeltUnion31::M9(value) => SmeltUnion40::M8(value), SmeltUnion31::M10(value) => SmeltUnion40::M9(value), SmeltUnion31::M11(value) => SmeltUnion40::M10(value), SmeltUnion31::M12(value) => SmeltUnion40::M11(value), SmeltUnion31::M13(value) => SmeltUnion40::M12(value), _ => unreachable!("union guard selected an excluded member") };
+    _smelt_tmp_7 = match data.clone() { SmeltUnion31::M1(value) => SmeltUnion41::M0(value), SmeltUnion31::M2(value) => SmeltUnion41::M1(value), SmeltUnion31::M3(value) => SmeltUnion41::M2(value), SmeltUnion31::M4(value) => SmeltUnion41::M3(value), SmeltUnion31::M5(value) => SmeltUnion41::M4(value), SmeltUnion31::M6(value) => SmeltUnion41::M5(value), SmeltUnion31::M7(value) => SmeltUnion41::M6(value), SmeltUnion31::M8(value) => SmeltUnion41::M7(value), SmeltUnion31::M9(value) => SmeltUnion41::M8(value), SmeltUnion31::M10(value) => SmeltUnion41::M9(value), SmeltUnion31::M11(value) => SmeltUnion41::M10(value), SmeltUnion31::M12(value) => SmeltUnion41::M11(value), SmeltUnion31::M13(value) => SmeltUnion41::M12(value), _ => unreachable!("union guard selected an excluded member") };
     source = _smelt_tmp_7;
     }
-    let _smelt_tmp_8: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = ("SHA-256".to_owned()).clone(); let smelt_data = match &(source) { SmeltUnion40::M0(value) => value.to_bytes(), SmeltUnion40::M1(value) => value.to_bytes(), SmeltUnion40::M2(value) => value.to_bytes(), SmeltUnion40::M3(value) => value.to_bytes(), SmeltUnion40::M4(value) => value.to_bytes(), SmeltUnion40::M5(value) => value.to_bytes(), SmeltUnion40::M6(value) => value.to_bytes(), SmeltUnion40::M7(value) => value.to_bytes(), SmeltUnion40::M8(value) => value.to_bytes(), SmeltUnion40::M9(value) => value.to_bytes(), SmeltUnion40::M10(value) => value.to_bytes(), SmeltUnion40::M11(value) => value.to_bytes(), SmeltUnion40::M12(value) => value.to_bytes() }; SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
+    let _smelt_tmp_8: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = ("SHA-256".to_owned()).clone(); let smelt_data = match &(source) { SmeltUnion41::M0(value) => value.to_bytes(), SmeltUnion41::M1(value) => value.to_bytes(), SmeltUnion41::M2(value) => value.to_bytes(), SmeltUnion41::M3(value) => value.to_bytes(), SmeltUnion41::M4(value) => value.to_bytes(), SmeltUnion41::M5(value) => value.to_bytes(), SmeltUnion41::M6(value) => value.to_bytes(), SmeltUnion41::M7(value) => value.to_bytes(), SmeltUnion41::M8(value) => value.to_bytes(), SmeltUnion41::M9(value) => value.to_bytes(), SmeltUnion41::M10(value) => value.to_bytes(), SmeltUnion41::M11(value) => value.to_bytes(), SmeltUnion41::M12(value) => value.to_bytes() }; SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
     _smelt_tmp_9 = _smelt_tmp_8.await?;
     buffer = _smelt_tmp_9;
     _smelt_tmp_10 = SmeltTypedArray::over_buffer(SmeltTypedArrayKind::Uint8, &buffer, 0, None);

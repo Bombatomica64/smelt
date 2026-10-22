@@ -202,6 +202,11 @@ fn statement_can_throw(
     if matches!(value, Rvalue::HttpServerOp { .. }) {
         return true;
     }
+    // Every SQLite operation can fail at run time — a missing table, a
+    // constraint, an unbindable parameter — and Node throws for each.
+    if matches!(value, Rvalue::SqliteOpen { .. } | Rvalue::SqliteOp { .. }) {
+        return true;
+    }
     let Rvalue::ClosureCall { callee, .. } = value else {
         return false;
     };

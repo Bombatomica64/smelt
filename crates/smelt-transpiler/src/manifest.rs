@@ -210,16 +210,23 @@ fn read_collected_source(
 /// a barrel re-export or one value import is enough to drag a whole
 /// out-of-scope surface into the crate.
 ///
+/// `packages` are the resolved `[packages.<name>]` declarations: a bare import
+/// of a declared package resolves into its source tree before any workspace
+/// `package.json` is consulted, and each package's own excludes prune the
+/// closure the same way.
+///
 /// `sound` enables typed versions of packages (see [`crate::sound`]); `None`
 /// resolves every package as installed, which single-file commands use.
 pub(crate) fn dependency_closure(
     roots: Vec<ManifestSource>,
     excludes: &[String],
     manifest_dir: &Path,
+    packages: &[crate::package_sources::ResolvedPackage],
     sound: Option<SoundSettings>,
 ) -> Result<Vec<ManifestSource>, Box<dyn std::error::Error>> {
     let mut collector =
         DependencyCollector::new(excludes.to_vec(), manifest_dir.to_path_buf(), sound);
+    collector.packages = packages.to_vec();
     for root in roots {
         collector.collect_source(root)?;
     }
@@ -291,6 +298,8 @@ struct DependencyCollector {
     /// canonicalized by the resolver, so a non-canonical base would make the
     /// strip a no-op and silently disable every exclude.
     manifest_dir: PathBuf,
+    /// `[packages.<name>]` source trees, consulted before workspace packages.
+    packages: Vec<crate::package_sources::ResolvedPackage>,
 }
 
 impl DependencyCollector {
@@ -306,6 +315,7 @@ impl DependencyCollector {
             workspace_packages: HashMap::new(),
             excludes,
             manifest_dir,
+            packages: Vec::new(),
         }
     }
 
@@ -320,6 +330,9 @@ impl DependencyCollector {
     /// leave the dependency path ABSOLUTE after the prefix strip, which no
     /// manifest-relative glob can match.
     fn excluded_target(&self, path: &Path) -> bool {
+        if self.packages.iter().any(|package| package.excludes_path(path)) {
+            return true;
+        }
         if self.excludes.is_empty() {
             return false;
         }
@@ -438,6 +451,11 @@ impl DependencyCollector {
             return Ok(Vec::new());
         }
         let package_name = bare_package_name(&import.module);
+        if let Some(package) = self.packages.iter().find(|package| package.name == package_name)
+            && let Some(base) = package.module_base(&import.module)
+        {
+            return self.resolve_declared_package_module(&base, import);
+        }
         if !self.workspace_packages.contains_key(&package_name) {
             let root = workspace_search_root(importer_path);
             let target = find_workspace_package_entry(&root, &package_name)?;
@@ -458,6 +476,34 @@ impl DependencyCollector {
         };
         let canonical_entry = entry.canonicalize()?;
         if let Some(mut targets) = self.resolve_barrel_import_targets(&entry, &workspace_import) {
+            prepend_unique_dependency(&mut targets, canonical_entry);
+            return Ok(targets);
+        }
+        Ok(vec![canonical_entry])
+    }
+
+    /// Resolve a module inside a `[packages.<name>]` source tree.
+    ///
+    /// `base` is the entry or the subpath next to it; the usual extension and
+    /// `index.ts` candidates apply, and an `index.ts` barrel resolves its named
+    /// imports to their defining files exactly as a workspace package does.
+    fn resolve_declared_package_module(
+        &mut self,
+        base: &Path,
+        import: &ManifestImport,
+    ) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+        let Some(entry) = manifest_import_candidates(base).into_iter().find(|candidate| {
+            candidate.is_file() && SourceLang::from_path(&candidate.display().to_string()).is_ok()
+        }) else {
+            return Ok(Vec::new());
+        };
+        let package_import = ManifestImport {
+            module: entry.display().to_string(),
+            names: import.names.clone(),
+            python_relative_level: None,
+        };
+        let canonical_entry = entry.canonicalize()?;
+        if let Some(mut targets) = self.resolve_barrel_import_targets(&entry, &package_import) {
             prepend_unique_dependency(&mut targets, canonical_entry);
             return Ok(targets);
         }
@@ -702,7 +748,14 @@ pub(crate) fn bare_package_name(module: &str) -> String {
 }
 
 /// Choose a bounded root for scanning workspace packages.
+///
+/// The importer path is made absolute first: run with a relative manifest
+/// (`smelt --manifest-path Smelt.toml` inside the project), importers are
+/// relative paths whose last ancestor is the EMPTY path, and choosing it as the
+/// root made `read_dir("")` fail and every workspace package "unresolved".
 fn workspace_search_root(importer_path: &Path) -> PathBuf {
+    let absolute = std::path::absolute(importer_path).unwrap_or_else(|_| importer_path.to_path_buf());
+    let importer_path = absolute.as_path();
     let mut candidate = importer_path
         .parent()
         .unwrap_or_else(|| Path::new("."))
@@ -1105,7 +1158,7 @@ mod tests {
         fs::write(&helper, "export const ALL_TYPES_DATA_PROVIDER = [];\n").expect("write helper");
 
         let roots = vec![read_manifest_source(importer.clone()).expect("read importer")];
-        let sources = dependency_closure(roots, &[], Path::new("."), None).expect("collect closure");
+        let sources = dependency_closure(roots, &[], Path::new("."), &[], None).expect("collect closure");
         let ordered = order_manifest_sources(&sources).expect("order sources");
         let ordered_paths = ordered
             .into_iter()
@@ -1162,7 +1215,7 @@ mod tests {
         fs::write(&dependency, "export const createApp = () => 1;\n").expect("write dependency");
 
         let roots = vec![read_manifest_source(importer).expect("read importer")];
-        let sources = dependency_closure(roots, &[], Path::new("."), None).expect("collect closure");
+        let sources = dependency_closure(roots, &[], Path::new("."), &[], None).expect("collect closure");
 
         assert!(
             sources
@@ -1200,7 +1253,7 @@ mod tests {
 
         let roots = vec![read_manifest_source(importer).expect("read importer")];
         let excludes = vec!["src/client/**".to_owned()];
-        let sources = dependency_closure(roots, &excludes, root, None).expect("collect closure");
+        let sources = dependency_closure(roots, &excludes, root, &[], None).expect("collect closure");
 
         assert_eq!(sources.len(), 1, "excluded module should not be collected");
         assert_eq!(
@@ -1230,7 +1283,7 @@ mod tests {
 
         let roots = vec![read_manifest_source(importer).expect("read importer")];
         let excludes = vec!["src/client/**".to_owned()];
-        let sources = dependency_closure(roots, &excludes, root, None).expect("collect closure");
+        let sources = dependency_closure(roots, &excludes, root, &[], None).expect("collect closure");
 
         assert_eq!(sources.len(), 2, "included dependency should be collected");
         assert!(

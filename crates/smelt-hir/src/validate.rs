@@ -96,16 +96,42 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
             }
         }
     }
+    // A body's async-ness is known only through whatever refers to it: a
+    // function item, a module, or a closure expression. A body nothing refers
+    // to is one a frontend probe built and discarded (lowering an initializer
+    // once just to learn its type builds its closures' bodies too); no pass
+    // lowers it, and there is no referrer to say whether it is async, so the
+    // async-state check below skips it rather than reporting a contradiction.
+    let mut referenced = vec![false; krate.bodies.len()];
+    for item in &krate.items {
+        if let crate::Item::Function(function) = item
+            && let Some(body) = function.body
+            && let Some(slot) = referenced.get_mut(body.0 as usize)
+        {
+            *slot = true;
+        }
+    }
+    for module in &krate.modules {
+        if let Some(body) = module.body
+            && let Some(slot) = referenced.get_mut(body.0 as usize)
+        {
+            *slot = true;
+        }
+    }
     for body in &krate.bodies {
         for expr in &body.exprs {
-            if let ExprKind::Closure(closure) = &expr.kind
-                && krate
+            if let ExprKind::Closure(closure) = &expr.kind {
+                if let Some(slot) = referenced.get_mut(closure.body.0 as usize) {
+                    *slot = true;
+                }
+                if krate
                     .bodies
                     .get(closure.body.0 as usize)
                     .is_some_and(|body| body.async_state_machine.is_some())
-                && let Some(slot) = async_bodies.get_mut(closure.body.0 as usize)
-            {
-                *slot = true;
+                    && let Some(slot) = async_bodies.get_mut(closure.body.0 as usize)
+                {
+                    *slot = true;
+                }
             }
         }
     }
@@ -130,7 +156,9 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
                 });
             }
             if let ExprKind::Await(inner) = expr.kind {
-                if !async_bodies.get(body_idx).copied().unwrap_or(false) {
+                if referenced.get(body_idx).copied().unwrap_or(false)
+                    && !async_bodies.get(body_idx).copied().unwrap_or(false)
+                {
                     errors.push(ValidationError {
                         message: format!(
                             "body {body_idx} expr {expr_idx} uses await outside an async function"
@@ -294,7 +322,9 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
         }
 
         let body_is_async = async_bodies.get(body_idx).copied().unwrap_or(false);
+        let body_is_referenced = referenced.get(body_idx).copied().unwrap_or(false);
         match (&body.async_state_machine, body_is_async) {
+            _ if !body_is_referenced => {}
             (Some(_), false) => errors.push(ValidationError {
                 message: format!("body {body_idx} has an async state machine but is not async"),
             }),

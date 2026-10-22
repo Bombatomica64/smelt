@@ -531,7 +531,7 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(right, aliases, dest)
         }
         Rvalue::SetProjection { set, .. } => rewrite_operand_except(set, aliases, dest),
-        Rvalue::EventEmitterNew => false,
+        Rvalue::EventEmitterNew | Rvalue::ProcessEnvRead { .. } => false,
         Rvalue::EventEmitterOp { emitter, args, .. } => {
             let mut rewritten = rewrite_operand_except(emitter, aliases, dest);
             for arg in args {
@@ -540,6 +540,15 @@ fn rewrite_rvalue(
             rewritten
         }
         Rvalue::HttpCreateServer { handler } => rewrite_operand_except(handler, aliases, dest),
+        Rvalue::HttpCreateFetchServer { fetch } => rewrite_operand_except(fetch, aliases, dest),
+        Rvalue::SqliteOpen { path } => rewrite_operand_except(path, aliases, dest),
+        Rvalue::SqliteOp { receiver, args, .. } => {
+            let mut rewritten = rewrite_operand_except(receiver, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
         Rvalue::HttpServerOp { server, args, .. } => {
             let mut rewritten = rewrite_operand_except(server, aliases, dest);
             for arg in args {

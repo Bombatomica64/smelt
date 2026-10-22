@@ -1,0 +1,14 @@
+1
+2
+3
+caught UNIQUE constraint failed: items.title
+2
+1 first 3 1
+2 second null 1.25
+3 third -7 4
+second
+true
+id,title,score,ratio
+id,title,score,ratio,tag
+closed database is not open
+[object Uint8Array] 3 255

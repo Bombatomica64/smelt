@@ -508,6 +508,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("set_{op_name} {}", expr_ref(*set))
         }
         ExprKind::EventEmitterNew => "event_emitter_new".to_owned(),
+        ExprKind::ProcessEnvRead { name } => format!("process_env_read {name:?}"),
         ExprKind::EventEmitterOp { op, emitter, args } => {
             let name = event_emitter_op_name(*op);
             let mut text = format!("emitter_{name} {}", expr_ref(*emitter));
@@ -519,6 +520,18 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         }
         ExprKind::HttpCreateServer { handler } => {
             format!("http_create_server {}", expr_ref(*handler))
+        }
+        ExprKind::SqliteOpen { path } => format!("sqlite_open {}", expr_ref(*path)),
+        ExprKind::SqliteOp { op, receiver, args } => {
+            let mut text = format!("sqlite_{op:?} {}", expr_ref(*receiver)).to_lowercase();
+            for arg in args {
+                text.push(' ');
+                text.push_str(&expr_ref(*arg));
+            }
+            text
+        }
+        ExprKind::HttpCreateFetchServer { fetch } => {
+            format!("http_create_fetch_server {}", expr_ref(*fetch))
         }
         ExprKind::HttpServerOp { op, server, args } => {
             let name = match op {

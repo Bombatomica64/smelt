@@ -1350,10 +1350,18 @@ impl FunctionEmitter<'_> {
             Rvalue::TypedArrayNew { class_name, args } => {
                 self.typed_array_new_text(class_name, args)
             }
+            // A real read: a server must see its environment (`PORT`). The
+            // profile's one fixed variable, `TZ`, never reaches here.
+            Rvalue::ProcessEnvRead { name } => Ok(format!("::std::env::var({name:?}).ok()")),
             Rvalue::EventEmitterNew => Ok("SmeltEventEmitter::new()".to_owned()),
+            Rvalue::SqliteOpen { path } => self.sqlite_open_text(path),
+            Rvalue::SqliteOp { op, receiver, args } => {
+                self.sqlite_op_text(*op, receiver, args, dest_ty)
+            }
             Rvalue::EventEmitterOp { op, emitter, args } => {
                 self.event_emitter_op_text(*op, emitter, args)
             }
+            Rvalue::HttpCreateFetchServer { fetch } => self.http_create_fetch_server_text(fetch),
             Rvalue::HttpCreateServer { handler } => self.http_create_server_text(handler),
             Rvalue::HttpServerOp { op, server, args } => {
                 self.http_server_op_text(*op, server, args)

@@ -905,6 +905,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             )
         }
         Rvalue::EventEmitterNew => "event_emitter_new".to_owned(),
+        Rvalue::ProcessEnvRead { name } => format!("process_env_read {name:?}"),
         Rvalue::EventEmitterOp { op, emitter, args } => {
             let name = match op {
                 smelt_hir::EventEmitterOp::On => "on",
@@ -923,6 +924,18 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
         }
         Rvalue::HttpCreateServer { handler } => {
             format!("http_create_server {}", operand_text(handler))
+        }
+        Rvalue::SqliteOpen { path } => format!("sqlite_open {}", operand_text(path)),
+        Rvalue::SqliteOp { op, receiver, args } => {
+            let mut text = format!("sqlite_{op:?} {}", operand_text(receiver)).to_lowercase();
+            for arg in args {
+                text.push(' ');
+                text.push_str(&operand_text(arg));
+            }
+            text
+        }
+        Rvalue::HttpCreateFetchServer { fetch } => {
+            format!("http_create_fetch_server {}", operand_text(fetch))
         }
         Rvalue::HttpServerOp { op, server, args } => {
             let name = match op {

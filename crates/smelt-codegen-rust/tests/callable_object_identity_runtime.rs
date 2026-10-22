@@ -396,6 +396,16 @@ function bump(c: Ctx): void {
   c.status = c.status + 1;
 }
 
+function describe(value: unknown): string {
+  return typeof value;
+}
+
+// Passing the instance where `unknown` is expected erases it to an object
+// view, and each field arrow to an erased adapter over the typed closure.
+function show(c: Ctx): string {
+  return describe(c);
+}
+
 function attach(): EventEmitter {
   const e = new EventEmitter();
   e.on("ping", () => {
@@ -408,6 +418,7 @@ test("field arrows and self-listeners keep their behaviour", () => {
   const c = new Ctx(1);
   bump(c);
   expect(c.json("a")).toBe("2:a");
+  expect(show(c)).toBe("object");
   let pongs = 0;
   const e = attach();
   e.on("pong", () => {
@@ -435,6 +446,22 @@ mod smelt_receiver_cycle_probe {
             drop(json);
             drop(instance);
             assert!(cell.upgrade().is_none(), "a Ctx with self-capturing field arrows leaked");
+        }
+    }
+
+    /// The erased view's adapters die with the call, but the callable table
+    /// keeps an entry for each until its next sweep. That entry must not count
+    /// as a holder of the typed closure: a strong origin there made the field
+    /// look shared when the last handle went, and the drop check pinned the
+    /// instance for good (one Hono 4 `Context` per request).
+    #[test]
+    fn an_instance_erased_through_an_object_view_is_freed() {
+        for code in 0..1000 {
+            let instance = Ctx::new(f64::from(code));
+            let cell = ::std::rc::Rc::downgrade(&instance.0);
+            assert_eq!(show(instance.clone()), "object");
+            drop(instance);
+            assert!(cell.upgrade().is_none(), "a Ctx erased through an object view was pinned");
         }
     }
 

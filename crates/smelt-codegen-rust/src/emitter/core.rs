@@ -1837,7 +1837,19 @@ impl<'mir> FunctionEmitter<'mir> {
             } else if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
                 if self.can_render_dict_value_as(source_value, *inner) {
                     let mapped = self.value_at_type_text("value", source_value, *inner, scope)?;
-                    format!("{lookup_value}.map(|value| {mapped})")
+                    if source_is_erased
+                        && !matches!(self.mir.types.get(*inner), Some(Type::Unknown))
+                    {
+                        // A present `null`/`undefined` is the field's ABSENT
+                        // arm, not a value to convert: `score: number | null`
+                        // read off `{ score: null }` is `None`, where mapping
+                        // it through the number conversion answered `NaN`.
+                        format!(
+                            "{lookup_value}.and_then(|value| if smelt_unknown_is_nullish(&value) {{ None }} else {{ Some({mapped}) }})"
+                        )
+                    } else {
+                        format!("{lookup_value}.map(|value| {mapped})")
+                    }
                 } else if self.can_render_dict_value_as(source_value, field.ty) {
                     // The dictionary value is already optional-shaped, so the
                     // `get` produced an `Option<Option<_>>`; flatten it instead of
@@ -6118,6 +6130,11 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         // handler and `listen`'s listening callback are closure temps whose
         // ONLY use is the rvalue that consumes them.
         Rvalue::HttpCreateServer { handler } => operand_uses_local(handler, local),
+        Rvalue::HttpCreateFetchServer { fetch } => operand_uses_local(fetch, local),
+        Rvalue::SqliteOpen { path } => operand_uses_local(path, local),
+        Rvalue::SqliteOp { receiver, args, .. } => {
+            operand_uses_local(receiver, local) || args.iter().any(|arg| operand_uses_local(arg, local))
+        }
         Rvalue::HttpServerOp { server, args, .. } => {
             operand_uses_local(server, local)
                 || args

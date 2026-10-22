@@ -43,6 +43,10 @@ pub enum TypeScriptReceiverKind {
     /// [`TypeScriptReceiverKind::EventEmitter`] and its non-method members
     /// (`method`, `url`, `headers`) are property reads rather than calls.
     ServerResponse,
+    /// A `node:sqlite` `DatabaseSync` value.
+    SqliteDatabase,
+    /// A `node:sqlite` `StatementSync` value.
+    SqliteStatement,
     /// A WHATWG `TextEncoder` value.
     TextEncoder,
     /// A WHATWG `TextDecoder` value.
@@ -542,6 +546,12 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
         "end",
         RuleId::TsServerResponseEnd,
     ),
+    method(TypeScriptReceiverKind::SqliteDatabase, "exec", RuleId::TsSqliteDatabase),
+    method(TypeScriptReceiverKind::SqliteDatabase, "prepare", RuleId::TsSqliteDatabase),
+    method(TypeScriptReceiverKind::SqliteDatabase, "close", RuleId::TsSqliteDatabase),
+    method(TypeScriptReceiverKind::SqliteStatement, "all", RuleId::TsSqliteStatement),
+    method(TypeScriptReceiverKind::SqliteStatement, "get", RuleId::TsSqliteStatement),
+    method(TypeScriptReceiverKind::SqliteStatement, "run", RuleId::TsSqliteStatement),
 ];
 
 /// Return the shared rule for an exact TypeScript global or static namespace call.

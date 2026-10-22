@@ -104,6 +104,8 @@ pub enum HostModuleId {
     Events,
     /// `node:http`.
     Http,
+    /// `@hono/node-server`: serving a fetch handler on `node:http`.
+    HonoNodeServer,
     /// `node:path` on the POSIX profile, and `node:path/posix`.
     ///
     /// One identity for both: the profile Smelt compiles for is POSIX, where
@@ -179,7 +181,12 @@ const HTTP_CLIENT_REASON: &str =
     "the node:http client surface (request/get) is not implemented yet; use fetch";
 
 /// Reason text shared by the `node:sqlite` surface.
-const SQLITE_REASON: &str = "the node:sqlite database surface is not implemented yet";
+const SQLITE_REASON: &str =
+    "only `DatabaseSync` (`exec`, `prepare`, `close`) and `StatementSync` (`all`, `get`, `run`) from node:sqlite are modeled";
+
+/// Reason text for the `@hono/node-server` exports beyond `serve`.
+const HONO_NODE_SERVER_REASON: &str =
+    "only `serve({ fetch, port, hostname }, onListen)` from @hono/node-server is modeled";
 
 /// Reason text for the `WebCrypto` members that are still declared.
 ///
@@ -317,6 +324,23 @@ pub const HOST_MODULES: &[HostModule] = &[
         ],
         dependencies: &[BackendDependency::Hyper],
     },
+    // `@hono/node-server` is the Node adapter of fetch-handler frameworks
+    // (Hono, and anything with a `fetch(request)` entry point). Its source
+    // needs `node:http2`, `ReadableStream` and a `Request` subclass; what a
+    // program uses it FOR is one call, `serve({ fetch, port }, onListen)`,
+    // which the runtime implements natively on the `node:http` server
+    // (`HttpCreateFetchServer`), the Bun model.
+    HostModule {
+        id: HostModuleId::HonoNodeServer,
+        specifiers: &["@hono/node-server"],
+        exports: &[
+            modeled_value("serve"),
+            declared_value("createAdaptorServer", HONO_NODE_SERVER_REASON),
+            declared_value("getRequestListener", HONO_NODE_SERVER_REASON),
+            declared_class("RequestError", HONO_NODE_SERVER_REASON),
+        ],
+        dependencies: &[BackendDependency::Hyper],
+    },
     HostModule {
         id: HostModuleId::Path,
         specifiers: &["node:path", "path", "node:path/posix", "path/posix"],
@@ -326,11 +350,19 @@ pub const HOST_MODULES: &[HostModule] = &[
     HostModule {
         id: HostModuleId::Sqlite,
         specifiers: &["node:sqlite"],
+        // The synchronous database: open, `exec`, `prepare`, and a statement's
+        // `all`/`get`/`run` with positional or named parameters, on a bundled
+        // SQLite (`rusqlite`). Rows come back as erased records — their shape
+        // is decided by the SQL text at run time, the same boundary
+        // `JSON.parse` is — and the program narrows them (`as TodoRow[]`).
         exports: &[
-            declared_class("DatabaseSync", SQLITE_REASON),
-            declared_class("StatementSync", SQLITE_REASON),
+            modeled_class("DatabaseSync"),
+            modeled_class("StatementSync"),
+            declared_class("Session", SQLITE_REASON),
+            declared_value("backup", SQLITE_REASON),
+            declared_value("constants", SQLITE_REASON),
         ],
-        dependencies: &[],
+        dependencies: &[BackendDependency::Rusqlite],
     },
     HostModule {
         id: HostModuleId::Url,
@@ -476,6 +508,11 @@ mod tests {
         // The `node:http` server surface, modeled on hyper.
         assert!(host_value_blocker("node:http", "createServer").is_none());
         assert!(host_value_blocker("node:http", "ServerResponse").is_none());
+        // The synchronous `node:sqlite` database, modeled on rusqlite; its
+        // session and backup surface stays declared.
+        assert!(host_value_blocker("node:sqlite", "DatabaseSync").is_none());
+        assert!(host_value_blocker("node:sqlite", "StatementSync").is_none());
+        assert!(host_value_blocker("node:sqlite", "backup").is_some());
     }
 
     /// A name a modeled module does not export blocks naming the export.

@@ -137,8 +137,8 @@ interned types
   t2 = Bool
   t3 = Future<String>
   t4 = async fn(Bool) -> Future<String>
-  t5 = Dict<String, Unknown>
-  t6 = async fn(Bool) -> Future<String>
+  t5 = async fn(Bool) -> Future<String>
+  t6 = Dict<String, Unknown>
   t7 = None
   t8 = Float
   t9 = Future<None>

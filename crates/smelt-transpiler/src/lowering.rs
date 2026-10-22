@@ -320,7 +320,7 @@ fn ordered_dependency_paths(target: PathBuf) -> Option<Vec<PathBuf>> {
     // so there are no exclude globs to apply.
     // Typed versions of packages are a manifest-build feature: they are looked
     // up from the project root, which a single-file command does not have.
-    let sources = dependency_closure(vec![root], &[], Path::new("."), None).ok()?;
+    let sources = dependency_closure(vec![root], &[], Path::new("."), &[], None).ok()?;
     let ordered = order_manifest_sources(&sources).ok()?;
     Some(
         ordered
@@ -477,10 +477,12 @@ pub(crate) fn lower_manifest_entries(
             .collect::<Result<Vec<_>, _>>()
     })?;
     let sources = timing::measure("manifest.dependency_closure", || {
+        let packages = crate::package_sources::resolve_packages(config, manifest_dir)?;
         dependency_closure(
             root_sources,
             config.source_excludes(),
             manifest_dir,
+            &packages,
             Some(sound_settings(config, manifest_dir)),
         )
     })?;
@@ -1075,10 +1077,12 @@ pub(crate) fn collect_manifest_diagnostics(
         .into_iter()
         .map(read_manifest_source)
         .collect::<Result<Vec<_>, _>>()?;
+    let packages = crate::package_sources::resolve_packages(config, manifest_dir)?;
     let sources = dependency_closure(
         root_sources,
         config.source_excludes(),
         manifest_dir,
+        &packages,
         Some(sound_settings(config, manifest_dir)),
     )?;
     let ordered_sources = order_manifest_sources(&sources)

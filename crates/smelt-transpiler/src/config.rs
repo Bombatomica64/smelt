@@ -2,7 +2,7 @@
 
 use schemars::JsonSchema;
 use serde::Deserialize;
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
 /// Kind of Rust crate target emitted by Smelt.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
@@ -59,6 +59,9 @@ pub struct Config {
     build: Build,
     /// Optional strict mode configuration.
     strict: Option<Strict>,
+    /// TypeScript sources for dependencies imported by bare specifier.
+    #[serde(default)]
+    packages: BTreeMap<String, PackageSource>,
     /// Erasure-reason severities (`[erasure]`); see `crate::erasure`.
     #[serde(default)]
     erasure: Option<crate::erasure::ErasureConfig>,
@@ -131,6 +134,12 @@ impl Config {
         self.output.kind
     }
 
+    /// Get the `[packages.<name>]` source declarations, keyed by package name.
+    #[must_use]
+    pub fn packages(&self) -> &BTreeMap<String, PackageSource> {
+        &self.packages
+    }
+
     /// Build-time defines as `(key, JSON text)` pairs, in key order.
     ///
     /// See [`Build::define`]. Command-line `--define` values have already been
@@ -179,6 +188,31 @@ pub struct Source {
     /// glob syntax matches [`test_globs`](Self::test_globs): `*` spans one path
     /// segment and `**` spans zero or more segments, always with `/` separators.
     exclude: Option<Vec<String>>,
+}
+
+/// Where the TypeScript sources of one dependency live: `[packages.<name>]`.
+///
+/// A package published to npm usually ships compiled JavaScript and `.d.ts`
+/// declarations only, and Smelt lowers TypeScript SOURCE, so a bare import of
+/// it (`import { Hono } from 'hono'`) has nothing to resolve to in
+/// `node_modules`. This section names the sources instead: a local directory
+/// (`path`) or a repository pinned to a revision (`git` + `rev`), the way a
+/// Cargo dependency is pinned. Exactly one of `path` and `git` is given.
+#[derive(Clone, Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PackageSource {
+    /// Directory holding the package's sources, relative to `Smelt.toml`.
+    pub path: Option<PathBuf>,
+    /// Repository to fetch the sources from (`git clone` URL).
+    pub git: Option<String>,
+    /// Revision to check out: a tag or a commit. Required with `git`.
+    pub rev: Option<String>,
+    /// Entry module, relative to the package root. Defaults to `src/index.ts`,
+    /// then `index.ts`. Subpath imports (`name/sub`) resolve next to it.
+    pub entry: Option<PathBuf>,
+    /// Package-root-relative globs of modules left out of the crate, with the
+    /// same syntax and pruning as `[sources] exclude`.
+    pub exclude: Option<Vec<String>>,
 }
 
 /// Output configuration from the [output] section.

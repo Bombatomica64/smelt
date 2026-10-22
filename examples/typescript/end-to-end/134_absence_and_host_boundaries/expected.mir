@@ -62,7 +62,7 @@ async fn digest_length (FuncId(2)) -> Float
     %1 = move %6
     goto bb3
   bb2:
-    %7 = unknown_cast copy %0 as t40
+    %7 = unknown_cast copy %0 as t41
     %1 = move %7
     goto bb3
   bb3:

@@ -1346,6 +1346,11 @@ pub enum Rvalue {
     },
     /// Build an empty `EventEmitter`.
     EventEmitterNew,
+    /// `process.env.NAME` (`smelt_hir::ExprKind::ProcessEnvRead`).
+    ProcessEnvRead {
+        /// The variable's name.
+        name: String,
+    },
     /// An `EventEmitter` member operation on a concrete emitter receiver.
     EventEmitterOp {
         /// Which operation this member performs.
@@ -1359,6 +1364,26 @@ pub enum Rvalue {
     HttpCreateServer {
         /// The request handler, called once per accepted request.
         handler: Operand,
+    },
+    /// `new DatabaseSync(path)` (`smelt_hir::ExprKind::SqliteOpen`).
+    SqliteOpen {
+        /// The database path.
+        path: Operand,
+    },
+    /// A `node:sqlite` operation (`smelt_hir::ExprKind::SqliteOp`).
+    SqliteOp {
+        /// Which operation.
+        op: smelt_hir::SqliteOp,
+        /// The database or statement receiver.
+        receiver: Operand,
+        /// SQL text or erased parameters.
+        args: Vec<Operand>,
+    },
+    /// A `node:http` server answering requests with a fetch handler
+    /// (`smelt_hir::ExprKind::HttpCreateFetchServer`).
+    HttpCreateFetchServer {
+        /// The fetch handler, called with the request alone.
+        fetch: Operand,
     },
     /// A `node:http` `Server` member operation.
     HttpServerOp {

@@ -4,7 +4,7 @@ module examples/typescript/end-to-end/30_nullish_union_join/input.ts (ModuleId(0
     %0 const port: Float
     %1 const zone: String
   exprs
-    #0: Optional<String> = undefined
+    #0: Optional<String> = process_env_read "PORT"
     #1: Float = 3000.0
     #2: String | Float = #0 ?? #1
     #3: Float = primitive_cast_js_number #2

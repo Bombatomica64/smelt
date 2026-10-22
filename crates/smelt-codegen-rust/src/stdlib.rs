@@ -61,6 +61,9 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if needs_http_server_runtime(mir) {
         deps.push(BackendDependency::Hyper);
     }
+    if needs_sqlite_runtime(mir) {
+        deps.push(BackendDependency::Rusqlite);
+    }
     // WebCrypto, one crate per member rather than one per surface: the three
     // members share a namespace and nothing else, so a program that only asks
     // for a UUID must not carry two hash crates to get it.
@@ -214,6 +217,8 @@ pub(crate) fn needs_response_runtime(mir: &Mir) -> bool {
             rvalue,
             Rvalue::ResponseNew { .. }
                 | Rvalue::ResponseOp { .. }
+                // A fetch server turns every handler answer into a response.
+                | Rvalue::HttpCreateFetchServer { .. }
                 // `fetch` BUILDS a response, so a program that only calls it
                 // and never names the type still carries the runtime type.
                 | Rvalue::AsyncOp {
@@ -235,7 +240,10 @@ pub(crate) fn needs_request_runtime(mir: &Mir) -> bool {
     any_rvalue_needs(mir, |rvalue| {
         matches!(
             rvalue,
-            Rvalue::RequestNew { .. } | Rvalue::RequestOp { .. }
+            Rvalue::RequestNew { .. }
+                | Rvalue::RequestOp { .. }
+                // A fetch server builds a request per accepted connection.
+                | Rvalue::HttpCreateFetchServer { .. }
         )
     }) || mir
         .types
@@ -264,6 +272,20 @@ pub(crate) fn needs_event_emitter_runtime(mir: &Mir) -> bool {
         || needs_http_server_runtime(mir)
 }
 
+/// Returns true when generated Rust serves a fetch handler (`HttpCreateFetchServer`).
+pub(crate) fn needs_fetch_server_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| matches!(rvalue, Rvalue::HttpCreateFetchServer { .. }))
+}
+
+/// Returns true when generated Rust opens a `node:sqlite` database.
+pub(crate) fn needs_sqlite_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| matches!(rvalue, Rvalue::SqliteOpen { .. } | Rvalue::SqliteOp { .. }))
+        || mir.types.all().iter().any(|ty| {
+            is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::SqliteDatabase)
+                || is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::SqliteStatement)
+        })
+}
+
 /// Returns true when generated Rust needs the `node:http` server runtime.
 ///
 /// The gate for the whole prelude AND for the `hyper` dependency, so a crate
@@ -276,6 +298,7 @@ pub(crate) fn needs_http_server_runtime(mir: &Mir) -> bool {
         matches!(
             rvalue,
             Rvalue::HttpCreateServer { .. }
+                | Rvalue::HttpCreateFetchServer { .. }
                 | Rvalue::HttpServerOp { .. }
                 | Rvalue::IncomingMessageOp { .. }
                 | Rvalue::ServerResponseOp { .. }
@@ -425,6 +448,9 @@ pub(crate) fn needs_byte_array_runtime(mir: &Mir) -> bool {
         // The raw `hash.digest()` answers a view, and an erased `update`
         // argument reads its bytes through the view's boundary adapter.
         || needs_node_hash_runtime(mir)
+        // A BLOB column reads as a `Uint8Array`, and which columns are BLOBs
+        // is decided by the SQL text at run time.
+        || needs_sqlite_runtime(mir)
         || any_rvalue_needs(mir, |rvalue| {
             matches!(
                 rvalue,
@@ -1155,6 +1181,10 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
         // erased value of its own — but its `RangeError` payload is a branded
         // `SmeltUnknown::Object` and its adapters live in this block.
         || needs_data_view_access_runtime(mir)
+        // The `node:sqlite` runtime binds parameters from, and reads rows into,
+        // the erased carrier (`sqlite_prelude`), so a program whose only
+        // database call is `db.exec(sql)` still needs the block it lives beside.
+        || needs_sqlite_runtime(mir)
         // A bigint program is the same case again: `BigInt(1.5)`, `1n / 0n`
         // and `2n ** -1n` throw a branded `RangeError` record, and an erased
         // bigint is the `SmeltUnknown::BigInt` tag, which only exists in this

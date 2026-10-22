@@ -1201,6 +1201,9 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::ProcessEnvRead { name } => {
+                self.assign_temp(expr.ty, expr.span, Rvalue::ProcessEnvRead { name: name.clone() })?
+            }
             ExprKind::EventEmitterNew => {
                 self.assign_temp(expr.ty, expr.span, Rvalue::EventEmitterNew)?
             }
@@ -1228,6 +1231,30 @@ impl LoweringCtx<'_> {
                     Rvalue::HttpCreateServer {
                         handler: handler_operand,
                     },
+                )?
+            }
+            ExprKind::SqliteOpen { path } => {
+                let path_operand = self.lower_expr(*path)?;
+                self.assign_temp(expr.ty, expr.span, Rvalue::SqliteOpen { path: path_operand })?
+            }
+            ExprKind::SqliteOp { op, receiver, args } => {
+                let receiver_operand = self.lower_expr(*receiver)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::SqliteOp { op: *op, receiver: receiver_operand, args: arg_operands },
+                )?
+            }
+            ExprKind::HttpCreateFetchServer { fetch } => {
+                let fetch_operand = self.lower_expr(*fetch)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::HttpCreateFetchServer { fetch: fetch_operand },
                 )?
             }
             ExprKind::HttpServerOp { op, server, args } => {

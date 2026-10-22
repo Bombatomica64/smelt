@@ -919,3 +919,64 @@ export function read(): number {
     );
     Ok(())
 }
+
+/// An unannotated module `const` whose initializer CALLS a module function is
+/// typed from that function's return type, both as a module slot (read from a
+/// function) and as a binding only the module body reads.
+///
+/// The module-global pass runs before function items are declared, so the call
+/// could not resolve there and both bindings were recorded `Unknown` — an
+/// avoidable erasure of a value a hand port would simply type
+/// (`examples/typescript/end-to-end/171_module_const_with_async_callback`).
+#[test]
+fn a_const_initialized_by_a_module_function_call_takes_its_return_type() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Job = { label: string };
+
+function makeJob(label: string): Job {
+  return { label };
+}
+
+function load(text: string): number {
+  return text.length;
+}
+
+const size = load("abc");
+const job = makeJob("x");
+
+export function report(): number {
+  return size * 2;
+}
+
+console.log(job.label, report());
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let slot_ty = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            smelt_hir::Item::MutableGlobal(global) => Some(global.ty),
+            _ => None,
+        })
+        .ok_or("expected `size` to become a module slot")?;
+    ensure!(
+        matches!(ctx.krate.types.get(slot_ty), Some(Type::Float)),
+        "the `size` slot is {:?}, not Float",
+        ctx.krate.types.get(slot_ty)
+    );
+    let erased_locals = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.locals.iter())
+        .filter(|local| matches!(ctx.krate.types.get(local.ty), Some(Type::Unknown)))
+        .count();
+    ensure!(erased_locals == 0, "{erased_locals} module-body local(s) are still Unknown");
+    Ok(())
+}

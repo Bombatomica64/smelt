@@ -1206,6 +1206,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "168_bun_int32_slots",
     "169_json_typed_entry_decode",
     "170_bigint_arbitrary_precision",
+    "171_module_const_with_async_callback",
     "14_c_for_loop",
     "15_break_continue",
     "16_switch_break_no_fallthrough",
@@ -1472,6 +1473,9 @@ const RUNTIME_FIXTURES: &[&str] = &[
     "optional_unknown_reads_as_undefined",
     "headers_from_optional_string_record",
     "listener_captures_its_own_emitter",
+    "hono_node_server_serve",
+    "node_sqlite_database",
+    "erased_null_field_at_optional_type",
 ];
 
 #[test]
@@ -1510,7 +1514,14 @@ clone-strategy = "aggressive"
         let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
         ensure_eq(&actual_stdout, &expected, format!("unexpected stdout for {name}"))?;
         // `expected.stdout` is documented as Node's output; check that it is.
-        ensure_node_agrees(&[("main.ts", &source)], "main.ts", &expected, name)?;
+        // A fixture that imports npm packages at run time pins them in its own
+        // `package.json`, which the oracle installs.
+        let package_json = fs::read_to_string(root.join(name).join("package.json")).ok();
+        let mut oracle_files = vec![("main.ts", source.as_str())];
+        if let Some(package_json) = &package_json {
+            oracle_files.push(("package.json", package_json.as_str()));
+        }
+        ensure_node_agrees(&oracle_files, "main.ts", &expected, name)?;
     }
     Ok(())
 }

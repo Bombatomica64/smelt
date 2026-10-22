@@ -58,10 +58,10 @@ interned types
   t2 = Dict<String, Unknown>
   t3 = Counter
   t4 = fn() -> Counter
-  t5 = Float
-  t6 = None
-  t7 = fn() -> Float
-  t8 = fn() -> None
-  t9 = fn() -> Counter
+  t5 = fn() -> Counter
+  t6 = Float
+  t7 = None
+  t8 = fn() -> Float
+  t9 = fn() -> None
   t10 = fn() -> Float
   t11 = fn() -> None

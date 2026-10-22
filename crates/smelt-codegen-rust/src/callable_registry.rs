@@ -251,10 +251,16 @@ impl PartialEq for SmeltFunctionIdentity {
 struct SmeltCallableMeta {
     /// The JavaScript function this allocation denotes; minted on first need.
     identity: Option<SmeltFunctionIdentity>,
-    /// The typed callable an erased adapter wraps (`Box<T>` for its `Rc` type).
+    /// The typed callable an erased adapter wraps, held WEAKLY (`Box<Weak<F>>`
+    /// for its `Rc<F>` type; see `SmeltFunctionOrigin`).
     ///
-    /// The adapter already captures this callable, so holding it here does not
-    /// extend its life past the adapter's.
+    /// The adapter captures this callable, so while the adapter is alive (the
+    /// only time it can be looked up) the upgrade succeeds. A strong handle
+    /// here would outlive the adapter until the next sweep, and that stale
+    /// count is what `SmeltClosureShare` reads: a class-field arrow erased
+    /// through an object view looked shared when its instance's last handle
+    /// went, so the instance was pinned for the rest of the program — every
+    /// Hono 4 `Context`, one per request.
     wrapped: Option<Box<dyn ::std::any::Any>>,
     /// The erased value a typed callable was narrowed from (a callable object,
     /// or the full-arity function an arity-narrowing adapter forwards to).
@@ -325,14 +331,31 @@ fn smelt_erased_function_key(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) 
     smelt_callable_object_key(function)
 }
 
+/// A typed callable that can be recorded as an erased adapter's origin.
+///
+/// The record is a `Weak` (see `SmeltCallableMeta::wrapped`); typed callables
+/// are `Rc<dyn Fn(..)>`, so this is implemented for `Rc` alone.
+trait SmeltFunctionOrigin: Sized + 'static {
+    /// The weak record kept in the callable table.
+    fn smelt_origin_record(&self) -> Box<dyn ::std::any::Any>;
+    /// The callable back out of a record, while it is alive and of this type.
+    fn smelt_from_origin_record(record: &dyn ::std::any::Any) -> Option<Self>;
+}
+
+impl<F: ?Sized + 'static> SmeltFunctionOrigin for ::std::rc::Rc<F> {
+    fn smelt_origin_record(&self) -> Box<dyn ::std::any::Any> { Box::new(::std::rc::Rc::downgrade(self)) }
+    fn smelt_from_origin_record(record: &dyn ::std::any::Any) -> Option<Self> { record.downcast_ref::<::std::rc::Weak<F>>().and_then(::std::rc::Weak::upgrade) }
+}
+
 /// Retain typed callback identity while it crosses an erased ABI.
-fn smelt_register_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, origin: T) {
-    smelt_update_callable(function, |meta| meta.wrapped = Some(Box::new(origin)));
+fn smelt_register_function_origin<T: SmeltFunctionOrigin>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, origin: T) {
+    let record = origin.smelt_origin_record();
+    smelt_update_callable(function, |meta| meta.wrapped = Some(record));
 }
 
 /// Recover a typed callback previously passed through an erased ABI.
-fn smelt_restore_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> Option<T> {
-    smelt_read_callable(function, |meta| meta.wrapped.as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned())
+fn smelt_restore_function_origin<T: SmeltFunctionOrigin>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> Option<T> {
+    smelt_read_callable(function, |meta| meta.wrapped.as_deref().and_then(T::smelt_from_origin_record))
 }
 
 /// Remember the callable object a typed callback was narrowed from.

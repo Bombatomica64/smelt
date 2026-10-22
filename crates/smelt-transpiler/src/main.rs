@@ -44,6 +44,7 @@ mod erasure;
 mod list_escape_report;
 mod lowering;
 mod manifest;
+mod package_sources;
 mod pipeline;
 mod probe;
 mod python;

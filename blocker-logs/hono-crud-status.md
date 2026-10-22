@@ -13,13 +13,14 @@ and in the regression fixtures: end-to-end `examples/typescript/end-to-end/{160,
 
 | Question | Answer |
 | --- | --- |
-| Does the shipped example transpile? | **No.** Four blocker families (below); nothing builds, so 0/9 tests and 0/30 probe requests. |
+| Does the shipped example transpile? | Before §11: **no** — four blocker families (§1); nothing built, so 0/9 tests and 0/30 probe requests. After §11: **yes**, unmodified — real `node:sqlite` file, `@hono/node-server`, Hono 4.13.7; probe 29/30 identical to Node (issue Y), vitest not run as generated Rust (build interrupted twice; see §11 gates). |
 | With the blockers routed around (staging tree: Hono TS source, in-memory store, `node:http` shim) — generated tests, before this branch | **1/9** pass. |
 | Same, after this branch | **9/9** pass. |
 | Generated server vs Node, 30-request route probe | before: no server could start; after: **identical status, headers and bodies on 29/30**; 1 differs only in the JSON parse-error message text; hyper omits Node's `connection`/`keep-alive` headers. |
 | Throughput, identical source, one core | generated server is **0.43×–0.66×** Node (`node-staging`); see "Performance". |
 | Memory | before §10: the generated server leaked **~16 KB per request** (10.7 GB RSS after ~650k requests); Node stays at ~160 MB. After §10: **flat at 12 MiB** through every read scenario (peak 127 MiB, all of it the todos POST inserts). |
 | Throughput after §10 (vs new `main`, interleaved, medians of 3) | **+31 % to +51 %** on every scenario; see §10. |
+| Shipped app, generated vs Node (§11, interleaved, medians of 3) | **0.46×–0.92×** on the reads, **1.54×** `PATCH`, **1.09×** `POST`; RSS **16–17 MiB** vs Node's 115–255 MiB. A Hono-4-only leak (4.7 GB) was found and fixed on the way; see §11. |
 | Python counterpart in the repo | **None exists** (searched `examples/`, `benchmarks/`, `specs/`; `specs/m9-fastapi-pydantic.md` is a spec, not an app). No Python numbers are reported. |
 
 ## 1. The shipped example does not transpile
@@ -38,6 +39,10 @@ copy) gives the full list:
 
 R2 and R3 are feature gaps (modeling `node:sqlite`; lowering or modeling the Node adapter), not
 lowering bugs. They are listed in the plan at the end.
+
+**Update (§11):** all five families are closed on branch `claude/hono-crud-shipped` — R5 and
+R1/R4 by manifest changes, R3 by modeling `serve()` natively, R2 by modeling `node:sqlite` on
+`rusqlite`. The shipped example now builds without any staging substitution.
 
 ## 2. Staging tree (how everything below was measured)
 
@@ -372,3 +377,172 @@ the remeda/radash/Hono suites until CI runs them; multi-core behavior (one pinne
 that the `SMELT_ARRAY_PROPS` known gap is unreachable in practice (it needs an element-type-changing
 list conversion of an array the program wrote named properties to).
 
+
+## 11. The shipped example builds and runs (branch `claude/hono-crud-shipped`, 2026-10-19)
+
+Base: `main` after #283 (§10). Subject: `examples/typescript/hono_crud` **as shipped** — real
+`node:sqlite` database file, `@hono/node-server`, npm-pinned Hono — not the staging tree of §2.
+
+### What changed (one commit per blocker family)
+
+| Family (§1) | Commit | Change |
+| --- | --- | --- |
+| R5 relative manifest path | `b0cc7566` | importer path made absolute before the package search root is chosen |
+| R1 + R4 package source / client barrel | `a5d4b1c4` | `[packages.<name>]` in `Smelt.toml` maps a bare import to TypeScript sources (`path`, or `git` + `rev`, cached), with per-package `exclude`; the example pins `hono` v4.13.7 and excludes `src/client/**`, `src/helper/testing/**` |
+| R3 `@hono/node-server` | `e9248137` | `serve({ fetch, port, hostname }, onListen)` lowers natively onto the hyper-backed `node:http` server (recognized by import binding through the host-module registry) |
+| — `process.env` | `10bd6c04` | `process.env.NAME` reads the real environment at run time (it folded to `undefined`, so `PORT` was never seen) |
+| R2 `node:sqlite` | this section's commit | `DatabaseSync`/`StatementSync` modeled on `rusqlite` (bundled SQLite) |
+
+`node:sqlite` model (`smelt-frontend-ts/src/lowering/stdlib/sqlite.rs`,
+`smelt-codegen-rust/src/{emitter/sqlite.rs,sqlite_prelude.rs}`):
+
+* `new DatabaseSync(path)`, `db.exec(sql)`, `db.prepare(sql)`, `db.close()`;
+  `stmt.all/get/run(...params)`. One connection shared by every handle; statements compile once
+  through the connection's statement cache (`prepare` compiles eagerly so a syntax error throws
+  there, as in Node).
+* **Parameters bind at their own Rust types** through `SmeltSqliteBind` (a `ToSql`-style trait),
+  positionally or by name from a plain object (`:id`/`$id`/`@id`, bare names allowed as Node's
+  default). A first version erased them; the SmeltUnknown report flagged those as avoidable and they
+  were replaced.
+* **Rows stay erased** (`SmeltUnknown` objects): the SQL text decides a row's columns when it runs
+  (`SELECT *` after `ALTER TABLE`, fixture-proven), which no static type can carry. INTEGER/REAL →
+  number (an INTEGER beyond 2^53 throws, as Node does without `readBigInts`), TEXT → string, NULL →
+  `null`, BLOB → `Uint8Array`. Column names are read after the first step, so a cached statement
+  re-prepared after a schema change reports the new columns.
+* Deliberate divergence: `undefined` as a parameter binds NULL (Node throws). A source `T | null`
+  reaches the binder as an absent `Option<T>`, erased as `undefined`, so a genuine `undefined`
+  cannot be told apart at that point. Documented at the site.
+
+General fixes this exposed:
+
+* **`null` field of an erased record read at `number | null`** came out `NaN`; it is `null` now
+  (runtime fixture `erased_null_field_at_optional_type`; disabling the fix prints `NaN`).
+* **A module global whose initializer can throw** (`const db = new DatabaseSync(path)` read from a
+  function, or any call to a throwing function) did not compile: the lazy `thread_local!` cell
+  called the `Result`-returning initializer bare. The cell now reports the throw as `main`'s
+  `Result` return does (`Error: …` on stderr, exit 1) at the binding's declaration, which is where
+  JavaScript's uncaught module-evaluation throw happens. Verified both ways against Node (stdout
+  identical, exit 1); codegen test `module_slot_with_a_throwing_initializer_reports_like_main`.
+* **A dispatcher probe left orphan HIR expressions**: the sqlite method dispatcher lowers the
+  receiver to learn its class, and `exec`/`get`/`all`/`run` are also `RegExp`/`Map` names; the
+  probe is now rolled back when the receiver is not a database (caught by the HIR goldens).
+* `serve()` defaults the content type to `text/plain; charset=UTF-8` when a response has none, as
+  `@hono/node-server` does (this fixed the 204 response).
+
+* **An unannotated module `const` initialized by a call to a module function**
+  (`const size = load('abc')` read from a function) was typed `SmeltUnknown`: the type probe runs
+  before function items are declared, fails, and falls back to `Unknown`. A second pass
+  (`refine_unknown_module_global_types`) re-probes those bindings once the items exist and narrows
+  the slot to the call's return type (`Float` here). Frontend test
+  `a_const_initialized_by_a_module_function_call_takes_its_return_type`.
+
+* **A Hono 4 `Context` leaked on every request** (found by this section's benchmark: the shipped
+  server's RSS reached 4.7 GB, ~10–20 KB per request, on every route including `GET /nope`). §10's
+  staging server is flat because the staging tree takes Hono from `.github/compat/libraries.json`,
+  which moved to **5.0.0-rc.1** (`4c1e9cae`); the shipped example pins **v4.13.7**, the version npm
+  installs. Hono 4's `Context` has class-field arrows (`setLayout`, `status`, `notFound`, …), which
+  §10's weak-receiver rule captures weakly and guards with a drop check: when the last handle goes
+  while a field's closure is still shared, the instance is pinned. Passing `c` to the route handler
+  (an erased call) erases it to an object view whose adapters register their typed closure as
+  `wrapped` origin in the callable table. The adapters die with the call, but the table holds a
+  dead entry until its next amortized sweep — and that entry held the closure STRONGLY, so the drop
+  check saw it shared and pinned every `Context`. Instrumented build: 164,999 of 165,000 contexts
+  alive; the pinning drop is at the end of `#dispatch` with `status` at strong count 2.
+  Fix (`callable_registry.rs`): `wrapped` holds a `Weak` (`SmeltFunctionOrigin`). The adapter
+  captures its origin, so while the adapter can be looked up the upgrade succeeds; the one
+  registration site (`emitter/coercion.rs`) passes exactly the closure it moves into the adapter.
+  The field-restore emitter no longer emits a restore for an erased `SmeltErasedFunction` field,
+  which could never match (origins are typed `Rc` callables) and does not satisfy the new bound.
+  Regression probe `an_instance_erased_through_an_object_view_is_freed` (runtime tier,
+  `callable_object_identity_runtime.rs`): an instance with a field arrow passed to an `unknown`
+  parameter must be freed with its last handle; restoring the strong origin fails it ("a Ctx
+  erased through an object view was pinned").
+
+Found, not fixed: **an object type alias lowers to an erased record.** `type Job = { n: number;
+label: string }` becomes `Dict<String, Float | String>` (`type_literal_to_hir`, "record-like dict
+type"), and a field read through it is `SmeltUnknown`. In a crate with no other erasure the build
+fails outright ("cannot type the read of `label` on `SmeltUnknown`"); the same source with
+`interface Job` emits `struct Job`. Pre-existing: the branch base `77c7a844` behaves the same.
+End-to-end example 171 (`171_module_const_with_async_callback`; numbered 167 until the merge with main, which took 167; added in `e9248137` for the orphan-body fix) spelled its `Job` as an alias
+and so carried 4 avoidable erasures, which broke the examples invariant; it now spells `Job` as an
+interface (its subject is the async callback, not alias typing), and with the rollback disabled
+its HIR golden still fails. A hand-written port would make an object alias a struct; that is a
+type-lowering feature of its own and is left for a follow-up.
+
+### Results
+
+Machine and method as in `benchmarks/hono_crud/README.md` (server pinned to core 2, `oha` 1.16 on
+6–11, 5 s warm-up + 10 s at 32 connections per scenario, fresh process and fresh `todos.db` per
+run). `node-original` (Node v24.21.0, hono 4.13.7, @hono/node-server 1.19.17) and `rust-shipped`
+interleaved, 3 rounds, medians; load average 3.5–6.9 across the runs
+(`results/bench-interleaved-shipped-load.txt`; no builds running, the rest is unrelated services
+on the shared VM). Raw rows: `results/bench-interleaved-shipped.tsv`.
+
+| Scenario | Node req/s (p50 / p99 ms) | generated req/s (p50 / p99 ms) | generated ÷ Node |
+| --- | ---: | ---: | ---: |
+| `GET /todos` | 9,225 (3.05 / 8.71) | 8,449 (3.60 / 8.36) | 0.92× |
+| `GET /todos/1` | 13,309 (2.14 / 5.80) | 9,720 (3.15 / 6.74) | 0.73× |
+| `GET /todos/abc` | 33,196 (0.82 / 2.28) | 15,343 (2.03 / 4.24) | 0.46× |
+| `GET /nope` | 33,299 (0.85 / 2.06) | 24,573 (1.26 / 2.86) | 0.74× |
+| `PATCH /todos/1` | 4,785 (5.41 / 33.11) | 7,345 (4.58 / 9.94) | 1.54× |
+| `POST /todos` | 199 (151.07 / 538.70) | 217 (166.37 / 223.63) | 1.09× |
+| peak `VmHWM` per run | 115–255 MiB | **16–17 MiB** | |
+
+`VmRSS` after each scenario: generated 16 MiB through the reads, 17 MiB after the writes; Node
+115–124 MiB through the reads, 252–255 MiB after `PATCH`/`POST`. Every scenario answered its
+expected status on every run (no broken rows).
+
+Before the `wrapped`-origin fix (same method, one interleaved set of 3 rounds earlier the same
+day): generated 6,246 / 5,742 / 9,960 / 10,675 / 6,040 / 212 req/s and RSS climbing to
+**812 MiB → 4.7 GB** across the six scenarios. The fix is what made the shipped server fit to run;
+the read throughput gain (+35 % to +130 %) is the allocator no longer growing the heap.
+
+Write scenarios: both servers are bound by SQLite. `POST` is ~200 req/s on both because every
+insert is a journaled write to `todos.db` on disk; the generated server's p99 is lower. `PATCH`
+is faster generated (1.54×).
+
+Where the remaining read gap is: `/todos/abc` (validation 400, no SQL) at 0.46× is pure Hono
+routing + context + JSON error body — the same per-request work §5/§6 measured on the staging
+tree, which this section did not touch.
+
+Route conformance (`probe.sh`, 30 requests): Node is byte-identical to the committed
+`probe-node-original.txt`; the generated server matches it on 29/30 after normalization
+(`probe-node-original-vs-rust-shipped.normalized.diff`) — the one difference is the JSON
+parse-error message text (issue Y), plus hyper omitting Node's `connection`/`keep-alive` headers.
+The probe output is unchanged by the leak fix.
+
+### Acceptance and gates
+
+| Check | Result |
+| --- | --- |
+| shipped example builds as generated Rust | yes (`smelt build`, then `cargo build --release`; no hand edits) |
+| shipped vitest suite as generated Rust | **not run**: the generated test build was interrupted twice (machine restarts) and never finished; the Node suite passes 9/9 |
+| `probe.sh`, Node vs generated | 30/30 answered; 29/30 identical after normalization (issue Y) |
+| RSS flat under the benchmark | yes: 16–17 MiB, every scenario, every run |
+| examples SmeltUnknown avoidable | 0 → 0 (invariant holds; example 171 re-spelled, see above) |
+| es-toolkit SmeltUnknown ratchet | 22,447 → 22,447 (+0), report run locally on a fresh generation |
+| hono_crud SmeltUnknown (informational, not a gate) | 2,693 avoidable in the generated crate; 318 of them in the app's own modules (`app`, `db`, `repository`, `routes`), the rest in Hono's modules and `main.rs` |
+| `cargo clippy --all-targets` | not run locally for the final tree; left to CI |
+| `cargo test --no-fail-fast` | not run locally for the final tree; left to CI. Run before the final change: cross-language runtime tests 21/21, the ignored identity-runtime tier 2/2 |
+
+Regression tests added on this branch, with the defect each was checked against (each mutation
+restored afterwards):
+
+* runtime fixture `node_sqlite_database` (Node v24.21.0 stdout): parameters, rows, `ALTER TABLE`
+  then `SELECT *` on a cached statement, BLOB → `Uint8Array`, the module-global throw;
+* runtime fixture `erased_null_field_at_optional_type` — disabling the fix prints `NaN`;
+* codegen test `module_slot_with_a_throwing_initializer_reports_like_main`;
+* frontend test `a_const_initialized_by_a_module_function_call_takes_its_return_type`;
+* e2e 171 — disabling the probe-body rollback changes its HIR golden;
+* runtime probe `an_instance_erased_through_an_object_view_is_freed` — a strong `wrapped` origin
+  fails it.
+
+### Verified vs assumed
+
+Verified, by running them on this machine: the build of the shipped example, the benchmark and RSS
+numbers above, the probe outputs, the fixtures against Node's output, the
+SmeltUnknown reports, and the leak's mechanism (instrumented build: live `Context` count, the
+pinning drop's backtrace and strong count). Assumed / not checked: the shipped vitest suite as generated Rust (its build never finished here); clippy and the full test suite on the final tree (left to CI); the remeda, radash and Hono
+suites with the weak `wrapped` origin until CI runs them (it changes what `restore` can return only
+when the adapter is already dead, which no lookup can observe); multi-core behavior (one pinned
+core, as before); Hono 5 behavior of the shipped app (the example pins Hono 4).

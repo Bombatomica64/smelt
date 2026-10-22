@@ -73,6 +73,7 @@ pub use expr::{
     RegexReplaceArg, SetBinaryOp,
     HeadersOp, SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp,
     EventEmitterOp,
+    SqliteOp,
     HttpServerOp,
     IncomingMessageOp,
     ServerResponseOp,

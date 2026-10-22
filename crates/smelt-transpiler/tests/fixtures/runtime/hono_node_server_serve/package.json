@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@hono/node-server": "1.19.17",
+    "hono": "4.13.7"
+  }
+}

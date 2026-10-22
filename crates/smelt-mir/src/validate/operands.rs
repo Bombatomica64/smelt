@@ -43,7 +43,7 @@ impl Rvalue {
                     visit(arg);
                 }
             }
-            Self::EventEmitterNew => {}
+            Self::EventEmitterNew | Self::ProcessEnvRead { .. } => {}
             Self::EventEmitterOp { emitter, args, .. } => {
                 visit(emitter);
                 for arg in args {
@@ -51,6 +51,14 @@ impl Rvalue {
                 }
             }
             Self::HttpCreateServer { handler } => visit(handler),
+            Self::HttpCreateFetchServer { fetch } => visit(fetch),
+            Self::SqliteOpen { path } => visit(path),
+            Self::SqliteOp { receiver, args, .. } => {
+                visit(receiver);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::HttpServerOp { server, args, .. } => {
                 visit(server);
                 for arg in args {
@@ -981,7 +989,7 @@ impl Rvalue {
                     visit(arg);
                 }
             }
-            Self::EventEmitterNew => {}
+            Self::EventEmitterNew | Self::ProcessEnvRead { .. } => {}
             Self::EventEmitterOp { emitter, args, .. } => {
                 visit(emitter);
                 for arg in args.iter_mut() {
@@ -989,6 +997,14 @@ impl Rvalue {
                 }
             }
             Self::HttpCreateServer { handler } => visit(handler),
+            Self::HttpCreateFetchServer { fetch } => visit(fetch),
+            Self::SqliteOpen { path } => visit(path),
+            Self::SqliteOp { receiver, args, .. } => {
+                visit(receiver);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::HttpServerOp { server, args, .. } => {
                 visit(server);
                 for arg in args.iter_mut() {

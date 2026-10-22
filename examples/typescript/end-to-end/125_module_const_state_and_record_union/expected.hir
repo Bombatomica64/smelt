@@ -68,10 +68,10 @@ interned types
   t11 = Dict<String, String | List<String>>
   t12 = fn(Bool) -> Dict<String, String | List<String>>
   t13 = fn(String) -> (String, String, Bool)
-  t14 = Optional<(String, String, Bool)>
-  t15 = Float
-  t16 = None
-  t17 = fn(String) -> (String, String, Bool)
+  t14 = fn(String) -> (String, String, Bool)
+  t15 = Optional<(String, String, Bool)>
+  t16 = Float
+  t17 = None
   t18 = List<List<String>>
   t19 = Optional<String>
   t20 = Optional<String | List<String>>

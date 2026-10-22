@@ -1,0 +1,49 @@
+module examples/typescript/end-to-end/171_module_const_with_async_callback/input.ts (ModuleId(0))
+  body BodyId(2)
+  items
+    interface Job fields [Public run: fn(String) -> Future<String>, Public label: String] methods []
+    fn make_job owner Module
+  locals
+    %0 const job: Job
+  exprs
+    #0: String = "label"
+    #1: String = "upper"
+    #2: String = "run"
+    #3: async fn(String) -> Future<String> = closure BodyId(1) captures 0 -> Future<String>
+    #4: Job = {#0: #1, #2: #3}
+    #5: fn(Job) -> Job = @0(make_job)
+    #6: Job = call #5(#4)
+    #7: Job = %0
+    #8: String = #7.label
+    #9: Job = %0
+    #10: fn(String) -> Future<String> = #9.run
+    #11: Job = %0
+    #12: String = "  hello  "
+    #13: Future<String> = closure_call #10(#12)
+    #14: String = await #13
+    #15: None = @2(console_log)
+    #16: None = call #15(#8, #14)
+    #17: Future<None> = async_exit_drain()
+    #18: None = await #17
+  stmts
+    s0: let %0: Job = #6
+    s1: #16
+    s2: #18
+  async state machine
+    states [state0, state1, state2]
+    suspend #14 on #13 -> state15
+    suspend #18 on #17 -> state19
+
+interned types
+  t0 = Unknown
+  t1 = String
+  t2 = Dict<String, Unknown>
+  t3 = Future<String>
+  t4 = Float
+  t5 = async fn(String) -> Future<String>
+  t6 = Job
+  t7 = fn(Job) -> Job
+  t8 = fn(Job) -> Job
+  t9 = fn(String) -> Future<String>
+  t10 = None
+  t11 = Future<None>
