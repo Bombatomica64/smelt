@@ -3710,8 +3710,8 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_4: f64;
     let _smelt_tmp_5: bool;
     let _smelt_tmp_7: SmeltList<String>;
-    let mut _smelt_tmp_8: f64;
-    let mut _smelt_tmp_9: f64;
+    let mut _smelt_tmp_8: usize;
+    let mut _smelt_tmp_9: usize;
     let mut _smelt_tmp_10: bool;
     let mut _smelt_tmp_12: ();
     let mut _smelt_tmp_14: ();
@@ -3723,15 +3723,15 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_5 = true;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_4), _smelt_tmp_5); };
     _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["from callback".to_owned()]; smelt_list_items }));
-    _smelt_tmp_8 = 0.0;
+    _smelt_tmp_8 = 0;
     loop {
-    _smelt_tmp_9 = _smelt_tmp_7.len() as f64;
+    _smelt_tmp_9 = _smelt_tmp_7.len();
     _smelt_tmp_10 = _smelt_tmp_8 < _smelt_tmp_9;
     if !(_smelt_tmp_10) { break; }
-    label = _smelt_tmp_7.borrow().get({ let smelt_normalized = _smelt_tmp_8 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
+    label = _smelt_tmp_7.borrow().get(_smelt_tmp_8).cloned().unwrap_or_else(|| String::new());
     let _smelt_tmp_11 = SmeltFuture::from_future(Box::pin(later(label)));
     _smelt_tmp_12 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_11.await; })); () };
-    _smelt_tmp_8 = _smelt_tmp_8 + 1.0;
+    _smelt_tmp_8 = _smelt_tmp_8 + 1;
     }
     let _smelt_tmp_13 = SmeltFuture::from_future(Box::pin(later("top".to_owned())));
     _smelt_tmp_14 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_13.await; })); () };

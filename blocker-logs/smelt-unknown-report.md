@@ -98,3 +98,14 @@ the same methodology.
 successfully, so intentional boundary additions (which raise the
 *legitimate-boundary* count, not avoidable) never block CI. Enforcement policy
 lives in `AGENTS.md` (`## SmeltUnknown enforcement`).
+
+## Erasure reasons (decision-time records)
+
+When a `smelt-erasure.json` sidecar sits beside the scanned `src/` (written by
+`smelt build`) or is passed with `--erasure <path>`, the report adds an
+"Avoidable erasure by reason and source line" section: every erasure decision
+the frontends and the backend recorded, counted by reason, and the avoidable
+ones grouped by source line. The per-generated-line classification above is
+unchanged, so the three baselines keep their meaning; baselines written without
+a sidecar parse unchanged (`erasure` is optional). Reasons, classes and
+severities: `docs/erasure-reasons.md`.

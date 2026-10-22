@@ -5,6 +5,12 @@ use super::core::terminator_successors;
 
 impl FunctionEmitter<'_> {
     /// Return whether control flow from `block_id` can reach `block_id` again.
+    ///
+    /// Kept as the per-block REFERENCE definition: emission answers it from
+    /// the precomputed `LocalWriteIndex::repeat_reachable`, and the
+    /// `repeat_reachable_matches_per_block_reference` test checks the two
+    /// agree.
+    #[cfg(test)]
     pub(super) fn block_can_repeat(
         &self,
         block_id: smelt_mir::BlockId,
@@ -33,6 +39,7 @@ impl FunctionEmitter<'_> {
     /// definite-assignment rules reject assigning to an immutable local from a
     /// loop body even when later control flow always exits, so locals assigned
     /// in blocks reached from repeatable regions need mutable bindings.
+    #[cfg(test)]
     pub(super) fn block_is_reached_from_repeating_region(&self, block_id: smelt_mir::BlockId) -> bool {
         self.function
             .blocks

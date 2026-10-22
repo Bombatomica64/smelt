@@ -40,7 +40,7 @@ hex = { workspace = true }
 oxc_resolver = "11.24.3"
 schemars = "1.2.1"
 serde = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["preserve_order"] }
 sha2 = { workspace = true }
 smelt-codegen-rust = { path = "../smelt-codegen-rust", version = "0.1.1" }
 smelt-frontend-py = { path = "../smelt-frontend-py", version = "0.1.1", optional = true }

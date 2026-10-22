@@ -592,6 +592,16 @@ pub enum ExprKind {
         /// The accessor arguments, as written.
         args: Vec<ExprId>,
     },
+    /// A fallible JavaScript `bigint` operation (see [`crate::BigIntOp`]):
+    /// `BigInt(x)`, `BigInt.asIntN`/`asUintN`, and the bigint `/`, `%` and
+    /// `**`, each of which can throw a catchable `RangeError`.
+    BigIntCall {
+        /// Which operation this is.
+        op: crate::BigIntOp,
+        /// The operands in source order (`[value]`, `[bits, value]`, or
+        /// `[lhs, rhs]`).
+        args: Vec<ExprId>,
+    },
     /// A member read or method call on the concrete typed-array family.
     ByteArrayOp {
         /// Which member this reads or calls.
@@ -1079,8 +1089,19 @@ pub enum ExprKind {
     JsonStringify {
         value: ExprId,
     },
+    /// `JSON.parse(text)` / Python `json.loads(text)`.
+    ///
+    /// `decode` is `true` when the expression's type is a target the SOURCE
+    /// declared — `JSON.parse<T>(s)`, `JSON.parse(s) as T`, or a parse that flows
+    /// straight into a `T`-annotated variable, `T`-typed parameter or
+    /// `T`-returning function. Such a parse is a typed entry boundary: the backend
+    /// decodes the parsed value strictly into `T` and throws a catchable
+    /// `TypeError` on mismatch (design adapted from Bun's `--aot` typed entry
+    /// checks, oven-sh/bun#45631). `false` keeps the dynamic parse whose type is
+    /// the frontend's fallback (an untyped `JSON.parse(s)`, Python `json.loads`).
     JsonParse {
         text: ExprId,
+        decode: bool,
     },
     HttpGetText {
         url: ExprId,

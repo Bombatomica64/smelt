@@ -3731,13 +3731,13 @@ impl TrieNode {
     let mut token: String;
     let mut next: Option<TrieNode>;
     let mut key: String;
-    let mut _smelt_tmp_7: f64;
+    let mut _smelt_tmp_7: usize;
     let mut _smelt_tmp_8: bool;
     let mut _smelt_tmp_9: Option<TrieNode>;
     let mut _smelt_tmp_10: bool;
     let mut _smelt_tmp_11: SmeltList<String>;
-    let mut _smelt_tmp_12: f64;
-    let mut _smelt_tmp_13: f64;
+    let mut _smelt_tmp_12: usize;
+    let mut _smelt_tmp_13: usize;
     let mut _smelt_tmp_14: bool;
     let mut _smelt_tmp_15: String;
     let mut _smelt_tmp_16: String;
@@ -3748,24 +3748,24 @@ impl TrieNode {
     let mut _smelt_tmp_21: bool;
     let mut _smelt_tmp_22: SmeltRecord<String, TrieNode>;
     let mut node: TrieNode = self.clone();
-    let mut _smelt_tmp_6: f64 = 0.0;
+    let mut _smelt_tmp_6: usize = 0;
     loop {
-    _smelt_tmp_7 = tokens.len() as f64;
+    _smelt_tmp_7 = tokens.len();
     _smelt_tmp_8 = _smelt_tmp_6 < _smelt_tmp_7;
     if !(_smelt_tmp_8) { break; }
-    token = tokens.borrow().get({ let smelt_normalized = _smelt_tmp_6 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
+    token = tokens.borrow().get(_smelt_tmp_6).cloned().unwrap_or_else(|| String::new());
     next = None::<TrieNode>;
     _smelt_tmp_9 = node.0.borrow().children.clone().get(&token.clone());
     next = _smelt_tmp_9;
     _smelt_tmp_10 = !(next.clone().is_some());
     if _smelt_tmp_10 {
     _smelt_tmp_11 = Into::<SmeltList<_>>::into(smelt_for_in_record_keys(&node.0.borrow().children.clone()));
-    _smelt_tmp_12 = 0.0;
+    _smelt_tmp_12 = 0;
     loop {
-    _smelt_tmp_13 = _smelt_tmp_11.len() as f64;
+    _smelt_tmp_13 = _smelt_tmp_11.len();
     _smelt_tmp_14 = _smelt_tmp_12 < _smelt_tmp_13;
     if !(_smelt_tmp_14) { break; }
-    key = _smelt_tmp_11.borrow().get({ let smelt_normalized = _smelt_tmp_12 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
+    key = _smelt_tmp_11.borrow().get(_smelt_tmp_12).cloned().unwrap_or_else(|| String::new());
     _smelt_tmp_15 = key.clone();
     _smelt_tmp_16 = ":".to_owned();
     _smelt_tmp_17 = key.starts_with(&_smelt_tmp_16);
@@ -3776,7 +3776,7 @@ impl TrieNode {
     if _smelt_tmp_21 {
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Symbol("Symbol()@237".to_owned().into())));
     } else {
-    _smelt_tmp_12 = _smelt_tmp_12 + 1.0;
+    _smelt_tmp_12 = _smelt_tmp_12 + 1;
     continue;
     }
     }
@@ -3786,10 +3786,10 @@ impl TrieNode {
     node.0.borrow_mut().children = _smelt_tmp_22;
     next = Some(_smelt_tmp_23);
     node = next.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_6 = _smelt_tmp_6 + 1.0;
+    _smelt_tmp_6 = _smelt_tmp_6 + 1;
     } else {
     node = next.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_6 = _smelt_tmp_6 + 1.0;
+    _smelt_tmp_6 = _smelt_tmp_6 + 1;
     continue;
     }
     }
@@ -3891,8 +3891,8 @@ impl Router {
     let _smelt_tmp_10: SmeltRecord<String, SmeltList<String>>;
     let _smelt_tmp_11: SmeltRecord<String, SmeltRecord<String, SmeltList<String>>>;
     let _smelt_tmp_12: SmeltList<String>;
-    let mut _smelt_tmp_13: f64;
-    let mut _smelt_tmp_14: f64;
+    let mut _smelt_tmp_13: usize;
+    let mut _smelt_tmp_14: usize;
     let mut _smelt_tmp_15: bool;
     let mut _smelt_tmp_16: SmeltRecord<String, SmeltRecord<String, SmeltList<String>>>;
     let mut _smelt_tmp_17: SmeltRecord<String, SmeltList<String>>;
@@ -3928,12 +3928,12 @@ impl Router {
     self.0.borrow_mut().routes = _smelt_tmp_9;
     _smelt_tmp_11 = self.0.borrow().routes.clone();
     _smelt_tmp_12 = Into::<SmeltList<_>>::into(smelt_for_in_record_keys(&_smelt_tmp_11.get(&"ALL".to_owned().clone()).unwrap_or(SmeltRecord::new())));
-    _smelt_tmp_13 = 0.0;
+    _smelt_tmp_13 = 0;
     loop {
-    _smelt_tmp_14 = _smelt_tmp_12.len() as f64;
+    _smelt_tmp_14 = _smelt_tmp_12.len();
     _smelt_tmp_15 = _smelt_tmp_13 < _smelt_tmp_14;
     if !(_smelt_tmp_15) { break; }
-    p = _smelt_tmp_12.borrow().get({ let smelt_normalized = _smelt_tmp_13 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
+    p = _smelt_tmp_12.borrow().get(_smelt_tmp_13).cloned().unwrap_or_else(|| String::new());
     _smelt_tmp_16 = self.0.borrow().routes.clone();
     _smelt_tmp_17 = _smelt_tmp_16.get(&method.clone()).unwrap_or(SmeltRecord::new());
     _smelt_tmp_18 = self.0.borrow().routes.clone();
@@ -3944,7 +3944,7 @@ impl Router {
     _smelt_tmp_16.insert(method.clone(), _smelt_tmp_17);
     self.0.borrow_mut().routes = _smelt_tmp_16;
     let _ = self._insert_path(method.clone(), p)?;
-    _smelt_tmp_13 = _smelt_tmp_13 + 1.0;
+    _smelt_tmp_13 = _smelt_tmp_13 + 1;
     }
     }
     _smelt_tmp_23 = fancy_regex::Regex::new(&"\\((?!\\?:)".to_owned()).expect("regex compile failed").is_match(&path.clone()).unwrap_or(false);

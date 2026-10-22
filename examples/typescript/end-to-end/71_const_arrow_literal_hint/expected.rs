@@ -237,21 +237,21 @@ fn main() {
     let _ = { println!("{}", _smelt_tmp_18); };
     _smelt_tmp_20 = ::std::rc::Rc::new(|closure_arg_0: &SmeltList<Opts>| {
     let mut item: Opts;
-    let mut _smelt_tmp_4: f64;
+    let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: f64;
     let mut _smelt_tmp_7: f64;
     let mut sum: f64 = 0.0;
-    let mut _smelt_tmp_3: f64 = 0.0;
+    let mut _smelt_tmp_3: usize = 0;
     loop {
-    _smelt_tmp_4 = closure_arg_0.len() as f64;
+    _smelt_tmp_4 = closure_arg_0.len();
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if _smelt_tmp_5 {
-    item = closure_arg_0.borrow().get({ let smelt_normalized = _smelt_tmp_3 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default());
+    item = closure_arg_0.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| Default::default());
     _smelt_tmp_6 = item.status.clone().clone().unwrap_or(0.0);
     _smelt_tmp_7 = sum + _smelt_tmp_6;
     sum = _smelt_tmp_7;
-    _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
+    _smelt_tmp_3 = _smelt_tmp_3 + 1;
     } else {
     return sum;
     }

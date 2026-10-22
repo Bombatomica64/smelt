@@ -3521,7 +3521,7 @@ impl SmeltFromUnknown for SmeltMatch {
 fn main() {
     let mut value: f64;
     let mut keyed: SmeltRecord<String, f64>;
-    let mut _smelt_tmp_9: f64;
+    let mut _smelt_tmp_9: usize;
     let mut _smelt_tmp_10: bool;
     let mut _smelt_tmp_11: String;
     let mut _smelt_tmp_12: String;
@@ -3551,12 +3551,12 @@ fn main() {
     let _smelt_tmp_6: f64 = -1000000000000000000000.0;
     let _smelt_tmp_7: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![0.0, _smelt_tmp_3, 1.0, _smelt_tmp_4, 0.5, 100.0, 1000000.0, 100000000000000000000.0, 1000000000000000000000.0, 10000000000000000000000.0, 0.000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005, 0.000001, 0.0000001, 179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0, 0.1, _smelt_tmp_5, 255.0, _smelt_tmp_6, 0.00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001]; smelt_list_items }));
     let values: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_7);
-    let mut _smelt_tmp_8: f64 = 0.0;
+    let mut _smelt_tmp_8: usize = 0;
     loop {
-    _smelt_tmp_9 = values.len() as f64;
+    _smelt_tmp_9 = values.len();
     _smelt_tmp_10 = _smelt_tmp_8 < _smelt_tmp_9;
     if !(_smelt_tmp_10) { break; }
-    value = values.borrow().get({ let smelt_normalized = _smelt_tmp_8 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    value = values.borrow().get(_smelt_tmp_8).cloned().unwrap_or_else(|| 0.0);
     _smelt_tmp_11 = "".to_owned() + &smelt_number_to_string(value);
     _smelt_tmp_12 = _smelt_tmp_11 + &"|".to_owned();
     _smelt_tmp_13 = smelt_number_to_string(value);
@@ -3565,7 +3565,7 @@ fn main() {
     _smelt_tmp_16 = smelt_number_to_string(value);
     _smelt_tmp_17 = _smelt_tmp_15 + &_smelt_tmp_16;
     let _ = { println!("{}", _smelt_tmp_17); };
-    _smelt_tmp_8 = _smelt_tmp_8 + 1.0;
+    _smelt_tmp_8 = _smelt_tmp_8 + 1;
     }
     _smelt_tmp_19 = -0.0;
     let _ = { println!("{} {} {} {}", smelt_console_number(0.0), smelt_console_number(_smelt_tmp_19), smelt_console_number(1000000000000000000000.0), smelt_console_number(0.0000001)); };

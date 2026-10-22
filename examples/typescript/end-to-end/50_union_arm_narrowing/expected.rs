@@ -4402,8 +4402,8 @@ fn main() {
     let _smelt_tmp_41: Option<SmeltUnion14>;
     let _smelt_tmp_42: bool;
     let _smelt_tmp_45: SmeltList<SmeltUnion14>;
-    let mut _smelt_tmp_46: f64;
-    let mut _smelt_tmp_47: f64;
+    let mut _smelt_tmp_46: usize;
+    let mut _smelt_tmp_47: usize;
     let mut _smelt_tmp_48: bool;
     let mut _smelt_tmp_49: bool;
     let mut _smelt_tmp_50: SmeltBlob;
@@ -4462,22 +4462,22 @@ fn main() {
     let _ = { println!("{}", "absent is not a file".to_owned()); };
     }
     _smelt_tmp_45 = Into::<SmeltList<_>>::into(SmeltList::new(form.values().into_iter().map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion14::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion14::M1(smelt_file) }).collect::<Vec<_>>()));
-    _smelt_tmp_46 = 0.0;
+    _smelt_tmp_46 = 0;
     loop {
-    _smelt_tmp_47 = _smelt_tmp_45.len() as f64;
+    _smelt_tmp_47 = _smelt_tmp_45.len();
     _smelt_tmp_48 = _smelt_tmp_46 < _smelt_tmp_47;
     if !(_smelt_tmp_48) { break; }
-    value = _smelt_tmp_45.borrow().get({ let smelt_normalized = _smelt_tmp_46 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltUnion14::M0(String::new()));
+    value = _smelt_tmp_45.borrow().get(_smelt_tmp_46).cloned().unwrap_or_else(|| SmeltUnion14::M0(String::new()));
     _smelt_tmp_49 = matches!(value.clone(), SmeltUnion14::M1(_));
     if _smelt_tmp_49 {
     _smelt_tmp_50 = match value { SmeltUnion14::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_51 = _smelt_tmp_50.file_name();
     let _ = { println!("{} {}", "file".to_owned(), _smelt_tmp_51); };
-    _smelt_tmp_46 = _smelt_tmp_46 + 1.0;
+    _smelt_tmp_46 = _smelt_tmp_46 + 1;
     continue;
     } else {
     let _ = { println!("{} {}", "text".to_owned(), value.into_smelt_unknown()); };
-    _smelt_tmp_46 = _smelt_tmp_46 + 1.0;
+    _smelt_tmp_46 = _smelt_tmp_46 + 1;
     continue;
     }
     }

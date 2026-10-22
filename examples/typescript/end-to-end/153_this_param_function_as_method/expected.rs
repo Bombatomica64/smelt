@@ -3996,7 +3996,7 @@ impl TableRouter {
     let mut __smelt_for_item: (String, String);
     let mut lookup: String;
     let mut p: String;
-    let mut _smelt_tmp_7: f64;
+    let mut _smelt_tmp_7: usize;
     let mut _smelt_tmp_8: bool;
     let mut _smelt_tmp_9: String;
     let mut _smelt_tmp_10: String;
@@ -4004,12 +4004,12 @@ impl TableRouter {
     let mut _smelt_tmp_12: f64;
     let mut _smelt_tmp_13: f64;
     let mut n: f64 = 0.0;
-    let mut _smelt_tmp_6: f64 = 0.0;
+    let mut _smelt_tmp_6: usize = 0;
     loop {
-    _smelt_tmp_7 = pairs.len() as f64;
+    _smelt_tmp_7 = pairs.len();
     _smelt_tmp_8 = _smelt_tmp_6 < _smelt_tmp_7;
     if !(_smelt_tmp_8) { break; }
-    __smelt_for_item = pairs.borrow().get({ let smelt_normalized = _smelt_tmp_6 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new()));
+    __smelt_for_item = pairs.borrow().get(_smelt_tmp_6).cloned().unwrap_or_else(|| (String::new(), String::new()));
     _smelt_tmp_9 = __smelt_for_item.clone().0.clone();
     lookup = _smelt_tmp_9;
     _smelt_tmp_10 = __smelt_for_item.1.clone();
@@ -4018,7 +4018,7 @@ impl TableRouter {
     _smelt_tmp_12 = _smelt_tmp_11.chars().count() as f64;
     _smelt_tmp_13 = n + _smelt_tmp_12;
     n = _smelt_tmp_13;
-    _smelt_tmp_6 = _smelt_tmp_6 + 1.0;
+    _smelt_tmp_6 = _smelt_tmp_6 + 1;
     }
     return n;
     }
@@ -4081,18 +4081,18 @@ impl SmartRouter {
     }
     fn add(&self, method: String, path: String, handler: String) -> Result<(), Box<dyn std::error::Error>> {
     let mut r: Router;
-    let mut _smelt_tmp_7: f64;
+    let mut _smelt_tmp_7: usize;
     let mut _smelt_tmp_8: bool;
     let mut _smelt_tmp_9: ();
     let _smelt_tmp_5: SmeltList<Router> = Into::<SmeltList<_>>::into(self.0.borrow()._routers.clone());
-    let mut _smelt_tmp_6: f64 = 0.0;
+    let mut _smelt_tmp_6: usize = 0;
     loop {
-    _smelt_tmp_7 = _smelt_tmp_5.len() as f64;
+    _smelt_tmp_7 = _smelt_tmp_5.len();
     _smelt_tmp_8 = _smelt_tmp_6 < _smelt_tmp_7;
     if !(_smelt_tmp_8) { break; }
-    r = _smelt_tmp_5.borrow().get({ let smelt_normalized = _smelt_tmp_6 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default());
+    r = _smelt_tmp_5.borrow().get(_smelt_tmp_6).cloned().unwrap_or_else(|| Default::default());
     _smelt_tmp_9 = (r.add.clone())(method.clone(), path.clone(), handler.clone());
-    _smelt_tmp_6 = _smelt_tmp_6 + 1.0;
+    _smelt_tmp_6 = _smelt_tmp_6 + 1;
     }
     return Ok(());
     }
@@ -4124,7 +4124,7 @@ impl SmartRouter {
 impl App {
     fn new() -> Self {
     let mut verb: String;
-    let mut _smelt_tmp_8: f64;
+    let mut _smelt_tmp_8: usize;
     let mut _smelt_tmp_9: bool;
     let mut _smelt_tmp_10: ::std::rc::Rc<dyn Fn(String) -> Result<f64, Box<dyn std::error::Error>>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> Result<f64, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |arg0: String| -> Result<f64, Box<dyn std::error::Error>> { Ok::<_, Box<dyn std::error::Error>>(0.0) }); smelt_default_callback };
     let mut this: Self = App(::std::rc::Rc::new(::std::cell::RefCell::new(AppInner { get: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback }, post: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback }, _routes: None::<SmeltList<String>> })));
@@ -4134,12 +4134,12 @@ impl App {
     let _smelt_tmp_5: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
     let _smelt_tmp_6: SmeltList<String> = Into::<SmeltList<_>>::into(_smelt_tmp_4.borrow().iter().cloned().chain(_smelt_tmp_5.borrow().iter().cloned()).collect::<Vec<_>>());
     let verbs: SmeltList<String> = Into::<SmeltList<_>>::into(_smelt_tmp_6);
-    let mut _smelt_tmp_7: f64 = 0.0;
+    let mut _smelt_tmp_7: usize = 0;
     loop {
-    _smelt_tmp_8 = verbs.len() as f64;
+    _smelt_tmp_8 = verbs.len();
     _smelt_tmp_9 = _smelt_tmp_7 < _smelt_tmp_8;
     if !(_smelt_tmp_9) { break; }
-    verb = verbs.borrow().get({ let smelt_normalized = _smelt_tmp_7 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
+    verb = verbs.borrow().get(_smelt_tmp_7).cloned().unwrap_or_else(|| String::new());
     _smelt_tmp_10 = ::std::rc::Rc::new({
     let mut this = this.clone();
     let verb = verb.clone();
@@ -4152,7 +4152,7 @@ impl App {
     }
 });
     { let smelt_keyed_value = _smelt_tmp_10; let smelt_key: String = verb.clone(); match smelt_key.as_str() { "get" => { this.0.borrow_mut().get = { let smelt_callback = smelt_keyed_value.clone().clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| (smelt_callback)(arg0).unwrap_or_else(|error| smelt_panic_throw(error))); smelt_adapted }; } "post" => { this.0.borrow_mut().post = { let smelt_callback = smelt_keyed_value.clone().clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| (smelt_callback)(arg0).unwrap_or_else(|error| smelt_panic_throw(error))); smelt_adapted }; } _ => {} } }
-    _smelt_tmp_7 = _smelt_tmp_7 + 1.0;
+    _smelt_tmp_7 = _smelt_tmp_7 + 1;
     }
     return this;
     }

@@ -1275,6 +1275,20 @@ impl FunctionEmitter<'_> {
         {
             return Ok(format!("(({value_text} as f64).trunc() as i64)"));
         }
+        // A `FixedInt` is exactly an `f64`. The opposite direction is only
+        // reached for a value the TypeScript frontend proved to be in range
+        // (a Bun `int32` field of an object literal; see `lowering::int32`),
+        // so the narrowing cast is exact.
+        if let (Some(Type::Float), Some(Type::FixedInt(_))) =
+            (self.mir.types.get(target), self.mir.types.get(source))
+        {
+            return Ok(format!("({value_text} as f64)"));
+        }
+        if let (Some(Type::FixedInt(width)), Some(Type::Float)) =
+            (self.mir.types.get(target), self.mir.types.get(source))
+        {
+            return Ok(format!("({value_text} as {})", width.rust_name()));
+        }
         if self.mir.types.get(target) == Some(&Type::Float)
             && self.mir.types.get(source) == Some(&Type::String)
         {
@@ -1600,7 +1614,11 @@ impl FunctionEmitter<'_> {
             Some(Type::None) if text.trim() == "()" => Ok("SmeltUnknown::Null".to_owned()),
             Some(Type::None) => Ok(format!("{{ let _ = {text}; SmeltUnknown::Null }}")),
             Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({text})")),
-            Some(Type::Int | Type::Float) => Ok(format!("SmeltUnknown::Number({text} as f64)")),
+            Some(Type::Int | Type::FixedInt(_) | Type::Float) => Ok(format!("SmeltUnknown::Number({text} as f64)")),
+            // A bigint keeps its own tag across the boundary: erasing it to a
+            // `Number` would round it to `f64` and make `typeof` answer
+            // `"number"`.
+            Some(Type::BigInt) => Ok(format!("SmeltUnknown::BigInt({smelt_owned_text})")),
             Some(Type::String) => Ok(crate::rust::erased_string(&text)),
             Some(Type::List(item)) if self.list_items_render_as_unknown(ty, &self.render_scope()) => {
                 // An out-of-scope generic element also renders as SmeltUnknown.
@@ -2084,12 +2102,13 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::None | Type::Never) | None => Ok("SmeltUnknown::Null".to_owned()),
             Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({value_text})")),
-            Some(Type::Int | Type::Float)
+            Some(Type::BigInt) => Ok(format!("SmeltUnknown::BigInt({smelt_owned_value})")),
+            Some(Type::Int | Type::FixedInt(_) | Type::Float)
                 if value_text == "Default::default()" || value_text == "(Default::default())" =>
             {
                 Ok("SmeltUnknown::Number(0.0)".to_owned())
             }
-            Some(Type::Int | Type::Float) => {
+            Some(Type::Int | Type::FixedInt(_) | Type::Float) => {
                 // Cast operand: a loose top-level operator must be parenthesized
                 // so `as f64` does not reassociate across it.
                 Ok(format!(
@@ -2948,6 +2967,12 @@ impl FunctionEmitter<'_> {
             smelt_hir::UnknownKind::Undefined => "SmeltUnknown::Undefined",
             smelt_hir::UnknownKind::Bool => "SmeltUnknown::Bool(_)",
             smelt_hir::UnknownKind::Number => "SmeltUnknown::Number(_)",
+            // The tag only exists in a crate that holds a bigint; anywhere
+            // else no value can carry it.
+            smelt_hir::UnknownKind::BigInt if !self.context.needs_bigint() => {
+                return Ok("false".to_owned());
+            }
+            smelt_hir::UnknownKind::BigInt => "SmeltUnknown::BigInt(_)",
             smelt_hir::UnknownKind::String => "SmeltUnknown::String(_)",
             smelt_hir::UnknownKind::Symbol => "SmeltUnknown::Symbol(_)",
             smelt_hir::UnknownKind::Function => {
@@ -3080,14 +3105,22 @@ impl FunctionEmitter<'_> {
             // panicking — the old assert turned e.g. `tap(identity)` and a
             // `vi.fn<(x) => void>` transformer into runtime panics.
             Some(Type::None) => Ok(format!("{{ let _ = {smelt_owned_text}; () }}")),
+            // A bigint is extracted the way its scalar siblings below are: an
+            // exhaustive match over the tags, keeping the `BigInt` tag's exact
+            // value and coercing the primitives a dynamic value can hold
+            // exactly as `SmeltFromUnknown for BigInt` does.
+            Some(Type::BigInt) => Ok(format!(
+                "match {smelt_owned_text} {{ SmeltUnknown::BigInt(value) => value, SmeltUnknown::Number(value) => smelt_bigint_from_number(value).unwrap_or_default(), SmeltUnknown::String(value) => smelt_bigint_from_string(&value).unwrap_or_default(), SmeltUnknown::Bool(value) => {big}::from(i64::from(value)), SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => {big}::default() }}",
+                big = crate::bigint_prelude::BIGINT_TYPE
+            )),
             Some(Type::Bool) => Ok(format!(
-                "match {smelt_owned_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}"
+                "match {smelt_owned_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), {smelt_bigint_arm}SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => !::num_traits::Zero::is_zero(&value),")
             )),
             Some(Type::Float) => Ok(format!(
-                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
+                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
             )),
             Some(Type::Int) => Ok(format!(
-                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => smelt_string_to_number(&value) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}"
+                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => smelt_string_to_number(&value) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value) as i64,")
             )),
             // Reading an erased value out into a `String` slot is not the JS
             // `String(x)` CONVERSION -- nothing in the source asked for one; the
@@ -3111,7 +3144,7 @@ impl FunctionEmitter<'_> {
             // can come -- and it is at least the SAME answer on both sides of a
             // comparison.
             Some(Type::String) => Ok(format!(
-                "match {smelt_owned_text} {{ SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
+                "match {smelt_owned_text} {{ {smelt_bigint_arm}SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),")
             )),
             // Iterable-to-list extraction inspects the source through the
             // `SmeltUnknown` variant space (array/string/`Symbol.iterator`). The

@@ -242,6 +242,7 @@ mod tests {
                 visibility: Visibility::Public,
             }],
             methods: Vec::new(),
+            decode_facts: Vec::new(),
         });
 
         assert!(

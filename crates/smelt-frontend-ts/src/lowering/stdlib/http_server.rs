@@ -264,7 +264,7 @@ impl ModuleBuilder<'_> {
                 Vec::new()
             }
         };
-        let ty = self.http_server_op_result_type(op);
+        let ty = self.http_server_op_result_type(op, span)?;
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::HttpServerOp {
                 op,
@@ -608,15 +608,92 @@ impl ModuleBuilder<'_> {
     ///
     /// `listen` and `close` answer the SERVER, which is what makes
     /// `createServer(h).listen(0)` a server-valued expression as it is in Node;
-    /// `address` answers the bound port or null.
-    fn http_server_op_result_type(&mut self, op: HttpServerOp) -> smelt_hir::TypeId {
+    /// `address` answers the bound socket's `AddressInfo`, or null once the
+    /// server is closed (or before it listens).
+    fn http_server_op_result_type(
+        &mut self,
+        op: HttpServerOp,
+        span: smelt_hir::Span,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
         match op {
-            HttpServerOp::Listen | HttpServerOp::Close => self.http_server_type(),
+            HttpServerOp::Listen | HttpServerOp::Close => Ok(self.http_server_type()),
             HttpServerOp::Address => {
-                let float_ty = self.ctx.krate.types.intern(Type::Float);
-                self.ctx.krate.types.intern(Type::Optional(float_ty))
+                let info = self.http_address_info_type(span)?;
+                Ok(self.ctx.krate.types.intern(Type::Optional(info)))
             }
         }
+    }
+
+    /// `node:net`'s `AddressInfo`, materialized as a real interface.
+    ///
+    /// Node's `server.address()` answers `{ address, family, port }` for a TCP
+    /// server — `{ address: '127.0.0.1', family: 'IPv4', port: 41234 }` — and
+    /// `null` when the server is not listening. (Its third arm, a `string`,
+    /// is a pipe or socket path, which `listen` here cannot bind.) Answering
+    /// the bare port number instead was a modeling error: a program written
+    /// for Node reads `.port` off the result, and the bare-number model made
+    /// the program that is CORRECT for Node fail to lower while the one Smelt
+    /// accepted printed `[object Object]` under Node.
+    ///
+    /// The three keys are REQUIRED and concretely typed, so the result is a
+    /// generated struct (`Option<AddressInfo>` in Rust), never an erased
+    /// record. Declared once per crate, like the ambient fetch dictionaries
+    /// (`ambient_init_interface_type`). A source that declares its own
+    /// `AddressInfo` is refused rather than silently given a struct whose
+    /// shape it did not write.
+    fn http_address_info_type(
+        &mut self,
+        span: smelt_hir::Span,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        const NAME: &str = "AddressInfo";
+        let name = self.intern_type_name(NAME);
+        let ty = self.ctx.krate.types.intern(Type::Class {
+            name,
+            args: Vec::new(),
+        });
+        if self.find_interface(name).is_some() {
+            return Ok(ty);
+        }
+        if self.source_declares_type(NAME) {
+            return Err(SmeltError::unsupported(
+                span,
+                "`server.address()` answers node:net's `AddressInfo`, which this module also declares; rename the local declaration",
+            ));
+        }
+        let declaration_span = self.span(0, 0);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let float_ty = self.ctx.krate.types.intern(Type::Float);
+        let fields = [("address", string_ty), ("family", string_ty), ("port", float_ty)]
+            .into_iter()
+            .map(|(key, field_ty)| smelt_hir::Field {
+                name: self.intern_source_name(key),
+                ty: field_ty,
+                visibility: smelt_hir::Visibility::Public,
+                optional: false,
+                span: declaration_span,
+            })
+            .collect::<Vec<_>>();
+        let item = self.ctx.krate.push_item(smelt_hir::Item::Interface(smelt_hir::Interface {
+            name,
+            span: declaration_span,
+            type_params: Vec::new(),
+            extends: Vec::new(),
+            fields,
+            methods: Vec::new(),
+            decode_facts: Vec::new(),
+        }));
+        self.interfaces.register_lowered(
+            crate::lowering::state::interface_registry::LoweredInterface {
+                name,
+                name_text: NAME.to_owned(),
+                item,
+                extends: Vec::new(),
+                call_signatures: Vec::new(),
+                construct_signatures: Vec::new(),
+                index_value_ty: None,
+            },
+        );
+        Ok(ty)
     }
 
     /// The HIR type an `IncomingMessage` read answers.

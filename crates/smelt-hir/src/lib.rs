@@ -39,6 +39,8 @@
 
 /// HIR body structures and control-flow nodes.
 mod body;
+/// Erasure reasons recorded where lowering chooses `Type::Unknown`.
+pub mod erasure;
 /// HIR expression nodes and operators.
 mod expr;
 /// Compact HIR formatting utilities.
@@ -63,7 +65,7 @@ pub use body::{
     MatchArm, Pattern, Stmt,
 };
 pub use expr::{
-    AsyncOp, BinOp, BoolFoldOp, CallbackCallArg, CallbackExpr, CallbackExprKind, CaptureMode,
+    AsyncOp, BigIntOp, BinOp, BoolFoldOp, CallbackCallArg, CallbackExpr, CallbackExprKind, CaptureMode,
     ClosureCapture, ClosureExpr, DatePart, DictProjectionOp, Expr, ExprKind, GeneratorResumeKind,
     ListCallbackOp,
     ListProjectionOp, ListSearchOp, ListSpliceItem, Literal, NumericExtremaOp, NumericPredicateOp,
@@ -94,6 +96,10 @@ pub use expr::{
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
     UnknownKind, UriTranscodeOp, UrlField, bin_op_text,
 };
+pub use erasure::{
+    ERASURE_REASONS, ErasureClass, ErasureReason, ErasureReasonInfo, ErasureRecord,
+    ErasureSeverity, line_col, normalize_erasures,
+};
 pub use format::{format_compact, type_display};
 /// The stdlib element table, re-exported so MIR and codegen name the SAME
 /// type HIR does rather than each reaching for the registry crate.
@@ -103,15 +109,16 @@ pub use ids::{
     TypeId,
 };
 pub use item::{
-    Class, ClassKind, ClassProtocol, ConstItem, Descriptor, DescriptorValueField, Field, Function,
+    Class, ClassKind, ClassProtocol, ConstItem, Descriptor, DescriptorValueField, Field,
+    FieldDecodeFacts, Function,
     FunctionOwner, Interface, InterfaceHeritage, Item, MethodSig, MutableGlobalInit,
     MutableGlobalItem, Param,
-    ParamSig, StaticField, TypeAlias, TypeParamDef, Visibility,
+    ParamSig, StaticField, TypeAlias, TypeDecodeFacts, TypeParamDef, Visibility,
 };
 pub use krate::{
     CLASS_INDEX_STORE_FIELD, CONSOLE_ERROR_WRITE_SYMBOL, CONSOLE_LOG_SYMBOL, CONSOLE_WRITE_SYMBOL,
     Crate, Import, Language, Module, SourceFile,
 };
 pub use symbol::{OriginalNameTable, SymbolInterner};
-pub use ty::{FunctionType, Type, TypeInterner};
+pub use ty::{FunctionType, IntWidth, Type, TypeInterner};
 pub use validate::{ValidationError, validate};

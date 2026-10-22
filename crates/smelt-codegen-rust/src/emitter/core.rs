@@ -62,6 +62,7 @@ impl<'mir> FunctionEmitter<'mir> {
             static_typeof_str_locals: typeof_str_locals::static_typeof_str_locals(mir, function),
             folded_throw_payloads,
             termination_cache: RefCell::new(HashMap::new()),
+            local_write_index: std::cell::OnceCell::new(),
             post_dominators: RefCell::new(None),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
@@ -2035,6 +2036,9 @@ impl<'mir> FunctionEmitter<'mir> {
                 (self.mir.types.get(source), self.mir.types.get(target)),
                 (Some(Type::Int), Some(Type::Float))
                     | (Some(Type::Float), Some(Type::Int))
+                    // A Bun `int32` field the frontend proved every literal
+                    // store into (`lowering::int32`).
+                    | (Some(Type::Float), Some(Type::FixedInt(_)))
                     | (
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)),
                         _
@@ -2621,6 +2625,7 @@ impl<'mir> FunctionEmitter<'mir> {
             static_typeof_str_locals: HashSet::new(),
             folded_throw_payloads: HashSet::new(),
             termination_cache: RefCell::new(HashMap::new()),
+            local_write_index: std::cell::OnceCell::new(),
             post_dominators: RefCell::new(None),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
@@ -2682,6 +2687,7 @@ impl<'mir> FunctionEmitter<'mir> {
             static_typeof_str_locals: HashSet::new(),
             folded_throw_payloads: HashSet::new(),
             termination_cache: RefCell::new(HashMap::new()),
+            local_write_index: std::cell::OnceCell::new(),
             post_dominators: RefCell::new(None),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
@@ -2730,6 +2736,7 @@ impl<'mir> FunctionEmitter<'mir> {
             static_typeof_str_locals: HashSet::new(),
             folded_throw_payloads: HashSet::new(),
             termination_cache: RefCell::new(HashMap::new()),
+            local_write_index: std::cell::OnceCell::new(),
             post_dominators: RefCell::new(None),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
@@ -2843,15 +2850,15 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Whether a place reads a scalar that lowers to a `Copy` Rust type.
     ///
-    /// `bool`, `i64` and `f64` are `Copy`, so a place read of one is already an
-    /// owned value and needs no `.clone()`. Only these three are accepted: every
+    /// `bool`, the integers and `f64` are `Copy`, so a place read of one is already an
+    /// owned value and needs no `.clone()`. Only these scalars are accepted: every
     /// other Smelt type either owns a heap allocation (`String`, `SmeltList`) or
     /// lowers to a type whose `Copy`-ness depends on its parameters, and a wrong
     /// answer here would emit a move out of a borrowed place.
     fn place_type_is_copy_scalar(&self, place: &Place) -> Result<bool, EmitError> {
         Ok(matches!(
             self.mir.types.get(self.place_ty(place)?),
-            Some(Type::Bool | Type::Int | Type::Float)
+            Some(Type::Bool | Type::Int | Type::Float | Type::FixedInt(_))
         ))
     }
 
@@ -5137,6 +5144,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Operand::Const(Constant::Bool(_)) => self.type_id(Type::Bool),
             Operand::Const(Constant::Int(_)) => self.type_id(Type::Int),
             Operand::Const(Constant::Float(_)) => self.type_id(Type::Float),
+            Operand::Const(Constant::BigInt(_)) => self.type_id(Type::BigInt),
             Operand::Const(Constant::String(_)) => self.type_id(Type::String),
             Operand::Const(Constant::Symbol(_)) => self.type_id(Type::Unknown),
         }
@@ -5223,6 +5231,8 @@ impl<'mir> FunctionEmitter<'mir> {
                 Type::None
                 | Type::Bool
                 | Type::Int
+                | Type::FixedInt(_)
+                | Type::BigInt
                 | Type::Float
                 | Type::String
                 | Type::Never
@@ -5283,7 +5293,8 @@ impl<'mir> FunctionEmitter<'mir> {
     /// therefore use the generated linear `SmeltJsMap` runtime container.
     pub(super) fn dict_uses_js_key_map(&self, key_ty: TypeId) -> bool {
         match self.mir.types.get(key_ty) {
-            Some(Type::Bool | Type::Int | Type::String) => false,
+            // A bigint key hashes by value, which is SameValueZero for bigints.
+            Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::String) => false,
             Some(Type::Float) => true,
             Some(Type::Optional(inner) | Type::Future(inner)) => self.dict_uses_js_key_map(*inner),
             Some(Type::Union(items)) => items.iter().any(|item| self.dict_uses_js_key_map(*item)),

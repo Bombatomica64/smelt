@@ -151,8 +151,43 @@ impl FunctionEmitter<'_> {
                 ))
             }
             smelt_hir::HttpServerOp::Close => Ok(format!("{receiver}.close()?")),
-            smelt_hir::HttpServerOp::Address => Ok(format!("{receiver}.address()")),
+            smelt_hir::HttpServerOp::Address => {
+                let record = self.address_info_record_text("address", "family", "port")?;
+                Ok(format!(
+                    "{receiver}.address().map(|(address, family, port)| {record})"
+                ))
+            }
         }
+    }
+
+    /// Build the generated `AddressInfo` record from three bound names.
+    ///
+    /// The frontend declares `AddressInfo` as an interface with the three
+    /// required keys Node answers (`address`, `family`, `port`), so its Rust
+    /// storage is the ordinary generated struct: a by-value `AddressInfo { .. }`,
+    /// or the shared-cell handle when the program writes one of its fields.
+    /// Nothing here is erased — `server.address()` is `Option<AddressInfo>`.
+    fn address_info_record_text(
+        &self,
+        address: &str,
+        family: &str,
+        port: &str,
+    ) -> Result<String, EmitError> {
+        let interface = self
+            .mir
+            .interfaces
+            .iter()
+            .find(|interface| self.mir.symbols.get(interface.name) == Some("AddressInfo"))
+            .ok_or_else(|| {
+                EmitError::new("`server.address()` needs the AddressInfo record the frontend declares")
+            })?;
+        let fields = format!("address: {address}, family: {family}, port: {port}");
+        if self.context.is_reference_class(interface.name) {
+            return Ok(format!(
+                "AddressInfo(::std::rc::Rc::new(::std::cell::RefCell::new(AddressInfoInner {{ {fields} }})))"
+            ));
+        }
+        Ok(format!("AddressInfo {{ {fields} }}"))
     }
 
     /// Wrap a source listening callback into the runtime's `Rc<dyn Fn() -> ..>`.

@@ -32,7 +32,7 @@ use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::{Argument, Expression, Statement};
 use smelt_hir::{
-    Body, Expr, ExprKind, Field, Literal, Span, Stmt, Type,
+    Body, ErasureReason, Expr, ExprKind, Field, Literal, Span, Stmt, Type,
 };
 
 /// The instance slots every JavaScript `Error` subclass inherits from its base,
@@ -304,15 +304,16 @@ impl ModuleBuilder<'_> {
         span: Span,
         body: &mut Body,
     ) {
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         let cause_value = arguments.get(1).copied().map(|options| {
             let field = self.ctx.krate.symbols.intern("cause");
+            // ES2022 declares `ErrorOptions.cause` as `unknown`.
+            let cause_ty = self.erase_with(ErasureReason::SourceUnknown, "Error.cause");
             body.push_expr(Expr {
                 kind: ExprKind::Field {
                     receiver: options,
                     field,
                 },
-                ty: unknown_ty,
+                ty: cause_ty,
                 span,
             })
         });
@@ -440,7 +441,10 @@ impl ModuleBuilder<'_> {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 self.ctx.krate.types.intern(Type::Optional(string_ty))
             }
-            ErrorMarkerShape::Dynamic => self.ctx.krate.types.intern(Type::Unknown),
+            // ES2022 declares `Error.cause` as `unknown`.
+            ErrorMarkerShape::Dynamic => {
+                self.erase_with(ErasureReason::SourceUnknown, "Error.cause")
+            }
         }
     }
 

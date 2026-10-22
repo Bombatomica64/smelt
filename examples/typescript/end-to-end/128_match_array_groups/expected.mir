@@ -80,8 +80,8 @@ fn describe (FuncId(1)) -> None
     %22 temp: None
     %23 temp: __SmeltMatch
     %24 temp: List<Optional<String>>
-    %25 temp: Float
-    %26 temp: Float
+    %25 temp: usize
+    %26 temp: usize
     %27 temp: Bool
     %28 temp: Bool
     %29 temp: String
@@ -127,7 +127,7 @@ fn describe (FuncId(1)) -> None
   bb4:
     %23 = copy %1
     %24 = move %23
-    %25 = 0.0
+    %25 = 0
     goto bb5
   bb5:
     %26 = len copy %24
@@ -138,7 +138,7 @@ fn describe (FuncId(1)) -> None
     %28 = copy %3 == undefined
     switch move %28 ? bb9 : bb10
   bb7:
-    %25 = copy %25 + 1.0
+    %25 = copy %25 + 1
     goto bb5
   bb8:
     %32 = copy %1

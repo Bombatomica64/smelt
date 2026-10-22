@@ -13,7 +13,7 @@
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
-use smelt_hir::{AbortSignalOp, Body, Expr, ExprKind, Type};
+use smelt_hir::{AbortSignalOp, Body, ErasureReason, Expr, ExprKind};
 use smelt_stdlib::RuleId;
 
 impl ModuleBuilder<'_> {
@@ -28,12 +28,12 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         let span = self.span(call.span.start, call.span.end);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         let op = match rule {
             RuleId::TsAbortSignalAbort => AbortSignalOp::Abort,
             RuleId::TsAbortSignalTimeout => AbortSignalOp::Timeout,
             _ => return Ok(None),
         };
+        let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "AbortSignal");
         // `abort` takes an OPTIONAL reason and `timeout` a required delay, and
         // the arity is checked here rather than in codegen so a mis-call is a
         // source-span blocker instead of an emitter error with no location.

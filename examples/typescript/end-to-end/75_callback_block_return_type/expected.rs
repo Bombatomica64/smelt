@@ -3564,19 +3564,21 @@ use super::*;
 pub(crate) fn joined(keys: SmeltList<String>) -> SmeltList<String> {
     let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
     let mut ch: String;
-    let mut _smelt_tmp_4: f64;
+    let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: String;
+    let mut _smelt_tmp_7: f64;
     let mut out: String = "".to_owned();
-    let mut _smelt_tmp_3: f64 = 0.0;
+    let mut _smelt_tmp_3: usize = 0;
     loop {
-    _smelt_tmp_4 = closure_arg_0.chars().count() as f64;
+    _smelt_tmp_4 = closure_arg_0.chars().count();
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if _smelt_tmp_5 {
-    ch = closure_arg_0.chars().nth({ let smelt_normalized = _smelt_tmp_3 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default();
+    _smelt_tmp_7 = _smelt_tmp_3 as f64;
+    ch = closure_arg_0.chars().nth({ let smelt_normalized = _smelt_tmp_7 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default();
     _smelt_tmp_6 = out.clone() + &ch.clone();
     out = _smelt_tmp_6.clone();
-    _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
+    _smelt_tmp_3 = _smelt_tmp_3 + 1;
     } else {
     return out.clone();
     }
@@ -3584,19 +3586,21 @@ pub(crate) fn joined(keys: SmeltList<String>) -> SmeltList<String> {
     });
     let _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
     let mut ch: String;
-    let mut _smelt_tmp_4: f64;
+    let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: String;
+    let mut _smelt_tmp_7: f64;
     let mut out: String = "".to_owned();
-    let mut _smelt_tmp_3: f64 = 0.0;
+    let mut _smelt_tmp_3: usize = 0;
     loop {
-    _smelt_tmp_4 = closure_arg_0.chars().count() as f64;
+    _smelt_tmp_4 = closure_arg_0.chars().count();
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if _smelt_tmp_5 {
-    ch = closure_arg_0.chars().nth({ let smelt_normalized = _smelt_tmp_3 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default();
+    _smelt_tmp_7 = _smelt_tmp_3 as f64;
+    ch = closure_arg_0.chars().nth({ let smelt_normalized = _smelt_tmp_7 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default();
     _smelt_tmp_6 = out.clone() + &ch.clone();
     out = _smelt_tmp_6.clone();
-    _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
+    _smelt_tmp_3 = _smelt_tmp_3 + 1;
     } else {
     return out.clone();
     }
@@ -3662,21 +3666,23 @@ pub(crate) fn classified(keys: SmeltList<String>) -> SmeltList<String> {
 pub(crate) fn widths(keys: SmeltList<String>) -> SmeltList<f64> {
     let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
     let mut ch: String;
-    let mut _smelt_tmp_4: f64;
+    let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: f64;
     let mut _smelt_tmp_7: f64;
+    let mut _smelt_tmp_8: f64;
     let mut total: f64 = 0.0;
-    let mut _smelt_tmp_3: f64 = 0.0;
+    let mut _smelt_tmp_3: usize = 0;
     loop {
-    _smelt_tmp_4 = closure_arg_0.chars().count() as f64;
+    _smelt_tmp_4 = closure_arg_0.chars().count();
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if _smelt_tmp_5 {
-    ch = closure_arg_0.chars().nth({ let smelt_normalized = _smelt_tmp_3 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default();
+    _smelt_tmp_8 = _smelt_tmp_3 as f64;
+    ch = closure_arg_0.chars().nth({ let smelt_normalized = _smelt_tmp_8 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default();
     _smelt_tmp_6 = ch.chars().count() as f64;
     _smelt_tmp_7 = total + _smelt_tmp_6;
     total = _smelt_tmp_7;
-    _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
+    _smelt_tmp_3 = _smelt_tmp_3 + 1;
     } else {
     return total;
     }
@@ -3684,21 +3690,23 @@ pub(crate) fn widths(keys: SmeltList<String>) -> SmeltList<f64> {
     });
     let _smelt_tmp_2: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
     let mut ch: String;
-    let mut _smelt_tmp_4: f64;
+    let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: f64;
     let mut _smelt_tmp_7: f64;
+    let mut _smelt_tmp_8: f64;
     let mut total: f64 = 0.0;
-    let mut _smelt_tmp_3: f64 = 0.0;
+    let mut _smelt_tmp_3: usize = 0;
     loop {
-    _smelt_tmp_4 = closure_arg_0.chars().count() as f64;
+    _smelt_tmp_4 = closure_arg_0.chars().count();
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if _smelt_tmp_5 {
-    ch = closure_arg_0.chars().nth({ let smelt_normalized = _smelt_tmp_3 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default();
+    _smelt_tmp_8 = _smelt_tmp_3 as f64;
+    ch = closure_arg_0.chars().nth({ let smelt_normalized = _smelt_tmp_8 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default();
     _smelt_tmp_6 = ch.chars().count() as f64;
     _smelt_tmp_7 = total + _smelt_tmp_6;
     total = _smelt_tmp_7;
-    _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
+    _smelt_tmp_3 = _smelt_tmp_3 + 1;
     } else {
     return total;
     }

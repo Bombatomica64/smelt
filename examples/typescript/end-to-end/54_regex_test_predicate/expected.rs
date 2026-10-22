@@ -3459,7 +3459,7 @@ fn main() {
     let sticky: SmeltRegExp;
     let built: SmeltRegExp;
     let mut matched: f64;
-    let mut index: f64;
+    let mut index: usize;
     let mut words: SmeltList<String>;
     let _smelt_tmp_8: bool;
     let _smelt_tmp_10: bool;
@@ -3485,7 +3485,7 @@ fn main() {
     let mut _smelt_tmp_39: SmeltRegExp;
     let mut _smelt_tmp_40: bool;
     let mut _smelt_tmp_41: f64;
-    let mut _smelt_tmp_42: f64;
+    let mut _smelt_tmp_42: usize;
     let mut _smelt_tmp_44: SmeltList<String>;
     let mut _smelt_tmp_45: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> bool> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> bool> = ::std::rc::Rc::new(move |arg0: String, arg1: i64, arg2: &SmeltList<String>| -> bool { false }); smelt_default_callback };
     let mut _smelt_tmp_46: SmeltList<String>;
@@ -3530,20 +3530,20 @@ fn main() {
     _smelt_tmp_36 = built.test(&"aa".to_owned());
     let _ = { println!("{} {} {}", _smelt_tmp_34, _smelt_tmp_35, _smelt_tmp_36); };
     matched = 0.0;
-    index = 0.0;
+    index = 0;
     loop {
-    _smelt_tmp_38 = index < 3.0;
+    _smelt_tmp_38 = index < 3;
     if !(_smelt_tmp_38) { break; }
     _smelt_tmp_39 = SmeltRegExp::new("a".to_owned(), "g".to_owned());
     _smelt_tmp_40 = _smelt_tmp_39.test(&"aa".to_owned());
     if _smelt_tmp_40 {
     _smelt_tmp_41 = matched + 1.0;
     matched = _smelt_tmp_41;
-    _smelt_tmp_42 = index + 1.0;
+    _smelt_tmp_42 = index + 1;
     index = _smelt_tmp_42;
     continue;
     } else {
-    _smelt_tmp_42 = index + 1.0;
+    _smelt_tmp_42 = index + 1;
     index = _smelt_tmp_42;
     continue;
     }

@@ -224,6 +224,8 @@ fn assert_category(
 }
 
 mod category_tests;
+mod int32_tests;
+mod bigint_tests;
 mod part01_tests;
 mod part02_tests;
 mod part03_tests;
@@ -253,3 +255,4 @@ mod type_predicate_narrowing_tests;
 mod module_arrow_item_tests;
 mod this_receiver_tests;
 mod promise_resolution_tests;
+mod erasure_tests;

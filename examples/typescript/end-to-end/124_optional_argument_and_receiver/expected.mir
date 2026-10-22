@@ -101,8 +101,8 @@ fn main (FuncId(1)) -> None
     %10 temp: String
     %11 temp: None
     %12 temp: List<Optional<String>>
-    %13 temp: Float
-    %14 temp: Float
+    %13 temp: usize
+    %14 temp: usize
     %15 temp: Bool
     %16 temp: Bool
     %17 temp: Bool
@@ -150,7 +150,7 @@ fn main (FuncId(1)) -> None
   bb5:
     %12 = ["/xy", undefined]
     %1 = move %12
-    %13 = 0.0
+    %13 = 0
     goto bb6
   bb6:
     %14 = len copy %1
@@ -162,7 +162,7 @@ fn main (FuncId(1)) -> None
     %17 = !move %16
     switch move %17 ? bb10 : bb11
   bb8:
-    %13 = copy %13 + 1.0
+    %13 = copy %13 + 1
     goto bb6
   bb9:
     return none

@@ -135,8 +135,8 @@ closure ClosureId(5) -> String
     %1 user parts: List<String>
     %2 user out: String
     %3 user part: String
-    %4 temp: Float
-    %5 temp: Float
+    %4 temp: usize
+    %5 temp: usize
     %6 temp: Bool
     %7 temp: Bool
     %8 temp: String
@@ -144,7 +144,7 @@ closure ClosureId(5) -> String
     %10 temp: String
   bb0:
     %2 = ""
-    %4 = 0.0
+    %4 = 0
     goto bb1
   bb1:
     %5 = len copy %1
@@ -155,7 +155,7 @@ closure ClosureId(5) -> String
     %7 = copy %2 == ""
     switch copy %7 ? bb5 : bb6
   bb3:
-    %4 = copy %4 + 1.0
+    %4 = copy %4 + 1
     goto bb1
   bb4:
     return copy %2

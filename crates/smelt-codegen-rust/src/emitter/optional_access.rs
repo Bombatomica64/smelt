@@ -555,7 +555,7 @@ impl FunctionEmitter<'_> {
                         let scrutinee = self
                             .erase_concrete_union_text(&cloned_value_text(&index_text), index_ty);
                         format!(
-                            "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
+                            "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
                         )
                     }
                     _ => "f64::NAN".to_owned(),
@@ -628,7 +628,10 @@ impl FunctionEmitter<'_> {
                         "match {object_field} {{ SmeltUnknown::Undefined => None, _smelt_element => Some({element_text}) }}"
                     )
                 };
-                let primitive_none = "SmeltUnknown::Bool(_) | SmeltUnknown::Number(_) | SmeltUnknown::Symbol(_) | SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => None";
+                let primitive_none = format!(
+                    "{}SmeltUnknown::Bool(_) | SmeltUnknown::Number(_) | SmeltUnknown::Symbol(_) | SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => None",
+                    self.bigint_unknown_arm("SmeltUnknown::BigInt(_) => None,")
+                );
                 // Likewise for the receiver: `Optional(SmeltUnion156)` unwraps
                 // to the union's own enum, and matching `SmeltUnknown` arms
                 // against it read `expected SmeltUnion156, found SmeltUnknown`

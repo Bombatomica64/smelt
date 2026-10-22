@@ -34,8 +34,8 @@ async fn main (FuncId(2)) -> None throws
     %5 temp: Bool
     %6 temp: None
     %7 temp: List<String>
-    %8 temp: Float
-    %9 temp: Float
+    %8 temp: usize
+    %9 temp: usize
     %10 temp: Bool
     %11 temp: Future<None>
     %12 temp: None
@@ -54,7 +54,7 @@ async fn main (FuncId(2)) -> None throws
     %6 = call @console_log(move %4, move %5) -> bb3
   bb3:
     %7 = ["from callback"]
-    %8 = 0.0
+    %8 = 0
     goto bb4
   bb4:
     %9 = len copy %7
@@ -64,7 +64,7 @@ async fn main (FuncId(2)) -> None throws
     %1 = copy %7[copy %8]
     %11 = call fn1(move %1) -> bb8
   bb6:
-    %8 = copy %8 + 1.0
+    %8 = copy %8 + 1
     goto bb4
   bb7:
     %13 = call fn1("top") -> bb9

@@ -463,7 +463,7 @@ label: string }` becomes `Dict<String, Float | String>` (`type_literal_to_hir`, 
 type"), and a field read through it is `SmeltUnknown`. In a crate with no other erasure the build
 fails outright ("cannot type the read of `label` on `SmeltUnknown`"); the same source with
 `interface Job` emits `struct Job`. Pre-existing: the branch base `77c7a844` behaves the same.
-End-to-end example 167 (added in `e9248137` for the orphan-body fix) spelled its `Job` as an alias
+End-to-end example 171 (`171_module_const_with_async_callback`; numbered 167 until the merge with main, which took 167; added in `e9248137` for the orphan-body fix) spelled its `Job` as an alias
 and so carried 4 avoidable erasures, which broke the examples invariant; it now spells `Job` as an
 interface (its subject is the async callback, not alias typing), and with the rollback disabled
 its HIR golden still fails. A hand-written port would make an object alias a struct; that is a
@@ -519,7 +519,7 @@ The probe output is unchanged by the leak fix.
 | shipped vitest suite as generated Rust | **not run**: the generated test build was interrupted twice (machine restarts) and never finished; the Node suite passes 9/9 |
 | `probe.sh`, Node vs generated | 30/30 answered; 29/30 identical after normalization (issue Y) |
 | RSS flat under the benchmark | yes: 16–17 MiB, every scenario, every run |
-| examples SmeltUnknown avoidable | 0 → 0 (invariant holds; example 167 re-spelled, see above) |
+| examples SmeltUnknown avoidable | 0 → 0 (invariant holds; example 171 re-spelled, see above) |
 | es-toolkit SmeltUnknown ratchet | 22,447 → 22,447 (+0), report run locally on a fresh generation |
 | hono_crud SmeltUnknown (informational, not a gate) | 2,693 avoidable in the generated crate; 318 of them in the app's own modules (`app`, `db`, `repository`, `routes`), the rest in Hono's modules and `main.rs` |
 | `cargo clippy --all-targets` | not run locally for the final tree; left to CI |
@@ -533,7 +533,7 @@ restored afterwards):
 * runtime fixture `erased_null_field_at_optional_type` — disabling the fix prints `NaN`;
 * codegen test `module_slot_with_a_throwing_initializer_reports_like_main`;
 * frontend test `a_const_initialized_by_a_module_function_call_takes_its_return_type`;
-* e2e 167 — disabling the probe-body rollback changes its HIR golden;
+* e2e 171 — disabling the probe-body rollback changes its HIR golden;
 * runtime probe `an_instance_erased_through_an_object_view_is_freed` — a strong `wrapped` origin
   fails it.
 

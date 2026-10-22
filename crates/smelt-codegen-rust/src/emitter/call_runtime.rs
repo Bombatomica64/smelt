@@ -1075,6 +1075,12 @@ impl FunctionEmitter<'_> {
                 }
             }
             Rvalue::Binary { op, lhs, rhs } => {
+                if let Some(text) = self.bigint_binary_text(*op, lhs, rhs, dest_ty)? {
+                    return Ok(text);
+                }
+                if let Some(text) = self.fixed_int_binary_text(*op, lhs, rhs)? {
+                    return Ok(text);
+                }
                 if let Some(text) = self.element_presence_comparison_text(*op, lhs, rhs)? {
                     return Ok(text);
                 }
@@ -1145,6 +1151,23 @@ impl FunctionEmitter<'_> {
                     return Ok(format!(
                         "{{ let smelt_shift_value = {lhs_trunc_text}; let smelt_shift_value = if smelt_shift_value.is_finite() {{ smelt_shift_value.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }}; let smelt_shift_count = {rhs_trunc_text}; let smelt_shift_count = if smelt_shift_count.is_finite() {{ smelt_shift_count.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }}; (smelt_shift_value >> (smelt_shift_count & 31)) as f64 }}"
                     ));
+                }
+                if matches!(
+                    *op,
+                    smelt_hir::BinOp::Shl | smelt_hir::BinOp::Shr | smelt_hir::BinOp::IMul
+                ) && self.absent_spelling() == AbsentSpelling::Undefined
+                    // A TypeScript `bigint` (`Int`) shift is a BigInt shift, not int32.
+                    && !matches!(self.mir.types.get(self.operand_ty(lhs)?), Some(Type::Int))
+                    && !matches!(self.mir.types.get(self.operand_ty(rhs)?), Some(Type::Int))
+                {
+                    let lhs_text = self.bitwise_operand_number_text(lhs)?;
+                    let rhs_text = self.bitwise_operand_number_text(rhs)?;
+                    let result_cast = if matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
+                        "i64"
+                    } else {
+                        "f64"
+                    };
+                    return Ok(Self::js_int32_binary_text(*op, &lhs_text, &rhs_text, result_cast));
                 }
                 if matches!(*op, smelt_hir::BinOp::Shl | smelt_hir::BinOp::Shr) {
                     let lhs_text = self.bitwise_operand_number_text(lhs)?;
@@ -1236,6 +1259,12 @@ impl FunctionEmitter<'_> {
             Rvalue::Unary { op, operand } => match op {
                 smelt_hir::UnaryOp::Not => Ok(format!("!({})", self.truthy_operand_text(operand)?)),
                 smelt_hir::UnaryOp::Neg => {
+                    if let Some(text) = self.bigint_negation_text(operand)? {
+                        if self.mir.types.get(dest_ty) == Some(&Type::Unknown) {
+                            return self.erase_value_text(&text, self.type_id(Type::BigInt)?);
+                        }
+                        return Ok(text);
+                    }
                     let operand_ty = self.operand_ty(operand)?;
                     let numeric_text = if matches!(
                         self.mir.types.get(operand_ty),
@@ -1358,6 +1387,13 @@ impl FunctionEmitter<'_> {
                 signal.as_ref(),
                 init_members,
             ),
+            Rvalue::RequestOp {
+                op: smelt_hir::RequestOp::Json,
+                request,
+                args,
+            } if let Some(target) = self.json_body_decode_target(dest_ty) => {
+                self.json_body_decode_text(request, args, target)
+            }
             Rvalue::RequestOp { op, request, args } => {
                 self.request_op_text(*op, request, args)
             }
@@ -1372,6 +1408,13 @@ impl FunctionEmitter<'_> {
                 status_text.as_ref(),
                 headers.as_ref(),
             ),
+            Rvalue::ResponseOp {
+                op: smelt_hir::ResponseOp::Json,
+                response,
+                args,
+            } if let Some(target) = self.json_body_decode_target(dest_ty) => {
+                self.json_body_decode_text(response, args, target)
+            }
             Rvalue::ResponseOp { op, response, args } => {
                 self.response_op_text(*op, response, args)
             }
@@ -2311,8 +2354,9 @@ impl FunctionEmitter<'_> {
                 self.value_at_type(expected, self.type_id(Type::Unknown)?)?
             )),
             Rvalue::DateTimezoneContext { timezone } => Ok(format!(
-                "{{ let smelt_timezone_name = {}; let smelt_timezone: chrono_tz::Tz = smelt_timezone_name.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(move |value: SmeltUnknown| -> SmeltUnknown {{ let timestamp_ms = match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}; let local_timestamp_ms = if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map_or(f64::NAN, |date| date.with_timezone(&smelt_timezone).naive_local().and_utc().timestamp_millis() as f64) }} else {{ f64::NAN }}; SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_date\".to_owned(), SmeltUnknown::Number(local_timestamp_ms)), (\"__smelt_timezone\".to_owned(), SmeltUnknown::String(smelt_timezone_name.clone().into()))]))) }}) }}",
-                self.operand_text(timezone)?
+                "{{ let smelt_timezone_name = {}; let smelt_timezone: chrono_tz::Tz = smelt_timezone_name.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(move |value: SmeltUnknown| -> SmeltUnknown {{ let timestamp_ms = match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}; let local_timestamp_ms = if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map_or(f64::NAN, |date| date.with_timezone(&smelt_timezone).naive_local().and_utc().timestamp_millis() as f64) }} else {{ f64::NAN }}; SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_date\".to_owned(), SmeltUnknown::Number(local_timestamp_ms)), (\"__smelt_timezone\".to_owned(), SmeltUnknown::String(smelt_timezone_name.clone().into()))]))) }}) }}",
+                self.operand_text(timezone)?,
+                self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
             )),
             Rvalue::DateToIsoString { timestamp_ms } => self.date_to_iso_string_text(timestamp_ms),
             Rvalue::DateToString { timestamp_ms } => self.date_to_string_text(timestamp_ms),

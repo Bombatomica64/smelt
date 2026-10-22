@@ -15,6 +15,28 @@ pub enum Type {
     Int,
     /// Floating-point type.
     Float,
+    /// A JavaScript `number` proven to be an integer of a fixed Rust width.
+    ///
+    /// Every value of this type is exactly representable both as the Rust
+    /// integer of [`IntWidth`] and as an `f64`, so converting it to a `number`
+    /// context is the exact `as f64`, and printing it matches JavaScript's
+    /// `Number::toString` for that value. Two producers create it: MIR range
+    /// analysis (`smelt_mir::opt::IntegerRange`), which retypes a local whose
+    /// every definition it proved integral and bounded, and the TypeScript
+    /// frontend for Bun's `import type { int32 } from "bun"` annotation, whose
+    /// every store the frontend proves. Python's integers stay [`Type::Int`].
+    FixedInt(IntWidth),
+    /// A JavaScript `bigint`: an arbitrary-precision signed integer.
+    ///
+    /// Separate from [`Type::Int`] on purpose. `Int` is the bounded integer
+    /// type (Python's `int`, list indices, timestamps) and lowers to `i64`; a
+    /// `bigint` is unbounded in JavaScript, so it lowers to Rust's
+    /// `num_bigint::BigInt` and every operation on it keeps JavaScript's
+    /// bigint semantics (truncating division, flooring `>>`, infinite
+    /// two's-complement bitwise operators) without ever passing through `f64`.
+    /// Its runtime kind is [`UnknownKind::BigInt`] (`typeof` answers
+    /// `"bigint"`), never `"number"`.
+    BigInt,
     /// String type.
     String,
     /// TypeScript `unknown`, carried as an opaque safe boundary type.
@@ -106,7 +128,8 @@ impl Type {
     pub const fn runtime_kind(&self) -> Option<UnknownKind> {
         match self {
             Self::Bool => Some(UnknownKind::Bool),
-            Self::Int | Self::Float => Some(UnknownKind::Number),
+            Self::Int | Self::Float | Self::FixedInt(_) => Some(UnknownKind::Number),
+            Self::BigInt => Some(UnknownKind::BigInt),
             Self::String => Some(UnknownKind::String),
             Self::Function(_) => Some(UnknownKind::Function),
             Self::List(_) | Self::Tuple(_) => Some(UnknownKind::Array),
@@ -123,6 +146,29 @@ impl Type {
             | Self::None
             | Self::Optional(_)
             | Self::Union(_) => None,
+        }
+    }
+}
+
+/// The Rust width of a [`Type::FixedInt`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum IntWidth {
+    /// Rust `i32`: Bun's `int32`, a whole number from -2^31 to 2^31 - 1.
+    I32,
+    /// Rust `i64`: a counter proven integral and bounded that can be negative.
+    I64,
+    /// Rust `usize`: a counter or index proven never negative.
+    Usize,
+}
+
+impl IntWidth {
+    /// The Rust primitive type name for this width.
+    #[must_use]
+    pub const fn rust_name(self) -> &'static str {
+        match self {
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::Usize => "usize",
         }
     }
 }
@@ -163,6 +209,17 @@ pub struct FunctionType {
 pub struct TypeInterner {
     /// Interned types in insertion order.
     types: Vec<Type>,
+    /// `types` inverted, so interning is a hash lookup rather than a scan.
+    ///
+    /// A derived cache, never serialized: a deserialized interner starts with
+    /// it empty and [`Self::intern`] rebuilds it on first use. The linear scan
+    /// it replaces made every `intern` O(types), which is quadratic over a
+    /// program -- measured by `tests/compile_scaling.rs` in
+    /// `smelt-codegen-rust` on deeply nested generic types. Because `intern`
+    /// is the only writer of `types` and never stores a duplicate, the index
+    /// answers exactly the id the scan found (the first, and only, equal type).
+    #[serde(skip)]
+    index: std::collections::HashMap<Type, TypeId>,
 }
 
 impl TypeInterner {
@@ -175,15 +232,20 @@ impl TypeInterner {
             items.sort_unstable_by_key(|item| item.0);
             items.dedup();
         }
-        if let Some((idx, _)) = self
-            .types
-            .iter()
-            .enumerate()
-            .find(|(_, existing)| **existing == ty)
-        {
-            return TypeId(id_index(idx));
+        if self.index.len() != self.types.len() {
+            // First occurrence wins, as the scan did, should a deserialized
+            // table ever carry a duplicate.
+            let mut index = std::collections::HashMap::with_capacity(self.types.len());
+            for (idx, existing) in self.types.iter().enumerate() {
+                index.entry(existing.clone()).or_insert_with(|| TypeId(id_index(idx)));
+            }
+            self.index = index;
+        }
+        if let Some(id) = self.index.get(&ty) {
+            return *id;
         }
         let id = TypeId(id_index(self.types.len()));
+        self.index.insert(ty.clone(), id);
         self.types.push(ty);
         id
     }
@@ -245,6 +307,7 @@ mod tests {
         assert_eq!(Type::List(float).runtime_kind(), Some(UnknownKind::Array));
         assert_eq!(Type::Future(float).runtime_kind(), Some(UnknownKind::Promise));
         assert_eq!(Type::Int.runtime_kind(), Some(UnknownKind::Number));
+        assert_eq!(Type::BigInt.runtime_kind(), Some(UnknownKind::BigInt));
         assert_eq!(Type::Union(vec![string, float]).runtime_kind(), None);
         assert_eq!(Type::Optional(float).runtime_kind(), None);
         assert_eq!(Type::None.runtime_kind(), None);

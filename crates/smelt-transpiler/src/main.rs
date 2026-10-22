@@ -40,6 +40,7 @@ pub mod cli_parser;
 pub mod config;
 pub mod config_parser;
 mod diagnostics;
+mod erasure;
 mod list_escape_report;
 mod lowering;
 mod manifest;
@@ -47,10 +48,13 @@ mod package_sources;
 mod pipeline;
 mod probe;
 mod python;
+mod sound;
+mod sound_overlay;
 mod specialization;
 pub mod stubs;
 mod test_report;
 mod timing;
+mod typedness_report;
 mod unknown_report;
 
 use std::{io, io::Write as _, path::PathBuf};
@@ -156,11 +160,63 @@ fn main() -> CliResult<()> {
         return Ok(());
     }
 
+    if let Command::TypednessReport {
+        paths,
+        format,
+        baseline,
+        fail_on_regression,
+        update_baseline,
+        output,
+    } = &args.command
+    {
+        let report_format = match format.as_str() {
+            "json" => typedness_report::TypednessFormat::Json,
+            "md" | "markdown" => typedness_report::TypednessFormat::Markdown,
+            other => {
+                return Err(format!("unknown --format `{other}`; use `md` or `json`").into());
+            }
+        };
+        let input_paths = paths.iter().map(PathBuf::from).collect::<Vec<_>>();
+        let outcome =
+            typedness_report::typedness_report(&typedness_report::TypednessReportOptions {
+                paths: &input_paths,
+                format: report_format,
+                baseline: baseline.as_deref().map(PathBuf::from),
+                update_baseline: *update_baseline,
+            })?;
+        if let Some(output_path) = output {
+            std::fs::write(output_path, &outcome.rendered)?;
+        } else {
+            let mut stdout = io::stdout().lock();
+            write!(stdout, "{}", outcome.rendered)?;
+        }
+        if *fail_on_regression && !outcome.worsened.is_empty() {
+            let mut stderr = io::stderr().lock();
+            writeln!(
+                stderr,
+                "typedness regressed: {} program(s)/kind(s) became less typed than the baseline:",
+                outcome.worsened.len()
+            )?;
+            for worsening in &outcome.worsened {
+                writeln!(stderr, "  {}: {}", worsening.program, worsening.detail)?;
+            }
+            writeln!(
+                stderr,
+                "Make the program at least as typed again, or (only for a documented, \
+                 justified boundary) re-snapshot with --update-baseline. See the \
+                 `Typedness ratchet` policy in AGENTS.md."
+            )?;
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
     if let Command::SmeltUnknownReport {
         roots,
         format,
         baseline,
         fail_on_regression,
+        erasure: erasure_sidecars,
         output,
     } = &args.command
     {
@@ -172,11 +228,13 @@ fn main() -> CliResult<()> {
             }
         };
         let root_paths = roots.iter().map(PathBuf::from).collect::<Vec<_>>();
+        let sidecar_paths = erasure_sidecars.iter().map(PathBuf::from).collect::<Vec<_>>();
         let outcome = unknown_report::unknown_report(&unknown_report::UnknownReportOptions {
             roots: &root_paths,
             format: report_format,
             baseline: baseline.as_deref().map(PathBuf::from),
             fail_on_regression: *fail_on_regression,
+            erasure_sidecars: &sidecar_paths,
         })?;
         if let Some(output_path) = output {
             std::fs::write(output_path, &outcome.rendered)?;
@@ -218,17 +276,27 @@ fn main() -> CliResult<()> {
         .manifest_path
         .unwrap_or_else(|| "Smelt.toml".to_owned());
     let manifest_path = PathBuf::from(manifest_path_string);
-    let config = config_parser::parse(
+    let mut config = config_parser::parse(
         manifest_path
             .to_str()
             .ok_or("manifest path contains invalid UTF-8")?,
     )?;
     match args.command {
-        Command::Check { message_format } => match message_format.as_str() {
-            "human" => pipeline::check_manifest(&config, &manifest_path)?,
+        Command::Check {
+            message_format,
+            erasure,
+        } => match message_format.as_str() {
+            "human" => pipeline::check_manifest(
+                &config,
+                &manifest_path,
+                &erasure::ErasureSettings::new(config.erasure(), &erasure)?,
+            )?,
             "json" => {
-                let diagnostics =
-                    lowering::collect_manifest_diagnostics(&config, &manifest_path)?;
+                let diagnostics = lowering::collect_manifest_diagnostics(
+                    &config,
+                    &manifest_path,
+                    Some(&erasure::ErasureSettings::new(config.erasure(), &erasure)?),
+                )?;
                 let mut stdout = io::stdout().lock();
                 writeln!(stdout, "{}", serde_json::to_string_pretty(&diagnostics)?)?;
             }
@@ -238,13 +306,20 @@ fn main() -> CliResult<()> {
                 );
             }
         },
-        Command::Build { hir, hir_debug } => {
+        Command::Build {
+            hir,
+            hir_debug,
+            define,
+            erasure,
+        } => {
+            config.extend_defines(define);
             if hir || hir_debug {
                 let (krate, modules) = lowering::lower_manifest_entries(&config, &manifest_path)?;
                 pipeline::print_hir(&krate, &modules, hir_debug);
                 return Ok(());
             }
-            pipeline::build_rust_crate(&config, &manifest_path)?;
+            let settings = erasure::ErasureSettings::new(config.erasure(), &erasure)?;
+            pipeline::build_rust_crate_with_erasure(&config, &manifest_path, &settings)?;
         }
         Command::New { name, python } => {
             return Err(format!(
@@ -296,6 +371,7 @@ fn main() -> CliResult<()> {
         Command::RustDiagnostics { .. }
         | Command::RustTestReport { .. }
         | Command::SmeltUnknownReport { .. }
+        | Command::TypednessReport { .. }
         | Command::ListEscapeReport { .. }
         | Command::DumpSchema => {
             return Ok(());

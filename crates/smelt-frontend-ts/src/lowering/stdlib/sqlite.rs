@@ -21,7 +21,7 @@
 use super::super::ModuleBuilder;
 use crate::error::SmeltError;
 use oxc::ast::ast::Expression;
-use smelt_hir::{Body, Expr, ExprKind, SqliteOp, Type};
+use smelt_hir::{Body, ErasureReason, Expr, ExprKind, SqliteOp, Type};
 
 impl ModuleBuilder<'_> {
     /// Lower `new DatabaseSync(path)`, or answer `None` for any other `new`.
@@ -154,11 +154,13 @@ impl ModuleBuilder<'_> {
         match op {
             SqliteOp::Exec | SqliteOp::Close => self.ctx.krate.types.intern(Type::None),
             SqliteOp::Prepare => self.sqlite_class_type("StatementSync"),
+            // A row's columns are decided by the SQL text at run time (`SELECT *`
+            // after `ALTER TABLE`), so rows are data from outside the type system.
             SqliteOp::All => {
-                let row_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let row_ty = self.erase_with(ErasureReason::ExternalType, "node:sqlite row");
                 self.ctx.krate.types.intern(Type::List(row_ty))
             }
-            SqliteOp::Get => self.ctx.krate.types.intern(Type::Unknown),
+            SqliteOp::Get => self.erase_with(ErasureReason::ExternalType, "node:sqlite row"),
             SqliteOp::Run => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 let float_ty = self.ctx.krate.types.intern(Type::Float);

@@ -927,7 +927,7 @@ export function read(): number {
 /// The module-global pass runs before function items are declared, so the call
 /// could not resolve there and both bindings were recorded `Unknown` — an
 /// avoidable erasure of a value a hand port would simply type
-/// (`examples/typescript/end-to-end/167_module_const_with_async_callback`).
+/// (`examples/typescript/end-to-end/171_module_const_with_async_callback`).
 #[test]
 fn a_const_initialized_by_a_module_function_call_takes_its_return_type() -> Result<(), String> {
     let mut ctx = HirCtx::new();

@@ -261,6 +261,39 @@ pub struct Interface {
     pub fields: Vec<Field>,
     /// Method signatures of the interface.
     pub methods: Vec<MethodSig>,
+    /// Source facts a strict JSON entry decoder checks per property beyond its
+    /// storage type (see [`FieldDecodeFacts`]). Empty when the interface was
+    /// synthesized rather than declared, in which case the decoder falls back
+    /// to what the storage type alone says.
+    #[serde(default)]
+    pub decode_facts: Vec<FieldDecodeFacts>,
+}
+
+/// What TypeScript says about one interface property that its lowered HIR type
+/// no longer does.
+///
+/// HIR erases literal types to their primitive (`"a" | "b"` is `String`) and
+/// folds `T | null`, `T | undefined` and `p?: T` into one `Optional<T>`. Those
+/// erasures are fine for storage, but a strict JSON entry decoder (design
+/// adapted from Bun's `--aot` `Bun.validate<T>` / typed entry checks,
+/// oven-sh/bun#45631) has to answer exactly what TypeScript would: whether
+/// `{"mode":"c"}` matches `mode: "a" | "b"`, and whether `null` matches
+/// `p?: number`. The frontend records the answer next to the field, keyed by
+/// the field's symbol.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FieldDecodeFacts {
+    /// The property this fact describes (the field's symbol).
+    pub name: Symbol,
+    /// Whether the property may be missing: `p?: T`, or a type that admits
+    /// `undefined` (`p: T | undefined`).
+    pub may_be_absent: bool,
+    /// Whether the property's type admits `null` (`p: T | null`).
+    pub admits_null: bool,
+    /// The exact values a literal-typed property admits (`kind: "circle"`,
+    /// `mode: "a" | "b"`, `flag: true`); empty when the type is not a literal
+    /// union. `null`/`undefined` arms are reported through the two flags above,
+    /// never here.
+    pub literals: Vec<Literal>,
 }
 
 /// A lowered `extends Parent<Args...>` edge on an interface.
@@ -414,6 +447,25 @@ pub struct TypeAlias {
     pub ty: TypeId,
     /// Source location of the type alias declaration.
     pub span: Span,
+    /// Literal and nullish facts of the aliased TypeScript type that `ty`
+    /// erased (`type Mode = "a" | "b"` lowers to `String`), so a property typed
+    /// by the alias's name decodes exactly as one spelled with the union. See
+    /// [`FieldDecodeFacts`]. `None` when the alias adds nothing beyond `ty`.
+    #[serde(default)]
+    pub decode_facts: Option<TypeDecodeFacts>,
+}
+
+/// What a TypeScript type says about nullish arms and literal values that its
+/// lowered HIR type no longer does; the per-type half of [`FieldDecodeFacts`].
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TypeDecodeFacts {
+    /// The type admits `null`.
+    pub admits_null: bool,
+    /// The type admits `undefined` (or `void`).
+    pub admits_undefined: bool,
+    /// `Some(values)` when every non-nullish arm is a literal type; `None` when
+    /// any arm is a non-literal type, so no value constraint applies.
+    pub literals: Option<Vec<Literal>>,
 }
 
 /// A constant item.

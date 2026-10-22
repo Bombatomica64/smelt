@@ -9,7 +9,7 @@ use oxc::ast::ast::{Argument, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
 use smelt_hir::{
-    BinOp, Body, ClosureExpr, Expr, ExprKind, FunctionType, Item, Literal, LocalDecl, Param,
+    BinOp, Body, ClosureExpr, ErasureReason, Expr, ExprKind, FunctionType, Item, Literal, LocalDecl, Param,
     PrimitiveCastOp, Span, Stmt, Type, UnaryOp, UrlField,
 };
 
@@ -103,7 +103,6 @@ impl ModuleBuilder<'_> {
             let callee_ty = Self::expr_ty(body, callee_value);
             let callable_ty = self.function_member_type(callee_ty);
             if self.erased_or_union_surface(callee_ty) || callable_ty.is_some() {
-                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
                 let (params, result_ty) = callable_ty
                     .and_then(|ty| match self.ctx.krate.types.get(ty).cloned() {
                         Some(Type::Function(function)) => {
@@ -111,11 +110,18 @@ impl ModuleBuilder<'_> {
                         }
                         _ => None,
                     })
-                    .unwrap_or_else(|| (Vec::new(), unknown_ty));
+                    .unwrap_or_else(|| {
+                        (
+                            Vec::new(),
+                            self.erase_with(ErasureReason::ByName, "new on dynamic callee"),
+                        )
+                    });
                 let span = self.span(new_expr.span.start, new_expr.span.end);
                 if new_expr.arguments.iter().any(Argument::is_spread) {
+                    let spread_item_ty =
+                        self.erase_with(ErasureReason::DynamicOperator, "spread arguments");
                     let args = self.packed_spread_arguments(
-                        unknown_ty,
+                        spread_item_ty,
                         &new_expr.arguments,
                         span,
                         body,
@@ -576,7 +582,7 @@ impl ModuleBuilder<'_> {
                 callee.span.end,
                 body,
             )?;
-            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let unknown_ty = self.erase_with(ErasureReason::ByName, "new on dynamic constructor value");
             let args = new_expr
                 .arguments
                 .iter()
@@ -829,7 +835,8 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) {
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure: a slot of the erased Error record, recorded by its builder
+        let unknown_ty = self.unknown_type();
         let key = body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::String(name.to_owned())),
             ty: string_ty,
@@ -862,7 +869,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Error record");
         let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
         let message = message.unwrap_or_else(|| {
             body.push_expr(Expr {
@@ -1037,7 +1044,7 @@ impl ModuleBuilder<'_> {
         }
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "marker builtin");
         let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
         let span = self.span(new_expr.span.start, new_expr.span.end);
         let marker_key = body.push_expr(Expr {
@@ -1121,7 +1128,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let parts = self.error_constructor_parts(new_expr, body)?;
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Error record");
         let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
         let span = self.span(new_expr.span.start, new_expr.span.end);
         // Which error class was spelled. Falls back to `Error` for a callee shape
@@ -1190,7 +1197,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "DOMException");
         let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
         let span = self.span(new_expr.span.start, new_expr.span.end);
         let message = match new_expr.arguments.first() {
@@ -1310,7 +1317,7 @@ impl ModuleBuilder<'_> {
         class_name: &str,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "byte buffer");
         let span = self.span(new_expr.span.start, new_expr.span.end);
         let args = new_expr
             .arguments
@@ -1346,8 +1353,6 @@ impl ModuleBuilder<'_> {
         let span = self.span(new_expr.span.start, new_expr.span.end);
         // `ListFromLength` fills with `list[unknown]`, so its destination type
         // must be `List<Unknown>` for the zero-filled `new Buffer(size)` case.
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
         let bytes = match new_expr.arguments.first() {
             None => self.buffer_empty_bytes(span, body),
             Some(argument) => {
@@ -1357,11 +1362,16 @@ impl ModuleBuilder<'_> {
                     // `new Buffer([1, 2, 3])` reuses the numeric source list.
                     Some(Type::List(_)) => value,
                     // `new Buffer(size)` allocates `size` zero-filled bytes.
-                    Some(Type::Int | Type::Float) => body.push_expr(Expr {
-                        kind: ExprKind::ListFromLength { length: value },
-                        ty: list_ty,
-                        span,
-                    }),
+                    Some(Type::Int | Type::Float) => {
+                        let unknown_ty =
+                            self.erase_with(ErasureReason::UntypedBuiltin, "new Buffer(size)");
+                        let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
+                        body.push_expr(Expr {
+                            kind: ExprKind::ListFromLength { length: value },
+                            ty: list_ty,
+                            span,
+                        })
+                    }
                     // Strings / opaque sources: retain identity, empty bytes.
                     _ => self.buffer_empty_bytes(span, body),
                 }
@@ -1505,7 +1515,7 @@ impl ModuleBuilder<'_> {
                 span,
             }));
         }
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Blob parts");
         Ok(body.push_expr(Expr {
             kind: ExprKind::UnknownCast {
                 value: parts,
@@ -1678,7 +1688,7 @@ impl ModuleBuilder<'_> {
         }
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "boxed primitive");
         let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
         let span = self.span(new_expr.span.start, new_expr.span.end);
         let value = if let Some(argument) = new_expr.arguments.first() {
@@ -1742,7 +1752,7 @@ impl ModuleBuilder<'_> {
             let _ = self.argument(argument, body)?;
         }
         let span = self.span(new_expr.span.start, new_expr.span.end);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "new Function");
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let mut closure_body = Body::new(None, span);
         let message = closure_body.push_expr(Expr {
@@ -1838,7 +1848,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "AbortController");
         let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
         let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
         let span = self.span(new_expr.span.start, new_expr.span.end);
@@ -2100,6 +2110,21 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let anchor = self.push_erasure_anchor(self.expression_span(expression));
+        let lowered = self.expression_shape_with_hint(expression, body, type_hint);
+        self.restore_erasure_anchor(anchor);
+        let lowered = lowered?;
+        // A read of a Bun `int32` slot is a `number` to every consumer.
+        Ok(self.int32_read_as_number(lowered, body))
+    }
+
+    /// Lower one expression; see [`Self::expression_with_hint`].
+    fn expression_shape_with_hint(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         match expression {
             Expression::NumericLiteral(lit) => {
                 let ty = self.ctx.krate.types.intern(Type::Float);
@@ -2206,6 +2231,10 @@ impl ModuleBuilder<'_> {
                 if binary.operator == BinaryOperator::Exponential {
                     let base = self.expression(&binary.left, body)?;
                     let exponent = self.expression(&binary.right, body)?;
+                    let span = self.span(binary.span.start, binary.span.end);
+                    if let Some(power) = self.bigint_power(base, exponent, span, body) {
+                        return Ok(power);
+                    }
                     let ty = self.ctx.krate.types.intern(Type::Float);
                     return Ok(body.push_expr(Expr {
                         kind: ExprKind::NumericPow { base, exponent },
@@ -2272,10 +2301,14 @@ impl ModuleBuilder<'_> {
                 } else {
                     self.binary_result_type(op, lhs_ty, rhs_ty)
                 };
+                let span = self.span(binary.span.start, binary.span.end);
+                if let Some(call) = self.bigint_fallible_binary(op, lhs, rhs, span, body) {
+                    return Ok(call);
+                }
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::BinOp { op, lhs, rhs },
                     ty,
-                    span: self.span(binary.span.start, binary.span.end),
+                    span,
                 }))
             }
             Expression::LogicalExpression(logical) => {
@@ -2403,6 +2436,7 @@ impl ModuleBuilder<'_> {
                             "unary plus requires a numeric or DateArg-compatible operand",
                         ));
                     }
+                    UnaryOperator::BitwiseNot => return self.bitwise_not_expression(unary, body),
                     _ => {
                         return Err(SmeltError::unsupported(
                             self.span(unary.span.start, unary.span.end),
@@ -2450,7 +2484,13 @@ impl ModuleBuilder<'_> {
                 Ok(self.keyed_read_into_optional_slot(read, type_hint, body))
             }
             Expression::CallExpression(call) => {
+                // An untyped `JSON.parse` flowing into a declared type is a
+                // typed entry boundary; see `json_parse_call_with_hint`.
+                if let Some(parsed) = self.json_parse_call_with_hint(call, type_hint, body)? {
+                    return Ok(parsed);
+                }
                 let value = self.call_expression_with_hint(call, body, type_hint)?;
+                let value = self.adopt_json_body_read_target(value, type_hint, body);
                 // A bare `Array(n)` allocation takes the contextual list type
                 // when it has one, exactly as the `new Array(n)` spelling does
                 // below; the two forms must stay in lockstep.
@@ -2560,25 +2600,46 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Lower a TypeScript bigint literal into Smelt's current numeric runtime value.
+    /// Lower a TypeScript bigint literal (`123n`) to a `bigint` value.
+    ///
+    /// The literal keeps its exact digits ([`Literal::BigInt`]) and the
+    /// `bigint` type, at every magnitude: `9_999_999_999_999_999_999_999n` is
+    /// the same kind of value as `1n`. It used to share `Int` (`i64`) with the
+    /// bounded integers and fall back to an `f64` past `i64`, which saturated
+    /// the wide literal and wrapped `i64` arithmetic (remeda's `randomBigInt`).
     pub(super) fn bigint_literal_expression(
         &mut self,
         value: &str,
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let value = value.parse::<f64>().map_err(|err| {
+        let digits = Self::canonical_bigint_digits(value).ok_or_else(|| {
             SmeltError::unsupported(
                 self.span(span.start, span.end),
-                format!("bigint literal cannot be represented numerically: {err}"),
+                format!("bigint literal is not a decimal integer: {value}"),
             )
         })?;
-        let ty = self.ctx.krate.types.intern(Type::Float);
+        let ty = self.ctx.krate.types.intern(Type::BigInt);
         Ok(body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Float(value)),
+            kind: ExprKind::Literal(Literal::BigInt(digits)),
             ty,
             span: self.span(span.start, span.end),
         }))
+    }
+
+    /// The canonical digits of a bigint literal's base-10 `value`.
+    ///
+    /// The parser hands over the value in base 10 without separators (a `0x`
+    /// literal is already converted); this strips a trailing `n`, any `_`, and
+    /// leading zeros so equal literals share one spelling. `None` when the text
+    /// is not a run of decimal digits.
+    pub(in crate::lowering) fn canonical_bigint_digits(value: &str) -> Option<String> {
+        let digits = value.trim_end_matches('n').replace('_', "");
+        if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        let trimmed = digits.trim_start_matches('0');
+        Some(if trimmed.is_empty() { "0".to_owned() } else { trimmed.to_owned() })
     }
 
     /// Lower JavaScript `typeof value` to a string result when used as a value.
@@ -2887,7 +2948,8 @@ impl ModuleBuilder<'_> {
             || self.ctx.krate.types.get(then_ty) == Some(&Type::Unknown)
             || self.ctx.krate.types.get(else_ty) == Some(&Type::Unknown)
         {
-            self.ctx.krate.types.intern(Type::Unknown)
+            // not a new erasure: the hint or an arm is already erased
+            self.unknown_type()
         } else if self.declared_class_type(then_ty) || self.declared_class_type(else_ty) {
             // A *declared* class arm has no common Rust shape with
             // anything but itself, and it does have a concrete join: the
@@ -2943,7 +3005,8 @@ impl ModuleBuilder<'_> {
             self.ctx.krate.types.intern(Type::List(item_ty))
         } else if self.type_contains_unknown(then_ty) || self.type_contains_unknown(else_ty)
         {
-            self.ctx.krate.types.intern(Type::Unknown)
+            // not a new erasure: an arm already contains unknown
+            self.unknown_type()
         } else if let Some(hint) = type_hint
             && !self.concrete_type_requires_never_value(hint)
         {
@@ -2965,7 +3028,7 @@ impl ModuleBuilder<'_> {
             // Object.values(source)` where `source` stays `ArrayLike<T>
             // | Record<string, T>`): the merged value is a genuine
             // dynamic boundary and widens to `unknown`.
-            self.ctx.krate.types.intern(Type::Unknown)
+            self.erase_with(ErasureReason::DynamicOperator, "?: union arms")
         } else if !self.concrete_type_requires_never_value(then_ty)
             && !self.concrete_type_requires_never_value(else_ty)
         {
@@ -3073,7 +3136,8 @@ impl ModuleBuilder<'_> {
             || self.type_contains_unknown(then_ty)
             || self.type_contains_unknown(else_ty)
         {
-            Ok(self.ctx.krate.types.intern(Type::Unknown))
+            // not a new erasure: the hint or an arm already contains unknown
+            Ok(self.unknown_type())
         } else if let Some(hint) = type_hint
             && !self.concrete_type_requires_never_value(hint)
         {
@@ -3095,7 +3159,7 @@ impl ModuleBuilder<'_> {
             // Object.values(source)` where `source` stays `ArrayLike<T> |
             // Record<string, T>`): the merged value is a genuine dynamic
             // boundary and widens to `unknown`.
-            Ok(self.ctx.krate.types.intern(Type::Unknown))
+            Ok(self.erase_with(ErasureReason::DynamicOperator, "?: union arms"))
         } else {
             // NO union join here, deliberately. Despite the name, this is a
             // shared *reconcilability query*, not the conditional expression's
@@ -3205,7 +3269,8 @@ impl ModuleBuilder<'_> {
             let inner = self.unify_conditional_list_item_type(then_inner, else_inner);
             self.ctx.krate.types.intern(Type::List(inner))
         } else if self.type_contains_unknown(then_item) || self.type_contains_unknown(else_item) {
-            self.ctx.krate.types.intern(Type::Unknown)
+            // not a new erasure: an element already contains unknown
+            self.unknown_type()
         } else {
             self.ctx
                 .krate
@@ -3319,7 +3384,14 @@ impl ModuleBuilder<'_> {
                 // erased init for an operand whose awaited type is one class.
                 let resolved_ty = type_hint
                     .or(awaited_union_ty)
-                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                    .unwrap_or_else(|| {
+                        if matches!(self.ctx.krate.types.get(awaited_ty), Some(Type::Unknown)) {
+                            // not a new erasure: the awaited operand is already erased
+                            self.unknown_type()
+                        } else {
+                            self.erase_with(ErasureReason::DynamicOperator, "await union")
+                        }
+                    });
 
                 let future_ty = self.ctx.krate.types.intern(Type::Future(resolved_ty));
                 let future = body.push_expr(Expr {
@@ -3439,10 +3511,12 @@ impl ModuleBuilder<'_> {
                 span,
             }));
         }
-        if matches!(self.ctx.krate.types.get(cond_ty), Some(Type::Int | Type::Float)) {
+        if matches!(self.ctx.krate.types.get(cond_ty), Some(Type::Int | Type::Float | Type::BigInt)) {
             let zero = body.push_expr(Expr {
                 kind: match self.ctx.krate.types.get(cond_ty) {
                     Some(Type::Int) => ExprKind::Literal(Literal::Int(0)),
+                    // `0n` is the one falsy bigint.
+                    Some(Type::BigInt) => ExprKind::Literal(Literal::BigInt("0".to_owned())),
                     _ => ExprKind::Literal(Literal::Float(0.0)),
                 },
                 ty: cond_ty,
@@ -3801,7 +3875,14 @@ impl ModuleBuilder<'_> {
                 .any(|item| {
                     matches!(
                         self.ctx.krate.types.get(item),
-                        Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None)
+                        Some(
+                            Type::Bool
+                                | Type::Int
+                                | Type::Float
+                                | Type::BigInt
+                                | Type::String
+                                | Type::None
+                        )
                     ) || self.type_is_truthy_condition_surface(item)
                 }),
             _ => false,

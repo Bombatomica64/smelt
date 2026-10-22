@@ -1,4 +1,4 @@
-module examples/typescript/end-to-end/167_module_const_with_async_callback/input.ts (ModuleId(0))
+module examples/typescript/end-to-end/171_module_const_with_async_callback/input.ts (ModuleId(0))
   body BodyId(2)
   items
     interface Job fields [Public run: fn(String) -> Future<String>, Public label: String] methods []

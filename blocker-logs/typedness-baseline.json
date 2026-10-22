@@ -1,0 +1,2538 @@
+{
+  "version": 1,
+  "total": {
+    "values": {
+      "concrete": 7440,
+      "generic": 77,
+      "erased": 51
+    },
+    "reads": {
+      "concrete": 724,
+      "generic": 21,
+      "erased": 34
+    },
+    "calls": {
+      "concrete": 1777,
+      "generic": 5,
+      "erased": 2
+    }
+  },
+  "programs": {
+    "examples/typescript/end-to-end/01_number/input.ts": {
+      "values": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/02_string/input.ts": {
+      "values": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/03_boolean/input.ts": {
+      "values": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/04_null/input.ts": {
+      "values": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/05_alias/input.ts": {
+      "values": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/06_array_literal/input.ts": {
+      "values": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/07_tuple_literal/input.ts": {
+      "values": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/08_record_literal/input.ts": {
+      "values": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/09_index_access/input.ts": {
+      "values": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/100_elided_type_parameters/input.ts": {
+      "values": {
+        "concrete": 31,
+        "generic": 14,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 3,
+        "generic": 6,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 15,
+        "generic": 3,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/101_arrow_const_infers_its_return/input.ts": {
+      "values": {
+        "concrete": 27,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/102_body_locals_are_body_scoped/input.ts": {
+      "values": {
+        "concrete": 71,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/103_exclude_over_a_literal_union/input.ts": {
+      "values": {
+        "concrete": 19,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 7,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/104_erased_callback_returns_a_host_class/input.ts": {
+      "values": {
+        "concrete": 26,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 8,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/105_union_instanceof_through_arm_tags/input.ts": {
+      "values": {
+        "concrete": 35,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 13,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/106_host_value_at_a_record_type/input.ts": {
+      "values": {
+        "concrete": 29,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 4,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 9,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/107_never_branch_at_a_string_return/input.ts": {
+      "values": {
+        "concrete": 14,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 4,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/108_headers_init_at_a_headers_slot/input.ts": {
+      "values": {
+        "concrete": 27,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 9,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/109_nested_function_declaration_hoists/input.ts": {
+      "values": {
+        "concrete": 47,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 10,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/10_unary_logical/input.ts": {
+      "values": {
+        "concrete": 8,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/110_captured_callback_handle_is_cloned/input.ts": {
+      "values": {
+        "concrete": 29,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/112_recursive_binding_keeps_its_type/input.ts": {
+      "values": {
+        "concrete": 46,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/115_transitive_closure_captures/input.ts": {
+      "values": {
+        "concrete": 83,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/116_generator_array_from/input.ts": {
+      "values": {
+        "concrete": 38,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 4,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 8,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/117_forward_exported_arrow/input.ts": {
+      "values": {
+        "concrete": 26,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 9,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/118_concise_callback_call_args/input.ts": {
+      "values": {
+        "concrete": 24,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/119_arrow_param_default/input.ts": {
+      "values": {
+        "concrete": 57,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 8,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/11_console_log_expressions/input.ts": {
+      "values": {
+        "concrete": 7,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/120_forward_arrow_after_class/input.ts": {
+      "values": {
+        "concrete": 30,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 9,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/121_callback_into_union_function_arm/input.ts": {
+      "values": {
+        "concrete": 31,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 12,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/122_loop_inside_branch_inside_loop/input.ts": {
+      "values": {
+        "concrete": 65,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/123_string_from_codes_and_search/input.ts": {
+      "values": {
+        "concrete": 31,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/124_optional_argument_and_receiver/input.ts": {
+      "values": {
+        "concrete": 80,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/125_module_const_state_and_record_union/input.ts": {
+      "values": {
+        "concrete": 57,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 11,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/126_optional_presence_through_assertion/input.ts": {
+      "values": {
+        "concrete": 72,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 19,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 13,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/127_nested_closure_shared_write/input.ts": {
+      "values": {
+        "concrete": 33,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/128_match_array_groups/input.ts": {
+      "values": {
+        "concrete": 137,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 18,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/129_keyed_presence_and_throw_sentinel/input.ts": {
+      "values": {
+        "concrete": 116,
+        "generic": 0,
+        "erased": 3
+      },
+      "reads": {
+        "concrete": 30,
+        "generic": 0,
+        "erased": 2
+      },
+      "calls": {
+        "concrete": 20,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/12_while_sum/input.ts": {
+      "values": {
+        "concrete": 7,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/130_this_bound_field_write_through/input.ts": {
+      "values": {
+        "concrete": 34,
+        "generic": 0,
+        "erased": 6
+      },
+      "reads": {
+        "concrete": 7,
+        "generic": 0,
+        "erased": 2
+      },
+      "calls": {
+        "concrete": 9,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/131_reduce_right_and_declared_const_shapes/input.ts": {
+      "values": {
+        "concrete": 99,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 9,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 13,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/132_user_methods_named_like_array_builtins/input.ts": {
+      "values": {
+        "concrete": 208,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 15,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 49,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/133_presence_rules/input.ts": {
+      "values": {
+        "concrete": 113,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 13,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 25,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/134_absence_and_host_boundaries/input.ts": {
+      "values": {
+        "concrete": 121,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 18,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 28,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/13_for_of_sum/input.ts": {
+      "values": {
+        "concrete": 9,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/140_user_type_guard_narrowing/input.ts": {
+      "values": {
+        "concrete": 112,
+        "generic": 0,
+        "erased": 2
+      },
+      "reads": {
+        "concrete": 18,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 41,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/142_module_global_reads_see_module_values/input.ts": {
+      "values": {
+        "concrete": 49,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 12,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/143_module_arrows_are_items/input.ts": {
+      "values": {
+        "concrete": 110,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 24,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/14_c_for_loop/input.ts": {
+      "values": {
+        "concrete": 7,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/151_derived_constructor_runs_on_instance/input.ts": {
+      "values": {
+        "concrete": 118,
+        "generic": 12,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 37,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 34,
+        "generic": 2,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/152_callable_interface_fields/input.ts": {
+      "values": {
+        "concrete": 82,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 29,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 11,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/153_this_param_function_as_method/input.ts": {
+      "values": {
+        "concrete": 193,
+        "generic": 0,
+        "erased": 5
+      },
+      "reads": {
+        "concrete": 32,
+        "generic": 0,
+        "erased": 2
+      },
+      "calls": {
+        "concrete": 27,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/154_getter_receivers_in_closures/input.ts": {
+      "values": {
+        "concrete": 72,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 17,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 18,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/155_erased_instance_identity/input.ts": {
+      "values": {
+        "concrete": 43,
+        "generic": 0,
+        "erased": 2
+      },
+      "reads": {
+        "concrete": 7,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 11,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/156_runtime_shape_behind_static_types/input.ts": {
+      "values": {
+        "concrete": 59,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 12,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/157_node_path_hash_and_runtime_regexp/input.ts": {
+      "values": {
+        "concrete": 126,
+        "generic": 0,
+        "erased": 3
+      },
+      "reads": {
+        "concrete": 4,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 56,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/158_joins_absence_and_host_reads/input.ts": {
+      "values": {
+        "concrete": 71,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 12,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 17,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/159_spread_join_tuple_return_finally/input.ts": {
+      "values": {
+        "concrete": 70,
+        "generic": 0,
+        "erased": 3
+      },
+      "reads": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 3
+      },
+      "calls": {
+        "concrete": 16,
+        "generic": 0,
+        "erased": 2
+      }
+    },
+    "examples/typescript/end-to-end/15_break_continue/input.ts": {
+      "values": {
+        "concrete": 8,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/160_function_item_typed_identity/input.ts": {
+      "values": {
+        "concrete": 52,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 10,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/162_alias_names_generic_class/input.ts": {
+      "values": {
+        "concrete": 11,
+        "generic": 3,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 7,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/165_void_operand_runs/input.ts": {
+      "values": {
+        "concrete": 25,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/166_closure_stored_on_its_receiver/input.ts": {
+      "values": {
+        "concrete": 53,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 8,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 11,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/167_proven_integer_counters/input.ts": {
+      "values": {
+        "concrete": 175,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 8,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 30,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/168_bun_int32_slots/input.ts": {
+      "values": {
+        "concrete": 149,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 13,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 22,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/169_json_typed_entry_decode/input.ts": {
+      "values": {
+        "concrete": 76,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 28,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 22,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/16_switch_break_no_fallthrough/input.ts": {
+      "values": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/170_bigint_arbitrary_precision/input.ts": {
+      "values": {
+        "concrete": 191,
+        "generic": 3,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 71,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/17_mutating_array/input.ts": {
+      "values": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/18_class_fields/input.ts": {
+      "values": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/19_constructor/input.ts": {
+      "values": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/20_method_call/input.ts": {
+      "values": {
+        "concrete": 9,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/21_this_field/input.ts": {
+      "values": {
+        "concrete": 9,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/22_mutating_method/input.ts": {
+      "values": {
+        "concrete": 9,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/23_interface_shape/input.ts": {
+      "values": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/24_interface_method_signature/input.ts": {
+      "values": {
+        "concrete": 9,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/25_private_protected_metadata/input.ts": {
+      "values": {
+        "concrete": 8,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/26_interface_inheritance_optional_computed/input.ts": {
+      "values": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/27_optional_chains/input.ts": {
+      "values": {
+        "concrete": 21,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 4,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/28_regex_match_result/input.ts": {
+      "values": {
+        "concrete": 47,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 16,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 13,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/29_callable_object/input.ts": {
+      "values": {
+        "concrete": 28,
+        "generic": 0,
+        "erased": 1
+      },
+      "reads": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/30_nullish_union_join/input.ts": {
+      "values": {
+        "concrete": 7,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/31_headers_fetch_type/input.ts": {
+      "values": {
+        "concrete": 45,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 8,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/32_url_search_params/input.ts": {
+      "values": {
+        "concrete": 38,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 4,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 9,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/33_console_optional_value/input.ts": {
+      "values": {
+        "concrete": 16,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 10,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/34_optional_field_interface_literal/input.ts": {
+      "values": {
+        "concrete": 38,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 11,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/35_top_level_await/input.ts": {
+      "values": {
+        "concrete": 24,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/36_floating_promise_drained/input.ts": {
+      "values": {
+        "concrete": 11,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 4,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/38_interface_literal_key_spellings/input.ts": {
+      "values": {
+        "concrete": 40,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 9,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 16,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/39_module_scope_reassignment/input.ts": {
+      "values": {
+        "concrete": 79,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 4,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 8,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/40_computed_method_over_known_members/input.ts": {
+      "values": {
+        "concrete": 36,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 17,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/41_symbol_keyed_class_members/input.ts": {
+      "values": {
+        "concrete": 22,
+        "generic": 0,
+        "erased": 5
+      },
+      "reads": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 7,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/42_module_arrow_shared_capture/input.ts": {
+      "values": {
+        "concrete": 17,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/43_await_value_or_promise_union/input.ts": {
+      "values": {
+        "concrete": 36,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 8,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/44_node_http_echo/input.ts": {
+      "values": {
+        "concrete": 77,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/45_text_codec/input.ts": {
+      "values": {
+        "concrete": 33,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 9,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/46_blob_file/input.ts": {
+      "values": {
+        "concrete": 88,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 24,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/47_module_const_host_value/input.ts": {
+      "values": {
+        "concrete": 54,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 18,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/48_form_data/input.ts": {
+      "values": {
+        "concrete": 138,
+        "generic": 0,
+        "erased": 1
+      },
+      "reads": {
+        "concrete": 10,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 17,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/49_sibling_method_call/input.ts": {
+      "values": {
+        "concrete": 18,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 4,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/50_union_arm_narrowing/input.ts": {
+      "values": {
+        "concrete": 67,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 23,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/51_web_crypto/input.ts": {
+      "values": {
+        "concrete": 59,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 11,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 16,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/53_top_level_try_tail/input.ts": {
+      "values": {
+        "concrete": 36,
+        "generic": 0,
+        "erased": 2
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 14,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/54_regex_test_predicate/input.ts": {
+      "values": {
+        "concrete": 61,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 15,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/55_headers_init_union/input.ts": {
+      "values": {
+        "concrete": 55,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 18,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/56_union_member_read/input.ts": {
+      "values": {
+        "concrete": 76,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 20,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/57_reassigned_method/input.ts": {
+      "values": {
+        "concrete": 30,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 4,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 7,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/58_absent_value_stringify/input.ts": {
+      "values": {
+        "concrete": 29,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 12,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/59_ambient_response_init/input.ts": {
+      "values": {
+        "concrete": 60,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 13,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/60_response_body_handle/input.ts": {
+      "values": {
+        "concrete": 54,
+        "generic": 0,
+        "erased": 1
+      },
+      "reads": {
+        "concrete": 8,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 12,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/61_tuple_spread_arguments/input.ts": {
+      "values": {
+        "concrete": 62,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 21,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 16,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/63_generic_init_union_arm/input.ts": {
+      "values": {
+        "concrete": 56,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 2
+      },
+      "calls": {
+        "concrete": 8,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/64_error_subclass_optional_message/input.ts": {
+      "values": {
+        "concrete": 20,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 8,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 7,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/65_typeof_keyof_alias_union/input.ts": {
+      "values": {
+        "concrete": 27,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 10,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/66_json_stringify_shapes/input.ts": {
+      "values": {
+        "concrete": 36,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 16,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/67_compound_bitwise_assignment/input.ts": {
+      "values": {
+        "concrete": 63,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 14,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/68_switch_continue_in_loop/input.ts": {
+      "values": {
+        "concrete": 48,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 8,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/69_asserted_callback_name/input.ts": {
+      "values": {
+        "concrete": 66,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 14,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/70_set_from_iterable/input.ts": {
+      "values": {
+        "concrete": 55,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 15,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/71_const_arrow_literal_hint/input.ts": {
+      "values": {
+        "concrete": 64,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 14,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 7,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/72_form_data_for_each/input.ts": {
+      "values": {
+        "concrete": 87,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 13,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/73_set_insertion_order/input.ts": {
+      "values": {
+        "concrete": 72,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 12,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/74_typed_array_views/input.ts": {
+      "values": {
+        "concrete": 163,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 21,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 41,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/75_callback_block_return_type/input.ts": {
+      "values": {
+        "concrete": 96,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 12,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/76_base64_globals/input.ts": {
+      "values": {
+        "concrete": 62,
+        "generic": 0,
+        "erased": 3
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 4
+      },
+      "calls": {
+        "concrete": 48,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/77_body_init_buffer_source/input.ts": {
+      "values": {
+        "concrete": 97,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 14,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/78_request_input_forms/input.ts": {
+      "values": {
+        "concrete": 68,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 11,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/79_logical_assignment_store/input.ts": {
+      "values": {
+        "concrete": 139,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 18,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 15,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/80_optional_chain_union_and_throw/input.ts": {
+      "values": {
+        "concrete": 26,
+        "generic": 0,
+        "erased": 2
+      },
+      "reads": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/81_receiver_capture_in_callback/input.ts": {
+      "values": {
+        "concrete": 39,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 7,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/82_data_view_shared_buffer/input.ts": {
+      "values": {
+        "concrete": 90,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 40,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/83_class_expression_binding/input.ts": {
+      "values": {
+        "concrete": 53,
+        "generic": 10,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 3,
+        "generic": 4,
+        "erased": 1
+      },
+      "calls": {
+        "concrete": 20,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/84_same_named_methods_across_classes/input.ts": {
+      "values": {
+        "concrete": 41,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 4,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 13,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/85_promise_continuations/input.ts": {
+      "values": {
+        "concrete": 37,
+        "generic": 0,
+        "erased": 2
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/86_literal_into_union_arm/input.ts": {
+      "values": {
+        "concrete": 66,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 12,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/87_number_to_string/input.ts": {
+      "values": {
+        "concrete": 41,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 8,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/88_data_view_range_error/input.ts": {
+      "values": {
+        "concrete": 84,
+        "generic": 0,
+        "erased": 6
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 6
+      },
+      "calls": {
+        "concrete": 41,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/89_derived_default_constructor/input.ts": {
+      "values": {
+        "concrete": 42,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 15,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 17,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/90_type_parameter_defaults/input.ts": {
+      "values": {
+        "concrete": 46,
+        "generic": 15,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 11,
+        "generic": 5,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 24,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/91_union_string_concat/input.ts": {
+      "values": {
+        "concrete": 33,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 7,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 10,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/92_request_init_members/input.ts": {
+      "values": {
+        "concrete": 49,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 19,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/93_nullish_assign_and_optional_receiver/input.ts": {
+      "values": {
+        "concrete": 84,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 10,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 18,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/94_throwing_getter_in_callback/input.ts": {
+      "values": {
+        "concrete": 43,
+        "generic": 0,
+        "erased": 4
+      },
+      "reads": {
+        "concrete": 9,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 14,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/95_union_value_dispatch/input.ts": {
+      "values": {
+        "concrete": 26,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 9,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/96_union_read_is_not_a_move/input.ts": {
+      "values": {
+        "concrete": 16,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 4,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/97_generic_class_default_bounds/input.ts": {
+      "values": {
+        "concrete": 22,
+        "generic": 13,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 3,
+        "generic": 5,
+        "erased": 6
+      },
+      "calls": {
+        "concrete": 12,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/98_async_iife_return_channel/input.ts": {
+      "values": {
+        "concrete": 24,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 10,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/99_substituted_parameter_keeps_its_abi/input.ts": {
+      "values": {
+        "concrete": 20,
+        "generic": 7,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 3,
+        "generic": 1,
+        "erased": 6
+      },
+      "calls": {
+        "concrete": 7,
+        "generic": 0,
+        "erased": 0
+      }
+    }
+  }
+}

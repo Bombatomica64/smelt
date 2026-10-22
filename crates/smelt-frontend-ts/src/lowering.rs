@@ -1,10 +1,13 @@
 //! TypeScript AST lowering into Smelt HIR.
 
 mod ambient_globals;
+mod bigint;
+mod erasure;
 mod arguments_forwarding;
 mod asserted_member_read;
 mod function_statics;
 mod hoisting;
+mod int32;
 mod presence_tested_locals;
 mod promise_resolution;
 mod specialization;
@@ -112,6 +115,8 @@ impl ConstLiteral {
         match &self.literal {
             Literal::String(value) => Some(value.clone()),
             Literal::Int(value) => Some(value.to_string()),
+            // `obj[10n]` reads the property `"10"`: a bigint key is its digits.
+            Literal::BigInt(digits) => Some(digits.clone()),
             Literal::Float(value) => Some(ModuleBuilder::numeric_property_key_name(*value)),
             Literal::Symbol(value) => Self::symbol_literal_member_name(value),
             Literal::Bool(_) | Literal::Undefined | Literal::None => None,
@@ -917,6 +922,16 @@ struct ModuleBuilder<'ctx> {
     /// Consulted by `classify_pending_host_imports`; see
     /// [`FrontendOptions::excluded_modules`].
     excluded_modules: Vec<String>,
+    /// How deep inside a type annotation lowering currently is.
+    ///
+    /// Bun's `int32` is an int32 only as the WHOLE type of a slot; nested in
+    /// another type it is a `number`. `ts_type_to_hir` is re-entered for every
+    /// nested type, so depth `0` is exactly the whole-type position. See
+    /// `lowering::int32`.
+    int32_type_depth: usize,
+    /// Innermost source node being lowered, where an erasure decision is
+    /// recorded when its site has no finer span; see `lowering::erasure`.
+    erasure_anchor: Span,
 }
 
 /// One value import whose module resolved to no source item.

@@ -62,6 +62,24 @@ impl FunctionEmitter<'_> {
             // An element list converts per element at the view's own width and
             // signedness, so `new Uint8Array([256])` is `0` and
             // `new Int8Array([200])` is `-56`.
+            // The view stores its elements as `f64`, so an integer element list
+            // (`new BigInt64Array([1n, 2n])`, whose bigint literals are `Int`, or
+            // a proven-integer `FixedInt` list) converts each element first.
+            Some(Type::List(item_ty))
+                if matches!(
+                    self.mir.types.get(*item_ty),
+                    Some(Type::Int | Type::FixedInt(_))
+                ) =>
+            {
+                Ok(format!(
+                    "SmeltTypedArray::with_elements({kind}, &{first_text}.to_vec().into_iter().map(|smelt_element| smelt_element as f64).collect::<Vec<f64>>())"
+                ))
+            }
+            // A bigint element list keeps every element's 64 bits: it goes
+            // straight to bytes rather than through the `f64` element path.
+            Some(Type::List(item_ty)) if self.is_bigint_type(*item_ty) => Ok(format!(
+                "SmeltTypedArray::with_bigint_elements({kind}, &{first_text}.to_vec())"
+            )),
             Some(Type::List(item_ty)) if self.is_numeric_element_type(*item_ty) => Ok(format!(
                 "SmeltTypedArray::with_elements({kind}, &{first_text}.to_vec())"
             )),
@@ -226,7 +244,9 @@ impl FunctionEmitter<'_> {
         // is the third argument for `set` and the second for `get`.
         let (value, endian_index) = if write {
             let value = match accessor_args.get(1) {
+                Some(value) if element.is_bigint() => self.bigint_ref_text(value)?,
                 Some(value) => self.numeric_operand_text(value)?,
+                None if element.is_bigint() => format!("&{}::default()", crate::bigint_prelude::BIGINT_TYPE),
                 None => "0.0".to_owned(),
             };
             (Some(value), 2)
@@ -240,14 +260,17 @@ impl FunctionEmitter<'_> {
         // The trailing `?` is what marks the call fallible to
         // `emit_throwing_call_terminator`, which renders the shape that binds
         // the caught `RangeError` and jumps to the handler's catch block.
+        let (get_adapter, set_adapter) = if element.is_bigint() {
+            (crate::thrown::DATA_VIEW_GET_BIGINT_FN, crate::thrown::DATA_VIEW_SET_BIGINT_FN)
+        } else {
+            (crate::thrown::DATA_VIEW_GET_FN, crate::thrown::DATA_VIEW_SET_FN)
+        };
         Ok(match value {
             Some(value) => format!(
-                "{adapter}(&{view_text}, {kind}, {offset}, {value}, {little_endian})?",
-                adapter = crate::thrown::DATA_VIEW_SET_FN,
+                "{set_adapter}(&{view_text}, {kind}, {offset}, {value}, {little_endian})?"
             ),
             None => format!(
-                "{adapter}(&{view_text}, {kind}, {offset}, {little_endian})?",
-                adapter = crate::thrown::DATA_VIEW_GET_FN,
+                "{get_adapter}(&{view_text}, {kind}, {offset}, {little_endian})?"
             ),
         })
     }
@@ -293,6 +316,12 @@ impl FunctionEmitter<'_> {
         }
         let base_text = self.local_value_text(base)?;
         let index_text = self.numeric_operand_text(index)?;
+        // A bigint view's element is a bigint, read exactly from its bytes.
+        if self.is_bigint_view_class_type(base_ty)? {
+            return Ok(Some(format!(
+                "{base_text}.get_bigint({index_text}).unwrap_or_default()"
+            )));
+        }
         Ok(Some(format!(
             "{base_text}.get({index_text}).unwrap_or(0.0)"
         )))
@@ -312,6 +341,15 @@ impl FunctionEmitter<'_> {
     ) -> Result<Option<String>, EmitError> {
         if !self.is_typed_array_view_class_type(base_ty)? {
             return Ok(None);
+        }
+        if self.is_bigint_view_class_type(base_ty)? {
+            let bigint_ty = self.type_id(Type::BigInt)?;
+            let rendered_value = self.rvalue_text_for_dest(value, bigint_ty)?;
+            let base_text = self.local_value_text(base)?;
+            let index_text = self.numeric_operand_text(index)?;
+            return Ok(Some(format!(
+                "{base_text}.set_bigint({index_text}, &{rendered_value});"
+            )));
         }
         let float_ty = self.type_id(Type::Float)?;
         let rendered_value = self.rvalue_text_for_dest(value, float_ty)?;
@@ -363,6 +401,19 @@ impl FunctionEmitter<'_> {
             return Ok(false);
         };
         Ok(self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::TypedArray))
+    }
+
+    /// Return whether `ty` is a `BigInt64Array` / `BigUint64Array` view, whose
+    /// elements are bigints.
+    pub(super) fn is_bigint_view_class_type(&self, ty: TypeId) -> Result<bool, EmitError> {
+        if !self.is_typed_array_view_class_type(ty)? {
+            return Ok(false);
+        }
+        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
+            return Ok(false);
+        };
+        Ok(smelt_stdlib::typed_array_element(self.symbol_name(*name)?)
+            .is_some_and(smelt_stdlib::TypedArrayElement::is_bigint))
     }
 
     /// Return whether an operand's static type is the modeled `ArrayBuffer`.

@@ -435,6 +435,8 @@ fn scan_type(
         }
         Type::Bool
         | Type::Int
+        | Type::FixedInt(_)
+        | Type::BigInt
         | Type::Float
         | Type::String
         | Type::Unknown

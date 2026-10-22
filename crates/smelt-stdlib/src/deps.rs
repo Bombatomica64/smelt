@@ -75,6 +75,15 @@ pub enum BackendDependency {
     /// against rather than linking whatever the build machine has, the way
     /// Node ships its own `SQLite`.
     Rusqlite,
+    /// `num-bigint` (with its `num-traits`/`num-integer` companions) for
+    /// JavaScript `bigint` values.
+    ///
+    /// One dependency rather than three because the generated bigint runtime
+    /// needs all three at once: the `BigInt` type, the `ToPrimitive` /
+    /// `FromPrimitive` / `Zero` traits its conversions go through, and
+    /// `Integer::mod_floor` for `BigInt.asIntN`. A program with no `bigint`
+    /// pays for none of them.
+    BigInt,
 }
 
 impl BackendDependency {
@@ -115,6 +124,9 @@ impl BackendDependency {
             Self::Base64 => "base64 = \"0.22\"\n",
             Self::Md5 => "md-5 = \"0.10\"\n",
             Self::Rusqlite => "rusqlite = { version = \"0.32\", features = [\"bundled\"] }\n",
+            Self::BigInt => {
+                "num-bigint = \"0.4\"\nnum-traits = \"0.2\"\nnum-integer = \"0.1\"\n"
+            }
         }
     }
 }

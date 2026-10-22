@@ -7,11 +7,20 @@ use std::{
     collections::{HashMap, HashSet},
     fs, io,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
-use oxc_resolver::{ResolveOptions, Resolver};
+use oxc_resolver::{ResolveOptions, ResolverGeneric};
 
-use crate::lowering::SourceLang;
+use crate::{
+    lowering::SourceLang,
+    sound::SoundSettings,
+    sound_overlay::{SoundOverlay, TypedVersionOrigin},
+};
+
+/// The TypeScript resolver the dependency collector uses: `oxc_resolver` over
+/// the typed-version layer (see [`crate::sound_overlay`]).
+type TypeScriptResolver = ResolverGeneric<SoundOverlay>;
 
 /// A manifest source entry prepared for module graph ordering.
 #[derive(Debug, Clone)]
@@ -36,6 +45,13 @@ pub(crate) struct ManifestSource {
     /// resolver — so the collector, which already resolved every edge, records
     /// it here.
     pub(crate) excluded_imports: Vec<String>,
+    /// The typed version of a package this source was laid from, if any.
+    ///
+    /// Set for a file a `sound.json` lays (see [`crate::sound`]): its text is
+    /// the laid text, its path the installed package path it takes the place
+    /// of. A frontend rejection of such a source is reported as the typed
+    /// version's error rather than as a project source's.
+    pub(crate) typed_version: Option<Arc<TypedVersionOrigin>>,
 }
 
 /// Import metadata found while scanning source text.
@@ -147,6 +163,41 @@ pub(crate) fn read_manifest_source(
         imports,
         dependencies: Vec::new(),
         excluded_imports: Vec::new(),
+        typed_version: None,
+    })
+}
+
+/// Reads a collected dependency, through the typed-version layer.
+///
+/// A laid file is read from the layer and is always TypeScript (or a
+/// TypeScript declaration file): in format 2 a laid `.js` holds TypeScript
+/// text, and Smelt's only JavaScript-capable frontend is the TypeScript one
+/// (see [`crate::sound`]). Any other path is read from disk as before.
+fn read_collected_source(
+    path: PathBuf,
+    overlay: &SoundOverlay,
+) -> Result<ManifestSource, Box<dyn std::error::Error>> {
+    let Some((source, origin)) = overlay.laid(&path) else {
+        return read_manifest_source(path);
+    };
+    let lang = match SourceLang::from_path(&path.display().to_string()) {
+        Ok(SourceLang::TypeScriptDeclaration) => SourceLang::TypeScriptDeclaration,
+        _ => SourceLang::TypeScript,
+    };
+    let imports = scan_imports(&source, lang).map_err(|message| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("failed to scan imports in {}: {message}", path.display()),
+        )
+    })?;
+    Ok(ManifestSource {
+        path,
+        source,
+        lang,
+        imports,
+        dependencies: Vec::new(),
+        excluded_imports: Vec::new(),
+        typed_version: Some(origin),
     })
 }
 
@@ -163,13 +214,18 @@ pub(crate) fn read_manifest_source(
 /// of a declared package resolves into its source tree before any workspace
 /// `package.json` is consulted, and each package's own excludes prune the
 /// closure the same way.
+///
+/// `sound` enables typed versions of packages (see [`crate::sound`]); `None`
+/// resolves every package as installed, which single-file commands use.
 pub(crate) fn dependency_closure(
     roots: Vec<ManifestSource>,
     excludes: &[String],
     manifest_dir: &Path,
     packages: &[crate::package_sources::ResolvedPackage],
+    sound: Option<SoundSettings>,
 ) -> Result<Vec<ManifestSource>, Box<dyn std::error::Error>> {
-    let mut collector = DependencyCollector::new(excludes.to_vec(), manifest_dir.to_path_buf());
+    let mut collector =
+        DependencyCollector::new(excludes.to_vec(), manifest_dir.to_path_buf(), sound);
     collector.packages = packages.to_vec();
     for root in roots {
         collector.collect_source(root)?;
@@ -225,7 +281,9 @@ struct DependencyCollector {
     /// Normalized source paths that have already been collected.
     seen: HashSet<PathBuf>,
     /// TypeScript resolver reused across all import edges.
-    ts_resolver: Resolver,
+    ts_resolver: TypeScriptResolver,
+    /// The typed-version layer `ts_resolver` reads through.
+    overlay: SoundOverlay,
     /// Parsed TypeScript barrel export maps keyed by normalized path.
     barrel_exports: HashMap<PathBuf, HashMap<String, String>>,
     /// Bare package import targets discovered from workspace package metadata.
@@ -246,11 +304,13 @@ struct DependencyCollector {
 
 impl DependencyCollector {
     /// Creates an empty collector that prunes `excludes` from the closure.
-    fn new(excludes: Vec<String>, manifest_dir: PathBuf) -> Self {
+    fn new(excludes: Vec<String>, manifest_dir: PathBuf, sound: Option<SoundSettings>) -> Self {
+        let overlay = SoundOverlay::with_settings(sound);
         Self {
             sources: Vec::new(),
             seen: HashSet::new(),
-            ts_resolver: typescript_resolver(),
+            ts_resolver: typescript_resolver(overlay.clone()),
+            overlay,
             barrel_exports: HashMap::new(),
             workspace_packages: HashMap::new(),
             excludes,
@@ -329,7 +389,7 @@ impl DependencyCollector {
             if self.seen.contains(&normalize_path_key(&path)) {
                 continue;
             }
-            let dep = read_manifest_source(path)?;
+            let dep = read_collected_source(path, &self.overlay)?;
             self.collect_source(dep)?;
         }
         Ok(())
@@ -361,12 +421,19 @@ impl DependencyCollector {
         importer_path: &Path,
         import: &ManifestImport,
     ) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
-        let Some(candidate) =
-            resolve_typescript_path(&self.ts_resolver, importer_path, &import.module)?
+        // A bare specifier's package gets its typed version looked up (and
+        // laid, when it fits) before the resolver reads anything inside it.
+        self.overlay.activate(importer_path, &import.module);
+        let Some(candidate) = resolve_typescript_path(
+            &self.ts_resolver,
+            &self.overlay,
+            importer_path,
+            &import.module,
+        )?
         else {
             return self.resolve_workspace_package_import(importer_path, import);
         };
-        let canonical_candidate = candidate.canonicalize()?;
+        let canonical_candidate = self.overlay.canonical_path(&candidate)?;
         if let Some(mut targets) = self.resolve_barrel_import_targets(&candidate, import) {
             prepend_unique_dependency(&mut targets, canonical_candidate);
             return Ok(targets);
@@ -464,7 +531,7 @@ impl DependencyCollector {
         }
         let key = normalize_path_key(candidate);
         if !self.barrel_exports.contains_key(&key) {
-            let source = fs::read_to_string(candidate).ok()?;
+            let source = self.overlay.read_text(candidate).ok()?;
             self.barrel_exports
                 .insert(key.clone(), scan_typescript_barrel_exports(&source));
         }
@@ -472,8 +539,10 @@ impl DependencyCollector {
         let mut targets = Vec::new();
         for name in names {
             let module = export_map.get(name)?;
-            let target = resolve_typescript_path(&self.ts_resolver, candidate, module).ok()??;
-            targets.push(target.canonicalize().ok()?);
+            let target =
+                resolve_typescript_path(&self.ts_resolver, &self.overlay, candidate, module)
+                    .ok()??;
+            targets.push(self.overlay.canonical_path(&target).ok()?);
         }
         Some(targets)
     }
@@ -521,9 +590,10 @@ fn python_relative_base_dir(importer_dir: &Path, level: u32) -> PathBuf {
     base
 }
 
-/// Builds the resolver options used for TypeScript manifest dependency discovery.
-fn typescript_resolver() -> Resolver {
-    Resolver::new(ResolveOptions {
+/// Builds the resolver used for TypeScript manifest dependency discovery, over
+/// the typed-version layer `overlay`.
+fn typescript_resolver(overlay: SoundOverlay) -> TypeScriptResolver {
+    TypeScriptResolver::new_with_file_system(overlay, ResolveOptions {
         extensions: vec![
             ".ts".into(),
             ".mts".into(),
@@ -538,15 +608,21 @@ fn typescript_resolver() -> Resolver {
 }
 
 /// Resolves one TypeScript module specifier and returns supported Smelt sources.
+///
+/// Resolution reads through the typed-version layer: a laid file is a
+/// supported source whatever its extension (format 2 lays TypeScript text at a
+/// `.js` path), and an installed JavaScript file whose TypeScript input is
+/// laid beside it resolves to that input ([`SoundOverlay::redirect`]).
 fn resolve_typescript_path(
-    resolver: &Resolver,
+    resolver: &TypeScriptResolver,
+    overlay: &SoundOverlay,
     importer_path: &Path,
     module: &str,
 ) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
-    let importer = importer_path.canonicalize()?;
+    let importer = overlay.canonical_path(importer_path)?;
     if let Ok(resolution) = resolver.resolve_file(importer.clone(), module) {
-        let path = resolution.into_path_buf();
-        if SourceLang::from_path(&path.display().to_string()).is_ok() {
+        let path = overlay.redirect(resolution.into_path_buf());
+        if overlay.is_laid(&path) || SourceLang::from_path(&path.display().to_string()).is_ok() {
             return Ok(Some(path));
         }
     }
@@ -560,10 +636,11 @@ fn resolve_typescript_path(
                 .join(module)
         };
         for candidate in manifest_import_candidates(&base) {
-            if candidate.is_file()
-                && SourceLang::from_path(&candidate.display().to_string()).is_ok()
+            if overlay.is_laid(&candidate)
+                || candidate.is_file()
+                    && SourceLang::from_path(&candidate.display().to_string()).is_ok()
             {
-                return Ok(Some(candidate.canonicalize()?));
+                return Ok(Some(overlay.canonical_path(&candidate)?));
             }
         }
     }
@@ -657,7 +734,7 @@ fn manifest_import_candidates(base: &Path) -> Vec<PathBuf> {
 }
 
 /// Return the package name part of a bare TypeScript import specifier.
-fn bare_package_name(module: &str) -> String {
+pub(crate) fn bare_package_name(module: &str) -> String {
     let mut parts = module.split('/');
     let Some(first) = parts.next() else {
         return module.to_owned();
@@ -1081,7 +1158,7 @@ mod tests {
         fs::write(&helper, "export const ALL_TYPES_DATA_PROVIDER = [];\n").expect("write helper");
 
         let roots = vec![read_manifest_source(importer.clone()).expect("read importer")];
-        let sources = dependency_closure(roots, &[], Path::new("."), &[]).expect("collect closure");
+        let sources = dependency_closure(roots, &[], Path::new("."), &[], None).expect("collect closure");
         let ordered = order_manifest_sources(&sources).expect("order sources");
         let ordered_paths = ordered
             .into_iter()
@@ -1138,7 +1215,7 @@ mod tests {
         fs::write(&dependency, "export const createApp = () => 1;\n").expect("write dependency");
 
         let roots = vec![read_manifest_source(importer).expect("read importer")];
-        let sources = dependency_closure(roots, &[], Path::new("."), &[]).expect("collect closure");
+        let sources = dependency_closure(roots, &[], Path::new("."), &[], None).expect("collect closure");
 
         assert!(
             sources
@@ -1176,7 +1253,7 @@ mod tests {
 
         let roots = vec![read_manifest_source(importer).expect("read importer")];
         let excludes = vec!["src/client/**".to_owned()];
-        let sources = dependency_closure(roots, &excludes, root, &[]).expect("collect closure");
+        let sources = dependency_closure(roots, &excludes, root, &[], None).expect("collect closure");
 
         assert_eq!(sources.len(), 1, "excluded module should not be collected");
         assert_eq!(
@@ -1206,7 +1283,7 @@ mod tests {
 
         let roots = vec![read_manifest_source(importer).expect("read importer")];
         let excludes = vec!["src/client/**".to_owned()];
-        let sources = dependency_closure(roots, &excludes, root, &[]).expect("collect closure");
+        let sources = dependency_closure(roots, &excludes, root, &[], None).expect("collect closure");
 
         assert_eq!(sources.len(), 2, "included dependency should be collected");
         assert!(

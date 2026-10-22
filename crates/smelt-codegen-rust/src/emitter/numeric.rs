@@ -23,9 +23,14 @@ impl FunctionEmitter<'_> {
 
     /// Converts a length rvalue to Rust text for the destination numeric type.
     pub(super) fn len_text(&self, operand: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let fixed_width = match self.mir.types.get(dest_ty) {
+            Some(Type::FixedInt(width)) => Some(*width),
+            _ => None,
+        };
         let cast = match self.mir.types.get(dest_ty) {
             Some(Type::Int) => "i64",
             Some(Type::Float) => "f64",
+            Some(Type::FixedInt(width)) => width.rust_name(),
             _ => {
                 return Ok("Default::default()".to_owned());
             }
@@ -123,6 +128,9 @@ impl FunctionEmitter<'_> {
             Some(Type::Tuple(items)) => format!("{}", items.len()),
             _ => format!("{receiver_text}.len()"),
         };
+        if let Some(width) = fixed_width {
+            return Ok(Self::fixed_int_len_text(len_expr, width));
+        }
         Ok(format!("{len_expr} as {cast}"))
     }
 
@@ -333,7 +341,15 @@ impl FunctionEmitter<'_> {
                 "numeric unary function operand must be numeric",
             ));
         }
+        if op == smelt_hir::NumericUnaryFuncOp::Clz32 {
+            let operand_text = self.float_operand_text(operand)?;
+            return Ok(format!(
+                "f64::from({}.leading_zeros())",
+                Self::js_to_uint32_text(&operand_text)
+            ));
+        }
         let method_name = match op {
+            smelt_hir::NumericUnaryFuncOp::Clz32 => "leading_zeros",
             smelt_hir::NumericUnaryFuncOp::Sqrt => "sqrt",
             smelt_hir::NumericUnaryFuncOp::Cbrt => "cbrt",
             smelt_hir::NumericUnaryFuncOp::Sign => "signum",
@@ -419,6 +435,23 @@ impl FunctionEmitter<'_> {
         operand: &Operand,
         radix: &Operand,
     ) -> Result<String, EmitError> {
+        // `bigint.toString(radix)` keeps every digit: the value is never
+        // narrowed to a machine integer first.
+        if self.is_bigint_type(self.operand_ty(operand)?) {
+            let radix_operand = self.operand_text(radix)?;
+            let radix_text = if matches!(self.mir.types.get(self.operand_ty(radix)?), Some(Type::Float)) {
+                radix_operand
+            } else {
+                format!("{radix_operand} as f64")
+            };
+            // The frontend lowers a bigint receiver to the fallible
+            // `BigIntOp::ToStringRadix` call; this rvalue form only remains
+            // should a pass rebuild one, so its throw takes the panic route.
+            return Ok(format!(
+                "smelt_bigint_to_string_radix({}, {radix_text}).unwrap_or_else(|error| smelt_panic_throw(error))",
+                self.bigint_ref_text(operand)?
+            ));
+        }
         // An ERASED receiver decides at run time, as JavaScript does:
         // `Number.prototype.toString(radix)` for a number, and the receiver's
         // own `toString` (which ignores the argument) for anything else.
@@ -440,8 +473,11 @@ impl FunctionEmitter<'_> {
             let radix_text = self.operand_text(radix)?;
             let number_text = self.radix_digits_text("smelt_radix_value", &radix_text);
             return Ok(format!(
-                "match {}.clone() {{ SmeltUnknown::Number(smelt_radix_value) => {number_text}, _ => {fallback} }}",
-                self.operand_text(operand)?
+                "match {}.clone() {{ SmeltUnknown::Number(smelt_radix_value) => {number_text}, {}_ => {fallback} }}",
+                self.operand_text(operand)?,
+                self.bigint_unknown_arm(&format!(
+                    "SmeltUnknown::BigInt(smelt_radix_value) => smelt_bigint_to_string_radix(&smelt_radix_value, {radix_text} as f64).unwrap_or_else(|error| smelt_panic_throw(error)),"
+                ))
             ));
         }
         if !matches!(

@@ -293,6 +293,7 @@ impl ModuleBuilder<'_> {
     fn union_arm_guard(&self, arm_ty: TypeId) -> ArmGuard {
         match self.ctx.krate.types.get(arm_ty).cloned() {
             Some(Type::Float | Type::Int) => ArmGuard::Kind(UnknownKind::Number),
+            Some(Type::BigInt) => ArmGuard::Kind(UnknownKind::BigInt),
             Some(Type::String) => ArmGuard::Kind(UnknownKind::String),
             Some(Type::Bool) => ArmGuard::Kind(UnknownKind::Bool),
             Some(Type::List(_) | Type::Tuple(_)) => ArmGuard::Kind(UnknownKind::Array),

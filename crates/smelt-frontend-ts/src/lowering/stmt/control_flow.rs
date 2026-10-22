@@ -7,6 +7,7 @@ use crate::lowering::{
     ForStatementLeft, Literal, LocalDecl, ModuleBuilder, Pattern, SetProjectionOp, SmeltError,
     Statement, Stmt, Type,
 };
+use smelt_hir::ErasureReason;
 
 impl ModuleBuilder<'_> {
     /// Lower a C-style TypeScript `for` statement into HIR control-flow blocks.
@@ -441,7 +442,11 @@ impl ModuleBuilder<'_> {
                     return_ty,
                 })
             }
-            _ => self.ctx.krate.types.intern(Type::Unknown),
+            _ => self.callback_erase_unless_unknown(
+                generator_ty,
+                ErasureReason::ByName,
+                "generator next",
+            ),
         };
         let generator_expr = body.push_expr(Expr {
             kind: ExprKind::Local(generator_local),
@@ -511,7 +516,11 @@ impl ModuleBuilder<'_> {
                 })
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => {
-                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let item_ty = self.callback_erase_unless_unknown(
+                    iter_ty,
+                    ErasureReason::ByName,
+                    "for-of iterable",
+                );
                 let ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: iter },
@@ -572,7 +581,11 @@ Type::Optional(_)) => {
                 // iterates string-keyed properties, so it is cast to
                 // `Record<string, unknown>`.
                 let key_ty = self.ctx.krate.types.intern(Type::String);
-                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let value_ty = self.callback_erase_unless_unknown(
+                    object_ty,
+                    ErasureReason::DynamicOperator,
+                    "for-in",
+                );
                 let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
                 object = body.push_expr(Expr {
                     kind: ExprKind::UnknownCast {
@@ -611,7 +624,7 @@ Type::Optional(_)) => {
                     }) =>
             {
                 let key_ty = self.ctx.krate.types.intern(Type::String);
-                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let value_ty = self.erase_with(ErasureReason::DynamicOperator, "for-in");
                 let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
                 object = body.push_expr(Expr {
                     kind: ExprKind::UnknownCast {

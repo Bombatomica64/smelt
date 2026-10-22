@@ -172,14 +172,14 @@ closure ClosureId(3) -> Float
     %0 param items: List<Opts>
     %1 user sum: Float
     %2 user item: Opts
-    %3 temp: Float
-    %4 temp: Float
+    %3 temp: usize
+    %4 temp: usize
     %5 temp: Bool
     %6 temp: Float
     %7 temp: Float
   bb0:
     %1 = 0.0
-    %3 = 0.0
+    %3 = 0
     goto bb1
   bb1:
     %4 = len copy %0
@@ -192,7 +192,7 @@ closure ClosureId(3) -> Float
     %1 = copy %7
     goto bb3
   bb3:
-    %3 = copy %3 + 1.0
+    %3 = copy %3 + 1
     goto bb1
   bb4:
     return copy %1

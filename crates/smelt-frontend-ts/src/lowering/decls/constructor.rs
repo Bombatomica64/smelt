@@ -12,6 +12,7 @@ use crate::lowering::{
     Program, SmeltError, Span, Statement, Type, Visibility,
 };
 use crate::lowering::support::arrow_block_statements;
+use smelt_hir::ErasureReason;
 
 impl ModuleBuilder<'_> {
     /// Return whether a statement list constructs, type-tests, or extends the
@@ -589,7 +590,6 @@ impl ModuleBuilder<'_> {
             args: Vec::new(),
         });
         let span = self.span(function.span.start, function.span.end);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
 
         // Derive own fields from `this.<name> = …` assignments in the body. The
         // shared `collect_this_member_names_*` helpers only traverse value
@@ -607,9 +607,15 @@ impl ModuleBuilder<'_> {
         field_order.sort_by_key(|symbol| symbol.0);
         for field in field_order {
             if seen.insert(field) {
+                // A constructor function's `this.<name>` writes declare no type.
+                let field_ty = self.erase_at(
+                    ErasureReason::MissingAnnotation,
+                    span,
+                    "constructor-function field",
+                );
                 fields.push(Field {
                     name: field,
-                    ty: unknown_ty,
+                    ty: field_ty,
                     visibility: Visibility::Public,
                     optional: false,
                     span,
@@ -729,7 +735,8 @@ impl ModuleBuilder<'_> {
         if param.type_annotation.is_some() || param.initializer.is_some() {
             return self.function_parameter_type(param);
         }
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let param_span = self.span(param.span.start, param.span.end);
+        let unknown_ty = self.erase_at(ErasureReason::MissingAnnotation, param_span, "");
         if param.optional {
             Ok(self.ctx.krate.types.intern(Type::Optional(unknown_ty)))
         } else {
@@ -780,7 +787,7 @@ impl ModuleBuilder<'_> {
                 Ok(ty) => ty,
                 Err(error) => {
                     errors.push(error);
-                    self.ctx.krate.types.intern(Type::Unknown)
+                    self.erase(ErasureReason::MissingAnnotation)
                 }
             };
             let (param_name, param_span, source_name) =
@@ -883,7 +890,7 @@ impl ModuleBuilder<'_> {
             .as_ref()
             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
             .transpose()?
-            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
 
         let saved_locals = self.scope.take_bindings();
         let saved_class = self.current_class.replace(class_text.to_owned());
@@ -914,7 +921,7 @@ impl ModuleBuilder<'_> {
                 Ok(ty) => ty,
                 Err(error) => {
                     errors.push(error);
-                    self.ctx.krate.types.intern(Type::Unknown)
+                    self.erase(ErasureReason::MissingAnnotation)
                 }
             };
             let (param_name, param_span, source_name) =

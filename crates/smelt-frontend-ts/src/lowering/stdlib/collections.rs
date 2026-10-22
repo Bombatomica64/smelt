@@ -8,7 +8,7 @@ use crate::SmeltError;
 use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
-    Body, DictProjectionOp, Expr, ExprKind, PropertyLookup, SetProjectionOp, SetRemoveOp, Type,
+    Body, DictProjectionOp, ErasureReason, Expr, ExprKind, PropertyLookup, SetProjectionOp, SetRemoveOp, Type,
 };
 use smelt_stdlib::RuleId;
 
@@ -615,7 +615,7 @@ impl ModuleBuilder<'_> {
             // `Unknown`/`List<Unknown>` for every projection would change which
             // record backing the other arms pick.
             DictProjectionOp::Symbols => {
-                let symbol_key_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let symbol_key_ty = self.erase_with(ErasureReason::UnmodeledType, "symbol");
                 self.ctx.krate.types.intern(Type::List(symbol_key_ty))
             }
             DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(value_ty)),
@@ -663,7 +663,7 @@ impl ModuleBuilder<'_> {
                 | Type::Bool,
             ) => {
                 let key_ty = self.ctx.krate.types.intern(Type::String);
-                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let value_ty = self.erase_unless_unknown(dict_ty, ErasureReason::UntypedBuiltin);
                 let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
                 dict = body.push_expr(Expr {
                     kind: ExprKind::UnknownCast {
@@ -681,7 +681,7 @@ impl ModuleBuilder<'_> {
                     .all(|item| self.object_keys_compatible_type(*item)) =>
             {
                 let key_ty = self.ctx.krate.types.intern(Type::String);
-                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let value_ty = self.erase(ErasureReason::UntypedBuiltin);
                 let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
                 dict = body.push_expr(Expr {
                     kind: ExprKind::UnknownCast {
@@ -713,7 +713,7 @@ impl ModuleBuilder<'_> {
             // `Unknown`/`List<Unknown>` for every projection would change which
             // record backing the other arms pick.
             DictProjectionOp::Symbols => {
-                let symbol_key_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let symbol_key_ty = self.erase_with(ErasureReason::UnmodeledType, "symbol");
                 self.ctx.krate.types.intern(Type::List(symbol_key_ty))
             }
             DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(value_ty)),

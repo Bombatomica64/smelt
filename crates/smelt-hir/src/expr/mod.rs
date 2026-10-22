@@ -19,7 +19,7 @@ pub use core::Expr;
 pub use kinds::{ExprKind, GeneratorResumeKind, ListSpliceItem, PropertyLookup};
 pub use literals::{Literal, UnknownKind};
 pub use ops::{
-    BoolFoldOp, DatePart, DictProjectionOp, ListCallbackOp, ListProjectionOp, ListSearchOp,
+    BigIntOp, BoolFoldOp, DatePart, DictProjectionOp, ListCallbackOp, ListProjectionOp, ListSearchOp,
     NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp,
     AbortSignalOp, Base64Op, CryptoOp, HashOp, HostModuleOp, PathOp, SqliteOp, EventEmitterOp, FormDataOp, HeadersOp, HttpServerOp, IncomingMessageOp, ServerResponseOp, RegexMatchOp, RegexReplaceArg, RequestInitMember, RequestOp, ResponseOp, SetBinaryOp, SetProjectionOp, UrlSearchParamsOp, TextDecoderOp, TextEncoderOp, ByteArrayOp, BlobOp, SetRelationOp, SetRemoveOp, StringAffixOp,
     StringCaseOp, StringNormalizeForm, StringPadOp, StringPredicateOp, StringReplaceOp,

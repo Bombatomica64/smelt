@@ -36,7 +36,7 @@
 //! (`overloaded_call_signature_slot_type`).
 
 use oxc::ast::ast::TSCallSignatureDeclaration;
-use smelt_hir::{FunctionType, Type, TypeId};
+use smelt_hir::{ErasureReason, FunctionType, Type, TypeId};
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
@@ -87,7 +87,7 @@ impl ModuleBuilder<'_> {
             .as_ref()
             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
             .transpose()?
-            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
         let mut params = Vec::new();
         for param in &signature.params.items {
             let ty = param
@@ -95,7 +95,7 @@ impl ModuleBuilder<'_> {
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?
-                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
             let ty = if param.optional {
                 self.ctx.krate.types.intern(Type::Optional(ty))
             } else {
@@ -198,7 +198,8 @@ impl ModuleBuilder<'_> {
         }
         // `unknown | T` is `unknown` in TypeScript, so an overload that accepts
         // anything at this position makes the merged position accept anything.
-        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure: matching an overload arm that is already erased
+        let unknown = self.unknown_type();
         let merged = match members.as_slice() {
             _ if members.contains(&unknown) => unknown,
             [single] => *single,

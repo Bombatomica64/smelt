@@ -10,7 +10,7 @@ use oxc::ast::ast::{AssignmentTarget, ChainElement, Expression, SimpleAssignment
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{AssignmentOperator, UpdateOperator};
 use smelt_hir::{
-    BinOp, Body, CaptureMode, ClosureCapture, DictProjectionOp, Expr, ExprKind, FunctionType, Item,
+    BinOp, Body, CaptureMode, ErasureReason, ClosureCapture, DictProjectionOp, Expr, ExprKind, FunctionType, Item,
     Literal, LocalDecl, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, Pattern,
     PrimitiveCastOp, Span, Stmt, Type, UnknownKind,
 };
@@ -58,7 +58,7 @@ impl ModuleBuilder<'_> {
                 for arg in &call.arguments {
                     let _ = self.argument(arg, body)?;
                 }
-                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                let ty = self.erase_with(ErasureReason::UntypedPackage, member_name);
                 return Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::None),
                     ty,
@@ -310,7 +310,7 @@ impl ModuleBuilder<'_> {
         let receiver =
             self.global_object_value_expression(member.span.start, member.span.end, body);
         let index = self.expression(&member.expression, body)?;
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::ByName, "globalThis[..]");
         Ok(body.push_expr(Expr {
             kind: ExprKind::Index { receiver, index },
             ty: unknown_ty,
@@ -709,7 +709,11 @@ impl ModuleBuilder<'_> {
                     )
                 {
                     let span = self.span(member.span.start, member.span.end);
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let ty = self.erase_at(
+                        ErasureReason::ByName,
+                        span,
+                        member.property.name.as_str(),
+                    );
                     let erased = body.push_expr(Expr {
                         kind: ExprKind::UnknownCast {
                             value: receiver,
@@ -767,7 +771,7 @@ impl ModuleBuilder<'_> {
             return None;
         }
         let span = self.span(member.span.start, member.span.end);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_at(ErasureReason::RuntimeNarrowing, span, "Array.isArray");
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let value_name = self.intern_source_name("value");
         let mut closure_body = Body::new(None, span);
@@ -885,7 +889,7 @@ impl ModuleBuilder<'_> {
             )?;
         // Symbol values are erased at runtime (`SmeltUnknown::Symbol`), the same
         // type the `Symbol()` / `Symbol.for()` call paths intern.
-        let ty = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.erase_with(ErasureReason::UnmodeledType, "symbol");
         Some(body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::Symbol(spelling)),
             ty,
@@ -911,10 +915,11 @@ impl ModuleBuilder<'_> {
             return None;
         }
         let (arity, return_ty) = match member.property.name.as_str() {
-            "keys" | "values" | "entries" | "fromEntries" | "getPrototypeOf" | "create" => {
-                (1, self.ctx.krate.types.intern(Type::Unknown))
+            name @ ("keys" | "values" | "entries" | "fromEntries" | "getPrototypeOf"
+            | "create") => (1, self.erase_with(ErasureReason::UntypedBuiltin, name)),
+            name @ ("assign" | "setPrototypeOf") => {
+                (2, self.erase_with(ErasureReason::UntypedBuiltin, name))
             }
-            "assign" | "setPrototypeOf" => (2, self.ctx.krate.types.intern(Type::Unknown)),
             "is" | "hasOwn" => (2, self.ctx.krate.types.intern(Type::Bool)),
             _ => return None,
         };
@@ -930,7 +935,10 @@ impl ModuleBuilder<'_> {
         outer_body: &mut Body,
     ) -> smelt_hir::ExprId {
         let span = self.span(member.span.start, member.span.end);
-        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure: names the parameter type of a synthesized runtime
+        // helper closure (any JS value is accepted); the result's erasure is
+        // recorded by the caller.
+        let unknown = self.unknown_type();
         let mut closure_body = Body::new(None, span);
         let mut params = Vec::new();
         let mut param_tys = Vec::new();
@@ -1071,7 +1079,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Option<smelt_hir::ExprId> {
         let span = self.span(member.span.start, member.span.end);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_at(ErasureReason::ByName, span, "__proto__");
         let value = if Self::expr_ty(body, receiver) == unknown_ty {
             receiver
         } else {
@@ -1106,7 +1114,7 @@ impl ModuleBuilder<'_> {
         if object.name != "Object" || member.property.name != "prototype" {
             return None;
         }
-        let ty = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.erase_with(ErasureReason::ByName, "Object.prototype");
         // `Object.prototype` is a sentinel string so prototype comparisons
         // (`proto === Object.prototype`) survive type erasure and distinguish
         // plain objects from arrays/null. Pairs with `object_get_prototype_of_call`.
@@ -1185,7 +1193,7 @@ impl ModuleBuilder<'_> {
         // `['1'].every(Number.isSafeInteger)` answer `true`, the same defect the
         // direct-call path avoids.
         let number_ty = if matches!(op, NumericPredicateOp::IsSafeInteger) {
-            self.ctx.krate.types.intern(Type::Unknown)
+            self.erase_at(ErasureReason::RuntimeNarrowing, span, "Number.isSafeInteger")
         } else {
             self.ctx.krate.types.intern(Type::Float)
         };
@@ -1442,7 +1450,7 @@ impl ModuleBuilder<'_> {
             let kind = if Self::is_process_env_field(member, "TZ")
                 || Self::is_process_env_field(member, "tz")
             {
-                ExprKind::Literal(Literal::String("America/Santiago".to_owned()))
+                ExprKind::Literal(Literal::String(smelt_stdlib::NODE_PROFILE_TIMEZONE.to_owned()))
             } else {
                 ExprKind::ProcessEnvRead {
                     name: member.property.name.as_str().to_owned(),
@@ -1600,7 +1608,7 @@ impl ModuleBuilder<'_> {
             let tuple_index = self.static_tuple_index(index, body, tuple_len, member.span)?;
             let Some(ty) = items.get(tuple_index).copied() else {
                 if self.allow_unknown_index_access {
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let ty = self.erase_with(ErasureReason::DynamicOperator, "tuple index");
                     return Ok(body.push_expr(Expr {
                         kind: ExprKind::Index { receiver, index },
                         ty,
@@ -1658,7 +1666,11 @@ impl ModuleBuilder<'_> {
             }
         }
         if self.can_lower_acknowledged_unknown_index(access_receiver_ty, member.span.start) {
-            let ty = self.ctx.krate.types.intern(Type::Unknown);
+            let ty = self.callback_erase_unless_unknown(
+                access_receiver_ty,
+                ErasureReason::DynamicOperator,
+                "computed index",
+            );
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Index { receiver, index },
                 ty,
@@ -1915,14 +1927,19 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         let receiver = self.expression(&member.object, body)?;
+        let receiver_ty = Self::expr_ty(body, receiver);
         if !matches!(
-            self.ctx.krate.types.get(Self::expr_ty(body, receiver)),
+            self.ctx.krate.types.get(receiver_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. })
         ) {
             return Ok(None);
         }
         let index = self.expression(&member.expression, body)?;
-        let ty = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.callback_erase_unless_unknown(
+            receiver_ty,
+            ErasureReason::DynamicOperator,
+            "computed index",
+        );
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Index { receiver, index },
             ty,
@@ -2025,6 +2042,9 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
+        if callee.name == "BigInt" {
+            return self.bigint_conversion_call(call, body).map(Some);
+        }
         if callee.name == "parseFloat" {
             let operand = self.parse_float_operand("parseFloat", call, body)?;
             let ty = self.ctx.krate.types.intern(Type::Float);
@@ -2040,7 +2060,6 @@ impl ModuleBuilder<'_> {
         let (op, result_ty) = match callee.name.as_str() {
             "String" => (PrimitiveCastOp::ToString, Type::String),
             "Number" => (PrimitiveCastOp::ToJsNumber, Type::Float),
-            "BigInt" => (PrimitiveCastOp::ToFloat, Type::Float),
             "Boolean" => (PrimitiveCastOp::ToBool, Type::Bool),
             _ => return Ok(None),
         };
@@ -2106,7 +2125,7 @@ impl ModuleBuilder<'_> {
             return !matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Never));
         }
         match self.ctx.krate.types.get(operand_ty) {
-            Some(Type::Bool | Type::String | Type::Int | Type::Float | Type::Unknown) => true,
+            Some(Type::Bool | Type::String | Type::Int | Type::BigInt | Type::Float | Type::Unknown) => true,
             Some(Type::TypeParam { .. } | Type::Class { .. }) => {
                 matches!(
                     op,
@@ -2208,12 +2227,13 @@ impl ModuleBuilder<'_> {
         let span = self.span(update.span.start, update.span.end);
         let ty = match self.item_ref(item) {
             Item::MutableGlobal(global_item) => global_item.ty,
-            _ => self.ctx.krate.types.intern(Type::Unknown),
+            _ => self.erase_at(ErasureReason::ByName, span, identifier.name.as_str()),
         };
         let op = match update.operator {
             UpdateOperator::Increment => BinOp::Add,
             UpdateOperator::Decrement => BinOp::Sub,
         };
+        let step = self.unit_step_literal(ty);
         let build_set = |target_body: &mut Body| {
             let current = target_body.push_expr(Expr {
                 kind: ExprKind::GlobalGet { item },
@@ -2221,7 +2241,7 @@ impl ModuleBuilder<'_> {
                 span,
             });
             let one = target_body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Float(1.0)),
+                kind: ExprKind::Literal(step.clone()),
                 ty,
                 span,
             });
@@ -2370,25 +2390,33 @@ impl ModuleBuilder<'_> {
                     }
                 };
                 let ty = Self::expr_ty(body, target);
-                body.push_expr(Expr {
-                    kind: ExprKind::BinOp {
-                        op,
-                        lhs: target,
-                        rhs: right,
-                    },
-                    ty,
-                    span: self.span(assign.span.start, assign.span.end),
-                })
+                let span = self.span(assign.span.start, assign.span.end);
+                self.bigint_fallible_binary(op, target, right, span, body)
+                    .unwrap_or_else(|| {
+                        body.push_expr(Expr {
+                            kind: ExprKind::BinOp {
+                                op,
+                                lhs: target,
+                                rhs: right,
+                            },
+                            ty,
+                            span,
+                        })
+                    })
             }
-            // `**=` is the one compound operator left, and naming it here rather
-            // than catching it with a wildcard keeps the list honest: it is
-            // missing because `BinOp` has no exponentiation arm, so it needs the
-            // same lowering the binary `**` uses, not this rule.
+            // `**=` is the one compound operator `BinOp` has no arm for, so it
+            // takes the lowering the binary `**` uses: the fallible bigint
+            // power when both sides are bigints. The `number` form is still not
+            // lowered here.
             AssignmentOperator::Exponential => {
-                return Err(SmeltError::unsupported(
-                    self.span(assign.span.start, assign.span.end),
-                    "assignment operator is not lowered yet: Exponential",
-                ));
+                let span = self.span(assign.span.start, assign.span.end);
+                let Some(power) = self.bigint_power(target, right, span, body) else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "assignment operator is not lowered yet: Exponential",
+                    ));
+                };
+                power
             }
         };
         self.apply_assignment_observed_type(&assign.left, Self::expr_ty(body, value), body);
@@ -2586,8 +2614,9 @@ impl ModuleBuilder<'_> {
             // in charge, exactly as before any write was collected.
             return Ok(None);
         }
-        let base_ty = Self::local_ty_checked(body, local)
-            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+        let base_ty = Self::local_ty_checked(body, local).unwrap_or_else(|| {
+            self.erase_with(ErasureReason::MissingAnnotation, "callable local")
+        });
         let callable = body.push_expr(Expr {
             kind: ExprKind::Local(local),
             ty: base_ty,
@@ -2913,7 +2942,7 @@ impl ModuleBuilder<'_> {
         let target = self.simple_assignment_target_expr(&update.argument, body)?;
         let one_ty = Self::expr_ty(body, target);
         let one = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Float(1.0)),
+            kind: ExprKind::Literal(self.unit_step_literal(one_ty)),
             ty: one_ty,
             span: self.span(update.span.start, update.span.end),
         });

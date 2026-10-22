@@ -3401,6 +3401,39 @@ fn smelt_unknown_from_json_value(value: serde_json::Value) -> SmeltUnknown {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+struct AddressInfo {
+    address: String,
+    family: String,
+    port: f64,
+}
+impl IntoSmeltUnknown for AddressInfo {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("address".to_owned(), SmeltUnknown::String(self.address.into())),
+        ("family".to_owned(), SmeltUnknown::String(self.family.into())),
+        ("port".to_owned(), SmeltUnknown::Number(self.port as f64)),
+        ])))
+    }
+}
+impl SmeltFromUnknown for AddressInfo {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("address") {
+                result.address = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("family") {
+                result.family = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("port") {
+                result.port = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -4650,19 +4683,19 @@ pub type SmeltHttpHandler = ::std::rc::Rc<dyn Fn(SmeltIncomingMessage, SmeltServ
 pub struct SmeltHttpServer {
     id: usize,
     handler: SmeltHttpHandler,
-    /// The bound port once `listen` has run, for `address()`.
-    port: ::std::rc::Rc<::std::cell::Cell<Option<u16>>>,
+    /// The bound socket address once `listen` has run, for `address()`.
+    local: ::std::rc::Rc<::std::cell::Cell<Option<::std::net::SocketAddr>>>,
     /// Sends the accept loop its stop signal; taken by `close`.
     shutdown: ::std::rc::Rc<::std::cell::RefCell<Option<tokio::sync::oneshot::Sender<()>>>>,
 }
 
 impl PartialEq for SmeltHttpServer { fn eq(&self, other: &Self) -> bool { self.id == other.id } }
-impl ::std::fmt::Debug for SmeltHttpServer { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltHttpServer").field("port", &self.port.get()).finish() } }
+impl ::std::fmt::Debug for SmeltHttpServer { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltHttpServer").field("local", &self.local.get()).finish() } }
 
 #[allow(dead_code)]
 impl SmeltHttpServer {
     /// `createServer(handler)`.
-    pub fn new(handler: SmeltHttpHandler) -> Self { Self { id: smelt_next_object_id(), handler, port: ::std::rc::Rc::new(::std::cell::Cell::new(None)), shutdown: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
+    pub fn new(handler: SmeltHttpHandler) -> Self { Self { id: smelt_next_object_id(), handler, local: ::std::rc::Rc::new(::std::cell::Cell::new(None)), shutdown: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
     /// JS reference identity of this server.
     pub fn id(&self) -> usize { self.id }
     /// `server.listen(port[, host][, callback])`.
@@ -4681,7 +4714,7 @@ impl SmeltHttpServer {
         let port = if port.is_finite() && port >= 0.0 && port <= 65535.0 { port as u16 } else { 0 };
         let listener = ::std::net::TcpListener::bind((host.as_str(), port))?;
         listener.set_nonblocking(true)?;
-        self.port.set(Some(listener.local_addr()?.port()));
+        self.local.set(Some(listener.local_addr()?));
         let listener = tokio::net::TcpListener::from_std(listener)?;
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
         *self.shutdown.borrow_mut() = Some(shutdown_tx);
@@ -4699,11 +4732,14 @@ impl SmeltHttpServer {
             let _ = shutdown.send(());
             smelt_release_handle();
         }
-        self.port.set(None);
+        self.local.set(None);
         Ok(self.clone())
     }
-    /// `server.address()`: the bound port, or null when not listening.
-    pub fn address(&self) -> Option<f64> { self.port.get().map(f64::from) }
+    /// `server.address()`: Node's `AddressInfo` fields of the bound socket --
+    /// `(address, family, port)`, e.g. `("127.0.0.1", "IPv4", 41234.0)` --
+    /// or `None` when not listening. The emitter builds the generated
+    /// `AddressInfo` record from the triple.
+    pub fn address(&self) -> Option<(String, String, f64)> { self.local.get().map(|local| (local.ip().to_string(), if local.is_ipv4() { "IPv4".to_owned() } else { "IPv6".to_owned() }, f64::from(local.port()))) }
 }
 
 /// Accept connections until `close` signals, serving each on its own task.
@@ -4821,24 +4857,479 @@ impl SmeltFromUnknown for SmeltServerResponse { fn smelt_from_unknown(value: Sme
 /// erased value back hands out the SAME object rather than a copy.
 impl IntoSmeltUnknown for SmeltHttpServer { fn into_smelt_unknown(self) -> SmeltUnknown { let smelt_id = self.id; let smelt_host_origin = self.clone(); smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(smelt_id, Vec::from([("__smelt_httpserver".to_owned(), SmeltUnknown::Bool(true))]))), smelt_host_origin) } }
 
+#[derive(Clone)]
+pub enum SmeltUnion23 {
+    M0(f64),
+    M1(AddressInfo),
+}
+impl IntoSmeltUnknown for SmeltUnion23 {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        match self {
+            Self::M0(value) => SmeltUnknown::Number(value as f64),
+            Self::M1(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("address".to_owned(), SmeltUnknown::String(smelt_object_value.address.into()))); smelt_object_entries.push(("family".to_owned(), SmeltUnknown::String(smelt_object_value.family.into()))); smelt_object_entries.push(("port".to_owned(), SmeltUnknown::Number(smelt_object_value.port as f64))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },
+        }
+    }
+}
+impl SmeltUnion23 {
+    fn from_smelt_unknown(value: SmeltUnknown) -> Self {
+        if matches!(value, SmeltUnknown::Number(_)) { return Self::M0(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }); }
+        Self::M1(match (value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); AddressInfo { address: smelt_record_map.get("address").or_else(|| smelt_record_map.get("__smelt_proto:address")).or_else(|| smelt_record_map.get("__smelt_method:address")).cloned().map_or(String::new(), |value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }), family: smelt_record_map.get("family").or_else(|| smelt_record_map.get("__smelt_proto:family")).or_else(|| smelt_record_map.get("__smelt_method:family")).cloned().map_or(String::new(), |value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }), port: smelt_record_map.get("port").or_else(|| smelt_record_map.get("__smelt_proto:port")).or_else(|| smelt_record_map.get("__smelt_method:port")).cloned().map_or(0.0, |value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } } }, _ => Default::default() })
+    }
+}
+impl PartialEq for SmeltUnion23 {
+    fn eq(&self, other: &Self) -> bool {
+        self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
+    }
+}
+impl SmeltFromUnknown for SmeltUnion23 {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
+}
+impl SmeltJsKeyEq for SmeltUnion23 {
+    fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
+    fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
+}
+impl ::std::fmt::Debug for SmeltUnion23 {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
+    }
+}
+impl Default for SmeltUnion23 {
+    fn default() -> Self {
+        Self::M0(0.0)
+    }
+}
+
+/// `util.inspect` state for one `console.log` argument (Node's `ctx`).
+#[derive(Default)]
+struct SmeltInspectContext {
+    /// `ctx.indentationLvl`: the column the current entry starts at.
+    indentation: usize,
+    /// `ctx.currentDepth`: depth of the container most recently entered.
+    current_depth: usize,
+}
+
+/// Node's `util.inspect`, implemented once per Rust storage type.
+trait SmeltInspect {
+    /// Render this value as an inspected ENTRY at `depth` (`recurseTimes`).
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String;
+    /// Whether this value is a JavaScript number (grouped arrays right-align them).
+    fn smelt_inspect_is_number(&self) -> bool { false }
+    /// Render this value as a top-level `console.log` argument.
+    fn smelt_console_text(&self) -> String { self.smelt_inspect(&mut SmeltInspectContext::default(), 0) }
+}
+
+/// The JavaScript `.length` of rendered text, in UTF-16 code units.
+fn smelt_inspect_len(text: &str) -> usize { text.encode_utf16().count() }
+
+/// `strEscape`: quote `value` the way `util.inspect` shows a string.
+///
+/// Single quotes unless the string contains one; then double quotes, then
+/// backticks, and single quotes with `\'` escapes when it contains all three.
+fn smelt_inspect_quote(value: &str) -> String {
+    let quote = if !value.contains('\'') {
+        '\''
+    } else if !value.contains('"') {
+        '"'
+    } else if !value.contains('`') && !value.contains("${") {
+        '`'
+    } else {
+        '\''
+    };
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push(quote);
+    for ch in value.chars() {
+        let code = ch as u32;
+        match ch {
+            '\u{8}' => out.push_str("\\b"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\u{c}' => out.push_str("\\f"),
+            '\r' => out.push_str("\\r"),
+            '\\' => out.push_str("\\\\"),
+            '\'' if quote == '\'' => out.push_str("\\'"),
+            _ if code < 0x20 || (0x7f..0xa0).contains(&code) => out.push_str(&format!("\\x{code:02X}")),
+            _ => out.push(ch),
+        }
+    }
+    out.push(quote);
+    out
+}
+
+/// `formatPrimitive` for a string entry: a long multi-line string is split at
+/// its newlines into `'line\n' +` pieces, one per row.
+fn smelt_inspect_string(ctx: &SmeltInspectContext, value: &str) -> String {
+    let length = smelt_inspect_len(value);
+    if length > 16 && length + ctx.indentation + 4 > 80 {
+        let lines = value.split_inclusive('\n').collect::<Vec<_>>();
+        if lines.len() > 1 {
+            let separator = format!(" +\n{}", " ".repeat(ctx.indentation + 2));
+            return lines.iter().map(|line| smelt_inspect_quote(line)).collect::<Vec<_>>().join(&separator);
+        }
+    }
+    smelt_inspect_quote(value)
+}
+
+/// A property key: bare when it is an identifier (`/^[a-zA-Z_][a-zA-Z_0-9]*$/`), quoted otherwise.
+fn smelt_inspect_key(key: &str) -> String {
+    let mut chars = key.chars();
+    let identifier = chars.next().is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|rest| rest.is_ascii_alphanumeric() || rest == '_');
+    if identifier { key.to_owned() } else { smelt_inspect_quote(key) }
+}
+
+/// `padStart`/`padEnd` to a JavaScript length.
+fn smelt_inspect_pad(text: &str, width: usize, start: bool) -> String {
+    let pad = " ".repeat(width.saturating_sub(smelt_inspect_len(text)));
+    if start { format!("{pad}{text}") } else { format!("{text}{pad}") }
+}
+
+/// `groupArrayElements`: lay a long array of short entries out in columns.
+///
+/// `has_more` marks a trailing `... N more items` entry, which is kept out of
+/// the grid; `numbers` right-aligns the cells.
+fn smelt_inspect_group(ctx: &SmeltInspectContext, output: Vec<String>, numbers: bool, has_more: bool) -> Vec<String> {
+    let separator_space = 2usize;
+    let output_length = if has_more { output.len() - 1 } else { output.len() };
+    let data_len = output[..output_length].iter().map(|entry| smelt_inspect_len(entry)).collect::<Vec<_>>();
+    let total_length = data_len.iter().map(|len| len + separator_space).sum::<usize>();
+    let max_length = data_len.iter().copied().max().unwrap_or(0);
+    let actual_max = max_length + separator_space;
+    if actual_max * 3 + ctx.indentation < 80 && (total_length as f64 / actual_max as f64 > 5.0 || max_length <= 6) {
+        let average_bias = (actual_max as f64 - total_length as f64 / output.len() as f64).sqrt();
+        let biased_max = (actual_max as f64 - 3.0 - average_bias).max(1.0);
+        let square = ((2.5 * biased_max * output_length as f64).sqrt() / biased_max + 0.5).floor();
+        let columns = square
+            .min(((80 - ctx.indentation) / actual_max) as f64)
+            .min(12.0)
+            .min(15.0) as usize;
+        if columns <= 1 {
+            return output;
+        }
+        let max_line_length = (0..columns)
+            .map(|column| {
+                (column..output.len())
+                    .step_by(columns)
+                    .filter_map(|index| data_len.get(index).copied())
+                    .max()
+                    .unwrap_or(0)
+                    + separator_space
+            })
+            .collect::<Vec<_>>();
+        let mut grouped = Vec::new();
+        let mut row = 0;
+        while row < output_length {
+            let end = (row + columns).min(output_length);
+            let mut line = String::new();
+            for index in row..end - 1 {
+                line.push_str(&smelt_inspect_pad(&format!("{}, ", output[index]), max_line_length[index - row], numbers));
+            }
+            let last = end - 1;
+            if numbers {
+                line.push_str(&smelt_inspect_pad(&output[last], max_line_length[last - row] - separator_space, true));
+            } else {
+                line.push_str(&output[last]);
+            }
+            grouped.push(line);
+            row += columns;
+        }
+        if has_more {
+            grouped.push(output[output_length].clone());
+        }
+        return grouped;
+    }
+    output
+}
+
+/// `reduceToSingleString`: join rendered entries on one line or one per line.
+///
+/// `array` is `Some(numbers)` for an array (which may be grouped first) and
+/// `None` for an object, map or set; `has_more` marks a trailing
+/// `... N more items` entry.
+fn smelt_inspect_reduce(ctx: &SmeltInspectContext, output: Vec<String>, open: &str, close: &str, depth: usize, array: Option<bool>, has_more: bool) -> String {
+    let entries = output.len();
+    let output = match array {
+        Some(numbers) if entries > 6 => smelt_inspect_group(ctx, output, numbers, has_more),
+        _ => output,
+    };
+    if ctx.current_depth.saturating_sub(depth) < 3 && entries == output.len() {
+        let start = output.len() + ctx.indentation + smelt_inspect_len(open) + 10;
+        let mut total = output.len() + start;
+        let mut fits = total + output.len() <= 80;
+        for entry in &output {
+            if !fits {
+                break;
+            }
+            total += smelt_inspect_len(entry);
+            fits = total <= 80;
+        }
+        if fits {
+            let joined = output.join(", ");
+            if !joined.contains('\n') {
+                return format!("{open} {joined} {close}");
+            }
+        }
+    }
+    let indentation = format!("\n{}", " ".repeat(ctx.indentation));
+    format!("{open}{indentation}  {}{indentation}{close}", output.join(&format!(",{indentation}  ")))
+}
+
+/// The `... N more items` entry past `maxArrayLength` (100).
+fn smelt_inspect_more(remaining: usize) -> String {
+    format!("... {remaining} more item{}", if remaining > 1 { "s" } else { "" })
+}
+
+/// `formatArray`/`formatList`: an array (or tuple) of inspectable entries.
+fn smelt_inspect_array(ctx: &mut SmeltInspectContext, depth: usize, entries: &[&dyn SmeltInspect]) -> String {
+    if entries.is_empty() {
+        return "[]".to_owned();
+    }
+    if depth > 2 {
+        return "[Array]".to_owned();
+    }
+    let depth = depth + 1;
+    ctx.current_depth = depth;
+    let shown = entries.len().min(100);
+    let mut output = Vec::with_capacity(shown + 1);
+    ctx.indentation += 2;
+    for entry in &entries[..shown] {
+        output.push(entry.smelt_inspect(ctx, depth));
+    }
+    ctx.indentation -= 2;
+    let remaining = entries.len() - shown;
+    if remaining > 0 {
+        output.push(smelt_inspect_more(remaining));
+    }
+    let numbers = entries.iter().take(output.len()).all(|entry| entry.smelt_inspect_is_number());
+    smelt_inspect_reduce(ctx, output, "[", "]", depth, Some(numbers), remaining > 0)
+}
+
+/// `formatRaw` over an object's own enumerable properties.
+///
+/// `constructor` is the class name Node prefixes (`Point { x: 1 }`), empty for
+/// a plain object.
+fn smelt_inspect_object(ctx: &mut SmeltInspectContext, depth: usize, constructor: &str, entries: &[(&str, &dyn SmeltInspect)]) -> String {
+    let open = if constructor.is_empty() { "{".to_owned() } else { format!("{constructor} {{") };
+    if entries.is_empty() {
+        return format!("{open}}}");
+    }
+    if depth > 2 {
+        return format!("[{}]", if constructor.is_empty() { "Object" } else { constructor });
+    }
+    let depth = depth + 1;
+    ctx.current_depth = depth;
+    let mut output = Vec::with_capacity(entries.len());
+    for (key, value) in entries {
+        ctx.indentation += 2;
+        let text = value.smelt_inspect(ctx, depth);
+        ctx.indentation -= 2;
+        output.push(format!("{}: {text}", smelt_inspect_key(key)));
+    }
+    smelt_inspect_reduce(ctx, output, &open, "}", depth, None, false)
+}
+
+/// `formatSet`/`formatMap`: a keyed collection with its `Set(n)`/`Map(n)` prefix.
+///
+/// Each entry is a value (a set) or a `key => value` pair (a map).
+fn smelt_inspect_collection(ctx: &mut SmeltInspectContext, depth: usize, kind: &str, entries: &[(&dyn SmeltInspect, Option<&dyn SmeltInspect>)]) -> String {
+    let open = format!("{kind}({}) {{", entries.len());
+    if entries.is_empty() {
+        return format!("{open}}}");
+    }
+    if depth > 2 {
+        return format!("[{kind}]");
+    }
+    let depth = depth + 1;
+    ctx.current_depth = depth;
+    let shown = entries.len().min(100);
+    let mut output = Vec::with_capacity(shown + 1);
+    ctx.indentation += 2;
+    for (key, value) in &entries[..shown] {
+        let key_text = key.smelt_inspect(ctx, depth);
+        match value {
+            Some(value) => {
+                let value_text = value.smelt_inspect(ctx, depth);
+                output.push(format!("{key_text} => {value_text}"));
+            }
+            None => output.push(key_text),
+        }
+    }
+    ctx.indentation -= 2;
+    let remaining = entries.len() - shown;
+    if remaining > 0 {
+        output.push(smelt_inspect_more(remaining));
+    }
+    smelt_inspect_reduce(ctx, output, &open, "}", depth, None, false)
+}
+
+impl SmeltInspect for f64 {
+    fn smelt_inspect(&self, _ctx: &mut SmeltInspectContext, _depth: usize) -> String { smelt_console_number(*self) }
+    fn smelt_inspect_is_number(&self) -> bool { true }
+}
+
+impl SmeltInspect for i64 {
+    fn smelt_inspect(&self, _ctx: &mut SmeltInspectContext, _depth: usize) -> String { smelt_console_number(*self as f64) }
+    fn smelt_inspect_is_number(&self) -> bool { true }
+}
+
+impl SmeltInspect for bool {
+    fn smelt_inspect(&self, _ctx: &mut SmeltInspectContext, _depth: usize) -> String { self.to_string() }
+}
+
+impl SmeltInspect for String {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, _depth: usize) -> String { smelt_inspect_string(ctx, self) }
+    fn smelt_console_text(&self) -> String { self.clone() }
+}
+
+impl SmeltInspect for () {
+    fn smelt_inspect(&self, _ctx: &mut SmeltInspectContext, _depth: usize) -> String { "null".to_owned() }
+}
+
+impl<T: SmeltInspect> SmeltInspect for Option<T> {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        match self { Some(value) => value.smelt_inspect(ctx, depth), None => "undefined".to_owned() }
+    }
+    fn smelt_inspect_is_number(&self) -> bool { self.as_ref().is_some_and(SmeltInspect::smelt_inspect_is_number) }
+    fn smelt_console_text(&self) -> String {
+        match self { Some(value) => value.smelt_console_text(), None => "undefined".to_owned() }
+    }
+}
+
+// A tuple is a JavaScript array.
+macro_rules! smelt_inspect_tuple {
+    ($($name:ident $index:tt),+) => {
+        impl<$($name: SmeltInspect),+> SmeltInspect for ($($name,)+) {
+            fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+                let entries: &[&dyn SmeltInspect] = &[$(&self.$index),+];
+                smelt_inspect_array(ctx, depth, entries)
+            }
+        }
+    };
+}
+smelt_inspect_tuple!(A 0);
+smelt_inspect_tuple!(A 0, B 1);
+smelt_inspect_tuple!(A 0, B 1, C 2);
+smelt_inspect_tuple!(A 0, B 1, C 2, D 3);
+smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4);
+smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5);
+smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6);
+smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7);
+smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8);
+smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9);
+smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10);
+smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10, L 11);
+
+impl<T: SmeltInspect> SmeltInspect for SmeltList<T> {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        let values = self.borrow();
+        let entries = values.iter().map(|value| value as &dyn SmeltInspect).collect::<Vec<_>>();
+        smelt_inspect_array(ctx, depth, &entries)
+    }
+}
+
+impl<V: SmeltInspect + Clone> SmeltInspect for SmeltRecord<String, V> {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        let pairs = self.iter().filter(|(key, _)| !key.starts_with("__smelt")).collect::<Vec<_>>();
+        let entries = pairs.iter().map(|(key, value)| (key.as_str(), value as &dyn SmeltInspect)).collect::<Vec<_>>();
+        smelt_inspect_object(ctx, depth, "", &entries)
+    }
+}
+
+impl<K: SmeltInspect + SmeltJsKeyEq + Clone, V: SmeltInspect + Clone> SmeltInspect for SmeltJsMap<K, V> {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        let pairs = self.iter().collect::<Vec<_>>();
+        let entries = pairs.iter().map(|(key, value)| (key as &dyn SmeltInspect, Some(value as &dyn SmeltInspect))).collect::<Vec<_>>();
+        smelt_inspect_collection(ctx, depth, "Map", &entries)
+    }
+}
+
+impl<T: SmeltInspect + Clone + IntoSmeltUnknown> SmeltInspect for SmeltJsSet<T> {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        let entries = self.iter().map(|value| (value as &dyn SmeltInspect, None)).collect::<Vec<_>>();
+        smelt_inspect_collection(ctx, depth, "Set", &entries)
+    }
+}
+
+impl SmeltInspect for SmeltUnknown {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        match self {
+            Self::Null => "null".to_owned(),
+            Self::Undefined => "undefined".to_owned(),
+            Self::Bool(value) => value.to_string(),
+            Self::Number(value) => smelt_console_number(*value),
+            Self::String(value) => smelt_inspect_string(ctx, value),
+            Self::Array(values) => {
+                let values = values.values.borrow();
+                let entries = values.iter().map(|value| value as &dyn SmeltInspect).collect::<Vec<_>>();
+                smelt_inspect_array(ctx, depth, &entries)
+            }
+            Self::Object(object) => {
+                let pairs = object.iter().collect::<Vec<_>>();
+                if pairs.iter().any(|(key, value)| key.starts_with("__smelt") || matches!(value, Self::Function(_))) {
+                    return self.to_string();
+                }
+                let entries = pairs.iter().map(|(key, value)| (key.as_str(), value as &dyn SmeltInspect)).collect::<Vec<_>>();
+                smelt_inspect_object(ctx, depth, "", &entries)
+            }
+            Self::Symbol(_) | Self::Function(_) | Self::Promise(_) => self.to_string(),
+        }
+    }
+    fn smelt_inspect_is_number(&self) -> bool { matches!(self, Self::Number(_)) }
+    fn smelt_console_text(&self) -> String {
+        match self {
+            Self::String(value) => value.to_string(),
+            _ => self.smelt_inspect(&mut SmeltInspectContext::default(), 0),
+        }
+    }
+}
+
+impl SmeltInspect for AddressInfo {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        let mut entries: Vec<(&str, &dyn SmeltInspect)> = Vec::new();
+        entries.push(("address", &self.address));
+        entries.push(("family", &self.family));
+        entries.push(("port", &self.port));
+        smelt_inspect_object(ctx, depth, "", &entries)
+    }
+}
+
+impl SmeltInspect for SmeltUnion23 {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String { match self { Self::M0(value) => value.smelt_inspect(ctx, depth), Self::M1(value) => value.smelt_inspect(ctx, depth) } }
+    fn smelt_inspect_is_number(&self) -> bool { match self { Self::M0(value) => value.smelt_inspect_is_number(), Self::M1(value) => value.smelt_inspect_is_number() } }
+    fn smelt_console_text(&self) -> String { match self { Self::M0(value) => value.smelt_console_text(), Self::M1(value) => value.smelt_console_text() } }
+}
+
 // @smelt:prelude-end — generated program below
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
+    let port: f64;
+    let base: String;
+    let posted: SmeltResponse;
     let plain: SmeltResponse;
+    let mut _smelt_tmp_13: bool;
+    let _smelt_tmp_14: bool;
+    let _smelt_tmp_15: bool;
+    let mut _smelt_tmp_16: f64;
+    let _smelt_tmp_17: AddressInfo;
+    let _smelt_tmp_18: String;
+    let _smelt_tmp_19: String;
     let _smelt_tmp_20: String;
-    let _smelt_tmp_22: String;
-    let _smelt_tmp_23: String;
-    let _smelt_tmp_25: SmeltResponse;
-    let _smelt_tmp_26: f64;
+    let _smelt_tmp_21: SmeltRequest;
+    let _smelt_tmp_23: SmeltResponse;
+    let _smelt_tmp_24: f64;
+    let _smelt_tmp_27: String;
     let _smelt_tmp_29: String;
-    let _smelt_tmp_31: SmeltHttpServer;
-    let _smelt_tmp_32: Option<f64>;
+    let _smelt_tmp_30: String;
+    let _smelt_tmp_32: SmeltResponse;
     let _smelt_tmp_33: f64;
-    let _smelt_tmp_34: f64;
-    let _smelt_tmp_37: ();
-    let _smelt_tmp_5 = ::std::rc::Rc::new(|closure_arg_0: SmeltIncomingMessage, closure_arg_1: SmeltServerResponse| {
+    let _smelt_tmp_36: String;
+    let _smelt_tmp_38: SmeltHttpServer;
+    let _smelt_tmp_39: Option<AddressInfo>;
+    let _smelt_tmp_40: f64;
+    let _smelt_tmp_41: SmeltUnion23;
+    let _smelt_tmp_44: ();
+    let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: SmeltIncomingMessage, closure_arg_1: SmeltServerResponse| {
     let smelt_capture_received: ::std::rc::Rc<::std::cell::RefCell<String>> = ::std::rc::Rc::new(::std::cell::RefCell::new("".to_owned()));
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let smelt_capture_received = smelt_capture_received.clone();
@@ -4897,46 +5388,63 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_6: SmeltIncomingMessage = { let smelt_listener = match { let smelt_function_value = _smelt_tmp_5.clone(); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { (smelt_function_value)(); Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } } { SmeltUnknown::Function(smelt_function) => smelt_function, _ => ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Undefined)) }; closure_arg_0.clone().add(&"end".to_owned(), smelt_listener, false) };
     ()
     });
-    let _smelt_tmp_6: SmeltHttpServer = SmeltHttpServer::new({ let smelt_handler = _smelt_tmp_5; ::std::rc::Rc::new(move |smelt_request: SmeltIncomingMessage, smelt_response: SmeltServerResponse| { let _ = smelt_handler(smelt_request, smelt_response); Ok(()) }) as SmeltHttpHandler });
-    let server: SmeltHttpServer = _smelt_tmp_6;
-    let _smelt_tmp_7 = ::std::rc::Rc::new(|| {
+    let _smelt_tmp_7: SmeltHttpServer = SmeltHttpServer::new({ let smelt_handler = _smelt_tmp_6; ::std::rc::Rc::new(move |smelt_request: SmeltIncomingMessage, smelt_response: SmeltServerResponse| { let _ = smelt_handler(smelt_request, smelt_response); Ok(()) }) as SmeltHttpHandler });
+    let server: SmeltHttpServer = _smelt_tmp_7;
+    let _smelt_tmp_8 = ::std::rc::Rc::new(|| {
     let _smelt_tmp_0: () = { println!("{}", "listening".to_owned()); };
     ()
     });
-    let _smelt_tmp_8: SmeltHttpServer = server.clone().listen(0.0, Some("127.0.0.1".to_owned()), Some({ let smelt_listening = _smelt_tmp_7; ::std::rc::Rc::new(move || { let _ = smelt_listening(); Ok(()) }) as ::std::rc::Rc<dyn Fn() -> Result<(), Box<dyn ::std::error::Error>>> }))?;
-    let _smelt_tmp_9: Option<f64> = server.clone().address();
-    let _smelt_tmp_10: f64 = _smelt_tmp_9.clone().unwrap_or(0.0);
-    let port: f64 = _smelt_tmp_10;
-    let _smelt_tmp_11: String = "http://127.0.0.1:".to_owned() + &smelt_number_to_string(port);
-    let base: String = _smelt_tmp_11;
-    let _smelt_tmp_12: String = "".to_owned() + &base.clone();
-    let _smelt_tmp_13: String = _smelt_tmp_12 + &"/echo?q=1".to_owned();
-    let _smelt_tmp_14: SmeltRequest = SmeltRequest::from_parts_with_init(&_smelt_tmp_13, "POST".to_owned(), SmeltHeaders::new(), SmeltBody::from_text(&"hello body".to_owned()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
-    let _smelt_tmp_15: SmeltFuture<SmeltResponse> = SmeltFuture::from_future(Box::pin(async move { let smelt_request = _smelt_tmp_14; let smelt_method = reqwest::Method::from_bytes(smelt_request.method().as_bytes()).unwrap_or(reqwest::Method::GET); let mut smelt_builder = reqwest::Client::new().request(smelt_method, smelt_request.url()); for (smelt_name, smelt_value) in smelt_request.headers().entries_in_insertion_order() { smelt_builder = smelt_builder.header(smelt_name, smelt_value); } let smelt_sent = smelt_request.body().take_bytes()?; if !smelt_sent.is_empty() { smelt_builder = smelt_builder.body(smelt_sent); } let smelt_http = smelt_builder.send().await.expect("HTTP request failed"); let smelt_status = f64::from(smelt_http.status().as_u16()); let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned(); let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect(); let smelt_bytes = smelt_http.bytes().await.expect("HTTP response body read failed").to_vec(); Ok::<_, Box<dyn std::error::Error>>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }));
-    let _smelt_tmp_16: SmeltResponse = _smelt_tmp_15.await?;
-    let posted: SmeltResponse = _smelt_tmp_16;
-    let _smelt_tmp_17: f64 = posted.clone().status();
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_17)); };
-    let _smelt_tmp_19: SmeltFuture<String> = { let smelt_response = posted.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
-    _smelt_tmp_20 = _smelt_tmp_19.await?;
-    let _ = { println!("{}", _smelt_tmp_20); };
-    _smelt_tmp_22 = "".to_owned() + &base;
-    _smelt_tmp_23 = _smelt_tmp_22 + &"/again".to_owned();
-    let _smelt_tmp_24: SmeltFuture<SmeltResponse> = SmeltFuture::from_future(Box::pin(async move {                      let smelt_http = reqwest::get(_smelt_tmp_23).await.expect("HTTP request failed");                      let smelt_status = f64::from(smelt_http.status().as_u16());                      let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned();                      let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect();                      let smelt_bytes = smelt_http.bytes().await.expect("HTTP response body read failed").to_vec();                      Ok::<_, Box<dyn std::error::Error>>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }));
-    _smelt_tmp_25 = _smelt_tmp_24.await?;
-    plain = _smelt_tmp_25;
-    _smelt_tmp_26 = plain.clone().status();
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_26)); };
-    let _smelt_tmp_28: SmeltFuture<String> = { let smelt_response = plain.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
-    _smelt_tmp_29 = _smelt_tmp_28.await?;
-    let _ = { println!("{}", _smelt_tmp_29); };
-    _smelt_tmp_31 = server.clone().close()?;
-    _smelt_tmp_32 = server.address();
-    _smelt_tmp_33 = -1.0;
-    _smelt_tmp_34 = _smelt_tmp_32.clone().unwrap_or(_smelt_tmp_33);
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_34)); };
-    let _smelt_tmp_36: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
-    _smelt_tmp_37 = _smelt_tmp_36.await?;
+    let _smelt_tmp_9: SmeltHttpServer = server.clone().listen(0.0, Some("127.0.0.1".to_owned()), Some({ let smelt_listening = _smelt_tmp_8; ::std::rc::Rc::new(move || { let _ = smelt_listening(); Ok(()) }) as ::std::rc::Rc<dyn Fn() -> Result<(), Box<dyn ::std::error::Error>>> }))?;
+    let _smelt_tmp_10: Option<AddressInfo> = server.clone().address().map(|(address, family, port)| AddressInfo { address: address, family: family, port: port });
+    let address: Option<AddressInfo> = _smelt_tmp_10;
+    let _smelt_tmp_11: bool = address.clone().is_none();
+    let _smelt_tmp_12: bool = !(_smelt_tmp_11);
+    let mut _smelt_tmp_13: bool = false;
+    if _smelt_tmp_12 {
+    _smelt_tmp_14 = address.clone().is_none();
+    _smelt_tmp_15 = !(_smelt_tmp_14);
+    _smelt_tmp_13 = _smelt_tmp_15;
+    } else {
+    _smelt_tmp_13 = false;
+    }
+    let mut _smelt_tmp_16: f64 = 0.0;
+    if _smelt_tmp_13 {
+    _smelt_tmp_17 = address.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_16 = _smelt_tmp_17.port;
+    } else {
+    _smelt_tmp_16 = 0.0;
+    }
+    port = _smelt_tmp_16;
+    _smelt_tmp_18 = "http://127.0.0.1:".to_owned() + &smelt_number_to_string(port);
+    base = _smelt_tmp_18;
+    _smelt_tmp_19 = "".to_owned() + &base.clone();
+    _smelt_tmp_20 = _smelt_tmp_19 + &"/echo?q=1".to_owned();
+    _smelt_tmp_21 = SmeltRequest::from_parts_with_init(&_smelt_tmp_20, "POST".to_owned(), SmeltHeaders::new(), SmeltBody::from_text(&"hello body".to_owned()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    let _smelt_tmp_22: SmeltFuture<SmeltResponse> = SmeltFuture::from_future(Box::pin(async move { let smelt_request = _smelt_tmp_21; let smelt_method = reqwest::Method::from_bytes(smelt_request.method().as_bytes()).unwrap_or(reqwest::Method::GET); let mut smelt_builder = reqwest::Client::new().request(smelt_method, smelt_request.url()); for (smelt_name, smelt_value) in smelt_request.headers().entries_in_insertion_order() { smelt_builder = smelt_builder.header(smelt_name, smelt_value); } let smelt_sent = smelt_request.body().take_bytes()?; if !smelt_sent.is_empty() { smelt_builder = smelt_builder.body(smelt_sent); } let smelt_http = smelt_builder.send().await.expect("HTTP request failed"); let smelt_status = f64::from(smelt_http.status().as_u16()); let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned(); let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect(); let smelt_bytes = smelt_http.bytes().await.expect("HTTP response body read failed").to_vec(); Ok::<_, Box<dyn std::error::Error>>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }));
+    _smelt_tmp_23 = _smelt_tmp_22.await?;
+    posted = _smelt_tmp_23;
+    _smelt_tmp_24 = posted.clone().status();
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_24)); };
+    let _smelt_tmp_26: SmeltFuture<String> = { let smelt_response = posted.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
+    _smelt_tmp_27 = _smelt_tmp_26.await?;
+    let _ = { println!("{}", _smelt_tmp_27); };
+    _smelt_tmp_29 = "".to_owned() + &base;
+    _smelt_tmp_30 = _smelt_tmp_29 + &"/again".to_owned();
+    let _smelt_tmp_31: SmeltFuture<SmeltResponse> = SmeltFuture::from_future(Box::pin(async move {                      let smelt_http = reqwest::get(_smelt_tmp_30).await.expect("HTTP request failed");                      let smelt_status = f64::from(smelt_http.status().as_u16());                      let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned();                      let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect();                      let smelt_bytes = smelt_http.bytes().await.expect("HTTP response body read failed").to_vec();                      Ok::<_, Box<dyn std::error::Error>>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }));
+    _smelt_tmp_32 = _smelt_tmp_31.await?;
+    plain = _smelt_tmp_32;
+    _smelt_tmp_33 = plain.clone().status();
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_33)); };
+    let _smelt_tmp_35: SmeltFuture<String> = { let smelt_response = plain.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
+    _smelt_tmp_36 = _smelt_tmp_35.await?;
+    let _ = { println!("{}", _smelt_tmp_36); };
+    _smelt_tmp_38 = server.clone().close()?;
+    _smelt_tmp_39 = server.address().map(|(address, family, port)| AddressInfo { address: address, family: family, port: port });
+    _smelt_tmp_40 = -1.0;
+    _smelt_tmp_41 = _smelt_tmp_39.map_or_else(|| SmeltUnion23::M0(_smelt_tmp_40), |value| SmeltUnion23::M1(value));
+    let _ = { println!("{}", SmeltInspect::smelt_console_text(&_smelt_tmp_41)); };
+    let _smelt_tmp_43: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
+    _smelt_tmp_44 = _smelt_tmp_43.await?;
     return Ok(());
 })
 }

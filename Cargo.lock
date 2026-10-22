@@ -2186,6 +2186,7 @@ dependencies = [
  "indexmap",
  "insta",
  "rustc-hash",
+ "serde",
  "smelt-frontend-py",
  "smelt-frontend-ts",
  "smelt-hir",
@@ -2193,6 +2194,7 @@ dependencies = [
  "smelt-runtime",
  "smelt-specialize",
  "smelt-stdlib",
+ "stacker",
  "tempfile",
 ]
 

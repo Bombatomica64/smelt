@@ -16,7 +16,10 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if any_rvalue_needs(mir, rvalue_needs_reqwest) {
         deps.push(BackendDependency::Reqwest);
     }
-    if any_rvalue_needs(mir, rvalue_needs_serde_json) || needs_json_parse_runtime(mir) {
+    if any_rvalue_needs(mir, rvalue_needs_serde_json)
+        || needs_json_parse_runtime(mir)
+        || needs_bigint_json_stringify(mir)
+    {
         deps.push(BackendDependency::SerdeJson);
     }
     // A program that only CONSTRUCTS a `RegExp` and reads its `source`/`flags`
@@ -83,6 +86,9 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     }
     if needs_base64_runtime(mir) {
         deps.push(BackendDependency::Base64);
+    }
+    if needs_bigint_runtime(mir) {
+        deps.push(BackendDependency::BigInt);
     }
     // `createHash` names its algorithm at run time, so every hasher it can
     // answer is linked: the SHA family and MD5.
@@ -821,7 +827,7 @@ pub(crate) fn needs_json_parse_runtime(mir: &Mir) -> bool {
         matches!(
             terminator,
             Terminator::Call {
-                callee: Callee::Builtin(BuiltinFn::JsonParse),
+                callee: Callee::Builtin(BuiltinFn::JsonParse { .. }),
                 ..
             }
         )
@@ -976,6 +982,20 @@ fn terminators(mir: &Mir) -> impl Iterator<Item = &Terminator> {
         .filter_map(|block| block.terminator.as_ref())
 }
 
+/// Returns true when some `JSON.stringify` takes the fallible bigint route
+/// (`BigIntOp::JsonStringify`), which serializes through Serde JSON.
+fn needs_bigint_json_stringify(mir: &Mir) -> bool {
+    terminators(mir).any(|terminator| {
+        matches!(
+            terminator,
+            Terminator::Call {
+                callee: Callee::Builtin(BuiltinFn::BigInt(smelt_hir::BigIntOp::JsonStringify)),
+                ..
+            }
+        )
+    })
+}
+
 /// Returns true when a MIR rvalue uses Serde JSON APIs.
 fn rvalue_needs_serde_json(rvalue: &Rvalue) -> bool {
     matches!(
@@ -1095,6 +1115,14 @@ fn mir_catches_a_call(mir: &Mir) -> bool {
     })
 }
 
+/// Returns true when the generated crate carries a JavaScript `bigint`.
+pub(crate) fn needs_bigint_runtime(mir: &Mir) -> bool {
+    // The frontend interns `Type::BigInt` for every bigint literal, annotation
+    // and conversion, so the type table alone answers "does this program hold
+    // a bigint?" -- the same pay-for-use question `RegExp` asks of it.
+    mir.types.all().iter().any(|ty| matches!(ty, Type::BigInt))
+}
+
 /// Returns true when generated Rust needs the opaque `unknown` carrier type.
 pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
     // `Type::Union` values are emitted as `SmeltUnknown` (see the type-text
@@ -1157,6 +1185,11 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
         // the erased carrier (`sqlite_prelude`), so a program whose only
         // database call is `db.exec(sql)` still needs the block it lives beside.
         || needs_sqlite_runtime(mir)
+        // A bigint program is the same case again: `BigInt(1.5)`, `1n / 0n`
+        // and `2n ** -1n` throw a branded `RangeError` record, and an erased
+        // bigint is the `SmeltUnknown::BigInt` tag, which only exists in this
+        // block (see `bigint_prelude`).
+        || needs_bigint_runtime(mir)
         // A `Set` whose element type is not a value-equality primitive is
         // emitted as the `SmeltJsSet` runtime container, whose SameValueZero
         // membership projects elements through `IntoSmeltUnknown`. That carrier

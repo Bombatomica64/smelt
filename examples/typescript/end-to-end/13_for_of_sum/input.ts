@@ -1,6 +1,6 @@
 const xs: number[] = [1, 2, 3];
 let sum = 0;
-for (let x: number of xs) {
+for (const x of xs) {
   sum = sum + x;
 }
 console.log(sum);

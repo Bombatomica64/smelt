@@ -22,7 +22,7 @@
 
 use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
-use smelt_hir::{Body, Expr, ExprKind, Literal, Type};
+use smelt_hir::{Body, ErasureReason, Expr, ExprKind, Literal, Type};
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
@@ -123,7 +123,7 @@ impl ModuleBuilder<'_> {
         span: smelt_hir::Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Buffer");
         body.push_expr(Expr {
             kind: ExprKind::HostConstruct {
                 class_name: BUFFER_CLASS_NAME.to_owned(),
@@ -241,7 +241,7 @@ impl ModuleBuilder<'_> {
         // `ListFromLength` emits a `list[unknown]` fill, so the item type is
         // `Unknown` to match it; the buffer's byte-count reads only observe the
         // list length.
-        let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let item_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Buffer.alloc bytes");
         let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
         let bytes = body.push_expr(Expr {
             kind: ExprKind::ListFromLength { length },

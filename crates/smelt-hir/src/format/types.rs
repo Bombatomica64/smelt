@@ -184,6 +184,8 @@ pub(super) fn type_text(krate: &Crate, ty: &Type) -> String {
         Type::Bool => "Bool".to_owned(),
         Type::Int => "Int".to_owned(),
         Type::Float => "Float".to_owned(),
+        Type::FixedInt(width) => width.rust_name().to_owned(),
+        Type::BigInt => "BigInt".to_owned(),
         Type::String => "String".to_owned(),
         Type::Unknown => "Unknown".to_owned(),
         Type::Never => "Never".to_owned(),

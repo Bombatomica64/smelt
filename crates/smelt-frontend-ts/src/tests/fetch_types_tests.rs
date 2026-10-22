@@ -1439,12 +1439,16 @@ const server = createServer((req, res) => {
     Ok(())
 }
 
-/// `listen` answers the SERVER and `address` an optional port.
+/// `listen` answers the SERVER and `address` an optional `AddressInfo` record.
 ///
 /// `listen` answering the server is what makes `createServer(h).listen(0)` a
-/// server-valued expression as it is in Node; `address` answering an optional is
-/// what forces the source to narrow before using the port, the same shape as
-/// Node's `AddressInfo | null`.
+/// server-valued expression as it is in Node. `address` answers Node's
+/// `AddressInfo | null` — a record with `address: string`, `family: string`
+/// and `port: number`, declared as a real interface so the result is a
+/// generated struct. (The requirement used to be "an optional port number",
+/// which is not what Node returns: a Node program reads `.port` off the
+/// result, and under the old model the template `${server.address()}` printed a port
+/// where Node prints `[object Object]`.)
 #[test]
 fn http_server_members_keep_their_source_result_types() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -1480,10 +1484,47 @@ const port = server.address();
             }
         )
     })?;
+    let Some(Type::Optional(info)) = ctx.krate.types.get(address) else {
+        return Err(format!(
+            "`address` answers an optional record, got {}",
+            type_text(&ctx, address)
+        ));
+    };
+    let Some(Type::Class { name, args }) = ctx.krate.types.get(*info) else {
+        return Err(format!(
+            "`address` answers an `AddressInfo` record, got {}",
+            type_text(&ctx, *info)
+        ));
+    };
+    ensure!(args.is_empty(), "`AddressInfo` is not generic");
+    let interface = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            smelt_hir::Item::Interface(interface) if interface.name == *name => Some(interface),
+            _ => None,
+        })
+        .ok_or("`AddressInfo` must be declared as an interface")?;
+    let fields = interface
+        .fields
+        .iter()
+        .map(|field| {
+            (
+                ctx.krate.symbols.get(field.name).unwrap_or_default().to_owned(),
+                type_text(&ctx, field.ty),
+                field.optional,
+            )
+        })
+        .collect::<Vec<_>>();
     ensure!(
-        matches!(ctx.krate.types.get(address), Some(Type::Optional(_))),
-        "`address` answers an optional port, got {}",
-        type_text(&ctx, address),
+        fields
+            == vec![
+                ("address".to_owned(), "Some(String)".to_owned(), false),
+                ("family".to_owned(), "Some(String)".to_owned(), false),
+                ("port".to_owned(), "Some(Float)".to_owned(), false),
+            ],
+        "`AddressInfo` carries Node's three required keys, got {fields:?}",
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())

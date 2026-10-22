@@ -138,6 +138,8 @@ pub enum RuleId {
     TsNumberParseFloat,
     /// TypeScript `Number.parseInt(...)`.
     TsNumberParseInt,
+    /// TypeScript `BigInt.asIntN(bits, value)` or `BigInt.asUintN(bits, value)`.
+    TsBigIntStatic,
     /// TypeScript `String.fromCharCode(...)` / `String.fromCodePoint(...)`.
     TsStringFromCodes,
     /// TypeScript supported static `Object.*` call.
@@ -383,6 +385,7 @@ impl RuleId {
             | Self::PyRandomRandInt
             | Self::PyRandomChoice => Some(BackendDependency::Rand),
             Self::TsCryptoRandomUuid => Some(BackendDependency::Uuid),
+            Self::TsBigIntStatic => Some(BackendDependency::BigInt),
             Self::TsCryptoGetRandomValues => Some(BackendDependency::GetRandom),
             Self::TsCryptoDigest => Some(BackendDependency::Sha),
             Self::TsFetch | Self::PyRequestsGet => Some(BackendDependency::Reqwest),
@@ -515,6 +518,7 @@ impl RuleId {
             Self::TsNumberPredicate => "Number predicate",
             Self::TsNumberParseFloat => "Number.parseFloat",
             Self::TsNumberParseInt => "Number.parseInt",
+            Self::TsBigIntStatic => "BigInt static method",
             Self::TsStringFromCodes => "String.fromCharCode",
             Self::TsObjectStatic => "Object static method",
             Self::TsArrayStatic => "Array static method",

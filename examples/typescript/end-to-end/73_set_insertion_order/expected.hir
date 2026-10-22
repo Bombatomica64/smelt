@@ -160,8 +160,8 @@ interned types
   t5 = Bool
   t6 = Set<Bool>
   t7 = None
-  t8 = Unknown
-  t9 = List<Float>
-  t10 = List<Bool>
-  t11 = Int
+  t8 = List<Float>
+  t9 = List<Bool>
+  t10 = Int
+  t11 = Unknown
   t12 = fn(Bool, Int, List<Bool>) -> String

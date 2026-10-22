@@ -11,6 +11,13 @@ pub enum Literal {
     Int(i64),
     /// A floating-point literal.
     Float(f64),
+    /// A JavaScript bigint literal (`123n`), as its exact decimal digits.
+    ///
+    /// Digits rather than a fixed-width integer because a bigint literal is
+    /// unbounded (`9_999_999_999_999_999_999_999n` does not fit `i64`). The
+    /// text is canonical: no `n` suffix, no numeric separators, no radix
+    /// prefix, an optional leading `-`, and no leading zeros.
+    BigInt(String),
     /// A string literal.
     String(String),
     /// A JavaScript symbol literal lowered as an opaque runtime value.
@@ -32,6 +39,8 @@ pub enum UnknownKind {
     Bool,
     /// Number value.
     Number,
+    /// JavaScript `bigint` value.
+    BigInt,
     /// String value.
     String,
     /// Symbol value.
@@ -65,6 +74,7 @@ impl UnknownKind {
         match self {
             Self::Bool => "boolean",
             Self::Number => "number",
+            Self::BigInt => "bigint",
             Self::String => "string",
             Self::Symbol => "symbol",
             Self::Function => "function",

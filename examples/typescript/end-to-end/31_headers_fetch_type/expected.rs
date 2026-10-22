@@ -3647,8 +3647,8 @@ fn main() {
     let _smelt_tmp_35: SmeltList<String>;
     let _smelt_tmp_36: String;
     let _smelt_tmp_38: SmeltList<(String, String)>;
-    let mut _smelt_tmp_39: f64;
-    let mut _smelt_tmp_40: f64;
+    let mut _smelt_tmp_39: usize;
+    let mut _smelt_tmp_40: usize;
     let mut _smelt_tmp_41: bool;
     let mut _smelt_tmp_42: String;
     let mut _smelt_tmp_43: String;
@@ -3688,18 +3688,18 @@ fn main() {
     _smelt_tmp_36 = _smelt_tmp_35.borrow().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_36); };
     _smelt_tmp_38 = Into::<SmeltList<_>>::into(SmeltList::new(response.entries_sorted()));
-    _smelt_tmp_39 = 0.0;
+    _smelt_tmp_39 = 0;
     loop {
-    _smelt_tmp_40 = _smelt_tmp_38.len() as f64;
+    _smelt_tmp_40 = _smelt_tmp_38.len();
     _smelt_tmp_41 = _smelt_tmp_39 < _smelt_tmp_40;
     if !(_smelt_tmp_41) { break; }
-    __smelt_for_item = _smelt_tmp_38.borrow().get({ let smelt_normalized = _smelt_tmp_39 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new()));
+    __smelt_for_item = _smelt_tmp_38.borrow().get(_smelt_tmp_39).cloned().unwrap_or_else(|| (String::new(), String::new()));
     _smelt_tmp_42 = __smelt_for_item.clone().0.clone();
     name = _smelt_tmp_42;
     _smelt_tmp_43 = __smelt_for_item.1.clone();
     value = _smelt_tmp_43;
     let _ = { println!("{} {}", name, value); };
-    _smelt_tmp_39 = _smelt_tmp_39 + 1.0;
+    _smelt_tmp_39 = _smelt_tmp_39 + 1;
     }
     return;
 }

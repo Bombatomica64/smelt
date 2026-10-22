@@ -14,6 +14,7 @@ use smelt_hir::Type;
 mod dict_default_insert_elision;
 mod dict_entry_mutation;
 mod dict_entry_update;
+mod integer_range;
 mod local_use;
 mod move_on_last_use;
 mod unobserved_receiver_bind;
@@ -21,6 +22,7 @@ mod unobserved_receiver_bind;
 pub use dict_default_insert_elision::DictDefaultInsertElision;
 pub use dict_entry_mutation::DictEntryInPlaceMutation;
 pub use dict_entry_update::DictEntryUpdate;
+pub use integer_range::IntegerRange;
 pub use move_on_last_use::MoveOnLastUse;
 pub use unobserved_receiver_bind::UnobservedReceiverBind;
 
@@ -66,6 +68,11 @@ pub fn default_passes() -> Vec<Box<dyn Pass>> {
 }
 
 /// Applies all default optimization passes to the MIR.
+///
+/// [`IntegerRange`] runs once, after the fixpoint: it reasons about the final
+/// shape of every body (copy propagation can merge the locals it would
+/// otherwise prove separately), and nothing in the fixpoint passes creates new
+/// integer-provable `number` locals from a retyped one.
 pub fn optimize(mir: &mut Mir) {
     let passes = default_passes();
     loop {
@@ -77,6 +84,7 @@ pub fn optimize(mir: &mut Mir) {
             break;
         }
     }
+    IntegerRange.run(mir);
 }
 
 /// Propagates copies within a function. Returns true if the function was modified.

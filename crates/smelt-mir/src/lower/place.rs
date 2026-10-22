@@ -385,6 +385,7 @@ impl LoweringCtx<'_> {
             | ExprKind::GlobalObject
             | ExprKind::TypedArrayNew { .. }
             | ExprKind::DataViewAccess { .. }
+            | ExprKind::BigIntCall { .. }
             | ExprKind::ByteArrayOp { .. }
             | ExprKind::UrlSearchParamsNew { .. }
             | ExprKind::FormDataNew

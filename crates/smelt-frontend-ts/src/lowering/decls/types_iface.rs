@@ -12,7 +12,8 @@ use oxc::ast::ast::{
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{AssignmentOperator, BinaryOperator, UnaryOperator};
 use smelt_hir::{
-    AsyncOp, BinOp, Body, DictProjectionOp, Expr, ExprKind, Field, FunctionType, Interface, Item,
+    AsyncOp, BinOp, Body, DictProjectionOp, ErasureReason, Expr, ExprKind, Field, FunctionType,
+    Interface, Item,
     Literal, LocalDecl, MatchArm, MethodSig, ParamSig, Pattern, SetProjectionOp, Stmt, Type,
     UnaryOp, Visibility,
 };
@@ -84,6 +85,7 @@ impl ModuleBuilder<'_> {
             return Ok(item);
         }
         let result = self.ts_type_to_hir(&alias.type_annotation);
+        let decode_facts = self.alias_decode_facts_of(&alias.type_annotation);
         let fields = self.type_fields_from_ts(&alias.type_annotation).ok();
         let is_callable_object = Self::ts_type_is_callable_object_surface(&alias.type_annotation);
         self.pop_type_parameter_scope();
@@ -144,6 +146,7 @@ impl ModuleBuilder<'_> {
                 type_params,
                 ty,
                 span: self.span(alias.span.start, alias.span.end),
+                decode_facts,
             }));
         self.items.insert(name_text, item);
         Ok(item)
@@ -163,6 +166,7 @@ impl ModuleBuilder<'_> {
         let mut call_signatures = Vec::new();
         let mut construct_signatures = Vec::new();
         let mut index_value_ty = None;
+        let mut decode_facts = Vec::new();
 
         let mut heritage_refs = Vec::new();
         let result = (|| {
@@ -206,6 +210,7 @@ impl ModuleBuilder<'_> {
             call_signatures = declared.call_signatures;
             construct_signatures = declared.construct_signatures;
             index_value_ty = declared.index_value_ty;
+            decode_facts = declared.decode_facts;
             Ok(())
         })();
         self.pop_type_parameter_scope();
@@ -246,6 +251,7 @@ impl ModuleBuilder<'_> {
                 .collect(),
             fields,
             methods,
+            decode_facts,
         }));
         // One call records the item, the locally-lowered mark and every sidecar
         // together; see `InterfaceRegistry` for why they cannot be split.
@@ -438,9 +444,10 @@ impl ModuleBuilder<'_> {
         if let Some(merged) = self.merged_overload_call_signature(call_signatures) {
             return Some(self.ctx.krate.types.intern(Type::Function(merged)));
         }
-        let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let item_ty = self.erase(ErasureReason::TypeLevel);
         let rest_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
-        let return_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // not a new erasure: same overload-slot decision recorded for the rest item
+        let return_ty = self.unknown_type();
         Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: vec![rest_list_ty],
             rest: Some(0),
@@ -544,6 +551,7 @@ impl ModuleBuilder<'_> {
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
         let previous_statement_block = self.current_statement_block.replace(block);
+        let anchor = self.push_erasure_anchor(self.statement_span(statement));
         let result = match statement {
             Statement::EmptyStatement(_) => Ok(()),
             Statement::VariableDeclaration(decl) => self.variable_declaration(decl, body, block),
@@ -1081,6 +1089,7 @@ impl ModuleBuilder<'_> {
                 format!("statement kind is not lowered yet: {statement:?}"),
             )),
         };
+        self.restore_erasure_anchor(anchor);
         self.current_statement_block = previous_statement_block;
         result
     }
@@ -1491,7 +1500,12 @@ impl ModuleBuilder<'_> {
                 value_ty
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => {
-                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                // An already-erased receiver was recorded where it was decided.
+                let item_ty = if self.ctx.krate.types.get(iter_ty) == Some(&Type::Unknown) {
+                    self.unknown_type()
+                } else {
+                    self.erase(ErasureReason::ByName)
+                };
                 let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 iter = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: iter },
@@ -1513,7 +1527,7 @@ impl ModuleBuilder<'_> {
                     )
                 }) =>
             {
-                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let item_ty = self.erase(ErasureReason::ByName);
                 let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 iter = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: iter },
@@ -2740,6 +2754,10 @@ pub(in crate::lowering) struct StructuralMembers {
     pub(in crate::lowering) construct_signatures: Vec<FunctionType>,
     /// Value type of a string index signature, when declared.
     pub(in crate::lowering) index_value_ty: Option<smelt_hir::TypeId>,
+    /// Strict-JSON decode facts of the declared properties (see
+    /// `ty::decode_facts`); a later declaration of the same name replaces an
+    /// earlier one, as it does in `fields`.
+    pub(in crate::lowering) decode_facts: Vec<smelt_hir::FieldDecodeFacts>,
 }
 
 impl ModuleBuilder<'_> {
@@ -2760,6 +2778,7 @@ impl ModuleBuilder<'_> {
             call_signatures,
             construct_signatures,
             index_value_ty,
+            decode_facts,
         } = members;
         for sig in signatures {
             match sig {
@@ -2787,8 +2806,18 @@ impl ModuleBuilder<'_> {
                     } else {
                         ty
                     };
+                    let name = self.property_key_symbol(&prop.key)?;
+                    if let Some(annotation) = &prop.type_annotation {
+                        let facts = self.field_decode_facts(
+                            name,
+                            prop.optional,
+                            &annotation.type_annotation,
+                        );
+                        decode_facts.retain(|existing| existing.name != name);
+                        decode_facts.push(facts);
+                    }
                     fields.push(Field {
-                        name: self.property_key_symbol(&prop.key)?,
+                        name,
                         ty: field_ty,
                         visibility: Visibility::Public,
                         optional: prop.optional,
@@ -2967,7 +2996,7 @@ impl ModuleBuilder<'_> {
                             .as_ref()
                             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                             .transpose()?
-                            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                            .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
                         let mut params = Vec::new();
                         for param in &signature.params.items {
                             let ty = param
@@ -2977,7 +3006,7 @@ impl ModuleBuilder<'_> {
                                     self.ts_type_to_hir(&annotation.type_annotation)
                                 })
                                 .transpose()?
-                                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                                .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
                             params.push(ty);
                         }
                         Ok::<_, SmeltError>((return_ty, params))

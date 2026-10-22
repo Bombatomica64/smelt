@@ -2,42 +2,48 @@ fn escape_html (FuncId(0)) -> String
   locals
     %0 param str: String
     %1 user out: String
-    %2 user last_index: Float
-    %3 user i: Float
+    %2 user last_index: usize
+    %3 user i: usize
     %4 user code: Float
     %5 user replacement: String
-    %6 temp: Float
+    %6 temp: usize
     %7 temp: Bool
     %8 temp: Float
     %9 temp: String
     %10 temp: String
     %11 temp: String
-    %12 temp: Float
-    %13 temp: Float
+    %12 temp: usize
+    %13 temp: usize
     %14 temp: Float
     %15 temp: String
     %16 temp: String
+    %17 temp: Float
+    %18 temp: Float
+    %19 temp: Float
+    %20 temp: Float
   bb0:
     %1 = ""
-    %2 = 0.0
-    %3 = 0.0
+    %2 = 0
+    %3 = 0
     goto bb1
   bb1:
     %6 = len copy %0
     %7 = copy %3 < move %6
     switch move %7 ? bb2 : bb4
   bb2:
-    %8 = string_char_code_at copy %0, copy %3
+    %17 = primitive_cast_float copy %3
+    %8 = string_char_code_at copy %0, move %17
     %4 = move %8
     %5 = ""
     match move %4 {34.0 => bb5, 38.0 => bb6, 60.0 => bb7, 62.0 => bb8, _ => bb9}
   bb3:
-    %13 = move %3 + 1.0
+    %13 = move %3 + 1
     %3 = move %13
     goto bb1
   bb4:
     %14 = len copy %0
-    %15 = string_slice copy %0, move %2, move %14
+    %18 = primitive_cast_float copy %2
+    %15 = string_slice copy %0, move %18, move %14
     %16 = move %1 + move %15
     return move %16
   bb5:
@@ -55,11 +61,13 @@ fn escape_html (FuncId(0)) -> String
   bb9:
     goto bb3
   bb10:
-    %9 = string_slice copy %0, move %2, copy %3
+    %19 = primitive_cast_float copy %2
+    %20 = primitive_cast_float copy %3
+    %9 = string_slice copy %0, move %19, move %20
     %10 = move %9 + move %5
     %11 = move %1 + move %10
     %1 = move %11
-    %12 = copy %3 + 1.0
+    %12 = copy %3 + 1
     %2 = move %12
     goto bb3
 
@@ -68,14 +76,14 @@ fn sum_odd (FuncId(1)) -> Float
     %0 param values: List<Float>
     %1 user total: Float
     %2 user value: Float
-    %3 temp: Float
-    %4 temp: Float
+    %3 temp: usize
+    %4 temp: usize
     %5 temp: Bool
     %6 temp: Float
     %7 temp: Float
   bb0:
     %1 = 0.0
-    %3 = 0.0
+    %3 = 0
     goto bb1
   bb1:
     %4 = len copy %0
@@ -86,7 +94,7 @@ fn sum_odd (FuncId(1)) -> Float
     %6 = copy %2 % 2.0
     match move %6 {0.0 => bb5, _ => bb6}
   bb3:
-    %3 = copy %3 + 1.0
+    %3 = copy %3 + 1
     goto bb1
   bb4:
     return move %1
@@ -104,15 +112,15 @@ fn classify (FuncId(2)) -> String
     %0 param values: List<Float>
     %1 user seen: String
     %2 user value: Float
-    %3 temp: Float
-    %4 temp: Float
+    %3 temp: usize
+    %4 temp: usize
     %5 temp: Bool
     %6 temp: String
     %7 temp: String
     %8 temp: String
   bb0:
     %1 = ""
-    %3 = 0.0
+    %3 = 0
     goto bb1
   bb1:
     %4 = len copy %0
@@ -122,7 +130,7 @@ fn classify (FuncId(2)) -> String
     %2 = copy %0[copy %3]
     match move %2 {1.0 => bb5, 2.0 => bb6, _ => bb7}
   bb3:
-    %3 = copy %3 + 1.0
+    %3 = copy %3 + 1
     goto bb1
   bb4:
     return move %1

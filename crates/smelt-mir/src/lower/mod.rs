@@ -19,7 +19,7 @@
 //! * [`generics`] — interface field flattening and generic type substitution.
 //! * [`passes`] — whole-program analyses that run after core lowering.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::convert::TryFrom;
 
 use smelt_hir::{BodyId, Literal as HirLiteral, Span, Type, TypeId};
@@ -48,7 +48,7 @@ mod closures;
 mod passes;
 
 use context::{FunctionSpec, LoweringCtx, LoweringShared};
-use generics::lower_effective_interface_fields;
+use generics::{InterfaceFlattening, lower_effective_interface_fields};
 
 /// Converts a `usize` into `u32`, returning a `LowerError` if it does not fit.
 fn u32_from_usize(value: usize, context: &str) -> Result<u32, LowerError> {
@@ -363,11 +363,14 @@ fn lower_globals(
 /// substitution) so codegen sees a concrete record layout. Function, type
 /// alias, and const items carry no table entry here.
 fn lower_type_tables(krate: &smelt_hir::Crate, mir: &mut Mir, item_functions: &FunctionIds) {
+    // Shared across the interfaces so an `extends` chain flattens each
+    // ancestor once; see `lower_effective_interface_fields`.
+    let mut flattening = InterfaceFlattening::default();
     for hir_item in &krate.items {
         match hir_item {
             smelt_hir::Item::Class(class) => lower_class_table_entry(mir, class, item_functions),
             smelt_hir::Item::Interface(interface) => {
-                lower_interface_table_entry(krate, mir, interface);
+                lower_interface_table_entry(krate, mir, interface, &mut flattening);
             }
             smelt_hir::Item::Function(_)
             | smelt_hir::Item::TypeAlias(_)
@@ -469,9 +472,9 @@ fn lower_interface_table_entry(
     krate: &smelt_hir::Crate,
     mir: &mut Mir,
     interface: &smelt_hir::Interface,
+    flattening: &mut InterfaceFlattening,
 ) {
-    let fields =
-        lower_effective_interface_fields(krate, mir, interface, &HashMap::new(), &mut HashSet::new());
+    let fields = lower_effective_interface_fields(krate, mir, interface, &HashMap::new(), flattening);
     mir.interfaces.push(crate::MirInterface {
         name: interface.name,
         type_params: interface.type_params.clone(),
@@ -485,6 +488,11 @@ fn lower_interface_table_entry(
             })
             .collect(),
         methods: interface.methods.clone(),
+        decode_facts: generics::lower_effective_interface_decode_facts(
+            krate,
+            interface,
+            &mut std::collections::HashSet::new(),
+        ),
     });
 }
 
@@ -684,16 +692,27 @@ fn intern_fallible_builtin_return_types(mir: &mut Mir) {
         } = terminator
         {
             match builtin {
-                BuiltinFn::JsonParse => needed.push(Type::Unknown),
+                BuiltinFn::JsonParse { .. } => needed.push(Type::Unknown),
                 BuiltinFn::UriDecode(_) | BuiltinFn::Base64(_) => needed.push(Type::String),
                 // A read answers a number and a write answers `undefined`, and
                 // both spellings are already in the table wherever an accessor
                 // was lowered — the frontend types the node. Interning them
                 // anyway costs nothing and keeps the arm honest about what the
                 // call produces.
-                BuiltinFn::DataViewAccess { write, .. } => {
-                    needed.push(if *write { Type::None } else { Type::Float });
+                BuiltinFn::DataViewAccess { write, element } => {
+                    needed.push(if *write {
+                        Type::None
+                    } else if element.is_bigint() {
+                        Type::BigInt
+                    } else {
+                        Type::Float
+                    });
                 }
+                BuiltinFn::BigInt(op) => needed.push(if op.returns_string() {
+                    Type::String
+                } else {
+                    Type::BigInt
+                }),
                 // The result is the frontend's `RegExp` class type, which it
                 // interned when it typed the node.
                 BuiltinFn::ConsoleLog { .. }
@@ -740,6 +759,7 @@ fn lower_literal(literal: &HirLiteral) -> Constant {
         HirLiteral::Bool(value) => Constant::Bool(*value),
         HirLiteral::Int(value) => Constant::Int(*value),
         HirLiteral::Float(value) => Constant::Float(*value),
+        HirLiteral::BigInt(digits) => Constant::BigInt(digits.clone()),
         HirLiteral::String(value) => Constant::String(value.clone()),
         HirLiteral::Symbol(value) => Constant::Symbol(value.clone()),
         HirLiteral::Undefined => Constant::Undefined,
