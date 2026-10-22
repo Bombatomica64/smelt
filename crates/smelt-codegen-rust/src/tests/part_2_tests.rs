@@ -1029,13 +1029,13 @@ export function report(): number {
     );
 
     let infallible = source_for(
-        r#"
+        r"
 const encoder = new TextEncoder();
 
 export function encoded(text: string): number {
   return encoder.encode(text).length;
 }
-"#,
+",
     );
     assert!(!infallible.contains("smelt_module_init_failed"), "{infallible}");
 }

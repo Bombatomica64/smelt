@@ -281,7 +281,7 @@ impl SmeltSqliteStatement {
 /// connection. A record that did not come from an erasure recovers as a handle
 /// that is not open — a real state of both types (the one `close()` leaves) —
 /// rather than as a fabricated connection.
-pub(crate) fn emit(writer: &mut CodeWriter) {
+pub fn emit(writer: &mut CodeWriter) {
     for line in SQLITE_RUNTIME.lines() {
         writer.line(line);
     }
