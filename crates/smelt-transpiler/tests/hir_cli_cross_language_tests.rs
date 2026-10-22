@@ -1514,7 +1514,14 @@ clone-strategy = "aggressive"
         let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
         ensure_eq(&actual_stdout, &expected, format!("unexpected stdout for {name}"))?;
         // `expected.stdout` is documented as Node's output; check that it is.
-        ensure_node_agrees(&[("main.ts", &source)], "main.ts", &expected, name)?;
+        // A fixture that imports npm packages at run time pins them in its own
+        // `package.json`, which the oracle installs.
+        let package_json = fs::read_to_string(root.join(name).join("package.json")).ok();
+        let mut oracle_files = vec![("main.ts", source.as_str())];
+        if let Some(package_json) = &package_json {
+            oracle_files.push(("package.json", package_json.as_str()));
+        }
+        ensure_node_agrees(&oracle_files, "main.ts", &expected, name)?;
     }
     Ok(())
 }
