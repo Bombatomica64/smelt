@@ -5,7 +5,13 @@
 // the call natively (`HttpCreateFetchServer` + `listen`) rather than lowering
 // the adapter's source. Checked here: the method, path, query and body reach
 // the handler; status, headers and body come back; a sync and an async answer
-// both work; the listening callback runs; `close` lets the program exit.
+// both work; a response with no `content-type` gets the adapter's
+// `text/plain; charset=UTF-8` default (a bodyless 204 included); the listening
+// callback runs; `close` lets the program exit.
+// Not checked, because it is not modeled: the adapter replaces the global
+// `Response` with a caching class, and a cached response whose `headers` init
+// was a PLAIN OBJECT without `content-type` goes out with no content type at all
+// (`/sync` below), where the generated server applies the default.
 // It lives outside `examples/` because the handler's answer crosses the
 // adapter's erased `unknown` boundary (a `Response` or a promise of one).
 import { serve } from "@hono/node-server";
@@ -18,6 +24,9 @@ const server = serve(
       // The path and query, read off the serialized URL (`new URL(..)` member
       // reads are a separate, documented gap).
       const target = request.url.slice(request.url.indexOf("/", "http://".length));
+      if (target === "/empty") {
+        return new Response(null, { status: 204 });
+      }
       if (target === "/sync") {
         return new Response("sync answer", { status: 202, headers: { "x-kind": "sync" } });
       }
@@ -42,6 +51,9 @@ console.log(await posted.text());
 const sync = await fetch(`${base}/sync`);
 console.log(sync.status, sync.headers.get("x-kind"));
 console.log(await sync.text());
+
+const empty = await fetch(`${base}/empty`);
+console.log(empty.status, empty.headers.get("content-type"), JSON.stringify(await empty.text()));
 
 server.close();
 console.log("closed");

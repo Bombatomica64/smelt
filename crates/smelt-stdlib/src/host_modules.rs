@@ -181,7 +181,8 @@ const HTTP_CLIENT_REASON: &str =
     "the node:http client surface (request/get) is not implemented yet; use fetch";
 
 /// Reason text shared by the `node:sqlite` surface.
-const SQLITE_REASON: &str = "the node:sqlite database surface is not implemented yet";
+const SQLITE_REASON: &str =
+    "only `DatabaseSync` (`exec`, `prepare`, `close`) and `StatementSync` (`all`, `get`, `run`) from node:sqlite are modeled";
 
 /// Reason text for the `@hono/node-server` exports beyond `serve`.
 const HONO_NODE_SERVER_REASON: &str =
@@ -349,11 +350,19 @@ pub const HOST_MODULES: &[HostModule] = &[
     HostModule {
         id: HostModuleId::Sqlite,
         specifiers: &["node:sqlite"],
+        // The synchronous database: open, `exec`, `prepare`, and a statement's
+        // `all`/`get`/`run` with positional or named parameters, on a bundled
+        // SQLite (`rusqlite`). Rows come back as erased records — their shape
+        // is decided by the SQL text at run time, the same boundary
+        // `JSON.parse` is — and the program narrows them (`as TodoRow[]`).
         exports: &[
-            declared_class("DatabaseSync", SQLITE_REASON),
-            declared_class("StatementSync", SQLITE_REASON),
+            modeled_class("DatabaseSync"),
+            modeled_class("StatementSync"),
+            declared_class("Session", SQLITE_REASON),
+            declared_value("backup", SQLITE_REASON),
+            declared_value("constants", SQLITE_REASON),
         ],
-        dependencies: &[],
+        dependencies: &[BackendDependency::Rusqlite],
     },
     HostModule {
         id: HostModuleId::Url,
@@ -499,6 +508,11 @@ mod tests {
         // The `node:http` server surface, modeled on hyper.
         assert!(host_value_blocker("node:http", "createServer").is_none());
         assert!(host_value_blocker("node:http", "ServerResponse").is_none());
+        // The synchronous `node:sqlite` database, modeled on rusqlite; its
+        // session and backup surface stays declared.
+        assert!(host_value_blocker("node:sqlite", "DatabaseSync").is_none());
+        assert!(host_value_blocker("node:sqlite", "StatementSync").is_none());
+        assert!(host_value_blocker("node:sqlite", "backup").is_some());
     }
 
     /// A name a modeled module does not export blocks naming the export.

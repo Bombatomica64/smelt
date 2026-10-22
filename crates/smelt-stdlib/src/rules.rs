@@ -298,6 +298,11 @@ pub enum RuleId {
     TsServerResponseWrite,
     /// TypeScript `node:http` `ServerResponse.prototype.end`.
     TsServerResponseEnd,
+    /// TypeScript `node:sqlite` `DatabaseSync` (`new DatabaseSync(path)`,
+    /// `exec`, `prepare`, `close`).
+    TsSqliteDatabase,
+    /// TypeScript `node:sqlite` `StatementSync` (`all`, `get`, `run`).
+    TsSqliteStatement,
     /// Python `json.dumps(value)`.
     PyJsonDumps,
     /// Python `json.loads(text)`.
@@ -369,6 +374,7 @@ impl RuleId {
             Self::TsJsonStringify | Self::TsJsonParse | Self::PyJsonDumps | Self::PyJsonLoads => {
                 Some(BackendDependency::SerdeJson)
             }
+            Self::TsSqliteDatabase | Self::TsSqliteStatement => Some(BackendDependency::Rusqlite),
             Self::TsRegExpTest | Self::PyReSearch | Self::PyReMatch | Self::PyReFullMatch => {
                 Some(BackendDependency::Regex)
             }
@@ -555,6 +561,8 @@ impl RuleId {
             Self::TsEventEmitterRemove => "EventEmitter listener removal",
             Self::TsEventEmitterEmit => "EventEmitter.emit",
             Self::TsEventEmitterRead => "EventEmitter read",
+            Self::TsSqliteDatabase => "node:sqlite DatabaseSync",
+            Self::TsSqliteStatement => "node:sqlite StatementSync",
             Self::PyJsonDumps => "json.dumps",
             Self::PyJsonLoads => "json.loads",
             Self::PyReSearch => "re.search",

@@ -1358,6 +1358,20 @@ pub enum Rvalue {
         /// The request handler, called once per accepted request.
         handler: Operand,
     },
+    /// `new DatabaseSync(path)` (`smelt_hir::ExprKind::SqliteOpen`).
+    SqliteOpen {
+        /// The database path.
+        path: Operand,
+    },
+    /// A `node:sqlite` operation (`smelt_hir::ExprKind::SqliteOp`).
+    SqliteOp {
+        /// Which operation.
+        op: smelt_hir::SqliteOp,
+        /// The database or statement receiver.
+        receiver: Operand,
+        /// SQL text or erased parameters.
+        args: Vec<Operand>,
+    },
     /// A `node:http` server answering requests with a fetch handler
     /// (`smelt_hir::ExprKind::HttpCreateFetchServer`).
     HttpCreateFetchServer {

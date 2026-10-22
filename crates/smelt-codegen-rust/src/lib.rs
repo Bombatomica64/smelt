@@ -107,6 +107,7 @@ pub(crate) mod reference_origin;
 pub(crate) mod deps;
 mod function_object_prelude;
 mod http_server_prelude;
+mod sqlite_prelude;
 // Increment 3 of the callback-generics plan made the last dormant entry point
 // live: the safety valve consults `collect_bindings` and `TypeParamBinding`
 // directly, so the module no longer needs a `dead_code` expectation.
@@ -692,7 +693,8 @@ fn emit_source_with_free_function_router(
         || needs_headers
         || needs_url_search_params
         || needs_form_data
-        || needs_byte_array;
+        || needs_byte_array
+        || stdlib::needs_sqlite_runtime(mir);
     let needs_date_now = stdlib::needs_date_now_runtime(mir);
     let needs_date_timezone_offset = stdlib::needs_date_timezone_offset_runtime(mir);
     let needs_vitest_mock = stdlib::needs_vitest_mock_runtime(mir);
@@ -5930,6 +5932,9 @@ fn emit_source_with_free_function_router(
     if stdlib::needs_fetch_server_runtime(mir) {
         http_server_prelude::emit_fetch_server(&mut writer);
     }
+    if stdlib::needs_sqlite_runtime(mir) {
+        sqlite_prelude::emit(&mut writer);
+    }
     if !context.weak_receivers().is_empty() {
         emitter::weak_receiver::emit_prelude(&mut writer, needs_unknown, needs_erased_function);
     }
@@ -8250,6 +8255,12 @@ fn emit_function_field_origin_restore(
     ) else {
         return;
     };
+    // Origins are recorded only for typed `Rc` callables (the erasure in
+    // `emitter/coercion.rs`), so a field spelled any other way (an erased
+    // `SmeltErasedFunction`) has no origin to find and keeps its `Default`.
+    if !field_ty_text.starts_with("::std::rc::Rc<") {
+        return;
+    }
     body.block(format!("if let Some(field) = object.get({key:?})"), |assign| {
         assign.line(
             "let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };",
@@ -8545,6 +8556,7 @@ pub(crate) fn sanitize_ident(name: &str) -> String {
 /// `.to_owned()` initializer cannot appear in a `const` block.
 fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<String, EmitError> {
     let mut writer = CodeWriter::new();
+    let mut any_fallible_init = false;
     writer.line("thread_local! {");
     for (index, global) in mir.globals.iter().enumerate() {
         let name = global_static_name(mir, compact_index(index, "global index")?);
@@ -8580,7 +8592,19 @@ fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<String, Emit
                         },
                         Ok,
                     )?;
-                format!("{function_name}()")
+                // An initializer that can throw (`const db = new
+                // DatabaseSync(path)`, a call to a throwing function) returns a
+                // `Result`, and a `thread_local!` initializer has nowhere to
+                // propagate it. The cell is touched at the binding's own
+                // declaration (see `module_init`), so a throw surfaces there,
+                // after the output of the statements before it — and a throw
+                // during module evaluation is always uncaught in JavaScript.
+                if function.can_throw {
+                    any_fallible_init = true;
+                    format!("{function_name}().unwrap_or_else(|error| smelt_module_init_failed(error))")
+                } else {
+                    format!("{function_name}()")
+                }
             }
         };
         // A Copy primitive uses `Cell`, which needs no borrow bookkeeping and
@@ -8618,7 +8642,32 @@ fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<String, Emit
         }
     }
     writer.line("}");
+    if any_fallible_init {
+        emit_module_init_failed(&mut writer);
+    }
     Ok(writer.finish())
+}
+
+/// Emit `smelt_module_init_failed`, the report for a module global whose
+/// initializer threw.
+///
+/// It does what a throwing top-level statement does through `main`'s
+/// `Result` return — prints `Error: {error:?}` to stderr and exits with status
+/// 1 — because the initializer runs at the same point of module evaluation and
+/// no `catch` can enclose a module-level declaration. Not a panic: a panic
+/// prints a different message and exits 101, so the two spellings of the same
+/// source failure would disagree. Stdout is flushed first, since `exit` runs
+/// no destructors and a partial line would otherwise be lost.
+fn emit_module_init_failed(writer: &mut CodeWriter) {
+    writer.line("/// A module global's initializer threw during module evaluation: report it as `main` does and exit 1.");
+    writer.block(
+        "fn smelt_module_init_failed(error: Box<dyn std::error::Error>) -> !",
+        |fn_writer| {
+            fn_writer.line("let _ = ::std::io::Write::flush(&mut ::std::io::stdout());");
+            fn_writer.line("eprintln!(\"Error: {error:?}\");");
+            fn_writer.line("::std::process::exit(1)");
+        },
+    );
 }
 
 /// Compute the thread-local static name for a mutable global by index.

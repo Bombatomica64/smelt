@@ -1465,6 +1465,8 @@ const RUNTIME_FIXTURES: &[&str] = &[
     "headers_from_optional_string_record",
     "listener_captures_its_own_emitter",
     "hono_node_server_serve",
+    "node_sqlite_database",
+    "erased_null_field_at_optional_type",
 ];
 
 #[test]

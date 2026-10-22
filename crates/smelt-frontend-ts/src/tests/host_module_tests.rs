@@ -18,11 +18,9 @@ fn declared_host_module_value_blocks_at_first_use() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
         ts!(r"
-import { DatabaseSync } from 'node:sqlite';
+import { backup } from 'node:sqlite';
 
-export function open(path: string): DatabaseSync {
-  return new DatabaseSync(path);
-}
+export const copy = backup;
 "),
         &mut ctx,
     )?;
@@ -42,9 +40,9 @@ fn declared_host_module_import_without_use_is_free() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import type { DatabaseSync } from 'node:sqlite';
+import type { Session } from 'node:sqlite';
 
-export function describeHandle(handle: DatabaseSync): string {
+export function describeHandle(handle: Session): string {
   return typeof handle;
 }
 "),

@@ -11,20 +11,22 @@ benchmark and acceptance criteria come first). `bench.sh` is the harness;
 | `node-original` | Node 24 | `examples/typescript/hono_crud` as shipped (`npm run build && npm start`) | `node:sqlite` file `todos.db` | `@hono/node-server` |
 | `node-staging` | Node 24 | staging variant (below), compiled by `tsc` | in-memory array | `serve.ts` shim over `node:http` |
 | `rust-staging` | generated crate, `cargo build --release` | the same staging variant, transpiled by `smelt build` | in-memory array | the same `serve.ts` shim, lowered onto Smelt's hyper-backed `node:http` |
+| `rust-shipped` | generated crate, `cargo build --release` | `examples/typescript/hono_crud` as shipped, transpiled by `smelt build` (Hono from the `[packages.hono]` pin in its `Smelt.toml`) | `node:sqlite` file `todos.db` (rusqlite, bundled SQLite) | `@hono/node-server` `serve()`, modeled natively over the same `node:http` server |
 
-`node-staging` vs `rust-staging` is the apples-to-apples pair: identical
-TypeScript source on both sides. `node-original` is the reference for what the
-shipped app costs on Node; it is not comparable to the generated server because
-the generated server cannot be built from the shipped source yet (see
-`blocker-logs/hono-crud-status.md`: `node:sqlite` is declared-only and
-`@hono/node-server` does not lower).
+`node-staging` vs `rust-staging` is one apples-to-apples pair: identical
+TypeScript source on both sides. `node-original` vs `rust-shipped` is the other:
+the shipped app, unmodified, on Node and as generated Rust, both on Hono
+**4.13.7** (what `npm` installs for the example's `^4.13.0`, and what its
+`Smelt.toml` pins). The two pairs do not run the same Hono: the staging tree
+takes Hono from `.github/compat/libraries.json`, which is now **5.0.0-rc.1**
+(see `blocker-logs/hono-crud-status.md` §11 for a leak only Hono 4 reached).
 
 The staging variant is the shipped `src/` with two substitutions, kept in the
 staging script `prepare-staging.sh`: `db.ts`/`repository.ts` use an in-memory
 row array with the same column shape and AUTOINCREMENT rule, and `main.ts`
 serves `app.fetch` through `serve.ts` (buffered request in, buffered response
-out). Hono itself is the pinned 4.13.7 source (`.github/compat/libraries.json`),
-the same version npm installs for the Node variants.
+out). Hono itself is the source pinned in `.github/compat/libraries.json`
+(5.0.0-rc.1 since `4c1e9cae`, 2026-10-16; v4.13.7, `eebdf7be`, before that).
 
 ## Method
 

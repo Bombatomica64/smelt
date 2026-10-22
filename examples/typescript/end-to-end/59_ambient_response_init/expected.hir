@@ -1,5 +1,5 @@
 module examples/typescript/end-to-end/59_ambient_response_init/input.ts (ModuleId(0))
-  body BodyId(4)
+  body BodyId(2)
   items
     fn status_of owner Module
   locals
@@ -9,7 +9,7 @@ module examples/typescript/end-to-end/59_ambient_response_init/input.ts (ModuleI
     %3 const pairs: List<(String, String)>
     %4 const request: Request
   exprs
-    #0: fn(Optional<String>, Optional<globalThis.ResponseInit>) -> Response = closure BodyId(3) captures 0 -> Response
+    #0: fn(Optional<String>, Optional<globalThis.ResponseInit>) -> Response = closure BodyId(1) captures 0 -> Response
     #1: fn(Optional<String>, Optional<globalThis.ResponseInit>) -> Response = %0
     #2: String = "hi"
     #3: String = "status"

@@ -491,6 +491,10 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     host("IncomingMessage", "__smelt_incomingmessage"),
     host("ServerResponse", "__smelt_serverresponse"),
     host("FormData", "__smelt_formdata"),
+    // `node:sqlite`: a connection and a compiled statement, retained live
+    // through the origin slot like the `node:http` types above.
+    host("DatabaseSync", "__smelt_databasesync"),
+    host("StatementSync", "__smelt_statementsync"),
     // `ReadableStream` is identity-only: its stream surface is not modeled yet
     // (a named blocker). It is here for identity only -- `Object.prototype.toString`
     // tags it, `instanceof` resolves through it, and `JSON.stringify` answers `{}`

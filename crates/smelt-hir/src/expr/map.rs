@@ -423,6 +423,15 @@ impl ExprKind {
                 handler: f(handler)?,
             },
             Self::HttpCreateFetchServer { fetch } => Self::HttpCreateFetchServer { fetch: f(fetch)? },
+            Self::SqliteOpen { path } => Self::SqliteOpen { path: f(path)? },
+            Self::SqliteOp { op, receiver, args } => {
+                let receiver = f(receiver)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::SqliteOp { op, receiver, args: mapped }
+            }
             Self::HttpServerOp { op, server, args } => {
                 let server = f(server)?;
                 let mut mapped = Vec::with_capacity(args.len());

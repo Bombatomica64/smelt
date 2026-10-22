@@ -1,0 +1,6 @@
+node-original r1  10:02:32 up 2 days, 21:02,  5 users,  load average: 5.51, 4.16, 3.43
+rust-shipped r1  10:04:04 up 2 days, 21:04,  5 users,  load average: 4.37, 4.19, 3.51
+node-original r2  10:05:36 up 2 days, 21:05,  5 users,  load average: 5.45, 4.37, 3.63
+rust-shipped r2  10:07:08 up 2 days, 21:07,  5 users,  load average: 6.88, 5.99, 4.34
+node-original r3  10:08:40 up 2 days, 21:08,  5 users,  load average: 4.18, 5.36, 4.27
+rust-shipped r3  10:10:12 up 2 days, 21:10,  5 users,  load average: 3.47, 4.81, 4.18

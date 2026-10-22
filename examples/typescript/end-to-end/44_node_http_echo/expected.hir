@@ -1,5 +1,5 @@
 module examples/typescript/end-to-end/44_node_http_echo/input.ts (ModuleId(0))
-  body BodyId(7)
+  body BodyId(4)
   locals
     %0 const server: Server
     %1 const port: Float
@@ -7,11 +7,11 @@ module examples/typescript/end-to-end/44_node_http_echo/input.ts (ModuleId(0))
     %3 const posted: Response
     %4 const plain: Response
   exprs
-    #0: fn(IncomingMessage, ServerResponse) -> None = closure BodyId(5) captures 0 -> None
+    #0: fn(IncomingMessage, ServerResponse) -> None = closure BodyId(2) captures 0 -> None
     #1: Server = http_create_server #0
     #2: Server = %0
     #3: Float = 0.0
-    #4: fn() -> None = closure BodyId(6) captures 0 -> None
+    #4: fn() -> None = closure BodyId(3) captures 0 -> None
     #5: String = "127.0.0.1"
     #6: Server = http_server_listen #2 #3 #5 #4
     #7: Server = %0

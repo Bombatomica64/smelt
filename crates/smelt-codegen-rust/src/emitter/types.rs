@@ -1592,6 +1592,12 @@ impl FunctionEmitter<'_> {
                     Some(smelt_stdlib::StdlibClass::ServerResponse) => {
                         Some("SmeltServerResponse")
                     }
+                    Some(smelt_stdlib::StdlibClass::SqliteDatabase) => {
+                        Some("SmeltSqliteDatabase")
+                    }
+                    Some(smelt_stdlib::StdlibClass::SqliteStatement) => {
+                        Some("SmeltSqliteStatement")
+                    }
                     _ => None,
                 } {
                     return Ok(RustType::raw(http_type));
@@ -1951,6 +1957,21 @@ impl FunctionEmitter<'_> {
                     == Some(smelt_stdlib::StdlibClass::ServerResponse) =>
             {
                 Ok("SmeltServerResponse::new()".to_owned())
+            }
+            // A database's default is a handle that was never opened: every
+            // operation on it answers Node's "database is not open". A
+            // constructor fills a field with it only until the field's own
+            // assignment runs, so no program observes it as a real database.
+            Type::Class { name, .. }
+                if matches!(
+                    self.stdlib_class_of_symbol(*name)?,
+                    Some(
+                        smelt_stdlib::StdlibClass::SqliteDatabase
+                            | smelt_stdlib::StdlibClass::SqliteStatement
+                    )
+                ) =>
+            {
+                Ok("Default::default()".to_owned())
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?

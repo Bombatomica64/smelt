@@ -699,6 +699,21 @@ pub enum ExprKind {
         /// The request handler, called once per accepted request.
         handler: ExprId,
     },
+    /// `new DatabaseSync(path)` from `node:sqlite`.
+    SqliteOpen {
+        /// The database file, or `":memory:"`.
+        path: ExprId,
+    },
+    /// A `node:sqlite` database or statement operation.
+    SqliteOp {
+        /// Which operation.
+        op: crate::expr::SqliteOp,
+        /// The `DatabaseSync` or `StatementSync` receiver.
+        receiver: ExprId,
+        /// The SQL text for `exec`/`prepare`; the bound parameters, erased,
+        /// for `all`/`get`/`run`.
+        args: Vec<ExprId>,
+    },
     /// A `node:http` server answering requests with a fetch handler.
     ///
     /// What `@hono/node-server`'s `serve` builds: every request is converted to

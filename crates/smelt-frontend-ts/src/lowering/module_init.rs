@@ -676,6 +676,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // declarations' own (`predeclare_function_item`), so a hoisted body
         // calling one declared further down still narrows through it.
         self.collect_type_predicate_signatures(program);
+        // `collect_module_globals` ran before any function item existed, so an
+        // unannotated `const x = makeX()` could not resolve its callee and was
+        // recorded `Unknown`. Now that every function signature is declared,
+        // those bindings are typed again from their initializers.
+        self.refine_unknown_module_global_types(program, &item_reads);
         // Static properties on function declarations (`partial.placeholder = …`)
         // are collected as a PREPASS, right after the function items they hang off
         // are predeclared and before any body is lowered. A function's own body
@@ -2862,6 +2867,81 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.ctx.krate.bodies.truncate(bodies);
         }
         result
+    }
+
+    /// Re-infer, from its initializer, the type of every unannotated module
+    /// `const` that `collect_module_globals` recorded as `Unknown`.
+    ///
+    /// That pass runs before function items are predeclared (its types feed
+    /// the signatures, `typeof x` among them), so an initializer that CALLS a
+    /// module function (`const job = makeJob(..)`) could not be typed there
+    /// and its binding was erased — a type a hand port would simply write
+    /// down. Run once the signatures exist, the same probe now types it.
+    ///
+    /// Only a binding the earlier passes did not commit to an erased shape is
+    /// refined: one that became a module slot (whose item type is updated with
+    /// it) or one no separately lowered body reads. A binding read from an item
+    /// context WITHOUT a slot is the erased-call path (`const validate =
+    /// wrap(fn)` called as `validate(x)`; see `collect_mutable_globals`), which
+    /// relies on its `Unknown` type, so it is left as it was.
+    fn refine_unknown_module_global_types(
+        &mut self,
+        program: &Program<'_>,
+        item_reads: &HashSet<String>,
+    ) {
+        // Compared by shape, not by interning `Unknown`: the type table is
+        // what decides whether the erased runtime is emitted, so a pass that
+        // only LOOKS for erased bindings must not add the type itself.
+        let is_unknown =
+            |builder: &Self, ty: smelt_hir::TypeId| matches!(builder.ctx.krate.types.get(ty), Some(Type::Unknown));
+        for statement in &program.body {
+            let variable = match statement {
+                Statement::VariableDeclaration(variable) => variable,
+                Statement::ExportDeclaration(export) => match &export.declaration {
+                    Declaration::VariableDeclaration(variable) => variable,
+                    _ => continue,
+                },
+                _ => continue,
+            };
+            if variable.declare || variable.kind != oxc::ast::ast::VariableDeclarationKind::Const {
+                continue;
+            }
+            for declarator in &variable.declarations {
+                let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                    continue;
+                };
+                let name = binding.name.as_str();
+                let (None, Some(init)) = (&declarator.type_annotation, &declarator.init) else {
+                    continue;
+                };
+                if matches!(init, Expression::ArrowFunctionExpression(_))
+                    || !self.module_globals.get(name).is_some_and(|&ty| is_unknown(self, ty))
+                {
+                    continue;
+                }
+                let slot = self.mutable_global_items.get(name).copied();
+                if slot.is_none() && item_reads.contains(name) {
+                    continue;
+                }
+                let Ok(ty) = self.infer_module_global_initializer_type(init) else {
+                    continue;
+                };
+                if is_unknown(self, ty) {
+                    continue;
+                }
+                self.module_globals.insert(name.to_owned(), ty);
+                if let Some(item) = slot
+                    && let Some(Item::MutableGlobal(global)) = self
+                        .ctx
+                        .krate
+                        .items
+                        .get_mut(usize::try_from(item.0).unwrap_or(usize::MAX))
+                    && matches!(self.ctx.krate.types.get(global.ty), Some(Type::Unknown))
+                {
+                    global.ty = ty;
+                }
+            }
+        }
     }
 
     /// Extract literal array and set constants that nested function bodies can inline.

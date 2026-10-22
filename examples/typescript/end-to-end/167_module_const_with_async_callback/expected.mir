@@ -1,3 +1,5 @@
+interface Job
+
 fn make_job (FuncId(0)) -> Job
   locals
     %0 param job: Job
@@ -21,9 +23,9 @@ async fn main (FuncId(1)) -> None throws
     %3 = call fn0(move %2) -> bb1
   bb1:
     %0 = move %3
-    %4 = closure_call copy %0.field1("  hello  ")
+    %4 = closure_call copy %0.field8("  hello  ")
     %5 = await move %4
-    %6 = call @console_log(copy %0.field2, move %5) -> bb2
+    %6 = call @console_log(copy %0.field7, move %5) -> bb2
   bb2:
     %7 = async_exit_drain()
     %8 = await move %7

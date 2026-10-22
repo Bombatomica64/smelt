@@ -622,8 +622,16 @@ fn smelt_fetch_server_respond(response: SmeltServerResponse, answer: Result<Smel
             Ok(value) => {
                 let answered = <SmeltResponse as SmeltFromUnknown>::smelt_from_unknown(value);
                 response.status.set(answered.status() as u16);
+                let mut has_content_type = false;
                 for (name, value) in answered.headers.entries_sorted() {
+                    has_content_type |= name == "content-type";
                     response.headers.borrow_mut().push((name, value));
+                }
+                // `@hono/node-server`'s `buildOutgoingHttpHeaders` defaults the
+                // header (`res["content-type"] ??= "text/plain; charset=UTF-8"`),
+                // so a bodyless `c.body(null, 204)` carries it too.
+                if !has_content_type {
+                    response.headers.borrow_mut().push(("content-type".to_owned(), "text/plain; charset=UTF-8".to_owned()));
                 }
                 response.body.borrow_mut().extend_from_slice(&answered.body.peek_bytes());
             }

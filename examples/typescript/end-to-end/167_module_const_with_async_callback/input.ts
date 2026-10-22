@@ -5,8 +5,13 @@
 // an orphan body behind from that first pass, and for an ASYNC closure the
 // orphan's `await` sat in a function nothing marked async, so the whole build
 // failed. The callback here is stored, then awaited, so its behavior is also
-// checked.
-type Job = { run: (input: string) => Promise<string>; label: string };
+// checked. `Job` is an interface: an object type ALIAS still lowers to an
+// erased record (see blocker-logs/hono-crud-status.md §11), which is not what
+// this example is about.
+interface Job {
+  run: (input: string) => Promise<string>;
+  label: string;
+}
 
 function makeJob(job: Job): Job {
   return job;

@@ -69,6 +69,12 @@ pub enum BackendDependency {
     /// It is the `RustCrypto` crate beside `sha1`/`sha2`, sharing their `digest`
     /// traits, so one `Digest` import drives all three.
     Md5,
+    /// `rusqlite` for the generated `node:sqlite` database.
+    ///
+    /// Bundled, so the generated crate carries the `SQLite` it was tested
+    /// against rather than linking whatever the build machine has, the way
+    /// Node ships its own `SQLite`.
+    Rusqlite,
 }
 
 impl BackendDependency {
@@ -108,6 +114,7 @@ impl BackendDependency {
             Self::Sha => "sha1 = \"0.10\"\nsha2 = \"0.10\"\n",
             Self::Base64 => "base64 = \"0.22\"\n",
             Self::Md5 => "md-5 = \"0.10\"\n",
+            Self::Rusqlite => "rusqlite = { version = \"0.32\", features = [\"bundled\"] }\n",
         }
     }
 }

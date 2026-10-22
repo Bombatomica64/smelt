@@ -79,9 +79,10 @@ interned types
   t5 = String
   t6 = Generator<String, None, None>
   t7 = fn(Float) -> Generator<String, None, None>
-  t8 = Optional<Float>
-  t9 = Bool
-  t10 = fn(Float, Float, Optional<Float>) -> Generator<Float, None, None>
-  t11 = List<Float>
-  t12 = fn(Float) -> Generator<String, None, None>
-  t13 = List<String>
+  t8 = fn(Float, Float, Float) -> Generator<Float, None, None>
+  t9 = List<Float>
+  t10 = fn(Float) -> Generator<String, None, None>
+  t11 = List<String>
+  t12 = Optional<Float>
+  t13 = Bool
+  t14 = fn(Float, Float, Optional<Float>) -> Generator<Float, None, None>

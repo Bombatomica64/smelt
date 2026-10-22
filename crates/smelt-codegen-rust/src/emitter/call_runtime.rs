@@ -1325,6 +1325,10 @@ impl FunctionEmitter<'_> {
             // profile's one fixed variable, `TZ`, never reaches here.
             Rvalue::ProcessEnvRead { name } => Ok(format!("::std::env::var({name:?}).ok()")),
             Rvalue::EventEmitterNew => Ok("SmeltEventEmitter::new()".to_owned()),
+            Rvalue::SqliteOpen { path } => self.sqlite_open_text(path),
+            Rvalue::SqliteOp { op, receiver, args } => {
+                self.sqlite_op_text(*op, receiver, args, dest_ty)
+            }
             Rvalue::EventEmitterOp { op, emitter, args } => {
                 self.event_emitter_op_text(*op, emitter, args)
             }

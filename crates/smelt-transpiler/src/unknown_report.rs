@@ -597,7 +597,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 37] = [
+    const BOUNDARY_MARKERS: [&str; 39] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -676,6 +676,17 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // `as T`, which lower to a typed target and never reach this adapter
         // with an erased result. Proven in `untyped_json_parse_is_a_boundary`.
         "smelt_json_parse(",
+        // A `node:sqlite` ROW read (`statement.all(..)` / `statement.get(..)`):
+        // the row's columns are whatever the SQL text selects, decided when the
+        // statement runs — `SELECT *` over a table another program altered
+        // answers columns no compile-time type names — so a row is the same
+        // run-time document `JSON.parse` returns, and a source that knows the
+        // shape narrows it (`as TodoRow[]`). Statement PARAMETERS are not on
+        // this list: they bind at their own Rust types (`SmeltSqliteBind`), so
+        // an erased parameter still counts as avoidable. Proven in
+        // `sqlite_row_read_is_a_boundary`.
+        "smelt_sqlite_all(",
+        "smelt_sqlite_get(",
         "IntoSmeltUnknown",
         "into_smelt_unknown",
         "to_smelt_unknown",
@@ -1589,6 +1600,30 @@ mod tests {
         // carrier (runtime fixture `json_parse_any_value` runs all of them).
         let typed = "    let _smelt_tmp_3: SmeltRecord<String, SmeltUnknown> = Default::default();";
         assert_eq!(classify_line(typed, false), Category::AvoidableErasure);
+    }
+
+    /// A `node:sqlite` row read is a run-time document, like an untyped
+    /// `JSON.parse`; its parameters are not.
+    #[test]
+    fn sqlite_row_read_is_a_boundary() {
+        let all = "    let _smelt_tmp_4: SmeltList<SmeltUnknown> = statement.smelt_sqlite_all(&[])?;";
+        let get = "    let _smelt_tmp_5: SmeltUnknown = statement.smelt_sqlite_get(&[&id])?;";
+        for line in [all, get] {
+            assert_eq!(
+                classify_line(line, false),
+                Category::LegitimateBoundary,
+                "a row's columns are chosen by the SQL text at run time: {line}"
+            );
+        }
+        // One statement yields different column sets from the same call site
+        // when the schema it reads changes under it (`SELECT *` after an
+        // `ALTER TABLE ... ADD COLUMN`); no struct, union arm or scoped generic
+        // fixed at compile time holds both (runtime fixture
+        // `node_sqlite_database` reads rows with INTEGER, REAL, TEXT and NULL
+        // columns from one statement). A parameter erased by hand is NOT
+        // covered: parameters bind at their own types.
+        let erased_parameter = "    let changes = statement.run(&[&SmeltUnknown::Number(id as f64)])?;";
+        assert_eq!(classify_line(erased_parameter, false), Category::AvoidableErasure);
     }
 
     /// An optional erased value read at the erased carrier is an adapter between

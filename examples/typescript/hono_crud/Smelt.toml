@@ -6,8 +6,10 @@ description = "A Hono 4 todo CRUD API smelted into an axum server"
 [sources]
 # Entry points. smelt walks imports from here to discover the rest.
 entries = ["src/main.ts"]
-# Optional: extra roots searched during import resolution.
-roots = ["src"]
+# Optional: extra roots searched during import resolution. `test/` holds the
+# vitest suite, which `test-prefix` turns into the generated crate's `cargo test`.
+roots = ["src", "test"]
+test-prefix = ["**/*.test.ts"]
 
 # `hono` from npm ships compiled JavaScript only; Smelt lowers the TypeScript
 # source of the same release, the version package.json resolves to on Node.

@@ -519,6 +519,15 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::HttpCreateServer { handler } => {
             format!("http_create_server {}", expr_ref(*handler))
         }
+        ExprKind::SqliteOpen { path } => format!("sqlite_open {}", expr_ref(*path)),
+        ExprKind::SqliteOp { op, receiver, args } => {
+            let mut text = format!("sqlite_{op:?} {}", expr_ref(*receiver)).to_lowercase();
+            for arg in args {
+                text.push(' ');
+                text.push_str(&expr_ref(*arg));
+            }
+            text
+        }
         ExprKind::HttpCreateFetchServer { fetch } => {
             format!("http_create_fetch_server {}", expr_ref(*fetch))
         }

@@ -288,6 +288,9 @@ impl ModuleBuilder<'_> {
         if callee.name == "Request" && !self.classes.contains("Request") {
             return self.request_constructor_expression(new_expr, body);
         }
+        if let Some(database) = self.sqlite_database_constructor_expression(new_expr, body)? {
+            return Ok(database);
+        }
         if callee.name == "EventEmitter" && !self.classes.contains("EventEmitter") {
             return self.event_emitter_constructor_expression(new_expr, body);
         }

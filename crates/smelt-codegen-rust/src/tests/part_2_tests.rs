@@ -985,6 +985,61 @@ export function contentType(): string {
     );
 }
 
+/// A slot whose initializer can THROW gets a `Result` from its synthesized
+/// function, which a `thread_local!` initializer cannot propagate: the call
+/// used to be emitted bare, so the generated crate did not compile
+/// (`expected f64, found Result<..>`). A throw during module evaluation is
+/// always uncaught, so the slot reports it as `main`'s `Result` return would
+/// and exits 1; an infallible initializer keeps the bare call and the crate
+/// gets no reporter at all.
+#[test]
+fn module_slot_with_a_throwing_initializer_reports_like_main() {
+    let source = source_for(
+        r#"
+function load(text: string): number {
+  if (text === "") {
+    throw new Error("empty");
+  }
+  return text.length;
+}
+const size: number = load("abc");
+const encoder = new TextEncoder();
+
+export function report(): number {
+  return size * 2 + encoder.encode("x").length;
+}
+"#,
+    );
+
+    assert!(
+        source.contains(
+            "::std::cell::RefCell::new(smelt_global_init__size__0().unwrap_or_else(|error| smelt_module_init_failed(error)))"
+        ),
+        "{source}"
+    );
+    assert!(
+        source.contains("fn smelt_module_init_failed(error: Box<dyn std::error::Error>) -> !"),
+        "{source}"
+    );
+    assert!(source.contains("eprintln!(\"Error: {error:?}\");"), "{source}");
+    // The infallible initializer is untouched.
+    assert!(
+        source.contains("::std::cell::RefCell::new(smelt_global_init__encoder__1());"),
+        "{source}"
+    );
+
+    let infallible = source_for(
+        r#"
+const encoder = new TextEncoder();
+
+export function encoded(text: string): number {
+  return encoder.encode(text).length;
+}
+"#,
+    );
+    assert!(!infallible.contains("smelt_module_init_failed"), "{infallible}");
+}
+
 /// A module-level binding used ONLY in the module body keeps its ordinary
 /// module-body local, so the slot machinery is confined to the shape that was
 /// broken and no existing lowering moves.

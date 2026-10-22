@@ -2385,6 +2385,7 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::hono_node_serve_call,
         Self::dispatch_http_server_method,
         Self::dispatch_server_response_method,
+        Self::dispatch_sqlite_method,
         Self::dispatch_event_emitter_method,
         Self::map_projection_call,
         Self::regexp_test_call,

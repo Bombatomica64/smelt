@@ -13,6 +13,7 @@ mod typed_array;
 mod http_server;
 mod numbers_math;
 mod objects;
+mod sqlite;
 mod text_codec;
 
 use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
