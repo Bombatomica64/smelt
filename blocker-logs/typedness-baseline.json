@@ -2,17 +2,17 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 7440,
+      "concrete": 7457,
       "generic": 77,
       "erased": 51
     },
     "reads": {
-      "concrete": 724,
+      "concrete": 726,
       "generic": 21,
       "erased": 34
     },
     "calls": {
-      "concrete": 1777,
+      "concrete": 1779,
       "generic": 5,
       "erased": 2
     }
@@ -1174,6 +1174,23 @@
         "erased": 0
       }
     },
+    "examples/typescript/end-to-end/171_module_const_with_async_callback/input.ts": {
+      "values": {
+        "concrete": 16,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      }
+    },
     "examples/typescript/end-to-end/17_mutating_array/input.ts": {
       "values": {
         "concrete": 5,
@@ -1397,7 +1414,7 @@
     },
     "examples/typescript/end-to-end/30_nullish_union_join/input.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 8,
         "generic": 0,
         "erased": 0
       },
