@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-10-25 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-10-26 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -24,7 +24,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | [result](https://github.com/rustedpy/result) | PY | **no** | n/a | `(unknown)` | 6 | non-working Rust (6r/0s) |
 | [more-itertools](https://github.com/more-itertools/more-itertools) | PY | **no** | n/a | `(unknown)` | 23 | non-working Rust (23r/0s) |
 | [funcy](https://github.com/Suor/funcy) | PY | **no** | n/a | `(unknown)` | 16 | non-working Rust (16r/0s) |
-| [toolz](https://github.com/pytoolz/toolz) | PY | **no** | n/a | `(unknown)` | 16 | non-working Rust (16r/0s) |
+| [toolz](https://github.com/pytoolz/toolz) | PY | **no** | n/a | `toolz/itertoolz.py` | 16 | non-working Rust (16r/0s) |
 
 ## es-toolkit
 
@@ -230,7 +230,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 ## toolz
 
 - Source: `pytoolz/toolz` @ `568c2b839397`
-- Transpile: **no** — `smelt build` aborts at `(unknown)`
+- Transpile: **no** — `smelt build` aborts at `toolz/itertoolz.py`
 - Tests passing: **n/a** (no Rust crate emitted)
 - Files scanned: 31 · with blockers: 28
 
