@@ -60,7 +60,7 @@ const MODULES: &[RuntimeModule] = &[
 
 /// Returns every runtime module whose source is indexed for emission.
 #[must_use]
-pub fn modules() -> &'static [RuntimeModule] {
+pub const fn modules() -> &'static [RuntimeModule] {
     MODULES
 }
 

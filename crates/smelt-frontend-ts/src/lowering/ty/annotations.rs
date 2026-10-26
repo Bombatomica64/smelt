@@ -34,10 +34,36 @@ impl ModuleBuilder<'_> {
         }
         self.int32_type_depth += 1;
         let anchor = self.push_erasure_anchor(self.span(ty.span().start, ty.span().end));
-        let lowered = self.ts_type_shape_to_hir(ty);
+        let records_before = self.ctx.krate.erasures.len();
+        let lowered = self
+            .ts_type_shape_to_hir(ty)
+            .map(|lowered| self.checker_evaluated_or(lowered, ty.span(), records_before));
         self.restore_erasure_anchor(anchor);
         self.int32_type_depth -= 1;
         Ok(self.int32_only_as_whole_type(lowered?, whole))
+    }
+
+    /// `lowered`, or the TypeScript 7 checker's evaluation of the annotation
+    /// when `lowered` erased to `Unknown` (see `lowering/checker_types.rs`).
+    ///
+    /// The erasure records made since `records_before` belong to the decision
+    /// being overturned, so they are dropped when the checker answers and put
+    /// back when it declines.
+    fn checker_evaluated_or(
+        &mut self,
+        lowered: smelt_hir::TypeId,
+        span: oxc::span::Span,
+        records_before: usize,
+    ) -> smelt_hir::TypeId {
+        if self.ts_facts.is_none() || !matches!(self.ctx.krate.types.get(lowered), Some(Type::Unknown)) {
+            return lowered;
+        }
+        let overturned: Vec<_> = self.ctx.krate.erasures.drain(records_before..).collect();
+        if let Some(evaluated) = self.checker_annotation_type(span.start, span.end) {
+            return evaluated;
+        }
+        self.ctx.krate.erasures.extend(overturned);
+        lowered
     }
 
     /// Lower the shape of a TypeScript type annotation; see [`Self::ts_type_to_hir`].

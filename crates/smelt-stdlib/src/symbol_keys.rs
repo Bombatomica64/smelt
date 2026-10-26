@@ -202,9 +202,8 @@ pub fn escape(description: &str) -> String {
 pub fn unescape(escaped: &str) -> String {
     let mut decoded = String::with_capacity(escaped.len());
     let mut rest = escaped;
-    while let Some(index) = rest.find('_') {
-        decoded.push_str(&rest[..index]);
-        let tail = &rest[index + 1..];
+    while let Some((literal, tail)) = rest.split_once('_') {
+        decoded.push_str(literal);
         let Some((hex, remainder)) = tail.split_once('_') else {
             decoded.push('_');
             decoded.push_str(tail);

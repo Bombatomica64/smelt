@@ -639,7 +639,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 39] = [
+    const BOUNDARY_MARKERS: [&str; 40] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -711,6 +711,20 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // nowhere -- and panicked on an absent value (remeda `prop`). Proven
         // in `optional_unknown_read_is_a_boundary` below.
         smelt_codegen_rust::OPTIONAL_UNKNOWN_OR_UNDEFINED_FN,
+        // The hoisted erased-record-to-class conversion
+        // (`fn __smelt_from_unknown_record_<n>(smelt_value: SmeltUnknown) -> T`,
+        // `EmitContext::record_conversion_helpers` in codegen). It is the
+        // inverse adapter where an ERASED value is recovered as a typed class,
+        // the erased side being the value that arrives, so its parameter is
+        // `SmeltUnknown` by definition. Until the helper existed the identical
+        // conversion was spelled inline at every site as
+        // `match (v).into_smelt_unknown() { .. }` and classified here through
+        // that marker; hoisting it (Hono's crate shrank 57 MB -> 12 MB) left the
+        // signature as the one line newly naming `SmeltUnknown`. The prefix
+        // keeps the classification the conversion had inline and no more:
+        // an ordinary function taking `SmeltUnknown` stays avoidable. Proven in
+        // `record_conversion_helper_is_a_boundary` below.
+        smelt_codegen_rust::RECORD_CONVERSION_HELPER_PREFIX,
         // An untyped `JSON.parse(text)`: the result is whatever the TEXT holds
         // (`null`, a number, a string, an array or an object), known only when
         // the text is parsed, which is the "JSON values" boundary CLAUDE.md
@@ -1628,6 +1642,30 @@ mod tests {
             classify_line(plain_list, false),
             Category::AvoidableErasure,
             "a string-keyed projection is still avoidable erasure"
+        );
+    }
+
+    /// The hoisted erased-record-to-class conversion keeps the boundary
+    /// classification its inline spelling had.
+    #[test]
+    fn record_conversion_helper_is_a_boundary() {
+        let signature = "fn __smelt_from_unknown_record_0(smelt_value: SmeltUnknown) -> Context {";
+        assert_eq!(
+            classify_line(signature, false),
+            Category::LegitimateBoundary,
+            "the helper is the erased-to-class adapter that used to be inlined"
+        );
+        let inline = "    _smelt_tmp_10 = match (err).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = values.smelt_shared_record(); }, _ => Default::default() };";
+        assert_eq!(
+            classify_line(inline, false),
+            Category::LegitimateBoundary,
+            "the inline spelling it replaces was a boundary"
+        );
+        let ordinary = "fn helper(value: SmeltUnknown) -> Context {";
+        assert_eq!(
+            classify_line(ordinary, false),
+            Category::AvoidableErasure,
+            "an ordinary function taking SmeltUnknown is still avoidable erasure"
         );
     }
 

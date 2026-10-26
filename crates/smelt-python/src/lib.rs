@@ -64,6 +64,10 @@ where
 {
     type Output = <T as std::ops::Add<Rhs>>::Output;
 
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "generic blanket impl over caller-supplied `Add`: overflow behaviour is the operand type's own `Add` contract and cannot be checked here"
+    )]
     fn py_add(&self, rhs: &Rhs) -> Self::Output {
         self.clone() + rhs.clone()
     }
@@ -92,8 +96,8 @@ mod tests {
 
         fn add(self, rhs: Self) -> Self::Output {
             Self {
-                x: self.x + rhs.x,
-                y: self.y + rhs.y,
+                x: self.x.saturating_add(rhs.x),
+                y: self.y.saturating_add(rhs.y),
             }
         }
     }

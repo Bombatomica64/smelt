@@ -12,6 +12,8 @@ members = [
     "crates/smelt-test",
     "crates/smelt-transpiler",
     "crates/smelt-py-types",
+    "crates/smelt-ts-model",
+    "crates/smelt-ts-types",
     "crates/smelt-python",
 ]
 # smelt-gui is intentionally NOT a workspace member: it pulls in gpui (~25 min

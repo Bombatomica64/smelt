@@ -82,6 +82,69 @@ impl ModuleBuilder<'_> {
         Ok(expanded)
     }
 
+    /// Distribute a trailing LIST spread over the callee's remaining fixed parameters.
+    ///
+    /// `f(...xs)` into a callee with fixed parameters and no rest parameter
+    /// binds parameter `i` to `xs[i]` in JavaScript (`undefined` past the
+    /// end), so the spread lowers to the element reads `xs[0]`, `xs[1]`, ...
+    /// for the parameters it covers: the same `Index` read a source `xs[i]`
+    /// produces, at the list's element type. The operand is bound to a local
+    /// first so it is evaluated once. Hono's `get render()` returns
+    /// `(...args) => this.#renderer(...args)` into a one-parameter renderer.
+    ///
+    /// Only a spread in the LAST position is distributed: arguments after a
+    /// runtime-length spread have no static parameter position. And only into
+    /// TYPED parameters: a callee whose covered parameters are erased (`any`,
+    /// es-toolkit's `IsEqualCustomizer`) is called through the erased
+    /// packed-argument path, which spreads the list at run time, so per-element
+    /// reads there would only add erased values. Any other shape is returned
+    /// unchanged; an operand that turns out not to be a list is returned as the
+    /// single already-lowered argument it was before.
+    pub(in crate::lowering) fn distribute_trailing_list_spread<'a>(
+        &mut self,
+        mut arguments: Vec<CallArg<'a>>,
+        params: &[smelt_hir::TypeId],
+        body: &mut Body,
+    ) -> Result<Vec<CallArg<'a>>, SmeltError> {
+        let Some(&CallArg::UnexpandedSpread(spread)) = arguments.last() else {
+            return Ok(arguments);
+        };
+        let position = arguments.len().saturating_sub(1);
+        let covered_params = params.get(position..).unwrap_or_default();
+        let covered = covered_params.len();
+        if covered == 0
+            || covered_params.iter().any(|param| matches!(self.ctx.krate.types.get(*param), Some(Type::Unknown)))
+        {
+            return Ok(arguments);
+        }
+        arguments.pop();
+        let span = self.span(spread.span.start, spread.span.end);
+        let operand = self.expression(&spread.argument, body)?;
+        let operand_ty = Self::expr_ty(body, operand);
+        let resolved = self.type_param_constraint_or_self(operand_ty);
+        let Some(Type::List(element_ty)) = self.ctx.krate.types.get(resolved).cloned() else {
+            arguments.push(CallArg::Lowered(operand));
+            return Ok(arguments);
+        };
+        let spread_name = self.intern_source_name("__smelt_spread");
+        let operand_local = self.capture_bind_value(operand, operand_ty, spread_name, span, body);
+        let index_ty = self.ctx.krate.types.intern(Type::Int);
+        for offset in 0..covered {
+            let receiver = body.push_expr(Expr { kind: ExprKind::Local(operand_local), ty: operand_ty, span });
+            let index = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Int(i64::try_from(offset).unwrap_or(i64::MAX))),
+                ty: index_ty,
+                span,
+            });
+            arguments.push(CallArg::Lowered(body.push_expr(Expr {
+                kind: ExprKind::Index { receiver, index },
+                ty: element_ty,
+                span,
+            })));
+        }
+        Ok(arguments)
+    }
+
     /// Lower one [`CallArg`], applying a contextual hint only where there is
     /// still source to apply it to.
     pub(in crate::lowering) fn lower_call_arg(

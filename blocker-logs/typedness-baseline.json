@@ -2,7 +2,7 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 7457,
+      "concrete": 7478,
       "generic": 77,
       "erased": 51
     },
@@ -12,7 +12,7 @@
       "erased": 34
     },
     "calls": {
-      "concrete": 1779,
+      "concrete": 1784,
       "generic": 5,
       "erased": 2
     }
@@ -1187,6 +1187,23 @@
       },
       "calls": {
         "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/172_checker_evaluated_annotation_types/input.ts": {
+      "values": {
+        "concrete": 21,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 5,
         "generic": 0,
         "erased": 0
       }

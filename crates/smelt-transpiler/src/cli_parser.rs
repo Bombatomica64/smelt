@@ -224,6 +224,31 @@ pub enum Command {
         output: Option<String>,
     },
 
+    /// Compare Smelt's TypeScript types with the TypeScript 7 checker's
+    #[command(
+        name = "ts7-parity-report",
+        long_about = "Lower each input to HIR as `smelt build` does, type-check the \
+        same TypeScript sources with the embedded TypeScript 7 checker (tsrs), and \
+        compare every HIR expression's type with the checker's type for the node at \
+        the same span. Reports parity (the share of statically typed expressions \
+        whose shape Smelt kept), the families of values TypeScript types concretely \
+        that Smelt erased to Unknown, shape mismatches, and the checker's own errors. \
+        Inputs are `Smelt.toml` manifests or `.ts` files."
+    )]
+    Ts7ParityReport {
+        /// `Smelt.toml` manifests or `.ts` files to measure.
+        #[arg(value_name = "PATH", required = true)]
+        inputs: Vec<String>,
+
+        /// Report format: `md` (default) or `json`.
+        #[arg(long, default_value = "md", value_name = "FORMAT")]
+        format: String,
+
+        /// Write the report to this file instead of stdout.
+        #[arg(long, value_name = "PATH")]
+        output: Option<String>,
+    },
+
     /// Measure and ratchet how much of a program reaches Rust typed
     #[command(
         name = "typedness-report",

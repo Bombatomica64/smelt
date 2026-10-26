@@ -244,6 +244,25 @@ pub(crate) struct EmitContext {
     pub(crate) function_item_typed_accessors: ::std::cell::RefCell<
         ::std::collections::BTreeMap<(usize, String), (usize, String)>,
     >,
+    /// One generated conversion function per class type recovered from an
+    /// erased value: `__smelt_from_unknown_record_<ordinal>(SmeltUnknown) -> T`.
+    ///
+    /// The conversion rebuilds the class from the erased object's record,
+    /// field by field and with each field's own conversion nested inside, so
+    /// spelled inline it is tens of kilobytes for a large class. It used to be
+    /// spelled at EVERY site that recovered the class: Hono's CORS test module
+    /// repeated `Hono`'s conversion about a thousand times and reached 28 MB,
+    /// past what one rustc can compile in a capped build. Only outermost
+    /// conversions are hoisted (see `extract_value_text`), so a helper's body
+    /// is exactly the text that was inlined before.
+    ///
+    /// Keyed by the module-level Rust spelling of the type; the value is
+    /// `(ordinal, body)`.
+    ///
+    /// Helper names start with [`crate::RECORD_CONVERSION_HELPER_PREFIX`].
+    pub(crate) record_conversion_helpers: ::std::cell::RefCell<
+        ::std::collections::BTreeMap<String, (usize, String)>,
+    >,
     /// MIR ids of free functions that emit real Rust generics.
     ///
     /// A generic free function only keeps real generics when its signature is
@@ -390,6 +409,7 @@ impl EmitContext {
             function_item_typed_accessors: ::std::cell::RefCell::new(
                 ::std::collections::BTreeMap::new(),
             ),
+            record_conversion_helpers: ::std::cell::RefCell::new(::std::collections::BTreeMap::new()),
             generic_functions: RefCell::new(HashSet::new()),
             weak_receivers: weak_receiver::WeakReceiverPlan::of(mir, &crate::classify::reference_classes(mir)),
             reference_classes: crate::classify::reference_classes(mir),

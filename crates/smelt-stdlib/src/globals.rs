@@ -64,6 +64,7 @@ pub const NODE_PROFILE_TIMEZONE: &str = "America/Santiago";
 /// list also holds CONSTRUCTORS (`Array`, `Map`, `Uint8Array`) and plain
 /// functions (`parseInt`), whose `typeof` is `"function"`. Only the entries
 /// here are objects.
+#[non_exhaustive]
 pub struct GlobalNamespace {
     /// The global's source spelling.
     pub name: &'static str,

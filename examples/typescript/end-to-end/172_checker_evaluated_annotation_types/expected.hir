@@ -1,0 +1,71 @@
+module examples/typescript/end-to-end/172_checker_evaluated_annotation_types/input.ts (ModuleId(0))
+  body BodyId(2)
+  items
+    type Words = Unknown
+    interface Config fields [Public port: Float, Public host: String, Public tags: List<String>] methods []
+    class Store fields [] constructor Some(ItemId(5)) methods [ItemId(4)] implements []
+  locals
+    %0 const words: List<String>
+    %1 const port: Float
+    %2 const tags: List<String>
+    %3 const got: Float
+  exprs
+    #0: String = "x"
+    #1: String = "y"
+    #2: List<String> = [#0, #1]
+    #3: Float = 8080.0
+    #4: String = "a"
+    #5: String = "b"
+    #6: String = "c"
+    #7: List<String> = [#4, #5, #6]
+    #8: Store = new Store()
+    #9: Store = new Store()
+    #10: Store = new Store()
+    #11: Store = new Store()
+    #12: Store = new Store()
+    #13: fn(String) -> Float = #12.get
+    #14: Store = new Store()
+    #15: String = "abcd"
+    #16: Float = #14.get(#15)
+    #17: List<String> = %0
+    #18: Float = len #17
+    #19: List<String> = %0
+    #20: String = "+"
+    #21: String = string_join #19, #20
+    #22: None = @7(console_log)
+    #23: None = call #22(#18, #21)
+    #24: Float = %1
+    #25: Float = 1.0
+    #26: Float = Add #24, #25
+    #27: List<String> = %2
+    #28: String = ","
+    #29: String = string_join #27, #28
+    #30: List<String> = %2
+    #31: Float = len #30
+    #32: None = @8(console_log)
+    #33: None = call #32(#26, #29, #31)
+    #34: Float = %3
+    #35: Float = 2.0
+    #36: Float = Mul #34, #35
+    #37: None = @9(console_log)
+    #38: None = call #37(#36)
+  stmts
+    s0: let %0: List<String> = #2
+    s1: let %1: Float = #3
+    s2: let %2: List<String> = #7
+    s3: let %3: Float = #16
+    s4: #23
+    s5: #33
+    s6: #38
+
+interned types
+  t0 = T
+  t1 = String
+  t2 = List<String>
+  t3 = Float
+  t4 = Unknown
+  t5 = Config
+  t6 = Store
+  t7 = fn(String) -> Float
+  t8 = None
+  t9 = fn(String) -> Float

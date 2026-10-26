@@ -3377,19 +3377,17 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(None);
         };
         let callee_ty = Self::expr_ty(body, callee);
-        let mut args = Vec::new();
-        for arg in &call.arguments {
-            args.push(self.argument(arg, body)?);
-        }
-        let (function_ty, function) = match self.function_member_type(callee_ty) {
-            Some(function_ty) => {
-                let Some(Type::Function(function)) =
-                    self.ctx.krate.types.get(function_ty).cloned()
-                else {
-                    return Ok(None);
-                };
-                (function_ty, function)
-            }
+        let typed = self.function_member_type(callee_ty).map(|function_ty| {
+            let function = match self.ctx.krate.types.get(function_ty) {
+                Some(Type::Function(function)) => Some(function.clone()),
+                _ => None,
+            };
+            (function_ty, function)
+        });
+        let args = self.private_callable_field_arguments(call, typed.as_ref(), body)?;
+        let (function_ty, function) = match typed {
+            Some((function_ty, Some(function))) => (function_ty, function),
+            Some((_, None)) => return Ok(None),
             // An ERASED callable field: Hono's `#renderer: Renderer` resolves
             // through a conditional type (`ContextRenderer extends Function ?
             // ...`) that carries no callable shape, so the read is `unknown`.
@@ -3448,6 +3446,28 @@ impl<'builder> ModuleBuilder<'builder> {
             ty: function.return_ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Arguments of a private callable-field call.
+    ///
+    /// A typed fixed-arity callee takes its arguments through the spread
+    /// choke point (`lowering::spread_arguments`), so a trailing list spread
+    /// is distributed over its parameters; an erased callee synthesizes its
+    /// ABI from the argument types, so each source argument is one argument.
+    fn private_callable_field_arguments(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        typed: Option<&(smelt_hir::TypeId, Option<FunctionType>)>,
+        body: &mut Body,
+    ) -> Result<Vec<smelt_hir::ExprId>, SmeltError> {
+        if let Some((_, Some(function))) = typed
+            && function.rest.is_none()
+        {
+            let expanded = self.expanded_call_arguments(&call.arguments, body)?;
+            let expanded = self.distribute_trailing_list_spread(expanded, &function.params, body)?;
+            return expanded.into_iter().map(|argument| self.lower_call_arg(argument, None, body)).collect();
+        }
+        call.arguments.iter().map(|argument| self.argument(argument, body)).collect()
     }
 
     /// Whether class `class_name` declares a field named `field`.
@@ -5946,6 +5966,8 @@ impl<'builder> ModuleBuilder<'builder> {
         // a guess.
         if rest.is_none() && call.arguments.iter().any(Argument::is_spread) {
             let expanded = self.expanded_call_arguments(&call.arguments, body)?;
+            let fixed_params = function.params.get(..fixed_param_count).unwrap_or_default();
+            let expanded = self.distribute_trailing_list_spread(expanded, fixed_params, body)?;
             let mut args = Vec::with_capacity(fixed_param_count);
             for argument in expanded.into_iter().take(fixed_param_count) {
                 args.push(self.lower_call_arg(argument, None, body)?);

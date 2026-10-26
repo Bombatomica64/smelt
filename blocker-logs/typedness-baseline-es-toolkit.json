@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 13284,
+      "concrete": 13329,
       "generic": 229,
-      "erased": 10236
+      "erased": 10191
     },
     "reads": {
       "concrete": 304,
@@ -12,9 +12,9 @@
       "erased": 1117
     },
     "calls": {
-      "concrete": 1939,
+      "concrete": 1942,
       "generic": 19,
-      "erased": 976
+      "erased": 973
     }
   },
   "programs": {
@@ -1567,9 +1567,9 @@
     },
     "src/array/remove.spec.ts": {
       "values": {
-        "concrete": 42,
+        "concrete": 44,
         "generic": 0,
-        "erased": 8
+        "erased": 6
       },
       "reads": {
         "concrete": 0,
@@ -2451,9 +2451,9 @@
     },
     "src/array/zipWith.spec.ts": {
       "values": {
-        "concrete": 30,
+        "concrete": 48,
         "generic": 0,
-        "erased": 28
+        "erased": 10
       },
       "reads": {
         "concrete": 0,
@@ -2461,9 +2461,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 4,
+        "concrete": 5,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       }
     },
     "src/array/zipWith.ts": {
@@ -6667,9 +6667,9 @@
     },
     "src/compat/object/transform.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 12,
         "generic": 0,
-        "erased": 27
+        "erased": 26
       },
       "reads": {
         "concrete": 0,
@@ -8843,9 +8843,9 @@
     },
     "src/function/debounce.ts": {
       "values": {
-        "concrete": 27,
+        "concrete": 34,
         "generic": 1,
-        "erased": 62
+        "erased": 55
       },
       "reads": {
         "concrete": 1,
@@ -9965,9 +9965,9 @@
     },
     "src/object/findKey.spec.ts": {
       "values": {
-        "concrete": 21,
+        "concrete": 23,
         "generic": 0,
-        "erased": 52
+        "erased": 50
       },
       "reads": {
         "concrete": 0,
@@ -10084,9 +10084,9 @@
     },
     "src/object/mapKeys.spec.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 17,
         "generic": 0,
-        "erased": 12
+        "erased": 6
       },
       "reads": {
         "concrete": 0,
@@ -10118,9 +10118,9 @@
     },
     "src/object/mapValues.spec.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 20,
         "generic": 0,
-        "erased": 14
+        "erased": 5
       },
       "reads": {
         "concrete": 0,
@@ -10128,9 +10128,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 1,
+        "concrete": 3,
         "generic": 0,
-        "erased": 2
+        "erased": 0
       }
     },
     "src/object/mapValues.ts": {

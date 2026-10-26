@@ -1423,7 +1423,7 @@ fn alias_closure_field_call_in_callback_body_stays_closure_call() {
     );
     // Reaching here means MIR lowering resolved every call; the alias field
     // dispatches as a stored closure, not a class method item.
-    assert!(!source.is_empty());
+    assert_ne!(source, "");
 }
 
 /// A `function*` expression stored in an erased slot crosses the dynamic

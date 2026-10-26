@@ -115,7 +115,7 @@ pub fn spelling_key_pairs() -> Vec<(String, String)> {
 /// of general source-name folding, keeping the synthetic spelling stable and
 /// independent of interning rules.
 fn camel_to_snake_ascii(name: &str) -> String {
-    let mut output = String::with_capacity(name.len() + 4);
+    let mut output = String::with_capacity(name.len().saturating_add(4));
     for (index, ch) in name.chars().enumerate() {
         if ch.is_ascii_uppercase() {
             if index != 0 {

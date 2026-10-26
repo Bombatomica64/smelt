@@ -67,6 +67,10 @@ pub enum ByteBufferRole {
 // derive its decode/encode pair — a wildcard arm there would silently emit a
 // byte-wide codec for a newly added width.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "closed set of the eleven JavaScript typed-array element types; codegen matches every variant without a wildcard so a new width cannot silently get a wrong codec"
+)]
 pub enum TypedArrayElement {
     /// Signed 8-bit integer (`Int8Array`).
     Int8,
@@ -637,10 +641,8 @@ pub fn typed_array_element(class_name: &str) -> Option<TypedArrayElement> {
 pub fn data_view_accessor(member: &str) -> Option<(bool, TypedArrayElement)> {
     let (write, suffix) = if let Some(suffix) = member.strip_prefix("get") {
         (false, suffix)
-    } else if let Some(suffix) = member.strip_prefix("set") {
-        (true, suffix)
     } else {
-        return None;
+        (true, member.strip_prefix("set")?)
     };
     TypedArrayElement::all()
         .iter()

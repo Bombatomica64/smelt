@@ -3895,7 +3895,7 @@ impl IntoSmeltUnknown for SmeltUnion3 {
 impl SmeltUnion3 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if matches!(value, SmeltUnknown::Number(_)) { return Self::M0(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }); }
-        if matches!(value, SmeltUnknown::Object(_)) { return Self::M1(match (value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); InitLike { headers: smelt_record_map.get("headers").or_else(|| smelt_record_map.get("__smelt_proto:headers")).or_else(|| smelt_record_map.get("__smelt_method:headers")).cloned().and_then(|value| if smelt_unknown_is_nullish(&value) { None } else { Some(<SmeltHeaders as SmeltFromUnknown>::smelt_from_unknown(value.clone())) }), status: smelt_record_map.get("status").or_else(|| smelt_record_map.get("__smelt_proto:status")).or_else(|| smelt_record_map.get("__smelt_method:status")).cloned().and_then(|value| if smelt_unknown_is_nullish(&value) { None } else { Some(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) }) } } }, _ => Default::default() }); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M1(__smelt_from_unknown_record_0((value).into_smelt_unknown())); }
         Self::M2(<SmeltResponse as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
     }
 }
@@ -3937,7 +3937,7 @@ impl IntoSmeltUnknown for SmeltUnion7 {
 }
 impl SmeltUnion7 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(match (value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); InitLike { headers: smelt_record_map.get("headers").or_else(|| smelt_record_map.get("__smelt_proto:headers")).or_else(|| smelt_record_map.get("__smelt_method:headers")).cloned().and_then(|value| if smelt_unknown_is_nullish(&value) { None } else { Some(<SmeltHeaders as SmeltFromUnknown>::smelt_from_unknown(value.clone())) }), status: smelt_record_map.get("status").or_else(|| smelt_record_map.get("__smelt_proto:status")).or_else(|| smelt_record_map.get("__smelt_method:status")).cloned().and_then(|value| if smelt_unknown_is_nullish(&value) { None } else { Some(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) }) } } }, _ => Default::default() }); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(__smelt_from_unknown_record_0((value).into_smelt_unknown())); }
         Self::M1(<SmeltResponse as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
     }
 }
@@ -4016,6 +4016,10 @@ fn main() {
     let _smelt_tmp_35: f64 = status_of(SmeltUnion3::M0(418.0));
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_35)); };
     return;
+}
+
+fn __smelt_from_unknown_record_0(smelt_value: SmeltUnknown) -> InitLike {
+    match (smelt_value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); InitLike { headers: smelt_record_map.get("headers").or_else(|| smelt_record_map.get("__smelt_proto:headers")).or_else(|| smelt_record_map.get("__smelt_method:headers")).cloned().and_then(|value| if smelt_unknown_is_nullish(&value) { None } else { Some(<SmeltHeaders as SmeltFromUnknown>::smelt_from_unknown(value.clone())) }), status: smelt_record_map.get("status").or_else(|| smelt_record_map.get("__smelt_proto:status")).or_else(|| smelt_record_map.get("__smelt_method:status")).cloned().and_then(|value| if smelt_unknown_is_nullish(&value) { None } else { Some(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) }) } } }, _ => Default::default() }
 }
 
 // ==== source_main.rs

@@ -150,6 +150,17 @@ pub const PRELUDE_END_MARKER: &str = "// @smelt:prelude-end — generated progra
 /// The SmeltUnknown report classifies their call sites as a boundary; see
 /// `erased_list_alias` for why.
 pub use erased_list_alias::{ERASED_GENERIC_ARRAY_ALIAS_FN, ERASED_GENERIC_LIST_ALIAS_FN};
+/// Name prefix of the generated erased-record-to-class conversion helpers,
+/// `fn <prefix><n>(smelt_value: SmeltUnknown) -> T`.
+///
+/// Each helper is the inverse adapter at an erased-to-typed boundary: it
+/// takes the erased value and rebuilds (or recovers) the typed class. Its
+/// body used to be inlined at every call site, where it was classified as a
+/// boundary through its `into_smelt_unknown` call; hoisted, the signature is
+/// the one line that newly names `SmeltUnknown`, and the SmeltUnknown report
+/// keys its boundary classification on this prefix so the same conversion
+/// keeps the classification it had inline.
+pub const RECORD_CONVERSION_HELPER_PREFIX: &str = "__smelt_from_unknown_record_";
 pub use emitter::typedness::{KindCounts, Typedness, TypednessCounts, TypednessMeasurement};
 
 /// Measure how much of optimized MIR reaches Rust typed.
@@ -6481,6 +6492,15 @@ fn emit_source_with_free_function_router(
     for ((key, type_text), (ordinal, body)) in context.function_item_typed_accessors.borrow().iter() {
         out.push_str(&format!(
             "\ntype SmeltFnTyped{key}_{ordinal} = {type_text};\nfn __smelt_fn_typed_{key}_{ordinal}() -> SmeltFnTyped{key}_{ordinal} {{\n    thread_local! {{ static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped{key}_{ordinal}> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| {{ let smelt_function: SmeltFnTyped{key}_{ordinal} = {body}; smelt_function }}).clone())\n}}\n"
+        ));
+    }
+
+    // Flush the hoisted erased-record-to-class conversions (see
+    // `EmitContext::record_conversion_helpers`): each recovered class type's
+    // conversion is spelled once here and called from every site.
+    for (type_text, (ordinal, body)) in context.record_conversion_helpers.borrow().iter() {
+        out.push_str(&format!(
+            "\nfn {RECORD_CONVERSION_HELPER_PREFIX}{ordinal}(smelt_value: SmeltUnknown) -> {type_text} {{\n    {body}\n}}\n"
         ));
     }
 
