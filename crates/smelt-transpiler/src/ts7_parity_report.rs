@@ -185,7 +185,16 @@ pub(crate) fn ts7_parity_report(options: &ParityReportOptions<'_>) -> CliResult<
         };
         let sources = typescript_sources(&krate, input);
         let facts = smelt_ts_types::analyze(
-            sources.values().map(|source| SourceInput::new(source.path.clone(), source.text.clone())).collect(),
+            sources
+                .values()
+                .map(|source| {
+                    let input = SourceInput::new(source.path.clone(), source.text.clone());
+                    match std::path::absolute(&source.path) {
+                        Ok(location) => input.located_at(location.display().to_string()),
+                        Err(_) => input,
+                    }
+                })
+                .collect(),
         )?;
         record_checker_errors(&facts, &mut report.checker_errors);
         let mut measure = Measure { krate: &krate, facts: &facts, sources: &sources, report: &mut report };

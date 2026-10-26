@@ -166,6 +166,7 @@ pub(crate) fn scan_imports(source: &str) -> Result<Vec<ManifestImport>, String> 
                     module: alias.name.as_str().to_owned(),
                     names: None,
                     python_relative_level: None,
+                    type_only: false,
                 });
             }
         }
@@ -179,6 +180,7 @@ pub(crate) fn scan_imports(source: &str) -> Result<Vec<ManifestImport>, String> 
                     .map_or_else(String::new, |module| module.as_str().to_owned()),
                 names: None,
                 python_relative_level: (stmt.level > 0).then_some(stmt.level),
+                type_only: false,
             });
         }
     }

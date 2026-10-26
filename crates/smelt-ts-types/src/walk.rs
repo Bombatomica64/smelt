@@ -21,34 +21,48 @@ use std::collections::HashMap;
 use tsrs_ast::{self as ast, Kind, Node, SourceFile};
 use tsrs_core::P;
 
+use crate::{FileTypes, SpanKey};
 use crate::convert::Converter;
-use crate::model::TsTypeId;
 
-/// Byte span `(start, end)` of a node's tokens.
-pub(crate) type SpanKey = (u32, u32);
 
-/// Type of each value-position node in one file, keyed by token span.
-pub(crate) type FileTypes = HashMap<SpanKey, TsTypeId>;
+/// Span-keyed types of one file: value positions and type annotations.
+pub(crate) struct CollectedTypes {
+    /// `getTypeAtLocation` of every value-position node.
+    pub(crate) values: FileTypes,
+    /// `getTypeFromTypeNode` of every type annotation node.
+    pub(crate) type_nodes: FileTypes,
+}
 
-/// Collects the type of every value-position node in `file`.
-pub(crate) fn collect_file_types(
-    converter: &mut Converter<'_>,
-    file: P<SourceFile>,
-) -> FileTypes {
-    let mut types = HashMap::new();
+/// Collects the type of every value-position node and type node in `file`.
+pub(crate) fn collect_file_types(converter: &mut Converter<'_>, file: P<SourceFile>) -> CollectedTypes {
+    let mut collected = CollectedTypes { values: HashMap::new(), type_nodes: HashMap::new() };
     let text = file.text();
     let mut work: Vec<P<Node>> = vec![file.as_node()];
     while let Some(node) = work.pop() {
-        if let Some(key) = span_key(text, node)
-            && is_value_position(node)
-            && !types.contains_key(&key)
-        {
-            let ty = converter.checker().get_type_at_location(node);
-            types.insert(key, converter.convert(ty));
+        if let Some(key) = span_key(text, node) {
+            if is_value_position(node) && !collected.values.contains_key(&key) {
+                let ty = converter.checker().get_type_at_location(node);
+                collected.values.insert(key, converter.convert(ty));
+            } else if is_annotation_type_node(node) && !collected.type_nodes.contains_key(&key) {
+                let ty = converter.checker().get_type_from_type_node_exported(node);
+                collected.type_nodes.insert(key, converter.convert(ty));
+            }
         }
         push_children_in_order(node, &mut work);
     }
-    types
+    collected
+}
+
+/// Whether `node` is a type annotation whose evaluated type is meaningful on its own.
+///
+/// Heritage clauses (`extends Base<T>`) are expressions with type arguments,
+/// `infer X` only binds inside a conditional, and a type predicate
+/// (`x is T`) is a boolean-returning signature form; none is a standalone type.
+fn is_annotation_type_node(node: P<Node>) -> bool {
+    ast::is_type_node(node)
+        && !matches!(node.kind(), Kind::ExpressionWithTypeArguments)
+        && !ast::is_infer_type_node(node)
+        && !ast::is_type_predicate_node(node)
 }
 
 /// Whether `node` denotes a value whose type the frontend may ask about.

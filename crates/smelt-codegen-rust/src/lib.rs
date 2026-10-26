@@ -6484,6 +6484,15 @@ fn emit_source_with_free_function_router(
         ));
     }
 
+    // Flush the hoisted erased-record-to-class conversions (see
+    // `EmitContext::record_conversion_helpers`): each recovered class type's
+    // conversion is spelled once here and called from every site.
+    for (type_text, (ordinal, body)) in context.record_conversion_helpers.borrow().iter() {
+        out.push_str(&format!(
+            "\nfn __smelt_from_unknown_record_{ordinal}(smelt_value: SmeltUnknown) -> {type_text} {{\n    {body}\n}}\n"
+        ));
+    }
+
     // The `util.inspect` formatter is pay-for-use like the rest of the
     // prelude, but whether a `console.log` argument needs it is decided while
     // the bodies above are emitted, so it is spliced in ahead of the prelude

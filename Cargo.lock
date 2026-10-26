@@ -2243,6 +2243,7 @@ dependencies = [
  "smelt-hir",
  "smelt-specialize",
  "smelt-stdlib",
+ "smelt-ts-model",
 ]
 
 [[package]]
@@ -2328,16 +2329,22 @@ dependencies = [
  "smelt-mir",
  "smelt-specialize",
  "smelt-stdlib",
+ "smelt-ts-model",
  "smelt-ts-types",
  "tempfile",
  "toml",
 ]
 
 [[package]]
+name = "smelt-ts-model"
+version = "0.1.1"
+
+[[package]]
 name = "smelt-ts-types"
 version = "0.1.1"
 dependencies = [
  "oxc",
+ "smelt-ts-model",
  "tsrs_ast",
  "tsrs_checker",
  "tsrs_compiler",

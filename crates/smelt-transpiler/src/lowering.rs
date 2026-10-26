@@ -176,6 +176,9 @@ pub(crate) fn lower_typescript_files(
         }
     }
 
+    let ts_facts = crate::ts_facts::analyze_files(
+        files.iter().filter_map(|file| fs::read_to_string(file).ok().map(|source| (file.clone(), source))).collect(),
+    );
     for (idx, file) in files.iter().enumerate() {
         let source = fs::read_to_string(file)?;
         let file_id = u32::try_from(idx).map_err(|error| {
@@ -184,7 +187,11 @@ pub(crate) fn lower_typescript_files(
                 format!("too many source files: {error}"),
             )
         })?;
-        let module = smelt_frontend_ts::to_hir_with_path(&source, FileId(file_id), file, &mut ctx)
+        let options = smelt_frontend_ts::FrontendOptions {
+            ts_facts: ts_facts.as_ref(),
+            ..smelt_frontend_ts::FrontendOptions::default()
+        };
+        let module = smelt_frontend_ts::to_hir_with_options(&source, FileId(file_id), file, &mut ctx, options)
             .map_err(|errors| {
                 io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -262,6 +269,14 @@ fn lower_typescript_file_with_dependencies(
         }
     }
 
+    let ts_files: Vec<(String, String)> = ordered_paths
+        .iter()
+        .map(|path| path.display().to_string())
+        .filter(|path_string| SourceLang::from_path(path_string).is_ok_and(SourceLang::is_typescript))
+        .filter_map(|path_string| fs::read_to_string(&path_string).ok().map(|source| (path_string, source)))
+        .collect();
+    let ts_facts = crate::ts_facts::analyze_files(ts_files);
+
     for (idx, path) in ordered_paths.iter().enumerate() {
         let Ok(source) = fs::read_to_string(path) else {
             continue;
@@ -275,8 +290,13 @@ fn lower_typescript_file_with_dependencies(
         let file_id = FileId(u32::try_from(idx).unwrap_or(u32::MAX));
         let is_target = path.canonicalize().unwrap_or_else(|_| path.clone()) == target_key
             || path == &target_path;
-        let outcome =
-            smelt_frontend_ts::to_hir_with_path(&source, file_id, &path_string, &mut ctx);
+        let outcome = smelt_frontend_ts::to_hir_with_options(
+            &source,
+            file_id,
+            &path_string,
+            &mut ctx,
+            smelt_frontend_ts::FrontendOptions { ts_facts: ts_facts.as_ref(), ..smelt_frontend_ts::FrontendOptions::default() },
+        );
         match outcome {
             Ok(module) => {
                 if is_target {
@@ -995,6 +1015,8 @@ fn lower_ordered_manifest_sources(
         ..FrontendLoweringState::default()
     };
     seed_written_host_globals(sources, &mut state);
+    let ts_facts = crate::ts_facts::analyze_sources(sources);
+    let inputs = ModuleInputs { specialization, ts_facts: ts_facts.as_ref() };
     state.ts_type_renames = manifest_type_renames(sources);
     state.ts_module_identities = manifest_module_identities(sources);
     (krate, state) = predeclare_manifest_type_declarations(krate, state, sources)?;
@@ -1003,7 +1025,7 @@ fn lower_ordered_manifest_sources(
 
     for (idx, source) in sources.iter().enumerate() {
         let (next_krate, next_state, outcome) =
-            lower_manifest_source(krate, state, source, idx, specialization);
+            lower_manifest_source(krate, state, source, idx, inputs);
         krate = next_krate;
         state = next_state;
         let module = outcome.map_err(|diagnostics| manifest_source_error(source, &diagnostics))?;
@@ -1096,6 +1118,8 @@ pub(crate) fn collect_manifest_diagnostics(
     let mut krate = smelt_hir::Crate::new();
     let mut state = FrontendLoweringState::default();
     seed_written_host_globals(&ordered_sources, &mut state);
+    let ts_facts = crate::ts_facts::analyze_sources(&ordered_sources);
+    let inputs = ModuleInputs { specialization: &specialization, ts_facts: ts_facts.as_ref() };
     state.ts_type_renames = manifest_type_renames(&ordered_sources);
     state.ts_module_identities = manifest_module_identities(&ordered_sources);
     (krate, state) = predeclare_manifest_type_declarations(krate, state, &ordered_sources)?;
@@ -1108,7 +1132,7 @@ pub(crate) fn collect_manifest_diagnostics(
             break;
         };
         let lowered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            lower_manifest_source(current, state, source, idx, &specialization)
+            lower_manifest_source(current, state, source, idx, inputs)
         }));
         match lowered {
             Ok((next_krate, next_state, outcome)) => {
@@ -1168,6 +1192,15 @@ fn erasure_diagnostics(
         .collect()
 }
 
+/// Whole-crate inputs every module's frontend lowering reads.
+#[derive(Clone, Copy)]
+struct ModuleInputs<'input> {
+    /// Materialized specialization data.
+    specialization: &'input crate::specialization::PreparedSpecialization,
+    /// TypeScript 7 checker facts for the crate's TypeScript sources.
+    ts_facts: Option<&'input smelt_ts_model::TsTypeFacts>,
+}
+
 /// Lowers one manifest file, returning the (possibly mutated) crate and state
 /// plus either the lowered module or its categorized diagnostics.
 ///
@@ -1180,7 +1213,7 @@ fn lower_manifest_source(
     state: FrontendLoweringState,
     source: &ManifestSource,
     idx: usize,
-    specialization: &crate::specialization::PreparedSpecialization,
+    inputs: ModuleInputs<'_>,
 ) -> (
     smelt_hir::Crate,
     FrontendLoweringState,
@@ -1228,8 +1261,9 @@ fn lower_manifest_source(
                 &file_string,
                 &mut ctx,
                 smelt_frontend_ts::FrontendOptions {
-                    specialization: specialization.typescript.as_ref(),
+                    specialization: inputs.specialization.typescript.as_ref(),
                     excluded_modules: &source.excluded_imports,
+                    ts_facts: inputs.ts_facts,
                 },
             )
             .map_err(|errors| {
@@ -1287,7 +1321,7 @@ fn lower_manifest_source(
                     &source.source,
                     file_id,
                     &file_string,
-                    specialization.python.as_ref(),
+                    inputs.specialization.python.as_ref(),
                 );
             let next_state = FrontendLoweringState {
                 ts_export_aliases: state.ts_export_aliases,

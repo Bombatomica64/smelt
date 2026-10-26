@@ -3056,6 +3056,86 @@ impl FunctionEmitter<'_> {
         self.extract_value_text(&text, target, scope)
     }
 
+    /// The erased-record-to-class conversion of `text`, spelled inline.
+    ///
+    /// Rebuilds the class from the erased object's record (or recovers the
+    /// live instance a reference record's view carries), converting each
+    /// field with its own nested conversion. `extract_value_text` either
+    /// inlines this or, for an outermost conversion, hoists it into one
+    /// generated helper per type (`hoisted_record_conversion`).
+    fn inline_record_conversion(&self, text: &str, target: TypeId, scope: &RenderScope) -> Result<String, EmitError> {
+        // The string-dict record adapter needs the prelude `String` and
+        // `SmeltUnknown` types interned in this program's type table. A
+        // program that never uses them (e.g. a concrete class union whose
+        // generated `from_smelt_unknown` reconstruction reaches this class
+        // member) has neither interned, so fall back to the same default
+        // the no-adapter arm below produces rather than failing emission.
+        let (Some(string_ty), Some(unknown_ty)) = (
+            self.find_type_id(&Type::String),
+            self.find_type_id(&Type::Unknown),
+        ) else {
+            return Ok("Default::default()".to_owned());
+        };
+        self.record_conversion_stack.borrow_mut().push(target);
+        let adapter_result = self.string_dict_record_adapter_text(
+            "smelt_record_map",
+            string_ty,
+            unknown_ty,
+            target,
+                            scope,
+        );
+        self.record_conversion_stack.borrow_mut().pop();
+        if let Some(adapter) = adapter_result? {
+            // A reference record's adapter first asks the record view
+            // for the live instance it stands for, and that view only
+            // carries it when it SHARES the erased object's store;
+            // a copied entry list would drop it (`reference_origin`).
+            let record_view = if self.is_reference_class_type(target) {
+                "values.smelt_shared_record()"
+            } else {
+                "SmeltRecord::with_id_from_entries(values.id, values.into_iter())"
+            };
+            return Ok(format!(
+                "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => {{ let smelt_record_map = {record_view}; {adapter} }}, _ => Default::default() }}"
+            ));
+        }
+        Ok("Default::default()".to_owned())
+    }
+
+    /// `__smelt_from_unknown_record_<n>((text).into_smelt_unknown())`, the call
+    /// to the hoisted conversion for `target`, registering its body on first use.
+    ///
+    /// Returns `None` (keep the inline spelling) when the type's Rust spelling
+    /// at this position differs from its module-level spelling (it mentions a
+    /// type parameter in scope, which a module-level `fn` cannot name). The
+    /// body is rendered in the module-level scope with the conversion stack
+    /// holding only `target`, exactly the state an outermost inline
+    /// conversion is rendered in, so hoisting changes where the text lives
+    /// and not what it does.
+    fn hoisted_record_conversion(&self, text: &str, target: TypeId) -> Result<Option<String>, EmitError> {
+        let scoped_text = self.type_text_with_impl_trait(target, false)?;
+        let hoisted = HoistedModuleItemScope::enter(self);
+        let module_text = self.type_text_with_impl_trait(target, false)?;
+        if module_text != scoped_text {
+            return Ok(None);
+        }
+        let existing = self.context.record_conversion_helpers.borrow().get(&module_text).map(|(ordinal, _)| *ordinal);
+        let ordinal = if let Some(ordinal) = existing {
+            ordinal
+        } else {
+            let module_scope = self.render_scope();
+            let body = self.inline_record_conversion("smelt_value", target, &module_scope)?;
+            if body == "Default::default()" {
+                return Ok(Some(body));
+            }
+            let mut helpers = self.context.record_conversion_helpers.borrow_mut();
+            let next = helpers.len();
+            helpers.entry(module_text).or_insert((next, body)).0
+        };
+        drop(hoisted);
+        Ok(Some(format!("__smelt_from_unknown_record_{ordinal}(({text}).into_smelt_unknown())")))
+    }
+
     /// Emits checked extraction from an already-rendered `SmeltUnknown` value.
     ///
     /// `scope` is the render position's type-parameter environment, threaded in
@@ -3326,42 +3406,12 @@ impl FunctionEmitter<'_> {
                 if self.record_conversion_stack.borrow().contains(&target) {
                     return Ok("Default::default()".to_owned());
                 }
-                // The string-dict record adapter needs the prelude `String` and
-                // `SmeltUnknown` types interned in this program's type table. A
-                // program that never uses them (e.g. a concrete class union whose
-                // generated `from_smelt_unknown` reconstruction reaches this class
-                // member) has neither interned, so fall back to the same default
-                // the no-adapter arm below produces rather than failing emission.
-                let (Some(string_ty), Some(unknown_ty)) = (
-                    self.find_type_id(&Type::String),
-                    self.find_type_id(&Type::Unknown),
-                ) else {
-                    return Ok("Default::default()".to_owned());
-                };
-                self.record_conversion_stack.borrow_mut().push(target);
-                let adapter_result = self.string_dict_record_adapter_text(
-                    "smelt_record_map",
-                    string_ty,
-                    unknown_ty,
-                    target,
-                                    scope,
-                );
-                self.record_conversion_stack.borrow_mut().pop();
-                if let Some(adapter) = adapter_result? {
-                    // A reference record's adapter first asks the record view
-                    // for the live instance it stands for, and that view only
-                    // carries it when it SHARES the erased object's store;
-                    // a copied entry list would drop it (`reference_origin`).
-                    let record_view = if self.is_reference_class_type(target) {
-                        "values.smelt_shared_record()"
-                    } else {
-                        "SmeltRecord::with_id_from_entries(values.id, values.into_iter())"
-                    };
-                    return Ok(format!(
-                        "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => {{ let smelt_record_map = {record_view}; {adapter} }}, _ => Default::default() }}"
-                    ));
+                if self.record_conversion_stack.borrow().is_empty()
+                    && let Some(call) = self.hoisted_record_conversion(text, target)?
+                {
+                    return Ok(call);
                 }
-                Ok("Default::default()".to_owned())
+                self.inline_record_conversion(text, target, scope)
             }
             // A source `Set` recovers through `SmeltJsSet`'s `SmeltFromUnknown`
             // impl, which round-trips the `__smelt_set` marker (rebuilding members

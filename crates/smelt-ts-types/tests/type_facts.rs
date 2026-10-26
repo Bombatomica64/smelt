@@ -279,3 +279,34 @@ export function area(shapes: readonly Shape[], scale = 2): number {
     assert!(missing.is_empty(), "oxc expression spans without a checker type: {missing:#?}");
     Ok(())
 }
+
+#[test]
+fn type_nodes_are_evaluated_and_keep_their_alias() -> Result<(), String> {
+    let source = r"
+interface Config { port: number; tags: string[] }
+type Words<T> = T extends string ? string[] : number
+class Store { get(key: string): number { return key.length } }
+export const port: Config['port'] = 1
+export const words: Words<'a'> = []
+export const got: ReturnType<Store['get']> = 2
+type Pair = [string, number]
+export const pair: Pair = ['a', 1]
+";
+    let facts = facts(source)?;
+    let node = |needle: &str, nth: usize| -> Result<&TsType, String> {
+        let (start, end) = span_of(source, needle, nth)?;
+        facts.type_node_at(FILE, start, end).ok_or_else(|| format!("no type-node fact for `{needle}`"))
+    };
+    assert_eq!(node("Config['port']", 0)?.kind, TsTypeKind::Number, "indexed access evaluates");
+    let words = node("Words<'a'>", 0)?;
+    let TsTypeKind::Array { element, .. } = words.kind else {
+        return Err(format!("conditional should evaluate to an array, got {:?}", words.kind));
+    };
+    assert_eq!(kind(&facts, element)?, &TsTypeKind::String, "true arm element type");
+    assert_eq!(node("ReturnType<Store['get']>", 0)?.kind, TsTypeKind::Number, "ReturnType of a method");
+    // Occurrence 0 is the alias's own declaration name; 1 is the annotation.
+    let pair = node("Pair", 1)?;
+    assert!(pair.alias.as_ref().is_some_and(|alias| alias.symbol.name == "Pair"), "alias identity is kept");
+    assert!(matches!(pair.kind, TsTypeKind::Tuple { .. }), "alias evaluates to its tuple");
+    Ok(())
+}

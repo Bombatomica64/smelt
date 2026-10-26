@@ -1,0 +1,63 @@
+class Store fields [] constructor Some(FuncId(1)) methods [FuncId(0)]
+interface Config
+
+fn get (FuncId(0)) -> Float
+  locals
+    %0 param this: Store
+    %1 param key: String
+    %2 temp: Float
+  bb0:
+    %2 = len copy %1
+    return move %2
+
+fn new (FuncId(1)) -> Store
+  locals
+    %0 user this: Store
+  bb0:
+    %0 = struct3 {}
+    return move %0
+
+fn main (FuncId(2)) -> None
+  locals
+    %0 user words: List<String>
+    %1 user port: Float
+    %2 user tags: List<String>
+    %3 user got: Float
+    %4 temp: List<String>
+    %5 temp: List<String>
+    %6 temp: Store
+    %7 temp: Float
+    %8 temp: Float
+    %9 temp: String
+    %10 temp: None
+    %11 temp: Float
+    %12 temp: String
+    %13 temp: Float
+    %14 temp: None
+    %15 temp: Float
+    %16 temp: None
+  bb0:
+    %4 = ["x", "y"]
+    %0 = move %4
+    %1 = 8080.0
+    %5 = ["a", "b", "c"]
+    %2 = move %5
+    %6 = call fn1() -> bb1
+  bb1:
+    %7 = call fn0(move %6, "abcd") -> bb2
+  bb2:
+    %3 = move %7
+    %8 = len copy %0
+    %9 = string_join move %0, "+"
+    %10 = call @console_log(move %8, move %9) -> bb3
+  bb3:
+    %11 = move %1 + 1.0
+    %12 = string_join copy %2, ","
+    %13 = len move %2
+    %14 = call @console_log(move %11, move %12, move %13) -> bb4
+  bb4:
+    %15 = move %3 * 2.0
+    %16 = call @console_log(move %15) -> bb5
+  bb5:
+    return none
+

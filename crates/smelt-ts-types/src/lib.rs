@@ -33,19 +33,19 @@
 
 mod convert;
 mod diagnostics;
-pub mod model;
 mod project;
 mod walk;
 
 use std::collections::HashMap;
 use std::fmt;
 
-pub use diagnostics::{TsDiagnostic, TsDiagnosticCategory};
-pub use model::{TsType, TsTypeId, TsTypeKind, TsTypeTable};
 pub use project::SourceInput;
+pub use smelt_ts_model::{
+    FileTypes, SpanKey, TsDiagnostic, TsDiagnosticCategory, TsType, TsTypeFacts, TsTypeId, TsTypeKind, TsTypeTable,
+    model,
+};
 
 use crate::convert::Converter;
-use crate::walk::FileTypes;
 
 /// Stack size of the checker thread; matches the tsrs command line.
 const CHECKER_STACK_BYTES: usize = 512 << 20;
@@ -74,42 +74,6 @@ impl fmt::Display for TsTypesError {
 
 impl std::error::Error for TsTypesError {}
 
-/// Everything the TypeScript checker resolved for one set of sources.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct TsTypeFacts {
-    /// Arena of every type referenced by the facts.
-    pub types: TsTypeTable,
-    /// Diagnostics for the whole program, in checker order.
-    pub diagnostics: Vec<TsDiagnostic>,
-    /// Per input path, the type of each value-position node keyed by token span.
-    by_span: HashMap<String, FileTypes>,
-}
-
-impl TsTypeFacts {
-    /// The checker's type for the node spanning `start..end` in `path`.
-    ///
-    /// `path` is the [`SourceInput::path`] the file was analysed under and the
-    /// offsets are UTF-8 byte offsets of the node's tokens (oxc's `Span`).
-    /// Returns `None` when no value-position node has exactly that span.
-    #[must_use]
-    pub fn type_at(&self, path: &str, start: u32, end: u32) -> Option<&TsType> {
-        let id = *self.by_span.get(path)?.get(&(start, end))?;
-        self.types.get(id)
-    }
-
-    /// Like [`Self::type_at`] but returns the interned id.
-    #[must_use]
-    pub fn type_id_at(&self, path: &str, start: u32, end: u32) -> Option<TsTypeId> {
-        self.by_span.get(path)?.get(&(start, end)).copied()
-    }
-
-    /// Diagnostics that are errors.
-    pub fn errors(&self) -> impl Iterator<Item = &TsDiagnostic> {
-        self.diagnostics.iter().filter(|diagnostic| diagnostic.category == TsDiagnosticCategory::Error)
-    }
-}
-
 /// Type-checks `inputs` as one TypeScript program and collects its type facts.
 ///
 /// # Errors
@@ -136,16 +100,19 @@ fn analyze_on_checker_thread(inputs: &[SourceInput]) -> Result<TsTypeFacts, TsTy
     let mut checker = program.get_type_checker(&ctx);
     let mut converter = Converter::new(&mut checker);
     let mut by_span = HashMap::new();
+    let mut type_nodes = HashMap::new();
     for input in inputs {
         let program_path = input.program_path();
         let file = program
             .get_source_file(&program_path)
             .ok_or_else(|| TsTypesError::MissingFile(program_path.clone()))?;
-        by_span.insert(input.path.clone(), walk::collect_file_types(&mut converter, file));
+        let collected = walk::collect_file_types(&mut converter, file);
+        by_span.insert(input.path.clone(), collected.values);
+        type_nodes.insert(input.path.clone(), collected.type_nodes);
     }
     let types = converter.finish();
     drop(checker);
-    Ok(TsTypeFacts { types, diagnostics, by_span })
+    Ok(TsTypeFacts::new(types, diagnostics, by_span, type_nodes))
 }
 
 /// Best-effort text of a thread panic payload.

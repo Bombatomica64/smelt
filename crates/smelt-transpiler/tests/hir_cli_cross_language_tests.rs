@@ -1207,6 +1207,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "169_json_typed_entry_decode",
     "170_bigint_arbitrary_precision",
     "171_module_const_with_async_callback",
+    "172_checker_evaluated_annotation_types",
     "14_c_for_loop",
     "15_break_continue",
     "16_switch_break_no_fallthrough",

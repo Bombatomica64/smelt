@@ -39,6 +39,7 @@ CRATES=(
   smelt-asyncio
   smelt-test
   smelt-specialize
+  smelt-ts-model
   smelt-py-types
   smelt-frontend-py
   smelt-mir

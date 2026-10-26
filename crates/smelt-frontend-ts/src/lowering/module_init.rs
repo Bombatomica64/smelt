@@ -503,6 +503,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             specialization,
             pending_host_imports: Vec::new(),
             excluded_modules,
+            ts_facts: None,
             int32_type_depth: 0,
             erasure_anchor: Span::new(file_id, 0, 0),
         }

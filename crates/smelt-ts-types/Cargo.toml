@@ -23,6 +23,7 @@ workspace = true
 # One pinned tsrs commit for every tsrs crate. tsrs ports microsoft/TypeScript
 # 3e9236361fa9 (TypeScript 7.1.0-beta); bump every `rev` together.
 [dependencies]
+smelt-ts-model = { path = "../smelt-ts-model", version = "0.1.1" }
 tsrs_ast = { git = "https://github.com/oxc-project/tsrs", rev = "89923ab51c0192363d1f1d2f5b1b275e9c8b463b" }
 tsrs_checker = { git = "https://github.com/oxc-project/tsrs", rev = "89923ab51c0192363d1f1d2f5b1b275e9c8b463b" }
 tsrs_compiler = { git = "https://github.com/oxc-project/tsrs", rev = "89923ab51c0192363d1f1d2f5b1b275e9c8b463b" }

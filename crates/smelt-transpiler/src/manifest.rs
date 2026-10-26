@@ -33,8 +33,11 @@ pub(crate) struct ManifestSource {
     pub(crate) lang: SourceLang,
     /// Import specifiers found before lowering.
     imports: Vec<ManifestImport>,
-    /// Resolved local dependency paths used for dependency-first ordering.
+    /// Resolved local dependency paths: every edge the dependency closure follows.
     pub(crate) dependencies: Vec<PathBuf>,
+    /// The subset of [`Self::dependencies`] reached through VALUE imports,
+    /// which is what the lowering order follows (see [`order_manifest_sources`]).
+    pub(crate) value_dependencies: Vec<PathBuf>,
     /// Import specifiers in this file that resolve wholly to excluded modules.
     ///
     /// `[sources] exclude` prunes the dependency closure, not only the roots
@@ -63,6 +66,9 @@ pub(crate) struct ManifestImport {
     pub(crate) names: Option<Vec<String>>,
     /// Python relative import level from `from .pkg import name` syntax.
     pub(crate) python_relative_level: Option<u32>,
+    /// Whether the statement is TypeScript `import type` / `export type .. from`,
+    /// which is erased and imports no value.
+    pub(crate) type_only: bool,
 }
 
 /// Mutable state while visiting the manifest import graph.
@@ -162,6 +168,7 @@ pub(crate) fn read_manifest_source(
         lang,
         imports,
         dependencies: Vec::new(),
+        value_dependencies: Vec::new(),
         excluded_imports: Vec::new(),
         typed_version: None,
     })
@@ -196,6 +203,7 @@ fn read_collected_source(
         lang,
         imports,
         dependencies: Vec::new(),
+        value_dependencies: Vec::new(),
         excluded_imports: Vec::new(),
         typed_version: Some(origin),
     })
@@ -234,6 +242,16 @@ pub(crate) fn dependency_closure(
 }
 
 /// Returns manifest source indexes in dependency-first order.
+///
+/// The order follows VALUE imports only. A TypeScript `import type` (or
+/// `export type .. from`) is erased: it imports no binding and does not take
+/// part in ES module evaluation order, so it must not order lowering either.
+/// Following it let a type-only cycle decide which side lowers first: in Hono
+/// `context.ts -> types.ts (type-only) -> hono-base.ts`, the walk could enter
+/// `compose.ts` through a type-only edge, cut the cycle there, and lower
+/// `hono-base.ts`, which imports the VALUE `compose`, before it, so the call
+/// bound an unresolved, erased import. Types do not depend on this order:
+/// declarations are predeclared crate-wide before any module lowers.
 pub(crate) fn order_manifest_sources(sources: &[ManifestSource]) -> Result<Vec<usize>, String> {
     let index = manifest_source_index(sources);
     let mut visit = ManifestGraphVisit {
@@ -366,6 +384,7 @@ impl DependencyCollector {
         let source_path = source.path.clone();
         let lang = source.lang;
         let mut dependencies = Vec::new();
+        let mut value_dependencies = Vec::new();
         let mut excluded_imports = Vec::new();
         for import in &imports {
             let resolved =
@@ -380,9 +399,13 @@ impl DependencyCollector {
             {
                 excluded_imports.push(import.module.clone());
             }
+            if !import.type_only {
+                value_dependencies.extend(included.iter().cloned());
+            }
             dependencies.extend(included);
         }
         source.dependencies.clone_from(&dependencies);
+        source.value_dependencies = value_dependencies;
         source.excluded_imports = excluded_imports;
         self.sources.push(source);
         for path in dependencies {
@@ -473,6 +496,7 @@ impl DependencyCollector {
             module: entry.display().to_string(),
             names: import.names.clone(),
             python_relative_level: None,
+            type_only: false,
         };
         let canonical_entry = entry.canonicalize()?;
         if let Some(mut targets) = self.resolve_barrel_import_targets(&entry, &workspace_import) {
@@ -501,6 +525,7 @@ impl DependencyCollector {
             module: entry.display().to_string(),
             names: import.names.clone(),
             python_relative_level: None,
+            type_only: false,
         };
         let canonical_entry = entry.canonicalize()?;
         if let Some(mut targets) = self.resolve_barrel_import_targets(&entry, &package_import) {
@@ -667,7 +692,7 @@ fn visit_manifest_source(idx: usize, visit: &mut ManifestGraphVisit<'_>) -> Resu
     let Some(source) = visit.sources.get(idx) else {
         return Ok(());
     };
-    for dependency in &source.dependencies {
+    for dependency in &source.value_dependencies {
         if let Some(dep) = visit.index.get(&normalize_path_key(dependency)).copied() {
             if dep != idx {
                 visit_manifest_source(dep, visit)?;
@@ -943,6 +968,7 @@ fn scan_typescript_imports(source: &str) -> Vec<ManifestImport> {
                     module,
                     names,
                     python_relative_level: None,
+                    type_only: trimmed.starts_with("import type "),
                 });
             }
             if (trimmed.starts_with("export ") || trimmed.starts_with("export type "))
@@ -953,6 +979,7 @@ fn scan_typescript_imports(source: &str) -> Vec<ManifestImport> {
                     module,
                     names: None,
                     python_relative_level: None,
+                    type_only: trimmed.starts_with("export type "),
                 });
             }
             None

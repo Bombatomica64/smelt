@@ -2,6 +2,7 @@
 
 mod ambient_globals;
 mod bigint;
+mod checker_types;
 mod erasure;
 mod arguments_forwarding;
 mod asserted_member_read;
@@ -227,6 +228,15 @@ pub struct FrontendOptions<'manifest> {
     /// transpiler resolves the mapping (it already resolved every import edge)
     /// and passes the specifiers as written so the message can quote them.
     pub excluded_modules: &'manifest [String],
+    /// TypeScript 7 checker facts for the whole program, when the transpiler
+    /// embeds the checker (`smelt-ts-types`).
+    ///
+    /// Keyed by the same `path` this module is lowered under. Lowering asks it
+    /// for the type the checker resolved at a node's span before re-deriving
+    /// a type from annotations, so narrowing, inference and evaluated type
+    /// operators come from TypeScript itself. `None` keeps the
+    /// annotation-only behaviour.
+    pub ts_facts: Option<&'manifest smelt_ts_model::TsTypeFacts>,
 }
 
 /// Materialized specialization data owned by one source module builder.
@@ -471,6 +481,7 @@ pub fn to_hir_with_options(
         specialization,
         options.excluded_modules.to_vec(),
     );
+    builder.ts_facts = options.ts_facts.filter(|facts| facts.has_file(path));
     builder.program(&parsed.program)
 }
 
@@ -922,6 +933,9 @@ struct ModuleBuilder<'ctx> {
     /// Consulted by `classify_pending_host_imports`; see
     /// [`FrontendOptions::excluded_modules`].
     excluded_modules: Vec<String>,
+    /// TypeScript 7 checker facts covering this module, if the checker ran;
+    /// see [`FrontendOptions::ts_facts`] and `lowering/checker_types.rs`.
+    ts_facts: Option<&'ctx smelt_ts_model::TsTypeFacts>,
     /// How deep inside a type annotation lowering currently is.
     ///
     /// Bun's `int32` is an int32 only as the WHOLE type of a slot; nested in

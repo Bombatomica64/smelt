@@ -15,37 +15,7 @@ use tsrs_compiler::{Context, Program};
 use tsrs_core::P;
 use tsrs_diagnostics::Category;
 
-/// Severity of a [`TsDiagnostic`].
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[non_exhaustive]
-pub enum TsDiagnosticCategory {
-    /// A type or syntax error; the program is not valid TypeScript.
-    Error,
-    /// A warning.
-    Warning,
-    /// A suggestion.
-    Suggestion,
-    /// An informational message.
-    Message,
-}
-
-/// One TypeScript diagnostic.
-#[derive(Clone, PartialEq, Eq, Debug)]
-#[non_exhaustive]
-pub struct TsDiagnostic {
-    /// Program path of the file, or `None` for global diagnostics.
-    pub file: Option<String>,
-    /// Byte offset where the diagnostic starts.
-    pub start: Option<u32>,
-    /// Byte offset where it ends.
-    pub end: Option<u32>,
-    /// TypeScript error code (`2322` for TS2322).
-    pub code: i32,
-    /// Severity.
-    pub category: TsDiagnosticCategory,
-    /// Message text with its elaboration chain flattened, as `tsc` prints it.
-    pub message: String,
-}
+use crate::{TsDiagnostic, TsDiagnosticCategory};
 
 /// Collects program, syntactic and semantic diagnostics, in that order.
 pub(crate) fn collect(program: &'static Program, ctx: &Context) -> Vec<TsDiagnostic> {

@@ -1049,7 +1049,19 @@ impl ModuleBuilder<'_> {
                     contextual_function
                         .and_then(|function| self.contextual_param_type_at(function, index))
                 });
+            // An unannotated identifier parameter whose context Smelt lost (or
+            // erased) takes the type TypeScript's contextual typing gave it.
             let ty = match (&param.pattern, ty) {
+                (BindingPattern::BindingIdentifier(binding), contextual)
+                    if param.type_annotation.is_none()
+                        && contextual
+                            .is_none_or(|contextual_ty| matches!(self.ctx.krate.types.get(contextual_ty), Some(Type::Unknown))) =>
+                {
+                    let checked = self.checker_binding_type(binding.span.start, binding.span.end);
+                    checked.unwrap_or_else(|| {
+                        contextual.unwrap_or_else(|| self.infer_unannotated_arrow_param_type(arrow, index))
+                    })
+                }
                 (_, Some(ty)) => ty,
                 (BindingPattern::BindingIdentifier(_), None) => {
                     self.infer_unannotated_arrow_param_type(arrow, index)

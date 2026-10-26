@@ -28,8 +28,8 @@ use tsrs_checker::{
 };
 use tsrs_core::P;
 
-use crate::model::{
-    TsDeferredKind, TsIndexSignature, TsLocation, TsObjectType, TsParameter, TsProperty,
+use smelt_ts_model::model::{
+    TsAlias, TsDeferredKind, TsIndexSignature, TsLocation, TsObjectType, TsParameter, TsProperty,
     TsSignature, TsSymbolRef, TsTupleElement, TsTupleElementKind, TsType, TsTypeId, TsTypeKind,
     TsTypeTable,
 };
@@ -100,8 +100,17 @@ impl<'checker> Converter<'checker> {
         self.seen.insert(ty, id);
         let display = self.checker.type_to_string_exported(ty);
         let kind = self.kind_of(ty);
-        self.table.fill(id, TsType { kind, display });
+        let alias = self.alias_of(ty);
+        self.table.fill(id, TsType { kind, display, alias });
         id
+    }
+
+    /// The type alias `ty` was written through, with converted arguments.
+    fn alias_of(&mut self, ty: P<Type>) -> Option<TsAlias> {
+        let alias = ty.alias()?;
+        let symbol = alias.symbol()?;
+        let type_arguments = alias.type_arguments().iter().map(|&argument| self.convert(argument)).collect();
+        Some(TsAlias { symbol: self.symbol_ref(symbol), type_arguments })
     }
 
     /// Classifies `ty` and converts its constituents.
@@ -147,7 +156,7 @@ impl<'checker> Converter<'checker> {
         };
         let enum_symbol = self.symbol_ref(enum_declaration);
         let value = self.table.reserve();
-        self.table.fill(value, TsType { kind: value_kind, display });
+        self.table.fill(value, TsType { kind: value_kind, display, alias: None });
         TsTypeKind::EnumMember { enum_symbol, value }
     }
 

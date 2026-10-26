@@ -1,8 +1,8 @@
 //! Smelt-owned model of TypeScript 7 types.
 //!
 //! The tsrs checker's `Type` graph lives in a per-checker arena and is only
-//! valid on the thread that built it, so nothing from tsrs crosses this
-//! crate's boundary. Instead every type the frontend can ask about is copied
+//! valid on the thread that built it, so nothing from tsrs crosses into this
+//! model. Instead every type the frontend can ask about is copied
 //! into a [`TsTypeTable`] of plain owned values. Types reference each other by
 //! [`TsTypeId`], which makes recursive types (`interface Node { next: Node }`)
 //! finite and lets equal tsrs types share one id.
@@ -15,9 +15,15 @@
 //! with the checker's own spelling, so callers can see exactly what TypeScript
 //! could not resolve rather than a guessed approximation.
 
+#![expect(
+    clippy::exhaustive_structs,
+    clippy::exhaustive_enums,
+    reason = "plain data built by the checker bridge (another crate) and read by the frontend; classifiers must break on a new TypeScript type kind rather than fall into a wildcard"
+)]
+
 /// Index of a type in a [`TsTypeTable`].
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
-pub struct TsTypeId(pub(crate) u32);
+pub struct TsTypeId(u32);
 
 impl TsTypeId {
     /// Returns the table index of this id.
@@ -29,20 +35,29 @@ impl TsTypeId {
 
 /// One resolved TypeScript type.
 #[derive(Clone, PartialEq, Debug)]
-#[non_exhaustive]
 pub struct TsType {
     /// The structure of the type.
     pub kind: TsTypeKind,
     /// The checker's own spelling (`typeToString`), as `tsc` prints it in hovers and baselines.
     pub display: String,
+    /// The type alias this type was written through (`HandlerResponse<any>`), if any.
+    ///
+    /// A consumer that re-spells the type in source form uses the alias name
+    /// to stay identical to what the source would have written.
+    pub alias: Option<TsAlias>,
+}
+
+/// A type alias reference: the alias symbol and its type arguments.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct TsAlias {
+    /// The declaring `type` alias.
+    pub symbol: TsSymbolRef,
+    /// Type arguments the alias was instantiated with.
+    pub type_arguments: Vec<TsTypeId>,
 }
 
 /// Structure of a [`TsType`].
 #[derive(Clone, PartialEq, Debug)]
-#[expect(
-    clippy::exhaustive_enums,
-    reason = "type classifiers must handle every TypeScript type kind; a new kind has to be a compile error at each of them, not a silent wildcard"
-)]
 pub enum TsTypeKind {
     /// `any`.
     Any,
@@ -135,7 +150,6 @@ pub enum TsTypeKind {
 
 /// Element of a [`TsTypeKind::Tuple`].
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[non_exhaustive]
 pub struct TsTupleElement {
     /// Element type (for rest elements, the element type of the rest array).
     pub ty: TsTypeId,
@@ -145,7 +159,6 @@ pub struct TsTupleElement {
 
 /// Arity role of a tuple element.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[non_exhaustive]
 pub enum TsTupleElementKind {
     /// `T`.
     Required,
@@ -158,8 +171,7 @@ pub enum TsTupleElementKind {
 }
 
 /// Members of a structural object type.
-#[derive(Clone, PartialEq, Debug, Default)]
-#[non_exhaustive]
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct TsObjectType {
     /// The symbol behind the type (`typeof Foo`, a function, an object literal), if any.
     pub symbol: Option<TsSymbolRef>,
@@ -175,7 +187,6 @@ pub struct TsObjectType {
 
 /// A property of an object type.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[non_exhaustive]
 pub struct TsProperty {
     /// Property name.
     pub name: String,
@@ -189,7 +200,6 @@ pub struct TsProperty {
 
 /// A call or construct signature.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[non_exhaustive]
 pub struct TsSignature {
     /// Free type parameters of the signature.
     pub type_parameters: Vec<TsTypeId>,
@@ -205,7 +215,6 @@ pub struct TsSignature {
 
 /// A signature parameter.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[non_exhaustive]
 pub struct TsParameter {
     /// Parameter name.
     pub name: String,
@@ -215,7 +224,6 @@ pub struct TsParameter {
 
 /// An index signature such as `[key: string]: T`.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[non_exhaustive]
 pub struct TsIndexSignature {
     /// Key type (`string`, `number`, `symbol` or a template literal).
     pub key: TsTypeId,
@@ -227,7 +235,6 @@ pub struct TsIndexSignature {
 
 /// An unevaluated generic type operator.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[non_exhaustive]
 pub enum TsDeferredKind {
     /// `T extends U ? X : Y`.
     Conditional,
@@ -245,7 +252,6 @@ pub enum TsDeferredKind {
 
 /// Identity of a declared symbol.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-#[non_exhaustive]
 pub struct TsSymbolRef {
     /// Local name (`Map`, `Point`).
     pub name: String,
@@ -257,7 +263,6 @@ pub struct TsSymbolRef {
 
 /// A source range in one of the analysed files or a bundled lib file.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-#[non_exhaustive]
 pub struct TsLocation {
     /// File path as the program knows it.
     pub file: String,
@@ -283,26 +288,28 @@ impl TsTypeTable {
 
     /// Number of stored types.
     #[must_use]
-    pub const fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.types.len()
     }
 
     /// Whether the table is empty.
     #[must_use]
-    pub const fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.types.is_empty()
     }
 
     /// Reserves a slot for a type whose structure is filled in later, so that
     /// recursive references can point at it while it is being converted.
-    pub(crate) fn reserve(&mut self) -> TsTypeId {
+    ///
+    /// Builder API for the checker bridge (`smelt-ts-types`); consumers only read.
+    pub fn reserve(&mut self) -> TsTypeId {
         let id = TsTypeId(u32::try_from(self.types.len()).unwrap_or(u32::MAX));
-        self.types.push(TsType { kind: TsTypeKind::Truncated, display: String::new() });
+        self.types.push(TsType { kind: TsTypeKind::Truncated, display: String::new(), alias: None });
         id
     }
 
     /// Fills a slot handed out by [`Self::reserve`].
-    pub(crate) fn fill(&mut self, id: TsTypeId, ty: TsType) {
+    pub fn fill(&mut self, id: TsTypeId, ty: TsType) {
         if let Some(slot) = usize::try_from(id.0).ok().and_then(|index| self.types.get_mut(index)) {
             *slot = ty;
         }

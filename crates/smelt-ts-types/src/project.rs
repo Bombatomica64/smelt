@@ -37,13 +37,24 @@ pub struct SourceInput {
     pub path: String,
     /// Exact source text; byte offsets into it are the span keys of the results.
     pub text: String,
+    /// Where the file lives, when `path` (the key results are filed under)
+    /// is not itself a path that keeps relative imports resolvable, such as a
+    /// working-directory-relative `../src/lib.ts`. Absolute paths are best.
+    pub location: Option<String>,
 }
 
 impl SourceInput {
     /// Creates an input from a relative path and its source text.
     #[must_use]
     pub fn new(path: impl Into<String>, text: impl Into<String>) -> Self {
-        Self { path: path.into(), text: text.into() }
+        Self { path: path.into(), text: text.into(), location: None }
+    }
+
+    /// Places the file at `location` in the program while keeping `path` as its key.
+    #[must_use]
+    pub fn located_at(mut self, location: impl Into<String>) -> Self {
+        self.location = Some(location.into());
+        self
     }
 
     /// Path of this file relative to [`ROOT`].
@@ -52,13 +63,32 @@ impl SourceInput {
     /// are re-rooted under [`ROOT`] with their full path, so relative imports
     /// between inputs resolve exactly as they do on disk.
     pub(crate) fn root_relative_path(&self) -> String {
-        self.path.replace('\\', "/").trim_start_matches("./").trim_start_matches('/').to_owned()
+        normalize_segments(&self.location.as_ref().unwrap_or(&self.path).replace('\\', "/"))
     }
 
     /// Absolute path of this file inside the virtual program.
     pub(crate) fn program_path(&self) -> String {
         format!("{ROOT}/{}", self.root_relative_path())
     }
+}
+
+/// Resolves `.` and `..` segments and drops leading `/` and `./`.
+///
+/// The in-memory file system keys files by their exact path, so a dependency
+/// recorded as `pkg/app/../src/lib.ts` must be stored as `pkg/src/lib.ts` for
+/// the relative import `../src/lib` to find it.
+fn normalize_segments(path: &str) -> String {
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            other => segments.push(other),
+        }
+    }
+    segments.join("/")
 }
 
 /// Supplies the config parser with the virtual file system.
