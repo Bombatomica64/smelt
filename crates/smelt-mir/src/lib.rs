@@ -99,7 +99,7 @@ mod tests {
         let mut mir = ok_or_panic(lower_hir(&ctx.krate), "MIR");
         opt::optimize(&mut mir);
 
-        assert!(validate(&mir).is_empty());
+        assert_eq!(validate(&mir), Vec::new());
         let output = format_compact(&mir);
         assert!(output.contains("fn main (FuncId(0)) -> None"));
         assert!(output.contains("%0 user count: Float"));
@@ -148,7 +148,7 @@ while (count < 10) {
         );
 
         let while_mir = ok_or_panic(lower_hir(&ctx.krate), "while lowers");
-        assert!(validate(&while_mir).is_empty());
+        assert_eq!(validate(&while_mir), Vec::new());
         let while_output = format_compact(&while_mir);
         assert!(while_output.contains("goto bb1"));
         assert!(while_output.contains("switch copy %1 ? bb2 : bb3"));
@@ -169,7 +169,7 @@ for (let item: number of values) {
         );
 
         let for_mir = ok_or_panic(lower_hir(&for_ctx.krate), "for lowers");
-        assert!(validate(&for_mir).is_empty());
+        assert_eq!(validate(&for_mir), Vec::new());
         let for_output = format_compact(&for_mir);
         assert!(for_output.contains("len copy %0"));
     }
@@ -198,7 +198,7 @@ for (let i = 0; i < 10; i++) {
         );
 
         let mir = ok_or_panic(lower_hir(&ctx.krate), "c-for lowers");
-        assert!(validate(&mir).is_empty());
+        assert_eq!(validate(&mir), Vec::new());
         let output = format_compact(&mir);
 
         // Header (bb1) tests the condition; the latch (bb3) increments `i` and
@@ -236,7 +236,7 @@ fail();
         );
 
         let mir = ok_or_panic(lower_hir(&ctx.krate), "throw lowers");
-        assert!(validate(&mir).is_empty());
+        assert_eq!(validate(&mir), Vec::new());
         let output = format_compact(&mir);
 
         assert!(output.contains("fn fail (FuncId(0)) -> None throws"));
@@ -264,7 +264,7 @@ async function run(): Promise<number> {
         );
 
         let mir = ok_or_panic(lower_hir(&ctx.krate), "async lowers");
-        assert!(validate(&mir).is_empty());
+        assert_eq!(validate(&mir), Vec::new());
         let output = format_compact(&mir);
 
         assert!(output.contains("async fn lift (FuncId(0)) -> Float"));
@@ -291,7 +291,7 @@ async function run(): Promise<number> {
         );
 
         let mir = ok_or_panic(lower_hir(&ctx.krate), "try/catch lowers");
-        assert!(validate(&mir).is_empty());
+        assert_eq!(validate(&mir), Vec::new());
         let output = format_compact(&mir);
 
         assert!(output.contains("fn main (FuncId(0)) -> None\n"));
@@ -361,7 +361,7 @@ async function run(): Promise<number> {
         ok_or_panic(to_hir(source, FileId(0), &mut ctx), "HIR");
         let mut mir = ok_or_panic(lower_hir(&ctx.krate), "MIR");
         opt::optimize(&mut mir);
-        assert!(validate(&mir).is_empty());
+        assert_eq!(validate(&mir), Vec::new());
         format_compact(&mir)
     }
 

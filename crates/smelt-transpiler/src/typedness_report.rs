@@ -410,10 +410,10 @@ mod tests {
     /// More typed or equal passes; more erased or a lower share fails.
     #[test]
     fn no_less_typed_follows_bun() {
-        assert!(worsening(&counts(5, 1, 2), &counts(5, 1, 2)).is_empty());
-        assert!(worsening(&counts(7, 1, 1), &counts(5, 1, 2)).is_empty());
+        assert_eq!(worsening(&counts(5, 1, 2), &counts(5, 1, 2)), Vec::<String>::new());
+        assert_eq!(worsening(&counts(7, 1, 1), &counts(5, 1, 2)), Vec::<String>::new());
         // More values overall but the same erased count and a higher share.
-        assert!(worsening(&counts(10, 0, 2), &counts(5, 0, 2)).is_empty());
+        assert_eq!(worsening(&counts(10, 0, 2), &counts(5, 0, 2)), Vec::<String>::new());
         // Erased rose.
         assert_eq!(worsening(&counts(9, 0, 3), &counts(5, 0, 2)).len(), 3);
         // Erased flat but the share fell (typed values disappeared).
@@ -425,7 +425,7 @@ mod tests {
     /// A generic value counts as typed, exactly like a concrete one.
     #[test]
     fn generic_counts_as_typed() {
-        assert!(worsening(&counts(4, 2, 1), &counts(6, 0, 1)).is_empty());
+        assert_eq!(worsening(&counts(4, 2, 1), &counts(6, 0, 1)), Vec::<String>::new());
     }
 
     /// Programs are judged individually; new programs are not judged; a refused

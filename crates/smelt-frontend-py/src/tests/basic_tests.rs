@@ -172,11 +172,7 @@ value: str | None = obj.id or None
         module_body.exprs.iter().any(|expr| {
             matches!(
                 expr.kind,
-                ExprKind::Conditional {
-                    then_expr: _,
-                    else_expr: _,
-                    ..
-                }
+                ExprKind::Conditional { .. }
             ) && matches!(ctx.krate.types.get(expr.ty), Some(Type::Optional(_)))
         }),
         "expected value-returning or to lower to an optional conditional",

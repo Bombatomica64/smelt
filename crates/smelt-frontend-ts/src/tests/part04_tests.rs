@@ -1672,7 +1672,7 @@ function clean(value: any): any[] {
             let ExprKind::StringTrim { operand, .. } = expr.kind else {
                 return false;
             };
-            usize::try_from(operand.0).ok().is_some_and(|index| {
+            usize::try_from(operand.0).is_ok_and(|index| {
                 matches!(
                     body.exprs.get(index).map(|operand| &operand.kind),
                     Some(ExprKind::TypeAssert { .. })

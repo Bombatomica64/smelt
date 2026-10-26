@@ -444,7 +444,7 @@ mod tests {
             vec![(Span::new(FileId(0), 7, 8), vec![Symbol(1), Symbol(2)])]
         );
         drop(scope.take_callable_props(local));
-        assert!(scope.unconsumed_callable_props().is_empty());
+        assert_eq!(scope.unconsumed_callable_props(), Vec::new());
     }
 
     /// Narrowing lookups resolve innermost-first and a popped scope stops

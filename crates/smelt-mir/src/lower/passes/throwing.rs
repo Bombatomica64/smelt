@@ -254,8 +254,7 @@ fn optional_method_can_throw(
     };
     class.methods.iter().any(|func| {
         usize_from_u32(func.0, "MIR function index does not fit in usize")
-            .ok()
-            .is_some_and(|index| {
+            .is_ok_and(|index| {
                 facts.function_names.get(index).copied() == Some(method)
                     && facts.throwing.get(index).copied().unwrap_or(false)
             })

@@ -1232,8 +1232,7 @@ impl ModuleBuilder<'_> {
         param_name: &str,
     ) -> bool {
         self.arrow_return_expression(arrow)
-            .ok()
-            .is_some_and(|expr| Self::expression_uses_identifier_in_arithmetic(expr, param_name))
+            .is_ok_and(|expr| Self::expression_uses_identifier_in_arithmetic(expr, param_name))
     }
 
     /// Scan an expression for arithmetic involving a named identifier.

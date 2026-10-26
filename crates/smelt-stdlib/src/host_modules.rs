@@ -548,7 +548,7 @@ mod tests {
     #[test]
     fn modules_declare_their_dependencies() {
         assert!(host_module_dependencies("node:url").contains(&BackendDependency::Url));
-        assert!(host_module_dependencies("express").is_empty());
+        assert_eq!(host_module_dependencies("express"), &[]);
     }
 
     /// Every registry entry declares at least one specifier and export.

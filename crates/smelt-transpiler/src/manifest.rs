@@ -1183,8 +1183,8 @@ mod tests {
         assert_eq!(node_next_input_extensions("js"), &["ts", "d.ts"]);
         assert_eq!(node_next_input_extensions("mjs"), &["mts", "d.mts"]);
         assert_eq!(node_next_input_extensions("cjs"), &["cts", "d.cts"]);
-        assert!(node_next_input_extensions("ts").is_empty());
-        assert!(node_next_input_extensions("json").is_empty());
+        assert_eq!(node_next_input_extensions("ts"), <&[&str]>::default());
+        assert_eq!(node_next_input_extensions("json"), <&[&str]>::default());
     }
 
     /// A `./x.js` specifier proposes `./x.ts` as a candidate source.

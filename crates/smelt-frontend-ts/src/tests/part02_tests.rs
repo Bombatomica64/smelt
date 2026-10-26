@@ -648,7 +648,7 @@ function parseValues(value: any): number[] {
             else {
                 return false;
             };
-            usize::try_from(operand.0).ok().is_some_and(|index| {
+            usize::try_from(operand.0).is_ok_and(|index| {
                 matches!(
                     body.exprs.get(index).map(|operand| &operand.kind),
                     Some(ExprKind::PrimitiveCast {

@@ -48,6 +48,12 @@
 //!   the missing names when it does not.
 
 pub mod captures;
+#[expect(
+    clippy::single_match_else,
+    clippy::option_if_let_else,
+    clippy::cast_possible_truncation,
+    reason = "clock.rs items are emitted verbatim into generated crates; rewriting them to satisfy these style lints would change the bytes of every generated crate that uses the virtual clock"
+)]
 pub mod clock;
 pub mod source;
 pub mod strings;

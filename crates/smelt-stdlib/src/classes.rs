@@ -457,7 +457,7 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         // shared registry rather than eleven arms here, so the construction
         // side, the annotation side and codegen's Rust-type side cannot
         // disagree about which spellings are the family.
-        name if is_typed_array_class_name(name) => Some(StdlibClass::TypedArray),
+        _ if is_typed_array_class_name(name) => Some(StdlibClass::TypedArray),
         "ArrayBuffer" | "SharedArrayBuffer" => Some(StdlibClass::ArrayBuffer),
         "DataView" => Some(StdlibClass::DataView),
         "Blob" => Some(StdlibClass::Blob),

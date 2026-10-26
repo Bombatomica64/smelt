@@ -11,6 +11,10 @@
 //! [`smelt_next_object_id`] through `use super::…`, which the emitted form does
 //! not need because every runtime item lands in one flat generated module.
 
+#[expect(
+    clippy::missing_const_for_fn,
+    reason = "list.rs items are emitted verbatim into generated crates; making these helpers `const fn` would change the bytes of every generated crate that uses SmeltList"
+)]
 pub mod list;
 
 // @smelt:item SMELT_NEXT_OBJECT_ID
