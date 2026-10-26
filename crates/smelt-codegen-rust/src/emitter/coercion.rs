@@ -3133,7 +3133,10 @@ impl FunctionEmitter<'_> {
             helpers.entry(module_text).or_insert((next, body)).0
         };
         drop(hoisted);
-        Ok(Some(format!("__smelt_from_unknown_record_{ordinal}(({text}).into_smelt_unknown())")))
+        Ok(Some(format!(
+            "{}{ordinal}(({text}).into_smelt_unknown())",
+            crate::RECORD_CONVERSION_HELPER_PREFIX
+        )))
     }
 
     /// Emits checked extraction from an already-rendered `SmeltUnknown` value.

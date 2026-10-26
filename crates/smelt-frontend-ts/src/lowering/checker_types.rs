@@ -54,6 +54,9 @@ use super::ModuleBuilder;
 /// Nesting depth beyond which a re-spelling gives up.
 const MAX_DEPTH: usize = 12;
 
+/// TypeScript's apparent-type root interfaces; see [`Respeller::named`].
+const APPARENT_TYPE_ROOTS: [&str; 4] = ["Object", "Function", "CallableFunction", "NewableFunction"];
+
 /// Virtual root the checker bridge places program files under (`smelt-ts-types`).
 const PROGRAM_ROOT: &str = "/smelt/";
 
@@ -103,7 +106,7 @@ impl ModuleBuilder<'_> {
         ) {
             return None;
         }
-        let text = Respeller { builder: self, facts }.respell(id, 0)?;
+        let text = Respeller { builder: self, facts, annotation: (start, end) }.respell(id, 0)?;
         self.lower_respelled_annotation(&text, start, end)
     }
 
@@ -190,6 +193,8 @@ struct Respeller<'builder, 'ctx> {
     builder: &'builder ModuleBuilder<'ctx>,
     /// The checker facts holding the types.
     facts: &'builder TsTypeFacts,
+    /// Byte span of the annotation being re-spelled, in the builder's file.
+    annotation: (u32, u32),
 }
 
 impl Respeller<'_, '_> {
@@ -207,10 +212,22 @@ impl Respeller<'_, '_> {
         // object shape.
         keyword(&ty.kind).map(str::to_owned).or_else(|| self.structure(&ty.kind, next)).or_else(|| {
             let alias = ty.alias.as_ref()?;
-            if !self.builder.type_name_visible(&alias.symbol) {
+            if !self.builder.type_name_visible(&alias.symbol) || self.declares(&alias.symbol) {
                 return None;
             }
             self.named(&alias.symbol.name, &alias.type_arguments, next)
+        })
+    }
+
+    /// Whether `symbol`'s declaration encloses the annotation being re-spelled.
+    ///
+    /// An alias's own body evaluates to a type carrying that alias, so naming
+    /// the alias there would define it as itself: the re-spelled reference
+    /// resolves to whatever the alias was predeclared as, bypassing the body.
+    fn declares(&self, symbol: &TsSymbolRef) -> bool {
+        let (start, end) = self.annotation;
+        symbol.declaration.as_ref().is_some_and(|declaration| {
+            same_file(&declaration.file, &self.builder.path) && declaration.start <= start && end <= declaration.end
         })
     }
 
@@ -268,7 +285,16 @@ impl Respeller<'_, '_> {
     }
 
     /// `Name` or `Name<A, B>`.
+    ///
+    /// TypeScript's apparent-type roots are declined: `Object`, `Function`,
+    /// `CallableFunction` and `NewableFunction` are the lib interfaces every
+    /// object or function is assignable to, so they promise no layout at all
+    /// (the open-layout boundary Smelt erases), and naming one would turn
+    /// "any object" into a nominal class nothing constructs.
     fn named(&self, name: &str, arguments: &[TsTypeId], depth: usize) -> Option<String> {
+        if APPARENT_TYPE_ROOTS.contains(&name) {
+            return None;
+        }
         if arguments.is_empty() {
             return Some(name.to_owned());
         }

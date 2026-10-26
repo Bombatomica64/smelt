@@ -3977,7 +3977,7 @@ impl IntoSmeltUnknown for SmeltUnion16 {
 impl SmeltUnion16 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(<SmeltResponse as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
-        Self::M1(match (value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); InitLike { headers: smelt_record_map.get("headers").or_else(|| smelt_record_map.get("__smelt_proto:headers")).or_else(|| smelt_record_map.get("__smelt_method:headers")).cloned().and_then(|value| if smelt_unknown_is_nullish(&value) { None } else { Some(SmeltUnion6::from_smelt_unknown(value)) }), status: smelt_record_map.get("status").or_else(|| smelt_record_map.get("__smelt_proto:status")).or_else(|| smelt_record_map.get("__smelt_method:status")).cloned().and_then(|value| if smelt_unknown_is_nullish(&value) { None } else { Some(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) }), _smelt_phantom: ::std::marker::PhantomData } } }, _ => Default::default() })
+        Self::M1(__smelt_from_unknown_record_0((value).into_smelt_unknown()))
     }
 }
 impl PartialEq for SmeltUnion16 {
@@ -4022,7 +4022,7 @@ impl SmeltUnion17 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if matches!(value, SmeltUnknown::Number(_)) { return Self::M0(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }); }
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M1(<SmeltResponse as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
-        Self::M2(match (value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); InitLike { headers: smelt_record_map.get("headers").or_else(|| smelt_record_map.get("__smelt_proto:headers")).or_else(|| smelt_record_map.get("__smelt_method:headers")).cloned().and_then(|value| if smelt_unknown_is_nullish(&value) { None } else { Some(SmeltUnion6::from_smelt_unknown(value)) }), status: smelt_record_map.get("status").or_else(|| smelt_record_map.get("__smelt_proto:status")).or_else(|| smelt_record_map.get("__smelt_method:status")).cloned().and_then(|value| if smelt_unknown_is_nullish(&value) { None } else { Some(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) }), _smelt_phantom: ::std::marker::PhantomData } } }, _ => Default::default() })
+        Self::M2(__smelt_from_unknown_record_0((value).into_smelt_unknown()))
     }
 }
 impl PartialEq for SmeltUnion17 {
@@ -4066,6 +4066,10 @@ fn main() {
     let _smelt_tmp_11: String = header_of(SmeltUnion17::M0(404.0), "x-kind".to_owned());
     let _ = { println!("{}", _smelt_tmp_11); };
     return;
+}
+
+fn __smelt_from_unknown_record_0(smelt_value: SmeltUnknown) -> InitLike<f64> {
+    match (smelt_value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); InitLike { headers: smelt_record_map.get("headers").or_else(|| smelt_record_map.get("__smelt_proto:headers")).or_else(|| smelt_record_map.get("__smelt_method:headers")).cloned().and_then(|value| if smelt_unknown_is_nullish(&value) { None } else { Some(SmeltUnion6::from_smelt_unknown(value)) }), status: smelt_record_map.get("status").or_else(|| smelt_record_map.get("__smelt_proto:status")).or_else(|| smelt_record_map.get("__smelt_method:status")).cloned().and_then(|value| if smelt_unknown_is_nullish(&value) { None } else { Some(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) }), _smelt_phantom: ::std::marker::PhantomData } } }, _ => Default::default() }
 }
 
 // ==== source_main.rs

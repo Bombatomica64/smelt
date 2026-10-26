@@ -93,22 +93,30 @@ impl ModuleBuilder<'_> {
     /// `(...args) => this.#renderer(...args)` into a one-parameter renderer.
     ///
     /// Only a spread in the LAST position is distributed: arguments after a
-    /// runtime-length spread have no static parameter position. Any other
-    /// shape, or an operand that is not a list, is returned as the single
-    /// already-lowered argument it was before.
+    /// runtime-length spread have no static parameter position. And only into
+    /// TYPED parameters: a callee whose covered parameters are erased (`any`,
+    /// es-toolkit's `IsEqualCustomizer`) is called through the erased
+    /// packed-argument path, which spreads the list at run time, so per-element
+    /// reads there would only add erased values. Any other shape is returned
+    /// unchanged; an operand that turns out not to be a list is returned as the
+    /// single already-lowered argument it was before.
     pub(in crate::lowering) fn distribute_trailing_list_spread<'a>(
         &mut self,
         mut arguments: Vec<CallArg<'a>>,
-        fixed_param_count: usize,
+        params: &[smelt_hir::TypeId],
         body: &mut Body,
     ) -> Result<Vec<CallArg<'a>>, SmeltError> {
         let Some(&CallArg::UnexpandedSpread(spread)) = arguments.last() else {
             return Ok(arguments);
         };
         let position = arguments.len().saturating_sub(1);
-        let Some(covered) = fixed_param_count.checked_sub(position).filter(|count| *count > 0) else {
+        let covered_params = params.get(position..).unwrap_or_default();
+        let covered = covered_params.len();
+        if covered == 0
+            || covered_params.iter().any(|param| matches!(self.ctx.krate.types.get(*param), Some(Type::Unknown)))
+        {
             return Ok(arguments);
-        };
+        }
         arguments.pop();
         let span = self.span(spread.span.start, spread.span.end);
         let operand = self.expression(&spread.argument, body)?;

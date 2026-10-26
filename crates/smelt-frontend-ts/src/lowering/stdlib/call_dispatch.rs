@@ -3464,7 +3464,7 @@ impl<'builder> ModuleBuilder<'builder> {
             && function.rest.is_none()
         {
             let expanded = self.expanded_call_arguments(&call.arguments, body)?;
-            let expanded = self.distribute_trailing_list_spread(expanded, function.params.len(), body)?;
+            let expanded = self.distribute_trailing_list_spread(expanded, &function.params, body)?;
             return expanded.into_iter().map(|argument| self.lower_call_arg(argument, None, body)).collect();
         }
         call.arguments.iter().map(|argument| self.argument(argument, body)).collect()
@@ -5966,7 +5966,8 @@ impl<'builder> ModuleBuilder<'builder> {
         // a guess.
         if rest.is_none() && call.arguments.iter().any(Argument::is_spread) {
             let expanded = self.expanded_call_arguments(&call.arguments, body)?;
-            let expanded = self.distribute_trailing_list_spread(expanded, fixed_param_count, body)?;
+            let fixed_params = function.params.get(..fixed_param_count).unwrap_or_default();
+            let expanded = self.distribute_trailing_list_spread(expanded, fixed_params, body)?;
             let mut args = Vec::with_capacity(fixed_param_count);
             for argument in expanded.into_iter().take(fixed_param_count) {
                 args.push(self.lower_call_arg(argument, None, body)?);

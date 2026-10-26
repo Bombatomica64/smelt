@@ -150,6 +150,17 @@ pub const PRELUDE_END_MARKER: &str = "// @smelt:prelude-end — generated progra
 /// The SmeltUnknown report classifies their call sites as a boundary; see
 /// `erased_list_alias` for why.
 pub use erased_list_alias::{ERASED_GENERIC_ARRAY_ALIAS_FN, ERASED_GENERIC_LIST_ALIAS_FN};
+/// Name prefix of the generated erased-record-to-class conversion helpers,
+/// `fn <prefix><n>(smelt_value: SmeltUnknown) -> T`.
+///
+/// Each helper is the inverse adapter at an erased-to-typed boundary: it
+/// takes the erased value and rebuilds (or recovers) the typed class. Its
+/// body used to be inlined at every call site, where it was classified as a
+/// boundary through its `into_smelt_unknown` call; hoisted, the signature is
+/// the one line that newly names `SmeltUnknown`, and the SmeltUnknown report
+/// keys its boundary classification on this prefix so the same conversion
+/// keeps the classification it had inline.
+pub const RECORD_CONVERSION_HELPER_PREFIX: &str = "__smelt_from_unknown_record_";
 pub use emitter::typedness::{KindCounts, Typedness, TypednessCounts, TypednessMeasurement};
 
 /// Measure how much of optimized MIR reaches Rust typed.
@@ -6489,7 +6500,7 @@ fn emit_source_with_free_function_router(
     // conversion is spelled once here and called from every site.
     for (type_text, (ordinal, body)) in context.record_conversion_helpers.borrow().iter() {
         out.push_str(&format!(
-            "\nfn __smelt_from_unknown_record_{ordinal}(smelt_value: SmeltUnknown) -> {type_text} {{\n    {body}\n}}\n"
+            "\nfn {RECORD_CONVERSION_HELPER_PREFIX}{ordinal}(smelt_value: SmeltUnknown) -> {type_text} {{\n    {body}\n}}\n"
         ));
     }
 

@@ -258,6 +258,8 @@ pub(crate) struct EmitContext {
     ///
     /// Keyed by the module-level Rust spelling of the type; the value is
     /// `(ordinal, body)`.
+    ///
+    /// Helper names start with [`crate::RECORD_CONVERSION_HELPER_PREFIX`].
     pub(crate) record_conversion_helpers: ::std::cell::RefCell<
         ::std::collections::BTreeMap<String, (usize, String)>,
     >,
