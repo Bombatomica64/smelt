@@ -171,7 +171,8 @@ impl<'checker> Converter<'checker> {
             .checker
             .get_constraint_of_type_parameter_exported(ty)
             .map(|constraint| self.convert(constraint));
-        TsTypeKind::TypeParameter { name, constraint }
+        let is_this = ty.as_type_parameter().is_this_type();
+        TsTypeKind::TypeParameter { name, constraint, is_this }
     }
 
     /// Arrays, tuples, nominal references and structural objects.

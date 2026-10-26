@@ -2328,6 +2328,7 @@ dependencies = [
  "smelt-mir",
  "smelt-specialize",
  "smelt-stdlib",
+ "smelt-ts-types",
  "tempfile",
  "toml",
 ]

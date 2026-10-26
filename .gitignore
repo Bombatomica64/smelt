@@ -342,3 +342,5 @@ target-*/
 !blocker-logs/hono-phase3-round1-measure-excludes.txt
 !blocker-logs/hono-phase3-round2.md
 !blocker-logs/hono-phase3-round3.md
+# TypeScript 7 type-parity reports (`smelt ts7-parity-report`, see blocker-logs/ts7-parity.md)
+!blocker-logs/ts7-parity*.md

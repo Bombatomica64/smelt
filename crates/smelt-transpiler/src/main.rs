@@ -54,6 +54,10 @@ mod specialization;
 pub mod stubs;
 mod test_report;
 mod timing;
+#[cfg(feature = "ts7")]
+mod ts7_parity;
+#[cfg(feature = "ts7")]
+mod ts7_parity_report;
 mod typedness_report;
 mod unknown_report;
 
@@ -209,6 +213,10 @@ fn main() -> CliResult<()> {
             std::process::exit(1);
         }
         return Ok(());
+    }
+
+    if let Command::Ts7ParityReport { inputs, format, output } = &args.command {
+        return run_ts7_parity_report(inputs, format, output.as_deref());
     }
 
     if let Command::SmeltUnknownReport {
@@ -371,6 +379,7 @@ fn main() -> CliResult<()> {
         Command::RustDiagnostics { .. }
         | Command::RustTestReport { .. }
         | Command::SmeltUnknownReport { .. }
+        | Command::Ts7ParityReport { .. }
         | Command::TypednessReport { .. }
         | Command::ListEscapeReport { .. }
         | Command::DumpSchema => {
@@ -379,4 +388,31 @@ fn main() -> CliResult<()> {
         Command::Clean => return Err("`smelt clean` is not implemented yet".into()),
     }
     Ok(())
+}
+
+/// Runs `smelt ts7-parity-report`.
+#[cfg(feature = "ts7")]
+fn run_ts7_parity_report(inputs: &[String], format: &str, output: Option<&str>) -> CliResult<()> {
+    let report_format = match format {
+        "json" => ts7_parity_report::ParityFormat::Json,
+        "md" | "markdown" => ts7_parity_report::ParityFormat::Markdown,
+        other => return Err(format!("unknown --format `{other}`; use `md` or `json`").into()),
+    };
+    let input_paths: Vec<PathBuf> = inputs.iter().map(PathBuf::from).collect();
+    let rendered = ts7_parity_report::ts7_parity_report(&ts7_parity_report::ParityReportOptions {
+        inputs: &input_paths,
+        format: report_format,
+    })?;
+    if let Some(path) = output {
+        std::fs::write(path, rendered)?;
+    } else {
+        write!(io::stdout().lock(), "{rendered}")?;
+    }
+    Ok(())
+}
+
+/// `smelt ts7-parity-report` needs the embedded TypeScript 7 checker.
+#[cfg(not(feature = "ts7"))]
+fn run_ts7_parity_report(_inputs: &[String], _format: &str, _output: Option<&str>) -> CliResult<()> {
+    Err("`smelt ts7-parity-report` needs the `ts7` feature (the embedded TypeScript 7 checker)".into())
 }

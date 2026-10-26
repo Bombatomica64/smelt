@@ -20,7 +20,7 @@ workspace = true
 # default feature below) so `cargo build`/`cargo test`/CI exercise the Python
 # pipeline unchanged. The complete Python frontend, including ty-backed type
 # resolution, is publishable from crates.io.
-default = ["ty"]
+default = ["ty", "ts7"]
 python = ["dep:smelt-frontend-py"]
 
 # Resolve Python types via Astral's `ty` instead of requiring explicit
@@ -29,6 +29,13 @@ python = ["dep:smelt-frontend-py"]
 # `--no-default-features` for a lean TypeScript-only CLI, or `--features python`
 # for Python with explicit annotations but without ty.
 ty = ["python", "smelt-frontend-py/ty"]
+
+# Embed the TypeScript 7 checker (tsrs, via `smelt-ts-types`) for
+# `smelt ts7-parity-report`. ON by default. tsrs is only available as a git
+# dependency, which crates.io rejects even for optional dependencies, so a
+# crates.io publish of this crate must first drop this feature and dependency
+# (or tsrs must be published or vendored).
+ts7 = ["dep:smelt-ts-types"]
 
 [[bin]]
 name = "smelt"
@@ -45,6 +52,7 @@ sha2 = { workspace = true }
 smelt-codegen-rust = { path = "../smelt-codegen-rust", version = "0.1.1" }
 smelt-frontend-py = { path = "../smelt-frontend-py", version = "0.1.1", optional = true }
 smelt-frontend-ts = { path = "../smelt-frontend-ts", version = "0.1.1" }
+smelt-ts-types = { path = "../smelt-ts-types", optional = true }
 smelt-hir = { path = "../smelt-hir", version = "0.1.1" }
 smelt-mir = { path = "../smelt-mir", version = "0.1.1" }
 smelt-specialize = { path = "../smelt-specialize", version = "0.1.1" }

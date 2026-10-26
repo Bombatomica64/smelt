@@ -52,10 +52,25 @@ pub(crate) fn collect_file_types(
 }
 
 /// Whether `node` denotes a value whose type the frontend may ask about.
+///
+/// Two syntactic positions the `.types` baseline prints are left out because
+/// the checker answers a different question there than "the type of this
+/// value": a spread (`...xs` in a call or array, `...o` in an object literal)
+/// reports the *iterated element* type, and the key of a non-shorthand
+/// object-literal property (`{ ada: 10 }`) reports the *property's* type.
+/// Shorthand properties (`{ id }`) stay: their name is also the value read.
 fn is_value_position(node: P<Node>) -> bool {
     (ast::is_expression_node(node) || node.kind() == Kind::Identifier || ast::is_declaration_name(node))
         && !ast::is_part_of_type_node(node)
         && !ast::is_omitted_expression(node)
+        && !matches!(node.kind(), Kind::SpreadElement | Kind::SpreadAssignment)
+        && !is_object_literal_key(node)
+}
+
+/// Whether `node` is the key of a non-shorthand object-literal property.
+fn is_object_literal_key(node: P<Node>) -> bool {
+    node.parent()
+        .is_some_and(|parent| ast::is_property_assignment(parent) && parent.name() == Some(node))
 }
 
 /// The node's token span, or `None` for synthesized nodes without source positions.

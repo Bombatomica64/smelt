@@ -39,7 +39,10 @@ pub struct TsType {
 
 /// Structure of a [`TsType`].
 #[derive(Clone, PartialEq, Debug)]
-#[non_exhaustive]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "type classifiers must handle every TypeScript type kind; a new kind has to be a compile error at each of them, not a silent wildcard"
+)]
 pub enum TsTypeKind {
     /// `any`.
     Any,
@@ -93,10 +96,12 @@ pub enum TsTypeKind {
     Intersection(Vec<TsTypeId>),
     /// A type parameter that is still free at this location.
     TypeParameter {
-        /// Source name of the parameter.
+        /// Source name of the parameter (for the polymorphic `this` type, the class name).
         name: String,
-        /// The declared constraint, if any.
+        /// The declared constraint, if any (for `this`, the enclosing class or interface).
         constraint: Option<TsTypeId>,
+        /// Whether this is TypeScript's polymorphic `this` type.
+        is_this: bool,
     },
     /// `T[]` / `Array<T>`, or `readonly T[]` when `readonly` is set.
     Array {

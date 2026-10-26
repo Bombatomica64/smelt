@@ -46,9 +46,18 @@ impl SourceInput {
         Self { path: path.into(), text: text.into() }
     }
 
+    /// Path of this file relative to [`ROOT`].
+    ///
+    /// Relative inputs keep their layout; absolute inputs (`/home/me/pkg/a.ts`)
+    /// are re-rooted under [`ROOT`] with their full path, so relative imports
+    /// between inputs resolve exactly as they do on disk.
+    pub(crate) fn root_relative_path(&self) -> String {
+        self.path.replace('\\', "/").trim_start_matches("./").trim_start_matches('/').to_owned()
+    }
+
     /// Absolute path of this file inside the virtual program.
     pub(crate) fn program_path(&self) -> String {
-        format!("{ROOT}/{}", self.path.trim_start_matches("./"))
+        format!("{ROOT}/{}", self.root_relative_path())
     }
 }
 
@@ -71,24 +80,28 @@ impl ParseConfigHost for ConfigHost {
 /// Renders the `tsconfig.json` for `inputs`.
 ///
 /// The options are the strict profile Smelt's check pipeline requires
-/// (`specs/check-pipeline.md`): `strict`, no implicit `any`, exact optional
-/// properties off (matching `tsc --strict`), modern target and bundler
-/// resolution so relative `.ts` imports between inputs resolve.
+/// (`specs/check-pipeline.md`): `strict` (exact optional properties off, as
+/// in `tsc --strict`), a modern target with the DOM libs that type the web
+/// globals Smelt models (`URL`, `fetch`, `TextEncoder`), bundler resolution
+/// so extensionless and `.ts` relative imports between inputs resolve, and
+/// `moduleDetection: force` because Smelt treats every file as a module (an
+/// import-free file is not a global script whose declarations collide).
 fn tsconfig_json(inputs: &[SourceInput]) -> String {
     let mut files = String::new();
     for (index, input) in inputs.iter().enumerate() {
         if index > 0 {
             files.push(',');
         }
-        let _ = write!(files, "\"{}\"", input.path.replace('\\', "/").replace('"', "\\\""));
+        let _ = write!(files, "\"{}\"", input.root_relative_path().replace('"', "\\\""));
     }
     format!(
         r#"{{
   "compilerOptions": {{
     "strict": true,
     "target": "es2023",
-    "lib": ["es2023"],
+    "lib": ["es2023", "dom", "dom.iterable"],
     "module": "esnext",
+    "moduleDetection": "force",
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "noEmit": true,
