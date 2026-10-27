@@ -141,6 +141,9 @@ pub struct SmeltUrlSearchParams {
     id: usize,
     /// Name/value pairs in insertion order.
     entries: ::std::rc::Rc<::std::cell::RefCell<Vec<(String, String)>>>,
+    /// The `URL` whose `searchParams` this list is, if any. The spec's
+    /// update steps write every mutation back to that URL's query.
+    owner: Option<::std::rc::Rc<::std::cell::RefCell<::url::Url>>>,
 }
 
 impl PartialEq for SmeltUrlSearchParams { fn eq(&self, other: &Self) -> bool { *self.entries.borrow() == *other.entries.borrow() } }
@@ -150,7 +153,28 @@ impl Default for SmeltUrlSearchParams { fn default() -> Self { Self::new() } }
 #[allow(dead_code)]
 impl SmeltUrlSearchParams {
     /// An empty parameter list with a fresh JS reference identity.
-    pub fn new() -> Self { Self { id: smelt_next_object_id(), entries: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) } }
+    pub fn new() -> Self { Self { id: smelt_next_object_id(), entries: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), owner: None } }
+    /// The live `searchParams` list of a URL: its entries are the URL's
+    /// query, and each mutation rewrites that query.
+    pub fn owned_by(owner: ::std::rc::Rc<::std::cell::RefCell<::url::Url>>) -> Self {
+        let params = Self { owner: Some(owner), ..Self::new() };
+        params.refresh_from_owner();
+        params
+    }
+    /// Re-read the entries from the owning URL's query, after a write to
+    /// the URL itself (`search` or `href`) replaced it.
+    pub fn refresh_from_owner(&self) {
+        let Some(owner) = &self.owner else { return };
+        let pairs = owner.borrow().query_pairs().map(|(name, value)| (name.into_owned(), value.into_owned())).collect::<Vec<(String, String)>>();
+        *self.entries.borrow_mut() = pairs;
+    }
+    /// The spec's update steps: serialize the list into the owning URL's
+    /// query, which an empty list sets to null.
+    fn update_owner(&self) {
+        let Some(owner) = &self.owner else { return };
+        let query = self.to_text();
+        owner.borrow_mut().set_query(if query.is_empty() { None } else { Some(&query) });
+    }
     /// JS reference identity of this parameter list.
     pub fn id(&self) -> usize { self.id }
     /// Build a parameter list from name/value pairs, in order.
@@ -171,20 +195,22 @@ impl SmeltUrlSearchParams {
     /// `has(name)`.
     pub fn has(&self, name: &str) -> bool { self.entries.borrow().iter().any(|(entry_name, _)| entry_name == name) }
     /// `append(name, value)`.
-    pub fn append(&self, name: &str, value: &str) { self.entries.borrow_mut().push((name.to_owned(), value.to_owned())); }
+    pub fn append(&self, name: &str, value: &str) { self.entries.borrow_mut().push((name.to_owned(), value.to_owned())); self.update_owner(); }
     /// `set(name, value)`: replace the first value, drop the rest.
     pub fn set(&self, name: &str, value: &str) {
         let mut entries = self.entries.borrow_mut();
         let position = entries.iter().position(|(entry_name, _)| entry_name == name);
-        let Some(index) = position else { entries.push((name.to_owned(), value.to_owned())); return; };
+        let Some(index) = position else { entries.push((name.to_owned(), value.to_owned())); drop(entries); self.update_owner(); return; };
         entries[index] = (name.to_owned(), value.to_owned());
         let mut kept = false;
         entries.retain(|(entry_name, _)| { if entry_name != name { return true; } let first = !kept; kept = true; first });
+        drop(entries);
+        self.update_owner();
     }
     /// `delete(name)`: remove every pair with the name.
-    pub fn delete(&self, name: &str) { self.entries.borrow_mut().retain(|(entry_name, _)| entry_name != name); }
+    pub fn delete(&self, name: &str) { self.entries.borrow_mut().retain(|(entry_name, _)| entry_name != name); self.update_owner(); }
     /// `sort()`: stable sort by name, keeping equal names in order.
-    pub fn sort(&self) { self.entries.borrow_mut().sort_by(|left, right| left.0.cmp(&right.0)); }
+    pub fn sort(&self) { self.entries.borrow_mut().sort_by(|left, right| left.0.cmp(&right.0)); self.update_owner(); }
     /// `toString()`: the urlencoded serialization.
     pub fn to_text(&self) -> String {
         let mut serializer = url::form_urlencoded::Serializer::new(String::new());

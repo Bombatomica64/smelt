@@ -2,12 +2,12 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 13329,
+      "concrete": 13340,
       "generic": 229,
-      "erased": 10191
+      "erased": 10175
     },
     "reads": {
-      "concrete": 304,
+      "concrete": 298,
       "generic": 30,
       "erased": 1117
     },
@@ -3131,12 +3131,12 @@
     },
     "src/compat/_internal/decimalAdjust.ts": {
       "values": {
-        "concrete": 69,
+        "concrete": 78,
         "generic": 0,
-        "erased": 6
+        "erased": 0
       },
       "reads": {
-        "concrete": 6,
+        "concrete": 4,
         "generic": 0,
         "erased": 0
       },
@@ -6514,12 +6514,12 @@
     },
     "src/compat/object/pickBy.ts": {
       "values": {
-        "concrete": 20,
+        "concrete": 21,
         "generic": 0,
-        "erased": 27
+        "erased": 23
       },
       "reads": {
-        "concrete": 5,
+        "concrete": 3,
         "generic": 0,
         "erased": 2
       },
@@ -7840,12 +7840,12 @@
     },
     "src/compat/string/trimEnd.ts": {
       "values": {
-        "concrete": 13,
+        "concrete": 14,
         "generic": 0,
-        "erased": 4
+        "erased": 1
       },
       "reads": {
-        "concrete": 1,
+        "concrete": 0,
         "generic": 0,
         "erased": 0
       },
@@ -7857,12 +7857,12 @@
     },
     "src/compat/string/trimStart.ts": {
       "values": {
-        "concrete": 13,
+        "concrete": 14,
         "generic": 0,
-        "erased": 4
+        "erased": 1
       },
       "reads": {
-        "concrete": 1,
+        "concrete": 0,
         "generic": 0,
         "erased": 0
       },
@@ -7874,7 +7874,7 @@
     },
     "src/compat/string/truncate.ts": {
       "values": {
-        "concrete": 75,
+        "concrete": 74,
         "generic": 0,
         "erased": 6
       },

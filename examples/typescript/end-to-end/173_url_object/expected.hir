@@ -1,0 +1,228 @@
+module examples/typescript/end-to-end/173_url_object/input.ts (ModuleId(0))
+  body BodyId(3)
+  items
+    fn trim_trailing_slash owner Module
+    fn append_slash owner Module
+    fn move_through_alias owner Module
+  locals
+    %0 const url: URL
+    %1 const relative: URL
+    %2 const error: Unknown
+    %3 const error: Unknown
+  exprs
+    #0: String = "https://user:pw@example.com:8080/a/b/?x=1&y=2#frag"
+    #1: URL = url_new #0
+    #2: URL = %0
+    #3: String = url_Get(Href) #2
+    #4: None = @3(console_log)
+    #5: None = call #4(#3)
+    #6: URL = %0
+    #7: String = url_Get(Origin) #6
+    #8: URL = %0
+    #9: String = url_Get(Protocol) #8
+    #10: URL = %0
+    #11: String = url_Get(Username) #10
+    #12: URL = %0
+    #13: String = url_Get(Password) #12
+    #14: None = @4(console_log)
+    #15: None = call #14(#7, #9, #11, #13)
+    #16: URL = %0
+    #17: String = url_Get(Host) #16
+    #18: URL = %0
+    #19: String = url_Get(Hostname) #18
+    #20: URL = %0
+    #21: String = url_Get(Port) #20
+    #22: URL = %0
+    #23: String = url_Get(Pathname) #22
+    #24: URL = %0
+    #25: String = url_Get(Search) #24
+    #26: URL = %0
+    #27: String = url_Get(Hash) #26
+    #28: None = @5(console_log)
+    #29: None = call #28(#17, #19, #21, #23, #25, #27)
+    #30: URL = %0
+    #31: fn(URL) -> None = @2(move_through_alias)
+    #32: None = call #31(#30)
+    #33: URL = %0
+    #34: String = url_Get(Href) #33
+    #35: None = @6(console_log)
+    #36: None = call #35(#34)
+    #37: URL = %0
+    #38: URLSearchParams = url_SearchParams #37
+    #39: URL = %0
+    #40: URLSearchParams = url_SearchParams #39
+    #41: String = "z"
+    #42: String = "3"
+    #43: None = url_search_params_append #40, #41, #42
+    #44: URL = %0
+    #45: URLSearchParams = url_SearchParams #44
+    #46: URL = %0
+    #47: URLSearchParams = url_SearchParams #46
+    #48: URL = %0
+    #49: URLSearchParams = url_SearchParams #48
+    #50: String = "x"
+    #51: None = url_search_params_delete #49, #50
+    #52: URL = %0
+    #53: String = url_Get(Search) #52
+    #54: URL = %0
+    #55: URLSearchParams = url_SearchParams #54
+    #56: URL = %0
+    #57: URLSearchParams = url_SearchParams #56
+    #58: URL = %0
+    #59: URLSearchParams = url_SearchParams #58
+    #60: String = "y"
+    #61: Optional<String> = url_search_params_get #59, #60
+    #62: None = @7(console_log)
+    #63: None = call #62(#53, #61)
+    #64: URL = %0
+    #65: String = url_Get(Search) #64
+    #66: String = "?q=hello+world"
+    #67: String = url_Set(Search) #64, #66
+    #68: URL = %0
+    #69: URLSearchParams = url_SearchParams #68
+    #70: URL = %0
+    #71: URLSearchParams = url_SearchParams #70
+    #72: URL = %0
+    #73: URLSearchParams = url_SearchParams #72
+    #74: String = "q"
+    #75: Optional<String> = url_search_params_get #73, #74
+    #76: URL = %0
+    #77: URLSearchParams = url_SearchParams #76
+    #78: URL = %0
+    #79: URLSearchParams = url_SearchParams #78
+    #80: URL = %0
+    #81: URLSearchParams = url_SearchParams #80
+    #82: String = "y"
+    #83: Bool = url_search_params_has #81, #82
+    #84: None = @8(console_log)
+    #85: None = call #84(#75, #83)
+    #86: URL = %0
+    #87: String = url_Get(Port) #86
+    #88: String = "443"
+    #89: String = url_Set(Port) #86, #88
+    #90: URL = %0
+    #91: String = url_Get(Protocol) #90
+    #92: String = "http:"
+    #93: String = url_Set(Protocol) #90, #92
+    #94: URL = %0
+    #95: String = url_Get(Href) #94
+    #96: None = @9(console_log)
+    #97: None = call #96(#95)
+    #98: String = "location"
+    #99: URL = %0
+    #100: String = url_Get(Href) #99
+    #101: Dict<String, String> = {#98: #100}
+    #102: String = json_stringify #101
+    #103: None = @10(console_log)
+    #104: None = call #103(#102)
+    #105: String = "https://example.com/the/endpoint/?k=v"
+    #106: fn(String) -> String = @0(trim_trailing_slash)
+    #107: String = call #106(#105)
+    #108: None = @11(console_log)
+    #109: None = call #108(#107)
+    #110: String = "https://example.com/dir"
+    #111: URL = url_new #110
+    #112: fn(URL) -> URL = @1(append_slash)
+    #113: URL = call #112(#111)
+    #114: String = url_Get(Pathname) #113
+    #115: None = @12(console_log)
+    #116: None = call #115(#114)
+    #117: String = "../c?d=1"
+    #118: String = "https://example.com/a/b/"
+    #119: URL = url_new #117, #118
+    #120: URL = %1
+    #121: String = url_Get(Href) #120
+    #122: None = @13(console_log)
+    #123: None = call #122(#121)
+    #124: URL = %1
+    #125: String = url_Get(Href) #124
+    #126: URL = url_new #125
+    #127: String = url_Get(Pathname) #126
+    #128: None = @14(console_log)
+    #129: None = call #128(#127)
+    #130: URL = %1
+    #131: String = url_Get(Href) #130
+    #132: Request = request_new input=#131
+    #133: String = request_url #132
+    #134: None = @15(console_log)
+    #135: None = call #134(#133)
+    #136: String = ""
+    #137: URL = %1
+    #138: String = Add #136, #137
+    #139: None = @16(console_log)
+    #140: None = call #139(#138)
+    #141: String = "not a url"
+    #142: URL = url_new #141
+    #143: String = "parsed"
+    #144: None = @17(console_log)
+    #145: None = call #144(#143)
+    #146: Unknown = %2
+    #147: Bool = instanceof #146, class16
+    #148: String = "TypeError"
+    #149: Unknown = %2
+    #150: Unknown = #149.message
+    #151: None = @18(console_log)
+    #152: None = call #151(#148, #150)
+    #153: URL = %0
+    #154: String = url_Get(Href) #153
+    #155: String = "::"
+    #156: String = url_Set(Href) #153, #155
+    #157: String = "assigned"
+    #158: None = @19(console_log)
+    #159: None = call #158(#157)
+    #160: Unknown = %3
+    #161: Bool = instanceof #160, class16
+    #162: URL = %0
+    #163: String = url_Get(Pathname) #162
+    #164: None = @20(console_log)
+    #165: None = call #164(#161, #163)
+  stmts
+    s0: let %0: URL = #1
+    s1: #5
+    s2: #15
+    s3: #29
+    s4: #32
+    s5: #36
+    s6: #43
+    s7: #51
+    s8: #63
+    s9: #67
+    s10: #85
+    s11: #89
+    s12: #93
+    s13: #97
+    s14: #104
+    s15: #109
+    s16: #116
+    s17: let %1: URL = #119
+    s18: #123
+    s19: #129
+    s20: #135
+    s21: #140
+    s22: #142
+    s23: #145
+    s24: #152
+    s25: if #147 then BlockId(3)
+    s26: try BlockId(1) catch %2 BlockId(2)
+    s27: #156
+    s28: #159
+    s29: #165
+    s30: try BlockId(4) catch %3 BlockId(5)
+
+interned types
+  t0 = String
+  t1 = URL
+  t2 = fn(String) -> String
+  t3 = fn(URL) -> URL
+  t4 = None
+  t5 = fn(URL) -> None
+  t6 = Float
+  t7 = fn(URL) -> None
+  t8 = URLSearchParams
+  t9 = Optional<String>
+  t10 = Bool
+  t11 = Dict<String, String>
+  t12 = fn(String) -> String
+  t13 = fn(URL) -> URL
+  t14 = Request
+  t15 = Unknown

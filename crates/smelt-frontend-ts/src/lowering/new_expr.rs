@@ -10,7 +10,7 @@ use oxc::span::GetSpan;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
 use smelt_hir::{
     BinOp, Body, ClosureExpr, ErasureReason, Expr, ExprKind, FunctionType, Item, Literal, LocalDecl, Param,
-    PrimitiveCastOp, Span, Stmt, Type, UnaryOp, UrlField,
+    PrimitiveCastOp, Span, Stmt, Type, UnaryOp,
 };
 
 /// The lowered positional pieces of a builtin Error construction.
@@ -916,30 +916,6 @@ impl ModuleBuilder<'_> {
             ty: unknown_ty,
             span,
         })
-    }
-
-    /// Lower `new URL(text)` to its full URL string for string-oriented URL APIs.
-    pub(super) fn url_constructor_expression(
-        &mut self,
-        new_expr: &oxc::ast::ast::NewExpression<'_>,
-        body: &mut Body,
-    ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let [url_arg] = new_expr.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "new URL() currently supports exactly one string URL argument",
-            ));
-        };
-        let url = self.url_string_argument(url_arg, body, new_expr.span)?;
-        let ty = self.ctx.krate.types.intern(Type::String);
-        Ok(body.push_expr(Expr {
-            kind: ExprKind::UrlField {
-                field: UrlField::Href,
-                url,
-            },
-            ty,
-            span: self.span(new_expr.span.start, new_expr.span.end),
-        }))
     }
 
     /// Return whether a global constructor creates a JavaScript typed array.

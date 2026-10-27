@@ -1,0 +1,127 @@
+class Ctx fields [] constructor Some(FuncId(3)) methods [FuncId(0), FuncId(1), FuncId(2)]
+interface Respond
+
+fn #respond (FuncId(0)) -> String
+  locals
+    %0 param this: Ctx
+    %1 param data: String
+    %2 param detail: String | Float
+    %3 temp: Bool
+    %4 temp: String
+    %5 temp: String
+    %6 temp: String
+    %7 temp: Float
+    %8 temp: String
+    %9 temp: String
+    %10 temp: String
+    %11 temp: String
+    %12 temp: String
+    %13 temp: String
+  bb0:
+    %3 = unknown_is Number copy %2
+    switch move %3 ? bb1 : bb2
+  bb1:
+    %5 = "" + copy %1
+    %6 = move %5 + ":"
+    %7 = unknown_cast copy %2 as t5
+    %8 = move %6 + move %7
+    %4 = move %8
+    goto bb3
+  bb2:
+    %9 = "" + copy %1
+    %10 = move %9 + ":"
+    %11 = unknown_cast copy %2 as t1
+    %12 = string_upper move %11
+    %13 = move %10 + move %12
+    %4 = move %13
+    goto bb3
+  bb3:
+    return move %4
+
+fn direct (FuncId(1)) -> String
+  locals
+    %0 param this: Ctx
+    %1 param data: String
+    %2 param note: Optional<String>
+    %3 temp: String
+    %4 temp: String
+    %5 temp: String
+    %6 temp: String
+  bb0:
+    %3 = "" + copy %1
+    %4 = move %3 + "/"
+    %5 = copy %2 ?? "-"
+    %6 = move %4 + move %5
+    return move %6
+
+fn __smelt_get_respond (FuncId(2)) -> Respond
+  locals
+    %0 param this: Ctx
+    %1 temp: fn(...List<String | Float>) -> String
+  bb0:
+    %1 = closure ClosureId(0) [copy %0]
+    return move %1
+
+fn new (FuncId(3)) -> Ctx
+  locals
+    %0 user this: Ctx
+  bb0:
+    %0 = struct0 {}
+    return move %0
+
+fn main (FuncId(4)) -> None
+  locals
+    %0 user ctx: Ctx
+    %1 user respond: Respond
+    %2 user one: List<String>
+    %3 user two: List<String>
+    %4 user __smelt_spread: List<String>
+    %5 user __smelt_spread: List<String>
+    %6 temp: Ctx
+    %7 temp: fn(String, String | Float) -> String
+    %8 temp: String
+    %9 temp: fn(String, String | Float) -> String
+    %10 temp: String
+    %11 temp: None
+    %12 temp: List<String>
+    %13 temp: List<String>
+    %14 temp: String
+    %15 temp: String
+    %16 temp: None
+  bb0:
+    %6 = call fn3() -> bb1
+  bb1:
+    %0 = move %6
+    %1 = copy %0.field1
+    %7 = copy %1
+    %8 = closure_call move %7("a", 301.0)
+    %9 = move %1
+    %10 = closure_call move %9("b", "gone")
+    %11 = call @console_log(move %8, move %10) -> bb2
+  bb2:
+    %12 = ["c"]
+    %2 = move %12
+    %13 = ["d", "e"]
+    %3 = move %13
+    %4 = move %2
+    %5 = move %3
+    %14 = call fn1(copy %0, copy %4[0], copy %4[1]) -> bb3
+  bb3:
+    %15 = call fn1(move %0, copy %5[0], copy %5[1]) -> bb4
+  bb4:
+    %16 = call @console_log(move %14, move %15) -> bb5
+  bb5:
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 param args: List<String | Float>
+    %1 user this: Ctx
+    %2 user __smelt_spread: List<String | Float>
+    %3 temp: String
+  bb0:
+    %2 = copy %0
+    %3 = call fn0(copy %1, copy %2[0], copy %2[1]) -> bb1
+  bb1:
+    return copy %3
+

@@ -164,18 +164,6 @@ fn static_member_rule(member: &oxc::ast::ast::StaticMemberExpression<'_>) -> Opt
     }
 }
 
-/// Return the shared stdlib rule matching a TypeScript property expression.
-#[must_use]
-pub(super) fn property_rule(member: &oxc::ast::ast::StaticMemberExpression<'_>) -> Option<RuleId> {
-    let Expression::NewExpression(new_expr) = &member.object else {
-        return None;
-    };
-    let Expression::Identifier(callee) = &new_expr.callee else {
-        return None;
-    };
-    (callee.name == "URL").then_some(RuleId::TsUrlField)
-}
-
 #[cfg(test)]
 mod tests {
     use oxc::{allocator::Allocator, parser::Parser, span::SourceType};

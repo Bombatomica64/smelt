@@ -2515,6 +2515,8 @@ impl ModuleBuilder<'_> {
             out.insert(name, target);
         } else if let Some((name, target)) = self.typeof_inverse_guard(expression, body) {
             out.insert(name, target);
+        } else if let Some((name, target)) = self.instanceof_inverse_guard(expression, body) {
+            out.insert(name, target);
         } else if let Some((name, target)) = self.predicate_call_inverse_guard(expression, body) {
             out.insert(name, target);
         } else if let Expression::UnaryExpression(unary) = expression
@@ -3772,6 +3774,71 @@ impl ModuleBuilder<'_> {
             .filter(|item| self.ctx.krate.types.get(*item).is_some_and(&mut keep))
             .collect::<Vec<_>>();
         (!retained.is_empty()).then_some(retained)
+    }
+
+    /// Recognize the FALSE side of `local instanceof Class` on a union local.
+    ///
+    /// `tsc` removes the class's arm: after `if (input instanceof Request)
+    /// return ..`, `input` is `string | URL`. Only the union's members are
+    /// filtered, and an absent value stays possible (`undefined instanceof C`
+    /// is `false`), so an optional union keeps its `Optional`. A local that is
+    /// not a union, a union that would lose every arm, and a remainder with an
+    /// erased arm are left alone.
+    fn instanceof_inverse_guard(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::BinaryExpression(binary) = expression else {
+            return None;
+        };
+        if binary.operator != BinaryOperator::Instanceof {
+            return None;
+        }
+        let (Expression::Identifier(identifier), Expression::Identifier(class)) =
+            (&binary.left, &binary.right)
+        else {
+            return None;
+        };
+        let local_name = identifier.name.as_str();
+        let local = self.scope.lookup(local_name)?;
+        let ty = self
+            .narrowed_type(local_name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        let (union_ty, optional) = match self.ctx.krate.types.get(ty) {
+            Some(Type::Optional(inner)) => (*inner, true),
+            _ => (ty, false),
+        };
+        let class_name = class.name.as_str();
+        let Some(Type::Union(arms)) = self.ctx.krate.types.get(union_ty) else {
+            return None;
+        };
+        let arm_count = arms.len();
+        let retained = self.filtered_union_members(union_ty, |member| {
+            !matches!(
+                member,
+                Type::Class {
+                    name: class_symbol,
+                    ..
+                } if self.ctx.krate.symbols.get(*class_symbol) == Some(class_name)
+            )
+        })?;
+        // Narrowing to an erased remainder proves nothing a reader can use and
+        // only copies the value into an erased local, so it declines.
+        if retained.len() == arm_count
+            || retained
+                .iter()
+                .any(|arm| matches!(self.ctx.krate.types.get(*arm), Some(Type::Unknown)))
+        {
+            return None;
+        }
+        let narrowed = self.intern_filtered_union(retained)?;
+        let narrowed = if optional {
+            self.ctx.krate.types.intern(Type::Optional(narrowed))
+        } else {
+            narrowed
+        };
+        Some((local_name.to_owned(), narrowed))
     }
 
     /// Intern the canonical type produced by a non-empty union filter.

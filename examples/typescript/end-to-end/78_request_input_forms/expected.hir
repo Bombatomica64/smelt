@@ -28,4 +28,5 @@ interned types
   t9 = Future<String>
   t10 = ReadableStream
   t11 = Optional<ReadableStream>
-  t12 = async fn() -> Future<None>
+  t12 = URL
+  t13 = async fn() -> Future<None>

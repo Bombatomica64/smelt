@@ -94,7 +94,7 @@ pub use expr::{
     BlobOp,
     StringNormalizeForm,
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
-    UnknownKind, UriTranscodeOp, UrlField, bin_op_text,
+    UnknownKind, UriTranscodeOp, UrlField, UrlOp, bin_op_text,
 };
 pub use erasure::{
     ERASURE_REASONS, ErasureClass, ErasureReason, ErasureReasonInfo, ErasureRecord,

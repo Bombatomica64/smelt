@@ -1166,23 +1166,82 @@ pub enum DatePart {
     Millisecond,
 }
 
-/// A field available on a parsed URL value.
+/// A WHATWG URL component: one getter (and, except `Origin`, one setter) of
+/// the `URL` class.
+///
+/// Every variant is spelled the way the WHATWG URL Standard's API section
+/// defines it, so the runtime reads and writes it through `url::quirks`, the
+/// `url` crate's implementation of exactly those accessors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UrlField {
     /// Full URL text.
     Href,
     /// URL scheme/protocol including the trailing colon.
     Protocol,
+    /// Username of the URL's credentials, or the empty string.
+    Username,
+    /// Password of the URL's credentials, or the empty string.
+    Password,
     /// Host, including port when present.
     Host,
-    /// Origin, including protocol and host.
+    /// Origin, including protocol and host. Read-only.
     Origin,
     /// Hostname without port.
     Hostname,
+    /// Port as text, or the empty string for the scheme's default port.
+    Port,
     /// Path component.
     Pathname,
     /// Query component including a leading `?` when present.
     Search,
+    /// Fragment component including a leading `#` when present.
+    Hash,
+}
+
+impl UrlField {
+    /// The component named by a `URL` property spelling, if it is one.
+    #[must_use]
+    pub fn from_property(name: &str) -> Option<Self> {
+        Some(match name {
+            "href" => Self::Href,
+            "protocol" => Self::Protocol,
+            "username" => Self::Username,
+            "password" => Self::Password,
+            "host" => Self::Host,
+            "origin" => Self::Origin,
+            "hostname" => Self::Hostname,
+            "port" => Self::Port,
+            "pathname" => Self::Pathname,
+            "search" => Self::Search,
+            "hash" => Self::Hash,
+            _ => return None,
+        })
+    }
+
+    /// Whether the WHATWG `URL` class gives this component a setter.
+    ///
+    /// Only `origin` is a getter alone.
+    #[must_use]
+    pub const fn is_settable(self) -> bool {
+        !matches!(self, Self::Origin)
+    }
+}
+
+/// A directly lowered operation on a concrete WHATWG `URL` value.
+///
+/// A `URL` is a mutable reference object: `url.pathname = '/x'` changes the
+/// value every alias of it observes, and `url.searchParams` is a live view whose
+/// mutations rewrite the URL's query. The components are therefore operations
+/// on a runtime value, not fields of a struct, the same way the
+/// `res.statusCode` read and write are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UrlOp {
+    /// Read a component. `toString()` and `toJSON()` read `Href`.
+    Get(UrlField),
+    /// Write a settable component from one string argument.
+    Set(UrlField),
+    /// `searchParams`: the URL's live `URLSearchParams`.
+    SearchParams,
 }
 
 /// A directly lowered dictionary projection operation.

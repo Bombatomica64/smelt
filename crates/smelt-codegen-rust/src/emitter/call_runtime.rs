@@ -1336,6 +1336,7 @@ impl FunctionEmitter<'_> {
             Rvalue::UrlSearchParamsOp { op, params, args } => {
                 self.url_search_params_op_text(*op, params, args, dest_ty)
             }
+            Rvalue::UrlOp { op, url, args } => self.url_op_text(*op, url, args, dest_ty),
             Rvalue::TextEncoderNew => Ok("SmeltTextEncoder::new()".to_owned()),
             Rvalue::TextDecoderNew { label } => self.text_decoder_new_text(label.as_ref()),
             Rvalue::TextEncoderOp { op, encoder, args } => {

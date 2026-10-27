@@ -446,7 +446,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.materialized_static_member(member, body)? {
             return Ok(expr);
         }
-        if let Some(expr) = self.url_field_expression(member, body)? {
+        // A `URL` component or `searchParams` read, gated on the receiver's
+        // lowered type like the `Response` reads below.
+        if let Some(expr) = self.url_property_read(member, body)? {
             return Ok(expr);
         }
         // A `Response` data property. Placed with the other modeled-receiver
@@ -2185,6 +2187,11 @@ impl ModuleBuilder<'_> {
         if let Some(write) = self.try_server_response_assignment_expression(assign, body)? {
             return Ok(Some(write));
         }
+        // `url.pathname = '/x'` is a component WRITE on a modeled receiver, for
+        // the same reason.
+        if let Some(write) = self.try_url_assignment_expression(assign, body)? {
+            return Ok(Some(write));
+        }
         let Some(item) = self.assignment_target_mutable_global(&assign.left) else {
             return Ok(None);
         };
@@ -2312,6 +2319,24 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<(smelt_hir::ExprId, smelt_hir::ExprId), SmeltError> {
         let target = self.assignment_target_expr(&assign.left, body)?;
+        let value = self.assignment_value(assign, target, body)?;
+        Ok((target, value))
+    }
+
+    /// Lower the value an assignment stores, given its already-lowered target.
+    ///
+    /// `target` is the READ of the assigned place: a compound operator
+    /// (`x op= y`) combines it with the right-hand side, and a plain `=` only
+    /// uses its type as the right-hand side's hint. Split from
+    /// [`Self::assignment_parts`] so a desugared member write whose read is an
+    /// operation rather than a place (`url.pathname += '/'`) shares every
+    /// operator's semantics with the ordinary path.
+    pub(in crate::lowering) fn assignment_value(
+        &mut self,
+        assign: &oxc::ast::ast::AssignmentExpression<'_>,
+        target: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         let target_ty = Self::expr_ty(body, target);
         let right_ty_hint = match assign.operator {
             AssignmentOperator::Assign => Some(target_ty),
@@ -2420,7 +2445,7 @@ impl ModuleBuilder<'_> {
             }
         };
         self.apply_assignment_observed_type(&assign.left, Self::expr_ty(body, value), body);
-        Ok((target, value))
+        Ok(value)
     }
 
     /// Try to claim a straight-line `fn.prop = value` write onto a function-typed
@@ -2848,6 +2873,18 @@ impl ModuleBuilder<'_> {
         // narrowed-type branch above, so the fact cannot outlive its flow.
         if let Some(inner) = self.optional_inner_for_narrowing(base_ty, observed_ty) {
             self.apply_narrowing(name.to_owned(), inner);
+            return;
+        }
+        // TypeScript's assignment narrowing, for a union local: assigning a
+        // value of one arm narrows later reads in this flow to that arm, so
+        // `input = input.toString()` makes `input` a `string` until the next
+        // write or the end of the branch, as `tsc` types it. The storage keeps
+        // the declared union; a narrowed read projects the arm.
+        if observed_ty != base_ty
+            && matches!(self.ctx.krate.types.get(base_ty), Some(Type::Union(_)))
+            && self.type_is_narrowing_of(observed_ty, base_ty)
+        {
+            self.apply_narrowing(name.to_owned(), observed_ty);
             return;
         }
         if self.ctx.krate.types.get(base_ty) != Some(&Type::Unknown) {

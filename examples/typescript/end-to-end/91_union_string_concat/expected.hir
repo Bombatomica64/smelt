@@ -72,23 +72,24 @@ module examples/typescript/end-to-end/91_union_string_concat/input.ts (ModuleId(
     #59: String | Float = %4
     #60: String = "x"
     #61: String = Add #59, #60
-    #62: String | Float = %4
-    #63: None = @9(console_log)
-    #64: None = call #63(#62)
-    #65: List<String | Future<String>> = %0
-    #66: Float = 0.0
-    #67: fn(List<String | Future<String>>, Float) -> String = @2(describe)
-    #68: String = call #67(#65, #66)
-    #69: None = @10(console_log)
-    #70: None = call #69(#68)
-    #71: List<String | Future<String>> = %2
-    #72: Float = 0.0
-    #73: fn(List<String | Future<String>>, Float) -> String = @2(describe)
-    #74: String = call #73(#71, #72)
-    #75: None = @11(console_log)
-    #76: None = call #75(#74)
-    #77: Future<None> = async_exit_drain()
-    #78: None = await #77
+    #62: String = %4
+    #63: String = unknown_cast #62 as String
+    #64: None = @9(console_log)
+    #65: None = call #64(#63)
+    #66: List<String | Future<String>> = %0
+    #67: Float = 0.0
+    #68: fn(List<String | Future<String>>, Float) -> String = @2(describe)
+    #69: String = call #68(#66, #67)
+    #70: None = @10(console_log)
+    #71: None = call #70(#69)
+    #72: List<String | Future<String>> = %2
+    #73: Float = 0.0
+    #74: fn(List<String | Future<String>>, Float) -> String = @2(describe)
+    #75: String = call #74(#72, #73)
+    #76: None = @11(console_log)
+    #77: None = call #76(#75)
+    #78: Future<None> = async_exit_drain()
+    #79: None = await #78
   stmts
     s0: let %0: List<String | Future<String>> = #1
     s1: #4 = #6
@@ -106,13 +107,13 @@ module examples/typescript/end-to-end/91_union_string_concat/input.ts (ModuleId(
     s13: #56
     s14: let %4: String | Float = #57
     s15: #58 = #61
-    s16: #64
-    s17: #70
-    s18: #76
-    s19: #78
+    s16: #65
+    s17: #71
+    s18: #77
+    s19: #79
   async state machine
     states [state0, state1]
-    suspend #78 on #77 -> state79
+    suspend #79 on #78 -> state80
 
 interned types
   t0 = String

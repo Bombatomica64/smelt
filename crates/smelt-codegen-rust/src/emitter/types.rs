@@ -1574,6 +1574,9 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(RustType::raw("SmeltUrlSearchParams"));
                 }
+                if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::Url) {
+                    return Ok(RustType::raw("SmeltUrl"));
+                }
                 if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::FormData)
                 {
                     return Ok(RustType::raw("SmeltFormData"));

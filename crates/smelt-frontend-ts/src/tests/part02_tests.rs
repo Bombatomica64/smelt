@@ -1663,23 +1663,58 @@ fn lowers_url_fields_and_rejects_deferred_object_apis() -> Result<(), String> {
 const host = new URL("https://example.com/path?q=1").hostname;
 const origin = new URL("https://example.com/path?q=1").origin;
 const href = new URL("https://example.com/path?q=1").toString();
+const url = new URL("/a", "https://example.com");
+url.pathname += "/";
+url.hash = "x";
 "#),
         &mut ctx,
     )?;
     let url_module = module(&ctx, module_id)?;
     let body = module_body(&ctx, url_module)?;
-    ensure!(
-        body.exprs
-            .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::UrlField { .. }))
-    );
-    ensure_eq!(
-        body.exprs
-            .iter()
-            .filter(|expr| matches!(expr.kind, ExprKind::UrlField { .. }))
-            .count(),
-        3
-    );
+    // A `URL` is a value of the modeled class, not its `href` string: four
+    // constructions, every one typed `URL`.
+    let constructions = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::UrlNew { .. }))
+        .collect::<Vec<_>>();
+    ensure_eq!(constructions.len(), 4);
+    ensure!(constructions.iter().all(|expr| matches!(
+        ctx.krate.types.get(expr.ty),
+        Some(Type::Class { name, .. }) if ctx.krate.names.get(*name).or_else(|| ctx.krate.symbols.get(*name)) == Some("URL")
+    )));
+    let ops = body
+        .exprs
+        .iter()
+        .filter_map(|expr| match &expr.kind {
+            ExprKind::UrlOp { op, .. } => Some(*op),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    for expected in [
+        smelt_hir::UrlOp::Get(smelt_hir::UrlField::Hostname),
+        smelt_hir::UrlOp::Get(smelt_hir::UrlField::Origin),
+        smelt_hir::UrlOp::Get(smelt_hir::UrlField::Href),
+        // `+=` reads the component back before it writes it.
+        smelt_hir::UrlOp::Get(smelt_hir::UrlField::Pathname),
+        smelt_hir::UrlOp::Set(smelt_hir::UrlField::Pathname),
+        smelt_hir::UrlOp::Set(smelt_hir::UrlField::Hash),
+    ] {
+        ensure!(ops.contains(&expected), "missing {expected:?} in {ops:?}");
+    }
+
+    // A compound write through a receiver with side effects would evaluate it
+    // twice, so it is reported rather than lowered; `origin` has no setter.
+    for (source, needle) in [
+        (
+            "function f(): URL { return new URL('https://a.test'); }\nf().pathname += '/';",
+            "receiver without side effects",
+        ),
+        ("const u = new URL('https://a.test');\nu.origin = 'x';", "read-only"),
+    ] {
+        let mut ctx = HirCtx::new();
+        assert_unsupported_ts(&lowering_errors(source, &mut ctx)?, needle)?;
+    }
 
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

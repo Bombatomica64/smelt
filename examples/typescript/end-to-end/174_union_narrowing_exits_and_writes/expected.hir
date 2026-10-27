@@ -1,0 +1,84 @@
+module examples/typescript/end-to-end/174_union_narrowing_exits_and_writes/input.ts (ModuleId(0))
+  body BodyId(6)
+  items
+    class Circle fields [Public radius: Float] constructor Some(ItemId(4)) methods [] implements []
+    class Square fields [Public side: Float] constructor Some(ItemId(6)) methods [] implements []
+    fn describe owner Module
+    fn area owner Module
+    fn normalize owner Module
+    fn widen owner Module
+  exprs
+    #0: Float = 2.0
+    #1: Circle = new Circle(#0)
+    #2: fn(Circle | Square | String) -> String = @0(describe)
+    #3: String = call #2(#1)
+    #4: Float = 3.0
+    #5: Square = new Square(#4)
+    #6: fn(Circle | Square | String) -> String = @0(describe)
+    #7: String = call #6(#5)
+    #8: String = "hex"
+    #9: fn(Circle | Square | String) -> String = @0(describe)
+    #10: String = call #9(#8)
+    #11: None = @9(console_log)
+    #12: None = call #11(#3, #7, #10)
+    #13: Float = 1.0
+    #14: Circle = new Circle(#13)
+    #15: fn(Optional<Circle | Square>) -> Float = @1(area)
+    #16: Float = call #15(#14)
+    #17: Float = 4.0
+    #18: Square = new Square(#17)
+    #19: fn(Optional<Circle | Square>) -> Float = @1(area)
+    #20: Float = call #19(#18)
+    #21: fn(Optional<Circle | Square>) -> Float = @1(area)
+    #22: Float = call #21()
+    #23: None = @10(console_log)
+    #24: None = call #23(#16, #20, #22)
+    #25: Float = 5.0
+    #26: fn(String | Float | URL) -> String = @2(normalize)
+    #27: String = call #26(#25)
+    #28: String = "42"
+    #29: fn(String | Float | URL) -> String = @2(normalize)
+    #30: String = call #29(#28)
+    #31: String = "https://a.test/p?q=1"
+    #32: URL = url_new #31
+    #33: fn(String | Float | URL) -> String = @2(normalize)
+    #34: String = call #33(#32)
+    #35: None = @11(console_log)
+    #36: None = call #35(#27, #30, #34)
+    #37: Bool = true
+    #38: fn(Bool) -> String = @3(widen)
+    #39: String = call #38(#37)
+    #40: Bool = false
+    #41: fn(Bool) -> String = @3(widen)
+    #42: String = call #41(#40)
+    #43: None = @12(console_log)
+    #44: None = call #43(#39, #42)
+  stmts
+    s0: #12
+    s1: #24
+    s2: #36
+    s3: #44
+
+interned types
+  t0 = Circle
+  t1 = Square
+  t2 = String
+  t3 = Circle | Square | String
+  t4 = fn(Circle | Square | String) -> String
+  t5 = Circle | Square
+  t6 = Optional<Circle | Square>
+  t7 = Float
+  t8 = fn(Optional<Circle | Square>) -> Float
+  t9 = URL
+  t10 = String | Float | URL
+  t11 = fn(String | Float | URL) -> String
+  t12 = Bool
+  t13 = fn(Bool) -> String
+  t14 = None
+  t15 = Square | String
+  t16 = Optional<Square>
+  t17 = String | Float
+  t18 = fn(Circle | Square | String) -> String
+  t19 = fn(Optional<Circle | Square>) -> Float
+  t20 = fn(String | Float | URL) -> String
+  t21 = fn(Bool) -> String

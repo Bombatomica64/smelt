@@ -129,9 +129,10 @@ module examples/typescript/end-to-end/50_union_arm_narrowing/input.ts (ModuleId(
     #113: None = @14(console_log)
     #114: None = call #113(#109, #112)
     #115: String = "text"
-    #116: String | File = %5
-    #117: None = @15(console_log)
-    #118: None = call #117(#115, #116)
+    #116: String = %5
+    #117: String = unknown_cast #116 as String
+    #118: None = @15(console_log)
+    #119: None = call #118(#115, #117)
   stmts
     s0: #11
     s1: #23
@@ -153,7 +154,7 @@ module examples/typescript/end-to-end/50_union_arm_narrowing/input.ts (ModuleId(
     s17: #101
     s18: if #95 then BlockId(5) else BlockId(6)
     s19: #114
-    s20: #118
+    s20: #119
     s21: if #108 then BlockId(8) else BlockId(9)
     s22: for %5 in #106 BlockId(7)
 
@@ -174,4 +175,5 @@ interned types
   t13 = File
   t14 = String | File
   t15 = Optional<String | File>
-  t16 = List<String | File>
+  t16 = Optional<String>
+  t17 = List<String | File>

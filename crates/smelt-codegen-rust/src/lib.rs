@@ -101,6 +101,7 @@ mod host_module_prelude;
 mod form_data_prelude;
 mod text_codec_prelude;
 mod typed_array_prelude;
+mod url_prelude;
 pub(crate) mod base_init;
 pub(crate) mod class_proto;
 pub(crate) mod classes;
@@ -708,6 +709,7 @@ fn emit_source_with_free_function_router(
     // carries none of `SmeltHeaders`.
     let needs_headers = stdlib::needs_headers_runtime(mir);
     let needs_url_search_params = stdlib::needs_url_search_params_runtime(mir);
+    let needs_url = stdlib::needs_url_runtime(mir);
     let needs_crypto_random_values = stdlib::needs_crypto_random_values_runtime(mir);
     let needs_crypto_digest = stdlib::needs_crypto_digest_runtime(mir);
     let needs_form_data = stdlib::needs_form_data_runtime(mir);
@@ -736,6 +738,7 @@ fn emit_source_with_free_function_router(
         || needs_http_server
         || needs_headers
         || needs_url_search_params
+        || needs_url
         || needs_form_data
         || needs_byte_array
         || stdlib::needs_sqlite_runtime(mir);
@@ -5078,6 +5081,11 @@ fn emit_source_with_free_function_router(
         if stdlib::needs_regexp_compile_runtime(mir) {
             thrown::emit_regexp_compile_support(&mut writer);
         }
+        // The throwing `URL` adapters, same channel and same ABI dependency.
+        // They name `SmeltUrl`, whose prelude the same calls demand.
+        if stdlib::needs_url_throwing_runtime(mir) {
+            url_prelude::emit_throwing_support(&mut writer);
+        }
         writer.blank_line();
         writer.line("impl Eq for SmeltUnknown {}");
         writer.blank_line();
@@ -5955,6 +5963,10 @@ fn emit_source_with_free_function_router(
     }
     if needs_url_search_params {
         fetch_types_prelude::emit_url_search_params(&mut writer, needs_unknown);
+    }
+    // After the params list it holds as its live `searchParams`.
+    if needs_url {
+        url_prelude::emit(&mut writer, needs_unknown);
     }
     // After `SmeltBlob` in the dependency sense (a form entry holds one) and
     // beside the params list in the semantic one: both parse the urlencoded

@@ -335,6 +335,38 @@ pub(crate) fn needs_url_search_params_runtime(mir: &Mir) -> bool {
         .all()
         .iter()
         .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::UrlSearchParams))
+        // A `SmeltUrl` holds its live `searchParams` list.
+        || needs_url_runtime(mir)
+}
+
+/// Returns true when generated Rust needs the `SmeltUrl` type.
+///
+/// Same pay-for-use rule as [`needs_url_search_params_runtime`]: an operation,
+/// a construction, or a mention of the type in the type table.
+pub(crate) fn needs_url_runtime(mir: &Mir) -> bool {
+    needs_url_throwing_runtime(mir)
+        || any_rvalue_needs(mir, |rvalue| matches!(rvalue, Rvalue::UrlOp { .. }))
+        || mir
+            .types
+            .all()
+            .iter()
+            .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::Url))
+}
+
+/// Returns true when generated Rust needs the throwing `URL` adapters.
+///
+/// Keyed on the call, like [`needs_regexp_compile_runtime`]: the constructor
+/// and the `href` setter are `Terminator::Call`s, invisible to the rvalue scan.
+pub(crate) fn needs_url_throwing_runtime(mir: &Mir) -> bool {
+    terminators(mir).any(|terminator| {
+        matches!(
+            terminator,
+            Terminator::Call {
+                callee: Callee::Builtin(BuiltinFn::UrlNew | BuiltinFn::UrlSetHref),
+                ..
+            }
+        )
+    })
 }
 
 /// Returns true when generated Rust needs the `getRandomValues` fill helper.
@@ -1172,6 +1204,9 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
         // A run-time `new RegExp(p)` answers a concrete `SmeltRegExp`, and only
         // its `SyntaxError` crosses the erased channel — the same case again.
         || needs_regexp_compile_runtime(mir)
+        // `new URL(text)` answers a concrete `SmeltUrl` and only its
+        // `TypeError` crosses the erased channel — the same case again.
+        || needs_url_throwing_runtime(mir)
         // Every hasher member can throw a branded `Error` record, and the raw
         // digest crosses into a `Buffer` record — the same case again.
         || needs_node_hash_runtime(mir)

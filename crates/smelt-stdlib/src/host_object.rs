@@ -471,6 +471,7 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     // resolves through. Their construction never takes the marker-only path.
     host("Headers", "__smelt_headers"),
     host("URLSearchParams", "__smelt_urlsearchparams"),
+    host("URL", "__smelt_url"),
     // `Request` and `Response` moved up from the marker-only group when they
     // gained real runtime types (`SmeltRequest`/`SmeltResponse`). The marker
     // still does the same two jobs — `instanceof` resolves through it and

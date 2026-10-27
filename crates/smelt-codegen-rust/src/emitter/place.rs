@@ -1197,10 +1197,12 @@ impl FunctionEmitter<'_> {
                 if self.mir.types.get(item_ty) == Some(&Type::Optional(inner)) {
                     return Ok(Some(format!("{read}.flatten()")));
                 }
-                let Ok(mapped) = self.value_at_type_text("value", item_ty, inner, &self.render_scope()) else {
+                // A missing slot and a present erased `null`/`undefined` are
+                // both the absent case (`optional_value_map_text`).
+                let Ok(mapped) = self.optional_value_map_text(&read, item_ty, inner, &self.render_scope()) else {
                     return Ok(None);
                 };
-                Ok(Some(format!("{read}.map(|value| {mapped})")))
+                Ok(Some(mapped))
             }
             Some(Type::String) if self.mir.types.get(inner) == Some(&Type::String) => {
                 let base_text = self.local_value_text(*base)?;

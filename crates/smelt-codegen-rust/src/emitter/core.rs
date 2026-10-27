@@ -2090,6 +2090,19 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.can_render_non_function_dict_value_as(unknown_ty, target_function.return_ty)
             });
         }
+        // A trailing rest parameter in the SOURCE collects every target
+        // argument from its position on (`(...args) => ..` stored in a
+        // fixed-arity slot), so each of those must render as the list's
+        // element rather than as the list.
+        if let Some((rest, element)) = self.trailing_rest_element(source_function) {
+            return self.can_render_non_function_dict_value_as(
+                source_function.return_ty,
+                target_function.return_ty,
+            ) && target_function.params.iter().enumerate().all(|(index, target_param)| {
+                let into = if index < rest { source_function.params[index] } else { element };
+                self.can_render_non_function_dict_value_as(*target_param, into)
+            });
+        }
         let shared = source_function.params.len().min(target_function.params.len());
         self.can_render_non_function_dict_value_as(
             source_function.return_ty,
@@ -2102,6 +2115,19 @@ impl<'mir> FunctionEmitter<'mir> {
             .all(|(source_param, target_param)| {
                 self.can_render_non_function_dict_value_as(*target_param, *source_param)
             })
+    }
+
+    /// The position and element type of a function's trailing rest parameter,
+    /// when it has one whose type is a list.
+    pub(super) fn trailing_rest_element(&self, function: &FunctionType) -> Option<(usize, TypeId)> {
+        let rest = function.rest?;
+        if rest + 1 != function.params.len() {
+            return None;
+        }
+        match self.mir.types.get(*function.params.get(rest)?) {
+            Some(Type::List(element)) => Some((rest, *element)),
+            _ => None,
+        }
     }
 
     /// Return the emitted Rust name for a free MIR function.
@@ -3563,11 +3589,47 @@ impl<'mir> FunctionEmitter<'mir> {
         // type; where the source declares more (optional) parameters than the
         // target provides, fill the surplus with the source parameter's default
         // value so the source callback is still called with full arity.
+        let source_rest = self.trailing_rest_element(source_function);
         let forwarded = source_function
             .params
             .iter()
             .enumerate()
             .map(|(index, source_param)| {
+                // A source rest parameter receives every target argument from
+                // its position on, as JavaScript binds `...args`: the list of
+                // the remaining arguments, each converted to the element type.
+                // A fixed-arity target cannot say which trailing optional
+                // arguments were omitted, so an omitted one is an `undefined`
+                // element.
+                if let Some((rest, element)) = source_rest
+                    && index == rest
+                {
+                    let elements = target_function
+                        .params
+                        .iter()
+                        .enumerate()
+                        .skip(rest)
+                        .map(|(target_index, target_param)| {
+                            // The list owns its elements, so a parameter the
+                            // adapter receives by reference is cloned first,
+                            // as the packed-vector branch below does.
+                            let base = if target_function.mutable_params.contains(&target_index)
+                                || self.callback_param_is_shared_reference(
+                                    target_function,
+                                    target_index,
+                                    *target_param,
+                                ) {
+                                format!("arg{target_index}.clone()")
+                            } else {
+                                format!("arg{target_index}")
+                            };
+                            self.value_at_type_text(&base, *target_param, element, scope)
+                        })
+                        .collect::<Result<Vec<_>, EmitError>>()?
+                        .join(", ");
+                    let text = format!("SmeltList::from(vec![{elements}])");
+                    return Ok(self.callback_call_arg_text(source_function, index, *source_param, text));
+                }
                 // The wrapped callback's own parameters carry the by-reference ABI
                 // (`callback_param_is_shared_reference`) just as the declarations
                 // above do for the target's. This adapter forwards a value into

@@ -885,6 +885,8 @@ impl FunctionEmitter<'_> {
             }
             Callee::Builtin(BuiltinFn::BigInt(op)) => self.bigint_builtin_call_text(*op, args),
             Callee::Builtin(BuiltinFn::HostModule(op)) => self.host_module_call_text(*op, args),
+            Callee::Builtin(BuiltinFn::UrlNew) => self.url_new_call_text(args),
+            Callee::Builtin(BuiltinFn::UrlSetHref) => self.url_set_href_call_text(args),
             Callee::Builtin(BuiltinFn::RegExpCompile) => {
                 let pattern = args.first().map_or_else(
                     || Ok("String::new()".to_owned()),
@@ -3070,6 +3072,11 @@ impl FunctionEmitter<'_> {
             Callee::Builtin(BuiltinFn::HostModule(op)) => {
                 return self.host_module_call_source_ty(*op);
             }
+            // The constructor answers the concrete `SmeltUrl` and the `href`
+            // setter the assigned string; only the `TypeError` crosses the
+            // erased channel.
+            Callee::Builtin(BuiltinFn::UrlNew) => return self.url_call_source_ty(true),
+            Callee::Builtin(BuiltinFn::UrlSetHref) => return self.url_call_source_ty(false),
             Callee::Builtin(BuiltinFn::RegExpCompile) => {
                 return self.regexp_class_ty().ok_or_else(|| {
                     EmitError::new("a RegExp compile call needs the RegExp class type interned")

@@ -97,6 +97,9 @@ fn emit_params_struct(writer: &mut CodeWriter) {
         struct_writer.line("id: usize,");
         struct_writer.line("/// Name/value pairs in insertion order.");
         struct_writer.line("entries: ::std::rc::Rc<::std::cell::RefCell<Vec<(String, String)>>>,");
+        struct_writer.line("/// The `URL` whose `searchParams` this list is, if any. The spec's");
+        struct_writer.line("/// update steps write every mutation back to that URL's query.");
+        struct_writer.line("owner: Option<::std::rc::Rc<::std::cell::RefCell<::url::Url>>>,");
     });
     writer.blank_line();
     // Structural equality over the ordered pairs: two query strings are the
@@ -120,8 +123,36 @@ fn emit_params_inherent_impl(writer: &mut CodeWriter) {
     writer.block("impl SmeltUrlSearchParams", |impl_writer| {
         impl_writer.line("/// An empty parameter list with a fresh JS reference identity.");
         impl_writer.line(
-            "pub fn new() -> Self { Self { id: smelt_next_object_id(), entries: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) } }",
+            "pub fn new() -> Self { Self { id: smelt_next_object_id(), entries: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), owner: None } }",
         );
+        impl_writer.line("/// The live `searchParams` list of a URL: its entries are the URL's");
+        impl_writer.line("/// query, and each mutation rewrites that query.");
+        impl_writer.block(
+            "pub fn owned_by(owner: ::std::rc::Rc<::std::cell::RefCell<::url::Url>>) -> Self",
+            |fn_writer| {
+                fn_writer.line("let params = Self { owner: Some(owner), ..Self::new() };");
+                fn_writer.line("params.refresh_from_owner();");
+                fn_writer.line("params");
+            },
+        );
+        impl_writer.line("/// Re-read the entries from the owning URL's query, after a write to");
+        impl_writer.line("/// the URL itself (`search` or `href`) replaced it.");
+        impl_writer.block("pub fn refresh_from_owner(&self)", |fn_writer| {
+            fn_writer.line("let Some(owner) = &self.owner else { return };");
+            fn_writer.line(
+                "let pairs = owner.borrow().query_pairs().map(|(name, value)| (name.into_owned(), value.into_owned())).collect::<Vec<(String, String)>>();",
+            );
+            fn_writer.line("*self.entries.borrow_mut() = pairs;");
+        });
+        impl_writer.line("/// The spec's update steps: serialize the list into the owning URL's");
+        impl_writer.line("/// query, which an empty list sets to null.");
+        impl_writer.block("fn update_owner(&self)", |fn_writer| {
+            fn_writer.line("let Some(owner) = &self.owner else { return };");
+            fn_writer.line("let query = self.to_text();");
+            fn_writer.line(
+                "owner.borrow_mut().set_query(if query.is_empty() { None } else { Some(&query) });",
+            );
+        });
         impl_writer.line("/// JS reference identity of this parameter list.");
         impl_writer.line("pub fn id(&self) -> usize { self.id }");
         impl_writer.line("/// Build a parameter list from name/value pairs, in order.");
@@ -153,7 +184,7 @@ fn emit_params_inherent_impl(writer: &mut CodeWriter) {
         );
         impl_writer.line("/// `append(name, value)`.");
         impl_writer.line(
-            "pub fn append(&self, name: &str, value: &str) { self.entries.borrow_mut().push((name.to_owned(), value.to_owned())); }",
+            "pub fn append(&self, name: &str, value: &str) { self.entries.borrow_mut().push((name.to_owned(), value.to_owned())); self.update_owner(); }",
         );
         impl_writer.line("/// `set(name, value)`: replace the first value, drop the rest.");
         impl_writer.block("pub fn set(&self, name: &str, value: &str)", |fn_writer| {
@@ -162,21 +193,23 @@ fn emit_params_inherent_impl(writer: &mut CodeWriter) {
                 "let position = entries.iter().position(|(entry_name, _)| entry_name == name);",
             );
             fn_writer.line(
-                "let Some(index) = position else { entries.push((name.to_owned(), value.to_owned())); return; };",
+                "let Some(index) = position else { entries.push((name.to_owned(), value.to_owned())); drop(entries); self.update_owner(); return; };",
             );
             fn_writer.line("entries[index] = (name.to_owned(), value.to_owned());");
             fn_writer.line("let mut kept = false;");
             fn_writer.line(
                 "entries.retain(|(entry_name, _)| { if entry_name != name { return true; } let first = !kept; kept = true; first });",
             );
+            fn_writer.line("drop(entries);");
+            fn_writer.line("self.update_owner();");
         });
         impl_writer.line("/// `delete(name)`: remove every pair with the name.");
         impl_writer.line(
-            "pub fn delete(&self, name: &str) { self.entries.borrow_mut().retain(|(entry_name, _)| entry_name != name); }",
+            "pub fn delete(&self, name: &str) { self.entries.borrow_mut().retain(|(entry_name, _)| entry_name != name); self.update_owner(); }",
         );
         impl_writer.line("/// `sort()`: stable sort by name, keeping equal names in order.");
         impl_writer.line(
-            "pub fn sort(&self) { self.entries.borrow_mut().sort_by(|left, right| left.0.cmp(&right.0)); }",
+            "pub fn sort(&self) { self.entries.borrow_mut().sort_by(|left, right| left.0.cmp(&right.0)); self.update_owner(); }",
         );
         impl_writer.line("/// `toString()`: the urlencoded serialization.");
         impl_writer.block("pub fn to_text(&self) -> String", |fn_writer| {
