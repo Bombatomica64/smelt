@@ -777,9 +777,17 @@ impl FunctionEmitter<'_> {
             // route the copy through its erased `SmeltUnknown::Object` form so the
             // remaining fields survive. Otherwise the rest object would be empty
             // and any spread-out members (e.g. `cancel`/`flush`) would be lost.
+            //
+            // A NOMINAL record (an interface or object-alias struct, a class)
+            // takes the same route: its `IntoSmeltUnknown` view is the object
+            // of its own enumerable properties, with an absent optional field
+            // left out, which is exactly what `...rest` copies. Without it the
+            // rest of `const { strict, ...rest } = options` was empty once
+            // `type Options = { .. }` became a struct.
             let source_is_unknown_like =
                 self.type_text_with_impl_trait(dict_ty, false)? == "SmeltUnknown";
-            if source_is_unknown_like
+            let source_is_record = matches!(self.mir.types.get(dict_ty), Some(Type::Class { .. }));
+            if (source_is_unknown_like || source_is_record)
                 && matches!(
                     self.mir.types.get(dest_ty),
                     Some(Type::Dict(key_ty, value_ty))

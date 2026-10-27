@@ -5406,6 +5406,9 @@ fn emit_source_with_free_function_router(
         // above takes, rather than a panic on a shape the source already
         // declared.
         writer.line("impl<A: SmeltFromUnknown, B: SmeltFromUnknown> SmeltFromUnknown for (A, B) { fn smelt_from_unknown(value: SmeltUnknown) -> Self { let mut items = match value { SmeltUnknown::Array(values) => values.into_vec().into_iter(), _ => Vec::new().into_iter() }; (A::smelt_from_unknown(items.next().unwrap_or(SmeltUnknown::Undefined)), B::smelt_from_unknown(items.next().unwrap_or(SmeltUnknown::Undefined))) } }");
+        // The one-element tuple (`[string]`, an object-shaped alias's
+        // `buffer: [string]` field) is the same rule at arity one.
+        writer.line("impl<A: SmeltFromUnknown> SmeltFromUnknown for (A,) { fn smelt_from_unknown(value: SmeltUnknown) -> Self { let mut items = match value { SmeltUnknown::Array(values) => values.into_vec().into_iter(), _ => Vec::new().into_iter() }; (A::smelt_from_unknown(items.next().unwrap_or(SmeltUnknown::Undefined)),) } }");
         writer.blank_line();
         writer.block("trait SmeltIntoF64", |trait_writer| {
             trait_writer.line("fn smelt_into_f64(self) -> f64;");
@@ -5505,6 +5508,15 @@ fn emit_source_with_free_function_router(
                 fn_writer.line("false");
             });
         });
+        writer.blank_line();
+        writer.block(
+            "impl<A: IntoSmeltUnknown> IntoSmeltUnknown for (A,)",
+            |impl_writer| {
+                impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                    fn_writer.line("SmeltUnknown::Array(vec![self.0.into_smelt_unknown()].into())");
+                });
+            },
+        );
         writer.blank_line();
         writer.block(
             "impl<A: IntoSmeltUnknown, B: IntoSmeltUnknown> IntoSmeltUnknown for (A, B)",
@@ -6382,7 +6394,9 @@ fn emit_source_with_free_function_router(
                 base_constructor.0,
                 "base constructor index does not fit usize",
             )?) {
-                let mut emitter = FunctionEmitter::new(mir, &context, function)?;
+                let substituted = classes::substituted_inherited_member(mir, function, class.name);
+                let copied_body = substituted.as_ref().unwrap_or(function);
+                let mut emitter = FunctionEmitter::new(mir, &context, copied_body)?;
                 emitter.mark_base_initializer_copy(class.name);
                 emitter.emit_method(&mut out)?;
             }
@@ -6395,7 +6409,9 @@ fn emit_source_with_free_function_router(
                 .functions
                 .get(id_index(method.0, "method index does not fit usize")?)
             {
-                let mut emitter = FunctionEmitter::new(mir, &context, function)?;
+                let substituted = classes::substituted_inherited_member(mir, function, class.name);
+                let copied_body = substituted.as_ref().unwrap_or(function);
+                let mut emitter = FunctionEmitter::new(mir, &context, copied_body)?;
                 // A method whose declaring class is not this impl's class is an
                 // INHERITED copy: its polymorphic-`this` return type belongs to
                 // the impl, not to the class that declared it.
@@ -6403,7 +6419,7 @@ fn emit_source_with_free_function_router(
                     function.origin,
                     HirOrigin::ClassMethod { class: owner, .. } if owner == class.name
                 ) {
-                    emitter.mark_inherited_copy();
+                    emitter.mark_inherited_copy(class.name);
                 }
                 emitter.emit_method(&mut out)?;
             }
@@ -8093,6 +8109,15 @@ fn type_supports_partial_eq(
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
             type_supports_partial_eq(mir, context, *item, seen)
         }
+        // A map keyed by a TYPE PARAMETER is a `SmeltJsMap<P, _>`, whose
+        // `PartialEq` needs `P: SmeltJsKeyEq`. A `#[derive(PartialEq)]` only
+        // adds `P: PartialEq`, so the derive does not compile (E0369); the
+        // record is not derivably comparable.
+        Some(Type::Dict(key, _) | Type::JsMap(key, _))
+            if matches!(mir.types.get(*key), Some(Type::TypeParam { .. })) =>
+        {
+            false
+        }
         Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
             type_supports_partial_eq(mir, context, *key, seen)
                 && type_supports_partial_eq(mir, context, *value, seen)
@@ -8199,6 +8224,35 @@ fn emit_record_into_smelt_unknown_impl(
         format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
         |impl_writer| {
             impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                // An interface field that may be absent (`p?: T`) and holds
+                // `None` IS absent: the erased object has no such key, which
+                // is what an object spread, `in` and `Object.keys` observe. A
+                // spread of `{ ...defaults, ...options }` used to copy an
+                // `undefined` over every default the caller left out.
+                let absent_keys = fields
+                    .iter()
+                    .filter(|field| {
+                        field.visibility.is_own_property()
+                            && matches!(mir.types.get(field.ty), Some(Type::Optional(_)))
+                            && decode_facts
+                                .iter()
+                                .any(|facts| facts.name == field.name && facts.may_be_absent)
+                    })
+                    .map(|field| {
+                        mir.names
+                            .get(field.name)
+                            .or_else(|| mir.symbols.get(field.name))
+                            .unwrap_or("field")
+                            .to_owned()
+                    })
+                    .collect::<Vec<_>>();
+                if !absent_keys.is_empty() {
+                    fn_writer.line(format!(
+                        "let smelt_absent_keys: [&str; {}] = {:?};",
+                        absent_keys.len(),
+                        absent_keys
+                    ));
+                }
                 fn_writer.line(
                     "SmeltUnknown::Object(SmeltObject::new(Vec::from([",
                 );
@@ -8236,7 +8290,11 @@ fn emit_record_into_smelt_unknown_impl(
                     .unwrap_or_else(|_| "SmeltUnknown::Null".to_owned());
                     fn_writer.line(format!("({key:?}.to_owned(), {value}),"));
                 }
-                fn_writer.line("])))");
+                if absent_keys.is_empty() {
+                    fn_writer.line("])))");
+                } else {
+                    fn_writer.line("]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))");
+                }
             });
         },
     );

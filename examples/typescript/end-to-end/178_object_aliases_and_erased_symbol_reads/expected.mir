@@ -1,0 +1,178 @@
+class Request fields [Hidden #routes: List<(String, String)>, Hidden #context: Optional<String>] constructor Some(FuncId(4)) methods [FuncId(5), FuncId(6)]
+interface Options
+interface Tagged
+interface Options
+interface Tagged
+interface Options
+interface Tagged
+
+fn configure (FuncId(0)) -> String
+  locals
+    %0 param options: Optional<Options>
+    %1 temp: Optional<String>
+    %2 temp: String
+    %3 temp: String
+    %4 temp: String
+    %5 temp: Optional<Float>
+    %6 temp: Float
+    %7 temp: String
+  bb0:
+    %1 = copy %0?.field1
+    %2 = move %1 ?? "default"
+    %3 = "" + move %2
+    %4 = move %3 + "/"
+    %5 = copy %0?.field2
+    %6 = move %5 ?? 3.0
+    %7 = move %4 + move %6
+    return move %7
+
+fn first (FuncId(1)) -> String
+  locals
+    %0 param tagged: Tagged<String, Float>
+    %1 temp: String
+    %2 temp: String
+    %3 temp: String
+  bb0:
+    %1 = "" + copy %0.field7
+    %2 = move %1 + "x"
+    %3 = move %2 + copy %0.field8
+    return move %3
+
+fn paths (FuncId(2)) -> String
+  locals
+    %0 param req: Request
+    %1 temp: List<(String, String)>
+    %2 temp: fn((String, String), Int, List<(String, String)>) -> String
+    %3 temp: List<String>
+    %4 temp: String
+  bb0:
+    %1 = tuple_index copy %0.field35, 0
+    %2 = closure ClosureId(0) []
+    %3 = list_map move %1, move %2
+    %4 = string_join move %3, ","
+    return move %4
+
+fn context_of (FuncId(3)) -> String
+  locals
+    %0 param req: Request
+    %1 user context: Optional<String>
+    %2 temp: String
+    %3 temp: String
+  bb0:
+    %1 = undefined
+    goto bb1
+  bb1:
+    %2 = call fn6(copy %0) -> bb4 unwind bb3
+  bb2:
+    %3 = move %1 ?? "none"
+    return move %3
+  bb3:
+    goto bb2
+  bb4:
+    %1 = move %2
+    goto bb2
+
+fn new (FuncId(4)) -> Request
+  locals
+    %0 user this: Request
+    %1 param routes: List<(String, String)>
+    %2 param context: Optional<String>
+  bb0:
+    %0 = struct24 {}
+    %0.field29 = copy %1
+    %0.field30 = copy %2
+    return move %0
+
+fn __smelt_get___smelt_symbol_unique__at_663 (FuncId(5)) -> (List<(String, String)>)
+  locals
+    %0 param this: Request
+    %1 temp: (List<(String, String)>)
+  bb0:
+    %1 = (copy %0.field29)
+    return move %1
+
+fn __smelt_get_context (FuncId(6)) -> String throws
+  locals
+    %0 param this: Request
+    %1 temp: Bool
+    %2 temp: Dict<String, Unknown>
+    %3 temp: Unknown
+  bb0:
+    %1 = primitive_cast_bool copy %0.field30
+    switch move %1 ? bb1 : bb2
+  bb1:
+    return copy %0.field30
+  bb2:
+    %2 = {"__smelt_error": "Error", "message": "no context", "stack": undefined, "cause": undefined}
+    %3 = unknown_cast move %2 as t8
+    throw move %3
+
+fn main (FuncId(7)) -> None
+  locals
+    %0 user match: Unknown
+    %1 user req: Request
+    %2 user no_routes: List<(String, String)>
+    %3 temp: String
+    %4 temp: Options
+    %5 temp: String
+    %6 temp: Options
+    %7 temp: String
+    %8 temp: None
+    %9 temp: Tagged<String, Float>
+    %10 temp: String
+    %11 temp: None
+    %12 temp: List<String>
+    %13 temp: List<String>
+    %14 temp: List<List<String>>
+    %15 temp: Request
+    %16 temp: List<(String, String)>
+    %17 temp: String
+    %18 temp: String
+    %19 temp: Request
+    %20 temp: String
+    %21 temp: None
+  bb0:
+    %0 = symbol("Symbol()@663")
+    %3 = call fn0() -> bb1
+  bb1:
+    %4 = {"label": "custom"}
+    %5 = call fn0(move %4) -> bb2
+  bb2:
+    %6 = {"limit": 9.0}
+    %7 = call fn0(move %6) -> bb3
+  bb3:
+    %8 = call @console_log(move %3, move %5, move %7) -> bb4
+  bb4:
+    %9 = {"value": "a", "count": 2.0}
+    %10 = call fn1(move %9) -> bb5
+  bb5:
+    %11 = call @console_log(move %10) -> bb6
+  bb6:
+    %12 = ["a", "/x"]
+    %13 = ["b", "/y"]
+    %14 = [move %12, move %13]
+    %15 = call fn4(move %14, "ctx") -> bb7
+  bb7:
+    %1 = move %15
+    %16 = []
+    %2 = move %16
+    %17 = call fn2(copy %1) -> bb8
+  bb8:
+    %18 = call fn3(move %1) -> bb9
+  bb9:
+    %19 = call fn4(move %2) -> bb10
+  bb10:
+    %20 = call fn3(move %19) -> bb11
+  bb11:
+    %21 = call @console_log(move %17, move %18, move %20) -> bb12
+  bb12:
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 param __callback_param_0: (String, String)
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<(String, String)>
+  bb0:
+    return copy %0[1]
+

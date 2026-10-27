@@ -2969,6 +2969,7 @@ impl<T: SmeltFromUnknown> SmeltFromUnknown for Option<T> { fn smelt_from_unknown
 impl<T: SmeltFromUnknown + Clone + IntoSmeltUnknown> SmeltFromUnknown for SmeltJsSet<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => { if let Some(SmeltUnknown::Array(members)) = object.get("__smelt_set") { let mut set = SmeltJsSet::with_id(object.id); for member in members.into_vec() { set.insert(T::smelt_from_unknown(member)); } set } else { SmeltJsSet::default() } }, SmeltUnknown::Array(members) => { let mut set = SmeltJsSet::new(); for member in members.into_vec() { set.insert(T::smelt_from_unknown(member)); } set }, _ => SmeltJsSet::default() } } }
 
 impl<A: SmeltFromUnknown, B: SmeltFromUnknown> SmeltFromUnknown for (A, B) { fn smelt_from_unknown(value: SmeltUnknown) -> Self { let mut items = match value { SmeltUnknown::Array(values) => values.into_vec().into_iter(), _ => Vec::new().into_iter() }; (A::smelt_from_unknown(items.next().unwrap_or(SmeltUnknown::Undefined)), B::smelt_from_unknown(items.next().unwrap_or(SmeltUnknown::Undefined))) } }
+impl<A: SmeltFromUnknown> SmeltFromUnknown for (A,) { fn smelt_from_unknown(value: SmeltUnknown) -> Self { let mut items = match value { SmeltUnknown::Array(values) => values.into_vec().into_iter(), _ => Vec::new().into_iter() }; (A::smelt_from_unknown(items.next().unwrap_or(SmeltUnknown::Undefined)),) } }
 
 trait SmeltIntoF64 {
     fn smelt_into_f64(self) -> f64;
@@ -3047,6 +3048,12 @@ impl SmeltUnitExt for () {
     }
 }
 
+impl<A: IntoSmeltUnknown> IntoSmeltUnknown for (A,) {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Array(vec![self.0.into_smelt_unknown()].into())
+    }
+}
+
 impl<A: IntoSmeltUnknown, B: IntoSmeltUnknown> IntoSmeltUnknown for (A, B) {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Array(vec![self.0.into_smelt_unknown(), self.1.into_smelt_unknown()].into())
@@ -3106,9 +3113,10 @@ struct HTTPExceptionOptions {
 }
 impl IntoSmeltUnknown for HTTPExceptionOptions {
     fn into_smelt_unknown(self) -> SmeltUnknown {
+        let smelt_absent_keys: [&str; 1] = ["message"];
         SmeltUnknown::Object(SmeltObject::new(Vec::from([
         ("message".to_owned(), self.message.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
-        ])))
+        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
     }
 }
 impl SmeltFromUnknown for HTTPExceptionOptions {

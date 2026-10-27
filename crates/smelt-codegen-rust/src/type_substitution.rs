@@ -175,6 +175,12 @@ impl<'a> TypeSubstitution<'a> {
         }
     }
 
+    /// Return whether call-site bindings are attached (a callee's signature is
+    /// being rendered at a call site rather than the current item's own types).
+    pub(crate) const fn has_bindings(&self) -> bool {
+        self.bindings.is_some()
+    }
+
     /// Drop the call-site bindings, keeping the lexical scope.
     ///
     /// A substituted type is a *caller-side* type: its own type parameters live

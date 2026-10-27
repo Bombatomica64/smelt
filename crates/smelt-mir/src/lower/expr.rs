@@ -351,6 +351,27 @@ impl LoweringCtx<'_> {
                 self.assign_temp(expr.ty, expr.span, Rvalue::Tuple(lowered_items))?
             }
             ExprKind::Field { receiver, field } => {
+                // Inside a `try`, a read through a GETTER is a call that can
+                // throw, and the throw has to reach the handler: lowering it as
+                // a place read gave the `try` no throwing call at all, so its
+                // `catch` was dropped as unreachable and the getter's error
+                // escaped (Hono's `try { c.executionCtx } catch {}`).
+                if self.current_exception_handler().is_some()
+                    && let Some(getter) = self.getter_function_of_field(*receiver, *field)
+                {
+                    let receiver_operand = self.lower_expr(*receiver)?;
+                    let dest = self.push_temp(expr.ty, expr.span);
+                    let target = self.function.push_block(expr.span);
+                    self.set_terminator(Terminator::Call {
+                        callee: Callee::Static(getter),
+                        args: vec![receiver_operand],
+                        dest,
+                        target,
+                        unwind: self.current_exception_handler(),
+                    })?;
+                    self.current_block = target;
+                    return Ok(Operand::Copy(Place::Local(dest)));
+                }
                 let receiver_operand = self.lower_expr(*receiver)?;
                 let receiver_ty = self.hir_expr(*receiver)?.ty;
                 let base =
@@ -3204,6 +3225,42 @@ impl LoweringCtx<'_> {
     /// instead of re-reading the place — otherwise `c.req.header(..)` runs the
     /// getter twice and any side effect in it (a counter, a lazily-built
     /// cache) is observed twice.
+    /// The instance getter function behind `object.field`, when the field is
+    /// a getter-backed descriptor of the object's class or one of its bases.
+    fn getter_function_of_field(&self, object: ExprId, field: Symbol) -> Option<FuncId> {
+        let object_expr = self.hir_expr(object).ok()?;
+        let Some(Type::Class { name, .. }) = self.krate.types.get(object_expr.ty) else {
+            return None;
+        };
+        let mut class = Some(*name);
+        let mut visited = std::collections::HashSet::new();
+        while let Some(class_name) = class
+            && visited.insert(class_name)
+        {
+            let class_item = self.krate.items.iter().find_map(|item| {
+                if let smelt_hir::Item::Class(class_item) = item
+                    && class_item.name == class_name
+                {
+                    Some(class_item)
+                } else {
+                    None
+                }
+            })?;
+            if let Some(getter) = class_item.descriptors.iter().find_map(|descriptor| {
+                (descriptor.name == field && !descriptor.is_static)
+                    .then_some(descriptor.getter)
+                    .flatten()
+            }) {
+                return self.item_functions.get(&getter).copied();
+            }
+            if class_item.fields.iter().any(|item| item.name == field) {
+                return None;
+            }
+            class = class_item.base;
+        }
+        None
+    }
+
     fn receiver_reads_through_getter(&self, receiver: ExprId) -> bool {
         let Ok(receiver_expr) = self.hir_expr(receiver) else {
             return false;

@@ -3343,8 +3343,22 @@ export function read(): number {
 "#,
     );
 
+    // `ParseResult<T>` is an object-shaped alias, which now lowers to a real
+    // generic struct (it used to erase to `SmeltUnknown`). The base declares
+    // the slot at its own `T`; the subclass's flattened layout stores it at the
+    // argument it binds (`extends Parser<number>`).
     assert!(
-        source.contains("parse: ::std::rc::Rc<dyn Fn(String) -> SmeltUnknown>"),
+        source.contains("parse: ::std::rc::Rc<dyn Fn(String) -> ParseResult<T>>"),
+        "{source}"
+    );
+    assert!(
+        source.contains("parse: ::std::rc::Rc<dyn Fn(String) -> ParseResult<f64>>"),
+        "{source}"
+    );
+    // The inherited `run` copy in `impl YearParser` spells `T` as `f64`: the
+    // impl does not declare `T` (was E0425).
+    assert!(
+        source.contains("fn run(&self, input: String) -> Result<f64,"),
         "{source}"
     );
     assert!(
@@ -14531,7 +14545,7 @@ fn erased_object_field_list_alias_push_writes_back_an_aliasing_array() {
     // the aliasing once per push, and cost an O(n) copy every time.
     let source = source_for(
         r"
-type Holder = { index: number; items: unknown[] };
+type Holder = { index: number } & { items: unknown[] };
 function record(holder: Holder, value: unknown): void {
   const { items } = holder;
   items.push(value);
@@ -14558,7 +14572,7 @@ fn erased_object_field_list_alias_push_still_converts_concrete_elements() {
     // `SmeltUnknown`, never on a library or a spelling.
     let source = source_for(
         r"
-type Holder = { items: string[]; other: unknown };
+type Holder = { items: string[] } & { other: unknown };
 function record(holder: Holder, value: string): void {
   const items = holder.items;
   items.push(value);

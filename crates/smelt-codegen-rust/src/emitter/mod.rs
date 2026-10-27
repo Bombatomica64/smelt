@@ -1317,6 +1317,27 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// the subclass. With flattened structs the declaring class is a different
     /// Rust type, so the copy has to return `Self` (was E0308).
     emitting_inherited_copy: bool,
+    /// For an INHERITED copy: the class whose `impl` block receives it. Its
+    /// type parameters, not the declaring base's, are the ones in scope.
+    inherited_impl_owner: Option<Symbol>,
+    /// Inside a CLOSURE of an inherited copy: each type parameter of the
+    /// DECLARING base class mapped to its argument in the receiving class's
+    /// scope, composed through every `extends Base<..>` level in between
+    /// (`crate::classes::inherited_type_substitution`). The copy itself is
+    /// emitted from a type-substituted clone of its function
+    /// (`crate::classes::substituted_inherited_member`), but its closures are
+    /// separate MIR items still spelled in the base's scope, so they render
+    /// through this map instead.
+    inherited_type_args: HashMap<Symbol, TypeId>,
+    /// The map an inherited copy (or a closure inside one) hands to the
+    /// closures it emits; see `inherited_type_args`. Not applied to the copy's
+    /// own, already substituted, types.
+    closure_inherited_type_args: HashMap<Symbol, TypeId>,
+    /// Set while a bound from `inherited_type_args` is rendered: the bound is
+    /// spelled in the RECEIVING class's scope, whose parameter may share a
+    /// declaring parameter's name (`C<T> extends B<T[]>`), so the map must not
+    /// apply inside it (it would recurse forever).
+    rendering_inherited_bound: std::cell::Cell<bool>,
     /// Set while this CONSTRUCTOR is emitted as a base initializer copy into the
     /// named (derived) class's `impl` block; see `crate::base_init` and
     /// [`FunctionEmitter::mark_base_initializer_copy`].

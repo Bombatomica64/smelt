@@ -120,59 +120,55 @@ module examples/typescript/end-to-end/151_derived_constructor_runs_on_instance/i
     #91: None = call #90(#81, #83, #85, #87, #89)
     #92: FromThree = new FromThree()
     #93: FromThree = %5
-    #94: FromThree = %5
+    #94: fn() -> Float = #93.next
     #95: FromThree = %5
-    #96: fn() -> Float = #95.next
-    #97: FromThree = %5
+    #96: FromThree = %5
+    #97: Float = #96.next()
     #98: FromThree = %5
-    #99: Float = #98.next()
+    #99: fn() -> Float = #98.next
     #100: FromThree = %5
     #101: FromThree = %5
-    #102: FromThree = %5
-    #103: fn() -> Float = #102.next
-    #104: FromThree = %5
-    #105: FromThree = %5
-    #106: Float = #105.next()
-    #107: None = @43(console_log)
-    #108: None = call #107(#99, #106)
-    #109: String = "forwarded"
-    #110: Named = new Named(#109)
-    #111: String = #110.label
-    #112: None = @44(console_log)
-    #113: None = call #112(#111)
-    #114: RoutedApp<Float> = new RoutedApp()
-    #115: RoutedApp<Float> = %6
-    #116: fn(String) -> Router<Float> = #115.on_error
+    #102: Float = #101.next()
+    #103: None = @43(console_log)
+    #104: None = call #103(#97, #102)
+    #105: String = "forwarded"
+    #106: Named = new Named(#105)
+    #107: String = #106.label
+    #108: None = @44(console_log)
+    #109: None = call #108(#107)
+    #110: RoutedApp<Float> = new RoutedApp()
+    #111: RoutedApp<Float> = %6
+    #112: fn(String) -> Router<Float> = #111.on_error
+    #113: RoutedApp<Float> = %6
+    #114: String = "custom"
+    #115: fn(String) -> Router<Float> = bind_this #112, #111
+    #116: Router<Float> = closure_call #115(#114)
     #117: RoutedApp<Float> = %6
-    #118: String = "custom"
-    #119: fn(String) -> Router<Float> = bind_this #116, #115
-    #120: Router<Float> = closure_call #119(#118)
-    #121: RoutedApp<Float> = %6
-    #122: fn() -> String = #121.describe
+    #118: fn() -> String = #117.describe
+    #119: RoutedApp<Float> = %6
+    #120: String = #119.describe()
+    #121: None = @45(console_log)
+    #122: None = call #121(#120)
     #123: RoutedApp<Float> = %6
-    #124: String = #123.describe()
-    #125: None = @45(console_log)
-    #126: None = call #125(#124)
-    #127: RoutedApp<Float> = %6
-    #128: fn(String) -> Router<Float> = #127.on_error
-    #129: RoutedApp<Float> = %6
-    #130: String = "again"
-    #131: fn(String) -> Router<Float> = bind_this #128, #127
-    #132: Router<Float> = closure_call #131(#130)
-    #133: fn() -> String = #132.describe
-    #134: RoutedApp<Float> = %6
-    #135: fn(String) -> Router<Float> = #134.on_error
-    #136: RoutedApp<Float> = %6
-    #137: String = "again"
-    #138: fn(String) -> Router<Float> = bind_this #135, #134
-    #139: Router<Float> = closure_call #138(#137)
+    #124: fn(String) -> Router<Float> = #123.on_error
+    #125: RoutedApp<Float> = %6
+    #126: String = "again"
+    #127: fn(String) -> Router<Float> = bind_this #124, #123
+    #128: Router<Float> = closure_call #127(#126)
+    #129: fn() -> String = #128.describe
+    #130: RoutedApp<Float> = %6
+    #131: fn(String) -> Router<Float> = #130.on_error
+    #132: RoutedApp<Float> = %6
+    #133: String = "again"
+    #134: fn(String) -> Router<Float> = bind_this #131, #130
+    #135: Router<Float> = closure_call #134(#133)
+    #136: String = #135.describe()
+    #137: RoutedApp<Float> = %6
+    #138: fn() -> String = #137.describe
+    #139: RoutedApp<Float> = %6
     #140: String = #139.describe()
-    #141: RoutedApp<Float> = %6
-    #142: fn() -> String = #141.describe
-    #143: RoutedApp<Float> = %6
-    #144: String = #143.describe()
-    #145: None = @46(console_log)
-    #146: None = call #145(#140, #144)
+    #141: None = @46(console_log)
+    #142: None = call #141(#136, #140)
   stmts
     s0: let %0: SmartGreeter = #0
     s1: #7
@@ -189,12 +185,12 @@ module examples/typescript/end-to-end/151_derived_constructor_runs_on_instance/i
     s12: let %4: Point4 = #79
     s13: #91
     s14: let %5: FromThree = #92
-    s15: #108
-    s16: #113
-    s17: let %6: RoutedApp<Float> = #114
-    s18: #120
-    s19: #126
-    s20: #146
+    s15: #104
+    s16: #109
+    s17: let %6: RoutedApp<Float> = #110
+    s18: #116
+    s19: #122
+    s20: #142
 
 interned types
   t0 = SmartGreeter

@@ -706,15 +706,17 @@ const order: Order = JSON.parse("{}");
     );
 }
 
-/// A property smelt already stores as a dynamic value (an object-literal type
-/// alias names no generated struct) is passed through unchecked, so it does
-/// not switch the checks off for the rest of the object; the same alias as the
-/// WHOLE target keeps the dynamic parse.
+/// A property smelt already stores as a dynamic value (an intersection alias
+/// names no generated struct) is passed through unchecked, so it does not
+/// switch the checks off for the rest of the object; the same alias as the
+/// WHOLE target keeps the dynamic parse. (A plain object-literal alias used to
+/// be that shape; it now lowers to an interface struct, so the fixture spells
+/// the dynamic record as an intersection.)
 #[test]
 fn passes_dynamically_stored_properties_through_unchecked() {
     let ts_source = source_for(
         r#"
-type Pair = { a: number; b: string };
+type Pair = { a: number } & { b: string };
 interface Holder { id: number; pair: Pair }
 const holder: Holder = JSON.parse("{}");
 const bare: Pair = JSON.parse("{}");

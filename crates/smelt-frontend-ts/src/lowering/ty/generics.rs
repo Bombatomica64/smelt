@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use oxc::ast::ast::{Class as TSClass, Declaration, Program, Statement};
+use oxc::ast::ast::{Declaration, Program, Statement};
 
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
@@ -148,25 +148,40 @@ impl ModuleBuilder<'_> {
                 Statement::ExportDeclaration(export) => Some(&export.declaration),
                 _ => None,
             };
-            let class: Option<&TSClass<'_>> = match (statement, exported) {
-                (Statement::ClassDeclaration(class), _) => Some(class.as_ref()),
-                (_, Some(Declaration::ClassDeclaration(class))) => Some(class.as_ref()),
-                _ => None,
-            };
-            let Some(class) = class else { continue };
-            let Some(id) = class.id.as_ref() else { continue };
-            let Some(params) = class.type_parameters.as_deref() else {
-                continue;
-            };
+            // Interfaces, and object-shaped aliases (which lower to interfaces,
+            // see `type_alias_declaration`), are referenced the same way and
+            // need the same defaults: a forward reference reaches the class
+            // arm of `type_reference_to_hir` before the declaration exists.
+            let declared: Option<(&str, Option<&oxc::ast::ast::TSTypeParameterDeclaration<'_>>)> =
+                match (statement, exported) {
+                    (Statement::ClassDeclaration(class), _)
+                    | (_, Some(Declaration::ClassDeclaration(class))) => class
+                        .id
+                        .as_ref()
+                        .map(|id| (id.name.as_str(), class.type_parameters.as_deref())),
+                    (Statement::TSInterfaceDeclaration(interface), _)
+                    | (_, Some(Declaration::TSInterfaceDeclaration(interface))) => Some((
+                        interface.id.name.as_str(),
+                        interface.type_parameters.as_deref(),
+                    )),
+                    (Statement::TSTypeAliasDeclaration(alias), _)
+                    | (_, Some(Declaration::TSTypeAliasDeclaration(alias)))
+                        if matches!(alias.type_annotation, oxc::ast::ast::TSType::TSTypeLiteral(_)) =>
+                    {
+                        Some((alias.id.name.as_str(), alias.type_parameters.as_deref()))
+                    }
+                    _ => None,
+                };
+            let Some((name, Some(params))) = declared else { continue };
             let Ok(lowered) = self.push_type_parameter_scope(Some(params)) else {
                 self.pop_type_parameter_scope();
                 continue;
             };
             self.pop_type_parameter_scope();
             let symbol = self
-                .module_qualified_type_name(id.name.as_str())
-                .unwrap_or_else(|| self.intern_type_name(id.name.as_str()));
-            self.ctx.class_type_params.insert(symbol, lowered);
+                .module_qualified_type_name(name)
+                .unwrap_or_else(|| self.intern_type_name(name));
+            self.ctx.class_type_params.entry(symbol).or_insert(lowered);
         }
     }
 

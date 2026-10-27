@@ -1213,6 +1213,8 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "175_rest_arrow_into_fixed_arity_slot",
     "176_rest_methods_spreads_and_null_absence",
     "177_tuple_rest_parameters",
+    "178_object_aliases_and_erased_symbol_reads",
+    "179_inherited_members_of_generic_bases",
     "14_c_for_loop",
     "15_break_continue",
     "16_switch_break_no_fallthrough",

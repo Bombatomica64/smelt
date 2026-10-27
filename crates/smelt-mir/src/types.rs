@@ -2621,3 +2621,49 @@ impl BuiltinFn {
         }
     }
 }
+
+/// Visit every type id a function's emission reads: its return type, local
+/// and phi types, and `UnknownCast` targets (the only statement that carries a
+/// type).
+pub fn for_each_function_type(function: &MirFunction, mut visit: impl FnMut(TypeId)) {
+    visit(function.return_ty);
+    for local in &function.locals {
+        visit(local.ty);
+    }
+    for block in &function.blocks {
+        for phi in &block.phis {
+            visit(phi.ty);
+        }
+        for statement in &block.statements {
+            if let Statement::Assign {
+                value: Rvalue::UnknownCast { target, .. },
+                ..
+            } = statement
+            {
+                visit(*target);
+            }
+        }
+    }
+}
+
+/// Rewrite every type id [`for_each_function_type`] visits.
+pub fn map_function_types(function: &mut MirFunction, mut map: impl FnMut(TypeId) -> TypeId) {
+    function.return_ty = map(function.return_ty);
+    for local in &mut function.locals {
+        local.ty = map(local.ty);
+    }
+    for block in &mut function.blocks {
+        for phi in &mut block.phis {
+            phi.ty = map(phi.ty);
+        }
+        for statement in &mut block.statements {
+            if let Statement::Assign {
+                value: Rvalue::UnknownCast { target, .. },
+                ..
+            } = statement
+            {
+                *target = map(*target);
+            }
+        }
+    }
+}

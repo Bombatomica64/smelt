@@ -83,6 +83,10 @@ impl<'mir> FunctionEmitter<'mir> {
             enclosing_type_params: HashSet::new(),
             hoisted_module_item: std::cell::Cell::new(false),
             emitting_inherited_copy: false,
+            inherited_impl_owner: None,
+            inherited_type_args: HashMap::new(),
+            closure_inherited_type_args: HashMap::new(),
+            rendering_inherited_bound: std::cell::Cell::new(false),
             base_initializer_owner: None,
             base_initializer_receivers: HashSet::new(),
         })
@@ -2198,8 +2202,41 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Called by the crate emitter when a base class's method is re-emitted into
     /// a subclass's `impl` block; see `emitting_inherited_copy` for what it
     /// changes.
-    pub(crate) fn mark_inherited_copy(&mut self) {
+    ///
+    /// `owner` is the receiving class, whose type parameters are the ones in
+    /// scope. The caller emits the copy from a type-substituted clone
+    /// (`crate::classes::substituted_inherited_member`); this records the same
+    /// substitution for the closures the copy emits (`inherited_type_args`).
+    pub(crate) fn mark_inherited_copy(&mut self, owner: Symbol) {
         self.emitting_inherited_copy = true;
+        self.inherited_impl_owner = Some(owner);
+        self.seed_inherited_type_args(owner);
+    }
+
+    /// Record an inherited copy's substitution (see `inherited_type_args`).
+    ///
+    /// Closures get the whole map. The copy's own emitter also renders closure
+    /// DECLARATIONS (a callback's header, its slot type), which are spelled in
+    /// the base's scope, so it applies the map too, but only to names `owner`
+    /// does not declare: the copy's substituted locals spell `owner`'s own
+    /// parameters, and a name both classes declare (`Middle<T> extends
+    /// Base<T[]>`) must keep meaning `owner`'s there.
+    fn seed_inherited_type_args(&mut self, owner: Symbol) {
+        let substitutions =
+            crate::classes::inherited_member_substitution(self.mir, self.function, owner);
+        let owner_params: HashSet<Symbol> = self
+            .mir
+            .classes
+            .iter()
+            .find(|class| class.name == owner)
+            .map(|class| class.type_params.iter().map(|param| param.name).collect())
+            .unwrap_or_default();
+        self.inherited_type_args = substitutions
+            .iter()
+            .filter(|(name, _)| !owner_params.contains(name))
+            .map(|(name, ty)| (*name, *ty))
+            .collect();
+        self.closure_inherited_type_args = substitutions;
     }
 
     /// Mark this CONSTRUCTOR emitter as rendering the base initializer copy that
@@ -2211,6 +2248,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// every field this body writes, is rendered in.
     pub(crate) fn mark_base_initializer_copy(&mut self, owner: Symbol) {
         self.base_initializer_owner = Some(owner);
+        self.seed_inherited_type_args(owner);
         // The constructor's instance is local 0 (`HirOrigin::ClassConstructor`
         // lowering allocates it there); in the copy it is the receiver.
         self.base_initializer_receivers.insert(LocalId(0));
@@ -2316,25 +2354,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// to `Self`: a method that returns a FRESHLY BUILT base instance (a
     /// `clone()`-style factory) genuinely answers the base type and keeps it.
     fn returns_the_receiver_at_its_own_class(&self) -> bool {
-        let HirOrigin::ClassMethod { class, .. } = self.function.origin else {
-            return false;
-        };
-        if !matches!(
-            self.mir.types.get(self.function.return_ty),
-            Some(Type::Class { name, .. }) if *name == class
-        ) {
-            return false;
-        }
-        let mut saw_return = false;
-        for block in &self.function.blocks {
-            if let Some(Terminator::Return(operand)) = &block.terminator {
-                saw_return = true;
-                if operand_local(operand) != Some(LocalId(0)) {
-                    return false;
-                }
-            }
-        }
-        saw_return
+        crate::classes::returns_the_receiver_at_its_own_class(self.mir, self.function)
     }
 
     /// Emits a method or constructor definition, naming the site of any
@@ -2672,6 +2692,10 @@ impl<'mir> FunctionEmitter<'mir> {
             enclosing_type_params: HashSet::new(),
             hoisted_module_item: std::cell::Cell::new(false),
             emitting_inherited_copy: false,
+            inherited_impl_owner: None,
+            inherited_type_args: HashMap::new(),
+            closure_inherited_type_args: HashMap::new(),
+            rendering_inherited_bound: std::cell::Cell::new(false),
             base_initializer_owner: None,
             base_initializer_receivers: HashSet::new(),
         }
@@ -2734,6 +2758,10 @@ impl<'mir> FunctionEmitter<'mir> {
             enclosing_type_params: HashSet::new(),
             hoisted_module_item: std::cell::Cell::new(false),
             emitting_inherited_copy: false,
+            inherited_impl_owner: None,
+            inherited_type_args: HashMap::new(),
+            closure_inherited_type_args: HashMap::new(),
+            rendering_inherited_bound: std::cell::Cell::new(false),
             base_initializer_owner: None,
             base_initializer_receivers: HashSet::new(),
         }
@@ -2783,6 +2811,10 @@ impl<'mir> FunctionEmitter<'mir> {
             enclosing_type_params: HashSet::new(),
             hoisted_module_item: std::cell::Cell::new(false),
             emitting_inherited_copy: false,
+            inherited_impl_owner: None,
+            inherited_type_args: HashMap::new(),
+            closure_inherited_type_args: HashMap::new(),
+            rendering_inherited_bound: std::cell::Cell::new(false),
             base_initializer_owner: None,
             base_initializer_receivers: HashSet::new(),
         }

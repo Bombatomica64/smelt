@@ -1,0 +1,125 @@
+module examples/typescript/end-to-end/179_inherited_members_of_generic_bases/input.ts (ModuleId(0))
+  body BodyId(15)
+  items
+    interface Box1<T> fields [Public value: T] methods []
+    class Base fields [Public items: List<T>] constructor Some(ItemId(8)) methods [ItemId(5), ItemId(6), ItemId(7)] implements []
+    class Middle fields [] constructor Some(ItemId(11)) methods [ItemId(10)] implements []
+    class Leaf fields [] constructor Some(ItemId(13)) methods [] implements []
+    class Nums fields [] constructor Some(ItemId(15)) methods [] implements []
+    interface ParseResult<T> fields [Public value: T] methods []
+    class Parser fields [Public parse: fn(String) -> ParseResult<T>] constructor Some(ItemId(19)) methods [ItemId(18)] implements []
+    class YearParser fields [] constructor Some(ItemId(22)) methods [ItemId(21)] implements []
+  locals
+    %0 const leaf: Leaf
+    %1 const joined: List<String>
+    %2 const nums: Nums
+    %3 const parser: Parser<Float>
+  exprs
+    #0: Leaf = new Leaf()
+    #1: Leaf = %0
+    #2: fn(List<String>) -> Float = #1.push
+    #3: Leaf = %0
+    #4: String = "a"
+    #5: String = "b"
+    #6: List<String> = [#4, #5]
+    #7: Float = #3.push(#6)
+    #8: Leaf = %0
+    #9: fn(List<String>) -> Float = #8.push
+    #10: Leaf = %0
+    #11: String = "c"
+    #12: List<String> = [#11]
+    #13: Float = #10.push(#12)
+    #14: Leaf = %0
+    #15: fn() -> Float = #14.total
+    #16: Leaf = %0
+    #17: Float = #16.total()
+    #18: None = @24(console_log)
+    #19: None = call #18(#7, #13, #17)
+    #20: Leaf = %0
+    #21: fn(fn(List<String>) -> String) -> List<String> = #20.map
+    #22: Leaf = %0
+    #23: fn(List<String>) -> String = closure BodyId(13) captures 0 -> String
+    #24: List<String> = #22.map(#23)
+    #25: List<String> = %1
+    #26: String = ","
+    #27: String = string_join #25, #26
+    #28: None = @25(console_log)
+    #29: None = call #28(#27)
+    #30: Nums = new Nums()
+    #31: Nums = %2
+    #32: fn(Float) -> Float = #31.push
+    #33: Nums = %2
+    #34: Float = 3.0
+    #35: Float = #33.push(#34)
+    #36: Nums = %2
+    #37: fn(Float) -> Float = #36.push
+    #38: Nums = %2
+    #39: Float = 4.0
+    #40: Float = #38.push(#39)
+    #41: Nums = %2
+    #42: fn(fn(Float) -> String) -> List<String> = #41.map
+    #43: Nums = %2
+    #44: fn(Float) -> String = closure BodyId(14) captures 0 -> String
+    #45: List<String> = #43.map(#44)
+    #46: String = " "
+    #47: String = string_join #45, #46
+    #48: None = @26(console_log)
+    #49: None = call #48(#47)
+    #50: YearParser = new YearParser()
+    #51: Parser<Float> = %3
+    #52: fn(String) -> Float = #51.run
+    #53: Parser<Float> = %3
+    #54: String = "2016"
+    #55: Float = #53.run(#54)
+    #56: None = @27(console_log)
+    #57: None = call #56(#55)
+  stmts
+    s0: let %0: Leaf = #0
+    s1: #19
+    s2: let %1: List<String> = #24
+    s3: #29
+    s4: let %2: Nums = #30
+    s5: #35
+    s6: #40
+    s7: #49
+    s8: let %3: Parser<Float> = #50
+    s9: #57
+
+interned types
+  t0 = T
+  t1 = Leaf
+  t2 = String
+  t3 = List<String>
+  t4 = Nums
+  t5 = Float
+  t6 = Parser<Float>
+  t7 = Base<T>
+  t8 = List<T>
+  t9 = Bool
+  t10 = Box1<T>
+  t11 = fn(T) -> String
+  t12 = fn(Box1<T>) -> Bool
+  t13 = None
+  t14 = Int
+  t15 = Unknown
+  t16 = fn(T, Int, List<T>) -> String
+  t17 = List<Unknown>
+  t18 = Middle<T>
+  t19 = Base<List<T>>
+  t20 = List<List<T>>
+  t21 = Parser<T>
+  t22 = ParseResult<T>
+  t23 = fn(String) -> ParseResult<T>
+  t24 = YearParser
+  t25 = ParseResult<Float>
+  t26 = Middle<String>
+  t27 = Base<List<String>>
+  t28 = fn(List<String>) -> Float
+  t29 = fn() -> Float
+  t30 = fn(List<String>) -> String
+  t31 = fn(fn(List<String>) -> String) -> List<String>
+  t32 = Base<Float>
+  t33 = fn(Float) -> Float
+  t34 = fn(Float) -> String
+  t35 = fn(fn(Float) -> String) -> List<String>
+  t36 = fn(String) -> Float

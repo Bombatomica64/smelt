@@ -10,6 +10,7 @@
 //! as the [`generic_records`] pass and the shared `operand_local` helper.
 
 pub(super) mod generic_records;
+pub(super) mod inherited_types;
 pub(super) mod throwing;
 
 use crate::{LocalId, Operand, Place};

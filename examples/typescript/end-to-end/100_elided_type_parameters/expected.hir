@@ -41,7 +41,7 @@ module examples/typescript/end-to-end/100_elided_type_parameters/input.ts (Modul
     #27: String = "held"
     #28: Cell<String> = new Cell(#27)
     #29: Cell<String> = %2
-    #30: fn() -> T = #29.get
+    #30: fn() -> String = #29.get
     #31: Cell<String> = %2
     #32: String = #31.get()
     #33: None = @15(console_log)
@@ -50,7 +50,7 @@ module examples/typescript/end-to-end/100_elided_type_parameters/input.ts (Modul
     #36: String = "/posts"
     #37: Pair<Float, String> = new Pair(#35, #36)
     #38: Pair<Float, String> = %3
-    #39: fn() -> Carried = #38.carried
+    #39: fn() -> Float = #38.carried
     #40: Pair<Float, String> = %3
     #41: Float = #40.carried()
     #42: Float = 1.0
@@ -99,7 +99,7 @@ interned types
   t17 = Pair<Carried, Dropped>
   t18 = Cell<Carried>
   t19 = Route<Dropped>
-  t20 = fn() -> T
+  t20 = fn() -> Carried
   t21 = Route<String>
   t22 = fn() -> String
   t23 = Session<Float>
@@ -107,4 +107,4 @@ interned types
   t25 = Optional<fn(Session<Float>) -> String>
   t26 = Cell<String>
   t27 = Pair<Float, String>
-  t28 = fn() -> Carried
+  t28 = fn() -> Float
