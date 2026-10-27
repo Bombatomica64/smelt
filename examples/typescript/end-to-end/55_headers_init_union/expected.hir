@@ -87,26 +87,30 @@ module examples/typescript/end-to-end/55_headers_init_union/input.ts (ModuleId(0
     #72: Headers = %1
     #73: String = "x-shared"
     #74: Optional<String> = headers_get #72, #73
-    #75: None = @16(console_log)
-    #76: None = call #75(#74)
-    #77: Headers = %2
-    #78: Headers = %2
-    #79: String = "x-shared"
-    #80: Optional<String> = headers_get #78, #79
-    #81: None = @17(console_log)
-    #82: None = call #81(#80)
-    #83: String = "content-type"
-    #84: String = "text/plain"
-    #85: (String, String) = (#83, #84)
-    #86: String = "content-type"
-    #87: String = "text/css"
-    #88: (String, String) = (#86, #87)
-    #89: List<(String, String)> = [#85, #88]
-    #90: List<(String, String)> = %3
-    #91: fn(List<(String, String)> | Dict<String, String> | Headers) -> String = @4(content_type_of)
-    #92: String = call #91(#90)
-    #93: None = @18(console_log)
-    #94: None = call #93(#92)
+    #75: String = "null"
+    #76: String = #74 ?? #75
+    #77: None = @16(console_log)
+    #78: None = call #77(#76)
+    #79: Headers = %2
+    #80: Headers = %2
+    #81: String = "x-shared"
+    #82: Optional<String> = headers_get #80, #81
+    #83: String = "null"
+    #84: String = #82 ?? #83
+    #85: None = @17(console_log)
+    #86: None = call #85(#84)
+    #87: String = "content-type"
+    #88: String = "text/plain"
+    #89: (String, String) = (#87, #88)
+    #90: String = "content-type"
+    #91: String = "text/css"
+    #92: (String, String) = (#90, #91)
+    #93: List<(String, String)> = [#89, #92]
+    #94: List<(String, String)> = %3
+    #95: fn(List<(String, String)> | Dict<String, String> | Headers) -> String = @4(content_type_of)
+    #96: String = call #95(#94)
+    #97: None = @18(console_log)
+    #98: None = call #97(#96)
   stmts
     s0: #6
     s1: #14
@@ -119,10 +123,10 @@ module examples/typescript/end-to-end/55_headers_init_union/input.ts (ModuleId(0
     s8: let %1: Headers = #63
     s9: let %2: Headers = #65
     s10: #70
-    s11: #76
-    s12: #82
-    s13: let %3: List<(String, String)> = #89
-    s14: #94
+    s11: #78
+    s12: #86
+    s13: let %3: List<(String, String)> = #93
+    s14: #98
 
 interned types
   t0 = String

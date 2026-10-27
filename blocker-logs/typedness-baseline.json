@@ -2,17 +2,17 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 7686,
+      "concrete": 7892,
       "generic": 77,
       "erased": 53
     },
     "reads": {
-      "concrete": 739,
+      "concrete": 772,
       "generic": 21,
       "erased": 35
     },
     "calls": {
-      "concrete": 1840,
+      "concrete": 1869,
       "generic": 5,
       "erased": 2
     }
@@ -1210,7 +1210,7 @@
     },
     "examples/typescript/end-to-end/173_url_object/input.ts": {
       "values": {
-        "concrete": 88,
+        "concrete": 90,
         "generic": 0,
         "erased": 2
       },
@@ -1244,7 +1244,7 @@
     },
     "examples/typescript/end-to-end/175_rest_arrow_into_fixed_arity_slot/input.ts": {
       "values": {
-        "concrete": 45,
+        "concrete": 48,
         "generic": 0,
         "erased": 0
       },
@@ -1255,6 +1255,40 @@
       },
       "calls": {
         "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/176_rest_methods_spreads_and_null_absence/input.ts": {
+      "values": {
+        "concrete": 97,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 15,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 18,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/177_tuple_rest_parameters/input.ts": {
+      "values": {
+        "concrete": 97,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 18,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 11,
         "generic": 0,
         "erased": 0
       }
@@ -1873,7 +1907,7 @@
     },
     "examples/typescript/end-to-end/55_headers_init_union/input.ts": {
       "values": {
-        "concrete": 55,
+        "concrete": 57,
         "generic": 0,
         "erased": 0
       },
@@ -2230,7 +2264,7 @@
     },
     "examples/typescript/end-to-end/77_body_init_buffer_source/input.ts": {
       "values": {
-        "concrete": 97,
+        "concrete": 99,
         "generic": 0,
         "erased": 0
       },
@@ -2247,7 +2281,7 @@
     },
     "examples/typescript/end-to-end/78_request_input_forms/input.ts": {
       "values": {
-        "concrete": 69,
+        "concrete": 72,
         "generic": 0,
         "erased": 0
       },

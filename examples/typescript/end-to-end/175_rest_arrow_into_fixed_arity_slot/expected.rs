@@ -3700,13 +3700,15 @@ impl Ctx {
     fn __smelt_get_respond(&self) -> Respond {
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let smelt_self = self.clone();
-    move |closure_arg_0: SmeltList<SmeltUnion2>| {
-    let __smelt_spread: SmeltList<SmeltUnion2> = Into::<SmeltList<_>>::into(closure_arg_0.clone());
-    let _smelt_tmp_3: String = smelt_self._respond(match __smelt_spread.borrow().get({ let smelt_normalized = 0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltUnion2::M0(String::new())) { SmeltUnion2::M0(value) => value, _ => unreachable!("union guard selected an excluded member") }, __smelt_spread.borrow().get({ let smelt_normalized = 1 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltUnion2::M0(String::new())));
-    _smelt_tmp_3.clone()
+    move |closure_arg_0: String, closure_arg_1: SmeltUnion2| {
+    let _smelt_tmp_5: (String, SmeltUnion2) = (closure_arg_0.clone(), closure_arg_1.clone());
+    let args: (String, SmeltUnion2) = _smelt_tmp_5.clone();
+    let __smelt_spread: (String, SmeltUnion2) = args.clone();
+    let _smelt_tmp_6: String = smelt_self._respond(__smelt_spread.0.clone(), __smelt_spread.1.clone());
+    _smelt_tmp_6.clone()
     }
 });
-    return Respond { __smelt_call: { let smelt_callback = _smelt_tmp_1.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(String, SmeltUnion2) -> String> = ::std::rc::Rc::new(move |arg0: String, arg1: SmeltUnion2| (smelt_callback)(SmeltList::from(vec![SmeltUnion2::M0(arg0), arg1]))); smelt_adapted } };
+    return Respond { __smelt_call: { let smelt_callback = _smelt_tmp_1.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(String, SmeltUnion2) -> String> = ::std::rc::Rc::new(move |arg0: String, arg1: SmeltUnion2| (smelt_callback)(arg0, arg1)); smelt_adapted } };
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
     ///

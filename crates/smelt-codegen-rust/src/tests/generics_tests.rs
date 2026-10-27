@@ -297,7 +297,9 @@ class Box<T> {
 
     // The runtime prelude always defines the `SmeltJsKeyEq` trait, so only the
     // class impl block is checked: its generic bound must not include it.
-    assert!(source.contains("impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Box<T>"));
+    // A class named `Box` is renamed `Box_`, so it does not shadow Rust's
+    // `Box` (`rust::is_rust_prelude_name`).
+    assert!(source.contains("impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Box_<T>"));
 }
 
 #[test]

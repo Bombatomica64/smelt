@@ -470,7 +470,9 @@ return_ty: function.return_ty,
         self.module_globals.get(name).copied()
     }
 
-    /// Convert a function-type rest parameter annotation into its list type.
+    /// Convert a function-type rest parameter annotation into its list type,
+    /// or into its tuple type when it is a fixed-width tuple (which the caller
+    /// expands into fixed parameters; see `lowering::tuple_rest`).
     pub(in crate::lowering) fn function_type_rest_param_to_hir(
         &mut self,
         ty: &TSType<'_>,
@@ -488,6 +490,9 @@ return_ty: function.return_ty,
             return Ok(self.ctx.krate.types.intern(Type::List(item_ty)));
         }
         let ty = self.ts_type_to_hir(ty)?;
+        if self.fixed_tuple_rest_elements(ty).is_some() {
+            return Ok(ty);
+        }
         let (list_ty, _) = self.rest_param_array_type(ty)?;
         Ok(list_ty)
     }
@@ -752,9 +757,7 @@ return_ty: function.return_ty,
                                 "call signature rest parameters require explicit array types",
                             )
                         })?;
-                    let index = params.len();
-                    params.push(rest_ty);
-                    Some(index)
+                    self.push_rest_param_type(&mut params, rest_ty)?
                 } else {
                     None
                 };
@@ -829,29 +832,48 @@ return_ty: function.return_ty,
             return result;
         }
         let key_ty = self.ctx.krate.types.intern(Type::String);
-        let mut value_tys = Vec::new();
+        let mut member_tys = Vec::new();
         for member in &literal.members {
             if let TSSignature::TSIndexSignature(index) = member {
-                let value_ty = self.ts_type_to_hir(&index.type_annotation.type_annotation)?;
-                if !value_tys.contains(&value_ty) {
-                    value_tys.push(value_ty);
-                }
+                member_tys.push(self.ts_type_to_hir(&index.type_annotation.type_annotation)?);
             }
         }
         for field in self.type_literal_fields(literal)? {
-            let value_ty = if field.optional {
+            member_tys.push(if field.optional {
                 self.ctx.krate.types.intern(Type::Optional(field.ty))
             } else {
                 field.ty
-            };
-            if !value_tys.contains(&value_ty) {
-                value_tys.push(value_ty);
+            });
+        }
+        if member_tys.is_empty() {
+            let value_ty = self.erase(ErasureReason::OpenLayout);
+            return Ok(self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty)));
+        }
+        // The value type is the FLAT union of the members' types, as a union
+        // annotation lowers: `{ a: string; b?: string }` holds `string` or
+        // nothing, which is `Optional<String>`. Collecting the raw member types
+        // gave `String | Optional<String>`, a union with an optional arm, which
+        // has no concrete representation and erased every record of the alias.
+        let mut value_tys = Vec::new();
+        let mut nullable = false;
+        for member_ty in member_tys {
+            for arm in self.flatten_union_member_types(member_ty) {
+                if matches!(self.ctx.krate.types.get(arm), Some(Type::None)) {
+                    nullable = true;
+                } else if !value_tys.contains(&arm) {
+                    value_tys.push(arm);
+                }
             }
         }
         let value_ty = match value_tys.as_slice() {
-            [] => self.erase(ErasureReason::OpenLayout),
+            [] => self.ctx.krate.types.intern(Type::None),
             [single] => *single,
             _ => self.ctx.krate.types.intern(Type::Union(value_tys)),
+        };
+        let value_ty = if nullable && !matches!(self.ctx.krate.types.get(value_ty), Some(Type::None)) {
+            self.ctx.krate.types.intern(Type::Optional(value_ty))
+        } else {
+            value_ty
         };
         Ok(self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty)))
     }
@@ -1903,8 +1925,7 @@ return_ty: function.return_ty,
                 };
                 lowered_params.push(param_ty);
             }
-            let mut rest_index = None;
-            if let Some(rest) = &params.rest {
+            let rest_index = if let Some(rest) = &params.rest {
                 let rest_ty = rest
                     .type_annotation
                     .as_ref()
@@ -1916,9 +1937,10 @@ return_ty: function.return_ty,
                             "rest function type parameters require explicit array types",
                         )
                     })?;
-                rest_index = Some(lowered_params.len());
-                lowered_params.push(rest_ty);
-            }
+                self.push_rest_param_type(&mut lowered_params, rest_ty)?
+            } else {
+                None
+            };
             let return_ty = self.ts_type_to_hir(&return_type.type_annotation)?;
             let mutable_params =
                 self.mutable_params_from_returned_tuple_state(&lowered_params, return_ty);
@@ -3066,7 +3088,7 @@ return_ty: function.return_ty,
                         self.mutable_params_from_returned_tuple_state(&params, method.return_ty);
                     Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
                         params,
-                        rest: None,
+                        rest: method.rest,
                         required_params: None,
                         mutable_params,
                         return_ty: method.return_ty,
@@ -3246,7 +3268,7 @@ return_ty: function.return_ty,
             self.mutable_params_from_returned_tuple_state(&params, method.return_ty);
         Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
-            rest: None,
+            rest: method.rest,
             required_params: None,
             mutable_params,
             return_ty: method.return_ty,

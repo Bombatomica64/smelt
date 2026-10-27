@@ -578,6 +578,11 @@ impl ModuleBuilder<'_> {
         if member.property.name != "join" {
             return Ok(None);
         }
+        // `Class.join(..)` on a class that declares a static `join` is that
+        // method, not `Array.prototype.join`.
+        if self.static_member_is_class_static_method(member) {
+            return Ok(None);
+        }
         if let Expression::Identifier(object) = &member.object
             && (self.imports.is_namespace(object.name.as_str())
                 || self.imports.is_value(object.name.as_str()))

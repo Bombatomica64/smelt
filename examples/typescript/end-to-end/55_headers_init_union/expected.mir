@@ -66,14 +66,16 @@ fn main (FuncId(2)) -> None
     %35 temp: Headers
     %36 temp: None
     %37 temp: Optional<String>
-    %38 temp: None
-    %39 temp: Optional<String>
-    %40 temp: None
-    %41 temp: (String, String)
-    %42 temp: (String, String)
-    %43 temp: List<(String, String)>
-    %44 temp: String
-    %45 temp: None
+    %38 temp: String
+    %39 temp: None
+    %40 temp: Optional<String>
+    %41 temp: String
+    %42 temp: None
+    %43 temp: (String, String)
+    %44 temp: (String, String)
+    %45 temp: List<(String, String)>
+    %46 temp: String
+    %47 temp: None
   bb0:
     %4 = {"Content-Type": "text/plain"}
     %5 = call fn0(move %4) -> bb1
@@ -126,18 +128,20 @@ fn main (FuncId(2)) -> None
     %2 = move %35
     %36 = headers_set copy %2, "x-shared", "changed"
     %37 = headers_get move %1, "x-shared"
-    %38 = call @console_log(move %37) -> bb15
+    %38 = move %37 ?? "null"
+    %39 = call @console_log(move %38) -> bb15
   bb15:
-    %39 = headers_get move %2, "x-shared"
-    %40 = call @console_log(move %39) -> bb16
+    %40 = headers_get move %2, "x-shared"
+    %41 = move %40 ?? "null"
+    %42 = call @console_log(move %41) -> bb16
   bb16:
-    %41 = ("content-type", "text/plain")
-    %42 = ("content-type", "text/css")
-    %43 = [move %41, move %42]
-    %3 = move %43
-    %44 = call fn0(move %3) -> bb17
+    %43 = ("content-type", "text/plain")
+    %44 = ("content-type", "text/css")
+    %45 = [move %43, move %44]
+    %3 = move %45
+    %46 = call fn0(move %3) -> bb17
   bb17:
-    %45 = call @console_log(move %44) -> bb18
+    %47 = call @console_log(move %46) -> bb18
   bb18:
     return none
 

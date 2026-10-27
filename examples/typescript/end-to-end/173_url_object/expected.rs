@@ -4240,28 +4240,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_26: String;
     let _smelt_tmp_27: SmeltUrlSearchParams;
     let _smelt_tmp_28: Option<String>;
-    let _smelt_tmp_30: String;
-    let _smelt_tmp_31: SmeltUrlSearchParams;
-    let _smelt_tmp_32: Option<String>;
-    let _smelt_tmp_33: SmeltUrlSearchParams;
-    let _smelt_tmp_34: bool;
-    let _smelt_tmp_36: String;
-    let _smelt_tmp_37: String;
+    let _smelt_tmp_29: String;
+    let _smelt_tmp_31: String;
+    let _smelt_tmp_32: SmeltUrlSearchParams;
+    let _smelt_tmp_33: Option<String>;
+    let _smelt_tmp_34: String;
+    let _smelt_tmp_35: SmeltUrlSearchParams;
+    let _smelt_tmp_36: bool;
     let _smelt_tmp_38: String;
+    let _smelt_tmp_39: String;
     let _smelt_tmp_40: String;
-    let _smelt_tmp_41: SmeltRecord<String, String>;
     let _smelt_tmp_42: String;
-    let _smelt_tmp_48: String;
-    let _smelt_tmp_51: String;
+    let _smelt_tmp_43: SmeltRecord<String, String>;
+    let _smelt_tmp_44: String;
+    let _smelt_tmp_50: String;
     let _smelt_tmp_53: String;
     let _smelt_tmp_55: String;
     let _smelt_tmp_57: String;
-    let _smelt_tmp_58: SmeltRequest;
     let _smelt_tmp_59: String;
+    let _smelt_tmp_60: SmeltRequest;
     let _smelt_tmp_61: String;
-    let _smelt_tmp_65: bool;
-    let _smelt_tmp_69: bool;
-    let _smelt_tmp_70: String;
+    let _smelt_tmp_63: String;
+    let _smelt_tmp_67: bool;
+    let _smelt_tmp_71: bool;
+    let _smelt_tmp_72: String;
     let _smelt_tmp_4: SmeltUrl = smelt_url_new_throwing("https://user:pw@example.com:8080/a/b/?x=1&y=2#frag".to_owned().as_str(), None)?;
     url = _smelt_tmp_4;
     _smelt_tmp_5 = url.href();
@@ -4288,53 +4290,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_26 = url.search();
     _smelt_tmp_27 = url.search_params();
     _smelt_tmp_28 = _smelt_tmp_27.get(&"y".to_owned());
-    let _ = { println!("{} {}", _smelt_tmp_26, match &_smelt_tmp_28 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    _smelt_tmp_30 = { let smelt_url_value: String = "?q=hello+world".to_owned(); url.set_search(&smelt_url_value); smelt_url_value };
-    _smelt_tmp_31 = url.search_params();
-    _smelt_tmp_32 = _smelt_tmp_31.get(&"q".to_owned());
-    _smelt_tmp_33 = url.search_params();
-    _smelt_tmp_34 = _smelt_tmp_33.has(&"y".to_owned());
-    let _ = { println!("{} {}", match &_smelt_tmp_32 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_34); };
-    _smelt_tmp_36 = { let smelt_url_value: String = "443".to_owned(); url.set_port(&smelt_url_value); smelt_url_value };
-    _smelt_tmp_37 = { let smelt_url_value: String = "http:".to_owned(); url.set_protocol(&smelt_url_value); smelt_url_value };
-    _smelt_tmp_38 = url.href();
-    let _ = { println!("{}", _smelt_tmp_38); };
+    _smelt_tmp_29 = _smelt_tmp_28.clone().unwrap_or("null".to_owned());
+    let _ = { println!("{} {}", _smelt_tmp_26, _smelt_tmp_29); };
+    _smelt_tmp_31 = { let smelt_url_value: String = "?q=hello+world".to_owned(); url.set_search(&smelt_url_value); smelt_url_value };
+    _smelt_tmp_32 = url.search_params();
+    _smelt_tmp_33 = _smelt_tmp_32.get(&"q".to_owned());
+    _smelt_tmp_34 = _smelt_tmp_33.clone().unwrap_or("null".to_owned());
+    _smelt_tmp_35 = url.search_params();
+    _smelt_tmp_36 = _smelt_tmp_35.has(&"y".to_owned());
+    let _ = { println!("{} {}", _smelt_tmp_34, _smelt_tmp_36); };
+    _smelt_tmp_38 = { let smelt_url_value: String = "443".to_owned(); url.set_port(&smelt_url_value); smelt_url_value };
+    _smelt_tmp_39 = { let smelt_url_value: String = "http:".to_owned(); url.set_protocol(&smelt_url_value); smelt_url_value };
     _smelt_tmp_40 = url.href();
-    _smelt_tmp_41 = SmeltRecord::from([("location".to_owned(), _smelt_tmp_40)]);
-    _smelt_tmp_42 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_41.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) }).expect("JSON serialization failed");
-    let _ = { println!("{}", _smelt_tmp_42); };
-    let _smelt_tmp_44: String = trim_trailing_slash("https://example.com/the/endpoint/?k=v".to_owned())?;
+    let _ = { println!("{}", _smelt_tmp_40); };
+    _smelt_tmp_42 = url.href();
+    _smelt_tmp_43 = SmeltRecord::from([("location".to_owned(), _smelt_tmp_42)]);
+    _smelt_tmp_44 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_43.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) }).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_44); };
-    let _smelt_tmp_46: SmeltUrl = smelt_url_new_throwing("https://example.com/dir".to_owned().as_str(), None)?;
-    let _smelt_tmp_47: SmeltUrl = append_slash(_smelt_tmp_46);
-    _smelt_tmp_48 = _smelt_tmp_47.pathname();
-    let _ = { println!("{}", _smelt_tmp_48); };
-    let _smelt_tmp_50: SmeltUrl = smelt_url_new_throwing("../c?d=1".to_owned().as_str(), Some("https://example.com/a/b/".to_owned().as_str()))?;
-    relative = _smelt_tmp_50;
-    _smelt_tmp_51 = relative.href();
-    let _ = { println!("{}", _smelt_tmp_51); };
+    let _smelt_tmp_46: String = trim_trailing_slash("https://example.com/the/endpoint/?k=v".to_owned())?;
+    let _ = { println!("{}", _smelt_tmp_46); };
+    let _smelt_tmp_48: SmeltUrl = smelt_url_new_throwing("https://example.com/dir".to_owned().as_str(), None)?;
+    let _smelt_tmp_49: SmeltUrl = append_slash(_smelt_tmp_48);
+    _smelt_tmp_50 = _smelt_tmp_49.pathname();
+    let _ = { println!("{}", _smelt_tmp_50); };
+    let _smelt_tmp_52: SmeltUrl = smelt_url_new_throwing("../c?d=1".to_owned().as_str(), Some("https://example.com/a/b/".to_owned().as_str()))?;
+    relative = _smelt_tmp_52;
     _smelt_tmp_53 = relative.href();
-    let _smelt_tmp_54: SmeltUrl = smelt_url_new_throwing(_smelt_tmp_53.as_str(), None)?;
-    _smelt_tmp_55 = _smelt_tmp_54.pathname();
-    let _ = { println!("{}", _smelt_tmp_55); };
-    _smelt_tmp_57 = relative.href();
-    _smelt_tmp_58 = SmeltRequest::from_parts_with_init(&_smelt_tmp_57, "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty(), SmeltRequestInit::default());
-    _smelt_tmp_59 = _smelt_tmp_58.url();
-    let _ = { println!("{}", _smelt_tmp_59); };
-    _smelt_tmp_61 = "".to_owned() + &relative.href();
+    let _ = { println!("{}", _smelt_tmp_53); };
+    _smelt_tmp_55 = relative.href();
+    let _smelt_tmp_56: SmeltUrl = smelt_url_new_throwing(_smelt_tmp_55.as_str(), None)?;
+    _smelt_tmp_57 = _smelt_tmp_56.pathname();
+    let _ = { println!("{}", _smelt_tmp_57); };
+    _smelt_tmp_59 = relative.href();
+    _smelt_tmp_60 = SmeltRequest::from_parts_with_init(&_smelt_tmp_59, "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty(), SmeltRequestInit::default());
+    _smelt_tmp_61 = _smelt_tmp_60.url();
     let _ = { println!("{}", _smelt_tmp_61); };
+    _smelt_tmp_63 = "".to_owned() + &relative.href();
+    let _ = { println!("{}", _smelt_tmp_63); };
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_url_new_throwing("not a url".to_owned().as_str(), None))) {
         Ok(Ok(__smelt_value)) => {
-            let _smelt_tmp_63: SmeltUrl = __smelt_value;
+            let _smelt_tmp_65: SmeltUrl = __smelt_value;
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| { println!("{}", "parsed".to_owned()); })) {
         Ok(__smelt_value) => {
-            let _smelt_tmp_64: () = __smelt_value;
+            let _smelt_tmp_66: () = __smelt_value;
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let error = smelt_panic_error_value(&*__smelt_panic);
-    _smelt_tmp_65 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
-    if _smelt_tmp_65 {
+    _smelt_tmp_67 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
+    if _smelt_tmp_67 {
     let _ = { println!("{} {}", "TypeError".to_owned(), smelt_get_unknown_field(&error.clone(), "message").clone()); };
     }
         }
@@ -4342,48 +4346,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Ok(Err(__smelt_error)) => {
             let error = smelt_thrown_value(&*__smelt_error);
-    _smelt_tmp_65 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
-    if _smelt_tmp_65 {
+    _smelt_tmp_67 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
+    if _smelt_tmp_67 {
     let _ = { println!("{} {}", "TypeError".to_owned(), smelt_get_unknown_field(&error.clone(), "message").clone()); };
     }
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let error = smelt_panic_error_value(&*__smelt_panic);
-    _smelt_tmp_65 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
-    if _smelt_tmp_65 {
+    _smelt_tmp_67 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
+    if _smelt_tmp_67 {
     let _ = { println!("{} {}", "TypeError".to_owned(), smelt_get_unknown_field(&error.clone(), "message").clone()); };
     }
         }
     }
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_url_set_href_throwing(&url, "::".to_owned()))) {
         Ok(Ok(__smelt_value)) => {
-            let _smelt_tmp_67: String = __smelt_value;
+            let _smelt_tmp_69: String = __smelt_value;
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| { println!("{}", "assigned".to_owned()); })) {
         Ok(__smelt_value) => {
-            let _smelt_tmp_68: () = __smelt_value;
+            let _smelt_tmp_70: () = __smelt_value;
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let error_1 = smelt_panic_error_value(&*__smelt_panic);
-    _smelt_tmp_69 = matches!(error_1.clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
-    _smelt_tmp_70 = url.pathname();
-    let _ = { println!("{} {}", _smelt_tmp_69, _smelt_tmp_70); };
+    _smelt_tmp_71 = matches!(error_1.clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
+    _smelt_tmp_72 = url.pathname();
+    let _ = { println!("{} {}", _smelt_tmp_71, _smelt_tmp_72); };
         }
     }
         }
         Ok(Err(__smelt_error)) => {
             let error_1 = smelt_thrown_value(&*__smelt_error);
-    _smelt_tmp_69 = matches!(error_1.clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
-    _smelt_tmp_70 = url.pathname();
-    let _ = { println!("{} {}", _smelt_tmp_69, _smelt_tmp_70); };
+    _smelt_tmp_71 = matches!(error_1.clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
+    _smelt_tmp_72 = url.pathname();
+    let _ = { println!("{} {}", _smelt_tmp_71, _smelt_tmp_72); };
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let error_1 = smelt_panic_error_value(&*__smelt_panic);
-    _smelt_tmp_69 = matches!(error_1.clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
-    _smelt_tmp_70 = url.pathname();
-    let _ = { println!("{} {}", _smelt_tmp_69, _smelt_tmp_70); };
+    _smelt_tmp_71 = matches!(error_1.clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
+    _smelt_tmp_72 = url.pathname();
+    let _ = { println!("{} {}", _smelt_tmp_71, _smelt_tmp_72); };
         }
     }
     return Ok(());

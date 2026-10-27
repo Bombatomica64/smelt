@@ -658,6 +658,37 @@ impl FunctionEmitter<'_> {
                     }}"
                 ))
             }
+            // A tuple has a static width, so a constant index names one field.
+            // The read answers `Option<result>`: an element that is itself
+            // optional maps option to option, and a present element is
+            // wrapped. (`args?.[1]` on a tuple rest parameter; see the
+            // frontend's `lowering::tuple_rest`.)
+            Some(Type::Tuple(items)) => {
+                let tuple_index = self.tuple_index(index, items.len())?;
+                let element_ty = items
+                    .get(tuple_index)
+                    .copied()
+                    .ok_or_else(|| EmitError::new("tuple index is out of range"))?;
+                let field = format!("{receiver_text}.{tuple_index}.clone()");
+                if let Some(Type::Optional(element_inner)) = self.mir.types.get(element_ty) {
+                    if *element_inner == result_ty {
+                        return Ok(field);
+                    }
+                    return self.optional_value_map_text(
+                        &field,
+                        *element_inner,
+                        result_ty,
+                        &self.render_scope(),
+                    );
+                }
+                if element_ty == result_ty {
+                    return Ok(format!("Some({field})"));
+                }
+                Ok(format!(
+                    "Some({})",
+                    self.value_at_type_text(&field, element_ty, result_ty, &self.render_scope())?
+                ))
+            }
             _ => Ok("None".to_owned()),
         }
     }

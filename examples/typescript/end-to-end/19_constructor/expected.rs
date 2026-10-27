@@ -67,23 +67,23 @@ fn smelt_string_to_number(text: &str) -> f64 {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-struct Box {
+struct Box_ {
     value: String,
 }
 
 // @smelt:prelude-end — generated program below
 
 fn main() {
-    let box_: Box;
-    let _smelt_tmp_1: Box = Box::new("ok".to_owned());
+    let box_: Box_;
+    let _smelt_tmp_1: Box_ = Box_::new("ok".to_owned());
     box_ = _smelt_tmp_1;
     let _ = { println!("{}", box_.value.clone()); };
     return;
 }
 
-impl Box {
+impl Box_ {
     fn new(value: String) -> Self {
-    let mut this: Self = Box { value: String::new() };
+    let mut this: Self = Box_ { value: String::new() };
     this.value = value.clone();
     return this;
     }

@@ -2092,6 +2092,12 @@ impl ModuleBuilder<'_> {
             ));
         };
         let operand = self.argument(arg, body)?;
+        // `String(x)` spells an absent `null` as `"null"` (`lowering::null_absent`).
+        let operand = if op == PrimitiveCastOp::ToString {
+            self.null_absent_string_operand(operand, arg.span().start, arg.span().end, body)
+        } else {
+            operand
+        };
         let operand_ty = Self::expr_ty(body, operand);
         let operand_type = self.ctx.krate.types.get(operand_ty);
         if !self.primitive_cast_accepts_operand(op, operand_ty) {

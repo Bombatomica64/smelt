@@ -53,46 +53,48 @@ async fn run (FuncId(0)) -> None
     %50 temp: Response
     %51 temp: Headers
     %52 temp: Optional<String>
-    %53 temp: None
-    %54 temp: FormData
-    %55 temp: None
+    %53 temp: String
+    %54 temp: None
+    %55 temp: FormData
     %56 temp: None
-    %57 temp: Request
-    %58 temp: Future<FormData>
-    %59 temp: FormData
-    %60 temp: Optional<String | File>
+    %57 temp: None
+    %58 temp: Request
+    %59 temp: Future<FormData>
+    %60 temp: FormData
     %61 temp: Optional<String | File>
-    %62 temp: None
-    %63 temp: Request
-    %64 temp: Headers
-    %65 temp: Optional<String>
-    %66 temp: String
+    %62 temp: Optional<String | File>
+    %63 temp: None
+    %64 temp: Request
+    %65 temp: Headers
+    %66 temp: Optional<String>
     %67 temp: String
     %68 temp: String
-    %69 temp: Bool
-    %70 temp: None
-    %71 temp: List<String>
-    %72 temp: Blob
-    %73 temp: Response
-    %74 temp: Headers
-    %75 temp: Optional<String>
-    %76 temp: None
-    %77 temp: Response
-    %78 temp: Future<Uint8Array>
-    %79 temp: Uint8Array
-    %80 temp: Float
-    %81 temp: None
-    %82 temp: Request
-    %83 temp: Future<ArrayBuffer>
-    %84 temp: ArrayBuffer
-    %85 temp: Float
-    %86 temp: None
-    %87 temp: Request
-    %88 temp: Future<Uint8Array>
-    %89 temp: Uint8Array
-    %90 temp: Float
-    %91 temp: Bool
-    %92 temp: None
+    %69 temp: String
+    %70 temp: Bool
+    %71 temp: None
+    %72 temp: List<String>
+    %73 temp: Blob
+    %74 temp: Response
+    %75 temp: Headers
+    %76 temp: Optional<String>
+    %77 temp: String
+    %78 temp: None
+    %79 temp: Response
+    %80 temp: Future<Uint8Array>
+    %81 temp: Uint8Array
+    %82 temp: Float
+    %83 temp: None
+    %84 temp: Request
+    %85 temp: Future<ArrayBuffer>
+    %86 temp: ArrayBuffer
+    %87 temp: Float
+    %88 temp: None
+    %89 temp: Request
+    %90 temp: Future<Uint8Array>
+    %91 temp: Uint8Array
+    %92 temp: Float
+    %93 temp: Bool
+    %94 temp: None
   bb0:
     %13 = typed_array_new ArrayBuffer 4.0
     %0 = move %13
@@ -150,59 +152,61 @@ async fn run (FuncId(0)) -> None
     %50 = response_new body=move %5
     %51 = response_headers move %50
     %52 = headers_get move %51, "content-type"
-    %53 = call @console_log(move %52) -> bb7
+    %53 = move %52 ?? "null"
+    %54 = call @console_log(move %53) -> bb7
   bb7:
-    %54 = form_data_new
-    %6 = move %54
-    %55 = form_data_append copy %6, "name", "smelt"
-    %56 = form_data_append copy %6, "kind", "codec"
-    %57 = request_new input="https://a.test" method="POST" body=copy %6
-    %58 = request_form_data move %57
-    %59 = await move %58
-    %7 = move %59
-    %60 = form_data_get copy %7, "name"
-    %61 = form_data_get move %7, "kind"
-    %62 = call @console_log(move %60, move %61) -> bb8
+    %55 = form_data_new
+    %6 = move %55
+    %56 = form_data_append copy %6, "name", "smelt"
+    %57 = form_data_append copy %6, "kind", "codec"
+    %58 = request_new input="https://a.test" method="POST" body=copy %6
+    %59 = request_form_data move %58
+    %60 = await move %59
+    %7 = move %60
+    %61 = form_data_get copy %7, "name"
+    %62 = form_data_get move %7, "kind"
+    %63 = call @console_log(move %61, move %62) -> bb8
   bb8:
-    %63 = request_new input="https://a.test" method="POST" body=move %6
-    %64 = request_headers move %63
-    %65 = headers_get move %64, "content-type"
-    %66 = move %65 ?? ""
-    %8 = move %66
-    %67 = copy %8
-    %68 = "multipart/form-data; boundary="
-    %69 = string_starts_with move %8, move %68
-    %70 = call @console_log(move %69) -> bb9
+    %64 = request_new input="https://a.test" method="POST" body=move %6
+    %65 = request_headers move %64
+    %66 = headers_get move %65, "content-type"
+    %67 = move %66 ?? ""
+    %8 = move %67
+    %68 = copy %8
+    %69 = "multipart/form-data; boundary="
+    %70 = string_starts_with move %8, move %69
+    %71 = call @console_log(move %70) -> bb9
   bb9:
-    %71 = ["hi"]
-    %72 = blob_from_parts move %71, "text/plain", none, none
-    %9 = move %72
-    %73 = response_new body=copy %9
-    %74 = response_headers move %73
-    %75 = headers_get move %74, "content-type"
-    %76 = call @console_log(move %75) -> bb10
+    %72 = ["hi"]
+    %73 = blob_from_parts move %72, "text/plain", none, none
+    %9 = move %73
+    %74 = response_new body=copy %9
+    %75 = response_headers move %74
+    %76 = headers_get move %75, "content-type"
+    %77 = move %76 ?? "null"
+    %78 = call @console_log(move %77) -> bb10
   bb10:
-    %77 = response_new body=move %9
-    %78 = response_bytes move %77
-    %79 = await move %78
-    %80 = byte_array_length move %79
-    %81 = call @console_log(move %80) -> bb11
+    %79 = response_new body=move %9
+    %80 = response_bytes move %79
+    %81 = await move %80
+    %82 = byte_array_length move %81
+    %83 = call @console_log(move %82) -> bb11
   bb11:
-    %82 = request_new input="https://a.test" method="POST" body=copy %1
-    %10 = move %82
-    %83 = request_array_buffer move %10
-    %84 = await move %83
-    %11 = move %84
-    %85 = byte_array_byte_length move %11
-    %86 = call @console_log(move %85, false) -> bb12
+    %84 = request_new input="https://a.test" method="POST" body=copy %1
+    %10 = move %84
+    %85 = request_array_buffer move %10
+    %86 = await move %85
+    %11 = move %86
+    %87 = byte_array_byte_length move %11
+    %88 = call @console_log(move %87, false) -> bb12
   bb12:
-    %87 = request_new input="https://a.test" method="POST" body=move %1
-    %12 = move %87
-    %88 = request_bytes copy %12
-    %89 = await move %88
-    %90 = byte_array_length move %89
-    %91 = request_body_used move %12
-    %92 = call @console_log(move %90, move %91) -> bb13
+    %89 = request_new input="https://a.test" method="POST" body=move %1
+    %12 = move %89
+    %90 = request_bytes copy %12
+    %91 = await move %90
+    %92 = byte_array_length move %91
+    %93 = request_body_used move %12
+    %94 = call @console_log(move %92, move %93) -> bb13
   bb13:
     return none
 

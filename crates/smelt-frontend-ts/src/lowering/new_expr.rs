@@ -2263,6 +2263,7 @@ impl ModuleBuilder<'_> {
                     lhs = self.peel_narrowing_cast_for_identity(body, lhs);
                     rhs = self.peel_narrowing_cast_for_identity(body, rhs);
                 }
+                (lhs, rhs) = self.null_absent_concat_operands(op, lhs, rhs, binary, body);
                 let lhs_ty = Self::expr_ty(body, lhs);
                 let rhs_ty = Self::expr_ty(body, rhs);
                 let ty = if op == BinOp::Add
@@ -3893,6 +3894,9 @@ impl ModuleBuilder<'_> {
 
         for (i, interp) in tpl.expressions.iter().enumerate() {
             let part = self.expression(interp, body)?;
+            // An interpolation is a string conversion; an absent `null` reads
+            // as `"null"` (`lowering::null_absent`).
+            let part = self.null_absent_string_operand(part, interp.span().start, interp.span().end, body);
             acc = body.push_expr(Expr {
                 kind: ExprKind::BinOp {
                     op: BinOp::Add,
@@ -4004,6 +4008,9 @@ impl ModuleBuilder<'_> {
         });
         for (i, interp) in tpl.expressions.iter().enumerate() {
             let part = self.expression(interp, body)?;
+            // An interpolation is a string conversion; an absent `null` reads
+            // as `"null"` (`lowering::null_absent`).
+            let part = self.null_absent_string_operand(part, interp.span().start, interp.span().end, body);
             acc = body.push_expr(Expr {
                 kind: ExprKind::BinOp {
                     op: BinOp::Add,

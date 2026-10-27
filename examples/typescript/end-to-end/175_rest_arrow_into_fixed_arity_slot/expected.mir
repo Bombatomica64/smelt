@@ -57,7 +57,7 @@ fn direct (FuncId(1)) -> String
 fn __smelt_get_respond (FuncId(2)) -> Respond
   locals
     %0 param this: Ctx
-    %1 temp: fn(...List<String | Float>) -> String
+    %1 temp: fn(String, String | Float) -> String
   bb0:
     %1 = closure ClosureId(0) [copy %0]
     return move %1
@@ -115,13 +115,18 @@ fn main (FuncId(4)) -> None
 
 closure ClosureId(0) -> String
   locals
-    %0 param args: List<String | Float>
-    %1 user this: Ctx
-    %2 user __smelt_spread: List<String | Float>
-    %3 temp: String
+    %0 param args__0: String
+    %1 param args__1: String | Float
+    %2 user args: (String, String | Float)
+    %3 user this: Ctx
+    %4 user __smelt_spread: (String, String | Float)
+    %5 temp: (String, String | Float)
+    %6 temp: String
   bb0:
-    %2 = copy %0
-    %3 = call fn0(copy %1, copy %2[0], copy %2[1]) -> bb1
+    %5 = (copy %0, copy %1)
+    %2 = copy %5
+    %4 = copy %2
+    %6 = call fn0(copy %3, copy %4[0], copy %4[1]) -> bb1
   bb1:
-    return copy %3
+    return copy %6
 

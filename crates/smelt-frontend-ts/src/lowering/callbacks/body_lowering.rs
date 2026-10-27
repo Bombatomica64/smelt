@@ -1086,20 +1086,64 @@ impl ModuleBuilder<'_> {
             params.push(ty);
         }
         if let Some(rest) = &arrow.params.rest {
-            let BindingPattern::BindingIdentifier(_) = &rest.rest.argument else {
+            let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
                 return Err(SmeltError::unsupported(
                     self.span(rest.span.start, rest.span.end),
                     "destructured rest closure parameters need closure-body lowering",
                 ));
             };
-            let ty = rest
+            let rest_index = arrow.params.items.len();
+            // The rest parameter's type: its annotation; else the tuple of the
+            // contextual signature's remaining parameters when that signature
+            // has none of its own (TypeScript's rule, and the slot ABI the
+            // closure is adapted into); else the checker's type for the
+            // binding. A fixed-width tuple becomes fixed parameters
+            // (`lowering::tuple_rest`).
+            let annotated = rest
                 .type_annotation
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                .transpose()?
+                .transpose()?;
+            let contextual_tuple = contextual_function
+                .filter(|function| function.rest.is_none())
+                .map(|function| {
+                    let elements = function.params.get(rest_index..).unwrap_or_default().to_vec();
+                    self.ctx.krate.types.intern(Type::Tuple(elements))
+                });
+            // A tuple the SOURCE did not write is taken only when every element
+            // keeps a type: splitting an erased context (`(x: any, y: any) =>`)
+            // into one erased parameter per element types nothing and erases
+            // more values than the one list did.
+            let typed_tuple = |builder: &Self, ty: smelt_hir::TypeId| {
+                builder.fixed_tuple_rest_elements(ty).is_some_and(|elements| {
+                    elements.iter().all(|element| !builder.type_contains_unknown(*element))
+                })
+            };
+            let tuple_ty = match annotated {
+                Some(ty) => self.fixed_tuple_rest_elements(ty).map(|_| ty),
+                None => contextual_tuple
+                    .filter(|ty| typed_tuple(self, *ty))
+                    .or_else(|| {
+                        if contextual_function.is_some() {
+                            return None;
+                        }
+                        self.checker_binding_type(binding.span.start, binding.span.end)
+                            .filter(|ty| typed_tuple(self, *ty))
+                    }),
+            };
+            if let Some(tuple_ty) = tuple_ty
+                && let Some(elements) = self.fixed_tuple_rest_elements(tuple_ty)
+            {
+                self.tuple_rest_arrows
+                    .insert((arrow.params.span.start, arrow.params.span.end), tuple_ty);
+                params.extend(elements);
+                return Ok(params);
+            }
+            self.tuple_rest_arrows
+                .remove(&(arrow.params.span.start, arrow.params.span.end));
+            let ty = annotated
                 .or_else(|| {
                     contextual_function.map(|function| {
-                        let rest_index = arrow.params.items.len();
                         if function.rest == Some(rest_index)
                             && let Some(rest_ty) = function.params.get(rest_index)
                         {
@@ -1516,7 +1560,37 @@ impl ModuleBuilder<'_> {
             }
         }
 
-        if let Some(rest) = &params.rest {
+        let tuple_rest = self
+            .tuple_rest_arrows
+            .get(&(params.span.start, params.span.end))
+            .copied();
+        if let Some(rest) = &params.rest
+            && let Some(tuple_ty) = tuple_rest
+        {
+            // A fixed-width tuple rest: the trailing parameter types are its
+            // elements, bound as the tuple (`lowering::tuple_rest`).
+            let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
+                return Err(SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "destructured rest closure parameters need closure-body lowering",
+                ));
+            };
+            let elements = self.fixed_tuple_rest_elements(tuple_ty).unwrap_or_default();
+            let span = self.span(binding.span.start, binding.span.end);
+            let previous = self.scope.lookup(binding.name.as_str());
+            for param in
+                self.bind_tuple_rest_params(binding.name.as_str(), tuple_ty, &elements, span, &mut closure_body)
+            {
+                closure_params.push(Param {
+                    name: param.name,
+                    local: param.local,
+                    ty: param.ty,
+                    span,
+                });
+            }
+            param_names.insert(binding.name.as_str().to_owned());
+            saved_locals.push((binding.name.as_str().to_owned(), previous));
+        } else if let Some(rest) = &params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
                 return Err(SmeltError::unsupported(
                     self.span(rest.span.start, rest.span.end),
@@ -1780,7 +1854,11 @@ impl ModuleBuilder<'_> {
         lowering_result?;
         let may_throw = Self::body_contains_uncaught_throw(&closure_body);
         let body_id = self.ctx.krate.push_body(closure_body);
-        let rest_index = params.rest.as_ref().map(|_| params.items.len());
+        let rest_index = params
+            .rest
+            .as_ref()
+            .filter(|_| tuple_rest.is_none())
+            .map(|_| params.items.len());
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: param_tys.to_vec(),
             rest: rest_index,
@@ -2052,6 +2130,9 @@ impl ModuleBuilder<'_> {
                     ));
                 }
                 let span = self.span(arrow.span.start, arrow.span.end);
+                let tuple_rest = self
+                    .tuple_rest_arrows
+                    .contains_key(&(arrow.params.span.start, arrow.params.span.end));
                 let rest = arrow
                     .params
                     .rest
@@ -2061,7 +2142,8 @@ impl ModuleBuilder<'_> {
                         contextual_function
                             .as_ref()
                             .and_then(|function| function.rest)
-                    });
+                    })
+                    .filter(|_| !tuple_rest);
                 // The callback tree classified into the compact side-effect-free
                 // expression IR, but the compact IR only lowers a bounded method
                 // table (`.map`/`.at`/`Set.has`/...). A statically-resolvable

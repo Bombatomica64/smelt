@@ -996,6 +996,23 @@ impl ModuleBuilder<'_> {
             _ => value,
         };
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        // An optional whose type admits only `null` is never `undefined`, so a
+        // strict test against `undefined` is decided by the type, as it is in
+        // JavaScript; the storage cannot tell the two apart
+        // (`lowering::null_absent`).
+        if is_strict
+            && is_undefined_comparison
+            && matches!(self.ctx.krate.types.get(Self::expr_ty(body, value)), Some(Type::Optional(_)))
+            && self.checker_absent_is_null(value_expr.span().start, value_expr.span().end)
+        {
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(
+                    binary.operator == BinaryOperator::StrictInequality,
+                )),
+                ty: bool_ty,
+                span: self.span(binary.span.start, binary.span.end),
+            })));
+        }
         if self.ctx.krate.types.get(Self::expr_ty(body, value)) != Some(&Type::Unknown) {
             let none = body.push_expr(Expr {
                 kind: ExprKind::Literal(if is_undefined_comparison {
@@ -1164,6 +1181,17 @@ impl ModuleBuilder<'_> {
             self.ctx.krate.types.get(Self::expr_ty(body, value)),
             Some(Type::List(_))
         ) && matches!(self.ctx.krate.types.get(target), Some(Type::Tuple(_)))
+        {
+            return Ok(value);
+        }
+        // The mirror: a tuple asserted to a list type (a tuple rest parameter
+        // spread through `args as Parameters<F>`, see `lowering::tuple_rest`)
+        // is still the same fixed-width array, and keeping the tuple keeps
+        // every element's own type.
+        if matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, value)),
+            Some(Type::Tuple(_))
+        ) && matches!(self.ctx.krate.types.get(target), Some(Type::List(_)))
         {
             return Ok(value);
         }

@@ -1246,18 +1246,25 @@ export function pick(
 ",
     );
 
+    // The requirement: an omitted field reads its default (or stays absent)
+    // instead of panicking. The bag's value type used to be the erasing union
+    // `Optional<Bool> | Optional<Float>` and read through `.unwrap_or(..)` on
+    // the erased record; it is now the flat `Optional<Bool | Float>`, so each
+    // read is a typed `Option` lookup that collapses the missing key and the
+    // absent value into one `None` before the default applies.
     assert!(
-        source.contains(".get(&\"leading\".to_owned()).unwrap_or("),
+        source.contains(".get(&\"leading\".to_owned()).flatten()"),
         "{source}"
     );
     assert!(
-        source.contains(".get(&\"trailing\".to_owned()).unwrap_or("),
+        source.contains(".get(&\"trailing\".to_owned()).flatten()"),
         "{source}"
     );
     assert!(
-        source.contains(".get(&\"maxWait\".to_owned()).unwrap_or("),
+        source.contains(".get(&\"maxWait\".to_owned()).flatten()"),
         "{source}"
     );
+    assert!(source.contains("map_or_else(|| "), "{source}");
     assert!(!source.contains("expect(\"missing field\")"), "{source}");
 }
 
@@ -1459,7 +1466,8 @@ const withArg = new StringBox("value");
     );
 
     assert!(source.contains("fn new(value: String) -> Self"), "{source}");
-    assert!(source.contains("Self::__smelt_init_Box(this, "), "{source}");
+    // `Box` is renamed `Box_` so it does not shadow Rust's `Box`.
+    assert!(source.contains("Self::__smelt_init_Box_(this, "), "{source}");
     assert!(!source.contains("_smelt_super_arg"), "{source}");
 }
 
@@ -13336,10 +13344,11 @@ def read(o: Ok) -> int:
         "a property read must emit the getter call, not a field access:\n{source}"
     );
     let struct_body = source
-        .split("struct Ok {")
+        // `Ok` is renamed `Ok_` so it does not shadow Rust's `Ok`.
+        .split("struct Ok_ {")
         .nth(1)
         .and_then(|rest| rest.split('}').next())
-        .unwrap_or_else(|| panic!("expected a generated `struct Ok`:\n{source}"));
+        .unwrap_or_else(|| panic!("expected a generated `struct Ok_`:\n{source}"));
     assert!(
         !struct_body.contains("ok_value"),
         "a property is computed, so it must not also become a struct field:\n{source}"

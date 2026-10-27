@@ -1,0 +1,215 @@
+module examples/typescript/end-to-end/176_rest_methods_spreads_and_null_absence/input.ts (ModuleId(0))
+  body BodyId(8)
+  items
+    class Bag fields [Public items: List<Float>] constructor Some(ItemId(6)) methods [ItemId(2), ItemId(3), ItemId(5)] implements []
+    interface Label fields [Public __smelt_call: fn(String, Optional<String>) -> String] methods []
+    interface Entry fields [Public key: String, Public value: Optional<String>] methods []
+    fn show owner Module
+    fn describe owner Module
+  locals
+    %0 const bag: Bag
+    %1 const extra: List<Float>
+    %2 const one: (String)
+    %3 const named: List<String>
+    %4 const label: Label
+    %5 const __smelt_spread: (String)
+    %6 const __smelt_spread: (String)
+    %7 const __smelt_spread: List<String>
+    %8 const __smelt_spread: List<String>
+    %9 let pending: Optional<String>
+  exprs
+    #0: Bag = new Bag()
+    #1: Float = 4.0
+    #2: Float = 5.0
+    #3: List<Float> = [#1, #2]
+    #4: Bag = %0
+    #5: fn(...List<Float | String | Bool>) -> Float = #4.count
+    #6: Bag = %0
+    #7: List<Float | String | Bool> = []
+    #8: Float = #6.count(#7)
+    #9: Bag = %0
+    #10: fn(...List<Float | String | Bool>) -> Float = #9.count
+    #11: Bag = %0
+    #12: Float = 1.0
+    #13: String = "a"
+    #14: Bool = true
+    #15: List<Float | String | Bool> = [#12, #13, #14]
+    #16: Float = #11.count(#15)
+    #17: Bag = %0
+    #18: fn(Float, ...List<Float>) -> Float = #17.add
+    #19: Bag = %0
+    #20: Float = 1.0
+    #21: List<Float> = []
+    #22: Float = #19.add(#20, #21)
+    #23: Bag = %0
+    #24: fn(Float, ...List<Float>) -> Float = #23.add
+    #25: Bag = %0
+    #26: Float = 2.0
+    #27: Float = 3.0
+    #28: List<Float> = [#27]
+    #29: Float = #25.add(#26, #28)
+    #30: Bag = %0
+    #31: fn(Float, ...List<Float>) -> Float = #30.add
+    #32: Bag = %0
+    #33: List<Float> = %1
+    #34: Float = 6.0
+    #35: List<Float> = %1
+    #36: Float = #32.add(#34, #35)
+    #37: None = @10(console_log)
+    #38: None = call #37(#8, #16, #22, #29, #36)
+    #39: String = "-"
+    #40: String = "a"
+    #41: String = "b"
+    #42: String = "c"
+    #43: List<String> = [#40, #41, #42]
+    #44: fn(String, ...List<String>) -> String = @4(join)
+    #45: String = call #44(#39, #43)
+    #46: String = "+"
+    #47: List<String> = []
+    #48: fn(String, ...List<String>) -> String = @4(join)
+    #49: String = call #48(#46, #47)
+    #50: String = "x"
+    #51: String = "y"
+    #52: List<String> = [#50, #51]
+    #53: String = "/"
+    #54: String = string_join #52, #53
+    #55: None = @11(console_log)
+    #56: None = call #55(#45, #49, #54)
+    #57: String = "a"
+    #58: (String) = (#57)
+    #59: String = "b"
+    #60: List<String> = [#59]
+    #61: Bag = %0
+    #62: Label = #61.label
+    #63: Label = %4
+    #64: fn(String, Optional<String>) -> String = assert_type #63
+    #65: (String) = %2
+    #66: (String) = %5
+    #67: Int = 0
+    #68: String = #66[#67]
+    #69: String = closure_call #64(#68)
+    #70: Bag = %0
+    #71: Label = #70.label
+    #72: Bag = %0
+    #73: (String) = %2
+    #74: (String) = %6
+    #75: Int = 0
+    #76: String = #74[#75]
+    #77: fn(String, Optional<String>) -> String = assert_type #71
+    #78: String = closure_call #77(#76)
+    #79: Label = %4
+    #80: fn(String, Optional<String>) -> String = assert_type #79
+    #81: List<String> = %3
+    #82: List<String> = %3
+    #83: List<String> = %7
+    #84: Int = 0
+    #85: String = #83[#84]
+    #86: List<String> = %7
+    #87: Int = 1
+    #88: String = #86[#87]
+    #89: String = closure_call #80(#85, #88)
+    #90: Bag = %0
+    #91: Label = #90.label
+    #92: Bag = %0
+    #93: List<String> = %3
+    #94: List<String> = %3
+    #95: List<String> = %8
+    #96: Int = 0
+    #97: String = #95[#96]
+    #98: List<String> = %8
+    #99: Int = 1
+    #100: String = #98[#99]
+    #101: fn(String, Optional<String>) -> String = assert_type #91
+    #102: String = closure_call #101(#97, #100)
+    #103: None = @12(console_log)
+    #104: None = call #103(#69, #78, #89, #102)
+    #105: None = none
+    #106: String = "key"
+    #107: String = "a"
+    #108: String = "value"
+    #109: None = none
+    #110: Entry = {#106: #107, #108: #109}
+    #111: fn(Entry) -> String = @0(show)
+    #112: String = call #111(#110)
+    #113: String = "key"
+    #114: String = "b"
+    #115: String = "value"
+    #116: String = "x"
+    #117: Entry = {#113: #114, #115: #116}
+    #118: fn(Entry) -> String = @0(show)
+    #119: String = call #118(#117)
+    #120: None = @13(console_log)
+    #121: None = call #120(#112, #119)
+    #122: None = none
+    #123: fn(Optional<String>) -> String = @1(describe)
+    #124: String = call #123(#122)
+    #125: String = "y"
+    #126: fn(Optional<String>) -> String = @1(describe)
+    #127: String = call #126(#125)
+    #128: Optional<String> = %9
+    #129: String = "null"
+    #130: String = #128 ?? #129
+    #131: String = "key"
+    #132: String = "c"
+    #133: String = "value"
+    #134: None = none
+    #135: Entry = {#131: #132, #133: #134}
+    #136: String = json_stringify #135
+    #137: None = @14(console_log)
+    #138: None = call #137(#124, #127, #130, #136)
+    #139: Optional<String> = %9
+    #140: String = "done"
+    #141: String = %9
+    #142: Headers = headers_new
+    #143: Headers = headers_new
+    #144: String = "missing"
+    #145: Optional<String> = headers_get #143, #144
+    #146: String = "null"
+    #147: String = #145 ?? #146
+    #148: None = @15(console_log)
+    #149: None = call #148(#141, #147)
+  stmts
+    s0: let %0: Bag = #0
+    s1: let %1: List<Float> = #3
+    s2: #38
+    s3: #56
+    s4: let %2: (String) = #58
+    s5: let %3: List<String> = #60
+    s6: let %4: Label = #62
+    s7: let %5: (String) = #65
+    s8: let %6: (String) = #73
+    s9: let %7: List<String> = #82
+    s10: let %8: List<String> = #94
+    s11: #104
+    s12: let %9: Optional<String> = #105
+    s13: #121
+    s14: #138
+    s15: #139 = #140
+    s16: #149
+
+interned types
+  t0 = Bag
+  t1 = Float
+  t2 = List<Float>
+  t3 = String
+  t4 = (String)
+  t5 = List<String>
+  t6 = Label
+  t7 = None
+  t8 = Optional<String>
+  t9 = Entry
+  t10 = fn(Entry) -> String
+  t11 = fn(Optional<String>) -> String
+  t12 = Bool
+  t13 = Float | String | Bool
+  t14 = List<Float | String | Bool>
+  t15 = fn(String, Optional<String>) -> String
+  t16 = Unknown
+  t17 = fn(String, Optional<String>) -> String
+  t18 = fn(...List<Float | String | Bool>) -> Float
+  t19 = fn(Float, ...List<Float>) -> Float
+  t20 = fn(String, ...List<String>) -> String
+  t21 = Int
+  t22 = fn(Entry) -> String
+  t23 = fn(Optional<String>) -> String
+  t24 = Headers

@@ -188,12 +188,25 @@ impl ModuleBuilder<'_> {
             .iter()
             .position(|param| param.optional || Self::formal_parameter_has_default(param))
             .unwrap_or(method.value.params.items.len());
-        let rest = method
-            .value
-            .params
-            .rest
-            .as_ref()
-            .map(|_| params.len().saturating_sub(1));
+        // The rest parameter is the LAST entry of `params`, at index
+        // `items.len()`, as in every other function type. It used to be left
+        // out, with `rest` pointing at the last FIXED parameter, so a method
+        // `f(...args: T[])` had no slot for its list.
+        let rest = match method.value.params.rest.as_ref() {
+            Some(rest) => {
+                let declared = rest
+                    .type_annotation
+                    .as_ref()
+                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                    .transpose()?
+                    .unwrap_or_else(|| {
+                        let item = self.erase(ErasureReason::MissingAnnotation);
+                        self.ctx.krate.types.intern(Type::List(item))
+                    });
+                self.push_rest_param_type(&mut params, declared)?
+            }
+            None => None,
+        };
         Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
             rest,
@@ -479,6 +492,22 @@ impl ModuleBuilder<'_> {
                     return Err(error);
                 }
             };
+            // A fixed-width tuple rest is fixed parameters plus a tuple binding
+            // of them (`lowering::tuple_rest`).
+            if let Some(elements) = self.fixed_tuple_rest_elements(ty) {
+                let span = self.span(binding.span.start, binding.span.end);
+                for param in
+                    self.bind_tuple_rest_params(binding.name.as_str(), ty, &elements, span, &mut body)
+                {
+                    params.push(Param {
+                        name: param.name,
+                        local: param.local,
+                        ty: param.ty,
+                        span,
+                    });
+                }
+                None
+            } else {
             let Ok((ty, item_ty)) = self.rest_param_array_type(ty) else {
                 self.scope.restore_bindings(saved_locals);
                 self.scope.restore_date_values(saved_date_value_locals);
@@ -511,6 +540,7 @@ impl ModuleBuilder<'_> {
                 span: self.span(binding.span.start, binding.span.end),
             });
             Some(RestParam { index, item_ty })
+            }
         } else {
             None
         };
@@ -3326,10 +3356,45 @@ impl ModuleBuilder<'_> {
             };
             params.push(ParamSig { name, ty, span });
         }
+        // The rest parameter is the last signature parameter, as it is in the
+        // method's own item.
+        let rest = match method.value.params.rest.as_ref() {
+            Some(rest) => {
+                let declared = rest
+                    .type_annotation
+                    .as_ref()
+                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                    .transpose()?
+                    .unwrap_or_else(|| {
+                        let item = self.erase(ErasureReason::MissingAnnotation);
+                        self.ctx.krate.types.intern(Type::List(item))
+                    });
+                let name_text = match &rest.rest.argument {
+                    BindingPattern::BindingIdentifier(binding) => binding.name.as_str().to_owned(),
+                    _ => "__rest".to_owned(),
+                };
+                let span = self.span(rest.span.start, rest.span.end);
+                // A fixed-width tuple rest is fixed parameters, named as the
+                // method body names them (`lowering::tuple_rest`).
+                if let Some(elements) = self.fixed_tuple_rest_elements(declared) {
+                    for (index, ty) in elements.into_iter().enumerate() {
+                        let name = self.intern_source_name(&format!("{name_text}__{index}"));
+                        params.push(ParamSig { name, ty, span });
+                    }
+                    None
+                } else {
+                    let (ty, _) = self.rest_param_array_type(declared)?;
+                    let name = self.intern_source_name(&name_text);
+                    params.push(ParamSig { name, ty, span });
+                    Some(params.len() - 1)
+                }
+            }
+            None => None,
+        };
         let sig = MethodSig {
             name: self.property_key_symbol(&method.key)?,
             params,
-            rest: None,
+            rest,
             required_params: None,
             return_ty,
             visibility: visibility(method.accessibility),
@@ -3653,6 +3718,98 @@ impl ModuleBuilder<'_> {
                 ));
             }
         }
+        // A rest parameter binds the list of the remaining arguments, exactly as
+        // in `function_declaration_named`. Methods used to skip it, so every
+        // read of the rest name in the body was an unresolved identifier.
+        let rest = match method.value.params.rest.as_ref() {
+            Some(rest) => {
+                let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
+                    self.scope.restore_bindings(saved_locals);
+                    self.current_class = saved_class;
+                    self.current_async = saved_async;
+                    self.current_return_ty = saved_return_ty;
+                    self.current_generator_yields = saved_generator_yields;
+                    self.pop_type_parameter_scope();
+                    return Err(SmeltError::unsupported(
+                        self.span(rest.span.start, rest.span.end),
+                        "destructured rest parameters need rest binding lowering",
+                    ));
+                };
+                let declared = match rest
+                    .type_annotation
+                    .as_ref()
+                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                    .transpose()
+                {
+                    Ok(Some(declared)) => declared,
+                    Ok(None) => {
+                        let item = self.erase(ErasureReason::MissingAnnotation);
+                        self.ctx.krate.types.intern(Type::List(item))
+                    }
+                    Err(error) => {
+                        self.scope.restore_bindings(saved_locals);
+                        self.current_class = saved_class;
+                        self.current_async = saved_async;
+                        self.current_return_ty = saved_return_ty;
+                        self.current_generator_yields = saved_generator_yields;
+                        self.pop_type_parameter_scope();
+                        return Err(error);
+                    }
+                };
+                // A fixed-width tuple rest is fixed parameters plus a tuple
+                // binding of them (`lowering::tuple_rest`).
+                if let Some(elements) = self.fixed_tuple_rest_elements(declared) {
+                    let span = self.span(binding.span.start, binding.span.end);
+                    for param in self.bind_tuple_rest_params(
+                        binding.name.as_str(),
+                        declared,
+                        &elements,
+                        span,
+                        &mut body,
+                    ) {
+                        params.push(Param {
+                            name: param.name,
+                            local: param.local,
+                            ty: param.ty,
+                            span,
+                        });
+                    }
+                    None
+                } else {
+                let (ty, item_ty) = match self.rest_param_array_type(declared) {
+                    Ok(pair) => pair,
+                    Err(error) => {
+                        self.scope.restore_bindings(saved_locals);
+                        self.current_class = saved_class;
+                        self.current_async = saved_async;
+                        self.current_return_ty = saved_return_ty;
+                        self.current_generator_yields = saved_generator_yields;
+                        self.pop_type_parameter_scope();
+                        return Err(error);
+                    }
+                };
+                let param_name = self.intern_source_name(binding.name.as_str());
+                let span = self.span(binding.span.start, binding.span.end);
+                let local = body.push_local(LocalDecl {
+                    name: Some(param_name),
+                    ty,
+                    mutable: false,
+                    span,
+                });
+                body.params.push(local);
+                self.scope.bind(binding.name.to_string(), local);
+                let index = params.len();
+                params.push(Param {
+                    name: param_name,
+                    local,
+                    ty,
+                    span,
+                });
+                Some(RestParam { index, item_ty })
+                }
+            }
+            None => None,
+        };
         // A DERIVED constructor initializes its own fields and parameter
         // properties when `super(...)` returns, not on entry: JavaScript runs the
         // base constructor over the instance first, so a field the derived class
@@ -3784,7 +3941,7 @@ impl ModuleBuilder<'_> {
             // so calls can still tell them apart from the caller's.
             type_params: Vec::new(),
             params,
-            rest: None,
+            rest: rest.map(|rest| rest.index),
             required_params: None,
             return_ty,
             is_async: method.value.r#async,

@@ -197,10 +197,25 @@ pub fn sanitize_identifier(name: &str) -> String {
         }
     }
 
-    if out.is_empty() || is_rust_keyword(&out) {
+    if out.is_empty() || is_rust_keyword(&out) || is_rust_prelude_name(&out) {
         out.push('_');
     }
     out
+}
+
+/// Returns true when the identifier names an item of Rust's prelude that the
+/// generated runtime spells unqualified.
+///
+/// A source class named `Box` or `Vec` is legal TypeScript, but declaring
+/// `struct Box` shadows `std::boxed::Box` for the whole crate, and every
+/// prelude line that writes `Box<dyn ..>` then refers to the user's struct
+/// (E0107). Renaming the source item the way a keyword is renamed keeps both:
+/// the declaration and every reference go through this function.
+fn is_rust_prelude_name(name: &str) -> bool {
+    matches!(
+        name,
+        "Box" | "Vec" | "Option" | "Result" | "String" | "Some" | "None" | "Ok" | "Err"
+    )
 }
 
 /// Returns true when the identifier is reserved by Rust.
