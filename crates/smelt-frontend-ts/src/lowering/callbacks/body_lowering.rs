@@ -1105,10 +1105,18 @@ impl ModuleBuilder<'_> {
                         {
                             return *rest_ty;
                         }
+                        // The element type is the union of the remaining
+                        // parameters' types, FLAT: a parameter that is itself
+                        // a union (`detail: number | string`) contributes its
+                        // arms, as TypeScript's unions are flat. A nested
+                        // union cannot be a concrete Rust enum, so leaving it
+                        // nested erased the whole rest list.
                         let mut item_tys = Vec::new();
                         for param_ty in function.params.iter().skip(rest_index).copied() {
-                            if !item_tys.contains(&param_ty) {
-                                item_tys.push(param_ty);
+                            for arm in self.flatten_union_member_types(param_ty) {
+                                if !item_tys.contains(&arm) {
+                                    item_tys.push(arm);
+                                }
                             }
                         }
                         let item_ty = match item_tys.as_slice() {

@@ -144,6 +144,12 @@ impl Rvalue {
                     visit(init);
                 }
             }
+            Self::UrlOp { url, args, .. } => {
+                visit(url);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::UrlSearchParamsOp { params, args, .. } => {
                 visit(params);
                 for arg in args {
@@ -1088,6 +1094,12 @@ impl Rvalue {
             Self::UrlSearchParamsNew { init } => {
                 if let Some(init) = init {
                     visit(init);
+                }
+            }
+            Self::UrlOp { url, args, .. } => {
+                visit(url);
+                for arg in args.iter_mut() {
+                    visit(arg);
                 }
             }
             Self::UrlSearchParamsOp { params, args, .. } => {

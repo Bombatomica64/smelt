@@ -557,8 +557,14 @@ const cleanedByLiteral = "a  b".replace(/\s+/, "-");
     );
     assert!(ts_source.contains("chrono::Utc::now().timestamp_millis()"));
     assert!(ts_source.contains(".to_iso_string()"));
+    // A `URL` is the modeled `SmeltUrl`, parsed by the `url` crate, and its
+    // `host` getter is the WHATWG accessor (`url::quirks::host`), which keeps
+    // a non-default port: `example.com:8443`. The hand-written `host:port`
+    // formatting this used to assert is now the crate's.
     assert!(ts_source.contains("url::Url::parse"));
-    assert!(ts_source.contains("format!(\"{}:{}\", host, port)"));
+    assert!(ts_source.contains("smelt_url_new_throwing("));
+    assert!(ts_source.contains(".host()"));
+    assert!(ts_source.contains("::url::quirks::host("));
     assert!(ts_source.contains("replace_all"));
 
     let py_source = source_for_py(

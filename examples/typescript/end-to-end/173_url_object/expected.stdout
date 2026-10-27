@@ -1,0 +1,16 @@
+https://user:pw@example.com:8080/a/b/?x=1&y=2#frag
+https://example.com:8080 https: user pw
+example.com:8080 example.com 8080 /a/b/ ?x=1&y=2 #frag
+https://user:pw@example.com:8080/moved?x=1&y=2
+?y=2&z=3 2
+hello world false
+http://user:pw@example.com/moved?q=hello+world
+{"location":"http://user:pw@example.com/moved?q=hello+world"}
+https://example.com/the/endpoint?k=v
+/dir/
+https://example.com/a/c?d=1
+/a/c
+https://example.com/a/c?d=1
+https://example.com/a/c?d=1
+TypeError Invalid URL
+true /moved

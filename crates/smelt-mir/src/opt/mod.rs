@@ -670,6 +670,13 @@ fn rewrite_rvalue(
             }
             rewritten
         }
+        Rvalue::UrlOp { url, args, .. } => {
+            let mut rewritten = rewrite_operand_except(url, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
         Rvalue::UrlSearchParamsOp { params, args, .. } => {
             let mut rewritten = rewrite_operand_except(params, aliases, dest);
             for arg in args {

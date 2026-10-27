@@ -1,0 +1,239 @@
+fn trim_trailing_slash (FuncId(0)) -> String throws
+  locals
+    %0 param input: String
+    %1 user url: URL
+    %2 temp: URL
+    %3 temp: String
+    %4 temp: String
+    %5 temp: Float
+    %6 temp: Float
+    %7 temp: String
+    %8 temp: String
+    %9 temp: String
+  bb0:
+    %2 = call @url_new(copy %0) -> bb1
+  bb1:
+    %1 = move %2
+    %3 = url_Get(Pathname) copy %1
+    %4 = url_Get(Pathname) copy %1
+    %5 = len move %4
+    %6 = move %5 - 1.0
+    %7 = string_slice move %3, 0.0, move %6
+    %8 = url_Set(Pathname) copy %1, move %7
+    %9 = url_Get(Href) move %1
+    return move %9
+
+fn append_slash (FuncId(1)) -> URL
+  locals
+    %0 param url: URL
+    %1 temp: String
+    %2 temp: String
+    %3 temp: String
+  bb0:
+    %1 = url_Get(Pathname) copy %0
+    %2 = move %1 + "/"
+    %3 = url_Set(Pathname) copy %0, move %2
+    return copy %0
+
+fn move_through_alias (FuncId(2)) -> None
+  locals
+    %0 param target: URL
+    %1 user alias: URL
+    %2 temp: String
+    %3 temp: String
+  bb0:
+    %1 = copy %0
+    %2 = url_Set(Pathname) copy %0, "/moved"
+    %3 = url_Set(Hash) copy %0, ""
+    return none
+
+fn main (FuncId(3)) -> None throws
+  locals
+    %0 user url: URL
+    %1 user relative: URL
+    %2 user error: Unknown
+    %3 user error: Unknown
+    %4 temp: URL
+    %5 temp: String
+    %6 temp: None
+    %7 temp: String
+    %8 temp: String
+    %9 temp: String
+    %10 temp: String
+    %11 temp: None
+    %12 temp: String
+    %13 temp: String
+    %14 temp: String
+    %15 temp: String
+    %16 temp: String
+    %17 temp: String
+    %18 temp: None
+    %19 temp: None
+    %20 temp: String
+    %21 temp: None
+    %22 temp: URLSearchParams
+    %23 temp: None
+    %24 temp: URLSearchParams
+    %25 temp: None
+    %26 temp: String
+    %27 temp: URLSearchParams
+    %28 temp: Optional<String>
+    %29 temp: None
+    %30 temp: String
+    %31 temp: URLSearchParams
+    %32 temp: Optional<String>
+    %33 temp: URLSearchParams
+    %34 temp: Bool
+    %35 temp: None
+    %36 temp: String
+    %37 temp: String
+    %38 temp: String
+    %39 temp: None
+    %40 temp: String
+    %41 temp: Dict<String, String>
+    %42 temp: String
+    %43 temp: None
+    %44 temp: String
+    %45 temp: None
+    %46 temp: URL
+    %47 temp: URL
+    %48 temp: String
+    %49 temp: None
+    %50 temp: URL
+    %51 temp: String
+    %52 temp: None
+    %53 temp: String
+    %54 temp: URL
+    %55 temp: String
+    %56 temp: None
+    %57 temp: String
+    %58 temp: Request
+    %59 temp: String
+    %60 temp: None
+    %61 temp: String
+    %62 temp: None
+    %63 temp: URL
+    %64 temp: None
+    %65 temp: Bool
+    %66 temp: None
+    %67 temp: String
+    %68 temp: None
+    %69 temp: Bool
+    %70 temp: String
+    %71 temp: None
+  bb0:
+    %4 = call @url_new("https://user:pw@example.com:8080/a/b/?x=1&y=2#frag") -> bb1
+  bb1:
+    %0 = move %4
+    %5 = url_Get(Href) copy %0
+    %6 = call @console_log(move %5) -> bb2
+  bb2:
+    %7 = url_Get(Origin) copy %0
+    %8 = url_Get(Protocol) copy %0
+    %9 = url_Get(Username) copy %0
+    %10 = url_Get(Password) copy %0
+    %11 = call @console_log(move %7, move %8, move %9, move %10) -> bb3
+  bb3:
+    %12 = url_Get(Host) copy %0
+    %13 = url_Get(Hostname) copy %0
+    %14 = url_Get(Port) copy %0
+    %15 = url_Get(Pathname) copy %0
+    %16 = url_Get(Search) copy %0
+    %17 = url_Get(Hash) copy %0
+    %18 = call @console_log(move %12, move %13, move %14, move %15, move %16, move %17) -> bb4
+  bb4:
+    %19 = call fn2(copy %0) -> bb5
+  bb5:
+    %20 = url_Get(Href) copy %0
+    %21 = call @console_log(move %20) -> bb6
+  bb6:
+    %22 = url_SearchParams copy %0
+    %23 = url_search_params_append move %22, "z", "3"
+    %24 = url_SearchParams copy %0
+    %25 = url_search_params_delete move %24, "x"
+    %26 = url_Get(Search) copy %0
+    %27 = url_SearchParams copy %0
+    %28 = url_search_params_get move %27, "y"
+    %29 = call @console_log(move %26, move %28) -> bb7
+  bb7:
+    %30 = url_Set(Search) copy %0, "?q=hello+world"
+    %31 = url_SearchParams copy %0
+    %32 = url_search_params_get move %31, "q"
+    %33 = url_SearchParams copy %0
+    %34 = url_search_params_has move %33, "y"
+    %35 = call @console_log(move %32, move %34) -> bb8
+  bb8:
+    %36 = url_Set(Port) copy %0, "443"
+    %37 = url_Set(Protocol) copy %0, "http:"
+    %38 = url_Get(Href) copy %0
+    %39 = call @console_log(move %38) -> bb9
+  bb9:
+    %40 = url_Get(Href) copy %0
+    %41 = {"location": move %40}
+    %42 = json_stringify move %41
+    %43 = call @console_log(move %42) -> bb10
+  bb10:
+    %44 = call fn0("https://example.com/the/endpoint/?k=v") -> bb11
+  bb11:
+    %45 = call @console_log(move %44) -> bb12
+  bb12:
+    %46 = call @url_new("https://example.com/dir") -> bb13
+  bb13:
+    %47 = call fn1(move %46) -> bb14
+  bb14:
+    %48 = url_Get(Pathname) move %47
+    %49 = call @console_log(move %48) -> bb15
+  bb15:
+    %50 = call @url_new("../c?d=1", "https://example.com/a/b/") -> bb16
+  bb16:
+    %1 = move %50
+    %51 = url_Get(Href) copy %1
+    %52 = call @console_log(move %51) -> bb17
+  bb17:
+    %53 = url_Get(Href) copy %1
+    %54 = call @url_new(move %53) -> bb18
+  bb18:
+    %55 = url_Get(Pathname) move %54
+    %56 = call @console_log(move %55) -> bb19
+  bb19:
+    %57 = url_Get(Href) copy %1
+    %58 = request_new input=move %57
+    %59 = request_url move %58
+    %60 = call @console_log(move %59) -> bb20
+  bb20:
+    %61 = "" + move %1
+    %62 = call @console_log(move %61) -> bb21
+  bb21:
+    goto bb22
+  bb22:
+    %63 = call @url_new("not a url") -> bb25 unwind bb24
+  bb23:
+    goto bb30
+  bb24:
+    %65 = instanceof copy %2, class16
+    switch move %65 ? bb27 : bb28
+  bb25:
+    %64 = call @console_log("parsed") -> bb26 unwind bb24
+  bb26:
+    goto bb23
+  bb27:
+    %66 = call @console_log("TypeError", copy %2.field17) -> bb29
+  bb28:
+    goto bb23
+  bb29:
+    goto bb28
+  bb30:
+    %67 = call @url_set_href(copy %0, "::") -> bb33 unwind bb32
+  bb31:
+    return none
+  bb32:
+    %69 = instanceof move %3, class16
+    %70 = url_Get(Pathname) move %0
+    %71 = call @console_log(move %69, move %70) -> bb35
+  bb33:
+    %68 = call @console_log("assigned") -> bb34 unwind bb32
+  bb34:
+    goto bb31
+  bb35:
+    goto bb31
+

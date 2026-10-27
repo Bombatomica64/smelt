@@ -250,8 +250,7 @@ impl FunctionEmitter<'_> {
             if source_inner == target_inner {
                 return Ok(value_text);
             }
-            let mapped_value = self.value_at_type_text("value", *source_inner, *target_inner, scope)?;
-            return Ok(format!("{value_text}.map(|value| {mapped_value})"));
+            return self.optional_value_map_text(&value_text, *source_inner, *target_inner, scope);
         }
         if matches!(self.mir.types.get(target), Some(Type::Optional(_)))
             && matches!(
@@ -1334,8 +1333,7 @@ impl FunctionEmitter<'_> {
             if source_inner == target_inner {
                 return Ok(smelt_owned_value);
             }
-            let mapped_value = self.value_at_type_text("value", *source_inner, *target_inner, scope)?;
-            return Ok(format!("{smelt_owned_value}.map(|value| {mapped_value})"));
+            return self.optional_value_map_text(&smelt_owned_value, *source_inner, *target_inner, scope);
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(target)
             && matches!(
@@ -3676,6 +3674,42 @@ impl FunctionEmitter<'_> {
     /// would fabricate a bogus member and lose the `undefined`. Those must fall
     /// through to the nullish-guarded extraction so `null`/`undefined` become
     /// `None` (fixes remeda `truncate`'s `separator?: string | RegExp` default).
+    /// Convert an `Option<source>` to an `Option<target>` inner value by inner
+    /// value.
+    ///
+    /// A present ERASED value can itself be `null` or `undefined` (an element
+    /// read off an `unknown[]` holding `null`), and in JavaScript that value
+    /// is the absent case of a `T | null | undefined` slot. Mapping it through
+    /// the inner conversion instead made `null` the empty string and an
+    /// `undefined` record an empty record. So an erased source collapses its
+    /// nullish values to `None`, unless the target's inner type keeps the
+    /// erased singletons itself.
+    pub(super) fn optional_value_map_text(
+        &self,
+        value_text: &str,
+        source_inner: TypeId,
+        target_inner: TypeId,
+        scope: &RenderScope,
+    ) -> Result<String, EmitError> {
+        let mapped_value = self.value_at_type_text("value", source_inner, target_inner, scope)?;
+        if self.inner_holds_erased_nullish(source_inner)
+            && !self.optional_inner_preserves_erased_singletons(target_inner)
+        {
+            return Ok(format!(
+                "{value_text}.and_then(|value| match value {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, value => Some({mapped_value}) }})"
+            ));
+        }
+        Ok(format!("{value_text}.map(|value| {mapped_value})"))
+    }
+
+    /// Whether a value of `ty` is stored erased (`SmeltUnknown`), and so can be
+    /// a run-time `null` or `undefined`: `unknown`, an erased type parameter,
+    /// or a union kept on the dynamic carrier. A concrete `SmeltUnion…` enum
+    /// has no such arm.
+    fn inner_holds_erased_nullish(&self, ty: TypeId) -> bool {
+        self.concrete_union_members(ty).is_none() && self.has_dynamic_shape(ty)
+    }
+
     pub(super) fn optional_inner_preserves_erased_singletons(&self, inner: TypeId) -> bool {
         if self.concrete_union_members(inner).is_some() {
             return false;

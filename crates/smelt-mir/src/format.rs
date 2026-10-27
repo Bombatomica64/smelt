@@ -1203,6 +1203,17 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 format!("form_data_{op_name} {}, {args_text}", operand_text(form))
             }
         }
+        Rvalue::UrlOp { op, url, args } => {
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .fold(String::new(), |mut text, arg| {
+                    text.push_str(", ");
+                    text.push_str(&arg);
+                    text
+                });
+            format!("url_{op:?} {}{args_text}", operand_text(url))
+        }
         Rvalue::UrlSearchParamsOp { op, params, args } => {
             let op_text = match op {
                 smelt_hir::UrlSearchParamsOp::Get => "get",
@@ -1743,8 +1754,12 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::UrlField::Host => "host",
                 smelt_hir::UrlField::Origin => "origin",
                 smelt_hir::UrlField::Hostname => "hostname",
+                smelt_hir::UrlField::Username => "username",
+                smelt_hir::UrlField::Password => "password",
+                smelt_hir::UrlField::Port => "port",
                 smelt_hir::UrlField::Pathname => "pathname",
                 smelt_hir::UrlField::Search => "search",
+                smelt_hir::UrlField::Hash => "hash",
             };
             format!("url_{field_text} {}", operand_text(url))
         }
@@ -1948,6 +1963,8 @@ fn callee_text(callee: &Callee) -> String {
         Callee::Builtin(BuiltinFn::JsonParse { target: Some(_) }) => "@json_decode".to_owned(),
         Callee::Builtin(BuiltinFn::Base64(op)) => format!("@{}", op.name()),
         Callee::Builtin(BuiltinFn::RegExpCompile) => "@regexp_compile".to_owned(),
+        Callee::Builtin(BuiltinFn::UrlNew) => "@url_new".to_owned(),
+        Callee::Builtin(BuiltinFn::UrlSetHref) => "@url_set_href".to_owned(),
         Callee::Builtin(BuiltinFn::BigInt(op)) => format!("@{}", op.name()),
         Callee::Builtin(BuiltinFn::HostModule(op)) => format!("@{}", op.name()),
         Callee::Builtin(BuiltinFn::DataViewAccess { write, element }) => format!(

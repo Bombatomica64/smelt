@@ -1557,6 +1557,16 @@ pub enum Rvalue {
         /// Optional initializer value.
         init: Option<Operand>,
     },
+    /// Read or write a component of a concrete `URL`, or take its
+    /// `searchParams`.
+    UrlOp {
+        /// Operation to apply.
+        op: smelt_hir::UrlOp,
+        /// `URL` receiver.
+        url: Operand,
+        /// The written value for a setter; empty otherwise.
+        args: Vec<Operand>,
+    },
     /// Apply a `URLSearchParams` operation to a concrete receiver.
     UrlSearchParamsOp {
         /// Operation to apply.
@@ -2573,6 +2583,16 @@ pub enum BuiltinFn {
     /// A builtin for the reason [`Self::JsonParse`] is: the throw has to reach
     /// an enclosing `try`, and only a call terminator carries an unwind edge.
     BigInt(smelt_hir::BigIntOp),
+    /// `new URL(input, base?)`, which throws a catchable `TypeError` when the
+    /// input (resolved against the base) is not a valid URL.
+    ///
+    /// A builtin for the reason [`Self::JsonParse`] is. The arguments are the
+    /// input text and, when the source passed one, the base text.
+    UrlNew,
+    /// `url.href = text`, which throws a catchable `TypeError` when the text
+    /// is not a valid URL; the only throwing `URL` setter. The arguments are
+    /// the `URL` and the text, and the call answers the assigned text.
+    UrlSetHref,
 }
 
 impl BuiltinFn {
@@ -2594,7 +2614,9 @@ impl BuiltinFn {
             | Self::RegExpCompile
             | Self::HostModule(_)
             | Self::DataViewAccess { .. }
-            | Self::BigInt(_) => true,
+            | Self::BigInt(_)
+            | Self::UrlNew
+            | Self::UrlSetHref => true,
             Self::ConsoleLog { .. } | Self::ConsoleWrite | Self::ConsoleErrorWrite => false,
         }
     }

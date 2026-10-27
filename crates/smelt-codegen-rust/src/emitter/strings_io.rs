@@ -307,23 +307,24 @@ impl FunctionEmitter<'_> {
         self.require_string_operands(&[url], "URL field access")?;
         let url_text = self.operand_text(url)?;
         let parsed = format!("url::Url::parse(&{url_text}).expect(\"URL parse failed\")");
-        Ok(match field {
-            smelt_hir::UrlField::Href => format!("{parsed}.to_string()"),
-            smelt_hir::UrlField::Protocol => format!("format!(\"{{}}:\", {parsed}.scheme())"),
-            smelt_hir::UrlField::Host => format!(
-                "{{ let url = {parsed}; url.host_str().map(|host| match url.port() {{ Some(port) => format!(\"{{}}:{{}}\", host, port), None => host.to_owned() }}).unwrap_or_default() }}"
-            ),
-            smelt_hir::UrlField::Origin => format!(
-                "{{ let url = {parsed}; url.host_str().map(|host| match url.port() {{ Some(port) => format!(\"{{}}://{{}}:{{}}\", url.scheme(), host, port), None => format!(\"{{}}://{{}}\", url.scheme(), host) }}).unwrap_or_default() }}"
-            ),
-            smelt_hir::UrlField::Hostname => {
-                format!("{parsed}.host_str().unwrap_or_default().to_owned()")
+        // `url::quirks` is the WHATWG accessor set, so a string-held URL reads
+        // each component exactly as a `URL` value's getter does.
+        let getter = match field {
+            smelt_hir::UrlField::Href => "href",
+            smelt_hir::UrlField::Protocol => "protocol",
+            smelt_hir::UrlField::Username => "username",
+            smelt_hir::UrlField::Password => "password",
+            smelt_hir::UrlField::Host => "host",
+            smelt_hir::UrlField::Hostname => "hostname",
+            smelt_hir::UrlField::Port => "port",
+            smelt_hir::UrlField::Pathname => "pathname",
+            smelt_hir::UrlField::Search => "search",
+            smelt_hir::UrlField::Hash => "hash",
+            smelt_hir::UrlField::Origin => {
+                return Ok(format!("url::quirks::origin(&{parsed})"));
             }
-            smelt_hir::UrlField::Pathname => format!("{parsed}.path().to_owned()"),
-            smelt_hir::UrlField::Search => {
-                format!("{parsed}.query().map(|query| format!(\"?{{query}}\")).unwrap_or_default()")
-            }
-        })
+        };
+        Ok(format!("url::quirks::{getter}(&{parsed}).to_owned()"))
     }
 
     /// Converts a text-file read to Rust text.

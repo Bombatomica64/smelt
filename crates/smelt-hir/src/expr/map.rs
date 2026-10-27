@@ -667,6 +667,25 @@ impl ExprKind {
                     None => None,
                 },
             },
+            Self::UrlNew { input, base } => Self::UrlNew {
+                input: f(input)?,
+                base: match base {
+                    Some(base) => Some(f(base)?),
+                    None => None,
+                },
+            },
+            Self::UrlOp { op, url, args } => {
+                let url = f(url)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::UrlOp {
+                    op,
+                    url,
+                    args: mapped,
+                }
+            }
             Self::UrlSearchParamsOp { op, params, args } => {
                 let params = f(params)?;
                 let mut mapped = Vec::with_capacity(args.len());

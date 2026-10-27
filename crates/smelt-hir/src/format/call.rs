@@ -783,6 +783,21 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             || "url_search_params_new".to_owned(),
             |init| format!("url_search_params_new {}", expr_ref(init)),
         ),
+        ExprKind::UrlNew { input, base } => base.map_or_else(
+            || format!("url_new {}", expr_ref(*input)),
+            |base| format!("url_new {}, {}", expr_ref(*input), expr_ref(base)),
+        ),
+        ExprKind::UrlOp { op, url, args } => {
+            let args_text = args
+                .iter()
+                .map(|arg| expr_ref(*arg))
+                .fold(String::new(), |mut text, arg| {
+                    text.push_str(", ");
+                    text.push_str(&arg);
+                    text
+                });
+            format!("url_{op:?} {}{args_text}", expr_ref(*url))
+        }
         ExprKind::UrlSearchParamsOp { op, params, args } => {
             let op_name = match op {
                 crate::expr::UrlSearchParamsOp::Get => "get",

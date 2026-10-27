@@ -115,7 +115,8 @@ fn main (FuncId(4)) -> None
     %50 temp: File
     %51 temp: String
     %52 temp: None
-    %53 temp: None
+    %53 temp: String
+    %54 temp: None
   bb0:
     %6 = call fn0(true) -> bb1
   bb1:
@@ -219,7 +220,8 @@ fn main (FuncId(4)) -> None
     %51 = blob_name move %50
     %52 = call @console_log("file", move %51) -> bb35
   bb34:
-    %53 = call @console_log("text", move %5) -> bb37
+    %53 = unknown_cast move %5 as t0
+    %54 = call @console_log("text", move %53) -> bb37
   bb35:
     goto bb36
   bb36:

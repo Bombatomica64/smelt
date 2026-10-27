@@ -1,0 +1,90 @@
+module examples/typescript/end-to-end/175_rest_arrow_into_fixed_arity_slot/input.ts (ModuleId(0))
+  body BodyId(5)
+  items
+    interface Respond fields [Public __smelt_call: fn(String, String | Float) -> String] methods []
+    class Ctx fields [] constructor Some(ItemId(4)) methods [ItemId(1), ItemId(2), ItemId(3)] implements []
+  locals
+    %0 const ctx: Ctx
+    %1 const respond: Respond
+    %2 const one: List<String>
+    %3 const two: List<String>
+    %4 const __smelt_spread: List<String>
+    %5 const __smelt_spread: List<String>
+  exprs
+    #0: Ctx = new Ctx()
+    #1: Ctx = %0
+    #2: Respond = #1.respond
+    #3: Respond = %1
+    #4: fn(String, String | Float) -> String = assert_type #3
+    #5: String = "a"
+    #6: Float = 301.0
+    #7: String = closure_call #4(#5, #6)
+    #8: Respond = %1
+    #9: fn(String, String | Float) -> String = assert_type #8
+    #10: String = "b"
+    #11: String = "gone"
+    #12: String = closure_call #9(#10, #11)
+    #13: None = @6(console_log)
+    #14: None = call #13(#7, #12)
+    #15: String = "c"
+    #16: List<String> = [#15]
+    #17: String = "d"
+    #18: String = "e"
+    #19: List<String> = [#17, #18]
+    #20: Ctx = %0
+    #21: fn(String, String) -> String = #20.direct
+    #22: Ctx = %0
+    #23: List<String> = %2
+    #24: List<String> = %2
+    #25: List<String> = %4
+    #26: Int = 0
+    #27: String = #25[#26]
+    #28: List<String> = %4
+    #29: Int = 1
+    #30: String = #28[#29]
+    #31: String = #22.direct(#27, #30)
+    #32: Ctx = %0
+    #33: fn(String, String) -> String = #32.direct
+    #34: Ctx = %0
+    #35: List<String> = %3
+    #36: List<String> = %3
+    #37: List<String> = %5
+    #38: Int = 0
+    #39: String = #37[#38]
+    #40: List<String> = %5
+    #41: Int = 1
+    #42: String = #40[#41]
+    #43: String = #34.direct(#39, #42)
+    #44: None = @7(console_log)
+    #45: None = call #44(#31, #43)
+  stmts
+    s0: let %0: Ctx = #0
+    s1: let %1: Respond = #2
+    s2: #14
+    s3: let %2: List<String> = #16
+    s4: let %3: List<String> = #19
+    s5: let %4: List<String> = #24
+    s6: let %5: List<String> = #36
+    s7: #45
+
+interned types
+  t0 = Ctx
+  t1 = String
+  t2 = Unknown
+  t3 = Dict<String, Unknown>
+  t4 = List<String>
+  t5 = Float
+  t6 = String | Float
+  t7 = fn(String, String | Float) -> String
+  t8 = Bool
+  t9 = Optional<String>
+  t10 = Respond
+  t11 = List<String | Float>
+  t12 = List<Unknown>
+  t13 = fn(String, String | Float) -> String
+  t14 = Int
+  t15 = fn(...List<String | Float>) -> String
+  t16 = None
+  t17 = fn(String, String) -> String
+  t18 = (String)
+  t19 = (String, String)

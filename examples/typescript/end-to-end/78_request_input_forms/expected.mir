@@ -1,4 +1,4 @@
-async fn run (FuncId(0)) -> None
+async fn run (FuncId(0)) -> None throws
   locals
     %0 user source: Request
     %1 user copied: Request
@@ -59,11 +59,12 @@ async fn run (FuncId(0)) -> None
     %56 temp: Future<String>
     %57 temp: String
     %58 temp: None
-    %59 temp: String
-    %60 temp: Request
-    %61 temp: String
+    %59 temp: URL
+    %60 temp: String
+    %61 temp: Request
     %62 temp: String
-    %63 temp: None
+    %63 temp: String
+    %64 temp: None
   bb0:
     %9 = {"x-tag": "t"}
     %10 = request_new input="https://a.test/one" method="POST" headers=move %9 body="payload"
@@ -132,13 +133,15 @@ async fn run (FuncId(0)) -> None
     %57 = await move %56
     %58 = call @console_log(move %55, move %57) -> bb9
   bb9:
-    %59 = url_href "https://a.test/six?q=1"
-    %60 = request_new input=move %59 method="PUT"
-    %8 = move %60
-    %61 = request_url copy %8
-    %62 = request_method move %8
-    %63 = call @console_log(move %61, move %62) -> bb10
+    %59 = call @url_new("https://a.test/six?q=1") -> bb10
   bb10:
+    %60 = url_Get(Href) move %59
+    %61 = request_new input=move %60 method="PUT"
+    %8 = move %61
+    %62 = request_url copy %8
+    %63 = request_method move %8
+    %64 = call @console_log(move %62, move %63) -> bb11
+  bb11:
     return none
 
 async fn main (FuncId(1)) -> None throws

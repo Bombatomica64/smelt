@@ -33,13 +33,14 @@ async fn main (FuncId(1)) -> None throws
     %19 temp: String | Float
     %20 temp: None
     %21 temp: String
-    %22 temp: None
-    %23 temp: String
-    %24 temp: None
-    %25 temp: String
-    %26 temp: None
-    %27 temp: Future<None>
-    %28 temp: None
+    %22 temp: String
+    %23 temp: None
+    %24 temp: String
+    %25 temp: None
+    %26 temp: String
+    %27 temp: None
+    %28 temp: Future<None>
+    %29 temp: None
   bb0:
     %5 = ["head"]
     %0 = move %5
@@ -74,17 +75,18 @@ async fn main (FuncId(1)) -> None throws
     %4 = 10.0
     %21 = move %4 + "x"
     %4 = move %21
-    %22 = call @console_log(move %4) -> bb6
+    %22 = unknown_cast move %4 as t0
+    %23 = call @console_log(move %22) -> bb6
   bb6:
-    %23 = call fn0(move %0, 0.0) -> bb7
+    %24 = call fn0(move %0, 0.0) -> bb7
   bb7:
-    %24 = call @console_log(move %23) -> bb8
+    %25 = call @console_log(move %24) -> bb8
   bb8:
-    %25 = call fn0(move %2, 0.0) -> bb9
+    %26 = call fn0(move %2, 0.0) -> bb9
   bb9:
-    %26 = call @console_log(move %25) -> bb10
+    %27 = call @console_log(move %26) -> bb10
   bb10:
-    %27 = async_exit_drain()
-    %28 = await move %27
+    %28 = async_exit_drain()
+    %29 = await move %28
     return none
 

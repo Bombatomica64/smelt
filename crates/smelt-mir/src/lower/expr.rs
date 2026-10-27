@@ -1583,6 +1583,64 @@ impl LoweringCtx<'_> {
                     Rvalue::UrlSearchParamsNew { init: init_operand },
                 )?
             }
+            ExprKind::UrlNew { input, base } => {
+                // An invalid URL is a catchable `TypeError`, so the constructor
+                // needs the call terminator's unwind edge, as `atob` does.
+                let mut args = vec![self.lower_expr(*input)?];
+                if let Some(base) = base {
+                    args.push(self.lower_expr(*base)?);
+                }
+                let dest = self.push_temp(expr.ty, expr.span);
+                let target = self.function.push_block(expr.span);
+                self.set_terminator(Terminator::Call {
+                    callee: Callee::Builtin(BuiltinFn::UrlNew),
+                    args,
+                    dest,
+                    target,
+                    unwind: self.current_exception_handler(),
+                })?;
+                self.current_block = target;
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::UrlOp {
+                op: smelt_hir::UrlOp::Set(smelt_hir::UrlField::Href),
+                url,
+                args,
+            } => {
+                // The one throwing setter: text that is not a URL is a
+                // catchable `TypeError`, so it needs the call's unwind edge.
+                let mut call_args = vec![self.lower_expr(*url)?];
+                for arg in args {
+                    call_args.push(self.lower_expr(*arg)?);
+                }
+                let dest = self.push_temp(expr.ty, expr.span);
+                let target = self.function.push_block(expr.span);
+                self.set_terminator(Terminator::Call {
+                    callee: Callee::Builtin(BuiltinFn::UrlSetHref),
+                    args: call_args,
+                    dest,
+                    target,
+                    unwind: self.current_exception_handler(),
+                })?;
+                self.current_block = target;
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::UrlOp { op, url, args } => {
+                let url_operand = self.lower_expr(*url)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::UrlOp {
+                        op: *op,
+                        url: url_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
             ExprKind::UrlSearchParamsOp { op, params, args } => {
                 let params_operand = self.lower_expr(*params)?;
                 let arg_operands = args

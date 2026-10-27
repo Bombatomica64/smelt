@@ -1,0 +1,238 @@
+class Circle fields [Public radius: Float] constructor Some(FuncId(4)) methods []
+class Square fields [Public side: Float] constructor Some(FuncId(5)) methods []
+
+fn describe (FuncId(0)) -> String
+  locals
+    %0 param shape: Circle | Square | String
+    %1 temp: Bool
+    %2 temp: Circle
+    %3 temp: String
+    %4 temp: Square | String
+    %5 temp: Bool
+    %6 temp: Square
+    %7 temp: String
+    %8 temp: String
+    %9 temp: String
+    %10 temp: String
+  bb0:
+    %1 = instanceof copy %0, class1
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = unknown_cast copy %0 as t0
+    %3 = "circle " + copy %2.field10
+    return move %3
+  bb2:
+    %4 = unknown_cast copy %0 as t15
+    %5 = instanceof move %4, class2
+    switch move %5 ? bb3 : bb4
+  bb3:
+    %6 = unknown_cast copy %0 as t1
+    %7 = "square " + copy %6.field13
+    return move %7
+  bb4:
+    %8 = unknown_cast copy %0 as t2
+    %9 = string_upper move %8
+    %10 = "named " + move %9
+    return move %10
+
+fn area (FuncId(1)) -> Float
+  locals
+    %0 param shape: Optional<Circle | Square>
+    %1 temp: Bool
+    %2 temp: Circle | Square
+    %3 temp: Circle
+    %4 temp: Float
+    %5 temp: Circle | Square
+    %6 temp: Circle
+    %7 temp: Float
+    %8 temp: Bool
+    %9 temp: Float
+    %10 temp: Circle | Square
+    %11 temp: Square
+    %12 temp: Circle | Square
+    %13 temp: Square
+    %14 temp: Float
+  bb0:
+    %1 = instanceof copy %0, class1
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = copy %0
+    %3 = unknown_cast move %2 as t0
+    %4 = 3.0 * copy %3.field10
+    %5 = copy %0
+    %6 = unknown_cast move %5 as t0
+    %7 = move %4 * copy %6.field10
+    return move %7
+  bb2:
+    %8 = copy %0 == undefined
+    switch move %8 ? bb3 : bb4
+  bb3:
+    %9 = 0.0
+    goto bb5
+  bb4:
+    %10 = copy %0
+    %11 = unknown_cast move %10 as t1
+    %12 = copy %0
+    %13 = unknown_cast move %12 as t1
+    %14 = copy %11.field13 * copy %13.field13
+    %9 = move %14
+    goto bb5
+  bb5:
+    return move %9
+
+fn normalize (FuncId(2)) -> String
+  locals
+    %0 param input: String | Float | URL
+    %1 temp: String
+    %2 temp: String
+    %3 temp: String
+    %4 temp: String
+    %5 temp: Bool
+    %6 temp: String
+    %7 temp: String
+    %8 temp: String
+    %9 temp: String
+    %10 temp: String
+  bb0:
+    %1 = primitive_cast_string copy %0
+    %0 = move %1
+    %2 = unknown_cast copy %0 as t2
+    %3 = move %2
+    %4 = "http"
+    %5 = string_starts_with move %3, move %4
+    switch move %5 ? bb1 : bb2
+  bb1:
+    %7 = unknown_cast copy %0 as t2
+    %6 = move %7
+    goto bb3
+  bb2:
+    %8 = unknown_cast copy %0 as t2
+    %9 = string_pad_start move %8, 3.0, "0"
+    %10 = "#" + move %9
+    %6 = move %10
+    goto bb3
+  bb3:
+    return move %6
+
+fn widen (FuncId(3)) -> String
+  locals
+    %0 param flag: Bool
+    %1 user value: String | Float
+    %2 temp: String
+    %3 temp: Float
+    %4 temp: None
+    %5 temp: Bool
+    %6 temp: String
+    %7 temp: String
+    %8 temp: Float
+    %9 temp: Float
+    %10 temp: String
+  bb0:
+    %1 = 7.0
+    switch copy %0 ? bb1 : bb2
+  bb1:
+    %1 = "seven"
+    %2 = unknown_cast copy %1 as t2
+    %3 = len move %2
+    %4 = call @console_log(move %3) -> bb3
+  bb2:
+    %5 = unknown_is String copy %1
+    switch move %5 ? bb4 : bb5
+  bb3:
+    goto bb2
+  bb4:
+    %7 = unknown_cast move %1 as t2
+    %6 = move %7
+    goto bb6
+  bb5:
+    %8 = unknown_cast move %1 as t7
+    %9 = move %8 + 1.0
+    %10 = "n=" + move %9
+    %6 = move %10
+    goto bb6
+  bb6:
+    return move %6
+
+fn new (FuncId(4)) -> Circle
+  locals
+    %0 user this: Circle
+    %1 param radius: Float
+  bb0:
+    %0 = struct1 {}
+    %0.field10 = copy %1
+    return move %0
+
+fn new (FuncId(5)) -> Square
+  locals
+    %0 user this: Square
+    %1 param side: Float
+  bb0:
+    %0 = struct2 {}
+    %0.field13 = copy %1
+    return move %0
+
+fn main (FuncId(6)) -> None throws
+  locals
+    %0 temp: Circle
+    %1 temp: String
+    %2 temp: Square
+    %3 temp: String
+    %4 temp: String
+    %5 temp: None
+    %6 temp: Circle
+    %7 temp: Float
+    %8 temp: Square
+    %9 temp: Float
+    %10 temp: Float
+    %11 temp: None
+    %12 temp: String
+    %13 temp: String
+    %14 temp: URL
+    %15 temp: String
+    %16 temp: None
+    %17 temp: String
+    %18 temp: String
+    %19 temp: None
+  bb0:
+    %0 = call fn4(2.0) -> bb1
+  bb1:
+    %1 = call fn0(move %0) -> bb2
+  bb2:
+    %2 = call fn5(3.0) -> bb3
+  bb3:
+    %3 = call fn0(move %2) -> bb4
+  bb4:
+    %4 = call fn0("hex") -> bb5
+  bb5:
+    %5 = call @console_log(move %1, move %3, move %4) -> bb6
+  bb6:
+    %6 = call fn4(1.0) -> bb7
+  bb7:
+    %7 = call fn1(move %6) -> bb8
+  bb8:
+    %8 = call fn5(4.0) -> bb9
+  bb9:
+    %9 = call fn1(move %8) -> bb10
+  bb10:
+    %10 = call fn1() -> bb11
+  bb11:
+    %11 = call @console_log(move %7, move %9, move %10) -> bb12
+  bb12:
+    %12 = call fn2(5.0) -> bb13
+  bb13:
+    %13 = call fn2("42") -> bb14
+  bb14:
+    %14 = call @url_new("https://a.test/p?q=1") -> bb15
+  bb15:
+    %15 = call fn2(move %14) -> bb16
+  bb16:
+    %16 = call @console_log(move %12, move %13, move %15) -> bb17
+  bb17:
+    %17 = call fn3(true) -> bb18
+  bb18:
+    %18 = call fn3(false) -> bb19
+  bb19:
+    %19 = call @console_log(move %17, move %18) -> bb20
+  bb20:
+    return none
+

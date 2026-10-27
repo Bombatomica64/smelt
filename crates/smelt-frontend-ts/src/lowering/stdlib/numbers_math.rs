@@ -10,7 +10,7 @@ use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
     Body, ErasureReason, Expr, ExprKind, FunctionType, Literal, NumericExtremaOp, NumericPredicateOp,
-    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, Span, StringReplaceOp, Type, UrlField,
+    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, Span, StringReplaceOp, Type,
 };
 use smelt_stdlib::RuleId;
 
@@ -371,114 +371,6 @@ impl ModuleBuilder<'_> {
             }
             _ => Ok(None),
         }
-    }
-
-    /// Lower `new URL(text).field` for the supported URL string fields.
-    pub(in crate::lowering) fn url_field_expression(
-        &mut self,
-        member: &oxc::ast::ast::StaticMemberExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if stdlib_dispatch::property_rule(member) != Some(RuleId::TsUrlField) {
-            return Ok(None);
-        }
-        let field = match member.property.name.as_str() {
-            "href" => UrlField::Href,
-            "protocol" => UrlField::Protocol,
-            "host" => UrlField::Host,
-            "origin" => UrlField::Origin,
-            "hostname" => UrlField::Hostname,
-            "pathname" => UrlField::Pathname,
-            "search" => UrlField::Search,
-            _ => return Ok(None),
-        };
-        let Expression::NewExpression(new_expr) = &member.object else {
-            return Ok(None);
-        };
-        let Expression::Identifier(_) = &new_expr.callee else {
-            return Ok(None);
-        };
-        let [url_arg] = new_expr.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "new URL() currently supports exactly one string URL argument",
-            ));
-        };
-        let url = self.url_string_argument(url_arg, body, new_expr.span)?;
-        let ty = self.ctx.krate.types.intern(Type::String);
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::UrlField { field, url },
-            ty,
-            span: self.span(member.span.start, member.span.end),
-        })))
-    }
-
-    /// Lower `new URL(text).toString()` to the same full-URL extraction as `.href`.
-    pub(in crate::lowering) fn url_to_string_call(
-        &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::StaticMemberExpression(member) = &call.callee else {
-            return Ok(None);
-        };
-        if member.property.name != "toString" || !call.arguments.is_empty() {
-            return Ok(None);
-        }
-        let Expression::NewExpression(new_expr) = &member.object else {
-            return Ok(None);
-        };
-        let Expression::Identifier(callee) = &new_expr.callee else {
-            return Ok(None);
-        };
-        if callee.name != "URL" {
-            return Ok(None);
-        }
-        let [url_arg] = new_expr.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "new URL() currently supports exactly one string URL argument",
-            ));
-        };
-        let url = self.url_string_argument(url_arg, body, new_expr.span)?;
-        let ty = self.ctx.krate.types.intern(Type::String);
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::UrlField {
-                field: UrlField::Href,
-                url,
-            },
-            ty,
-            span: self.span(call.span.start, call.span.end),
-        })))
-    }
-
-    /// Lower a `new URL(...)` argument into the string value used by URL helpers.
-    pub(in crate::lowering) fn url_string_argument(
-        &mut self,
-        argument: &Argument<'_>,
-        body: &mut Body,
-        url_span: oxc::span::Span,
-    ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let url = self.argument(argument, body)?;
-        let url_ty = Self::expr_ty(body, url);
-        if self.ctx.krate.types.get(url_ty) == Some(&Type::String) {
-            return Ok(url);
-        }
-        if self.is_string_compatible_type(url_ty) {
-            let string_ty = self.ctx.krate.types.intern(Type::String);
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::UnknownCast {
-                    value: url,
-                    target: string_ty,
-                },
-                ty: string_ty,
-                span: self.span(argument.span().start, argument.span().end),
-            }));
-        }
-        Err(SmeltError::unsupported(
-            self.span(url_span.start, url_span.end),
-            "new URL(text) requires a string URL argument",
-        ))
     }
 
     /// Lower direct TypeScript `Math.abs(...)` calls.
@@ -1058,6 +950,15 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         let operand = self.expression(&member.object, body)?;
+        // `URL.prototype.toString()` is its `href`. Claimed here rather than
+        // by a later handler because this one has already lowered the
+        // receiver, and a second lowering would evaluate it twice.
+        if call.arguments.is_empty() {
+            let span = self.span(call.span.start, call.span.end);
+            if let Some(href) = self.url_href_of(operand, span, body) {
+                return Ok(Some(href));
+            }
+        }
         // A modeled host class defines its own `toString`: a
         // `URLSearchParams` serializes to `application/x-www-form-urlencoded`,
         // not to `"[object Object]"`. The generic cast below accepts ANY
@@ -1076,8 +977,9 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
-        if !matches!(
-            self.ctx.krate.types.get(Self::expr_ty(body, operand)),
+        let operand_ty = Self::expr_ty(body, operand);
+        let stringifiable = matches!(
+            self.ctx.krate.types.get(operand_ty),
             Some(
                 Type::Int
                     | Type::Float
@@ -1087,7 +989,8 @@ impl ModuleBuilder<'_> {
                     | Type::TypeParam { .. }
                     | Type::Class { .. }
             )
-        ) {
+        ) || (call.arguments.is_empty() && self.union_arms_stringify_faithfully(operand_ty));
+        if !stringifiable {
             return Ok(None);
         }
         let ty = self.ctx.krate.types.intern(Type::String);
@@ -1145,6 +1048,29 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Whether `ty` is a union whose every arm's `toString()` is its string
+    /// conversion as the emitter renders it: a primitive, or a host class whose
+    /// own `toString` the emitter models (`URL`, `URLSearchParams`).
+    ///
+    /// For such a union `x.toString()` is `String(x)`, arm by arm. Any other
+    /// arm (a user class with its own `toString`, a host class whose tag the
+    /// erased coercion does not spell) keeps the call on the general path.
+    fn union_arms_stringify_faithfully(&self, ty: smelt_hir::TypeId) -> bool {
+        let Some(Type::Union(arms)) = self.ctx.krate.types.get(ty) else {
+            return false;
+        };
+        arms.iter().all(|arm| {
+            matches!(
+                self.ctx.krate.types.get(*arm),
+                Some(Type::Int | Type::Float | Type::BigInt | Type::String | Type::Bool)
+            ) || matches!(
+                self.stdlib_class_of_type(*arm),
+                Some(smelt_stdlib::StdlibClass::Url | smelt_stdlib::StdlibClass::UrlSearchParams)
+            ) && !self.user_class_shadows("URL")
+                && !self.user_class_shadows("URLSearchParams")
+        })
     }
 
     /// Lower direct TypeScript `.toFixed(digits)` calls on a numeric receiver.

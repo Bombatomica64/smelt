@@ -713,12 +713,14 @@ fn intern_fallible_builtin_return_types(mir: &mut Mir) {
                 } else {
                     Type::BigInt
                 }),
-                // The result is the frontend's `RegExp` class type, which it
-                // interned when it typed the node.
+                // The result is the frontend's `RegExp` (or `URL`) class
+                // type, which it interned when it typed the node.
                 BuiltinFn::ConsoleLog { .. }
                 | BuiltinFn::ConsoleWrite
                 | BuiltinFn::ConsoleErrorWrite
                 | BuiltinFn::RegExpCompile
+                | BuiltinFn::UrlNew
+                | BuiltinFn::UrlSetHref
                 | BuiltinFn::HostModule(_) => {}
             }
         }

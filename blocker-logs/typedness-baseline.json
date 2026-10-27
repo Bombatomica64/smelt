@@ -2,17 +2,17 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 7478,
+      "concrete": 7686,
       "generic": 77,
-      "erased": 51
+      "erased": 53
     },
     "reads": {
-      "concrete": 726,
+      "concrete": 739,
       "generic": 21,
-      "erased": 34
+      "erased": 35
     },
     "calls": {
-      "concrete": 1784,
+      "concrete": 1840,
       "generic": 5,
       "erased": 2
     }
@@ -1208,6 +1208,57 @@
         "erased": 0
       }
     },
+    "examples/typescript/end-to-end/173_url_object/input.ts": {
+      "values": {
+        "concrete": 88,
+        "generic": 0,
+        "erased": 2
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 1
+      },
+      "calls": {
+        "concrete": 28,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/174_union_narrowing_exits_and_writes/input.ts": {
+      "values": {
+        "concrete": 72,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 21,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/175_rest_arrow_into_fixed_arity_slot/input.ts": {
+      "values": {
+        "concrete": 45,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 7,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      }
+    },
     "examples/typescript/end-to-end/17_mutating_array/input.ts": {
       "values": {
         "concrete": 5,
@@ -1754,7 +1805,7 @@
     },
     "examples/typescript/end-to-end/50_union_arm_narrowing/input.ts": {
       "values": {
-        "concrete": 67,
+        "concrete": 68,
         "generic": 0,
         "erased": 0
       },
@@ -2196,7 +2247,7 @@
     },
     "examples/typescript/end-to-end/78_request_input_forms/input.ts": {
       "values": {
-        "concrete": 68,
+        "concrete": 69,
         "generic": 0,
         "erased": 0
       },
@@ -2206,7 +2257,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 11,
+        "concrete": 12,
         "generic": 0,
         "erased": 0
       }
@@ -2417,7 +2468,7 @@
     },
     "examples/typescript/end-to-end/91_union_string_concat/input.ts": {
       "values": {
-        "concrete": 33,
+        "concrete": 34,
         "generic": 0,
         "erased": 0
       },

@@ -1319,6 +1319,14 @@ impl<'builder> ModuleBuilder<'builder> {
         // bound the whole tuple to the first parameter and let the emitter default
         // the rest. See `lowering::spread_arguments`.
         let expanded = self.expanded_call_arguments(&call.arguments, body)?;
+        // A trailing LIST spread binds the method's remaining fixed parameters
+        // to its elements, as it does for every other fixed-arity callee
+        // (Hono's `(...args) => this.#newResponse(...args)`). Without this the
+        // list became parameter 0 and the emitter defaulted the rest.
+        let expanded = match self.class_method_fixed_params(access_receiver_ty, method) {
+            Some(params) => self.distribute_trailing_list_spread(expanded, &params, body)?,
+            None => expanded,
+        };
         let callback_param_hints = self.class_method_callback_param_hints(access_receiver_ty, method);
         let mut args = Vec::with_capacity(expanded.len());
         for (index, arg) in expanded.into_iter().enumerate() {
@@ -1437,6 +1445,23 @@ impl<'builder> ModuleBuilder<'builder> {
                 .then_some(*param)
             })
             .collect()
+    }
+
+    /// The parameter types of a class method with no rest parameter, or `None`
+    /// when the receiver is not a class or the method is variadic or untyped.
+    fn class_method_fixed_params(
+        &mut self,
+        receiver_ty: smelt_hir::TypeId,
+        method: smelt_hir::Symbol,
+    ) -> Option<Vec<smelt_hir::TypeId>> {
+        if !matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Class { .. })) {
+            return None;
+        }
+        let method_ty = self.class_field_type(receiver_ty, method).ok()?;
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(method_ty).cloned() else {
+            return None;
+        };
+        function.rest.is_none().then_some(function.params)
     }
 
     /// Return whether a member call through a TYPED function-valued field

@@ -120,6 +120,7 @@ impl ModuleBuilder<'_> {
         arguments.pop();
         let span = self.span(spread.span.start, spread.span.end);
         let operand = self.expression(&spread.argument, body)?;
+        let operand = Self::peel_assertion_of_list(operand, body, &self.ctx.krate.types);
         let operand_ty = Self::expr_ty(body, operand);
         let resolved = self.type_param_constraint_or_self(operand_ty);
         let Some(Type::List(element_ty)) = self.ctx.krate.types.get(resolved).cloned() else {
@@ -143,6 +144,31 @@ impl ModuleBuilder<'_> {
             })));
         }
         Ok(arguments)
+    }
+
+    /// The list under a type assertion, or `expr` itself.
+    ///
+    /// An assertion is erased at run time, so `...(args as Parameters<F>)`
+    /// spreads `args`, every element of it: the asserted type decides neither
+    /// the width nor the values. When the asserted type erased (an
+    /// unevaluated `Parameters<..>`), the assertion node is all that hides
+    /// the list from the distribution above.
+    fn peel_assertion_of_list(
+        expr: smelt_hir::ExprId,
+        body: &Body,
+        types: &smelt_hir::TypeInterner,
+    ) -> smelt_hir::ExprId {
+        let Some(node) = body.exprs.get(expr.0 as usize) else {
+            return expr;
+        };
+        let (ExprKind::TypeAssert { value } | ExprKind::UnknownCast { value, .. }) = node.kind else {
+            return expr;
+        };
+        if matches!(types.get(Self::expr_ty(body, value)), Some(Type::List(_))) {
+            value
+        } else {
+            expr
+        }
     }
 
     /// Lower one [`CallArg`], applying a contextual hint only where there is

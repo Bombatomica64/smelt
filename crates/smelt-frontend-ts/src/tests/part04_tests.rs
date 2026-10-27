@@ -854,11 +854,23 @@ const sameOrigin = new URL(adminAbsoluteUrl).origin === new URL(adminAbsoluteUrl
     )?;
     let lowered_module = module(&ctx, module_id)?;
     let body = module_body(&ctx, lowered_module)?;
+    // The source is cast to the string the constructor parses, and the
+    // `origin` read is a component read on the constructed `URL`.
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::UrlOp {
+                op: smelt_hir::UrlOp::Get(smelt_hir::UrlField::Origin),
+                ..
+            }
+        )),
+        "expected URL fields to lower with an unknown string-compatible source",
+    );
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::UrlField { .. })),
-        "expected URL fields to lower with an unknown string-compatible source",
+            .any(|expr| matches!(expr.kind, ExprKind::UrlNew { .. })),
+        "expected the constructor to build a URL value",
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())

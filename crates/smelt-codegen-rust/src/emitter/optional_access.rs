@@ -463,8 +463,7 @@ impl FunctionEmitter<'_> {
         if source_inner == dest_inner {
             return Ok(value_text.to_owned());
         }
-        let mapped = self.value_at_type_text("_smelt_inner", source_inner, dest_inner, &self.render_scope())?;
-        Ok(format!("{value_text}.map(|_smelt_inner| {mapped})"))
+        self.optional_value_map_text(value_text, source_inner, dest_inner, &self.render_scope())
     }
 
     /// Emits a JavaScript optional-chain index read against an in-scope receiver value.

@@ -34,6 +34,10 @@ pub enum StdlibClass {
     /// name/value pair list with `application/x-www-form-urlencoded`
     /// serialization).
     UrlSearchParams,
+    /// WHATWG `URL`, backed by the generated concrete `SmeltUrl` runtime type
+    /// (a shared, mutable parsed URL whose `searchParams` is a live
+    /// `SmeltUrlSearchParams` view of its query).
+    Url,
     /// WHATWG `Response`, backed by the generated concrete `SmeltResponse`
     /// runtime type (a status line, a `SmeltHeaders`, and a single-use
     /// `SmeltBody`).
@@ -204,6 +208,7 @@ impl StdlibClass {
             self,
             Self::Headers
                 | Self::UrlSearchParams
+                | Self::Url
                 | Self::Response
                 | Self::Request
                 | Self::Blob
@@ -431,6 +436,7 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         "RegExp" => Some(StdlibClass::RegExp),
         "Set" => Some(StdlibClass::Set),
         "URLSearchParams" => Some(StdlibClass::UrlSearchParams),
+        "URL" => Some(StdlibClass::Url),
         "Response" => Some(StdlibClass::Response),
         "Request" => Some(StdlibClass::Request),
         "EventEmitter" => Some(StdlibClass::EventEmitter),
@@ -673,6 +679,22 @@ const fn stdlib_class_instance_members(class: StdlibClass) -> Option<MemberLists
             &["size", "append", "delete", "get", "getAll", "has", "set", "sort", "toString"],
             PAIR_ITERABLE_MEMBERS,
         ],
+        StdlibClass::Url => &[&[
+            "href",
+            "origin",
+            "protocol",
+            "username",
+            "password",
+            "host",
+            "hostname",
+            "port",
+            "pathname",
+            "search",
+            "searchParams",
+            "hash",
+            "toString",
+            "toJSON",
+        ]],
         StdlibClass::Blob => &[BLOB_MEMBERS],
         StdlibClass::File => &[BLOB_MEMBERS, &["name", "lastModified", "webkitRelativePath"]],
         StdlibClass::TextEncoder => &[&["encoding", "encode", "encodeInto"]],
@@ -738,6 +760,7 @@ mod tests {
             typescript_stdlib_class("URLSearchParams"),
             Some(StdlibClass::UrlSearchParams)
         );
+        assert_eq!(typescript_stdlib_class("URL"), Some(StdlibClass::Url));
     }
 
     /// User class names never resolve to a stdlib identity.

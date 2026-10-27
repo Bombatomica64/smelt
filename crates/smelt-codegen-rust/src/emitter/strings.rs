@@ -797,6 +797,13 @@ impl FunctionEmitter<'_> {
         } else {
             ""
         };
+        // A `URL` overrides `toString` the same way: it is the `href`, which
+        // the erased record carries as a data property.
+        let url_arm = if crate::stdlib::needs_url_runtime(self.mir) {
+            "SmeltUnknown::Object(value) if value.contains_key(\"__smelt_url\") => <SmeltUrl as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)).href(),"
+        } else {
+            ""
+        };
         // A typed-array VIEW overrides `toString` too: it IS
         // `Array.prototype.toString`, so `String(view)` and `${view}` are the
         // joined elements. The concrete face answers this from its own
@@ -816,12 +823,54 @@ impl FunctionEmitter<'_> {
         };
         let undefined_text = absent.text();
         format!(
-            "match {scrutinee_text} {{ {params_arm} {byte_view_arm} SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{undefined_text}\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), {smelt_bigint_arm}SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\") => smelt_regexp_literal(&value), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),")
+            "match {scrutinee_text} {{ {params_arm} {url_arm} {byte_view_arm} SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{undefined_text}\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), {smelt_bigint_arm}SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\") => smelt_regexp_literal(&value), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),")
         )
     }
 
     /// Renders an operand as a Rust `String` expression for string methods.
     ///
+    /// `String(value)` for a concrete union whose every arm has a typed string
+    /// conversion, as one `match` over the arms; `None` for any other operand.
+    ///
+    /// A hand port matches the enum. Erasing it to `SmeltUnknown` first, which
+    /// the general path does for every union, gives the same text but routes
+    /// typed data through the dynamic carrier for no reason. An arm whose
+    /// conversion is not modeled here (a record, a user class) keeps the
+    /// general path for the whole union.
+    fn concrete_union_string_text(&self, operand: &Operand) -> Result<Option<String>, EmitError> {
+        let union_ty = self.operand_ty(operand)?;
+        let Some(members) = self.concrete_union_members(union_ty) else {
+            return Ok(None);
+        };
+        let number_to_string = crate::number_format_prelude::NUMBER_TO_STRING_FN;
+        let union_enum_name = crate::emitter::union::union_name(union_ty);
+        let mut arms = Vec::with_capacity(members.len());
+        for (index, member) in members.iter().enumerate() {
+            let conversion = match self.mir.types.get(*member) {
+                Some(Type::String) => "smelt_union_arm.clone()".to_owned(),
+                Some(Type::Bool | Type::BigInt) => "smelt_union_arm.to_string()".to_owned(),
+                Some(Type::Int | Type::FixedInt(_)) => {
+                    format!("{number_to_string}(*smelt_union_arm as f64)")
+                }
+                Some(Type::Float) => format!("{number_to_string}(*smelt_union_arm)"),
+                Some(Type::Class { name, .. }) => match self.stdlib_class_of_symbol(*name)? {
+                    Some(smelt_stdlib::StdlibClass::Url) => "smelt_union_arm.href()".to_owned(),
+                    Some(smelt_stdlib::StdlibClass::UrlSearchParams) => {
+                        "smelt_union_arm.to_text()".to_owned()
+                    }
+                    _ => return Ok(None),
+                },
+                _ => return Ok(None),
+            };
+            arms.push(format!("{union_enum_name}::M{index}(smelt_union_arm) => {conversion}"));
+        }
+        Ok(Some(format!(
+            "match &{} {{ {} }}",
+            self.operand_borrow_text(operand)?,
+            arms.join(", ")
+        )))
+    }
+
     /// Statically known strings are emitted directly. Unknown values use the
     /// same JavaScript-style primitive coercion as string joining; structured
     /// unknown values use the platform object placeholder.
@@ -830,6 +879,9 @@ impl FunctionEmitter<'_> {
         operand: &Operand,
         _context: &str,
     ) -> Result<String, EmitError> {
+        if let Some(text) = self.concrete_union_string_text(operand)? {
+            return Ok(text);
+        }
         match self.mir.types.get(self.operand_ty(operand)?) {
             Some(Type::String) => match operand {
                 Operand::Copy(place) => Ok(format!("{}.clone()", self.place_text(place)?)),
@@ -890,6 +942,19 @@ impl FunctionEmitter<'_> {
                     "format!(\"[object {{}}]\", {}.class_name())",
                     self.operand_text(operand)?
                 ))
+            }
+            // `URL` and `URLSearchParams` define their own `toString`: the
+            // `href` and the urlencoded query.
+            Some(Type::Class { name, .. })
+                if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::Url) =>
+            {
+                Ok(format!("{}.href()", self.operand_text(operand)?))
+            }
+            Some(Type::Class { name, .. })
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::UrlSearchParams) =>
+            {
+                Ok(format!("{}.to_text()", self.operand_text(operand)?))
             }
             // A `DataView` has no elements to join, so it keeps its tag too.
             Some(Type::Class { name, .. })

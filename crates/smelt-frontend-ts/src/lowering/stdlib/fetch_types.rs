@@ -864,6 +864,10 @@ impl ModuleBuilder<'_> {
             ));
         };
         let input = self.argument(input_argument, body)?;
+        // `RequestInfo` is `Request | string`, and a `URL` input is
+        // stringified to its `href` by the constructor's string conversion.
+        let input_span = self.span(input_argument.span().start, input_argument.span().end);
+        let input = self.url_href_of(input, input_span, body).unwrap_or(input);
         let mut fields = InitFields::default();
         if let Some(init_argument) = new_expr.arguments.get(1) {
             self.lower_fetch_init(init_argument, &request_init_keys(), "Request", &mut fields, body)?;

@@ -13,7 +13,7 @@ use super::{
     ServerResponseOp as ServerResponseOpKind,
     RequestInitMember, RequestOp as RequestOpKind, ResponseOp as ResponseOpKind,
     UnknownKind, UriTranscodeOp,
-    UrlField,
+    UrlField, UrlOp as UrlOpKind,
     AbortSignalOp as AbortSignalOpKind,
     CryptoOp as CryptoOpKind,
     HostModuleOp as HostModuleOpKind,
@@ -609,6 +609,25 @@ pub enum ExprKind {
         /// The view (or byte-storage) receiver.
         bytes: ExprId,
         /// Operation arguments (a range, a value, a source view, or none).
+        args: Vec<ExprId>,
+    },
+    /// `new URL(input, base?)`: a parsed WHATWG URL value.
+    ///
+    /// Both operands are strings; a `URL` argument is read as its `href` by
+    /// the frontend, the stringification the constructor itself performs.
+    UrlNew {
+        /// The URL text to parse.
+        input: ExprId,
+        /// The base URL text a relative `input` resolves against.
+        base: Option<ExprId>,
+    },
+    /// A component read or write, or `searchParams`, on a concrete `URL`.
+    UrlOp {
+        /// Which operation this is.
+        op: UrlOpKind,
+        /// The `URL` receiver.
+        url: ExprId,
+        /// The written value for a setter; empty otherwise.
         args: Vec<ExprId>,
     },
     /// A `URLSearchParams` method call on a concrete receiver.

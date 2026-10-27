@@ -2347,6 +2347,11 @@ impl ModuleBuilder<'_> {
             ));
         };
         let mut url = self.argument(url_argument, body)?;
+        // A `URL` input is fetched by its `href`, as `new Request(url)` reads it.
+        let url_span = self.span(url_argument.span().start, url_argument.span().end);
+        if let Some(href) = self.url_href_of(url, url_span, body) {
+            url = href;
+        }
         // `fetch(url, init)` IS `fetch(new Request(url, init))` — that is the
         // spec's own definition, not a convenience — so the init goes through
         // the very same reader the `Request` constructor uses and the operand

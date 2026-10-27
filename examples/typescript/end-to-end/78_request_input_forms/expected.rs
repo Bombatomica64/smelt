@@ -1214,8 +1214,8 @@ impl<K, V> SmeltRecord<K, V> {
 }
 
 /// Return whether an erased object key is visible to JavaScript `for...in` iteration.
-fn smelt_object_has_host_marker(object: &SmeltObject) -> bool { object.store.borrow().has_internal_keys() && ["__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_headers", "__smelt_urlsearchparams", "__smelt_request", "__smelt_response", "__smelt_textencoder", "__smelt_textdecoder", "__smelt_eventemitter", "__smelt_httpserver", "__smelt_incomingmessage", "__smelt_serverresponse", "__smelt_formdata", "__smelt_databasesync", "__smelt_statementsync", "__smelt_readablestream", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| object.contains_key(marker)) }
-fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool { record.store.borrow().has_internal_keys() && ["__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_headers", "__smelt_urlsearchparams", "__smelt_request", "__smelt_response", "__smelt_textencoder", "__smelt_textdecoder", "__smelt_eventemitter", "__smelt_httpserver", "__smelt_incomingmessage", "__smelt_serverresponse", "__smelt_formdata", "__smelt_databasesync", "__smelt_statementsync", "__smelt_readablestream", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| record.contains_key(*marker)) }
+fn smelt_object_has_host_marker(object: &SmeltObject) -> bool { object.store.borrow().has_internal_keys() && ["__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_headers", "__smelt_urlsearchparams", "__smelt_url", "__smelt_request", "__smelt_response", "__smelt_textencoder", "__smelt_textdecoder", "__smelt_eventemitter", "__smelt_httpserver", "__smelt_incomingmessage", "__smelt_serverresponse", "__smelt_formdata", "__smelt_databasesync", "__smelt_statementsync", "__smelt_readablestream", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| object.contains_key(marker)) }
+fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool { record.store.borrow().has_internal_keys() && ["__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_headers", "__smelt_urlsearchparams", "__smelt_url", "__smelt_request", "__smelt_response", "__smelt_textencoder", "__smelt_textdecoder", "__smelt_eventemitter", "__smelt_httpserver", "__smelt_incomingmessage", "__smelt_serverresponse", "__smelt_formdata", "__smelt_databasesync", "__smelt_statementsync", "__smelt_readablestream", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| record.contains_key(*marker)) }
 /// Return the byte-backed host marker a record carries, if any.
 ///
 /// The marker doubles as the record's identity, so a slice can rebuild a fresh
@@ -1504,7 +1504,7 @@ fn smelt_reflected_marker_class(map: &SmeltObject) -> Option<String> {
 /// specs assert exactly that on a cloned host object. Unmarked records answer
 /// `None`, so a plain object's `.constructor` stays `undefined` — which is what
 /// makes two plain objects compare as equal instances.
-fn smelt_marker_constructor_class(map: &SmeltObject) -> Option<&'static str> { [("__smelt_date", "Date"), ("__smelt_map", "Map"), ("__smelt_set", "Set"), ("__smelt_regexp", "RegExp"), ("__smelt_error", "Error"), ("__smelt_abortcontroller", "AbortController"), ("__smelt_abortsignal", "AbortSignal"), ("__smelt_arraybuffer", "ArrayBuffer"), ("__smelt_sharedarraybuffer", "SharedArrayBuffer"), ("__smelt_int8array", "Int8Array"), ("__smelt_uint8array", "Uint8Array"), ("__smelt_uint8clampedarray", "Uint8ClampedArray"), ("__smelt_int16array", "Int16Array"), ("__smelt_uint16array", "Uint16Array"), ("__smelt_int32array", "Int32Array"), ("__smelt_uint32array", "Uint32Array"), ("__smelt_float32array", "Float32Array"), ("__smelt_float64array", "Float64Array"), ("__smelt_bigint64array", "BigInt64Array"), ("__smelt_biguint64array", "BigUint64Array"), ("__smelt_buffer", "Buffer"), ("__smelt_dataview", "DataView"), ("__smelt_weakmap", "WeakMap"), ("__smelt_weakset", "WeakSet"), ("__smelt_file", "File"), ("__smelt_blob", "Blob"), ("__smelt_headers", "Headers"), ("__smelt_urlsearchparams", "URLSearchParams"), ("__smelt_request", "Request"), ("__smelt_response", "Response"), ("__smelt_textencoder", "TextEncoder"), ("__smelt_textdecoder", "TextDecoder"), ("__smelt_eventemitter", "EventEmitter"), ("__smelt_httpserver", "Server"), ("__smelt_incomingmessage", "IncomingMessage"), ("__smelt_serverresponse", "ServerResponse"), ("__smelt_formdata", "FormData"), ("__smelt_databasesync", "DatabaseSync"), ("__smelt_statementsync", "StatementSync"), ("__smelt_readablestream", "ReadableStream"), ("__smelt_domexception", "DOMException"), ("__smelt_intl_collator", "Intl.Collator"), ("__smelt_intl_displaynames", "Intl.DisplayNames"), ("__smelt_intl_durationformat", "Intl.DurationFormat"), ("__smelt_intl_listformat", "Intl.ListFormat"), ("__smelt_intl_locale", "Intl.Locale"), ("__smelt_intl_numberformat", "Intl.NumberFormat"), ("__smelt_intl_pluralrules", "Intl.PluralRules"), ("__smelt_intl_segmenter", "Intl.Segmenter"), ("__smelt_number", "Number"), ("__smelt_boolean", "Boolean"), ("__smelt_string", "String"), ("__smelt_symbol", "Symbol")].into_iter().find(|(marker, _)| map.contains_key(marker)).map(|(_, class)| class) }
+fn smelt_marker_constructor_class(map: &SmeltObject) -> Option<&'static str> { [("__smelt_date", "Date"), ("__smelt_map", "Map"), ("__smelt_set", "Set"), ("__smelt_regexp", "RegExp"), ("__smelt_error", "Error"), ("__smelt_abortcontroller", "AbortController"), ("__smelt_abortsignal", "AbortSignal"), ("__smelt_arraybuffer", "ArrayBuffer"), ("__smelt_sharedarraybuffer", "SharedArrayBuffer"), ("__smelt_int8array", "Int8Array"), ("__smelt_uint8array", "Uint8Array"), ("__smelt_uint8clampedarray", "Uint8ClampedArray"), ("__smelt_int16array", "Int16Array"), ("__smelt_uint16array", "Uint16Array"), ("__smelt_int32array", "Int32Array"), ("__smelt_uint32array", "Uint32Array"), ("__smelt_float32array", "Float32Array"), ("__smelt_float64array", "Float64Array"), ("__smelt_bigint64array", "BigInt64Array"), ("__smelt_biguint64array", "BigUint64Array"), ("__smelt_buffer", "Buffer"), ("__smelt_dataview", "DataView"), ("__smelt_weakmap", "WeakMap"), ("__smelt_weakset", "WeakSet"), ("__smelt_file", "File"), ("__smelt_blob", "Blob"), ("__smelt_headers", "Headers"), ("__smelt_urlsearchparams", "URLSearchParams"), ("__smelt_url", "URL"), ("__smelt_request", "Request"), ("__smelt_response", "Response"), ("__smelt_textencoder", "TextEncoder"), ("__smelt_textdecoder", "TextDecoder"), ("__smelt_eventemitter", "EventEmitter"), ("__smelt_httpserver", "Server"), ("__smelt_incomingmessage", "IncomingMessage"), ("__smelt_serverresponse", "ServerResponse"), ("__smelt_formdata", "FormData"), ("__smelt_databasesync", "DatabaseSync"), ("__smelt_statementsync", "StatementSync"), ("__smelt_readablestream", "ReadableStream"), ("__smelt_domexception", "DOMException"), ("__smelt_intl_collator", "Intl.Collator"), ("__smelt_intl_displaynames", "Intl.DisplayNames"), ("__smelt_intl_durationformat", "Intl.DurationFormat"), ("__smelt_intl_listformat", "Intl.ListFormat"), ("__smelt_intl_locale", "Intl.Locale"), ("__smelt_intl_numberformat", "Intl.NumberFormat"), ("__smelt_intl_pluralrules", "Intl.PluralRules"), ("__smelt_intl_segmenter", "Intl.Segmenter"), ("__smelt_number", "Number"), ("__smelt_boolean", "Boolean"), ("__smelt_string", "String"), ("__smelt_symbol", "Symbol")].into_iter().find(|(marker, _)| map.contains_key(marker)).map(|(_, class)| class) }
 /// Build a modeled host instance of `kind` from constructor arguments.
 ///
 /// This is the one constructor for a host identity: the direct `new X(...)`
@@ -1602,7 +1602,7 @@ fn smelt_function_value_property(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknow
 /// `@@toStringTag`-bearing `name` becomes the tag, matching `[object JSON]` /
 /// `[object Math]`). Class instances and unmarked records are plain
 /// `[object Object]`, exactly like JavaScript objects without a custom tag.
-fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => "[object Null]".to_owned(), SmeltUnknown::Undefined => "[object Undefined]".to_owned(), SmeltUnknown::Bool(_) => "[object Boolean]".to_owned(), SmeltUnknown::Number(_) => "[object Number]".to_owned(), SmeltUnknown::String(_) => "[object String]".to_owned(), SmeltUnknown::Symbol(_) => "[object Symbol]".to_owned(), SmeltUnknown::Array(_) => "[object Array]".to_owned(), SmeltUnknown::Function(_) => "[object Function]".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned(), SmeltUnknown::Object(map) => { if let Some(SmeltUnknown::String(tag)) = map.get("__smelt_symbol_to_string_tag") { return format!("[object {tag}]"); } if map.contains_key("__smelt_date") { return "[object Date]".to_owned(); } if map.contains_key("__smelt_regexp") { return "[object RegExp]".to_owned(); } if map.contains_key("__smelt_error") { return "[object Error]".to_owned(); } if map.contains_key("__smelt_global_object") { return "[object global]".to_owned(); } if map.contains_key("__smelt_map") { return "[object Map]".to_owned(); } if map.contains_key("__smelt_set") { return "[object Set]".to_owned(); } if map.contains_key("__smelt_arguments") { return "[object Arguments]".to_owned(); } if map.contains_key("__smelt_abortcontroller") { return "[object AbortController]".to_owned(); } if map.contains_key("__smelt_abortsignal") { return "[object AbortSignal]".to_owned(); } if map.contains_key("__smelt_arraybuffer") { return "[object ArrayBuffer]".to_owned(); } if map.contains_key("__smelt_sharedarraybuffer") { return "[object SharedArrayBuffer]".to_owned(); } if map.contains_key("__smelt_int8array") { return "[object Int8Array]".to_owned(); } if map.contains_key("__smelt_uint8array") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_uint8clampedarray") { return "[object Uint8ClampedArray]".to_owned(); } if map.contains_key("__smelt_int16array") { return "[object Int16Array]".to_owned(); } if map.contains_key("__smelt_uint16array") { return "[object Uint16Array]".to_owned(); } if map.contains_key("__smelt_int32array") { return "[object Int32Array]".to_owned(); } if map.contains_key("__smelt_uint32array") { return "[object Uint32Array]".to_owned(); } if map.contains_key("__smelt_float32array") { return "[object Float32Array]".to_owned(); } if map.contains_key("__smelt_float64array") { return "[object Float64Array]".to_owned(); } if map.contains_key("__smelt_bigint64array") { return "[object BigInt64Array]".to_owned(); } if map.contains_key("__smelt_biguint64array") { return "[object BigUint64Array]".to_owned(); } if map.contains_key("__smelt_buffer") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_dataview") { return "[object DataView]".to_owned(); } if map.contains_key("__smelt_weakmap") { return "[object WeakMap]".to_owned(); } if map.contains_key("__smelt_weakset") { return "[object WeakSet]".to_owned(); } if map.contains_key("__smelt_file") { return "[object File]".to_owned(); } if map.contains_key("__smelt_blob") { return "[object Blob]".to_owned(); } if map.contains_key("__smelt_headers") { return "[object Headers]".to_owned(); } if map.contains_key("__smelt_urlsearchparams") { return "[object URLSearchParams]".to_owned(); } if map.contains_key("__smelt_request") { return "[object Request]".to_owned(); } if map.contains_key("__smelt_response") { return "[object Response]".to_owned(); } if map.contains_key("__smelt_textencoder") { return "[object TextEncoder]".to_owned(); } if map.contains_key("__smelt_textdecoder") { return "[object TextDecoder]".to_owned(); } if map.contains_key("__smelt_eventemitter") { return "[object EventEmitter]".to_owned(); } if map.contains_key("__smelt_httpserver") { return "[object Server]".to_owned(); } if map.contains_key("__smelt_incomingmessage") { return "[object IncomingMessage]".to_owned(); } if map.contains_key("__smelt_serverresponse") { return "[object ServerResponse]".to_owned(); } if map.contains_key("__smelt_formdata") { return "[object FormData]".to_owned(); } if map.contains_key("__smelt_databasesync") { return "[object DatabaseSync]".to_owned(); } if map.contains_key("__smelt_statementsync") { return "[object StatementSync]".to_owned(); } if map.contains_key("__smelt_readablestream") { return "[object ReadableStream]".to_owned(); } if map.contains_key("__smelt_domexception") { return "[object DOMException]".to_owned(); } if map.contains_key("__smelt_intl_collator") { return "[object Intl.Collator]".to_owned(); } if map.contains_key("__smelt_intl_displaynames") { return "[object Intl.DisplayNames]".to_owned(); } if map.contains_key("__smelt_intl_durationformat") { return "[object Intl.DurationFormat]".to_owned(); } if map.contains_key("__smelt_intl_listformat") { return "[object Intl.ListFormat]".to_owned(); } if map.contains_key("__smelt_intl_locale") { return "[object Intl.Locale]".to_owned(); } if map.contains_key("__smelt_intl_numberformat") { return "[object Intl.NumberFormat]".to_owned(); } if map.contains_key("__smelt_intl_pluralrules") { return "[object Intl.PluralRules]".to_owned(); } if map.contains_key("__smelt_intl_segmenter") { return "[object Intl.Segmenter]".to_owned(); } if map.contains_key("__smelt_number") { return "[object Number]".to_owned(); } if map.contains_key("__smelt_boolean") { return "[object Boolean]".to_owned(); } if map.contains_key("__smelt_string") { return "[object String]".to_owned(); } if map.contains_key("__smelt_symbol") { return "[object Symbol]".to_owned(); } if map.contains_key("__smelt_builtin_namespace") { if let Some(SmeltUnknown::String(name)) = map.get("name") { return format!("[object {name}]"); } } "[object Object]".to_owned() } } }
+fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => "[object Null]".to_owned(), SmeltUnknown::Undefined => "[object Undefined]".to_owned(), SmeltUnknown::Bool(_) => "[object Boolean]".to_owned(), SmeltUnknown::Number(_) => "[object Number]".to_owned(), SmeltUnknown::String(_) => "[object String]".to_owned(), SmeltUnknown::Symbol(_) => "[object Symbol]".to_owned(), SmeltUnknown::Array(_) => "[object Array]".to_owned(), SmeltUnknown::Function(_) => "[object Function]".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned(), SmeltUnknown::Object(map) => { if let Some(SmeltUnknown::String(tag)) = map.get("__smelt_symbol_to_string_tag") { return format!("[object {tag}]"); } if map.contains_key("__smelt_date") { return "[object Date]".to_owned(); } if map.contains_key("__smelt_regexp") { return "[object RegExp]".to_owned(); } if map.contains_key("__smelt_error") { return "[object Error]".to_owned(); } if map.contains_key("__smelt_global_object") { return "[object global]".to_owned(); } if map.contains_key("__smelt_map") { return "[object Map]".to_owned(); } if map.contains_key("__smelt_set") { return "[object Set]".to_owned(); } if map.contains_key("__smelt_arguments") { return "[object Arguments]".to_owned(); } if map.contains_key("__smelt_abortcontroller") { return "[object AbortController]".to_owned(); } if map.contains_key("__smelt_abortsignal") { return "[object AbortSignal]".to_owned(); } if map.contains_key("__smelt_arraybuffer") { return "[object ArrayBuffer]".to_owned(); } if map.contains_key("__smelt_sharedarraybuffer") { return "[object SharedArrayBuffer]".to_owned(); } if map.contains_key("__smelt_int8array") { return "[object Int8Array]".to_owned(); } if map.contains_key("__smelt_uint8array") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_uint8clampedarray") { return "[object Uint8ClampedArray]".to_owned(); } if map.contains_key("__smelt_int16array") { return "[object Int16Array]".to_owned(); } if map.contains_key("__smelt_uint16array") { return "[object Uint16Array]".to_owned(); } if map.contains_key("__smelt_int32array") { return "[object Int32Array]".to_owned(); } if map.contains_key("__smelt_uint32array") { return "[object Uint32Array]".to_owned(); } if map.contains_key("__smelt_float32array") { return "[object Float32Array]".to_owned(); } if map.contains_key("__smelt_float64array") { return "[object Float64Array]".to_owned(); } if map.contains_key("__smelt_bigint64array") { return "[object BigInt64Array]".to_owned(); } if map.contains_key("__smelt_biguint64array") { return "[object BigUint64Array]".to_owned(); } if map.contains_key("__smelt_buffer") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_dataview") { return "[object DataView]".to_owned(); } if map.contains_key("__smelt_weakmap") { return "[object WeakMap]".to_owned(); } if map.contains_key("__smelt_weakset") { return "[object WeakSet]".to_owned(); } if map.contains_key("__smelt_file") { return "[object File]".to_owned(); } if map.contains_key("__smelt_blob") { return "[object Blob]".to_owned(); } if map.contains_key("__smelt_headers") { return "[object Headers]".to_owned(); } if map.contains_key("__smelt_urlsearchparams") { return "[object URLSearchParams]".to_owned(); } if map.contains_key("__smelt_url") { return "[object URL]".to_owned(); } if map.contains_key("__smelt_request") { return "[object Request]".to_owned(); } if map.contains_key("__smelt_response") { return "[object Response]".to_owned(); } if map.contains_key("__smelt_textencoder") { return "[object TextEncoder]".to_owned(); } if map.contains_key("__smelt_textdecoder") { return "[object TextDecoder]".to_owned(); } if map.contains_key("__smelt_eventemitter") { return "[object EventEmitter]".to_owned(); } if map.contains_key("__smelt_httpserver") { return "[object Server]".to_owned(); } if map.contains_key("__smelt_incomingmessage") { return "[object IncomingMessage]".to_owned(); } if map.contains_key("__smelt_serverresponse") { return "[object ServerResponse]".to_owned(); } if map.contains_key("__smelt_formdata") { return "[object FormData]".to_owned(); } if map.contains_key("__smelt_databasesync") { return "[object DatabaseSync]".to_owned(); } if map.contains_key("__smelt_statementsync") { return "[object StatementSync]".to_owned(); } if map.contains_key("__smelt_readablestream") { return "[object ReadableStream]".to_owned(); } if map.contains_key("__smelt_domexception") { return "[object DOMException]".to_owned(); } if map.contains_key("__smelt_intl_collator") { return "[object Intl.Collator]".to_owned(); } if map.contains_key("__smelt_intl_displaynames") { return "[object Intl.DisplayNames]".to_owned(); } if map.contains_key("__smelt_intl_durationformat") { return "[object Intl.DurationFormat]".to_owned(); } if map.contains_key("__smelt_intl_listformat") { return "[object Intl.ListFormat]".to_owned(); } if map.contains_key("__smelt_intl_locale") { return "[object Intl.Locale]".to_owned(); } if map.contains_key("__smelt_intl_numberformat") { return "[object Intl.NumberFormat]".to_owned(); } if map.contains_key("__smelt_intl_pluralrules") { return "[object Intl.PluralRules]".to_owned(); } if map.contains_key("__smelt_intl_segmenter") { return "[object Intl.Segmenter]".to_owned(); } if map.contains_key("__smelt_number") { return "[object Number]".to_owned(); } if map.contains_key("__smelt_boolean") { return "[object Boolean]".to_owned(); } if map.contains_key("__smelt_string") { return "[object String]".to_owned(); } if map.contains_key("__smelt_symbol") { return "[object Symbol]".to_owned(); } if map.contains_key("__smelt_builtin_namespace") { if let Some(SmeltUnknown::String(name)) = map.get("name") { return format!("[object {name}]"); } } "[object Object]".to_owned() } } }
 
 impl PartialEq for SmeltObject { fn eq(&self, other: &Self) -> bool { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_eq(self, other, &mut smelt_seen) } }
 impl Eq for SmeltObject {}
@@ -1937,7 +1937,7 @@ fn smelt_abort_method(object: SmeltObject, method: &str) -> SmeltUnknown { let m
 
 /// The synthesized host method a member read resolves to, if the object
 /// carries a host marker and has no OWN member of that name.
-fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; } if (object.contains_key("__smelt_abortcontroller") || object.contains_key("__smelt_abortsignal")) && matches!(name, "abort" | "addEventListener" | "removeEventListener" | "dispatchEvent" | "throwIfAborted") { return Some(smelt_abort_method(object.clone(), name)); } if let Some(found) = smelt_headers_host_method(object, name) { return Some(found); } None }
+fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; } if (object.contains_key("__smelt_abortcontroller") || object.contains_key("__smelt_abortsignal")) && matches!(name, "abort" | "addEventListener" | "removeEventListener" | "dispatchEvent" | "throwIfAborted") { return Some(smelt_abort_method(object.clone(), name)); } if let Some(found) = smelt_headers_host_method(object, name) { return Some(found); } if let Some(found) = smelt_url_search_params_host_method(object, name) { return Some(found); } None }
 
 pub enum SmeltUnknown {
     Null,
@@ -3033,6 +3033,11 @@ fn smelt_panic_payload(error: &(dyn ::std::error::Error + 'static)) -> SmeltPani
 /// a panic that is not a routed `throw` has no JavaScript value behind it.
 fn smelt_panic_error_value(panic: &(dyn ::std::any::Any + Send)) -> SmeltUnknown { if let Some(value) = SMELT_PANIC_VALUE.with(|slot| slot.borrow_mut().take()) { if panic.downcast_ref::<SmeltPanic>().is_some() { return value; } } SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String(smelt_panic_class(panic).into())), ("message".to_owned(), SmeltUnknown::String(smelt_panic_message(panic).into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))) }
 
+/// `new URL(input, base?)`, throwing a catchable `TypeError` for text that is not a URL.
+fn smelt_url_new_throwing(input: &str, base: Option<&str>) -> Result<SmeltUrl, Box<dyn ::std::error::Error>> { SmeltUrl::parse(input, base).ok_or_else(|| smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("TypeError".into())), ("message".to_owned(), SmeltUnknown::String("Invalid URL".to_owned().into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))) }
+/// `url.href = value`, throwing a catchable `TypeError` for text that is not a URL.
+fn smelt_url_set_href_throwing(url: &SmeltUrl, value: String) -> Result<String, Box<dyn ::std::error::Error>> { if url.set_href(&value) { Ok(value) } else { Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("TypeError".into())), ("message".to_owned(), SmeltUnknown::String("Invalid URL".to_owned().into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))) } }
+
 impl Eq for SmeltUnknown {}
 
 impl ::std::hash::Hash for SmeltUnknown {
@@ -3870,6 +3875,238 @@ impl SmeltFromUnknown for SmeltHeaders {
     }
 }
 
+/// A WHATWG `URLSearchParams` list: ordered, case-sensitive
+/// name/value pairs with urlencoded serialization.
+#[derive(Clone)]
+pub struct SmeltUrlSearchParams {
+    id: usize,
+    /// Name/value pairs in insertion order.
+    entries: ::std::rc::Rc<::std::cell::RefCell<Vec<(String, String)>>>,
+    /// The `URL` whose `searchParams` this list is, if any. The spec's
+    /// update steps write every mutation back to that URL's query.
+    owner: Option<::std::rc::Rc<::std::cell::RefCell<::url::Url>>>,
+}
+
+impl PartialEq for SmeltUrlSearchParams { fn eq(&self, other: &Self) -> bool { *self.entries.borrow() == *other.entries.borrow() } }
+impl ::std::fmt::Debug for SmeltUrlSearchParams { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str(&self.to_text()) } }
+impl Default for SmeltUrlSearchParams { fn default() -> Self { Self::new() } }
+
+#[allow(dead_code)]
+impl SmeltUrlSearchParams {
+    /// An empty parameter list with a fresh JS reference identity.
+    pub fn new() -> Self { Self { id: smelt_next_object_id(), entries: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), owner: None } }
+    /// The live `searchParams` list of a URL: its entries are the URL's
+    /// query, and each mutation rewrites that query.
+    pub fn owned_by(owner: ::std::rc::Rc<::std::cell::RefCell<::url::Url>>) -> Self {
+        let params = Self { owner: Some(owner), ..Self::new() };
+        params.refresh_from_owner();
+        params
+    }
+    /// Re-read the entries from the owning URL's query, after a write to
+    /// the URL itself (`search` or `href`) replaced it.
+    pub fn refresh_from_owner(&self) {
+        let Some(owner) = &self.owner else { return };
+        let pairs = owner.borrow().query_pairs().map(|(name, value)| (name.into_owned(), value.into_owned())).collect::<Vec<(String, String)>>();
+        *self.entries.borrow_mut() = pairs;
+    }
+    /// The spec's update steps: serialize the list into the owning URL's
+    /// query, which an empty list sets to null.
+    fn update_owner(&self) {
+        let Some(owner) = &self.owner else { return };
+        let query = self.to_text();
+        owner.borrow_mut().set_query(if query.is_empty() { None } else { Some(&query) });
+    }
+    /// JS reference identity of this parameter list.
+    pub fn id(&self) -> usize { self.id }
+    /// Build a parameter list from name/value pairs, in order.
+    pub fn from_pairs(pairs: Vec<(String, String)>) -> Self { let params = Self::new(); params.entries.borrow_mut().extend(pairs); params }
+    /// Parse a query string (with or without a leading `?`).
+    ///
+    /// `url::form_urlencoded` owns the decoding: `+` is a space, `%XX` is
+    /// a byte, and a pair with no `=` has the empty string as its value.
+    pub fn from_query(query: &str) -> Self {
+        let trimmed = query.strip_prefix('?').unwrap_or(query);
+        let pairs = url::form_urlencoded::parse(trimmed.as_bytes()).map(|(name, value): (::std::borrow::Cow<'_, str>, ::std::borrow::Cow<'_, str>)| (name.into_owned(), value.into_owned())).collect::<Vec<(String, String)>>();
+        Self::from_pairs(pairs)
+    }
+    /// `get(name)`: the FIRST value for a name, or `null`.
+    pub fn get(&self, name: &str) -> Option<String> { self.entries.borrow().iter().find(|(entry_name, _)| entry_name == name).map(|(_, value)| value.clone()) }
+    /// `getAll(name)`: every value for a name, in order.
+    pub fn get_all(&self, name: &str) -> Vec<String> { self.entries.borrow().iter().filter(|(entry_name, _)| entry_name == name).map(|(_, value)| value.clone()).collect() }
+    /// `has(name)`.
+    pub fn has(&self, name: &str) -> bool { self.entries.borrow().iter().any(|(entry_name, _)| entry_name == name) }
+    /// `append(name, value)`.
+    pub fn append(&self, name: &str, value: &str) { self.entries.borrow_mut().push((name.to_owned(), value.to_owned())); self.update_owner(); }
+    /// `set(name, value)`: replace the first value, drop the rest.
+    pub fn set(&self, name: &str, value: &str) {
+        let mut entries = self.entries.borrow_mut();
+        let position = entries.iter().position(|(entry_name, _)| entry_name == name);
+        let Some(index) = position else { entries.push((name.to_owned(), value.to_owned())); drop(entries); self.update_owner(); return; };
+        entries[index] = (name.to_owned(), value.to_owned());
+        let mut kept = false;
+        entries.retain(|(entry_name, _)| { if entry_name != name { return true; } let first = !kept; kept = true; first });
+        drop(entries);
+        self.update_owner();
+    }
+    /// `delete(name)`: remove every pair with the name.
+    pub fn delete(&self, name: &str) { self.entries.borrow_mut().retain(|(entry_name, _)| entry_name != name); self.update_owner(); }
+    /// `sort()`: stable sort by name, keeping equal names in order.
+    pub fn sort(&self) { self.entries.borrow_mut().sort_by(|left, right| left.0.cmp(&right.0)); self.update_owner(); }
+    /// `toString()`: the urlencoded serialization.
+    pub fn to_text(&self) -> String {
+        let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+        for (name, value) in self.entries.borrow().iter() { serializer.append_pair(name, value); }
+        serializer.finish()
+    }
+    /// `entries()`: the pairs in insertion order.
+    pub fn entries_in_order(&self) -> Vec<(String, String)> { self.entries.borrow().clone() }
+    /// `keys()`: parameter names in insertion order.
+    pub fn keys(&self) -> Vec<String> { self.entries.borrow().iter().map(|(name, _)| name.clone()).collect() }
+    /// `values()`: parameter values in insertion order.
+    pub fn values(&self) -> Vec<String> { self.entries.borrow().iter().map(|(_, value)| value.clone()).collect() }
+    /// `size`: the number of pairs.
+    pub fn size(&self) -> f64 { self.entries.borrow().len() as f64 }
+}
+
+/// Erase a parameter list for a dynamic boundary.
+impl IntoSmeltUnknown for SmeltUrlSearchParams {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let smelt_host_origin = self.clone();
+        let pairs: Vec<SmeltUnknown> = self.entries_in_order().into_iter().map(|(name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(name.into()), SmeltUnknown::String(value.into())]).into())).collect();
+        smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([("__smelt_urlsearchparams".to_owned(), SmeltUnknown::Bool(true)), ("size".to_owned(), SmeltUnknown::Number(pairs.len() as f64)), ("entries".to_owned(), SmeltUnknown::Array(pairs.into()))]))), smelt_host_origin)
+    }
+}
+
+/// The modeled members of an erased `URLSearchParams` record, resolved at run time.
+///
+/// **Dynamic boundary.** The receiver is a marker-bearing record, so the
+/// member it carries is decided by the record's marker and the member NAME,
+/// both of which are runtime values here — a program reaches this only by
+/// erasing the value on purpose (`as any`, an `any`-typed field), since every
+/// ordinary spelling keeps its type through narrowing. Answering `undefined`
+/// instead, which is what a plain property read does, was a silent wrong
+/// value: `(headers as any).get('a')` gave `null` where Node gives the header.
+///
+/// The recovered value is the SAME one the record was erased from (the origin
+/// registry), so a mutating member is observed by the holder of the concrete
+/// value. Only the synchronous members are here; the async body readers are
+/// not, and they keep the erased read's `undefined`.
+fn smelt_url_search_params_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key("__smelt_urlsearchparams") { return None; } if !matches!(name, "get" | "getAll" | "has" | "set" | "append" | "delete" | "toString" | "keys" | "values" | "entries" | "sort") { return None; } let params = <SmeltUrlSearchParams as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); let method = name.to_owned(); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let arg = |index: usize| args.get(index).cloned().map_or_else(String::new, smelt_property_key); Ok(match method.as_str() { "get" => params.get(&arg(0)).map_or(SmeltUnknown::Null, |value| SmeltUnknown::String(value.into())), "getAll" => SmeltUnknown::Array(params.get_all(&arg(0)).into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), "has" => SmeltUnknown::Bool(params.has(&arg(0))), "set" => { params.set(&arg(0), &arg(1)); SmeltUnknown::Undefined }, "append" => { params.append(&arg(0), &arg(1)); SmeltUnknown::Undefined }, "delete" => { params.delete(&arg(0)); SmeltUnknown::Undefined }, "toString" => SmeltUnknown::String(params.to_text().into()), "keys" => SmeltUnknown::Array(params.keys().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), "values" => SmeltUnknown::Array(params.values().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), "entries" => SmeltUnknown::Array(params.entries_in_order().into_iter().map(|(entry_name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(entry_name.into()), SmeltUnknown::String(value.into())]).into())).collect::<Vec<_>>().into()), _ => { params.sort(); SmeltUnknown::Undefined }, }) }))) }
+
+/// Rebuild a parameter list from an erased value.
+impl SmeltFromUnknown for SmeltUrlSearchParams {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        if let SmeltUnknown::String(query) = &value { return Self::from_query(query); }
+        if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }
+        let SmeltUnknown::Object(map) = value else { return Self::new() };
+        let Some(SmeltUnknown::Array(pairs)) = map.get("entries") else { return Self::new() };
+        let params = Self::new();
+        for pair in pairs.into_vec() {
+            let SmeltUnknown::Array(pair) = pair else { continue };
+            let pair = pair.into_vec();
+            let (Some(SmeltUnknown::String(name)), Some(SmeltUnknown::String(entry_value))) = (pair.first().cloned(), pair.get(1).cloned()) else { continue };
+            params.append(&name, &entry_value);
+        }
+        params
+    }
+}
+
+/// A WHATWG `URL`: a shared, mutable parsed URL whose `searchParams`
+/// is a live view of its query.
+#[derive(Clone)]
+pub struct SmeltUrl {
+    id: usize,
+    /// The parsed URL, shared by every alias of this value.
+    url: ::std::rc::Rc<::std::cell::RefCell<::url::Url>>,
+    /// The live `searchParams` list, owned by the same URL.
+    params: SmeltUrlSearchParams,
+}
+
+impl PartialEq for SmeltUrl { fn eq(&self, other: &Self) -> bool { self.href() == other.href() } }
+impl ::std::fmt::Debug for SmeltUrl { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str(&self.href()) } }
+impl ::std::fmt::Display for SmeltUrl { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str(&self.href()) } }
+
+#[allow(dead_code)]
+impl SmeltUrl {
+    /// Parse `input` against an optional `base`, or `None` when the
+    /// result is not a URL (the constructor's `TypeError`).
+    pub fn parse(input: &str, base: Option<&str>) -> Option<Self> {
+        let parsed = match base { Some(base) => ::url::Url::parse(base).ok()?.join(input).ok()?, None => ::url::Url::parse(input).ok()? };
+        let url = ::std::rc::Rc::new(::std::cell::RefCell::new(parsed));
+        let params = SmeltUrlSearchParams::owned_by(::std::rc::Rc::clone(&url));
+        Some(Self { id: smelt_next_object_id(), url, params })
+    }
+    /// JS reference identity of this URL.
+    pub fn id(&self) -> usize { self.id }
+    /// The `href` getter.
+    pub fn href(&self) -> String { ::url::quirks::href(&self.url.borrow()).to_owned() }
+    /// The `origin` getter.
+    pub fn origin(&self) -> String { ::url::quirks::origin(&self.url.borrow()) }
+    /// The `protocol` getter.
+    pub fn protocol(&self) -> String { ::url::quirks::protocol(&self.url.borrow()).to_owned() }
+    /// The `protocol` setter; a value it cannot apply is ignored.
+    pub fn set_protocol(&self, value: &str) { let _ = ::url::quirks::set_protocol(&mut self.url.borrow_mut(), value); }
+    /// The `username` getter.
+    pub fn username(&self) -> String { ::url::quirks::username(&self.url.borrow()).to_owned() }
+    /// The `username` setter; a value it cannot apply is ignored.
+    pub fn set_username(&self, value: &str) { let _ = ::url::quirks::set_username(&mut self.url.borrow_mut(), value); }
+    /// The `password` getter.
+    pub fn password(&self) -> String { ::url::quirks::password(&self.url.borrow()).to_owned() }
+    /// The `password` setter; a value it cannot apply is ignored.
+    pub fn set_password(&self, value: &str) { let _ = ::url::quirks::set_password(&mut self.url.borrow_mut(), value); }
+    /// The `host` getter.
+    pub fn host(&self) -> String { ::url::quirks::host(&self.url.borrow()).to_owned() }
+    /// The `host` setter; a value it cannot apply is ignored.
+    pub fn set_host(&self, value: &str) { let _ = ::url::quirks::set_host(&mut self.url.borrow_mut(), value); }
+    /// The `hostname` getter.
+    pub fn hostname(&self) -> String { ::url::quirks::hostname(&self.url.borrow()).to_owned() }
+    /// The `hostname` setter; a value it cannot apply is ignored.
+    pub fn set_hostname(&self, value: &str) { let _ = ::url::quirks::set_hostname(&mut self.url.borrow_mut(), value); }
+    /// The `port` getter.
+    pub fn port(&self) -> String { ::url::quirks::port(&self.url.borrow()).to_owned() }
+    /// The `port` setter; a value it cannot apply is ignored.
+    pub fn set_port(&self, value: &str) { let _ = ::url::quirks::set_port(&mut self.url.borrow_mut(), value); }
+    /// The `pathname` getter.
+    pub fn pathname(&self) -> String { ::url::quirks::pathname(&self.url.borrow()).to_owned() }
+    /// The `pathname` setter; a value it cannot apply is ignored.
+    pub fn set_pathname(&self, value: &str) { let _ = ::url::quirks::set_pathname(&mut self.url.borrow_mut(), value); }
+    /// The `search` getter.
+    pub fn search(&self) -> String { ::url::quirks::search(&self.url.borrow()).to_owned() }
+    /// The `search` setter; a value it cannot apply is ignored.
+    pub fn set_search(&self, value: &str) { let _ = ::url::quirks::set_search(&mut self.url.borrow_mut(), value); self.params.refresh_from_owner(); }
+    /// The `hash` getter.
+    pub fn hash(&self) -> String { ::url::quirks::hash(&self.url.borrow()).to_owned() }
+    /// The `hash` setter; a value it cannot apply is ignored.
+    pub fn set_hash(&self, value: &str) { let _ = ::url::quirks::set_hash(&mut self.url.borrow_mut(), value); }
+    /// The `href` setter, or `false` when `value` is not a URL (the
+    /// setter's `TypeError`), in which case nothing changes.
+    pub fn set_href(&self, value: &str) -> bool {
+        let applied = ::url::quirks::set_href(&mut self.url.borrow_mut(), value).is_ok();
+        if applied { self.params.refresh_from_owner(); }
+        applied
+    }
+    /// `searchParams`: the SAME live list on every read.
+    pub fn search_params(&self) -> SmeltUrlSearchParams { self.params.clone() }
+}
+
+/// Erase a URL for a dynamic boundary.
+impl IntoSmeltUnknown for SmeltUrl {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let smelt_host_origin = self.clone();
+        smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([("__smelt_url".to_owned(), SmeltUnknown::Bool(true)), ("href".to_owned(), SmeltUnknown::String(self.href().into())), ("origin".to_owned(), SmeltUnknown::String(self.origin().into())), ("protocol".to_owned(), SmeltUnknown::String(self.protocol().into())), ("username".to_owned(), SmeltUnknown::String(self.username().into())), ("password".to_owned(), SmeltUnknown::String(self.password().into())), ("host".to_owned(), SmeltUnknown::String(self.host().into())), ("hostname".to_owned(), SmeltUnknown::String(self.hostname().into())), ("port".to_owned(), SmeltUnknown::String(self.port().into())), ("pathname".to_owned(), SmeltUnknown::String(self.pathname().into())), ("search".to_owned(), SmeltUnknown::String(self.search().into())), ("hash".to_owned(), SmeltUnknown::String(self.hash().into()))]))), smelt_host_origin)
+    }
+}
+
+/// Rebuild a URL from an erased value: the retained origin, else the
+/// `href` a hand-built record or a string carries.
+impl SmeltFromUnknown for SmeltUrl {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }
+        let href = match &value { SmeltUnknown::String(text) => text.to_string(), SmeltUnknown::Object(map) => match map.get("href") { Some(SmeltUnknown::String(text)) => text.to_string(), _ => String::new() }, _ => String::new() };
+        Self::parse(&href, None).unwrap_or_else(|| panic!("erased value is not a URL: {href:?}"))
+    }
+}
+
 /// The bytes a `Request`/`Response` carries, and whether they were read.
 ///
 /// A body is **single-use**: the spec's `bodyUsed` becomes `true` on the
@@ -4216,10 +4453,10 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_54: SmeltRequest;
     let _smelt_tmp_55: String;
     let _smelt_tmp_57: String;
-    let _smelt_tmp_59: String;
-    let _smelt_tmp_60: SmeltRequest;
-    let _smelt_tmp_61: String;
+    let _smelt_tmp_60: String;
+    let _smelt_tmp_61: SmeltRequest;
     let _smelt_tmp_62: String;
+    let _smelt_tmp_63: String;
     let _smelt_tmp_9: SmeltRecord<String, String> = SmeltRecord::from([("x-tag".to_owned(), "t".to_owned())]);
     let _smelt_tmp_10: SmeltRequest = SmeltRequest::from_parts_with_init(&"https://a.test/one".to_owned(), "POST".to_owned(), SmeltHeaders::from_pairs(_smelt_tmp_9.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"payload".to_owned()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     let source: SmeltRequest = _smelt_tmp_10;
@@ -4278,11 +4515,12 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_56: SmeltFuture<String> = { let smelt_request = replaced.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_request.take_text()?) })) };
     _smelt_tmp_57 = _smelt_tmp_56.await?;
     let _ = { println!("{} {}", _smelt_tmp_55, _smelt_tmp_57); };
-    _smelt_tmp_59 = url::Url::parse(&"https://a.test/six?q=1".to_owned()).expect("URL parse failed").to_string();
-    _smelt_tmp_60 = SmeltRequest::from_parts_with_init(&_smelt_tmp_59, "PUT".to_owned(), SmeltHeaders::new(), SmeltBody::empty(), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
-    from_url = _smelt_tmp_60;
-    _smelt_tmp_61 = from_url.clone().url();
-    _smelt_tmp_62 = from_url.method();
-    let _ = { println!("{} {}", _smelt_tmp_61, _smelt_tmp_62); };
+    let _smelt_tmp_59: SmeltUrl = smelt_url_new_throwing("https://a.test/six?q=1".to_owned().as_str(), None)?;
+    _smelt_tmp_60 = _smelt_tmp_59.href();
+    _smelt_tmp_61 = SmeltRequest::from_parts_with_init(&_smelt_tmp_60, "PUT".to_owned(), SmeltHeaders::new(), SmeltBody::empty(), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    from_url = _smelt_tmp_61;
+    _smelt_tmp_62 = from_url.clone().url();
+    _smelt_tmp_63 = from_url.method();
+    let _ = { println!("{} {}", _smelt_tmp_62, _smelt_tmp_63); };
     return Ok(());
 }

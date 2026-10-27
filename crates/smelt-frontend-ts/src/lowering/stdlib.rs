@@ -15,6 +15,7 @@ mod numbers_math;
 mod objects;
 mod sqlite;
 mod text_codec;
+mod url;
 
 use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;

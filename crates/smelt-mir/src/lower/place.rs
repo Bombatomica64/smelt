@@ -390,6 +390,8 @@ impl LoweringCtx<'_> {
             | ExprKind::UrlSearchParamsNew { .. }
             | ExprKind::FormDataNew
             | ExprKind::UrlSearchParamsOp { .. }
+            | ExprKind::UrlNew { .. }
+            | ExprKind::UrlOp { .. }
             | ExprKind::FormDataOp { .. }
             | ExprKind::CryptoOp { .. }
             | ExprKind::AbortSignalOp { .. }
