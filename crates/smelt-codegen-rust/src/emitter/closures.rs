@@ -547,6 +547,14 @@ impl FunctionEmitter<'_> {
             // that function's own erasure decision.
             emitter.enclosing_type_params = self.current_function_type_params();
             self.inherit_base_initializer_receiver(&mut emitter, &closure.captures);
+            // A closure inside an inherited copy still spells the declaring
+            // base's parameters, which the receiving `impl` does not declare.
+            emitter
+                .inherited_type_args
+                .clone_from(&self.closure_inherited_type_args);
+            emitter
+                .closure_inherited_type_args
+                .clone_from(&self.closure_inherited_type_args);
             for (index, param) in closure.params.iter().enumerate() {
                 emitter.names.insert(*param, format!("closure_arg_{index}"));
             }

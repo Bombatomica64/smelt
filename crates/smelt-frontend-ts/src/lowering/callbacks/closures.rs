@@ -1346,6 +1346,47 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Whether the class named `name` itself (not its bases) declares
+    /// `method` as a method; see [`Self::receiver_declares_method`].
+    fn class_symbol_declares_method(&self, name: smelt_hir::Symbol, method: smelt_hir::Symbol) -> bool {
+        let item_method = self.class_by_symbol(name).is_some_and(|class| {
+            class.methods.iter().any(|item| {
+                self.ctx
+                    .krate
+                    .items
+                    .get(usize::try_from(item.0).unwrap_or(usize::MAX))
+                    .is_some_and(|item| {
+                        matches!(item, smelt_hir::Item::Function(function) if function.name == method)
+                    })
+            })
+        });
+        let sidecar_method = self
+            .ctx
+            .krate
+            .names
+            .get(name)
+            .or_else(|| self.ctx.krate.symbols.get(name))
+            .and_then(|class_name| self.classes.methods(class_name))
+            .is_some_and(|methods| methods.iter().any(|candidate| candidate.name == method));
+        // `type_alias_fields` mixes two producers: genuine object-type
+        // aliases (structural closure fields) and class method surfaces
+        // predeclared by `predeclare_class_method_fields` for barrel
+        // cycles. Only the class-backed entries name real methods; an
+        // alias-typed receiver (e.g. remeda's `Funnel.flush`) stores a
+        // closure field with no class item behind it, so routing it to
+        // `ExprKind::Method` makes MIR method resolution fail. A lowered
+        // `Item::TypeAlias` with this symbol identifies the alias case.
+        let predeclared_method = self.find_type_alias(name).is_none()
+            && self
+                .types
+                .alias_fields(name)
+                .and_then(|fields| fields.iter().find(|field| field.name == method))
+                .is_some_and(|field| {
+                    matches!(self.ctx.krate.types.get(field.ty), Some(Type::Function(_)))
+                });
+        item_method || sidecar_method || predeclared_method
+    }
+
     /// Return whether every concrete receiver arm declares a source method.
     ///
     /// Callback migration normally treats structural callable fields as
@@ -1368,43 +1409,22 @@ impl ModuleBuilder<'_> {
                         .iter()
                         .all(|item| self.receiver_declares_method(*item, method))
             }
+            // An inherited method is the receiver's method too: JavaScript
+            // finds it on the prototype chain before `Array.prototype` is ever
+            // consulted (`class Nums extends Base {}` where `Base` declares
+            // `map`), so the walk follows `extends` to the root.
             Some(Type::Class { name, .. }) => {
-                let item_method = self.class_by_symbol(*name).is_some_and(|class| {
-                    class.methods.iter().any(|item| {
-                        self.ctx
-                            .krate
-                            .items
-                            .get(usize::try_from(item.0).unwrap_or(usize::MAX))
-                            .is_some_and(|item| {
-                                matches!(item, smelt_hir::Item::Function(function) if function.name == method)
-                            })
-                    })
-                });
-                let sidecar_method = self
-                    .ctx
-                    .krate
-                    .names
-                    .get(*name)
-                    .or_else(|| self.ctx.krate.symbols.get(*name))
-                    .and_then(|class_name| self.classes.methods(class_name))
-                    .is_some_and(|methods| methods.iter().any(|candidate| candidate.name == method));
-                // `type_alias_fields` mixes two producers: genuine object-type
-                // aliases (structural closure fields) and class method surfaces
-                // predeclared by `predeclare_class_method_fields` for barrel
-                // cycles. Only the class-backed entries name real methods; an
-                // alias-typed receiver (e.g. remeda's `Funnel.flush`) stores a
-                // closure field with no class item behind it, so routing it to
-                // `ExprKind::Method` makes MIR method resolution fail. A lowered
-                // `Item::TypeAlias` with this symbol identifies the alias case.
-                let predeclared_method = self.find_type_alias(*name).is_none()
-                    && self
-                        .types
-                        .alias_fields(*name)
-                        .and_then(|fields| fields.iter().find(|field| field.name == method))
-                        .is_some_and(|field| {
-                            matches!(self.ctx.krate.types.get(field.ty), Some(Type::Function(_)))
-                        });
-                item_method || sidecar_method || predeclared_method
+                let mut current = Some(*name);
+                let mut seen = std::collections::HashSet::new();
+                while let Some(class_name) = current
+                    && seen.insert(class_name)
+                {
+                    if self.class_symbol_declares_method(class_name, method) {
+                        return true;
+                    }
+                    current = self.class_by_symbol(class_name).and_then(|class| class.base);
+                }
+                false
             }
             _ => false,
         }

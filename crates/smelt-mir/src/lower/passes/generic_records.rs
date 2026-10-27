@@ -47,6 +47,25 @@ struct RecordShape {
 /// fields then need instantiating as well. Each `(name, args)` pair is
 /// processed once, so a self-referential generic record terminates.
 pub(in crate::lower) fn intern_generic_record_instantiations(mir: &mut Mir) {
+    // A subclass stores its base's fields inline (`class YearParser extends
+    // Parser<number>`), and codegen renders them at the base instantiation it
+    // extends. Seeding that instantiation makes the loop below intern the
+    // inherited field types too, which `crate`-external layout code then
+    // looks up (see `smelt_codegen_rust::classes::effective_class_fields`).
+    let bases: Vec<Type> = mir
+        .classes
+        .iter()
+        .filter(|class| !class.base_args.is_empty())
+        .filter_map(|class| {
+            class.base.map(|base| Type::Class {
+                name: base,
+                args: class.base_args.clone(),
+            })
+        })
+        .collect();
+    for base in bases {
+        mir.types.intern(base);
+    }
     let mut done: HashSet<Instantiation> = HashSet::new();
     loop {
         let pending = pending_instantiations(mir, &done);
@@ -145,7 +164,7 @@ fn record_shape(mir: &Mir, name: Symbol) -> Option<RecordShape> {
 /// Mirrors the emitter's read-only `substitute_type_params_in_type`, except
 /// that this side may intern: a substituted layer that does not exist yet is
 /// added rather than silently answering the unsubstituted type.
-fn substitute_and_intern(
+pub(in crate::lower) fn substitute_and_intern(
     mir: &mut Mir,
     ty: TypeId,
     substitutions: &HashMap<Symbol, TypeId>,

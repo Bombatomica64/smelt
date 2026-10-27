@@ -661,6 +661,7 @@ fn run_finalization_passes(mir: &mut Mir) {
     closures::widen_throwing_closure_types(mir);
     crate::promote_erased_mutated_records(mir);
     crate::normalize_operational_types(mir);
+    passes::inherited_types::intern_inherited_member_types(mir);
 }
 
 /// Interns the return type of every fallible builtin the program calls.

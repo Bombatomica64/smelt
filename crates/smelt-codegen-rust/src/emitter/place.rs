@@ -93,9 +93,14 @@ impl FunctionEmitter<'_> {
                 if let Some(text) = self.concrete_union_field_read_text(*base, *field)? {
                     return Ok(text);
                 }
+                // A `never` receiver (a callback parameter typed `T[keyof T]`
+                // over `{}`) has no value of its own and is stored erased, so
+                // a read through it is the erased read too. Falling through to
+                // the struct-field fallback named whichever generated struct
+                // happens to declare the field.
                 if matches!(
                     self.mir.types.get(base_ty),
-                    Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+                    Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never)
                 ) || self.is_erased_class_type(base_ty)
                 {
                     let field_name = self.symbol_source_name(*field)?;

@@ -3079,19 +3079,37 @@ return_ty: function.return_ty,
                             .map(|item| item.ty)
                     })
                 });
+                // A method's signature is spelled in its class's scope, so it is
+                // instantiated at the receiver's type arguments like a field is:
+                // `map(fn: (value: T) => string)` read off `Base<number>` takes
+                // a `(value: number) => string` callback. Reached through the
+                // base walk below, `args` are already the base's arguments in
+                // the receiver's scope.
+                let method_substitutions = match &class_item {
+                    Some(class) => {
+                        self.type_argument_substitution(&class.type_params, &args, self.span(0, 0))?
+                    }
+                    None => HashMap::new(),
+                };
                 let sidecar_method = class_name.as_deref().and_then(|class_name| {
                     let method = self.classes.methods(class_name)?
                         .iter()
-                        .find(|item| item.name == field)?;
-                    let params = method.params.iter().map(|param| param.ty).collect::<Vec<_>>();
+                        .find(|item| item.name == field)?
+                        .clone();
+                    let params = method
+                        .params
+                        .iter()
+                        .map(|param| self.substitute_type_params(param.ty, &method_substitutions))
+                        .collect::<Vec<_>>();
+                    let return_ty = self.substitute_type_params(method.return_ty, &method_substitutions);
                     let mutable_params =
-                        self.mutable_params_from_returned_tuple_state(&params, method.return_ty);
+                        self.mutable_params_from_returned_tuple_state(&params, return_ty);
                     Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
                         params,
                         rest: method.rest,
                         required_params: None,
                         mutable_params,
-                        return_ty: method.return_ty,
+                        return_ty,
                         is_async: method.is_async,
                         may_throw: false,
                     })))

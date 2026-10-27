@@ -1,4 +1,7 @@
 class Counter fields [Public total: Float] constructor Some(FuncId(9)) methods [FuncId(6), FuncId(7), FuncId(8)]
+interface Brand
+interface Brand
+interface Brand
 
 async fn run (FuncId(0)) -> None
   locals

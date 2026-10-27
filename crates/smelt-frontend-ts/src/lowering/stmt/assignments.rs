@@ -1723,6 +1723,13 @@ impl ModuleBuilder<'_> {
         receiver: smelt_hir::ExprId,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        // A type-only assertion is erased at run time: `(c.req as unknown)[KEY]`
+        // reads `KEY` off the request itself. When the asserted value's class
+        // declares the symbol member, the read is that member on the typed
+        // value; the `unknown` was only there to get past the checker (Hono's
+        // `matchedRoutes` behind a `@ts-expect-error`). Any other assertion
+        // keeps the erased read.
+        let receiver = self.asserted_class_value(receiver, body).unwrap_or(receiver);
         let receiver_ty = Self::expr_ty(body, receiver);
         if !matches!(
             self.ctx.krate.types.get(self.optional_receiver_inner_type(receiver_ty)),
@@ -1765,6 +1772,23 @@ impl ModuleBuilder<'_> {
             ty: field_ty,
             span,
         })))
+    }
+
+    /// The class-typed value under a type assertion to an erased type, or
+    /// `None` when `expr` is not such an assertion.
+    fn asserted_class_value(&self, expr: smelt_hir::ExprId, body: &Body) -> Option<smelt_hir::ExprId> {
+        let node = body.exprs.get(usize::try_from(expr.0).ok()?)?;
+        let (ExprKind::TypeAssert { value } | ExprKind::UnknownCast { value, .. }) = node.kind else {
+            return None;
+        };
+        if !matches!(self.ctx.krate.types.get(node.ty), Some(Type::Unknown)) {
+            return None;
+        }
+        matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, value)),
+            Some(Type::Class { .. })
+        )
+        .then_some(value)
     }
 
     /// Lower `Math[method]` for supported numeric method-key unions to a closure.

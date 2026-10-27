@@ -2,18 +2,18 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 7892,
-      "generic": 77,
-      "erased": 53
+      "concrete": 7998,
+      "generic": 100,
+      "erased": 56
     },
     "reads": {
-      "concrete": 772,
-      "generic": 21,
+      "concrete": 784,
+      "generic": 28,
       "erased": 35
     },
     "calls": {
-      "concrete": 1869,
-      "generic": 5,
+      "concrete": 1901,
+      "generic": 6,
       "erased": 2
     }
   },
@@ -1290,6 +1290,40 @@
       "calls": {
         "concrete": 11,
         "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/178_object_aliases_and_erased_symbol_reads/input.ts": {
+      "values": {
+        "concrete": 52,
+        "generic": 0,
+        "erased": 3
+      },
+      "reads": {
+        "concrete": 10,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 13,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/179_inherited_members_of_generic_bases/input.ts": {
+      "values": {
+        "concrete": 54,
+        "generic": 23,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 2,
+        "generic": 7,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 19,
+        "generic": 1,
         "erased": 0
       }
     },

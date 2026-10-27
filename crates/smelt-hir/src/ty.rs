@@ -251,6 +251,32 @@ impl TypeInterner {
     }
 
     #[must_use]
+    /// Returns the id `ty` is already interned under, without inserting it.
+    ///
+    /// For read-only consumers (codegen holds `&Mir`). Unions are canonicalized
+    /// as [`Self::intern`] does. Falls back to a scan when the index was not
+    /// rebuilt since deserialization.
+    pub fn lookup(&self, ty: &Type) -> Option<TypeId> {
+        let canonical;
+        let ty = if let Type::Union(items) = ty {
+            let mut items = items.clone();
+            items.sort_unstable_by_key(|item| item.0);
+            items.dedup();
+            canonical = Type::Union(items);
+            &canonical
+        } else {
+            ty
+        };
+        if self.index.len() == self.types.len() {
+            return self.index.get(ty).copied();
+        }
+        self.types
+            .iter()
+            .position(|existing| existing == ty)
+            .map(|idx| TypeId(id_index(idx)))
+    }
+
+    #[must_use]
     /// Looks up a type by ID.
     pub fn get(&self, id: TypeId) -> Option<&Type> {
         self.types.get(id.0 as usize)

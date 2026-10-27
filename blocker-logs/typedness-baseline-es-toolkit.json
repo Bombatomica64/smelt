@@ -2,19 +2,19 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 13340,
+      "concrete": 13403,
       "generic": 229,
-      "erased": 10176
+      "erased": 10112
     },
     "reads": {
-      "concrete": 298,
+      "concrete": 305,
       "generic": 30,
-      "erased": 1117
+      "erased": 1111
     },
     "calls": {
-      "concrete": 1942,
+      "concrete": 1946,
       "generic": 19,
-      "erased": 973
+      "erased": 969
     }
   },
   "programs": {
@@ -394,19 +394,19 @@
     },
     "src/array/differenceBy.spec.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 24,
         "generic": 0,
-        "erased": 24
+        "erased": 9
       },
       "reads": {
-        "concrete": 0,
+        "concrete": 1,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 1,
         "generic": 0,
-        "erased": 3
+        "erased": 2
       }
     },
     "src/array/differenceBy.ts": {
@@ -428,19 +428,19 @@
     },
     "src/array/differenceWith.spec.ts": {
       "values": {
-        "concrete": 28,
+        "concrete": 45,
         "generic": 0,
-        "erased": 31
+        "erased": 14
       },
       "reads": {
+        "concrete": 4,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
         "concrete": 2,
         "generic": 0,
         "erased": 2
-      },
-      "calls": {
-        "concrete": 1,
-        "generic": 0,
-        "erased": 3
       }
     },
     "src/array/differenceWith.ts": {
@@ -1057,19 +1057,19 @@
     },
     "src/array/intersectionBy.spec.ts": {
       "values": {
-        "concrete": 15,
+        "concrete": 29,
         "generic": 0,
-        "erased": 29
+        "erased": 15
       },
       "reads": {
-        "concrete": 0,
+        "concrete": 1,
         "generic": 0,
-        "erased": 2
+        "erased": 1
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 1,
         "generic": 0,
-        "erased": 4
+        "erased": 3
       }
     },
     "src/array/intersectionBy.ts": {
@@ -1091,19 +1091,19 @@
     },
     "src/array/intersectionWith.spec.ts": {
       "values": {
-        "concrete": 15,
+        "concrete": 31,
         "generic": 0,
-        "erased": 30
+        "erased": 14
       },
       "reads": {
-        "concrete": 0,
+        "concrete": 2,
         "generic": 0,
-        "erased": 4
+        "erased": 2
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 1,
         "generic": 0,
-        "erased": 3
+        "erased": 2
       }
     },
     "src/array/intersectionWith.ts": {
@@ -7874,12 +7874,12 @@
     },
     "src/compat/string/truncate.ts": {
       "values": {
-        "concrete": 74,
+        "concrete": 75,
         "generic": 0,
-        "erased": 6
+        "erased": 4
       },
       "reads": {
-        "concrete": 7,
+        "concrete": 8,
         "generic": 0,
         "erased": 0
       },

@@ -7,7 +7,7 @@
 //! re-diverged) inside each pass.
 
 use crate::{
-    GlobalProjection, LocalDecl, LocalId, LocalKind, MirFunction, Operand, Place, Rvalue,
+    Constant, GlobalProjection, LocalDecl, LocalId, LocalKind, MirFunction, Operand, Place, Rvalue,
     Statement, Terminator,
 };
 
@@ -166,4 +166,80 @@ pub(super) fn place_reads_local(place: &Place, local: LocalId) -> bool {
             GlobalProjection::Index { index, .. } => operand_reads_local(index, local),
         },
     }
+}
+
+/// Inline every single-assignment temp in `candidates` that only ever holds
+/// an absent constant (`undefined`/`None`) into the statement operands that
+/// read it, and drop its assignment.
+///
+/// Lowering spills an absent literal into a temp typed at its context: in a
+/// generic body `v !== undefined` becomes `%t: T = undefined; v != %t`, while
+/// the same comparison on a concrete `number` keeps the literal inline
+/// (`n != undefined`). When the temp's type is later substituted with a
+/// concrete type (an inherited copy, see codegen's
+/// `classes::substituted_inherited_member`), a concrete `f64` cannot hold
+/// `undefined`, and the spill would read as `0.0`. Inlining restores the
+/// concrete spelling. A temp read anywhere other than a statement's rvalue
+/// (a phi, a terminator, a projected place) is left alone.
+pub fn inline_absent_constant_temps(function: &mut MirFunction, candidates: &[LocalId]) {
+    for &local in candidates {
+        if !local_is_temp(function, local) || local_assignment_count(function, local) != 1 {
+            continue;
+        }
+        let mut found = None;
+        for block in &function.blocks {
+            for statement in &block.statements {
+                if let Statement::Assign {
+                    dest,
+                    value: Rvalue::Use(Operand::Const(value @ (Constant::Undefined | Constant::None))),
+                } = statement
+                    && *dest == local
+                {
+                    found = Some(value.clone());
+                }
+            }
+        }
+        let Some(constant) = found else {
+            continue;
+        };
+        let statement_reads = function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.statements)
+            .map(|statement| {
+                if let Statement::Assign { value, .. } = statement {
+                    rvalue_direct_read_count(value, local)
+                } else {
+                    0
+                }
+            })
+            .fold(0, usize::saturating_add);
+        if statement_reads != local_read_count(function, local) {
+            continue;
+        }
+        for block in &mut function.blocks {
+            block.statements.retain(|statement| {
+                !matches!(statement, Statement::Assign { dest, .. } if *dest == local)
+            });
+            for statement in &mut block.statements {
+                if let Statement::Assign { value, .. } = statement {
+                    value.for_each_operand_mut(|operand| {
+                        if operand_local(operand) == Some(local) {
+                            *operand = Operand::Const(constant.clone());
+                        }
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// Count operands of an rvalue that read `local` as a bare local (no
+/// projection); a projected read is not a value the constant could replace.
+fn rvalue_direct_read_count(value: &Rvalue, local: LocalId) -> usize {
+    let mut count: usize = 0;
+    value.for_each_operand(|operand| {
+        count = count.saturating_add(usize::from(operand_local(operand) == Some(local)));
+    });
+    count
 }

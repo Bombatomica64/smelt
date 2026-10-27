@@ -16,6 +16,7 @@ mod dict_entry_mutation;
 mod dict_entry_update;
 mod integer_range;
 mod local_use;
+pub use local_use::inline_absent_constant_temps;
 mod move_on_last_use;
 mod unobserved_receiver_bind;
 

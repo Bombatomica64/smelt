@@ -127,7 +127,20 @@ pub(crate) fn interface_impl_generics_text(
 ) -> Result<String, EmitError> {
     let params = type_param_idents(mir, &interface.type_params, "interface")?
         .into_iter()
-        .map(|(_, ident)| format!("{ident}: {GENERATED_TYPE_PARAM_BOUNDS}"))
+        .map(|(name, ident)| {
+            // The same field-driven key bound a class carries
+            // (`class_type_param_used_as_map_key`): an object-shaped record with
+            // a `Record<P, V>` field stores a `SmeltJsMap<P, V>`.
+            let mut bound = format!("{ident}: {GENERATED_TYPE_PARAM_BOUNDS}");
+            if interface
+                .fields
+                .iter()
+                .any(|field| type_param_in_dict_key(mir, field.ty, name))
+            {
+                bound.push_str(" + SmeltJsKeyEq");
+            }
+            bound
+        })
         .collect();
     Ok(carried_generics_text(context, interface.name, params))
 }
@@ -1463,11 +1476,18 @@ fn type_holds_function_seen(
 /// Return the flattened field layout for a class.
 ///
 /// Smelt stores subclass values with inherited fields first and own fields
-/// after them. This helper follows the single-inheritance chain and leaves type
-/// substitution to earlier lowering phases until MIR grows canonical layout
-/// substitution metadata. When a subclass redeclares a field from its base
-/// class, the subclass field replaces the inherited slot so Rust struct storage
-/// stays valid and matches the effective source member surface.
+/// after them. This helper follows the single-inheritance chain. When a
+/// subclass redeclares a field from its base class, the subclass field
+/// replaces the inherited slot so Rust struct storage stays valid and matches
+/// the effective source member surface.
+///
+/// An inherited field's type is spelled in its declaring base's scope, so it
+/// is rewritten into `class`'s scope through each level's `base_args`:
+/// `class YearParser extends Parser<number>` stores `Parser`'s `parse:
+/// (input) => ParseResult<T>` slot as `ParseResult<f64>`, not with a `T` the
+/// subclass does not declare. The substituted types are interned by MIR's
+/// `generic_records` pass; a layer missing from the table keeps its declared
+/// type.
 pub(crate) fn effective_class_fields(mir: &Mir, class: &MirClass) -> Vec<MirField> {
     // The chain root first, so a base's fields lead and an override replaces
     // the inherited slot in place. The slot lookup is a map: a linear `find`
@@ -1481,19 +1501,246 @@ pub(crate) fn effective_class_fields(mir: &Mir, class: &MirClass) -> Vec<MirFiel
         }
         chain.push(base);
     }
+    let level_substitutions = chain_type_substitutions(mir, &chain);
     let mut fields: Vec<MirField> = Vec::new();
     let mut slots: HashMap<Symbol, usize> = HashMap::new();
-    for owner in chain.iter().rev() {
-        for field in &owner.fields {
+    for (owner, substitutions) in chain.iter().zip(&level_substitutions).rev() {
+        for declared in &owner.fields {
+            let mut field = declared.clone();
+            field.ty = substitute_existing_type(mir, declared.ty, substitutions);
             if let Some(existing) = slots.get(&field.name).and_then(|slot| fields.get_mut(*slot)) {
-                *existing = field.clone();
+                *existing = field;
             } else {
                 slots.insert(field.name, fields.len());
-                fields.push(field.clone());
+                fields.push(field);
             }
         }
     }
     fields
+}
+
+/// Map each class in an inheritance `chain` (`chain[0]` the receiving class,
+/// then its base, its base's base ..) from its type parameters to their
+/// arguments in `chain[0]`'s scope; `chain[0]`'s own map is empty.
+///
+/// Level `k`'s `base_args` are spelled in level `k`'s scope, so they are
+/// substituted through level `k`'s map before naming level `k + 1`'s
+/// parameters: `C<U> extends B<U[]>`, `B<T> extends A<T>` maps `A`'s `T` to
+/// `U[]`.
+fn chain_type_substitutions(mir: &Mir, chain: &[&MirClass]) -> Vec<HashMap<Symbol, TypeId>> {
+    let mut levels: Vec<HashMap<Symbol, TypeId>> = vec![HashMap::new()];
+    for pair in chain.windows(2) {
+        let [derived, base] = pair else { continue };
+        let outer = levels.last().cloned().unwrap_or_default();
+        let map = base
+            .type_params
+            .iter()
+            .zip(&derived.base_args)
+            .map(|(param, arg)| (param.name, substitute_existing_type(mir, *arg, &outer)))
+            .collect();
+        levels.push(map);
+    }
+    levels
+}
+
+/// The type parameters of `declaring`, mapped to their arguments in `owner`'s
+/// scope, when `owner` (transitively) extends `declaring`.
+///
+/// This is what an inherited method copied into `owner`'s `impl` renders its
+/// declaring class's parameters as (see
+/// `FunctionEmitter::mark_inherited_copy`); [`effective_class_fields`] applies
+/// the same map to the inherited fields, so the copy and the layout agree.
+pub(crate) fn inherited_type_substitution(
+    mir: &Mir,
+    owner: Symbol,
+    declaring: Symbol,
+) -> HashMap<Symbol, TypeId> {
+    let Some(owner_class) = mir.classes.iter().find(|class| class.name == owner) else {
+        return HashMap::new();
+    };
+    let mut chain = vec![owner_class];
+    let mut seen = HashSet::from([owner]);
+    while chain.last().is_some_and(|last| last.name != declaring)
+        && let Some(base) = chain.last().and_then(|last| base_class(mir, last))
+        && seen.insert(base.name)
+    {
+        chain.push(base);
+    }
+    if chain.last().is_none_or(|last| last.name != declaring) {
+        return HashMap::new();
+    }
+    chain_type_substitutions(mir, &chain).pop().unwrap_or_default()
+}
+
+/// The declaring class of a method or constructor copied into `owner`'s
+/// `impl`, when it is a generic ancestor whose parameters `owner` binds.
+fn inherited_member_declaring_class(function: &MirFunction, owner: Symbol) -> Option<Symbol> {
+    match function.origin {
+        smelt_mir::HirOrigin::ClassMethod { class, .. }
+        | smelt_mir::HirOrigin::ClassConstructor { class, .. }
+            if class != owner =>
+        {
+            Some(class)
+        }
+        _ => None,
+    }
+}
+
+/// The map an inherited member copy renders its declaring class's type
+/// parameters through (empty when `function` is `owner`'s own member).
+pub(crate) fn inherited_member_substitution(
+    mir: &Mir,
+    function: &MirFunction,
+    owner: Symbol,
+) -> HashMap<Symbol, TypeId> {
+    inherited_member_declaring_class(function, owner)
+        .map(|declaring| inherited_type_substitution(mir, owner, declaring))
+        .unwrap_or_default()
+}
+
+/// A clone of an inherited `function` with its types rewritten into `owner`'s
+/// scope, or `None` when nothing needs rewriting.
+///
+/// The copy is emitted inside `owner`'s `impl`, which does not declare the
+/// declaring base's type parameters, so every local, phi and cast target is
+/// substituted (MIR's `inherited_types` pass interned the results). Emitting
+/// from the substituted clone keeps every emitter rule that inspects a
+/// `Type::TypeParam` seeing the concrete type the subclass binds.
+pub(crate) fn substituted_inherited_member(
+    mir: &Mir,
+    function: &MirFunction,
+    owner: Symbol,
+) -> Option<MirFunction> {
+    let substitutions = inherited_member_substitution(mir, function, owner);
+    if substitutions.is_empty() {
+        return None;
+    }
+    let mut copy = function.clone();
+    // An absent literal spilled into a `T` temp (`v !== undefined`) must stay
+    // a literal once `T` is concrete; see `inline_absent_constant_temps`.
+    let spilled: Vec<LocalId> = copy
+        .locals
+        .iter()
+        .enumerate()
+        .filter(|(_, local)| {
+            matches!(
+                mir.types.get(local.ty),
+                Some(Type::TypeParam { name }) if substitutions.contains_key(name)
+            )
+        })
+        .filter_map(|(index, _)| u32::try_from(index).ok().map(LocalId))
+        .collect();
+    smelt_mir::opt::inline_absent_constant_temps(&mut copy, &spilled);
+    smelt_mir::map_function_types(&mut copy, |ty| {
+        substitute_existing_type(mir, ty, &substitutions)
+    });
+    // A method copy's receiver is the RECEIVING class: its fields are read at
+    // the flattened layout `owner` stores (whose slots are rendered at the
+    // substituted types), not at the base instantiation the declaration
+    // names. Only the receiver changes; every other base-typed local keeps
+    // the base instantiation.
+    // A method that answers its receiver (`route(..): Hono<..> { return this }`,
+    // JavaScript's polymorphic `this`) answers the receiving class as well.
+    if let smelt_mir::HirOrigin::ClassMethod { class: declaring, .. } = function.origin
+        && let Some(owner_ty) = class_self_type(mir, owner)
+    {
+        if returns_the_receiver_at_its_own_class(mir, function) {
+            copy.return_ty = owner_ty;
+        }
+        if let Some(receiver) = copy.locals.first_mut()
+            && matches!(
+                mir.types.get(receiver.ty),
+                Some(Type::Class { name, .. }) if *name == declaring
+            )
+        {
+            receiver.ty = owner_ty;
+        }
+    }
+    Some(copy)
+}
+
+/// Whether a method's declared return type is its own declaring class and
+/// every `return` in it answers the receiver (local 0).
+///
+/// That is JavaScript's polymorphic `this` written in TypeScript's nominal
+/// spelling, and it is the only shape whose inherited copy may be re-typed to
+/// the receiving class: a method that returns a FRESHLY BUILT base instance (a
+/// `clone()`-style factory) genuinely answers the base type and keeps it.
+pub(crate) fn returns_the_receiver_at_its_own_class(mir: &Mir, function: &MirFunction) -> bool {
+    let smelt_mir::HirOrigin::ClassMethod { class, .. } = function.origin else {
+        return false;
+    };
+    if !matches!(
+        mir.types.get(function.return_ty),
+        Some(Type::Class { name, .. }) if *name == class
+    ) {
+        return false;
+    }
+    let mut saw_return = false;
+    for block in &function.blocks {
+        if let Some(Terminator::Return(operand)) = &block.terminator {
+            saw_return = true;
+            if !matches!(operand, Operand::Copy(Place::Local(LocalId(0))) | Operand::Move(Place::Local(LocalId(0)))) {
+                return false;
+            }
+        }
+    }
+    saw_return
+}
+
+/// The already-interned type of a class instantiated at its own parameters
+/// (`Middle<T>` inside `Middle`'s `impl`), if the program spells it.
+fn class_self_type(mir: &Mir, class: Symbol) -> Option<TypeId> {
+    let declared = mir.classes.iter().find(|candidate| candidate.name == class)?;
+    let args = declared
+        .type_params
+        .iter()
+        .map(|param| mir.types.lookup(&Type::TypeParam { name: param.name }))
+        .collect::<Option<Vec<_>>>()?;
+    mir.types.lookup(&Type::Class { name: class, args })
+}
+
+/// Substitute type parameters through `ty` using only already-interned types.
+///
+/// Codegen holds `&Mir` and cannot intern; a rewritten layer that is absent
+/// from the table answers the layer's declared type, as the emitter's
+/// `substitute_type_params_in_type` does.
+pub(crate) fn substitute_existing_type(
+    mir: &Mir,
+    ty: TypeId,
+    substitutions: &HashMap<Symbol, TypeId>,
+) -> TypeId {
+    if substitutions.is_empty() {
+        return ty;
+    }
+    let Some(kind) = mir.types.get(ty) else {
+        return ty;
+    };
+    let sub = |inner: TypeId| substitute_existing_type(mir, inner, substitutions);
+    let rewritten = match kind {
+        Type::TypeParam { name } => return substitutions.get(name).copied().unwrap_or(ty),
+        Type::Optional(inner) => Type::Optional(sub(*inner)),
+        Type::List(item) => Type::List(sub(*item)),
+        Type::Set(item) => Type::Set(sub(*item)),
+        Type::Future(item) => Type::Future(sub(*item)),
+        Type::Dict(key, value) => Type::Dict(sub(*key), sub(*value)),
+        Type::Tuple(items) => Type::Tuple(items.iter().map(|item| sub(*item)).collect()),
+        Type::Union(items) => Type::Union(items.iter().map(|item| sub(*item)).collect()),
+        Type::Class { name, args } => Type::Class {
+            name: *name,
+            args: args.iter().map(|arg| sub(*arg)).collect(),
+        },
+        Type::Function(function) => Type::Function(smelt_hir::FunctionType {
+            params: function.params.iter().map(|param| sub(*param)).collect(),
+            return_ty: sub(function.return_ty),
+            ..function.clone()
+        }),
+        _ => return ty,
+    };
+    if &rewritten == kind {
+        return ty;
+    }
+    mir.types.lookup(&rewritten).unwrap_or(ty)
 }
 
 /// Return the flattened method set for a class: its own methods plus every

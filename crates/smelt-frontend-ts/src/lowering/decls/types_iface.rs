@@ -84,6 +84,38 @@ impl ModuleBuilder<'_> {
             self.items.insert(name_text, item);
             return Ok(item);
         }
+        // An alias of a plain object type (`type R = { a: string; b?: number }`)
+        // declares exactly the structural type `interface R { .. }` declares,
+        // so it lowers to the same interface item and gets the same generated
+        // struct. It used to stay an alias whose references named a record no
+        // struct backed, which erased every value of the type. A literal with
+        // an index signature is a dictionary and keeps the alias lowering.
+        if let oxc::ast::ast::TSType::TSTypeLiteral(literal) = &alias.type_annotation
+            && !literal.members.is_empty()
+            && literal.members.iter().all(|member| {
+                matches!(
+                    member,
+                    oxc::ast::ast::TSSignature::TSPropertySignature(_)
+                        | oxc::ast::ast::TSSignature::TSMethodSignature(_)
+                )
+            })
+        {
+            let mut members = StructuralMembers::default();
+            let lowered = self.lower_structural_members(&literal.members, &mut members);
+            self.pop_type_parameter_scope();
+            lowered?;
+            let span = self.span(alias.span.start, alias.span.end);
+            let item = self.push_lowered_interface(
+                name,
+                name_text.clone(),
+                type_params,
+                Vec::new(),
+                members,
+                span,
+            );
+            self.items.insert(name_text, item);
+            return Ok(item);
+        }
         let result = self.ts_type_to_hir(&alias.type_annotation);
         let decode_facts = self.alias_decode_facts_of(&alias.type_annotation);
         let fields = self.type_fields_from_ts(&alias.type_annotation).ok();
@@ -215,6 +247,45 @@ impl ModuleBuilder<'_> {
         })();
         self.pop_type_parameter_scope();
         result?;
+        Ok(self.push_lowered_interface(
+            name,
+            name_text,
+            type_params,
+            heritage_refs,
+            StructuralMembers {
+                fields,
+                methods,
+                call_signatures,
+                construct_signatures,
+                index_value_ty,
+                decode_facts,
+            },
+            self.span(interface.span.start, interface.span.end),
+        ))
+    }
+
+    /// Push an interface item for lowered members and record its sidecars.
+    ///
+    /// Shared by `interface I { .. }` and by an object-shaped `type I = { .. }`,
+    /// which declares the same structural type (see `type_alias_declaration`).
+    fn push_lowered_interface(
+        &mut self,
+        name: smelt_hir::Symbol,
+        name_text: String,
+        type_params: Vec<smelt_hir::TypeParamDef>,
+        heritage_refs: Vec<InterfaceHeritageRef>,
+        members: StructuralMembers,
+        span: smelt_hir::Span,
+    ) -> smelt_hir::ItemId {
+        let StructuralMembers {
+            mut fields,
+            methods,
+            call_signatures,
+            construct_signatures,
+            index_value_ty,
+            decode_facts,
+            ..
+        } = members;
         // Method signatures describe callable members. Generated Rust interface
         // structs only carry data fields, so each declared method is also given
         // a function-typed storage field of the same name. This lets a value
@@ -240,7 +311,7 @@ impl ModuleBuilder<'_> {
         self.add_interface_call_signature_field(&mut fields, &call_signatures);
         let item = self.ctx.krate.push_item(Item::Interface(Interface {
             name,
-            span: self.span(interface.span.start, interface.span.end),
+            span,
             type_params,
             extends: heritage_refs
                 .iter()
@@ -277,7 +348,7 @@ impl ModuleBuilder<'_> {
         if let Some(index_value_ty) = index_value_ty {
             self.ctx.interface_index_values.insert(name, index_value_ty);
         }
-        Ok(item)
+        item
     }
 
     /// Add function-typed storage fields for an interface's method signatures.
@@ -1040,20 +1111,48 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::TryStatement(try_stmt) => {
-                let try_body = self.block_from_block_statement(&try_stmt.block, body)?;
+                // Neither block is known to run to its end: a throw leaves the
+                // `try` part-way, and the `catch` runs only on a throw. So a
+                // narrowing either block establishes ends with it, and a name
+                // either block assigns loses the narrowing it had before the
+                // `try` (`let x: T | undefined; try { x = f() } catch {}` leaves
+                // `x` possibly absent).
+                self.scope.push_narrowing_scope(std::collections::HashMap::new());
+                let try_body = self.block_from_block_statement(&try_stmt.block, body);
+                self.scope.pop_narrowing_scope();
+                let try_body = try_body?;
                 let (catch_binding, catch_body) = if let Some(handler) = &try_stmt.handler {
                     let previous_locals = self.scope.snapshot_bindings();
-                    let catch_binding = handler
-                        .param
-                        .as_ref()
-                        .map(|param| self.catch_binding(param, body))
-                        .transpose()?;
-                    let catch_body = self.block_from_block_statement(&handler.body, body)?;
+                    self.scope.push_narrowing_scope(std::collections::HashMap::new());
+                    let lowered = (|| {
+                        let catch_binding = handler
+                            .param
+                            .as_ref()
+                            .map(|param| self.catch_binding(param, body))
+                            .transpose()?;
+                        let catch_body = self.block_from_block_statement(&handler.body, body)?;
+                        Ok::<_, SmeltError>((catch_binding, catch_body))
+                    })();
+                    self.scope.pop_narrowing_scope();
                     self.scope.restore_bindings(previous_locals);
+                    let (catch_binding, catch_body) = lowered?;
                     (catch_binding, Some(catch_body))
                 } else {
                     (None, None)
                 };
+                let mut assigned = AssignedNames::default();
+                oxc::ast_visit::Visit::visit_block_statement(&mut assigned, &try_stmt.block);
+                if let Some(handler) = &try_stmt.handler {
+                    oxc::ast_visit::Visit::visit_block_statement(&mut assigned, &handler.body);
+                }
+                for name in assigned.names {
+                    if self.narrowed_type(&name).is_some()
+                        && let Some(local) = self.scope.lookup(&name)
+                    {
+                        let declared = Self::local_ty(body, local);
+                        self.apply_narrowing(name, declared);
+                    }
+                }
                 let finally_body = try_stmt
                     .finalizer
                     .as_ref()
@@ -3034,5 +3133,38 @@ impl ModuleBuilder<'_> {
             }
         }
         Ok(())
+    }
+}
+
+/// Every identifier an AST subtree assigns or updates, at any depth.
+#[derive(Default)]
+struct AssignedNames {
+    /// The assigned names, without duplicates.
+    names: Vec<String>,
+}
+
+impl<'a> oxc::ast_visit::Visit<'a> for AssignedNames {
+    /// Records the identifier an assignment writes.
+    fn visit_assignment_expression(&mut self, assign: &oxc::ast::ast::AssignmentExpression<'a>) {
+        if let oxc::ast::ast::AssignmentTarget::AssignmentTargetIdentifier(target) = &assign.left {
+            let name = target.name.to_string();
+            if !self.names.contains(&name) {
+                self.names.push(name);
+            }
+        }
+        oxc::ast_visit::walk::walk_assignment_expression(self, assign);
+    }
+
+    /// Records the identifier an update (`x++`) writes.
+    fn visit_update_expression(&mut self, update: &oxc::ast::ast::UpdateExpression<'a>) {
+        if let oxc::ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(target) =
+            &update.argument
+        {
+            let name = target.name.to_string();
+            if !self.names.contains(&name) {
+                self.names.push(name);
+            }
+        }
+        oxc::ast_visit::walk::walk_update_expression(self, update);
     }
 }

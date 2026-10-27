@@ -107,6 +107,24 @@ impl FunctionEmitter<'_> {
         self.param_type_is_by_shared_reference(param)
     }
 
+    /// The receiving-scope argument of a declaring base's type parameter inside
+    /// an inherited copy, unless such a bound is being rendered already.
+    fn inherited_bound(&self, name: Symbol) -> Option<TypeId> {
+        if self.rendering_inherited_bound.get() {
+            return None;
+        }
+        self.inherited_type_args.get(&name).copied()
+    }
+
+    /// Run `render` on an inherited bound with the inherited map switched off;
+    /// see `rendering_inherited_bound`.
+    fn with_inherited_bound<R>(&self, render: impl FnOnce() -> R) -> R {
+        let previous = self.rendering_inherited_bound.replace(true);
+        let result = render();
+        self.rendering_inherited_bound.set(previous);
+        result
+    }
+
     /// The type-shape half of the by-shared-reference rule, decided on the
     /// parameter's RENDERED Rust type rather than on its source `Type` variant.
     ///
@@ -134,7 +152,12 @@ impl FunctionEmitter<'_> {
             // renders it by value, while a caller with no `T` in scope would see
             // `SmeltUnknown` and render `&`. The ABI has to be the callee's, so a
             // type parameter keeps the by-value ABI its own declaration gives it.
-            Some(Type::TypeParam { .. }) => true,
+            // ..except a declaring base's parameter inside an inherited copy,
+            // which IS its argument in the receiving class (the layout stores
+            // the slot at that type; `classes::effective_class_fields`).
+            Some(Type::TypeParam { name }) => self.inherited_bound(*name).is_none_or(|bound| {
+                self.with_inherited_bound(|| self.param_type_is_by_shared_reference(bound))
+            }),
             // Everything else is decided on the RENDERED Rust type rather than the
             // source variant, because several source spellings share one Rust type.
             // `unknown`, a concrete union and `never` all render `SmeltUnknown`, and
@@ -1461,6 +1484,9 @@ impl FunctionEmitter<'_> {
             HirOrigin::ClassConstructor { .. } if let Some(owner) = self.base_initializer_owner => {
                 owner
             }
+            // An inherited copy renders in the receiving class's `impl`; the
+            // declaring base's parameters are mapped by `inherited_type_args`.
+            HirOrigin::ClassMethod { .. } if let Some(owner) = self.inherited_impl_owner => owner,
             HirOrigin::ClassConstructor { class, .. }
             | HirOrigin::ClassMethod { class, .. }
             | HirOrigin::ClassStaticMethod { class, .. } => class,
@@ -1531,6 +1557,15 @@ impl FunctionEmitter<'_> {
             Type::Never => {
                 self.note_backend_erasure(ErasureReason::NeverValue, String::new());
                 Ok(RustType::raw("SmeltUnknown"))
+            }
+            // A declaring base's parameter inside an inherited copy renders as
+            // its argument in the receiving class's scope. Call-site bindings
+            // (a callee's own parameters) never consult the map.
+            Type::TypeParam { name }
+                if !substitution.has_bindings()
+                    && let Some(bound) = self.inherited_bound(*name) =>
+            {
+                self.with_inherited_bound(|| self.rust_type(bound, allow_impl_trait, substitution))
             }
             Type::TypeParam { name } => match substitution.resolve(*name)? {
                 Resolved::Spelled(param) => Ok(RustType::raw(
@@ -1684,14 +1719,47 @@ impl FunctionEmitter<'_> {
                         Ok(RustType::raw(format!("{type_name}<{placeholders}>")))
                     }
                 } else {
-                    let carried_args = elision.retain_carried(*name, args.clone());
-                    if carried_args.is_empty() {
-                        return Ok(RustType::raw(type_name));
-                    }
-                    let arg_text = carried_args
+                    // A reference interned before the declaration's defaults were
+                    // known (an alias lowered ahead of the interface it names)
+                    // can carry fewer arguments than the struct declares
+                    // (`TypedResponse<O>` for `TypedResponse<T, U = .., F = ..>`).
+                    // Every interned type is rendered, so the missing trailing
+                    // positions take the declared defaults, and the erased
+                    // carrier where a parameter has none, keeping the arity the
+                    // struct declares.
+                    let declared = self
+                        .mir
+                        .classes
+                        .iter()
+                        .find(|class| class.name == *name)
+                        .map(|class| class.type_params.clone())
+                        .or_else(|| {
+                            self.mir
+                                .interfaces
+                                .iter()
+                                .find(|interface| interface.name == *name)
+                                .map(|interface| interface.type_params.clone())
+                        })
+                        .unwrap_or_default();
+                    let mut arg_texts = args
                         .iter()
                         .map(|arg| Ok(self.rust_type(*arg, false, substitution)?.into_string()))
-                        .collect::<Result<Vec<_>, _>>()?
+                        .collect::<Result<Vec<_>, EmitError>>()?;
+                    for param in declared.iter().skip(args.len()) {
+                        arg_texts.push(match param.default {
+                            Some(default) => self.rust_type(default, false, substitution)?.into_string(),
+                            None => "SmeltUnknown".to_owned(),
+                        });
+                    }
+                    let positions = (0..arg_texts.len()).collect::<Vec<_>>();
+                    let carried = elision.retain_carried(*name, positions);
+                    if carried.is_empty() {
+                        return Ok(RustType::raw(type_name));
+                    }
+                    let arg_text = carried
+                        .iter()
+                        .filter_map(|index| arg_texts.get(*index).cloned())
+                        .collect::<Vec<_>>()
                         .join(", ");
                     Ok(RustType::raw(format!("{type_name}<{arg_text}>")))
                 }
@@ -2294,10 +2362,18 @@ impl FunctionEmitter<'_> {
         args: &[TypeId],
         fields: Vec<MirField>,
     ) -> Vec<MirField> {
+        // A parameter the reference leaves off takes its declared default, as
+        // the type renderer does (see the `Type::Class` arm of `rust_type`),
+        // so a field's type matches the struct the reference renders as.
         let substitutions = type_params
             .iter()
-            .zip(args.iter().copied())
-            .map(|(param, arg)| (param.name, arg))
+            .enumerate()
+            .filter_map(|(index, param)| {
+                args.get(index)
+                    .copied()
+                    .or(if args.is_empty() { None } else { param.default })
+                    .map(|arg| (param.name, arg))
+            })
             .collect::<HashMap<_, _>>();
         if substitutions.is_empty() {
             return fields;

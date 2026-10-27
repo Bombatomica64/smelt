@@ -6,7 +6,7 @@ module examples/typescript/end-to-end/143_module_arrows_are_items/input.ts (Modu
     fn fact__module_examples/typescript/end-to-end/143_module_arrows_are_items/input.ts owner Module
     fn join owner Module
     fn scan__module_examples/typescript/end-to-end/143_module_arrows_are_items/input.ts owner Module
-    type Brand = Dict<String, String>
+    interface Brand fields [Public _brand: String] methods []
     class Counter fields [Public total: Float] constructor Some(ItemId(12)) methods [ItemId(9), ItemId(10), ItemId(11)] implements []
     fn run owner Module
   exprs
@@ -24,29 +24,28 @@ module examples/typescript/end-to-end/143_module_arrows_are_items/input.ts (Modu
 
 interned types
   t0 = String
-  t1 = Dict<String, String>
-  t2 = Float
-  t3 = Optional<Float>
-  t4 = Response
-  t5 = Brand
-  t6 = fn(String, Optional<Float>) -> Response
-  t7 = fn(Float, Optional<Float>) -> Float
-  t8 = fn(Float) -> Float
-  t9 = List<String>
-  t10 = fn(...List<String>) -> String
-  t11 = Optional<String>
-  t12 = Bool
-  t13 = Optional<Bool>
-  t14 = None
-  t15 = fn(String, Optional<String>, Optional<Bool>) -> Optional<String>
-  t16 = Future<None>
-  t17 = async fn() -> Future<None>
-  t18 = fn(String, ...List<String>) -> String
-  t19 = Unknown
-  t20 = Counter
-  t21 = Future<Response>
-  t22 = Response | Future<Response>
-  t23 = fn() -> Float
-  t24 = fn() -> Response | Future<Response>
-  t25 = Future<String>
-  t26 = async fn() -> Future<None>
+  t1 = Float
+  t2 = Optional<Float>
+  t3 = Response
+  t4 = Brand
+  t5 = fn(String, Optional<Float>) -> Response
+  t6 = fn(Float, Optional<Float>) -> Float
+  t7 = fn(Float) -> Float
+  t8 = List<String>
+  t9 = fn(...List<String>) -> String
+  t10 = Optional<String>
+  t11 = Bool
+  t12 = Optional<Bool>
+  t13 = None
+  t14 = fn(String, Optional<String>, Optional<Bool>) -> Optional<String>
+  t15 = Future<None>
+  t16 = async fn() -> Future<None>
+  t17 = fn(String, ...List<String>) -> String
+  t18 = Unknown
+  t19 = Counter
+  t20 = Future<Response>
+  t21 = Response | Future<Response>
+  t22 = fn() -> Float
+  t23 = fn() -> Response | Future<Response>
+  t24 = Future<String>
+  t25 = async fn() -> Future<None>
