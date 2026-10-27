@@ -3785,13 +3785,14 @@ impl SmeltFromUnknown for Nums {
     }
 }
 
-#[derive(Clone)]
 #[allow(dead_code)]
-struct Parser<T> {
+struct Parser<T>(::std::rc::Rc<::std::cell::RefCell<ParserInner<T>>>);
+#[allow(dead_code)]
+struct ParserInner<T> {
     parse: ::std::rc::Rc<dyn Fn(String) -> ParseResult<T>>,
     _smelt_phantom: ::std::marker::PhantomData<(T)>,
 }
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Parser<T> {
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for ParserInner<T> {
     fn default() -> Self {
         Self {
             parse: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> ParseResult<T>> = ::std::rc::Rc::new(move |arg0: String| -> ParseResult<T> { Default::default() }); smelt_default_callback },
@@ -3799,64 +3800,111 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default
         }
     }
 }
-impl<T> ::std::fmt::Debug for Parser<T> {
+impl<T> ::std::fmt::Debug for ParserInner<T> {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.debug_struct("ParserInner").finish_non_exhaustive()
+    }
+}
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Clone for Parser<T> {
+    fn clone(&self) -> Self {
+        Parser(::std::rc::Rc::clone(&self.0))
+    }
+}
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> PartialEq for Parser<T> {
+    fn eq(&self, other: &Self) -> bool {
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Parser<T> {
+    fn default() -> Self {
+        Parser(::std::rc::Rc::new(::std::cell::RefCell::new(ParserInner::default())))
+    }
+}
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> ::std::fmt::Debug for Parser<T> {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         formatter.debug_struct("Parser").finish_non_exhaustive()
     }
 }
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for Parser<T> {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        let __smelt_id = smelt_reference_object_identity(&self.0);
+        let __smelt_proto = self.__smelt_proto_entries();
+        let __smelt_inner = self.0.borrow();
+        let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("parse".to_owned(), SmeltUnknown::Null),
-        ])))
+        ]);
+        __smelt_entries.extend(__smelt_proto);
+        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
     }
 }
+/// Recover this reference record from an erased value: the live instance
+/// when the value is an erasure of one, else a fresh object rebuilt from it.
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFromUnknown for Parser<T> {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("parse") {
-                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String) -> ParseResult<T>>>(&smelt_function)) { result.parse = smelt_origin; }
-            }
-        }
+        let SmeltUnknown::Object(object) = value else { return Self::default() };
+        if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
+        let result = Self::default();
         result
     }
 }
 
-#[derive(Clone)]
 #[allow(dead_code)]
-struct YearParser {
+struct YearParser(::std::rc::Rc<::std::cell::RefCell<YearParserInner>>);
+#[allow(dead_code)]
+struct YearParserInner {
     parse: ::std::rc::Rc<dyn Fn(String) -> ParseResult<f64>>,
 }
-impl Default for YearParser {
+impl Default for YearParserInner {
     fn default() -> Self {
         Self {
             parse: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> ParseResult<f64>> = ::std::rc::Rc::new(move |arg0: String| -> ParseResult<f64> { Default::default() }); smelt_default_callback },
         }
     }
 }
+impl ::std::fmt::Debug for YearParserInner {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.debug_struct("YearParserInner").finish_non_exhaustive()
+    }
+}
+impl Clone for YearParser {
+    fn clone(&self) -> Self {
+        YearParser(::std::rc::Rc::clone(&self.0))
+    }
+}
+impl PartialEq for YearParser {
+    fn eq(&self, other: &Self) -> bool {
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Default for YearParser {
+    fn default() -> Self {
+        YearParser(::std::rc::Rc::new(::std::cell::RefCell::new(YearParserInner::default())))
+    }
+}
 impl ::std::fmt::Debug for YearParser {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        formatter.debug_struct("YearParser").finish_non_exhaustive()
+        ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
     }
 }
 impl IntoSmeltUnknown for YearParser {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        let __smelt_id = smelt_reference_object_identity(&self.0);
+        let __smelt_proto = self.__smelt_proto_entries();
+        let __smelt_inner = self.0.borrow();
+        let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("parse".to_owned(), SmeltUnknown::Null),
-        ])))
+        ]);
+        __smelt_entries.extend(__smelt_proto);
+        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
     }
 }
+/// Recover this reference record from an erased value: the live instance
+/// when the value is an erasure of one, else a fresh object rebuilt from it.
 impl SmeltFromUnknown for YearParser {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("parse") {
-                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String) -> ParseResult<f64>>>(&smelt_function)) { result.parse = smelt_origin; }
-            }
-        }
+        let SmeltUnknown::Object(object) = value else { return Self::default() };
+        if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
+        let result = Self::default();
         result
     }
 }
@@ -3905,7 +3953,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_20 = _smelt_tmp_19.borrow().join(&" ".to_owned());
     let _ = { println!("{}", _smelt_tmp_20); };
     let _smelt_tmp_22: YearParser = YearParser::new();
-    parser = { let smelt_struct_value = _smelt_tmp_22.clone(); Parser { parse: { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(String) -> ParseResult<f64>> = ::std::rc::Rc::new(move |arg0: String| -> ParseResult<f64> { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.parse(arg0.clone()) }); smelt_virtual_method }, _smelt_phantom: ::std::marker::PhantomData } };
+    parser = { let smelt_struct_value = _smelt_tmp_22.clone(); Parser(::std::rc::Rc::new(::std::cell::RefCell::new(ParserInner { parse: { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(String) -> ParseResult<f64>> = ::std::rc::Rc::new(move |arg0: String| -> ParseResult<f64> { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.parse(arg0.clone()) }); smelt_virtual_method }, _smelt_phantom: ::std::marker::PhantomData }))) };
     let _smelt_tmp_23: f64 = parser.run("2016".to_owned())?;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_23)); };
     return Ok(());
@@ -4172,7 +4220,7 @@ impl Nums {
 
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Parser<T> {
     fn run(&self, input: String) -> Result<T, Box<dyn std::error::Error>> {
-    let _smelt_tmp_3: ParseResult<T> = (self.parse.clone())(input.clone());
+    let _smelt_tmp_3: ParseResult<T> = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().parse.clone()); (smelt_callable)(input.clone()) };
     let result: ParseResult<T> = _smelt_tmp_3;
     return Ok(result.value.clone());
     }
@@ -4191,7 +4239,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Parser<
 
 impl YearParser {
     fn new() -> Self {
-    let mut this: Self = YearParser { parse: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> ParseResult<f64>> = ::std::rc::Rc::new(move |arg0: String| -> ParseResult<f64> { Default::default() }); smelt_default_callback } };
+    let mut this: Self = { let smelt_instance = YearParser(::std::rc::Rc::new(::std::cell::RefCell::new(YearParserInner { parse: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> ParseResult<f64>> = ::std::rc::Rc::new(move |arg0: String| -> ParseResult<f64> { Default::default() }); smelt_default_callback } }))); smelt_instance.0.borrow_mut().parse = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(String) -> ParseResult<f64>> = ::std::rc::Rc::new(move |arg0: String| -> ParseResult<f64> { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.parse(arg0.clone()) }); smelt_virtual_method }; smelt_instance };
     let _smelt_tmp_1: Self = Self::__smelt_init_Parser(this);
     this = _smelt_tmp_1;
     return this;
@@ -4201,7 +4249,7 @@ impl YearParser {
     return this;
     }
     fn run(&self, input: String) -> Result<f64, Box<dyn std::error::Error>> {
-    let _smelt_tmp_3: ParseResult<f64> = (self.parse.clone())(input.clone());
+    let _smelt_tmp_3: ParseResult<f64> = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().parse.clone()); (smelt_callable)(input.clone()) };
     let result: ParseResult<f64> = _smelt_tmp_3;
     return Ok(result.value);
     }

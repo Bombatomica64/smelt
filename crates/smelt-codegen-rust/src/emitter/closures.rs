@@ -546,6 +546,7 @@ impl FunctionEmitter<'_> {
             // signature to erase as well). The enclosing set is already gated by
             // that function's own erasure decision.
             emitter.enclosing_type_params = self.current_function_type_params();
+            emitter.trial_generic_function.set(self.trial_generic_function.get());
             self.inherit_base_initializer_receiver(&mut emitter, &closure.captures);
             // A closure inside an inherited copy still spells the declaring
             // base's parameters, which the receiving `impl` does not declare.

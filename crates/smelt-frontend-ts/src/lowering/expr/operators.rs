@@ -3688,8 +3688,16 @@ impl ModuleBuilder<'_> {
             if object_property.method {
                 if let Expression::FunctionExpression(function) = &object_property.value {
                     let key = self.object_property_key_expr(object_property, body)?;
-                    let value =
-                        self.function_expression_value(function, None, object_property.span, body)?;
+                    // The property's contextual type types the method as it
+                    // types any other property value: `swap() { .. }` under
+                    // `Pair<T>` returns `Pair<T>`, not an inferred `unknown`.
+                    let value_hint = self.object_property_value_hint(object_property, type_hint);
+                    let value = self.function_expression_value(
+                        function,
+                        value_hint,
+                        object_property.span,
+                        body,
+                    )?;
                     entries.push((key, value));
                     continue;
                 }
@@ -3727,6 +3735,11 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // At a record type the spread builds the struct itself; see
+        // `lowering::typed_spread`.
+        if let Some(record) = self.typed_record_spread(object, body, type_hint)? {
+            return Ok(record);
+        }
         let mut record_ty = self.dict_type_from_hint(type_hint);
         // Without a contextual record type the result's type is the join of
         // ALL its pieces, not the first piece's: `{ path: '/', ...opt, secure:
@@ -3749,9 +3762,11 @@ impl ModuleBuilder<'_> {
                     if object_property.method {
                         if let Expression::FunctionExpression(function) = &object_property.value {
                             let key = self.object_property_key_expr(object_property, body)?;
+                            let value_hint =
+                                self.object_property_value_hint(object_property, record_ty);
                             let value = self.function_expression_value(
                                 function,
-                                None,
+                                value_hint,
                                 object_property.span,
                                 body,
                             )?;

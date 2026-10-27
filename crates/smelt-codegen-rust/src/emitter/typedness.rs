@@ -418,15 +418,22 @@ impl FunctionEmitter<'_> {
                             .map(|interface| (&interface.type_params, &interface.fields))
                     })?;
                 let declared = fields.iter().find(|candidate| candidate.name == field)?.ty;
-                // A field typed by the owner's own parameter reads as the
-                // receiver's argument for it.
-                if let Some(Type::TypeParam { name: param }) = self.mir.types.get(declared)
-                    && let Some(position) = params.iter().position(|def| def.name == *param)
-                    && let Some(arg) = args.get(position)
-                {
-                    return Some(vec![*arg]);
-                }
-                Some(vec![declared])
+                // A field reads at the receiver's instantiation: its owner's
+                // parameters are the receiver's arguments, however deep they
+                // sit in the field's type (`swap: () => Pair<T>` read off a
+                // `Pair<f64>` is `() => Pair<f64>`, which is what the emitted
+                // struct field is). MIR's `generic_records` pass interns the
+                // substituted types.
+                let substitutions: std::collections::HashMap<smelt_hir::Symbol, TypeId> = params
+                    .iter()
+                    .map(|def| def.name)
+                    .zip(args.iter().copied())
+                    .collect();
+                Some(vec![crate::classes::substitute_existing_type(
+                    self.mir,
+                    declared,
+                    &substitutions,
+                )])
             }
             _ => None,
         }

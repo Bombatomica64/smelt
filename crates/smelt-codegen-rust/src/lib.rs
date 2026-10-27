@@ -162,6 +162,10 @@ pub use erased_list_alias::{ERASED_GENERIC_ARRAY_ALIAS_FN, ERASED_GENERIC_LIST_A
 /// keys its boundary classification on this prefix so the same conversion
 /// keeps the classification it had inline.
 pub const RECORD_CONVERSION_HELPER_PREFIX: &str = "__smelt_from_unknown_record_";
+
+/// Name prefix of the hoisted record-to-record adapters
+/// (`EmitContext::record_adapter_helpers`).
+pub const RECORD_ADAPTER_HELPER_PREFIX: &str = "__smelt_adapt_record_";
 pub use emitter::typedness::{KindCounts, Typedness, TypednessCounts, TypednessMeasurement};
 
 /// Measure how much of optimized MIR reaches Rust typed.
@@ -6531,6 +6535,12 @@ fn emit_source_with_free_function_router(
     for (type_text, (ordinal, body)) in context.record_conversion_helpers.borrow().iter() {
         out.push_str(&format!(
             "\nfn {RECORD_CONVERSION_HELPER_PREFIX}{ordinal}(smelt_value: SmeltUnknown) -> {type_text} {{\n    {body}\n}}\n"
+        ));
+    }
+    // The self-reaching record-to-record adapters, likewise spelled once.
+    for ((source_text, target_text), (ordinal, body)) in context.record_adapter_helpers.borrow().iter() {
+        out.push_str(&format!(
+            "\nfn {RECORD_ADAPTER_HELPER_PREFIX}{ordinal}(smelt_value: {source_text}) -> {target_text} {{\n    {body}\n}}\n"
         ));
     }
 

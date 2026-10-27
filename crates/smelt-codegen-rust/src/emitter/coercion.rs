@@ -3146,14 +3146,30 @@ impl FunctionEmitter<'_> {
         let ordinal = if let Some(ordinal) = existing {
             ordinal
         } else {
+            // Reserve the helper BEFORE rendering its body: a record that
+            // reaches its own type again (`swap(): Pair<T>` inside `Pair<T>`)
+            // converts that inner value by calling this same helper, and the
+            // recursion guard in `extract_value_text` needs the ordinal to name
+            // it. The call is lazy (it runs when `swap` is called), so the
+            // generated recursion is finite.
+            let next = {
+                let mut helpers = self.context.record_conversion_helpers.borrow_mut();
+                let next = helpers.len();
+                helpers.insert(module_text.clone(), (next, "Default::default()".to_owned()));
+                next
+            };
             let module_scope = self.render_scope();
             let body = self.inline_record_conversion("smelt_value", target, &module_scope)?;
             if body == "Default::default()" {
+                // Nothing to hoist, and a body that is only a default cannot
+                // have called its own reservation.
+                self.context.record_conversion_helpers.borrow_mut().remove(&module_text);
                 return Ok(Some(body));
             }
-            let mut helpers = self.context.record_conversion_helpers.borrow_mut();
-            let next = helpers.len();
-            helpers.entry(module_text).or_insert((next, body)).0
+            if let Some(entry) = self.context.record_conversion_helpers.borrow_mut().get_mut(&module_text) {
+                entry.1 = body;
+            }
+            next
         };
         drop(hoisted);
         Ok(Some(format!(
@@ -3429,8 +3445,16 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Class { .. }) if self.is_erased_class_type(target) => Ok(text.to_owned()),
             Some(Type::Class { .. }) if self.can_extract_unknown_object_record(target) => {
+                // Converting to a record type while already converting to it:
+                // a field reaches its own type (`swap(): Pair<T>`). Inlining
+                // again would never end, so call the hoisted helper, which
+                // `hoisted_record_conversion` reserves before rendering its
+                // body. Answering `Default::default()` here dropped the inner
+                // value (`p.swap()` read `0 0`).
                 if self.record_conversion_stack.borrow().contains(&target) {
-                    return Ok("Default::default()".to_owned());
+                    return Ok(self
+                        .hoisted_record_conversion(text, target)?
+                        .unwrap_or_else(|| "Default::default()".to_owned()));
                 }
                 if self.record_conversion_stack.borrow().is_empty()
                     && let Some(call) = self.hoisted_record_conversion(text, target)?

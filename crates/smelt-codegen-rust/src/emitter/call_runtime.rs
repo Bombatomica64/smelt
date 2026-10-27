@@ -1522,10 +1522,25 @@ impl FunctionEmitter<'_> {
                 // Identity lives in the `Rc`, so the constructor mints one cell;
                 // aliasing later clones the handle (`Rc::clone`), sharing it.
                 if self.context.is_reference_class(*class) {
-                    return Ok(format!(
+                    let allocated = format!(
                         "{class_name}(::std::rc::Rc::new(::std::cell::RefCell::new({class_name}Inner {{ {} }})))",
                         parts.join(", ")
-                    ));
+                    );
+                    // The class's own constructor allocates its instance here;
+                    // bind its virtual method slots before any statement of the
+                    // body can dispatch through them.
+                    if matches!(
+                        self.function.origin,
+                        HirOrigin::ClassConstructor { class: owner, .. } if owner == *class
+                    ) && !self.is_base_initializer_copy()
+                        && let Some(bindings) =
+                            self.bind_own_virtual_slots_text(mir_class, dest_ty, "smelt_instance")?
+                    {
+                        return Ok(format!(
+                            "{{ let smelt_instance = {allocated}; {bindings} smelt_instance }}"
+                        ));
+                    }
+                    return Ok(allocated);
                 }
                 Ok(format!("{class_name} {{ {} }}", parts.join(", ")))
             }

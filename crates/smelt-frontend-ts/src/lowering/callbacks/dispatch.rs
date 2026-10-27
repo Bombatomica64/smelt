@@ -1753,6 +1753,24 @@ impl ModuleBuilder<'_> {
                         | "getSeconds" | "getMilliseconds" | "getTime" => {
                             self.ctx.krate.types.intern(Type::Float)
                         }
+                        // `Array.prototype.join` answers a string. The compact
+                        // lowering accepts it on exactly these receivers
+                        // (`callback_method_call_to_body_expr`); typing it by
+                        // name here erased `(v) => v.join("+")`'s return, so a
+                        // `(value: string[]) => string` callback became
+                        // `-> Unknown`. A receiver that declares its own `join`
+                        // keeps its declared return.
+                        "join"
+                            if declared_method_return.is_none()
+                                && call.arguments.len() <= 1
+                                && (self.callback_method_receiver_is_list_like(receiver.ty)
+                                    || matches!(
+                                        self.ctx.krate.types.get(receiver.ty),
+                                        Some(Type::Unknown | Type::TypeParam { .. })
+                                    )) =>
+                        {
+                            self.ctx.krate.types.intern(Type::String)
+                        }
                         _ => match declared_method_return {
                             Some(return_ty) => return_ty,
                             None => self.callback_erase_unless_unknown(

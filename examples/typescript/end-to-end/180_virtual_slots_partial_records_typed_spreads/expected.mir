@@ -1,0 +1,491 @@
+class Shape fields [Public name: fn() -> String, Public sides: fn() -> Float] constructor Some(FuncId(6)) methods [FuncId(3), FuncId(4), FuncId(5)]
+class Square fields [] constructor Some(FuncId(9)) methods [FuncId(7), FuncId(8)]
+class Tile fields [] constructor Some(FuncId(10)) methods []
+class Counter fields [Public items: List<Float>, Public accept: fn(Float) -> Bool] constructor Some(FuncId(13)) methods [FuncId(11), FuncId(12)]
+class Plain fields [] constructor Some(FuncId(14)) methods []
+class Parser fields [Public validate: fn(T) -> Bool, Public parse: fn(String) -> Parsed<T>, Public fallback: fn() -> T] constructor Some(FuncId(17)) methods [FuncId(15), FuncId(16)]
+class YearParser fields [Public validate: fn(Float) -> Bool] constructor Some(FuncId(21)) methods [FuncId(18), FuncId(19), FuncId(20)]
+class StrictYear fields [] constructor Some(FuncId(23)) methods [FuncId(22)]
+class Lists fields [Public items: List<List<String>>] constructor Some(FuncId(25)) methods [FuncId(24)]
+interface Parsed
+interface Options
+interface Parsed
+interface Options
+interface PartialOptions
+interface Parsed
+interface Pair
+interface Options
+
+fn make_pair (FuncId(0)) -> Pair<T>
+  locals
+    %0 param left: T
+    %1 param right: T
+    %2 temp: fn() -> Pair<T>
+    %3 temp: Pair<T>
+  bb0:
+    %2 = closure ClosureId(0) [copy %0, copy %1]
+    %3 = {"left": copy %0, "right": copy %1, "swap": move %2}
+    return move %3
+
+fn apply (FuncId(1)) -> String
+  locals
+    %0 param fn: fn(List<String>) -> String
+    %1 temp: List<String>
+    %2 temp: String
+  bb0:
+    %1 = ["x", "y"]
+    %2 = closure_call copy %0(move %1)
+    return move %2
+
+fn merge (FuncId(2)) -> Options
+  locals
+    %0 param options: PartialOptions
+    %1 user __smelt_spread: Options
+    %2 user __smelt_spread: PartialOptions
+    %3 temp: Options
+    %4 temp: String
+    %5 temp: Optional<Bool>
+    %6 temp: Optional<Float>
+    %7 temp: Options
+  bb0:
+    %3 = {"origin": "*", "maxAge": 5.0}
+    %1 = move %3
+    %2 = copy %0
+    %4 = copy %2.field4 ?? copy %1.field4
+    %5 = copy %2.field5 ?? copy %1.field5
+    %6 = copy %2.field6 ?? copy %1.field6
+    %7 = {"origin": move %4, "credentials": move %5, "maxAge": move %6}
+    return move %7
+
+fn describe (FuncId(3)) -> String
+  locals
+    %0 param this: Shape
+    %1 temp: String
+    %2 temp: String
+    %3 temp: String
+    %4 temp: Float
+    %5 temp: String
+    %6 temp: String
+  bb0:
+    %1 = call fn4(copy %0) -> bb1
+  bb1:
+    %2 = "" + move %1
+    %3 = move %2 + " with "
+    %4 = call fn5(copy %0) -> bb2
+  bb2:
+    %5 = move %3 + move %4
+    %6 = move %5 + " sides"
+    return move %6
+
+fn name (FuncId(4)) -> String
+  locals
+    %0 param this: Shape
+  bb0:
+    return "shape"
+
+fn sides (FuncId(5)) -> Float
+  locals
+    %0 param this: Shape
+  bb0:
+    return 0.0
+
+fn new (FuncId(6)) -> Shape
+  locals
+    %0 user this: Shape
+  bb0:
+    %0 = struct19 {}
+    return move %0
+
+fn name (FuncId(7)) -> String
+  locals
+    %0 param this: Square
+  bb0:
+    return "square"
+
+fn sides (FuncId(8)) -> Float
+  locals
+    %0 param this: Square
+  bb0:
+    return 4.0
+
+fn new (FuncId(9)) -> Square
+  locals
+    %0 user this: Square
+    %1 temp: Square
+  bb0:
+    %0 = struct25 {}
+    %1 = call init fn6(move %0) -> bb1
+  bb1:
+    %0 = move %1
+    return move %0
+
+fn new (FuncId(10)) -> Tile
+  locals
+    %0 user this: Tile
+    %1 temp: Tile
+  bb0:
+    %0 = struct26 {}
+    %1 = call init fn9(move %0) -> bb1
+  bb1:
+    %0 = move %1
+    return move %0
+
+fn push (FuncId(11)) -> Float throws
+  locals
+    %0 param this: Counter
+    %1 param value: Float
+    %2 temp: List<Float>
+    %3 temp: Float
+    %4 temp: Bool
+    %5 temp: Float
+    %6 temp: Float
+    %7 temp: Float
+  bb0:
+    %2 = copy %0.field28
+    %3 = list_push copy %2, copy %1
+    %0.field28 = move %2
+    %4 = closure_call copy %0.field30(copy %1)
+    switch move %4 ? bb1 : bb2
+  bb1:
+    %6 = len copy %0.field28
+    %5 = move %6
+    goto bb3
+  bb2:
+    %7 = -1.0
+    %5 = move %7
+    goto bb3
+  bb3:
+    return move %5
+
+fn accept (FuncId(12)) -> Bool
+  locals
+    %0 param this: Counter
+    %1 param value: Float
+    %2 temp: Bool
+  bb0:
+    %2 = copy %1 > 0.0
+    return move %2
+
+fn new (FuncId(13)) -> Counter
+  locals
+    %0 user this: Counter
+    %1 temp: List<Float>
+  bb0:
+    %0 = struct27 {}
+    %1 = []
+    %0.field28 = move %1
+    return move %0
+
+fn new (FuncId(14)) -> Plain
+  locals
+    %0 user this: Plain
+    %1 temp: Plain
+  bb0:
+    %0 = struct7 {}
+    %1 = call init fn13(move %0) -> bb1
+  bb1:
+    %0 = move %1
+    return move %0
+
+fn run (FuncId(15)) -> T throws
+  locals
+    %0 param this: Parser<T>
+    %1 param input: String
+    %2 user result: Parsed<T>
+    %3 temp: Parsed<T>
+    %4 temp: Bool
+    %5 temp: T
+    %6 temp: T
+  bb0:
+    %3 = closure_call copy %0.field35(copy %1)
+    %2 = move %3
+    %4 = closure_call copy %0.field34(copy %2.field2)
+    switch move %4 ? bb1 : bb2
+  bb1:
+    %5 = copy %2.field2
+    goto bb3
+  bb2:
+    %6 = closure_call copy %0.field36()
+    %5 = move %6
+    goto bb3
+  bb3:
+    return move %5
+
+fn validate (FuncId(16)) -> Bool
+  locals
+    %0 param this: Parser<T>
+    %1 param value: T
+  bb0:
+    return true
+
+fn new (FuncId(17)) -> Parser<T>
+  locals
+    %0 user this: Parser<T>
+  bb0:
+    %0 = struct8 {}
+    return move %0
+
+fn parse (FuncId(18)) -> Parsed<Float>
+  locals
+    %0 param this: YearParser
+    %1 param input: String
+    %2 temp: Float
+    %3 temp: Parsed<Float>
+  bb0:
+    %2 = primitive_cast_js_number copy %1
+    %3 = {"value": move %2}
+    return move %3
+
+fn validate (FuncId(19)) -> Bool
+  locals
+    %0 param this: YearParser
+    %1 param value: Float
+    %2 temp: Bool
+  bb0:
+    %2 = copy %1 > 1900.0
+    return move %2
+
+fn fallback (FuncId(20)) -> Float
+  locals
+    %0 param this: YearParser
+  bb0:
+    return 1970.0
+
+fn new (FuncId(21)) -> YearParser
+  locals
+    %0 user this: YearParser
+    %1 temp: YearParser
+  bb0:
+    %0 = struct38 {}
+    %1 = call init fn17(move %0) -> bb1
+  bb1:
+    %0 = move %1
+    return move %0
+
+fn validate (FuncId(22)) -> Bool
+  locals
+    %0 param this: StrictYear
+    %1 param value: Float
+    %2 temp: Bool
+  bb0:
+    %2 = copy %1 > 2000.0
+    return move %2
+
+fn new (FuncId(23)) -> StrictYear
+  locals
+    %0 user this: StrictYear
+    %1 temp: StrictYear
+  bb0:
+    %0 = struct39 {}
+    %1 = call init fn21(move %0) -> bb1
+  bb1:
+    %0 = move %1
+    return move %0
+
+fn map (FuncId(24)) -> List<String>
+  locals
+    %0 param this: Lists
+    %1 param fn: fn(List<String>) -> String
+    %2 temp: fn(List<String>, Int, List<List<String>>) -> String
+    %3 temp: List<String>
+  bb0:
+    %2 = closure ClosureId(1) [copy %1]
+    %3 = list_map copy %0.field28, move %2
+    return move %3
+
+fn new (FuncId(25)) -> Lists
+  locals
+    %0 user this: Lists
+    %1 temp: List<String>
+    %2 temp: List<String>
+    %3 temp: List<List<String>>
+  bb0:
+    %0 = struct40 {}
+    %1 = ["a", "b"]
+    %2 = ["c"]
+    %3 = [move %1, move %2]
+    %0.field28 = move %3
+    return move %0
+
+fn main (FuncId(26)) -> None throws
+  locals
+    %0 user plain: Plain
+    %1 user parser: Parser<Float>
+    %2 user swapped: Pair<Float>
+    %3 user defaults: Options
+    %4 user merged: Options
+    %5 user replaced: Options
+    %6 user __smelt_spread: Options
+    %7 user __smelt_spread_value: String
+    %8 user copy: Options
+    %9 temp: Shape
+    %10 temp: String
+    %11 temp: Square
+    %12 temp: String
+    %13 temp: Tile
+    %14 temp: String
+    %15 temp: None
+    %16 temp: Plain
+    %17 temp: Float
+    %18 temp: Float
+    %19 temp: Float
+    %20 temp: Float
+    %21 temp: None
+    %22 temp: YearParser
+    %23 temp: Float
+    %24 temp: YearParser
+    %25 temp: Float
+    %26 temp: StrictYear
+    %27 temp: Float
+    %28 temp: None
+    %29 temp: StrictYear
+    %30 temp: Float
+    %31 temp: Float
+    %32 temp: None
+    %33 temp: Pair<Float>
+    %34 temp: Pair<Float>
+    %35 temp: Pair<Float>
+    %36 temp: None
+    %37 temp: fn(List<String>) -> String
+    %38 temp: String
+    %39 temp: Lists
+    %40 temp: fn(List<String>) -> String
+    %41 temp: List<String>
+    %42 temp: String
+    %43 temp: None
+    %44 temp: Options
+    %45 temp: PartialOptions
+    %46 temp: Options
+    %47 temp: None
+    %48 temp: PartialOptions
+    %49 temp: Options
+    %50 temp: None
+    %51 temp: Options
+    %52 temp: None
+  bb0:
+    %9 = call fn6() -> bb1
+  bb1:
+    %10 = call fn3(move %9) -> bb2
+  bb2:
+    %11 = call fn9() -> bb3
+  bb3:
+    %12 = call fn3(move %11) -> bb4
+  bb4:
+    %13 = call fn10() -> bb5
+  bb5:
+    %14 = call fn3(move %13) -> bb6
+  bb6:
+    %15 = call @console_log(move %10, "|", move %12, "|", move %14) -> bb7
+  bb7:
+    %16 = call fn14() -> bb8
+  bb8:
+    %0 = move %16
+    %17 = call fn11(copy %0, 3.0) -> bb9
+  bb9:
+    %18 = -1.0
+    %19 = call fn11(copy %0, move %18) -> bb10
+  bb10:
+    %20 = call fn11(move %0, 5.0) -> bb11
+  bb11:
+    %21 = call @console_log(move %17, move %19, move %20) -> bb12
+  bb12:
+    %22 = call fn21() -> bb13
+  bb13:
+    %23 = call fn15(move %22, "2017") -> bb14
+  bb14:
+    %24 = call fn21() -> bb15
+  bb15:
+    %25 = call fn15(move %24, "12") -> bb16
+  bb16:
+    %26 = call fn23() -> bb17
+  bb17:
+    %27 = call fn15(move %26, "1999") -> bb18
+  bb18:
+    %28 = call @console_log(move %23, move %25, move %27) -> bb19
+  bb19:
+    %29 = call fn23() -> bb20
+  bb20:
+    %1 = move %29
+    %30 = call fn15(copy %1, "2001") -> bb21
+  bb21:
+    %31 = call fn15(move %1, "1950") -> bb22
+  bb22:
+    %32 = call @console_log(move %30, move %31) -> bb23
+  bb23:
+    %33 = call fn0(1.0, 2.0) -> bb24
+  bb24:
+    %34 = closure_call copy %33.field18()
+    %2 = move %34
+    %35 = closure_call copy %2.field18()
+    %36 = call @console_log(copy %2.field14, copy %2.field15, copy %35.field14) -> bb25
+  bb25:
+    %37 = closure ClosureId(2) []
+    %38 = call fn1(move %37) -> bb26
+  bb26:
+    %39 = call fn25() -> bb27
+  bb27:
+    %40 = closure ClosureId(3) []
+    %41 = call fn24(move %39, move %40) -> bb28
+  bb28:
+    %42 = string_join move %41, ","
+    %43 = call @console_log(move %38, move %42) -> bb29
+  bb29:
+    %44 = {"origin": "*", "maxAge": 5.0}
+    %3 = move %44
+    %45 = {"credentials": true}
+    %46 = call fn2(move %45) -> bb30
+  bb30:
+    %4 = move %46
+    %47 = call @console_log(copy %4.field4, copy %4.field5, copy %4.field6) -> bb31
+  bb31:
+    %48 = {"origin": "a", "maxAge": 9.0}
+    %49 = call fn2(move %48) -> bb32
+  bb32:
+    %5 = move %49
+    %50 = call @console_log(copy %5.field4, copy %5.field5, copy %5.field6) -> bb33
+  bb33:
+    %6 = move %3
+    %7 = "b"
+    %51 = {"origin": move %7, "credentials": copy %6.field5, "maxAge": copy %6.field6}
+    %8 = move %51
+    %52 = call @console_log(copy %8.field4, copy %8.field6, copy %8.field5) -> bb34
+  bb34:
+    return none
+
+closure ClosureId(0) -> Pair<T>
+  locals
+    %0 user left: T
+    %1 user right: T
+    %2 temp: Pair<T>
+  bb0:
+    %2 = call fn0(copy %1, copy %0) -> bb1
+  bb1:
+    return copy %2
+
+closure ClosureId(1) -> String
+  locals
+    %0 param __callback_param_0: List<String>
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<List<String>>
+    %3 user fn: fn(List<String>) -> String
+    %4 temp: String
+  bb0:
+    %4 = closure_call copy %3(copy %0)
+    return copy %4
+
+closure ClosureId(2) -> String
+  locals
+    %0 param __callback_param_0: List<String>
+    %1 temp: String
+  bb0:
+    %1 = string_join copy %0, "-"
+    return copy %1
+
+closure ClosureId(3) -> String
+  locals
+    %0 param __callback_param_0: List<String>
+    %1 temp: String
+  bb0:
+    %1 = string_join copy %0, "+"
+    return copy %1
+

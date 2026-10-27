@@ -1,0 +1,261 @@
+module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_spreads/input.ts (ModuleId(0))
+  body BodyId(30)
+  items
+    class Shape fields [Public name: fn() -> String, Public sides: fn() -> Float] constructor Some(ItemId(11)) methods [ItemId(8), ItemId(9), ItemId(10)] implements []
+    class Square fields [] constructor Some(ItemId(15)) methods [ItemId(13), ItemId(14)] implements []
+    class Tile fields [] constructor Some(ItemId(17)) methods [] implements []
+    class Counter fields [Public items: List<Float>, Public accept: fn(Float) -> Bool] constructor Some(ItemId(21)) methods [ItemId(19), ItemId(20)] implements []
+    class Plain fields [] constructor Some(ItemId(23)) methods [] implements []
+    interface Parsed<T> fields [Public value: T] methods []
+    class Parser fields [Public validate: fn(T) -> Bool, Public parse: fn(String) -> Parsed<T>, Public fallback: fn() -> T] constructor Some(ItemId(28)) methods [ItemId(26), ItemId(27)] implements []
+    class YearParser fields [Public validate: fn(Float) -> Bool] constructor Some(ItemId(33)) methods [ItemId(30), ItemId(31), ItemId(32)] implements []
+    class StrictYear fields [] constructor Some(ItemId(36)) methods [ItemId(35)] implements []
+    interface Pair<T> fields [Public left: T, Public right: T, Public swap: fn() -> Pair<T>] methods [Public swap() -> Pair<T>]
+    fn make_pair<T> owner Module
+    fn apply owner Module
+    class Lists fields [Public items: List<List<String>>] constructor Some(ItemId(40)) methods [ItemId(39)] implements []
+    interface Options fields [Public origin: String, Public credentials?: Optional<Bool>, Public max_age?: Optional<Float>] methods []
+    fn merge owner Module
+  locals
+    %0 const plain: Plain
+    %1 const parser: Parser<Float>
+    %2 const swapped: Pair<Float>
+    %3 const defaults: Options
+    %4 const merged: Options
+    %5 const replaced: Options
+    %6 const __smelt_spread: Options
+    %7 const __smelt_spread_value: String
+    %8 const copy: Options
+  exprs
+    #0: Shape = new Shape()
+    #1: fn() -> String = #0.describe
+    #2: Shape = new Shape()
+    #3: String = #2.describe()
+    #4: String = "|"
+    #5: Square = new Square()
+    #6: fn() -> String = #5.describe
+    #7: Square = new Square()
+    #8: String = #7.describe()
+    #9: String = "|"
+    #10: Tile = new Tile()
+    #11: fn() -> String = #10.describe
+    #12: Tile = new Tile()
+    #13: String = #12.describe()
+    #14: None = @43(console_log)
+    #15: None = call #14(#3, #4, #8, #9, #13)
+    #16: Plain = new Plain()
+    #17: Plain = %0
+    #18: fn(Float) -> Float = #17.push
+    #19: Plain = %0
+    #20: Float = 3.0
+    #21: Float = #19.push(#20)
+    #22: Plain = %0
+    #23: fn(Float) -> Float = #22.push
+    #24: Plain = %0
+    #25: Float = 1.0
+    #26: Float = Neg #25
+    #27: Float = #24.push(#26)
+    #28: Plain = %0
+    #29: fn(Float) -> Float = #28.push
+    #30: Plain = %0
+    #31: Float = 5.0
+    #32: Float = #30.push(#31)
+    #33: None = @44(console_log)
+    #34: None = call #33(#21, #27, #32)
+    #35: YearParser = new YearParser()
+    #36: fn(String) -> Float = #35.run
+    #37: YearParser = new YearParser()
+    #38: String = "2017"
+    #39: Float = #37.run(#38)
+    #40: YearParser = new YearParser()
+    #41: fn(String) -> Float = #40.run
+    #42: YearParser = new YearParser()
+    #43: String = "12"
+    #44: Float = #42.run(#43)
+    #45: StrictYear = new StrictYear()
+    #46: fn(String) -> Float = #45.run
+    #47: StrictYear = new StrictYear()
+    #48: String = "1999"
+    #49: Float = #47.run(#48)
+    #50: None = @45(console_log)
+    #51: None = call #50(#39, #44, #49)
+    #52: StrictYear = new StrictYear()
+    #53: Parser<Float> = %1
+    #54: fn(String) -> Float = #53.run
+    #55: Parser<Float> = %1
+    #56: String = "2001"
+    #57: Float = #55.run(#56)
+    #58: Parser<Float> = %1
+    #59: fn(String) -> Float = #58.run
+    #60: Parser<Float> = %1
+    #61: String = "1950"
+    #62: Float = #60.run(#61)
+    #63: None = @46(console_log)
+    #64: None = call #63(#57, #62)
+    #65: Float = 1.0
+    #66: Float = 2.0
+    #67: fn(T, T) -> Pair<T> = @5(make_pair)
+    #68: Pair<Float> = call #67(#65, #66)
+    #69: fn() -> Pair<Float> = #68.swap
+    #70: Float = 1.0
+    #71: Float = 2.0
+    #72: fn(T, T) -> Pair<T> = @5(make_pair)
+    #73: Pair<Float> = call #72(#70, #71)
+    #74: Pair<Float> = closure_call #69()
+    #75: Pair<Float> = %2
+    #76: Float = #75.left
+    #77: Pair<Float> = %2
+    #78: Float = #77.right
+    #79: Pair<Float> = %2
+    #80: fn() -> Pair<Float> = #79.swap
+    #81: Pair<Float> = %2
+    #82: Pair<Float> = closure_call #80()
+    #83: Float = #82.left
+    #84: None = @47(console_log)
+    #85: None = call #84(#76, #78, #83)
+    #86: fn(List<String>) -> String = closure BodyId(28) captures 0 -> String
+    #87: fn(fn(List<String>) -> String) -> String = @6(apply)
+    #88: String = call #87(#86)
+    #89: Lists = new Lists()
+    #90: Lists = new Lists()
+    #91: fn(fn(List<String>) -> String) -> List<String> = #90.map
+    #92: Lists = new Lists()
+    #93: fn(List<String>) -> String = closure BodyId(29) captures 0 -> String
+    #94: List<String> = #92.map(#93)
+    #95: String = ","
+    #96: String = string_join #94, #95
+    #97: None = @48(console_log)
+    #98: None = call #97(#88, #96)
+    #99: String = "origin"
+    #100: String = "*"
+    #101: String = "maxAge"
+    #102: Float = 5.0
+    #103: Options = {#99: #100, #101: #102}
+    #104: String = "credentials"
+    #105: Bool = true
+    #106: PartialOptions = {#104: #105}
+    #107: fn(PartialOptions) -> Options = @7(merge)
+    #108: Options = call #107(#106)
+    #109: Options = %4
+    #110: String = #109.origin
+    #111: Options = %4
+    #112: Options = %4
+    #113: Optional<Bool> = #112.credentials
+    #114: Options = %4
+    #115: Optional<Float> = #114.max_age
+    #116: None = @49(console_log)
+    #117: None = call #116(#110, #113, #115)
+    #118: String = "origin"
+    #119: String = "a"
+    #120: String = "maxAge"
+    #121: Float = 9.0
+    #122: PartialOptions = {#118: #119, #120: #121}
+    #123: fn(PartialOptions) -> Options = @7(merge)
+    #124: Options = call #123(#122)
+    #125: Options = %5
+    #126: String = #125.origin
+    #127: Options = %5
+    #128: Options = %5
+    #129: Optional<Bool> = #128.credentials
+    #130: Options = %5
+    #131: Optional<Float> = #130.max_age
+    #132: None = @50(console_log)
+    #133: None = call #132(#126, #129, #131)
+    #134: Options = %3
+    #135: Options = %6
+    #136: String = #135.origin
+    #137: Options = %6
+    #138: Optional<Bool> = #137.credentials
+    #139: Options = %6
+    #140: Optional<Float> = #139.max_age
+    #141: String = "b"
+    #142: String = %7
+    #143: String = "origin"
+    #144: String = "credentials"
+    #145: String = "maxAge"
+    #146: Options = {#143: #142, #144: #138, #145: #140}
+    #147: Options = %8
+    #148: String = #147.origin
+    #149: Options = %8
+    #150: Optional<Float> = #149.max_age
+    #151: Options = %8
+    #152: Options = %8
+    #153: Optional<Bool> = #152.credentials
+    #154: None = @51(console_log)
+    #155: None = call #154(#148, #150, #153)
+  stmts
+    s0: #15
+    s1: let %0: Plain = #16
+    s2: #34
+    s3: #51
+    s4: let %1: Parser<Float> = #52
+    s5: #64
+    s6: let %2: Pair<Float> = #74
+    s7: #85
+    s8: #98
+    s9: let %3: Options = #103
+    s10: let %4: Options = #108
+    s11: #117
+    s12: let %5: Options = #124
+    s13: #133
+    s14: let %6: Options = #134
+    s15: let %7: String = #141
+    s16: let %8: Options = #146
+    s17: #155
+
+interned types
+  t0 = T
+  t1 = String
+  t2 = Bool
+  t3 = Optional<Bool>
+  t4 = Float
+  t5 = Optional<Float>
+  t6 = Plain
+  t7 = Parser<Float>
+  t8 = Unknown
+  t9 = Options
+  t10 = Dict<String, Unknown>
+  t11 = Dict<String, Bool>
+  t12 = Optional<Unknown>
+  t13 = Pair<T>
+  t14 = fn(T, T) -> Pair<T>
+  t15 = List<String>
+  t16 = fn(List<String>) -> String
+  t17 = fn(fn(List<String>) -> String) -> String
+  t18 = Optional<String>
+  t19 = PartialOptions
+  t20 = fn(PartialOptions) -> Options
+  t21 = Pair<Float>
+  t22 = fn(T, T) -> Pair<T>
+  t23 = fn() -> Unknown
+  t24 = fn(PartialOptions) -> Options
+  t25 = Shape
+  t26 = fn() -> String
+  t27 = fn() -> Float
+  t28 = None
+  t29 = Square
+  t30 = Tile
+  t31 = Counter
+  t32 = List<Float>
+  t33 = fn(Float) -> Bool
+  t34 = Parser<T>
+  t35 = Parsed<T>
+  t36 = fn(T) -> Bool
+  t37 = fn(String) -> Parsed<T>
+  t38 = fn() -> T
+  t39 = YearParser
+  t40 = Parsed<Float>
+  t41 = StrictYear
+  t42 = fn() -> Pair<T>
+  t43 = fn() -> Pair<T>
+  t44 = Lists
+  t45 = List<List<String>>
+  t46 = Int
+  t47 = fn(List<String>, Int, List<List<String>>) -> String
+  t48 = List<Unknown>
+  t49 = fn(Float) -> Float
+  t50 = fn(String) -> Float
+  t51 = fn() -> Pair<Float>
+  t52 = fn() -> Pair<Float>
+  t53 = fn(fn(List<String>) -> String) -> String
+  t54 = fn(fn(List<String>) -> String) -> List<String>

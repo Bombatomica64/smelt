@@ -268,6 +268,21 @@ impl ModuleBuilder<'_> {
     ///
     /// Shared by `interface I { .. }` and by an object-shaped `type I = { .. }`,
     /// which declares the same structural type (see `type_alias_declaration`).
+    /// Register an interface the frontend synthesizes (no source declaration),
+    /// such as the record `Partial<X>` names; see
+    /// `ModuleBuilder::partial_record_type`.
+    pub(in crate::lowering) fn push_synthesized_interface(
+        &mut self,
+        name: smelt_hir::Symbol,
+        name_text: String,
+        members: StructuralMembers,
+        span: smelt_hir::Span,
+    ) -> smelt_hir::ItemId {
+        let item = self.push_lowered_interface(name, name_text.clone(), Vec::new(), Vec::new(), members, span);
+        self.items.insert(name_text, item);
+        item
+    }
+
     fn push_lowered_interface(
         &mut self,
         name: smelt_hir::Symbol,

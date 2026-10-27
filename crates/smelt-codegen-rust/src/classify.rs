@@ -31,6 +31,7 @@
 //!   properties through erased values (see [`collect_bound_receiver_triggers`]), or
 //! - a collection method mutates one of its instance fields in place (see
 //!   [`collect_field_mutation_triggers`]), or
+//! - it stores a virtual method SLOT (see [`collect_virtual_slot_triggers`]), or
 //! - it INHERITS from a reference class, or a class inheriting from it is one
 //!   (see [`close_over_heritage`]).
 //!
@@ -106,6 +107,7 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
     }
     collect_bound_receiver_triggers(mir, &mut references);
     collect_identity_comparison_triggers(mir, &mut references);
+    collect_virtual_slot_triggers(mir, &mut references);
     // Before the index-store deviation below, so that deviation still has the
     // final say for a class that carries a dynamic index signature.
     close_over_heritage(mir, &mut references);
@@ -119,6 +121,26 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
     // regression from prior behavior.
     references.retain(|name| !class_has_index_store(mir, *name));
     references
+}
+
+/// A class storing a virtual method slot: a function-typed field named like
+/// one of the class's own or inherited methods (or abstract methods), which
+/// TypeScript only allows because the frontend synthesized it.
+///
+/// A base method calling `this.g()` dispatches through that slot, so every
+/// instance needs it bound to its own most-derived method from construction
+/// on, not only when converted to a base type. The constructor binds it
+/// through a `Weak` handle on the instance's cell
+/// (`FunctionEmitter::bind_own_virtual_slots_text`), which only the
+/// reference representation has: a value struct cannot hand a closure a
+/// handle to itself. Before this, `new A().f()` with `f() { return this.g() }`
+/// called the slot's default closure.
+fn collect_virtual_slot_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
+    for class in &mir.classes {
+        if !crate::classes::own_virtual_slot_names(mir, class).is_empty() {
+            references.insert(class.name);
+        }
+    }
 }
 
 /// Close the reference set over the inheritance chain, in both directions.

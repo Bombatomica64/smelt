@@ -264,6 +264,18 @@ pub(crate) struct EmitContext {
     pub(crate) record_conversion_helpers: ::std::cell::RefCell<
         ::std::collections::BTreeMap<String, (usize, String)>,
     >,
+    /// Hoisted record-to-record adapters for a pair that reaches ITSELF: a
+    /// field whose own adaptation needs the same `(source, target)` pair
+    /// (`swap(): Pair<T>` inside `Pair<T>`, `Pair<SmeltUnknown>` to
+    /// `Pair<f64>`). Inlining it again would never end, so the cycle calls a
+    /// module-level helper instead (see `hoisted_record_adapter_call`).
+    ///
+    /// Keyed by the module-level Rust spellings `(source, target)`; the value
+    /// is `(ordinal, body)`. Helper names start with
+    /// [`crate::RECORD_ADAPTER_HELPER_PREFIX`].
+    pub(crate) record_adapter_helpers: ::std::cell::RefCell<
+        ::std::collections::BTreeMap<(String, String), (usize, String)>,
+    >,
     /// MIR ids of free functions that emit real Rust generics.
     ///
     /// A generic free function only keeps real generics when its signature is
@@ -411,6 +423,7 @@ impl EmitContext {
                 ::std::collections::BTreeMap::new(),
             ),
             record_conversion_helpers: ::std::cell::RefCell::new(::std::collections::BTreeMap::new()),
+            record_adapter_helpers: ::std::cell::RefCell::new(::std::collections::BTreeMap::new()),
             generic_functions: RefCell::new(HashSet::new()),
             weak_receivers: weak_receiver::WeakReceiverPlan::of(mir, &crate::classify::reference_classes(mir)),
             reference_classes: crate::classify::reference_classes(mir),
@@ -1329,6 +1342,11 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// separate MIR items still spelled in the base's scope, so they render
     /// through this map instead.
     inherited_type_args: HashMap<Symbol, TypeId>,
+    /// While [`FunctionEmitter::renders_real_generics`] tries a free function
+    /// as generic: that function. Its own recursive calls (from its body or
+    /// a closure in it) are rendered as calls to the generic it is being tried
+    /// as, see [`FunctionEmitter::callee_emits_generics`].
+    trial_generic_function: std::cell::Cell<Option<FuncId>>,
     /// The map an inherited copy (or a closure inside one) hands to the
     /// closures it emits; see `inherited_type_args`. Not applied to the copy's
     /// own, already substituted, types.

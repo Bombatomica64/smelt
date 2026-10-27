@@ -264,7 +264,7 @@ impl FunctionEmitter<'_> {
             .mir
             .functions
             .get(usize::try_from(func_id.0).unwrap_or(usize::MAX))?;
-        if !self.context.is_generic_function(callee.id) {
+        if !self.callee_emits_generics(callee.id) {
             return None;
         }
         let signature_key = self.emitted_signature_key(callee).ok()?;
