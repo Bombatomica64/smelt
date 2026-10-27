@@ -85,6 +85,7 @@ impl<'mir> FunctionEmitter<'mir> {
             emitting_inherited_copy: false,
             inherited_impl_owner: None,
             inherited_type_args: HashMap::new(),
+            trial_generic_function: std::cell::Cell::new(None),
             closure_inherited_type_args: HashMap::new(),
             rendering_inherited_bound: std::cell::Cell::new(false),
             base_initializer_owner: None,
@@ -394,7 +395,15 @@ impl<'mir> FunctionEmitter<'mir> {
     /// functions, so the type parameters are in scope during the trial.
     pub(crate) fn renders_real_generics(&self) -> Result<bool, EmitError> {
         let mut body = String::new();
-        self.emit_body(&mut body)?;
+        // The crate-wide set grows from empty, so a self-recursive function
+        // would never see itself as generic and its recursive call would erase
+        // its own `T` (`mk(x.into_smelt_unknown())` inside `mk<T>`), failing
+        // its own trial forever. The trial asks "does the body stay clean IF
+        // this function is generic", so it assumes exactly that.
+        self.trial_generic_function.set(Some(self.function.id));
+        let emitted = self.emit_body(&mut body);
+        self.trial_generic_function.set(None);
+        emitted?;
         self.reset_body_emission_state();
         // A partial lift is governed by `classes::type_param_only_moved`, which
         // asks MIR whether each *lifted* parameter is ever inspected. The
@@ -416,6 +425,13 @@ impl<'mir> FunctionEmitter<'mir> {
             return Ok(!liftable.is_empty());
         }
         Ok(!body_needs_erased_carrier(&body))
+    }
+
+    /// Whether a call to the free function `id` renders against its generic
+    /// signature: the crate-wide decision, or the function currently on trial
+    /// (see `trial_generic_function`).
+    pub(super) fn callee_emits_generics(&self, id: FuncId) -> bool {
+        self.trial_generic_function.get() == Some(id) || self.context.is_generic_function(id)
     }
 
     /// Emits shared cells for parameters mutated through lexical closures.
@@ -1126,6 +1142,14 @@ impl<'mir> FunctionEmitter<'mir> {
         // function-typed fallbacks produce for an unresolvable callable, and it
         // keeps the generated crate compiling.
         let Some(_guard) = self.enter_type_expansion(source, target) else {
+            // A pair that reaches itself through a field whose value is built
+            // LAZILY (a callable slot returning the record, `swap():
+            // Pair<T>`) calls a hoisted helper for the same pair. The
+            // default is kept only where the pair cannot be spelled at module
+            // level.
+            if let Some(call) = self.hoisted_record_adapter_call(value_text, source, target)? {
+                return Ok(Some(call));
+            }
             return Ok(Some(self.default_value(target)?));
         };
         let target_name = sanitize_ident(self.symbol_name(*name)?);
@@ -1204,6 +1228,68 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(Some(format!(
             "{{ let smelt_struct_value = {value_text}.clone(); {target_name} {{ {} }} }}",
             field_text.join(", ")
+        )))
+    }
+
+    /// The call to a hoisted adapter from `source` to `target`, registering
+    /// it on first use; see `EmitContext::record_adapter_helpers`.
+    ///
+    /// The helper is reserved BEFORE its body renders, and the body renders
+    /// with the expansion stack cleared, so the cycle inside it resolves to a
+    /// call to the helper itself. That recursion is finite at run time: the
+    /// self-reaching field is a callable slot, adapted lazily. `None` when
+    /// either type spells a type parameter (a module-level helper cannot), or
+    /// when no structural adapter exists for the pair.
+    fn hoisted_record_adapter_call(
+        &self,
+        value_text: &str,
+        source: TypeId,
+        target: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        let scoped = (
+            self.type_text_with_impl_trait(source, false)?,
+            self.type_text_with_impl_trait(target, false)?,
+        );
+        let hoisted = HoistedModuleItemScope::enter(self);
+        let module = (
+            self.type_text_with_impl_trait(source, false)?,
+            self.type_text_with_impl_trait(target, false)?,
+        );
+        if module != scoped {
+            return Ok(None);
+        }
+        let existing = self
+            .context
+            .record_adapter_helpers
+            .borrow()
+            .get(&module)
+            .map(|(ordinal, _)| *ordinal);
+        let ordinal = if let Some(ordinal) = existing {
+            ordinal
+        } else {
+            let next = {
+                let mut helpers = self.context.record_adapter_helpers.borrow_mut();
+                let next = helpers.len();
+                helpers.insert(module.clone(), (next, "Default::default()".to_owned()));
+                next
+            };
+            let saved = std::mem::take(&mut *self.type_expansion_stack.borrow_mut());
+            let module_scope = self.render_scope();
+            let body = self.structural_record_adapter_text("smelt_value", source, target, &module_scope);
+            *self.type_expansion_stack.borrow_mut() = saved;
+            let Some(body) = body? else {
+                self.context.record_adapter_helpers.borrow_mut().remove(&module);
+                return Ok(None);
+            };
+            if let Some(entry) = self.context.record_adapter_helpers.borrow_mut().get_mut(&module) {
+                entry.1 = body;
+            }
+            next
+        };
+        drop(hoisted);
+        Ok(Some(format!(
+            "{}{ordinal}({value_text})",
+            crate::RECORD_ADAPTER_HELPER_PREFIX
         )))
     }
 
@@ -1332,21 +1418,31 @@ impl<'mir> FunctionEmitter<'mir> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
             return false;
         };
-        let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) else {
-            return false;
-        };
-        class
-            .abstract_methods
-            .iter()
-            .any(|method| method.name == field)
-            || class.methods.iter().any(|method_id| {
-                self.function_by_id(*method_id).is_some_and(|function| {
-                    matches!(
-                        function.origin,
-                        HirOrigin::ClassMethod { method, .. } if method == field
-                    )
-                })
-            })
+        // A slot a class inherits is still a slot: `class L extends B {}`
+        // stores `B`'s `check` slot in its flattened layout.
+        let mut current = Some(*name);
+        let mut seen = HashSet::new();
+        while let Some(class_name) = current
+            && seen.insert(class_name)
+        {
+            let Some(class) = self.mir.classes.iter().find(|class| class.name == class_name) else {
+                return false;
+            };
+            let declares = class.abstract_methods.iter().any(|method| method.name == field)
+                || class.methods.iter().any(|method_id| {
+                    self.function_by_id(*method_id).is_some_and(|function| {
+                        matches!(
+                            function.origin,
+                            HirOrigin::ClassMethod { method, .. } if method == field
+                        )
+                    })
+                });
+            if declares {
+                return true;
+            }
+            current = class.base;
+        }
+        false
     }
 
     /// Instantiate a type declared inside `source`'s class at `source`'s own
@@ -1415,6 +1511,58 @@ impl<'mir> FunctionEmitter<'mir> {
         target: TypeId,
         method: Symbol,
     ) -> Result<Option<String>, EmitError> {
+        self.virtual_method_slot_closure_text(source, target, method, &SlotReceiver::SourceValue)
+    }
+
+    /// Bind every virtual method slot of a freshly allocated instance to the
+    /// instance's own method.
+    ///
+    /// `instance` names the new handle (a reference class; see
+    /// `classify::collect_virtual_slot_triggers`). Each slot gets a closure
+    /// over a `Weak` handle on the instance's cell that calls `Self`'s method,
+    /// which is the most-derived one: an inherited method is emitted into
+    /// `Self`'s `impl`. JavaScript resolves `this.g()` on the prototype from
+    /// the first statement of the constructor on, so the binding happens right
+    /// after allocation. `Weak` keeps the instance from owning itself through
+    /// its own slots. A slot whose method is abstract on this class is left at
+    /// its default (the class cannot be instantiated). Answers `None` when the
+    /// class has no slot to bind.
+    pub(super) fn bind_own_virtual_slots_text(
+        &self,
+        class: &smelt_mir::MirClass,
+        instance_ty: TypeId,
+        instance: &str,
+    ) -> Result<Option<String>, EmitError> {
+        let mut bindings = Vec::new();
+        for slot in crate::classes::own_virtual_slot_names(self.mir, class) {
+            if self.find_class_method_function(class.name, slot).is_none() {
+                continue;
+            }
+            let receiver = SlotReceiver::WeakSelf {
+                handle: instance.to_owned(),
+            };
+            if let Some(closure) =
+                self.virtual_method_slot_closure_text(instance_ty, instance_ty, slot, &receiver)?
+            {
+                let name = sanitize_ident(self.symbol_name(slot)?);
+                bindings.push(format!("{instance}.0.borrow_mut().{name} = {closure};"));
+            }
+        }
+        if bindings.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(bindings.join(" ")))
+    }
+
+    /// The slot closure behind [`Self::virtual_method_storage_field_text`],
+    /// with the receiver it dispatches on chosen by `receiver`.
+    fn virtual_method_slot_closure_text(
+        &self,
+        source: TypeId,
+        target: TypeId,
+        method: Symbol,
+        receiver: &SlotReceiver,
+    ) -> Result<Option<String>, EmitError> {
         if !self.is_virtual_method_storage_field(target, method)
             && !self.is_interface_method_slot_bound_by_source(source, target, method)
         {
@@ -1436,6 +1584,14 @@ impl<'mir> FunctionEmitter<'mir> {
             .and_then(|class| self.find_class_method_function(class.name, method));
         let dispatches_to_source_field =
             inherited_source_function.is_none() && self.storage_field_is_function(source, method);
+        // A reference-class source keeps its fields inside the shared cell, so
+        // its stored callable is read through it (the `Ref` guard ends with the
+        // `.clone()`, before the call runs).
+        let source_field_base = if self.is_reference_class_type(source) {
+            "smelt_method_receiver.0.borrow()"
+        } else {
+            "smelt_method_receiver"
+        };
         if dispatches_to_source_field {
             // The storage field's PARAMETER types erase while its return
             // (below) uses the caller's lexical scope. Same split as
@@ -1474,9 +1630,9 @@ impl<'mir> FunctionEmitter<'mir> {
                 .join(", ");
             let method_name = sanitize_ident(self.symbol_name(method)?);
             let call = if args.is_empty() {
-                format!("(smelt_method_receiver.{method_name}.clone())()")
+                format!("{{ let smelt_callable = {source_field_base}.{method_name}.clone(); smelt_callable() }}")
             } else {
-                format!("(smelt_method_receiver.{method_name}.clone())({args})")
+                format!("{{ let smelt_callable = {source_field_base}.{method_name}.clone(); smelt_callable({args}) }}")
             };
             let body =
                 self.value_at_type_text(&call, function_ty.return_ty, function_ty.return_ty, &self.render_scope())?;
@@ -1591,17 +1747,34 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             ""
         };
-        let receiver_value = if direct_source_function.is_some() || dispatches_to_source_field {
+        let receiver_value = if let SlotReceiver::WeakSelf { handle } = receiver {
+            format!("::std::rc::Rc::downgrade(&{handle}.0)")
+        } else if direct_source_function.is_some()
+            || inherited_source_function.is_some()
+            || dispatches_to_source_field
+        {
+            // An inherited method is emitted into the source class's own `impl`
+            // (`classes::effective_class_methods`), so the source value answers
+            // it too. Dispatching it on a default TARGET instance instead called
+            // the base's method on a fresh object, or an abstract one that does
+            // not exist (`StrictYear` converted to `Parser<number>` called
+            // `Parser::parse`, E0599).
             "smelt_struct_value.clone()".to_owned()
         } else {
             let target_ty = self.type_text_with_impl_trait(target, false)?;
             format!("<{target_ty} as Default>::default()")
         };
+        let receiver_rebind = match receiver {
+            SlotReceiver::WeakSelf { .. } => {
+                "Self(smelt_virtual_receiver.upgrade().expect(\"a virtual method slot outlived its instance\"))"
+            }
+            SlotReceiver::SourceValue => "smelt_virtual_receiver.clone()",
+        };
         let call = if dispatches_to_source_field {
             if args.is_empty() {
-                format!("(smelt_method_receiver.{method_name}.clone())()")
+                format!("{{ let smelt_callable = {source_field_base}.{method_name}.clone(); smelt_callable() }}")
             } else {
-                format!("(smelt_method_receiver.{method_name}.clone())({args})")
+                format!("{{ let smelt_callable = {source_field_base}.{method_name}.clone(); smelt_callable({args}) }}")
             }
         } else if args.is_empty() {
             format!("smelt_method_receiver.{method_name}()")
@@ -1644,7 +1817,7 @@ impl<'mir> FunctionEmitter<'mir> {
             format!("{} ", arg_preludes.join(" "))
         };
         Ok(Some(format!(
-            "{{ let smelt_virtual_receiver = {receiver_value}; let smelt_virtual_method: ::std::rc::Rc<dyn Fn({param_types}) -> {return_ty}> = ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let {receiver_mut}smelt_method_receiver = smelt_virtual_receiver.clone(); {prelude}{wrapped_body} }}); smelt_virtual_method }}"
+            "{{ let smelt_virtual_receiver = {receiver_value}; let smelt_virtual_method: ::std::rc::Rc<dyn Fn({param_types}) -> {return_ty}> = ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let {receiver_mut}smelt_method_receiver = {receiver_rebind}; {prelude}{wrapped_body} }}); smelt_virtual_method }}"
         )))
     }
 
@@ -2694,6 +2867,7 @@ impl<'mir> FunctionEmitter<'mir> {
             emitting_inherited_copy: false,
             inherited_impl_owner: None,
             inherited_type_args: HashMap::new(),
+            trial_generic_function: std::cell::Cell::new(None),
             closure_inherited_type_args: HashMap::new(),
             rendering_inherited_bound: std::cell::Cell::new(false),
             base_initializer_owner: None,
@@ -2760,6 +2934,7 @@ impl<'mir> FunctionEmitter<'mir> {
             emitting_inherited_copy: false,
             inherited_impl_owner: None,
             inherited_type_args: HashMap::new(),
+            trial_generic_function: std::cell::Cell::new(None),
             closure_inherited_type_args: HashMap::new(),
             rendering_inherited_bound: std::cell::Cell::new(false),
             base_initializer_owner: None,
@@ -2813,6 +2988,7 @@ impl<'mir> FunctionEmitter<'mir> {
             emitting_inherited_copy: false,
             inherited_impl_owner: None,
             inherited_type_args: HashMap::new(),
+            trial_generic_function: std::cell::Cell::new(None),
             closure_inherited_type_args: HashMap::new(),
             rendering_inherited_bound: std::cell::Cell::new(false),
             base_initializer_owner: None,
@@ -6584,4 +6760,17 @@ pub(super) fn emitted_signature_key_in(
         Some(class_name) => format!("{class_name}::{rust_name}"),
         None => rust_name.to_owned(),
     }
+}
+
+/// Which value a virtual method slot closure dispatches on.
+pub(super) enum SlotReceiver {
+    /// A strong copy of the value being converted (`smelt_struct_value`): the
+    /// slot of a base-typed record built from a subclass instance.
+    SourceValue,
+    /// A `Weak` handle on a freshly allocated reference-class instance, named
+    /// `handle`; see `FunctionEmitter::bind_own_virtual_slots_text`.
+    WeakSelf {
+        /// The Rust name of the new instance handle.
+        handle: String,
+    },
 }

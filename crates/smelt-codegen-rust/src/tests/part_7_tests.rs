@@ -3369,8 +3369,12 @@ export function read(): number {
         source.contains("smelt_method_receiver.parse(arg0.clone())"),
         "{source}"
     );
+    // These classes store virtual slots, so they are reference classes
+    // (`classify::collect_virtual_slot_triggers`) and fields are read through
+    // the shared cell; the requirement (dispatch through the stored slot) is
+    // unchanged.
     assert!(
-        source.contains("(self.parse.clone())(input.clone())"),
+        source.contains("&self.0.borrow().parse.clone()); (smelt_callable)(input.clone())"),
         "{source}"
     );
     assert!(!source.contains("parse: Default::default()"), "{source}");
@@ -3397,8 +3401,12 @@ const accepted = setter.validate(12);
 ",
     );
 
+    // These classes store virtual slots, so they are reference classes
+    // (`classify::collect_virtual_slot_triggers`) and fields are read through
+    // the shared cell; the requirement (dispatch through the stored slot) is
+    // unchanged.
     assert!(
-        source.contains("(setter.validate.clone())(12.0)"),
+        source.contains("&setter.0.borrow().validate.clone()); (smelt_callable)(12.0)"),
         "base-typed virtual calls should dispatch through the stored function field: {source}"
     );
     assert!(
@@ -3439,7 +3447,7 @@ const parser: Parser<any> = new ForwardingParser(new YearParser());
 
     assert!(
         source
-            .contains("Parser { parse: { let smelt_virtual_receiver = smelt_struct_value.clone();"),
+            .contains("ParserInner { parse: { let smelt_virtual_receiver = smelt_struct_value.clone();"),
         "{source}"
     );
     assert!(
@@ -15349,4 +15357,89 @@ export async function run(): Promise<number> {
             "an async callee answers a future, so its call is infallible:\n{line}"
         );
     }
+}
+
+#[test]
+/// A directly constructed subclass binds its virtual method slots to its own
+/// most-derived methods: `Square::new` binds `name` and `sides` through a
+/// `Weak` handle on the new instance, so `Shape::describe`'s `this.name()`
+/// (inherited into `Square`) reaches `Square::name`. Before, the slots kept
+/// their default closures and `new Square().describe()` read `""`/`0`.
+fn constructed_instance_binds_its_virtual_slots_to_its_own_methods() {
+    let source = source_for(
+        r"
+class Shape {
+  describe(): string { return `${this.name()} ${this.sides()}`; }
+  name(): string { return 'shape'; }
+  sides(): number { return 0; }
+}
+class Square extends Shape {
+  name(): string { return 'square'; }
+  sides(): number { return 4; }
+}
+export function show(): string { return new Square().describe(); }
+",
+    );
+    let square_new = source
+        .split("impl Square {")
+        .nth(1)
+        .and_then(|rest| rest.split("fn new(").nth(1))
+        .unwrap_or_default();
+    assert!(
+        square_new.contains("::std::rc::Rc::downgrade(&smelt_instance.0)")
+            && square_new.contains("smelt_instance.0.borrow_mut().name =")
+            && square_new.contains("smelt_instance.0.borrow_mut().sides ="),
+        "{source}"
+    );
+}
+
+#[test]
+/// A record adapter that reaches its own `(source, target)` pair through a
+/// callable field (`swap(): Pair<T>`) calls a hoisted helper for the pair
+/// instead of truncating the cycle to `Default::default()`, which dropped the
+/// swapped value (`0 0`).
+fn self_reaching_record_adapter_calls_a_hoisted_helper() {
+    let source = source_for(
+        r"
+interface Pair<T> { left: T; right: T; same: boolean; swap(): Pair<T> }
+function makeChecked<T>(left: T, right: T): Pair<T> {
+  return { left, right, same: left === right, swap() { return makeChecked(right, left); } };
+}
+export function swapped(): number { return makeChecked(1, 2).swap().left; }
+",
+    );
+    assert!(source.contains("fn __smelt_adapt_record_0(smelt_value: Pair<SmeltUnknown>) -> Pair<f64>"), "{source}");
+    assert!(!source.contains("::std::rc::Rc::new(move || Default::default())"), "{source}");
+}
+
+#[test]
+/// A self-recursive generic free function keeps its type parameter: its own
+/// recursive call pins `T` to itself, and its body trial assumes the function
+/// generic for that call.
+fn self_recursive_generic_function_keeps_its_type_parameter() {
+    let source = source_for(
+        r"
+export function repeat<T>(x: T, n: number): T { return n > 0 ? repeat(x, n - 1) : x; }
+",
+    );
+    assert!(source.contains("fn repeat<T: "), "{source}");
+    assert!(!source.contains("into_smelt_unknown(), _smelt_tmp"), "{source}");
+}
+
+#[test]
+/// `Partial<X>` of a plain record is its own struct with every field optional,
+/// and an object spread at a record type builds that struct field by field:
+/// an optional source field writes only when present.
+fn partial_records_and_typed_spreads_build_structs() {
+    let source = source_for(
+        r"
+type Options = { origin: string; maxAge?: number };
+export function merge(base: Options, options: Partial<Options>): Options {
+  return { ...base, ...options };
+}
+",
+    );
+    assert!(source.contains("struct PartialOptions"), "{source}");
+    assert!(source.contains("options: PartialOptions"), "{source}");
+    assert!(!source.contains("dict_assign") && !source.contains("SmeltRecord<String, SmeltUnknown>"), "{source}");
 }

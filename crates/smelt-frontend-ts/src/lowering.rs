@@ -5,6 +5,7 @@ mod bigint;
 mod checker_types;
 mod null_absent;
 mod tuple_rest;
+mod typed_spread;
 mod erasure;
 mod arguments_forwarding;
 mod asserted_member_read;

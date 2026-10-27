@@ -6038,6 +6038,25 @@ impl<'ctx> ModuleBuilder<'ctx> {
         {
             return ty;
         }
+        // An annotated record (`const defaults: Options = { .. }`) keeps its
+        // record type, so every inlined copy of the constant builds the struct.
+        // Every key must be one of its fields (TypeScript's excess-property
+        // check already rejects others in a fresh literal).
+        if let Some(ty) = type_hint
+            && let Ok(Some(fields)) = self.plain_record_fields(ty)
+            && entries.iter().all(|entry| {
+                fields.iter().any(|field| {
+                    self.ctx
+                        .krate
+                        .names
+                        .get(field.name)
+                        .or_else(|| self.ctx.krate.symbols.get(field.name))
+                        == Some(entry.key.as_str())
+                })
+            })
+        {
+            return ty;
+        }
         let key_ty = self.ctx.krate.types.intern(Type::String);
         let first_value_ty = entries.first().map(|entry| entry.value_ty);
         let value_ty = first_value_ty

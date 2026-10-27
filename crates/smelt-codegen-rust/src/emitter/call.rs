@@ -1707,7 +1707,7 @@ impl FunctionEmitter<'_> {
         // erasure has erased (`SmeltUnknown`) parameters, so its arguments must
         // be erased here too, not passed through concretely.
         if !matches!(function.origin, HirOrigin::Body(_))
-            || !self.context.is_generic_function(function.id)
+            || !self.callee_emits_generics(function.id)
         {
             return HashSet::new();
         }
@@ -2847,12 +2847,75 @@ impl FunctionEmitter<'_> {
         let Some(receiver) = args.first() else {
             return Ok(None);
         };
+        if crate::classes::returns_the_receiver_at_its_own_class(self.mir, function)
+            && let Some(Type::Class { name, .. }) = self.mir.types.get(self.operand_ty(receiver)?)
+            && !matches!(function.origin, HirOrigin::ClassMethod { class, .. } if class == *name)
+        {
+            return Ok(Some(self.operand_ty(receiver)?));
+        }
         let ordered = self.callee_class_type_param_names(function);
-        let bindings = bind_class_type_params(self.mir, &ordered, self.operand_ty(receiver)?);
+        let Some(receiver_ty) = self.declaring_class_instantiation(function, self.operand_ty(receiver)?)
+        else {
+            return Ok(None);
+        };
+        let bindings = bind_class_type_params(self.mir, &ordered, receiver_ty);
         if !bindings.all_concrete() {
             return Ok(None);
         }
         Ok(substituted_type_id(self.mir, function.return_ty, &bindings))
+    }
+
+    /// The receiver of a class method call, seen as an instance of the
+    /// method's DECLARING class.
+    ///
+    /// A subclass receiver calls the copy of a base method emitted into its own
+    /// `impl` (`crate::classes::substituted_inherited_member`), where the
+    /// base's parameters are the subclass's arguments: `YearParser extends
+    /// Parser<number>` calls `run` at `Parser<f64>`, and `Leaf extends
+    /// Middle<string>`, `Middle<T> extends Base<T[]>` calls `Base`'s methods at
+    /// `Base<string[]>` (binding the receiver's own arguments positionally
+    /// would have given `T = string`). A copy returning its receiver returns
+    /// `Self`, i.e. the receiver's own type. `None` when a composed type is not
+    /// interned.
+    fn declaring_class_instantiation(
+        &self,
+        function: &MirFunction,
+        receiver_ty: TypeId,
+    ) -> Option<TypeId> {
+        let HirOrigin::ClassMethod { class: declaring, .. } = function.origin else {
+            return Some(receiver_ty);
+        };
+        let Some(Type::Class { name, args }) = self.mir.types.get(receiver_ty) else {
+            return Some(receiver_ty);
+        };
+        if *name == declaring {
+            return Some(receiver_ty);
+        }
+        let inherited = crate::classes::inherited_type_substitution(self.mir, *name, declaring);
+        let receiver_class = self.mir.classes.iter().find(|class| class.name == *name)?;
+        let receiver_args: HashMap<Symbol, TypeId> = receiver_class
+            .type_params
+            .iter()
+            .map(|param| param.name)
+            .zip(args.iter().copied())
+            .collect();
+        let declaring_class = self.mir.classes.iter().find(|class| class.name == declaring)?;
+        let declaring_args = declaring_class
+            .type_params
+            .iter()
+            .map(|param| {
+                let in_receiver_scope = inherited.get(&param.name).copied()?;
+                Some(crate::classes::substitute_existing_type(
+                    self.mir,
+                    in_receiver_scope,
+                    &receiver_args,
+                ))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        self.mir.types.lookup(&Type::Class {
+            name: declaring,
+            args: declaring_args,
+        })
     }
 
     /// Return a monomorphized generic free function's substituted return type.

@@ -823,6 +823,19 @@ fn called_with_erased_type_param_argument(mir: &Mir, function: &MirFunction) -> 
                 let Some(arg) = args.get(position) else {
                     continue;
                 };
+                // A RECURSIVE call passing the function's own `T` (`mk(x)`
+                // inside `mk<T>(x: T)`) pins `T` to itself: the parameter is
+                // from this scope, not another one, so Rust infers it.
+                if caller.id == function.id
+                    && generic_bindings::operand_type(mir, caller, arg).is_ok_and(|ty| {
+                        matches!(
+                            mir.types.get(ty),
+                            Some(Type::TypeParam { name }) if own_params.contains(name)
+                        )
+                    })
+                {
+                    continue;
+                }
                 if operand_type_is_erased(mir, caller, arg) {
                     return true;
                 }
@@ -1741,6 +1754,39 @@ pub(crate) fn substitute_existing_type(
         return ty;
     }
     mir.types.lookup(&rewritten).unwrap_or(ty)
+}
+
+/// The virtual method slots of `class`'s flattened layout: function-typed
+/// fields named like a method (own, inherited or abstract) of the chain.
+///
+/// TypeScript forbids a property and a method of the same name, so such a
+/// field can only be a slot the frontend synthesized for overridable dispatch
+/// (`add_virtual_class_method_fields`).
+pub(crate) fn own_virtual_slot_names(mir: &Mir, class: &MirClass) -> Vec<Symbol> {
+    let mut method_names: HashSet<Symbol> = effective_class_methods(mir, class)
+        .into_iter()
+        .filter_map(|id| mir.functions.get(usize::try_from(id.0).ok()?))
+        .filter_map(|function| match function.origin {
+            smelt_mir::HirOrigin::ClassMethod { method, .. } => Some(method),
+            _ => None,
+        })
+        .collect();
+    let mut current = Some(class);
+    let mut seen = HashSet::new();
+    while let Some(level) = current
+        && seen.insert(level.name)
+    {
+        method_names.extend(level.abstract_methods.iter().map(|method| method.name));
+        current = base_class(mir, level);
+    }
+    effective_class_fields(mir, class)
+        .into_iter()
+        .filter(|field| {
+            method_names.contains(&field.name)
+                && matches!(mir.types.get(field.ty), Some(Type::Function(_)))
+        })
+        .map(|field| field.name)
+        .collect()
 }
 
 /// Return the flattened method set for a class: its own methods plus every
