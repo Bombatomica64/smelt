@@ -2917,13 +2917,20 @@ impl ModuleBuilder<'_> {
                             // The rest binding's own identifier is purely
                             // type-level in an interface method signature, so
                             // a synthetic slot name is sufficient for the
-                            // generated callable field.
-                            rest_index = Some(params.len());
-                            params.push(ParamSig {
-                                name: self.synthetic_param_symbol(params.len()),
-                                ty: rest_ty,
-                                span: self.span(rest.span.start, rest.span.end),
+                            // generated callable field. A fixed-width tuple
+                            // rest is fixed parameters (`lowering::tuple_rest`).
+                            let span = self.span(rest.span.start, rest.span.end);
+                            let slot_tys = self.fixed_tuple_rest_elements(rest_ty).unwrap_or_else(|| {
+                                rest_index = Some(params.len());
+                                vec![rest_ty]
                             });
+                            for slot_ty in slot_tys {
+                                params.push(ParamSig {
+                                    name: self.synthetic_param_symbol(params.len()),
+                                    ty: slot_ty,
+                                    span,
+                                });
+                            }
                         }
                         let required_params =
                             Self::formal_parameters_required_count(&method.params);

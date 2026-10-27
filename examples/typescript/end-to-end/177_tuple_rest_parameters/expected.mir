@@ -1,0 +1,243 @@
+class Box fields [] constructor Some(FuncId(2)) methods [FuncId(1)]
+class Ctx fields [] constructor Some(FuncId(5)) methods [FuncId(3), FuncId(4)]
+interface Respond
+
+fn pair (FuncId(0)) -> String
+  locals
+    %0 param args__0: String
+    %1 param args__1: Optional<Float>
+    %2 user args: (String, Optional<Float>)
+    %3 temp: (String, Optional<Float>)
+    %4 temp: String
+    %5 temp: String
+    %6 temp: String
+    %7 temp: Optional<Float>
+    %8 temp: Float
+    %9 temp: String
+  bb0:
+    %3 = (copy %0, copy %1)
+    %2 = move %3
+    %4 = tuple_index copy %2, 0
+    %5 = "" + move %4
+    %6 = move %5 + ":"
+    %7 = tuple_index move %2, 1
+    %8 = move %7 ?? 0.0
+    %9 = move %6 + move %8
+    return move %9
+
+fn put (FuncId(1)) -> String
+  locals
+    %0 param this: Box
+    %1 param args__0: String
+    %2 param args__1: Float
+    %3 user args: (String, Float)
+    %4 temp: (String, Float)
+    %5 temp: String
+    %6 temp: Float
+    %7 temp: String
+  bb0:
+    %4 = (copy %1, copy %2)
+    %3 = move %4
+    %5 = tuple_index copy %3, 0
+    %6 = tuple_index move %3, 1
+    %7 = string_repeat move %5, move %6
+    return move %7
+
+fn new (FuncId(2)) -> Box
+  locals
+    %0 user this: Box
+  bb0:
+    %0 = struct6 {}
+    return move %0
+
+fn #respond (FuncId(3)) -> String
+  locals
+    %0 param this: Ctx
+    %1 param data: String
+    %2 param status: Optional<Float>
+    %3 param note: Optional<String>
+    %4 temp: String
+    %5 temp: String
+    %6 temp: Float
+    %7 temp: String
+    %8 temp: String
+    %9 temp: String
+    %10 temp: String
+  bb0:
+    %4 = "" + copy %1
+    %5 = move %4 + ":"
+    %6 = copy %2 ?? 200.0
+    %7 = move %5 + move %6
+    %8 = move %7 + ":"
+    %9 = copy %3 ?? "-"
+    %10 = move %8 + move %9
+    return move %10
+
+fn __smelt_get_respond (FuncId(4)) -> Respond
+  locals
+    %0 param this: Ctx
+    %1 temp: fn(String, Optional<Float>, Optional<String>) -> String
+  bb0:
+    %1 = closure ClosureId(0) [copy %0]
+    return move %1
+
+fn new (FuncId(5)) -> Ctx
+  locals
+    %0 user this: Ctx
+  bb0:
+    %0 = struct1 {}
+    return move %0
+
+fn main (FuncId(6)) -> None
+  locals
+    %0 user triple: fn(String, Float, ...Bool) -> String
+    %1 user handler: fn(String, ...Float) -> String
+    %2 user forward: fn(String, ...Float) -> String
+    %3 user values: (String, Float)
+    %4 user __smelt_spread: (String, Float)
+    %5 user ctx: Ctx
+    %6 temp: fn(String, Float, Bool) -> String
+    %7 temp: fn(String, Float) -> String
+    %8 temp: fn(String, Float) -> String
+    %9 temp: (String, Float)
+    %10 temp: String
+    %11 temp: String
+    %12 temp: String
+    %13 temp: Box
+    %14 temp: String
+    %15 temp: None
+    %16 temp: String
+    %17 temp: String
+    %18 temp: String
+    %19 temp: None
+    %20 temp: Ctx
+    %21 temp: fn(String, Optional<Float>, Optional<String>) -> String
+    %22 temp: String
+    %23 temp: fn(String, Optional<Float>, Optional<String>) -> String
+    %24 temp: String
+    %25 temp: fn(String, Optional<Float>, Optional<String>) -> String
+    %26 temp: String
+    %27 temp: None
+  bb0:
+    %6 = closure ClosureId(1) []
+    %0 = move %6
+    %7 = closure ClosureId(2) []
+    %1 = move %7
+    %8 = closure ClosureId(3) []
+    %2 = move %8
+    %9 = ("z", 2.0)
+    %3 = move %9
+    %10 = call fn0("a") -> bb1
+  bb1:
+    %11 = call fn0("b", 3.0) -> bb2
+  bb2:
+    %12 = closure_call move %0("x", 1.0, true)
+    %13 = call fn2() -> bb3
+  bb3:
+    %14 = call fn1(move %13, "ab", 2.0) -> bb4
+  bb4:
+    %15 = call @console_log(move %10, move %11, move %12, move %14) -> bb5
+  bb5:
+    %4 = move %3
+    %16 = closure_call move %1("h", 4.0)
+    %17 = closure_call move %2("f", 1.0)
+    %18 = call fn0(copy %4[0], copy %4[1]) -> bb6
+  bb6:
+    %19 = call @console_log(move %16, move %17, move %18) -> bb7
+  bb7:
+    %20 = call fn5() -> bb8
+  bb8:
+    %5 = move %20
+    %21 = copy %5.field16
+    %22 = closure_call move %21("a")
+    %23 = copy %5.field16
+    %24 = closure_call move %23("b", 301.0)
+    %25 = copy %5.field16
+    %26 = closure_call move %25("c", 302.0, "x")
+    %27 = call @console_log(move %22, move %24, move %26) -> bb9
+  bb9:
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 param args__0: String
+    %1 param args__1: Optional<Float>
+    %2 param args__2: Optional<String>
+    %3 user args: (String, Optional<Float>, Optional<String>)
+    %4 user this: Ctx
+    %5 user __smelt_spread: (String, Optional<Float>, Optional<String>)
+    %6 temp: (String, Optional<Float>, Optional<String>)
+    %7 temp: Optional<Float>
+    %8 temp: Optional<String>
+    %9 temp: String
+  bb0:
+    %6 = (copy %0, copy %1, copy %2)
+    %3 = copy %6
+    %5 = copy %3
+    %7 = copy %5?.[1]
+    %8 = copy %5?.[2]
+    %9 = call fn3(copy %4, copy %5[0], copy %7, copy %8) -> bb1
+  bb1:
+    return copy %9
+
+closure ClosureId(1) -> String
+  locals
+    %0 param args__0: String
+    %1 param args__1: Float
+    %2 param args__2: Bool
+    %3 user args: (String, Float, Bool)
+    %4 temp: (String, Float, Bool)
+    %5 temp: String
+    %6 temp: String
+    %7 temp: Float
+    %8 temp: String
+    %9 temp: Bool
+    %10 temp: String
+  bb0:
+    %4 = (copy %0, copy %1, copy %2)
+    %3 = copy %4
+    %5 = tuple_index copy %3, 0
+    %6 = "" + copy %5
+    %7 = tuple_index copy %3, 1
+    %8 = copy %6 + copy %7
+    %9 = tuple_index copy %3, 2
+    %10 = copy %8 + copy %9
+    return copy %10
+
+closure ClosureId(2) -> String
+  locals
+    %0 param args__0: String
+    %1 param args__1: Float
+    %2 user args: (String, Float)
+    %3 user __smelt_spread: (String, Float)
+    %4 temp: (String, Float)
+    %5 temp: String
+  bb0:
+    %4 = (copy %0, copy %1)
+    %2 = copy %4
+    %3 = copy %2
+    %5 = call fn0(copy %3[0], copy %3[1]) -> bb1
+  bb1:
+    return copy %5
+
+closure ClosureId(3) -> String
+  locals
+    %0 param args__0: String
+    %1 param args__1: Float
+    %2 user args: (String, Float)
+    %3 temp: (String, Float)
+    %4 temp: Float
+    %5 temp: String
+    %6 temp: String
+    %7 temp: String
+    %8 temp: String
+  bb0:
+    %3 = (copy %0, copy %1)
+    %2 = copy %3
+    %4 = len copy %2
+    %5 = "" + copy %4
+    %6 = copy %5 + ":"
+    %7 = tuple_index copy %2, 0
+    %8 = copy %6 + copy %7
+    return copy %8
+

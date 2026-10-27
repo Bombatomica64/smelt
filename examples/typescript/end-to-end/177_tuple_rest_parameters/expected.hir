@@ -1,0 +1,124 @@
+module examples/typescript/end-to-end/177_tuple_rest_parameters/input.ts (ModuleId(0))
+  body BodyId(10)
+  items
+    fn pair owner Module
+    class Box fields [] constructor Some(ItemId(4)) methods [ItemId(3)] implements []
+    type Handler = fn(String, Float) -> String
+    interface Respond fields [Public __smelt_call: fn(String, Optional<Float>, Optional<String>) -> String] methods []
+    class Ctx fields [] constructor Some(ItemId(10)) methods [ItemId(8), ItemId(9)] implements []
+  locals
+    %0 const triple: fn(String, Float, ...Bool) -> String
+    %1 const handler: fn(String, ...Float) -> String
+    %2 const forward: fn(String, ...Float) -> String
+    %3 const values: (String, Float)
+    %4 const __smelt_spread: (String, Float)
+    %5 const ctx: Ctx
+  exprs
+    #0: fn(String, Float, Bool) -> String = closure BodyId(7) captures 0 -> String
+    #1: fn(String, Float) -> String = closure BodyId(8) captures 0 -> String
+    #2: fn(String, Float) -> String = closure BodyId(9) captures 0 -> String
+    #3: String = "z"
+    #4: Float = 2.0
+    #5: (String, Float) = (#3, #4)
+    #6: String = "a"
+    #7: fn(String, Optional<Float>) -> String = @2(pair)
+    #8: String = call #7(#6)
+    #9: String = "b"
+    #10: Float = 3.0
+    #11: fn(String, Optional<Float>) -> String = @2(pair)
+    #12: String = call #11(#9, #10)
+    #13: fn(String, Float, ...Bool) -> String = %0
+    #14: String = "x"
+    #15: Float = 1.0
+    #16: Bool = true
+    #17: String = closure_call #13(#14, #15, #16)
+    #18: Box = new Box()
+    #19: fn(String, Float) -> String = #18.put
+    #20: Box = new Box()
+    #21: String = "ab"
+    #22: Float = 2.0
+    #23: String = #20.put(#21, #22)
+    #24: None = @12(console_log)
+    #25: None = call #24(#8, #12, #17, #23)
+    #26: fn(String, ...Float) -> String = %1
+    #27: String = "h"
+    #28: Float = 4.0
+    #29: String = closure_call #26(#27, #28)
+    #30: fn(String, ...Float) -> String = %2
+    #31: String = "f"
+    #32: Float = 1.0
+    #33: String = closure_call #30(#31, #32)
+    #34: (String, Float) = %3
+    #35: (String, Float) = %4
+    #36: Int = 0
+    #37: String = #35[#36]
+    #38: (String, Float) = %4
+    #39: Int = 1
+    #40: Float = #38[#39]
+    #41: fn(String, Optional<Float>) -> String = @2(pair)
+    #42: String = call #41(#37, #40)
+    #43: None = @13(console_log)
+    #44: None = call #43(#29, #33, #42)
+    #45: Ctx = new Ctx()
+    #46: Ctx = %5
+    #47: Respond = #46.respond
+    #48: Ctx = %5
+    #49: String = "a"
+    #50: fn(String, Optional<Float>, Optional<String>) -> String = assert_type #47
+    #51: String = closure_call #50(#49)
+    #52: Ctx = %5
+    #53: Respond = #52.respond
+    #54: Ctx = %5
+    #55: String = "b"
+    #56: Float = 301.0
+    #57: fn(String, Optional<Float>, Optional<String>) -> String = assert_type #53
+    #58: String = closure_call #57(#55, #56)
+    #59: Ctx = %5
+    #60: Respond = #59.respond
+    #61: Ctx = %5
+    #62: String = "c"
+    #63: Float = 302.0
+    #64: String = "x"
+    #65: fn(String, Optional<Float>, Optional<String>) -> String = assert_type #60
+    #66: String = closure_call #65(#62, #63, #64)
+    #67: None = @14(console_log)
+    #68: None = call #67(#51, #58, #66)
+  stmts
+    s0: let %0: fn(String, Float, ...Bool) -> String = #0
+    s1: let %1: fn(String, ...Float) -> String = #1
+    s2: let %2: fn(String, ...Float) -> String = #2
+    s3: let %3: (String, Float) = #5
+    s4: #25
+    s5: let %4: (String, Float) = #34
+    s6: #44
+    s7: let %5: Ctx = #45
+    s8: #68
+
+interned types
+  t0 = String
+  t1 = Float
+  t2 = fn(String, Float) -> String
+  t3 = Bool
+  t4 = (String, Float, Bool)
+  t5 = fn(String, Float, Bool) -> String
+  t6 = (String, Float)
+  t7 = Ctx
+  t8 = Optional<Float>
+  t9 = (String, Optional<Float>)
+  t10 = fn(String, Optional<Float>) -> String
+  t11 = Box
+  t12 = None
+  t13 = Optional<String>
+  t14 = Unknown
+  t15 = fn(String, Optional<Float>, Optional<String>) -> String
+  t16 = Respond
+  t17 = (String, Optional<Float>, Optional<String>)
+  t18 = List<Unknown>
+  t19 = Int
+  t20 = fn(String, Float, String) -> String
+  t21 = fn(String, Optional<Float>, Optional<String>) -> String
+  t22 = fn(String, Float, ...Bool) -> String
+  t23 = fn(String, Float, Bool) -> String
+  t24 = fn(String, ...Float) -> String
+  t25 = fn(String, Optional<Float>) -> String
+  t26 = fn(String, Float) -> String

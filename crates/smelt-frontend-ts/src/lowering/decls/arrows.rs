@@ -265,6 +265,22 @@ impl ModuleBuilder<'_> {
                 return Err(error);
                 }
             };
+            // A fixed-width tuple rest is fixed parameters plus a tuple binding
+            // of them (`lowering::tuple_rest`).
+            if let Some(elements) = self.fixed_tuple_rest_elements(ty) {
+                let span = self.span(binding.span.start, binding.span.end);
+                for param in
+                    self.bind_tuple_rest_params(binding.name.as_str(), ty, &elements, span, &mut body)
+                {
+                    params.push(Param {
+                        name: param.name,
+                        local: param.local,
+                        ty: param.ty,
+                        span,
+                    });
+                }
+                None
+            } else {
             let Ok((ty, item_ty)) = self.rest_param_array_type(ty) else {
                 self.scope.restore_bindings(saved_locals);
                 self.scope.restore_callable_prop_writes(saved_callable_local_props);
@@ -295,6 +311,7 @@ impl ModuleBuilder<'_> {
                 span,
             });
             Some(RestParam { index, item_ty })
+            }
         } else {
             None
         };

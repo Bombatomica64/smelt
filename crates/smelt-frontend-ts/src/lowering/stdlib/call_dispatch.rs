@@ -384,7 +384,22 @@ impl<'builder> ModuleBuilder<'builder> {
         {
             let mut args = Vec::new();
             for arg in &call.arguments {
-                args.push(self.argument(arg, body)?);
+                let value = self.argument(arg, body)?;
+                // An absent `null` prints as `null`. Only where printing the
+                // value's string conversion is printing the value itself: a
+                // top-level string prints raw, and a boolean prints its word
+                // (a number does not: `-0` prints as `-0`, `String(-0)` is `0`).
+                let prints_as_its_string = match self.ctx.krate.types.get(Self::expr_ty(body, value)) {
+                    Some(Type::Optional(inner)) => {
+                        matches!(self.ctx.krate.types.get(*inner), Some(Type::String | Type::Bool))
+                    }
+                    _ => false,
+                };
+                args.push(if prints_as_its_string {
+                    self.null_absent_string_operand(value, arg.span().start, arg.span().end, body)
+                } else {
+                    value
+                });
             }
             let ty = self.ctx.krate.types.intern(Type::None);
             let callee_item =
@@ -469,6 +484,11 @@ impl<'builder> ModuleBuilder<'builder> {
                     self.ctx.krate.types.get(function_ty).cloned()
             {
                 let expanded = self.expanded_call_arguments(&call.arguments, body)?;
+                let expanded = if function.rest.is_none() {
+                    self.distribute_trailing_list_spread(expanded, &function.params, body)?
+                } else {
+                    expanded
+                };
                 let mut args = Vec::with_capacity(function.params.len());
                 for argument in expanded.into_iter().take(function.params.len()) {
                     args.push(self.lower_call_arg(argument, None, body)?);
@@ -1328,6 +1348,11 @@ impl<'builder> ModuleBuilder<'builder> {
             None => expanded,
         };
         let callback_param_hints = self.class_method_callback_param_hints(access_receiver_ty, method);
+        let rest_signature = self.class_method_rest_signature(access_receiver_ty, method);
+        let spread_positions = expanded
+            .iter()
+            .map(|arg| matches!(arg, CallArg::UnexpandedSpread(_)))
+            .collect::<Vec<_>>();
         let mut args = Vec::with_capacity(expanded.len());
         for (index, arg) in expanded.into_iter().enumerate() {
             if let CallArg::Source(source) = arg
@@ -1357,6 +1382,9 @@ impl<'builder> ModuleBuilder<'builder> {
         // A resolved generic method instantiates its OWN type parameters (to
         // `unknown`, what its erased definition returns); class parameters
         // were already substituted from the receiver by `resolve_method`.
+        if let Some((rest_index, params)) = rest_signature {
+            args = self.pack_rest_arguments(args, &spread_positions, rest_index, &params, call.span, body);
+        }
         let return_ty = if method_item.0 == u32::MAX {
             return_ty
         } else {
@@ -1445,6 +1473,71 @@ impl<'builder> ModuleBuilder<'builder> {
                 .then_some(*param)
             })
             .collect()
+    }
+
+    /// The rest position and parameter types of a class method with a rest
+    /// parameter, or `None`.
+    fn class_method_rest_signature(
+        &mut self,
+        receiver_ty: smelt_hir::TypeId,
+        method: smelt_hir::Symbol,
+    ) -> Option<(usize, Vec<smelt_hir::TypeId>)> {
+        if !matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Class { .. })) {
+            return None;
+        }
+        let method_ty = self.class_field_type(receiver_ty, method).ok()?;
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(method_ty).cloned() else {
+            return None;
+        };
+        let rest = function.rest?;
+        function.params.get(rest)?;
+        Some((rest, function.params))
+    }
+
+    /// Bind a rest parameter to the arguments from its position on.
+    ///
+    /// JavaScript collects them into one array. A single spread of a list in
+    /// that position is that array already (`m(...xs)` into `m(...rest)`), so
+    /// it is passed through; any other tail becomes a list literal.
+    fn pack_rest_arguments(
+        &self,
+        mut args: Vec<smelt_hir::ExprId>,
+        spread_positions: &[bool],
+        rest_index: usize,
+        params: &[smelt_hir::TypeId],
+        call_span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Vec<smelt_hir::ExprId> {
+        let span = self.span(call_span.start, call_span.end);
+        // A missing fixed argument before the rest position is an omitted
+        // optional one: a `None` at the parameter's own type, as the
+        // fixed-arity value-call path synthesizes.
+        for param_ty in params.iter().copied().take(rest_index).skip(args.len()) {
+            args.push(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty: param_ty,
+                span,
+            }));
+        }
+        let rest_ty = params[rest_index];
+        let tail = args.split_off(rest_index);
+        let single_list_spread = tail.len() == 1
+            && spread_positions.get(rest_index).copied().unwrap_or(false)
+            && matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, tail[0])),
+                Some(Type::List(_))
+            );
+        let packed = if single_list_spread {
+            tail[0]
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::ListLit(tail),
+                ty: rest_ty,
+                span,
+            })
+        };
+        args.push(packed);
+        args
     }
 
     /// The parameter types of a class method with no rest parameter, or `None`
@@ -2870,14 +2963,34 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(None);
         };
         let return_ty = function.return_ty;
+        let rest = function.rest;
+        let params = function.params.iter().map(|param| param.ty).collect::<Vec<_>>();
         let method_type_params = self.callee_own_type_params(static_item);
         let span = self.span(call.span.start, call.span.end);
-        // Arguments are lowered as-is; the Rust emitter coerces each to the
+        // Arguments go through the shared spread rules (a tuple spread
+        // expands, a trailing list spread binds the fixed parameters), and a
+        // rest parameter collects the tail into its list. Each argument is
+        // otherwise lowered as-is; the Rust emitter coerces it to the
         // associated function's declared parameter type at the call site, the
         // same way a direct free-function call is adapted.
-        let mut args = Vec::new();
-        for argument in &call.arguments {
-            args.push(self.argument(argument, body)?);
+        let expanded = self.expanded_call_arguments(&call.arguments, body)?;
+        let expanded = if rest.is_none() {
+            self.distribute_trailing_list_spread(expanded, &params, body)?
+        } else {
+            expanded
+        };
+        let spread_positions = expanded
+            .iter()
+            .map(|arg| matches!(arg, CallArg::UnexpandedSpread(_)))
+            .collect::<Vec<_>>();
+        let mut args = Vec::with_capacity(expanded.len());
+        for argument in expanded {
+            args.push(self.lower_call_arg(argument, None, body)?);
+        }
+        if let Some(rest_index) = rest
+            && rest_index < params.len()
+        {
+            args = self.pack_rest_arguments(args, &spread_positions, rest_index, &params, call.span, body);
         }
         let return_ty = self.instantiate_generic_method_result(&method_type_params, return_ty);
         let callee = body.push_expr(Expr {
@@ -2901,7 +3014,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// associated function to the runtime `SmeltUnknown` call ABI). It is a
     /// read-only check: the receiver identifier must resolve to a declared class
     /// (not a local) whose `static_methods` include the accessed property.
-    fn static_member_is_class_static_method(
+    pub(in crate::lowering) fn static_member_is_class_static_method(
         &self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
     ) -> bool {
@@ -3232,6 +3345,22 @@ impl<'builder> ModuleBuilder<'builder> {
             probed_arg_tys
         } else {
             Vec::new()
+        };
+        // A trailing LIST spread has no length to select an overload by, so the
+        // signature is chosen without an arity, and the list is distributed
+        // over its fixed parameters as for every other fixed-arity callee
+        // (`ctx.respond(...parts)`). Without this the list was parameter 0.
+        let (expanded, arg_count) = if matches!(expanded.last(), Some(CallArg::UnexpandedSpread(_)))
+            && self.ctx.krate.types.get(callee_ty) != Some(&Type::Unknown)
+            && let Some(selected) = self.function_member_type_for_args(callee_ty, None, &[])
+            && let Some(Type::Function(selected)) = self.ctx.krate.types.get(selected).cloned()
+            && selected.rest.is_none()
+        {
+            let distributed = self.distribute_trailing_list_spread(expanded, &selected.params, body)?;
+            let count = distributed.len();
+            (distributed, count)
+        } else {
+            (expanded, arg_count)
         };
         let mut args = Vec::with_capacity(expanded.len());
         for argument in expanded {

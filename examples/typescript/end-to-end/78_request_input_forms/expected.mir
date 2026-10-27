@@ -16,55 +16,58 @@ async fn run (FuncId(0)) -> None throws
     %13 temp: String
     %14 temp: Headers
     %15 temp: Optional<String>
-    %16 temp: None
-    %17 temp: Bool
+    %16 temp: String
+    %17 temp: None
     %18 temp: Bool
-    %19 temp: None
-    %20 temp: Future<String>
-    %21 temp: String
-    %22 temp: None
-    %23 temp: Bool
+    %19 temp: Bool
+    %20 temp: None
+    %21 temp: Future<String>
+    %22 temp: String
+    %23 temp: None
     %24 temp: Bool
-    %25 temp: None
-    %26 temp: Dict<String, String>
-    %27 temp: Request
+    %25 temp: Bool
+    %26 temp: None
+    %27 temp: Dict<String, String>
     %28 temp: Request
-    %29 temp: String
+    %29 temp: Request
     %30 temp: String
-    %31 temp: Headers
-    %32 temp: Optional<String>
-    %33 temp: None
-    %34 temp: Dict<String, String>
-    %35 temp: Request
-    %36 temp: String
-    %37 temp: Headers
-    %38 temp: Request
-    %39 temp: String
-    %40 temp: String
-    %41 temp: Headers
-    %42 temp: Optional<String>
-    %43 temp: None
-    %44 temp: Request
-    %45 temp: Request
-    %46 temp: String
-    %47 temp: Bool
-    %48 temp: Bool
-    %49 temp: None
-    %50 temp: Optional<ReadableStream>
+    %31 temp: String
+    %32 temp: Headers
+    %33 temp: Optional<String>
+    %34 temp: String
+    %35 temp: None
+    %36 temp: Dict<String, String>
+    %37 temp: Request
+    %38 temp: String
+    %39 temp: Headers
+    %40 temp: Request
+    %41 temp: String
+    %42 temp: String
+    %43 temp: Headers
+    %44 temp: Optional<String>
+    %45 temp: String
+    %46 temp: None
+    %47 temp: Request
+    %48 temp: Request
+    %49 temp: String
+    %50 temp: Bool
     %51 temp: Bool
     %52 temp: None
-    %53 temp: Request
-    %54 temp: Request
-    %55 temp: String
-    %56 temp: Future<String>
-    %57 temp: String
-    %58 temp: None
-    %59 temp: URL
+    %53 temp: Optional<ReadableStream>
+    %54 temp: Bool
+    %55 temp: None
+    %56 temp: Request
+    %57 temp: Request
+    %58 temp: String
+    %59 temp: Future<String>
     %60 temp: String
-    %61 temp: Request
-    %62 temp: String
+    %61 temp: None
+    %62 temp: URL
     %63 temp: String
-    %64 temp: None
+    %64 temp: Request
+    %65 temp: String
+    %66 temp: String
+    %67 temp: None
   bb0:
     %9 = {"x-tag": "t"}
     %10 = request_new input="https://a.test/one" method="POST" headers=move %9 body="payload"
@@ -75,72 +78,75 @@ async fn run (FuncId(0)) -> None throws
     %13 = request_method copy %1
     %14 = request_headers copy %1
     %15 = headers_get move %14, "x-tag"
-    %16 = call @console_log(move %12, move %13, move %15) -> bb1
+    %16 = move %15 ?? "null"
+    %17 = call @console_log(move %12, move %13, move %16) -> bb1
   bb1:
-    %17 = request_body_used copy %0
-    %18 = request_body_used copy %1
-    %19 = call @console_log(move %17, move %18) -> bb2
+    %18 = request_body_used copy %0
+    %19 = request_body_used copy %1
+    %20 = call @console_log(move %18, move %19) -> bb2
   bb2:
-    %20 = request_text copy %1
-    %21 = await move %20
-    %22 = call @console_log(move %21) -> bb3
+    %21 = request_text copy %1
+    %22 = await move %21
+    %23 = call @console_log(move %22) -> bb3
   bb3:
-    %23 = request_body_used move %0
-    %24 = request_body_used move %1
-    %25 = call @console_log(move %23, move %24) -> bb4
+    %24 = request_body_used move %0
+    %25 = request_body_used move %1
+    %26 = call @console_log(move %24, move %25) -> bb4
   bb4:
-    %26 = {"x-tag": "u"}
-    %27 = request_new input="https://a.test/two" method="PUT" headers=move %26
-    %28 = request_new input=move %27 method="DELETE"
-    %2 = move %28
-    %29 = request_url copy %2
-    %30 = request_method copy %2
-    %31 = request_headers move %2
-    %32 = headers_get move %31, "x-tag"
-    %33 = call @console_log(move %29, move %30, move %32) -> bb5
+    %27 = {"x-tag": "u"}
+    %28 = request_new input="https://a.test/two" method="PUT" headers=move %27
+    %29 = request_new input=move %28 method="DELETE"
+    %2 = move %29
+    %30 = request_url copy %2
+    %31 = request_method copy %2
+    %32 = request_headers move %2
+    %33 = headers_get move %32, "x-tag"
+    %34 = move %33 ?? "null"
+    %35 = call @console_log(move %30, move %31, move %34) -> bb5
   bb5:
-    %34 = {"a": "1"}
-    %35 = request_new input="https://a.test/three" method="PATCH" headers=move %34
-    %3 = move %35
-    %36 = request_method copy %3
-    %37 = request_headers copy %3
-    %38 = request_new input=copy %3 method=move %36 headers=move %37 body=copy %3
-    %4 = move %38
-    %39 = request_url copy %4
-    %40 = request_method copy %4
-    %41 = request_headers move %4
-    %42 = headers_get move %41, "a"
-    %43 = call @console_log(move %39, move %40, move %42) -> bb6
+    %36 = {"a": "1"}
+    %37 = request_new input="https://a.test/three" method="PATCH" headers=move %36
+    %3 = move %37
+    %38 = request_method copy %3
+    %39 = request_headers copy %3
+    %40 = request_new input=copy %3 method=move %38 headers=move %39 body=copy %3
+    %4 = move %40
+    %41 = request_url copy %4
+    %42 = request_method copy %4
+    %43 = request_headers move %4
+    %44 = headers_get move %43, "a"
+    %45 = move %44 ?? "null"
+    %46 = call @console_log(move %41, move %42, move %45) -> bb6
   bb6:
-    %44 = request_new input="https://a.test/four" method="HEAD"
-    %5 = move %44
-    %45 = request_new input=copy %5
-    %6 = move %45
-    %46 = request_method copy %6
-    %47 = request_body_used copy %6
-    %48 = request_body_used move %5
-    %49 = call @console_log(move %46, move %47, move %48) -> bb7
+    %47 = request_new input="https://a.test/four" method="HEAD"
+    %5 = move %47
+    %48 = request_new input=copy %5
+    %6 = move %48
+    %49 = request_method copy %6
+    %50 = request_body_used copy %6
+    %51 = request_body_used move %5
+    %52 = call @console_log(move %49, move %50, move %51) -> bb7
   bb7:
-    %50 = request_body move %6
-    %51 = move %50 == none
-    %52 = call @console_log(move %51) -> bb8
+    %53 = request_body move %6
+    %54 = move %53 == none
+    %55 = call @console_log(move %54) -> bb8
   bb8:
-    %53 = request_new input="https://a.test/five" method="POST" body="from source"
-    %54 = request_new input=move %53 body="from init"
-    %7 = move %54
-    %55 = request_url copy %7
-    %56 = request_text move %7
-    %57 = await move %56
-    %58 = call @console_log(move %55, move %57) -> bb9
+    %56 = request_new input="https://a.test/five" method="POST" body="from source"
+    %57 = request_new input=move %56 body="from init"
+    %7 = move %57
+    %58 = request_url copy %7
+    %59 = request_text move %7
+    %60 = await move %59
+    %61 = call @console_log(move %58, move %60) -> bb9
   bb9:
-    %59 = call @url_new("https://a.test/six?q=1") -> bb10
+    %62 = call @url_new("https://a.test/six?q=1") -> bb10
   bb10:
-    %60 = url_Get(Href) move %59
-    %61 = request_new input=move %60 method="PUT"
-    %8 = move %61
-    %62 = request_url copy %8
-    %63 = request_method move %8
-    %64 = call @console_log(move %62, move %63) -> bb11
+    %63 = url_Get(Href) move %62
+    %64 = request_new input=move %63 method="PUT"
+    %8 = move %64
+    %65 = request_url copy %8
+    %66 = request_method move %8
+    %67 = call @console_log(move %65, move %66) -> bb11
   bb11:
     return none
 

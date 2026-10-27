@@ -3,6 +3,8 @@
 mod ambient_globals;
 mod bigint;
 mod checker_types;
+mod null_absent;
+mod tuple_rest;
 mod erasure;
 mod arguments_forwarding;
 mod asserted_member_read;
@@ -943,6 +945,9 @@ struct ModuleBuilder<'ctx> {
     /// nested type, so depth `0` is exactly the whole-type position. See
     /// `lowering::int32`.
     int32_type_depth: usize,
+    /// Arrow parameter lists (by source span) whose rest parameter is a
+    /// fixed-width tuple, with that tuple type; see `lowering::tuple_rest`.
+    tuple_rest_arrows: HashMap<(u32, u32), smelt_hir::TypeId>,
     /// Innermost source node being lowered, where an erasure decision is
     /// recorded when its site has no finer span; see `lowering::erasure`.
     erasure_anchor: Span,

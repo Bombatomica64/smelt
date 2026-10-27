@@ -1268,6 +1268,18 @@ impl ModuleBuilder<'_> {
                 "array callback parameter count is not supported for this method",
             ));
         }
+        // A tuple rest parameter binds a tuple of fixed parameters, which the
+        // compact callback IR has no literal for; the closure-body path lowers
+        // it (`lowering::tuple_rest`).
+        if self
+            .tuple_rest_arrows
+            .contains_key(&(arrow.params.span.start, arrow.params.span.end))
+        {
+            return Err(SmeltError::unsupported(
+                self.span(arrow.span.start, arrow.span.end),
+                "a tuple rest parameter is lowered through the closure body",
+            ));
+        }
         let mut params = HashMap::new();
         for (index, param) in arrow.params.items.iter().enumerate() {
             let Some(expected_ty) = expected_param_tys.get(index).copied() else {

@@ -5685,6 +5685,7 @@ fn emit_source_with_free_function_router(
                 &impl_generics,
                 &type_params,
                 &fields,
+                &interface.decode_facts,
             )?;
             emit_record_from_smelt_unknown_impl(
                 &mut writer,
@@ -6267,6 +6268,7 @@ fn emit_source_with_free_function_router(
                 &impl_generics,
                 &type_params,
                 &fields,
+                &[],
             )?;
             emit_record_from_smelt_unknown_impl(
                 &mut writer,
@@ -8191,6 +8193,7 @@ fn emit_record_into_smelt_unknown_impl(
     impl_generics: &str,
     type_args: &str,
     fields: &[smelt_mir::MirField],
+    decode_facts: &[smelt_hir::FieldDecodeFacts],
 ) -> Result<(), EmitError> {
     writer.block(
         format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
@@ -8213,9 +8216,24 @@ fn emit_record_into_smelt_unknown_impl(
                         .get(field.name)
                         .or_else(|| mir.symbols.get(field.name))
                         .unwrap_or("field");
-                    let value =
-                        record_field_unknown_text(mir, &format!("self.{field_name}"), field.ty)
-                            .unwrap_or_else(|_| "SmeltUnknown::Null".to_owned());
+                    // A field declared `p: T | null` (it admits `null` and can
+                    // never be absent) holds `null` when its `Option` is empty,
+                    // and its erased view says so: `JSON.stringify` prints
+                    // `"p":null` rather than omitting the key.
+                    let absent_is_null = decode_facts.iter().any(|facts| {
+                        facts.name == field.name && facts.admits_null && !facts.may_be_absent
+                    });
+                    let value = match mir.types.get(field.ty) {
+                        Some(Type::Optional(inner)) if absent_is_null => {
+                            record_field_unknown_text(mir, "smelt_present", *inner).map(|present| {
+                                format!(
+                                    "self.{field_name}.map_or(SmeltUnknown::Null, |smelt_present| {present})"
+                                )
+                            })
+                        }
+                        _ => record_field_unknown_text(mir, &format!("self.{field_name}"), field.ty),
+                    }
+                    .unwrap_or_else(|_| "SmeltUnknown::Null".to_owned());
                     fn_writer.line(format!("({key:?}.to_owned(), {value}),"));
                 }
                 fn_writer.line("])))");

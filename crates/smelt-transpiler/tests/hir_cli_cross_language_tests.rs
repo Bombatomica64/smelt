@@ -1211,6 +1211,8 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "173_url_object",
     "174_union_narrowing_exits_and_writes",
     "175_rest_arrow_into_fixed_arity_slot",
+    "176_rest_methods_spreads_and_null_absence",
+    "177_tuple_rest_parameters",
     "14_c_for_loop",
     "15_break_continue",
     "16_switch_break_no_fallthrough",

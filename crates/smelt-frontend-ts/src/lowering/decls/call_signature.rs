@@ -105,8 +105,7 @@ impl ModuleBuilder<'_> {
         }
         // A trailing rest parameter keeps its index so the signature's runtime
         // arity survives instead of the rest slot becoming a fixed array.
-        let mut rest_index = None;
-        if let Some(rest) = &signature.params.rest {
+        let rest_index = if let Some(rest) = &signature.params.rest {
             let rest_ty = rest
                 .type_annotation
                 .as_ref()
@@ -118,9 +117,10 @@ impl ModuleBuilder<'_> {
                         "call signature rest parameters require explicit array types",
                     )
                 })?;
-            rest_index = Some(params.len());
-            params.push(rest_ty);
-        }
+            self.push_rest_param_type(&mut params, rest_ty)?
+        } else {
+            None
+        };
         Ok((params, rest_index, return_ty))
     }
 

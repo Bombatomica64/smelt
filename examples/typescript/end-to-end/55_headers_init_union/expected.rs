@@ -3722,10 +3722,12 @@ fn main() {
     let _smelt_tmp_35: SmeltHeaders;
     let _smelt_tmp_36: ();
     let _smelt_tmp_37: Option<String>;
-    let _smelt_tmp_39: Option<String>;
-    let _smelt_tmp_41: (String, String);
-    let _smelt_tmp_42: (String, String);
-    let _smelt_tmp_43: SmeltList<(String, String)>;
+    let _smelt_tmp_38: String;
+    let _smelt_tmp_40: Option<String>;
+    let _smelt_tmp_41: String;
+    let _smelt_tmp_43: (String, String);
+    let _smelt_tmp_44: (String, String);
+    let _smelt_tmp_45: SmeltList<(String, String)>;
     let _smelt_tmp_4: SmeltRecord<String, String> = SmeltRecord::from([("Content-Type".to_owned(), "text/plain".to_owned())]);
     let _smelt_tmp_5: String = content_type_of(SmeltUnion5::M1(_smelt_tmp_4));
     let _ = { println!("{}", _smelt_tmp_5); };
@@ -3763,15 +3765,17 @@ fn main() {
     copy = _smelt_tmp_35;
     _smelt_tmp_36 = copy.clone().set(&"x-shared".to_owned(), &"changed".to_owned());
     _smelt_tmp_37 = source.get(&"x-shared".to_owned());
-    let _ = { println!("{}", match &_smelt_tmp_37 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    _smelt_tmp_39 = copy.get(&"x-shared".to_owned());
-    let _ = { println!("{}", match &_smelt_tmp_39 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    _smelt_tmp_41 = ("content-type".to_owned(), "text/plain".to_owned());
-    _smelt_tmp_42 = ("content-type".to_owned(), "text/css".to_owned());
-    _smelt_tmp_43 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String)> = vec![_smelt_tmp_41.clone(), _smelt_tmp_42.clone()]; smelt_list_items }));
-    two_values = Into::<SmeltList<_>>::into(_smelt_tmp_43);
-    let _smelt_tmp_44: String = content_type_of(SmeltUnion5::M0(two_values));
-    let _ = { println!("{}", _smelt_tmp_44); };
+    _smelt_tmp_38 = _smelt_tmp_37.clone().unwrap_or("null".to_owned());
+    let _ = { println!("{}", _smelt_tmp_38); };
+    _smelt_tmp_40 = copy.get(&"x-shared".to_owned());
+    _smelt_tmp_41 = _smelt_tmp_40.clone().unwrap_or("null".to_owned());
+    let _ = { println!("{}", _smelt_tmp_41); };
+    _smelt_tmp_43 = ("content-type".to_owned(), "text/plain".to_owned());
+    _smelt_tmp_44 = ("content-type".to_owned(), "text/css".to_owned());
+    _smelt_tmp_45 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String)> = vec![_smelt_tmp_43.clone(), _smelt_tmp_44.clone()]; smelt_list_items }));
+    two_values = Into::<SmeltList<_>>::into(_smelt_tmp_45);
+    let _smelt_tmp_46: String = content_type_of(SmeltUnion5::M0(two_values));
+    let _ = { println!("{}", _smelt_tmp_46); };
     return;
 }
 

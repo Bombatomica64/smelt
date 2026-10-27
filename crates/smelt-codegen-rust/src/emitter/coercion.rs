@@ -2446,6 +2446,23 @@ impl FunctionEmitter<'_> {
         )
     }
 
+    /// Whether an interface field is declared `p: T | null`: it admits `null`
+    /// and can never be absent, so its empty `Option` is `null`.
+    ///
+    /// Read from the interface's `FieldDecodeFacts`; a class records none and
+    /// keeps the `undefined` reading.
+    pub(super) fn field_absent_is_null(&self, owner: smelt_hir::Symbol, field: smelt_hir::Symbol) -> bool {
+        self.mir
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == owner)
+            .is_some_and(|interface| {
+                interface.decode_facts.iter().any(|facts| {
+                    facts.name == field && facts.admits_null && !facts.may_be_absent
+                })
+            })
+    }
+
     /// Wrap a generated class or interface value into an erased object.
     ///
     /// TypeScript structural objects often reach erased helper surfaces through
@@ -2498,6 +2515,14 @@ impl FunctionEmitter<'_> {
                 let field_name = sanitize_ident(self.symbol_name(field.name)?);
                 if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
                     let field_value = self.erase_value_text("value", *inner)?;
+                    // A `p: T | null` field holds `null` when its `Option` is
+                    // empty, so its key is present with a `null` value; an
+                    // absent `undefined` is omitted, as JavaScript omits it.
+                    if self.field_absent_is_null(*name, field.name) {
+                        return Ok(format!(
+                            "smelt_object_entries.push(({source_name:?}.to_owned(), match {field_base}.{field_name}.clone() {{ Some(value) => {field_value}, None => SmeltUnknown::Null }}));"
+                        ));
+                    }
                     return Ok(format!(
                         "if let Some(value) = {field_base}.{field_name}.clone() {{ smelt_object_entries.push(({source_name:?}.to_owned(), {field_value})); }}"
                     ));

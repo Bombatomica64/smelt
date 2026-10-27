@@ -505,6 +505,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             excluded_modules,
             ts_facts: None,
             int32_type_depth: 0,
+            tuple_rest_arrows: HashMap::new(),
             erasure_anchor: Span::new(file_id, 0, 0),
         }
     }
@@ -3447,6 +3448,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ));
             };
             let ty = self.ts_type_to_hir(&annotation.type_annotation)?;
+            // A fixed-width tuple rest is fixed parameters (`lowering::tuple_rest`).
+            if let Some(elements) = self.fixed_tuple_rest_elements(ty) {
+                params.extend(elements);
+                None
+            } else {
             let (ty, item_ty) = self.rest_param_array_type(ty).map_err(|_error| {
                 SmeltError::unsupported(
                     self.span(rest.span.start, rest.span.end),
@@ -3456,6 +3462,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let index = params.len();
             params.push(ty);
             Some(RestParam { index, item_ty })
+            }
         } else {
             None
         };
@@ -3747,6 +3754,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ));
             };
             let ty = self.ts_type_to_hir(&annotation.type_annotation)?;
+            // A fixed-width tuple rest is fixed parameters, named as the
+            // function body names them (`lowering::tuple_rest`).
+            if let Some(elements) = self.fixed_tuple_rest_elements(ty) {
+                for (offset, element) in elements.into_iter().enumerate() {
+                    let index = params.len();
+                    params.push(Param {
+                        name: self.intern_source_name(&format!("{}__{offset}", binding.name)),
+                        local: smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX)),
+                        ty: element,
+                        span: self.span(binding.span.start, binding.span.end),
+                    });
+                }
+            } else {
             let (ty, item_ty) = self.rest_param_array_type(ty).map_err(|_error| {
                 SmeltError::unsupported(
                     self.span(rest.span.start, rest.span.end),
@@ -3766,6 +3786,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ty,
                 span: self.span(binding.span.start, binding.span.end),
             });
+            }
         }
         let return_ty = self
             .function_return_type_or_overload(function, name_text)

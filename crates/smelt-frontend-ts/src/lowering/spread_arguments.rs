@@ -146,13 +146,14 @@ impl ModuleBuilder<'_> {
         Ok(arguments)
     }
 
-    /// The list under a type assertion, or `expr` itself.
+    /// The list or tuple under a type assertion, or `expr` itself.
     ///
     /// An assertion is erased at run time, so `...(args as Parameters<F>)`
     /// spreads `args`, every element of it: the asserted type decides neither
     /// the width nor the values. When the asserted type erased (an
     /// unevaluated `Parameters<..>`), the assertion node is all that hides
-    /// the list from the distribution above.
+    /// the list from the distribution above; when it is a NARROWER tuple, it
+    /// would cut a tuple rest parameter's elements off.
     fn peel_assertion_of_list(
         expr: smelt_hir::ExprId,
         body: &Body,
@@ -164,7 +165,7 @@ impl ModuleBuilder<'_> {
         let (ExprKind::TypeAssert { value } | ExprKind::UnknownCast { value, .. }) = node.kind else {
             return expr;
         };
-        if matches!(types.get(Self::expr_ty(body, value)), Some(Type::List(_))) {
+        if matches!(types.get(Self::expr_ty(body, value)), Some(Type::List(_) | Type::Tuple(_))) {
             value
         } else {
             expr
@@ -238,6 +239,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<Option<Vec<smelt_hir::ExprId>>, SmeltError> {
         let span = self.span(spread.span.start, spread.span.end);
         let operand = self.expression(&spread.argument, body)?;
+        let operand = Self::peel_assertion_of_list(operand, body, &self.ctx.krate.types);
         let operand_ty = Self::expr_ty(body, operand);
         let resolved = self.type_param_constraint_or_self(operand_ty);
         let (tuple_ty, optional) = match self.ctx.krate.types.get(resolved).cloned() {

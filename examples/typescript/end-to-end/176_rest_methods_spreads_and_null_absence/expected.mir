@@ -1,0 +1,259 @@
+class Bag fields [Public items: List<Float>] constructor Some(FuncId(6)) methods [FuncId(2), FuncId(3), FuncId(5)]
+interface Label
+interface Entry
+
+fn show (FuncId(0)) -> String
+  locals
+    %0 param entry: Entry
+    %1 temp: String
+    %2 temp: String
+    %3 temp: String
+    %4 temp: String
+    %5 temp: String
+    %6 temp: String
+    %7 temp: String
+    %8 temp: Bool
+    %9 temp: String
+  bb0:
+    %1 = "" + copy %0.field25
+    %2 = move %1 + "="
+    %3 = copy %0.field6 ?? "null"
+    %4 = move %2 + move %3
+    %5 = move %4 + ":"
+    %6 = move %5 + false
+    %7 = move %6 + ":"
+    %8 = copy %0.field6 == none
+    %9 = move %7 + move %8
+    return move %9
+
+fn describe (FuncId(1)) -> String
+  locals
+    %0 param value: Optional<String>
+    %1 temp: String
+    %2 temp: String
+    %3 temp: String
+    %4 temp: String
+    %5 temp: String
+  bb0:
+    %1 = copy %0 ?? "null"
+    %2 = primitive_cast_string move %1
+    %3 = move %2 + "|"
+    %4 = copy %0 ?? "null"
+    %5 = move %3 + move %4
+    return move %5
+
+fn count (FuncId(2)) -> Float
+  locals
+    %0 param this: Bag
+    %1 param args: List<Float | String | Bool>
+    %2 temp: Float
+  bb0:
+    %2 = len copy %1
+    return move %2
+
+fn add (FuncId(3)) -> Float
+  locals
+    %0 param this: Bag
+    %1 param first: Float
+    %2 param more: List<Float>
+    %3 temp: List<Float>
+    %4 temp: Float
+    %5 temp: List<Float>
+    %6 temp: Float
+    %7 temp: Float
+  bb0:
+    %3 = copy %0.field7
+    %4 = list_push copy %3, copy %1
+    %0.field7 = move %3
+    %5 = copy %0.field7
+    %6 = list_extend copy %5, copy %2
+    %0.field7 = move %5
+    %7 = len copy %0.field7
+    return move %7
+
+fn join (FuncId(4)) -> String
+  locals
+    %0 user this: Bag
+    %1 param sep: String
+    %2 param parts: List<String>
+    %3 temp: String
+  bb0:
+    %3 = string_join copy %2, copy %1
+    return move %3
+
+fn __smelt_get_label (FuncId(5)) -> Label
+  locals
+    %0 param this: Bag
+    %1 temp: fn(String, Optional<String>) -> String
+  bb0:
+    %1 = closure ClosureId(0) []
+    return move %1
+
+fn new (FuncId(6)) -> Bag
+  locals
+    %0 user this: Bag
+    %1 temp: List<Float>
+  bb0:
+    %0 = struct0 {}
+    %1 = []
+    %0.field7 = move %1
+    return move %0
+
+fn main (FuncId(7)) -> None
+  locals
+    %0 user bag: Bag
+    %1 user extra: List<Float>
+    %2 user one: (String)
+    %3 user named: List<String>
+    %4 user label: Label
+    %5 user __smelt_spread: (String)
+    %6 user __smelt_spread: (String)
+    %7 user __smelt_spread: List<String>
+    %8 user __smelt_spread: List<String>
+    %9 user pending: Optional<String>
+    %10 temp: Bag
+    %11 temp: List<Float>
+    %12 temp: List<Float | String | Bool>
+    %13 temp: Float
+    %14 temp: List<Float | String | Bool>
+    %15 temp: Float
+    %16 temp: List<Float>
+    %17 temp: Float
+    %18 temp: List<Float>
+    %19 temp: Float
+    %20 temp: Float
+    %21 temp: None
+    %22 temp: List<String>
+    %23 temp: String
+    %24 temp: List<String>
+    %25 temp: String
+    %26 temp: List<String>
+    %27 temp: String
+    %28 temp: None
+    %29 temp: (String)
+    %30 temp: List<String>
+    %31 temp: fn(String, Optional<String>) -> String
+    %32 temp: String
+    %33 temp: fn(String, Optional<String>) -> String
+    %34 temp: String
+    %35 temp: fn(String, Optional<String>) -> String
+    %36 temp: String
+    %37 temp: fn(String, Optional<String>) -> String
+    %38 temp: String
+    %39 temp: None
+    %40 temp: Entry
+    %41 temp: String
+    %42 temp: Entry
+    %43 temp: String
+    %44 temp: None
+    %45 temp: String
+    %46 temp: String
+    %47 temp: String
+    %48 temp: Entry
+    %49 temp: String
+    %50 temp: None
+    %51 temp: String
+    %52 temp: Headers
+    %53 temp: Optional<String>
+    %54 temp: String
+    %55 temp: None
+  bb0:
+    %10 = call fn6() -> bb1
+  bb1:
+    %0 = move %10
+    %11 = [4.0, 5.0]
+    %1 = move %11
+    %12 = []
+    %13 = call fn2(copy %0, move %12) -> bb2
+  bb2:
+    %14 = [1.0, "a", true]
+    %15 = call fn2(copy %0, move %14) -> bb3
+  bb3:
+    %16 = []
+    %17 = call fn3(copy %0, 1.0, move %16) -> bb4
+  bb4:
+    %18 = [3.0]
+    %19 = call fn3(copy %0, 2.0, move %18) -> bb5
+  bb5:
+    %20 = call fn3(copy %0, 6.0, move %1) -> bb6
+  bb6:
+    %21 = call @console_log(move %13, move %15, move %17, move %19, move %20) -> bb7
+  bb7:
+    %22 = ["a", "b", "c"]
+    %23 = call fn4("-", move %22) -> bb8
+  bb8:
+    %24 = []
+    %25 = call fn4("+", move %24) -> bb9
+  bb9:
+    %26 = ["x", "y"]
+    %27 = string_join move %26, "/"
+    %28 = call @console_log(move %23, move %25, move %27) -> bb10
+  bb10:
+    %29 = ("a")
+    %2 = move %29
+    %30 = ["b"]
+    %3 = move %30
+    %4 = copy %0.field19
+    %5 = copy %2
+    %6 = move %2
+    %7 = copy %3
+    %8 = move %3
+    %31 = copy %4
+    %32 = closure_call move %31(copy %5[0])
+    %33 = copy %0.field19
+    %34 = closure_call move %33(copy %6[0])
+    %35 = move %4
+    %36 = closure_call move %35(copy %7[0], copy %7[1])
+    %37 = copy %0.field19
+    %38 = closure_call move %37(copy %8[0], copy %8[1])
+    %39 = call @console_log(move %32, move %34, move %36, move %38) -> bb11
+  bb11:
+    %9 = none
+    %40 = {"key": "a", "value": none}
+    %41 = call fn0(move %40) -> bb12
+  bb12:
+    %42 = {"key": "b", "value": "x"}
+    %43 = call fn0(move %42) -> bb13
+  bb13:
+    %44 = call @console_log(move %41, move %43) -> bb14
+  bb14:
+    %45 = call fn1(none) -> bb15
+  bb15:
+    %46 = call fn1("y") -> bb16
+  bb16:
+    %47 = move %9 ?? "null"
+    %48 = {"key": "c", "value": none}
+    %49 = json_stringify move %48
+    %50 = call @console_log(move %45, move %46, move %47, move %49) -> bb17
+  bb17:
+    %9 = "done"
+    %51 = move %9
+    %52 = headers_new
+    %53 = headers_get move %52, "missing"
+    %54 = move %53 ?? "null"
+    %55 = call @console_log(move %51, move %54) -> bb18
+  bb18:
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 param __callback_param_0: String
+    %1 param __callback_param_1: Optional<String>
+    %2 temp: String
+    %3 temp: Bool
+    %4 temp: Optional<String>
+    %5 temp: String
+  bb0:
+    %2 = "" + copy %0
+    %3 = copy %1 != none
+    switch copy %3 ? bb1 : bb2
+  bb1:
+    %4 = copy %1
+    goto bb3
+  bb2:
+    %4 = "."
+    goto bb3
+  bb3:
+    %5 = copy %2 + copy %4
+    return copy %5
+

@@ -1356,6 +1356,7 @@ impl ModuleBuilder<'_> {
             lhs = self.peel_narrowing_cast_for_identity(body, lhs);
             rhs = self.peel_narrowing_cast_for_identity(body, rhs);
         }
+        (lhs, rhs) = self.null_absent_concat_operands(op, lhs, rhs, binary, body);
 
         let lhs_ty = Self::expr_ty(body, lhs);
         let rhs_ty = Self::expr_ty(body, rhs);
