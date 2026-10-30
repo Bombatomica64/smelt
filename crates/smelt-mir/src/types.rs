@@ -2151,6 +2151,19 @@ pub enum Rvalue {
         /// Timestamp in milliseconds.
         timestamp_ms: Operand,
     },
+    /// Convert a timestamp in milliseconds to `Date.prototype.toUTCString()`
+    /// output (`Sun, 24 Dec 2000 10:30:59 GMT`).
+    DateToUtcString {
+        /// Timestamp in milliseconds.
+        timestamp_ms: Operand,
+    },
+    /// Re-indent compact JSON text for `JSON.stringify`'s `space` argument.
+    JsonIndent {
+        /// The compact JSON text.
+        text: Operand,
+        /// The source `space` argument.
+        space: Operand,
+    },
     /// Construct a timestamp in milliseconds from local Date constructor parts.
     DateFromParts {
         /// Date constructor parts: year, month, date, hours, minutes, seconds, milliseconds.

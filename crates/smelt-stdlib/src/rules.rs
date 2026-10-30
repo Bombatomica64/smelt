@@ -204,11 +204,15 @@ pub enum RuleId {
     ///
     /// Its own rule rather than a member of a shared `subtle` rule: `digest` is
     /// the one `SubtleCrypto` method with no key, so it is the only one whose
-    /// whole input is the algorithm name and the bytes. The key-taking members
-    /// (`importKey`/`sign`/`verify`) stay declared in
-    /// [`crate::host_modules`], and giving them a rule here before they have a
-    /// lowering would make a blocker look like a mapping.
+    /// whole input is the algorithm name and the bytes.
     TsCryptoDigest,
+    /// TypeScript `crypto.subtle.importKey(format, keyData, algorithm,
+    /// extractable, usages)`: a `CryptoKey` from raw key material (HMAC).
+    TsCryptoImportKey,
+    /// TypeScript `crypto.subtle.sign(algorithm, key, data)`: an HMAC tag.
+    TsCryptoSign,
+    /// TypeScript `crypto.subtle.verify(algorithm, key, signature, data)`.
+    TsCryptoVerify,
     /// TypeScript `TextEncoder.prototype.encode`.
     TsTextEncoderEncode,
     /// TypeScript `TextDecoder.prototype.decode`.
@@ -388,6 +392,9 @@ impl RuleId {
             Self::TsBigIntStatic => Some(BackendDependency::BigInt),
             Self::TsCryptoGetRandomValues => Some(BackendDependency::GetRandom),
             Self::TsCryptoDigest => Some(BackendDependency::Sha),
+            Self::TsCryptoImportKey | Self::TsCryptoSign | Self::TsCryptoVerify => {
+                Some(BackendDependency::Hmac)
+            }
             Self::TsFetch | Self::PyRequestsGet => Some(BackendDependency::Reqwest),
             Self::TsDateNow
             | Self::TsDateToIsoString
@@ -546,6 +553,9 @@ impl RuleId {
             Self::TsCryptoRandomUuid => "crypto.randomUUID",
             Self::TsCryptoGetRandomValues => "crypto.getRandomValues",
             Self::TsCryptoDigest => "crypto.subtle.digest",
+            Self::TsCryptoImportKey => "crypto.subtle.importKey",
+            Self::TsCryptoSign => "crypto.subtle.sign",
+            Self::TsCryptoVerify => "crypto.subtle.verify",
             Self::TsTextEncoderEncode => "TextEncoder.encode",
             Self::TsTextDecoderDecode => "TextDecoder.decode",
             Self::TsBlobRead => "Blob property read",

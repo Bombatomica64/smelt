@@ -271,6 +271,31 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a primitive source-language cast operation to Rust text.
+    /// `String.fromCharCode` / `String.fromCodePoint` over rendered list text
+    /// (a `SmeltList<f64>` of codes).
+    ///
+    /// `fromCharCode`: each number through `ToUint16` (truncate, wrap modulo
+    /// 2^16, non-finite is 0) as one UTF-16 code unit; a lone surrogate has no
+    /// Rust `String` spelling and decodes to U+FFFD. `fromCodePoint`: each
+    /// number is one code point; the spec's `RangeError` for a non-integer or
+    /// out-of-range value becomes U+FFFD here.
+    fn primitive_cast_list_text(
+        &self,
+        op: smelt_hir::PrimitiveCastOp,
+        list_text: &str,
+        _operand_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        match op {
+            smelt_hir::PrimitiveCastOp::FromCharCodes => Ok(format!(
+                "{{ let smelt_units: Vec<u16> = {list_text}.borrow().iter().map(|smelt_code| {{ let smelt_code = *smelt_code; if smelt_code.is_finite() {{ smelt_code.trunc().rem_euclid(65536.0) as u16 }} else {{ 0 }} }}).collect(); String::from_utf16_lossy(&smelt_units) }}"
+            )),
+            smelt_hir::PrimitiveCastOp::FromCodePoints => Ok(format!(
+                "{list_text}.borrow().iter().map(|smelt_code| {{ let smelt_code = *smelt_code; if smelt_code.fract() == 0.0 && (0.0..=1_114_111.0).contains(&smelt_code) {{ char::from_u32(smelt_code as u32).unwrap_or(char::REPLACEMENT_CHARACTER) }} else {{ char::REPLACEMENT_CHARACTER }} }}).collect::<String>()"
+            )),
+            _ => Err(EmitError::new("not a code-list conversion")),
+        }
+    }
+
     pub(super) fn primitive_cast_text(
         &self,
         op: smelt_hir::PrimitiveCastOp,
@@ -296,6 +321,18 @@ impl FunctionEmitter<'_> {
         let operand_text = self.erase_concrete_union_text(&self.operand_text(operand)?, operand_ty);
         if let Some(text) = self.fixed_int_cast_text(op, dest_type, operand_type, &operand_text) {
             return Ok(text);
+        }
+        // `String.fromCharCode(...view)` / `fromCodePoint(...view)` over a
+        // typed array: the view's elements, as numbers, are the code list, so
+        // the list arms below apply to them unchanged.
+        if matches!(
+            op,
+            smelt_hir::PrimitiveCastOp::FromCharCodes | smelt_hir::PrimitiveCastOp::FromCodePoints
+        ) && matches!(dest_type, Type::String)
+            && self.is_typed_array_view_class_type(operand_ty)?
+        {
+            let elements = format!("SmeltList::from({operand_text}.to_elements())");
+            return self.primitive_cast_list_text(op, &elements, operand_ty);
         }
         // A bigint converts without ever being rounded through anything but its
         // own nearest `f64` (`Number(2n ** 64n)`), and prints without its `n`
@@ -382,19 +419,11 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::String) => Ok(format!(
                 "{operand_text}.parse::<f64>().expect(\"float() parse failed\")"
             )),
-            // `String.fromCharCode`: each number through `ToUint16` (truncate,
-            // wrap modulo 2^16, non-finite is 0) as one UTF-16 code unit. A
-            // lone surrogate has no Rust `String` spelling and decodes to
-            // U+FFFD.
-            (smelt_hir::PrimitiveCastOp::FromCharCodes, Type::String, Type::List(_)) => Ok(format!(
-                "{{ let smelt_units: Vec<u16> = {operand_text}.borrow().iter().map(|smelt_code| {{ let smelt_code = *smelt_code; if smelt_code.is_finite() {{ smelt_code.trunc().rem_euclid(65536.0) as u16 }} else {{ 0 }} }}).collect(); String::from_utf16_lossy(&smelt_units) }}"
-            )),
-            // `String.fromCodePoint`: each number is one code point. The spec's
-            // `RangeError` for a non-integer or out-of-range value becomes
-            // U+FFFD here.
-            (smelt_hir::PrimitiveCastOp::FromCodePoints, Type::String, Type::List(_)) => Ok(format!(
-                "{operand_text}.borrow().iter().map(|smelt_code| {{ let smelt_code = *smelt_code; if smelt_code.fract() == 0.0 && (0.0..=1_114_111.0).contains(&smelt_code) {{ char::from_u32(smelt_code as u32).unwrap_or(char::REPLACEMENT_CHARACTER) }} else {{ char::REPLACEMENT_CHARACTER }} }}).collect::<String>()"
-            )),
+            (
+                smelt_hir::PrimitiveCastOp::FromCharCodes | smelt_hir::PrimitiveCastOp::FromCodePoints,
+                Type::String,
+                Type::List(_),
+            ) => self.primitive_cast_list_text(op, &operand_text, operand_ty),
             (smelt_hir::PrimitiveCastOp::ParseFloat, Type::Float, Type::String) => Ok(format!(
                 "{operand_text}.parse::<f64>().unwrap_or(f64::NAN)"
             )),
@@ -1641,6 +1670,7 @@ impl FunctionEmitter<'_> {
                     // element width is an argument of each accessor rather
                     // than a field of the value.
                     Some(smelt_stdlib::StdlibClass::DataView) => Some("SmeltDataView"),
+                    Some(smelt_stdlib::StdlibClass::CryptoKey) => Some("SmeltCryptoKey"),
                     _ => None,
                 } {
                     return Ok(RustType::raw(codec_type));
@@ -2058,6 +2088,12 @@ impl FunctionEmitter<'_> {
                     == Some(smelt_stdlib::StdlibClass::DataView) =>
             {
                 Ok("SmeltDataView::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::CryptoKey) =>
+            {
+                Ok("SmeltCryptoKey::default()".to_owned())
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?

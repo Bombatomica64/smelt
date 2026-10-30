@@ -71,30 +71,105 @@ impl FunctionEmitter<'_> {
                 };
                 let string_ty = self.type_id(Type::String)?;
                 let algorithm_text = self.value_at_type(algorithm, string_ty)?;
-                // Either half of the family answers `to_bytes()` directly; an
-                // erased value enters through the view's boundary adapter,
-                // which reads the bytes of any byte-backed record.
-                let data_ty = self.operand_ty(data)?;
-                let data_text = if self.is_typed_array_view_class_type(data_ty)?
-                    || self.operand_is_array_buffer(data)?
-                {
-                    self.operand_text(data)?
-                } else if let Some(bytes_text) =
-                    self.byte_source_union_bytes_text(&self.operand_text(data)?, data_ty)?
-                {
-                    // A concrete union of byte-backed arms reads the bytes of
-                    // its live arm, so `bytes_text` is already the `Vec<u8>`.
-                    return Ok(format!(
-                        "{{ let smelt_algorithm = ({algorithm_text}).clone(); let smelt_data = {bytes_text}; SmeltFuture::from_future(Box::pin(async move {{ smelt_crypto_digest(&smelt_algorithm, &smelt_data) }})) }}"
-                    ));
-                } else {
-                    format!("SmeltTypedArray::smelt_from_unknown({})", self.erase(data)?)
-                };
+                let data_text = self.crypto_bytes_text(data)?;
                 Ok(format!(
-                    "{{ let smelt_algorithm = ({algorithm_text}).clone(); let smelt_data = ({data_text}).to_bytes(); SmeltFuture::from_future(Box::pin(async move {{ smelt_crypto_digest(&smelt_algorithm, &smelt_data) }})) }}"
+                    "{{ let smelt_algorithm = ({algorithm_text}).clone(); let smelt_data = {data_text}; SmeltFuture::from_future(Box::pin(async move {{ smelt_crypto_digest(&smelt_algorithm, &smelt_data) }})) }}"
+                ))
+            }
+            // `importKey`: the format, key bytes, algorithm name and hash are
+            // normalized by the frontend; the key is built synchronously and
+            // handed back as an already-resolved future, as `digest` is.
+            smelt_hir::CryptoOp::ImportKey => {
+                let [format, key_data, name, hash, extractable, usages] = args else {
+                    return Err(EmitError::new("crypto.subtle.importKey requires six normalized arguments"));
+                };
+                let string_ty = self.type_id(Type::String)?;
+                let bool_ty = self.type_id(Type::Bool)?;
+                let format_text = self.value_at_type(format, string_ty)?;
+                let name_text = self.value_at_type(name, string_ty)?;
+                let hash_text = self.value_at_type(hash, string_ty)?;
+                let extractable_text = self.value_at_type(extractable, bool_ty)?;
+                let key_text = self.crypto_bytes_text(key_data)?;
+                let usages_text = self.crypto_usages_text(usages)?;
+                Ok(format!(
+                    "{{ let smelt_format = ({format_text}).clone(); let smelt_key = {key_text}; let smelt_name = ({name_text}).clone(); let smelt_hash = ({hash_text}).clone(); let smelt_extractable = {extractable_text}; let smelt_usages = {usages_text}; SmeltFuture::from_future(Box::pin(async move {{ smelt_crypto_import_key(&smelt_format, smelt_key, &smelt_name, &smelt_hash, smelt_extractable, smelt_usages) }})) }}"
+                ))
+            }
+            smelt_hir::CryptoOp::Sign => {
+                let [algorithm, key, data] = args else {
+                    return Err(EmitError::new("crypto.subtle.sign requires an algorithm, a key and data"));
+                };
+                let string_ty = self.type_id(Type::String)?;
+                let algorithm_text = self.value_at_type(algorithm, string_ty)?;
+                let key_text = self.crypto_key_text(key)?;
+                let data_text = self.crypto_bytes_text(data)?;
+                Ok(format!(
+                    "{{ let smelt_algorithm = ({algorithm_text}).clone(); let smelt_key = {key_text}; let smelt_data = {data_text}; SmeltFuture::from_future(Box::pin(async move {{ smelt_crypto_sign(&smelt_algorithm, &smelt_key, &smelt_data) }})) }}"
+                ))
+            }
+            smelt_hir::CryptoOp::Verify => {
+                let [algorithm, key, signature, data] = args else {
+                    return Err(EmitError::new("crypto.subtle.verify requires an algorithm, a key, a signature and data"));
+                };
+                let string_ty = self.type_id(Type::String)?;
+                let algorithm_text = self.value_at_type(algorithm, string_ty)?;
+                let key_text = self.crypto_key_text(key)?;
+                let signature_text = self.crypto_bytes_text(signature)?;
+                let data_text = self.crypto_bytes_text(data)?;
+                Ok(format!(
+                    "{{ let smelt_algorithm = ({algorithm_text}).clone(); let smelt_key = {key_text}; let smelt_signature = {signature_text}; let smelt_data = {data_text}; SmeltFuture::from_future(Box::pin(async move {{ smelt_crypto_verify(&smelt_algorithm, &smelt_key, &smelt_signature, &smelt_data) }})) }}"
                 ))
             }
         }
+    }
+
+    /// The bytes of a `BufferSource` operand, as a `Vec<u8>` expression.
+    ///
+    /// Either half of the family answers `to_bytes()` directly; a concrete
+    /// union of byte-backed arms reads its live arm; an erased value enters
+    /// through the view's boundary adapter, which reads the bytes of any
+    /// byte-backed record.
+    fn crypto_bytes_text(&self, data: &Operand) -> Result<String, EmitError> {
+        let data_ty = self.operand_ty(data)?;
+        if self.is_typed_array_view_class_type(data_ty)? || self.operand_is_array_buffer(data)? {
+            return Ok(format!("({}).to_bytes()", self.operand_text(data)?));
+        }
+        if let Some(bytes_text) =
+            self.byte_source_union_bytes_text(&self.operand_text(data)?, data_ty)?
+        {
+            return Ok(bytes_text);
+        }
+        Ok(format!(
+            "SmeltTypedArray::smelt_from_unknown({}).to_bytes()",
+            self.erase(data)?
+        ))
+    }
+
+    /// A `CryptoKey` operand as a `SmeltCryptoKey` value: the concrete key, or
+    /// one recovered from an erased value.
+    fn crypto_key_text(&self, key: &Operand) -> Result<String, EmitError> {
+        let key_ty = self.operand_ty(key)?;
+        if matches!(self.mir.types.get(key_ty), Some(Type::Class { name, .. })
+            if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::CryptoKey))
+        {
+            return Ok(format!("({}).clone()", self.operand_text(key)?));
+        }
+        Ok(format!("SmeltCryptoKey::smelt_from_unknown({})", self.erase(key)?))
+    }
+
+    /// `importKey`'s usages as a `Vec<String>`: a string list is copied, and
+    /// anything else (an erased list) is read element by element.
+    fn crypto_usages_text(&self, usages: &Operand) -> Result<String, EmitError> {
+        let usages_ty = self.operand_ty(usages)?;
+        if matches!(self.mir.types.get(usages_ty), Some(Type::List(item))
+            if matches!(self.mir.types.get(*item), Some(Type::String)))
+        {
+            return Ok(format!("({}).borrow().clone()", self.operand_text(usages)?));
+        }
+        Ok(format!(
+            "match {} {{ SmeltUnknown::Array(items) => items.into_vec().into_iter().filter_map(|item| match item {{ SmeltUnknown::String(text) => Some(text.to_string()), _ => None }}).collect::<Vec<String>>(), _ => Vec::new() }}",
+            self.erase(usages)?
+        ))
     }
 
     /// Render the bytes of a concrete union whose every arm is byte-backed.

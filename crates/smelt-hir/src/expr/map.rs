@@ -1001,6 +1001,13 @@ impl ExprKind {
             Self::DateToString { timestamp_ms } => Self::DateToString {
                 timestamp_ms: f(timestamp_ms)?,
             },
+            Self::DateToUtcString { timestamp_ms } => Self::DateToUtcString {
+                timestamp_ms: f(timestamp_ms)?,
+            },
+            Self::JsonIndent { text, space } => Self::JsonIndent {
+                text: f(text)?,
+                space: f(space)?,
+            },
             Self::DateFromParts { parts } => Self::DateFromParts {
                 parts: map_vec(parts, f)?,
             },

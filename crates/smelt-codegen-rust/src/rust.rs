@@ -211,10 +211,14 @@ pub fn sanitize_identifier(name: &str) -> String {
 /// prelude line that writes `Box<dyn ..>` then refers to the user's struct
 /// (E0107). Renaming the source item the way a keyword is renamed keeps both:
 /// the declaration and every reference go through this function.
+///
+/// `main` is the same case one level up: the crate root defines the binary's
+/// entry point `fn main`, so a source function named `main` (`async function
+/// main() {..}; main()`, a common script shape) was a second `main` (E0428).
 fn is_rust_prelude_name(name: &str) -> bool {
     matches!(
         name,
-        "Box" | "Vec" | "Option" | "Result" | "String" | "Some" | "None" | "Ok" | "Err"
+        "Box" | "Vec" | "Option" | "Result" | "String" | "Some" | "None" | "Ok" | "Err" | "main"
     )
 }
 

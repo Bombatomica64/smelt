@@ -1520,13 +1520,20 @@ impl ModuleBuilder<'_> {
                 "JSON.stringify() currently supports value, replacer, and space arguments",
             ));
         }
-        for argument in call.arguments.iter().skip(1) {
-            let _ = self.argument(argument, body)?;
-        }
         let Some(argument) = call.arguments.first() else {
             return Ok(None);
         };
+        // Arguments in source order: the value, then the replacer (evaluated
+        // for its effects; only `null`/`undefined` replacers are modeled),
+        // then the indentation `space`, which lays the text out afterwards.
         let value = self.argument(argument, body)?;
+        let mut space = None;
+        for (index, extra) in call.arguments.iter().enumerate().skip(1) {
+            let lowered = self.argument(extra, body)?;
+            if index == 2 {
+                space = Some(lowered);
+            }
+        }
         let value_ty = Self::expr_ty(body, value);
         if !self.is_json_serializable_type(value_ty)
             && self.is_json_serializable_type_but_bigints(value_ty)
@@ -1560,10 +1567,19 @@ impl ModuleBuilder<'_> {
             ));
         }
         let ty = self.ctx.krate.types.intern(Type::String);
-        Ok(Some(body.push_expr(Expr {
+        let span = self.span(call.span.start, call.span.end);
+        let text = body.push_expr(Expr {
             kind: ExprKind::JsonStringify { value },
             ty,
-            span: self.span(call.span.start, call.span.end),
+            span,
+        });
+        let Some(space) = space else {
+            return Ok(Some(text));
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::JsonIndent { text, space },
+            ty,
+            span,
         })))
     }
 

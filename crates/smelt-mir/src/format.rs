@@ -1166,6 +1166,9 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::CryptoOp::RandomUuid => "random_uuid",
                 smelt_hir::CryptoOp::GetRandomValues => "get_random_values",
                 smelt_hir::CryptoOp::Digest => "digest",
+                smelt_hir::CryptoOp::ImportKey => "import_key",
+                smelt_hir::CryptoOp::Sign => "sign",
+                smelt_hir::CryptoOp::Verify => "verify",
             };
             let args_text = args
                 .iter()
@@ -1719,6 +1722,12 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
         }
         Rvalue::DateToString { timestamp_ms } => {
             format!("date_to_string {}", operand_text(timestamp_ms))
+        }
+        Rvalue::DateToUtcString { timestamp_ms } => {
+            format!("date_to_utc_string {}", operand_text(timestamp_ms))
+        }
+        Rvalue::JsonIndent { text, space } => {
+            format!("json_indent {}, {}", operand_text(text), operand_text(space))
         }
         Rvalue::DateFromParts { parts } => format!(
             "date_from_parts [{}]",

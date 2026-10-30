@@ -1081,6 +1081,19 @@ pub enum CryptoOp {
     /// rather than a fixed-size one, and why the emitted match carries every
     /// supported algorithm.
     Digest,
+    /// `crypto.subtle.importKey(format, keyData, algorithm, extractable,
+    /// usages)`. Async. Arguments, normalized by the frontend: the format
+    /// string, the key bytes, the algorithm name, the hash name (the
+    /// algorithm's `hash`), whether the key is extractable, and the usages
+    /// list. Answers a `CryptoKey`.
+    ImportKey,
+    /// `crypto.subtle.sign(algorithm, key, data)`. Async. Arguments: the
+    /// algorithm name, the key, the bytes. Answers an `ArrayBuffer`.
+    Sign,
+    /// `crypto.subtle.verify(algorithm, key, signature, data)`. Async.
+    /// Arguments: the algorithm name, the key, the signature bytes, the data
+    /// bytes. Answers a boolean.
+    Verify,
 }
 
 /// A directly lowered WHATWG `FormData` member.

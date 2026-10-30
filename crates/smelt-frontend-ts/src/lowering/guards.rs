@@ -2776,6 +2776,18 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
+        // `toUTCString` (and its legacy alias `toGMTString`) is the HTTP date
+        // form; `Expires=` in a cookie and a `Date` header carry it.
+        if matches!(method, "toUTCString" | "toGMTString") && call.arguments.is_empty() {
+            let receiver = self.expression(&member.object, body)?;
+            let timestamp_ms = self.date_receiver_timestamp(receiver, member, body)?;
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DateToUtcString { timestamp_ms },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         if method == "getTime" {
             if !call.arguments.is_empty() {
                 return Err(SmeltError::unsupported(

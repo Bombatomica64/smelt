@@ -750,10 +750,47 @@ impl ModuleBuilder<'_> {
             "fromCodePoint" => PrimitiveCastOp::FromCodePoints,
             _ => return Ok(None),
         };
+        let span = self.span(call.span.start, call.span.end);
+        // One spread of a code list or a typed array (`String.fromCharCode(
+        // ...new Uint8Array(signature))`, how base64 encoders turn bytes into
+        // a binary string): the spread operand IS the code list. An erased
+        // operand is read as a number list, as `[...x]` reads it. The operand
+        // is lowered once and always used, so its effects run exactly once.
+        if let [Argument::SpreadElement(spread)] = call.arguments.as_slice() {
+            let operand = self.expression(&spread.argument, body)?;
+            let operand_ty = Self::expr_ty(body, operand);
+            let float_ty = self.ctx.krate.types.intern(Type::Float);
+            let codes_ty = self.ctx.krate.types.intern(Type::List(float_ty));
+            let operand = if operand_ty == codes_ty || self.is_typed_array_view_type(operand_ty) {
+                operand
+            } else if matches!(
+                self.ctx.krate.types.get(operand_ty),
+                Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::List(_))
+            ) {
+                body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: operand,
+                        target: codes_ty,
+                    },
+                    ty: codes_ty,
+                    span,
+                })
+            } else {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "`String.fromCharCode(...x)` spreads a list of codes or a typed array",
+                ));
+            };
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::PrimitiveCast { op, operand },
+                ty: string_ty,
+                span,
+            })));
+        }
         if self.call_has_spread_arguments_or_source_spread(call) {
             return Ok(None);
         }
-        let span = self.span(call.span.start, call.span.end);
         let float_ty = self.ctx.krate.types.intern(Type::Float);
         let mut codes = Vec::with_capacity(call.arguments.len());
         for argument in &call.arguments {

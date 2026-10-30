@@ -38,6 +38,10 @@ pub enum StdlibClass {
     /// (a shared, mutable parsed URL whose `searchParams` is a live
     /// `SmeltUrlSearchParams` view of its query).
     Url,
+    /// WebCrypto `CryptoKey`, backed by the generated concrete `SmeltCryptoKey`
+    /// runtime type (the algorithm, its hash, the raw key bytes, and the
+    /// extractable/usages state `importKey` fixed).
+    CryptoKey,
     /// WHATWG `Response`, backed by the generated concrete `SmeltResponse`
     /// runtime type (a status line, a `SmeltHeaders`, and a single-use
     /// `SmeltBody`).
@@ -228,6 +232,7 @@ impl StdlibClass {
                 | Self::FormData
                 | Self::SqliteDatabase
                 | Self::SqliteStatement
+                | Self::CryptoKey
         )
     }
 
@@ -466,6 +471,7 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         _ if is_typed_array_class_name(name) => Some(StdlibClass::TypedArray),
         "ArrayBuffer" | "SharedArrayBuffer" => Some(StdlibClass::ArrayBuffer),
         "DataView" => Some(StdlibClass::DataView),
+        "CryptoKey" => Some(StdlibClass::CryptoKey),
         "Blob" => Some(StdlibClass::Blob),
         "File" => Some(StdlibClass::File),
         _ => None,

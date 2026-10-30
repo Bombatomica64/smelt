@@ -2691,6 +2691,21 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::JsonIndent { text, space } => {
+                let text = self.lower_expr(*text)?;
+                let space = self.lower_expr(*space)?;
+                self.assign_temp(expr.ty, expr.span, Rvalue::JsonIndent { text, space })?
+            }
+            ExprKind::DateToUtcString { timestamp_ms } => {
+                let timestamp_operand = self.lower_expr(*timestamp_ms)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DateToUtcString {
+                        timestamp_ms: timestamp_operand,
+                    },
+                )?
+            }
             ExprKind::DateFromParts { parts } => {
                 let part_operands = parts
                     .iter()
