@@ -798,8 +798,19 @@ impl FunctionEmitter<'_> {
                 // Read by borrow: the emitted expression appends its own
                 // `.clone()`, so cloning here made it `x.clone().clone()`.
                 let dict_text = self.operand_borrow_text(dict)?;
+                // A nominal record erases through the emitter's own field-wise
+                // object builder, not its generic `IntoSmeltUnknown` impl: that
+                // impl has no ABI for a callable field and renders it `null`,
+                // so `const { strict, ...rest } = options` dropped Hono's
+                // `options.router` methods and every route `app.route(..)`
+                // mounted was added to a router that answered nothing.
+                let erased = if source_is_record {
+                    self.erase_value_text(&format!("{dict_text}.clone()"), dict_ty)?
+                } else {
+                    format!("({dict_text}.clone()).into_smelt_unknown()")
+                };
                 return Ok(format!(
-                    "match ({dict_text}.clone()).into_smelt_unknown() {{ SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter()), _ => Default::default() }}"
+                    "match {erased} {{ SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter()), _ => Default::default() }}"
                 ));
             }
             return Ok("Default::default()".to_owned());

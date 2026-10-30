@@ -230,6 +230,34 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// Whether a value read off `source_field` of the record `source` is
+    /// already at the slot ABI `target_field` of `target` declares.
+    ///
+    /// True when both records instantiate the SAME declared slot (one
+    /// declaration, so one Rust field type). The caller asks only when the
+    /// field's coercion passed the read through untouched, so the value is the
+    /// stored callable as it is, which the generated struct already holds at
+    /// the declared ABI. Wrapping it in
+    /// [`Self::record_slot_abi_adapter_text`] would treat it as rendered at the
+    /// substituted ABI and forward the wrong side of the `&`/`.clone()` seam
+    /// (E0308 on Hono's `Router<[unknown, RouterRoute]>` rebuilt from an
+    /// `options.router ?? new SmartRouter(..)` value).
+    pub(super) fn record_slot_read_keeps_slot_abi(
+        &self,
+        source: TypeId,
+        source_field: &MirField,
+        target: TypeId,
+        target_field: &MirField,
+    ) -> bool {
+        let (Some((source_declared, _)), Some((target_declared, _))) = (
+            self.declared_record_field_slot(source, source_field.name),
+            self.declared_record_field_slot(target, target_field.name),
+        ) else {
+            return false;
+        };
+        source_declared == target_declared
+    }
+
     /// Apply [`Self::record_slot_abi_adapter_text`] to a field value, returning
     /// the original text when no adaptation is needed.
     ///
