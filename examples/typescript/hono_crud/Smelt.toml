@@ -28,6 +28,14 @@ build = false
 
 [rust]
 edition = "2024"
+# A server allocates and frees a burst of small objects per request (the
+# Hono Context, its Request/Response, headers, route params), which is what a
+# thread-caching allocator is built for: libc, almost all of it malloc/free,
+# was ~28% of a served request's CPU samples
+# (blocker-logs/hono-crud-perf-round1.md). This app already builds C
+# (rusqlite's bundled SQLite), so mimalloc's C build costs it nothing new. See `smelt_codegen_rust::GeneratedAllocator` for why Smelt leaves this
+# choice to the application.
+allocator = "mimalloc"
 
 [rust.dependencies]
 axum = "0.7"

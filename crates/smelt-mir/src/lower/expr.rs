@@ -3442,32 +3442,31 @@ impl LoweringCtx<'_> {
         if self.hir_expr_is_eager_safe(fallback)? {
             return Ok(None);
         }
-        let optional_ty = match optional {
-            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
-                self.mir_local(*local)?.ty
-            }
-            _ => return Ok(None),
+        // Only a local is read twice (by the test and by an arm) for free.
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = optional
+        else {
+            return Ok(None);
         };
-        let shapes_agree = match self.krate.types.get(optional_ty) {
-            Some(Type::Optional(inner)) => *inner == ty,
-            Some(Type::Unknown) => self.krate.types.get(ty) == Some(&Type::Unknown),
-            _ => false,
+        let optional_ty = self.mir_local(*local)?.ty;
+        let optional_shape = self.krate.types.get(optional_ty);
+        let shapes_agree = if let Some(Type::Optional(inner)) = optional_shape {
+            *inner == ty
+        } else {
+            optional_shape == Some(&Type::Unknown)
+                && self.krate.types.get(ty) == Some(&Type::Unknown)
         };
         if !shapes_agree {
             return Ok(None);
         }
         // Read by both the test and an arm, so never moved.
-        let optional = &match optional {
-            Operand::Move(place) => Operand::Copy(place.clone()),
-            other => other.clone(),
-        };
+        let read = Operand::Copy(Place::Local(*local));
         let bool_ty = self.loop_bool_ty;
         let cond = self.assign_temp(
             bool_ty,
             span,
             Rvalue::Binary {
                 op: smelt_hir::BinOp::Eq,
-                lhs: optional.clone(),
+                lhs: read.clone(),
                 rhs: Operand::Const(Constant::None),
             },
         )?;
@@ -3485,7 +3484,7 @@ impl LoweringCtx<'_> {
         self.block_mut()?.statements.push(Statement::Assign {
             dest,
             value: Rvalue::OptionalCoalesce {
-                optional: optional.clone(),
+                optional: read.clone(),
                 fallback: lowered_fallback,
             },
         });
@@ -3498,7 +3497,7 @@ impl LoweringCtx<'_> {
         self.current_block = present_block;
         self.block_mut()?.statements.push(Statement::Assign {
             dest,
-            value: Rvalue::Use(optional.clone()),
+            value: Rvalue::Use(read),
         });
         let present_tail = self.current_block;
 
@@ -3551,10 +3550,12 @@ impl LoweringCtx<'_> {
             return Ok(false);
         }
         let mut children = Vec::new();
-        let _ = kind.try_map_child_exprs(&mut |child| {
+        // The mapper is used only to visit the children; its rebuilt kind is
+        // discarded.
+        drop(kind.try_map_child_exprs(&mut |child| {
             children.push(child);
             Ok::<_, ()>(child)
-        });
+        }));
         for child in children {
             if !self.hir_expr_is_eager_safe(child)? {
                 return Ok(false);
@@ -3563,6 +3564,8 @@ impl LoweringCtx<'_> {
         Ok(true)
     }
 
+    /// Assign `value` to a fresh temporary of type `ty` in the current block
+    /// and return an operand reading it.
     pub(super) fn assign_temp(
         &mut self,
         ty: TypeId,

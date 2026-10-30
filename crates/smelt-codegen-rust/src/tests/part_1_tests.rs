@@ -1237,7 +1237,11 @@ const code = word.charCodeAt(2);
     assert!(
         source.contains(".chars().nth(1.0 as usize).map(|ch| ch.to_string()).unwrap_or_default();")
     );
-    assert!(source.contains(".chars().nth(2.0 as usize).map_or(f64::NAN, |ch| ch as u32 as f64);"));
+    // `charCodeAt` reads the byte directly while the prefix through the index
+    // is ASCII and otherwise decodes exactly as before; both arms are emitted.
+    assert!(source.contains("Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[smelt_index])"));
+    assert!(source.contains("smelt_text.chars().nth(smelt_index).map_or(f64::NAN, |ch| ch as u32 as f64)"));
+    assert!(source.contains("(&word, 2.0 as usize);"));
 }
 
 #[test]

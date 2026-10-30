@@ -9098,12 +9098,29 @@ export function clampFrom(guard: boolean, fromIndex?: number): number {
 }
 ",
     );
-    // The post-join read of `fromIndex` must be a plain `f64`, not an
-    // `Option<f64>` unwrapped at the use site.
+    // The post-join read of `fromIndex` must be NARROWED to `f64`. Narrowing an
+    // optional local is rendered as the checked read
+    // `x.clone().expect("optional value was absent after narrowing")` (the same
+    // read the else arm's `fromIndex + 1` gets from its truthiness guard); the
+    // un-narrowed read defaults the absent case instead
+    // (`from_index.clone().unwrap_or(0.0)`).
+    //
+    // Corrected requirement. This test used to assert the ABSENCE of
+    // `from_index.clone().expect`, but that only held because the narrowed read
+    // was emitted with a redundant second clone (`.clone().clone().expect`):
+    // with the join narrowing disabled the old assertion still passed, so it
+    // never detected the defect it names. The guarantee from the change that
+    // added it (86856594: the read type-checks as the inner type instead of
+    // `Option<f64>`, clearing an E0308) is what is asserted now: both reads are
+    // narrowed and none defaults. Disabling the join narrowing in
+    // `types_iface.rs` turns the post-join read into `unwrap_or(0.0)` and fails
+    // both checks.
+    let narrowed_reads = source
+        .matches("from_index.clone().expect(\"optional value was absent after narrowing\")")
+        .count();
     assert!(
-        !source.contains("from_index.unwrap")
-            && !source.contains("from_index.clone().expect"),
-        "branch-join narrowing should leave fromIndex as a concrete f64: {source}"
+        narrowed_reads == 2 && !source.contains("from_index.clone().unwrap_or("),
+        "branch-join narrowing should read fromIndex as a narrowed f64 after the join: {source}"
     );
 }
 
