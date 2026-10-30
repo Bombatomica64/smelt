@@ -52,6 +52,30 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Whether the TS7 checker types the expression at `start..end` as an
+    /// array or a tuple (every member, for a union). `false` without facts.
+    pub(in crate::lowering) fn checker_types_as_array(&self, start: u32, end: u32) -> bool {
+        let Some(facts) = self.ts_facts else {
+            return false;
+        };
+        let Some(ty) = facts.type_at(&self.path, start, end) else {
+            return false;
+        };
+        match &ty.kind {
+            TsTypeKind::Array { .. } | TsTypeKind::Tuple { .. } => true,
+            TsTypeKind::Union { members, .. } => {
+                !members.is_empty()
+                    && members.iter().all(|member| {
+                        matches!(
+                            facts.types.get(*member).map(|member| &member.kind),
+                            Some(TsTypeKind::Array { .. } | TsTypeKind::Tuple { .. })
+                        )
+                    })
+            }
+            _ => false,
+        }
+    }
+
     /// Whether the checker types the expression at `start..end` as admitting
     /// `null` but not `undefined` (nor `void`).
     pub(in crate::lowering) fn checker_absent_is_null(&self, start: u32, end: u32) -> bool {

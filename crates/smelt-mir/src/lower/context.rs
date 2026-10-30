@@ -68,6 +68,8 @@ pub(super) struct LoweringCtx<'hir> {
     pub(super) loop_index_ty: TypeId,
     /// Boolean type used for generated loop conditions.
     pub(super) loop_bool_ty: TypeId,
+    /// See [`LoweringShared::thrown_ty`].
+    pub(super) thrown_ty: Option<(TypeId, Symbol)>,
 }
 
 /// Target blocks for break and continue statements.
@@ -108,6 +110,9 @@ pub(super) struct LoweringShared<'hir> {
     pub(super) loop_index_ty: TypeId,
     /// Boolean type used for generated loop conditions.
     pub(super) loop_bool_ty: TypeId,
+    /// The erased type a `finally` clause's rethrown value is held at; `Some`
+    /// when the crate has a `try` with a `finally` (see `lower_try_catch`).
+    pub(super) thrown_ty: Option<(TypeId, Symbol)>,
     /// Global closure id offset for closures this context constructs.
     pub(super) closure_base: usize,
 }
@@ -282,6 +287,7 @@ impl<'hir> LoweringCtx<'hir> {
             finally_scopes: Vec::new(),
             loop_index_ty: shared.loop_index_ty,
             loop_bool_ty: shared.loop_bool_ty,
+            thrown_ty: shared.thrown_ty,
         }
     }
 

@@ -1,0 +1,62 @@
+module examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (ModuleId(0))
+  body BodyId(9)
+  items
+    fn cleanup_after__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts owner Module
+    fn failing__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts owner Module
+    fn rethrow_through__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts owner Module
+    fn get_key__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts owner Module
+    fn sign__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts owner Module
+    fn verify__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts owner Module
+    fn run owner Module
+  locals
+    %0 const algorithm: Dict<String, String>
+  exprs
+    #0: String = "name"
+    #1: String = "HMAC"
+    #2: String = "hash"
+    #3: String = "SHA-256"
+    #4: Dict<String, String> = {#0: #1, #2: #3}
+    #5: async fn() -> Future<None> = @0(run)
+    #6: Future<None> = call #5()
+    #7: None = async_spawn_local(#6)
+    #8: Future<None> = async_exit_drain()
+    #9: None = await #8
+  stmts
+    s0: let %0: Dict<String, String> = #4
+    s1: #7
+    s2: #9
+  async state machine
+    states [state0, state1]
+    suspend #9 on #8 -> state10
+
+interned types
+  t0 = String
+  t1 = Dict<String, String>
+  t2 = List<String>
+  t3 = Uint8Array
+  t4 = DataView
+  t5 = ArrayBuffer
+  t6 = Uint8Array | DataView | ArrayBuffer
+  t7 = String | Uint8Array | DataView | ArrayBuffer
+  t8 = CryptoKey
+  t9 = Future<CryptoKey>
+  t10 = async fn(String | Uint8Array | DataView | ArrayBuffer) -> Future<CryptoKey>
+  t11 = Future<String>
+  t12 = async fn(String, String | Uint8Array | DataView | ArrayBuffer) -> Future<String>
+  t13 = Bool
+  t14 = Future<Bool>
+  t15 = async fn(String, String, CryptoKey) -> Future<Bool>
+  t16 = None
+  t17 = Future<None>
+  t18 = fn() -> Future<None>
+  t19 = async fn(fn() -> Future<None>) -> Future<String>
+  t20 = async fn() -> Future<None>
+  t21 = Float
+  t22 = fn(Float) -> String
+  t23 = async fn() -> Future<None>
+  t24 = Unknown
+  t25 = Dict<String, Unknown>
+  t26 = TextEncoder
+  t27 = Future<ArrayBuffer>
+  t28 = List<Float>
+  t29 = Dict<String, List<Float>>

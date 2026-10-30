@@ -53,7 +53,7 @@ pub use format::format_compact;
 pub use list_escape::{
     BodyKey, BodyListEscape, EscapeReason, ListLocalClass, ListLocalFact, analyze_list_escapes,
 };
-pub use lower::{LowerError, lower_hir};
+pub use lower::{LowerError, PENDING_THROWN_LOCAL, lower_hir};
 pub use type_normalize::normalize_operational_types;
 pub use types::*;
 pub use validate::{ValidationError, validate};

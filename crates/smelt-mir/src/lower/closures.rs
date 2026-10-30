@@ -133,6 +133,7 @@ impl LoweringCtx<'_> {
             languages: self.languages,
             loop_index_ty: self.loop_index_ty,
             loop_bool_ty: self.loop_bool_ty,
+            thrown_ty: self.thrown_ty,
             closure_base: closure_index
                 .checked_add(1)
                 .ok_or_else(|| self.error("MIR closure index overflowed usize", Some(expr_span)))?,

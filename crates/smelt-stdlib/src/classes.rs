@@ -38,7 +38,7 @@ pub enum StdlibClass {
     /// (a shared, mutable parsed URL whose `searchParams` is a live
     /// `SmeltUrlSearchParams` view of its query).
     Url,
-    /// WebCrypto `CryptoKey`, backed by the generated concrete `SmeltCryptoKey`
+    /// `WebCrypto` `CryptoKey`, backed by the generated concrete `SmeltCryptoKey`
     /// runtime type (the algorithm, its hash, the raw key bytes, and the
     /// extractable/usages state `importKey` fixed).
     CryptoKey,
