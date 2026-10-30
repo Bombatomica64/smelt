@@ -449,9 +449,12 @@ impl FunctionEmitter<'_> {
             && *inner == target
             && matches!(self.mir.types.get(target), Some(Type::Function(_)))
         {
+            // Clone the optional once (`operand_text` already clones a place)
+            // and build the default callable only when the value is absent:
+            // an eager default allocated an adapter `Rc` on every read.
             return Ok(format!(
-                "{}.clone().unwrap_or({})",
-                self.operand_text(operand)?,
+                "{}.clone().unwrap_or_else(|| {})",
+                self.operand_borrow_text(operand)?,
                 self.default_value(target)?
             ));
         }
@@ -465,9 +468,10 @@ impl FunctionEmitter<'_> {
         if let Some(Type::Optional(inner)) = self.mir.types.get(self.operand_ty(operand)?)
             && *inner == target
         {
+            // As above: one clone, and the default only on the absent path.
             return Ok(format!(
-                "{}.clone().unwrap_or({})",
-                self.operand_text(operand)?,
+                "{}.clone().unwrap_or_else(|| {})",
+                self.operand_borrow_text(operand)?,
                 self.default_value(target)?
             ));
         }

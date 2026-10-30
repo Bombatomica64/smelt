@@ -427,13 +427,15 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(format!(
                         "{}.clone().or({})",
-                        self.operand_text(optional)?,
+                        self.operand_borrow_text(optional)?,
                         self.operand_text(fallback)?
                     ));
                 }
+                // One clone of the optional: `operand_text` of a place already
+                // ends in `.clone()`, and the coalescing read only borrows.
                 let coalesced = format!(
                     "{}.clone().unwrap_or({})",
-                    self.operand_text(optional)?,
+                    self.operand_borrow_text(optional)?,
                     self.value_at_type(fallback, *inner)?
                 );
                 if dest_ty == *inner {

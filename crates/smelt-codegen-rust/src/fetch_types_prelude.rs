@@ -971,7 +971,9 @@ fn emit_request_struct(writer: &mut CodeWriter) {
 
 /// A conservative test for an `http(s)` URL that is already in its WHATWG
 /// serialization, so parsing and re-serializing it would give it back
-/// unchanged.
+/// unchanged. (`about:blank`, the placeholder every `Request`-typed field is
+/// initialized with, is the other input `assemble` passes through: it is its
+/// own serialization.)
 ///
 /// Every request a served program receives is built from
 /// `http://<host><path>`, and parsing that once per request was ~3% of a
@@ -1046,7 +1048,7 @@ fn emit_request_inherent_impl(writer: &mut CodeWriter) {
         impl_writer.block(
             "fn assemble(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody, init: ::std::rc::Rc<SmeltRequestInit>) -> Self",
             |fn_writer| {
-                fn_writer.line("let url = if smelt_url_is_serialized_http(input) { input.to_owned() } else { ::url::Url::parse(input).map_or_else(|_| input.to_owned(), |parsed| parsed.to_string()) };");
+                fn_writer.line("let url = if input == \"about:blank\" || smelt_url_is_serialized_http(input) { input.to_owned() } else { ::url::Url::parse(input).map_or_else(|_| input.to_owned(), |parsed| parsed.to_string()) };");
                 fn_writer.block(
                     "if let Some(content_type) = body.content_type() && !headers.has(\"content-type\")",
                     |arm_writer| {
