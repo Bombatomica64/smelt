@@ -4106,14 +4106,14 @@ pub(crate) fn finally_then_catch() -> SmeltFuture<()> {
 
 pub(crate) async fn failing() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_0: Failure = Failure::new("next() called multiple times".to_owned());
-    return Err::<_, Box<dyn std::error::Error>>(smelt_throw({ let smelt_object_value = _smelt_tmp_0; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("message".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().message.clone()).into()))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Failure".into()))); SmeltUnknown::Object(SmeltObject::with_id(smelt_reference_object_identity(&smelt_struct_value.0), smelt_object_entries).smelt_with_origin(smelt_struct_value.clone())) }));
+    return Err::<_, Box<dyn std::error::Error>>(smelt_throw({ let smelt_object_value = _smelt_tmp_0; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("message".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().message.clone()).into()))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Failure".into()))); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) }));
 }
 
 pub(crate) fn prepare(n: f64) -> Result<f64, Box<dyn std::error::Error>> {
     let _smelt_tmp_1: bool = n < 0.0;
     if _smelt_tmp_1 {
     let _smelt_tmp_2: Failure = Failure::new("negative".to_owned());
-    return Err::<_, Box<dyn std::error::Error>>(smelt_throw({ let smelt_object_value = _smelt_tmp_2; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("message".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().message.clone()).into()))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Failure".into()))); SmeltUnknown::Object(SmeltObject::with_id(smelt_reference_object_identity(&smelt_struct_value.0), smelt_object_entries).smelt_with_origin(smelt_struct_value.clone())) }));
+    return Err::<_, Box<dyn std::error::Error>>(smelt_throw({ let smelt_object_value = _smelt_tmp_2; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("message".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().message.clone()).into()))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Failure".into()))); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) }));
     } else {
     return Ok(n);
     }
