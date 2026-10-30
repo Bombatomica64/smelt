@@ -429,9 +429,13 @@ impl FunctionEmitter<'_> {
                             && !matches!(self.mir.types.get(dest_ty), Some(Type::Function(_)))
                 ) =>
             {
+                // Clone ONCE: the operand is only read, and `operand_text` of a
+                // place already ends in `.clone()`, so the owned read cloned the
+                // whole optional twice (a regex match's captures, per request,
+                // in Hono's router).
                 Ok(format!(
                     "{}.clone().expect(\"optional value was absent after narrowing\")",
-                    self.operand_text(operand)?
+                    self.operand_borrow_text(operand)?
                 ))
             }
             Rvalue::Use(operand) => self.value_at_type(operand, dest_ty),

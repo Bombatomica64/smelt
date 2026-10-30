@@ -5,6 +5,7 @@
 // case, default ports, leading zeros, IPv4 shorthand, dot segments, characters
 // in a percent-encode set, and backslashes.
 const inputs: string[] = [
+  'about:blank',
   'http://localhost:3000/todos/abc',
   'http://127.0.0.1:3110/todos?x=1&y=2',
   'https://ex-ample.com:8443/a/b?c=d',
