@@ -1,0 +1,7 @@
+ 19:31:30 up 6 days, 22:44,  1 user,  load average: 1.45, 2.25, 3.61
+node r1  19:33:01 up 6 days, 22:46,  1 user,  load average: 1.69, 2.18, 3.46
+rust r1  19:37:35 up 6 days, 22:50,  1 user,  load average: 1.97, 2.03, 3.05
+node r2  19:39:06 up 6 days, 22:52,  1 user,  load average: 1.71, 1.94, 2.92
+rust r2  19:43:40 up 6 days, 22:56,  1 user,  load average: 1.92, 2.00, 2.69
+node r3  19:45:11 up 6 days, 22:58,  1 user,  load average: 2.40, 2.08, 2.65
+rust r3  19:49:45 up 6 days, 23:02,  1 user,  load average: 1.91, 1.94, 2.43
