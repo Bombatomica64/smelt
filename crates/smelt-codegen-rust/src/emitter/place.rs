@@ -55,9 +55,13 @@ impl FunctionEmitter<'_> {
                         // `undefined` in JavaScript, never `null`. The two are
                         // distinguishable under `===`, so answering `Null` here
                         // silently defeats every `value === undefined` guard the
-                        // source writes over a dynamic record.
+                        // source writes over a dynamic record. A DOTTED read is a
+                        // property read, so a miss consults the prototype entries
+                        // an erased class instance carries before answering
+                        // `undefined` (`err.getResponse` after `'getResponse' in
+                        // err` narrowed an erased error to a record arm).
                         return Ok(format!(
-                            "{base_text}.get(&{key_text}).unwrap_or(SmeltUnknown::Undefined)"
+                            "{base_text}.get(&{key_text}).unwrap_or_else(|| smelt_record_inherited(&{base_text}, &{key_text}))"
                         ));
                     }
                     if self.dict_uses_smelt_record(*key) || self.dict_uses_js_key_map(*key) {

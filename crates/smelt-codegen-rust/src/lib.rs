@@ -4046,6 +4046,11 @@ fn emit_source_with_free_function_router(
         writer.line("    pair.get(0).is_some_and(|entry_key| entry_key.same_js_key(key))");
         writer.line("}");
         writer.blank_line();
+        writer.line("/// A property missing from a record's own entries, read through the");
+        writer.line("/// prototype entries an erased object carries (`__smelt_proto:` for");
+        writer.line("/// `Object.create`, `__smelt_method:` for a class method), else `undefined`.");
+        writer.line("#[allow(dead_code)]");
+        writer.line("fn smelt_record_inherited(record: &SmeltRecord<String, SmeltUnknown>, key: &str) -> SmeltUnknown { record.get(&format!(\"__smelt_proto:{key}\")).or_else(|| record.get(&format!(\"__smelt_method:{key}\"))).unwrap_or(SmeltUnknown::Undefined) }");
         writer.line("fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {");
         if needs_vitest_mock {
             // Vitest exposes a `.mock` accessor on every mock function carrying
@@ -4413,7 +4418,11 @@ fn emit_source_with_free_function_router(
         writer.line("fn smelt_has_property(value: &SmeltUnknown, key: &str) -> bool {");
         writer.line("    if smelt_has_own_property(value, key) { return true; }");
         writer.line("    match value {");
-        writer.line("        SmeltUnknown::Object(map) => ((map.contains_key(\"__smelt_map\") || map.contains_key(\"__smelt_set\")) && key == \"size\") || smelt_object_prototype_member(key).is_some(),");
+        // A method of an erased class instance lives on its prototype, which
+        // the erased object carries as `__smelt_method:`/`__smelt_proto:`
+        // entries (the same ones a property READ resolves through), so
+        // `'getResponse' in err` is true for an erased `HTTPException`.
+        writer.line("        SmeltUnknown::Object(map) => ((map.contains_key(\"__smelt_map\") || map.contains_key(\"__smelt_set\")) && key == \"size\") || map.contains_key(&format!(\"__smelt_method:{key}\")) || map.contains_key(&format!(\"__smelt_proto:{key}\")) || smelt_object_prototype_member(key).is_some(),");
         writer.line("        SmeltUnknown::Array(_) | SmeltUnknown::String(_) => key == \"__smelt_symbol_iterator\" || smelt_object_prototype_member(key).is_some(),");
         writer.line("        _ => false,");
         writer.line("    }");

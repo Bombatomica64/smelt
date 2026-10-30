@@ -32,6 +32,7 @@
 //! - a collection method mutates one of its instance fields in place (see
 //!   [`collect_field_mutation_triggers`]), or
 //! - it stores a virtual method SLOT (see [`collect_virtual_slot_triggers`]), or
+//! - its instances are THROWN (see [`collect_thrown_class_triggers`]), or
 //! - it INHERITS from a reference class, or a class inheriting from it is one
 //!   (see [`close_over_heritage`]).
 //!
@@ -108,6 +109,7 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
     collect_bound_receiver_triggers(mir, &mut references);
     collect_identity_comparison_triggers(mir, &mut references);
     collect_virtual_slot_triggers(mir, &mut references);
+    collect_thrown_class_triggers(mir, &mut references);
     // Before the index-store deviation below, so that deviation still has the
     // final say for a class that carries a dynamic index signature.
     close_over_heritage(mir, &mut references);
@@ -140,6 +142,41 @@ fn collect_virtual_slot_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
         if !crate::classes::own_virtual_slot_names(mir, class).is_empty() {
             references.insert(class.name);
         }
+    }
+}
+
+/// A class whose instances are thrown: `throw err` with `err` a class value.
+///
+/// A thrown value crosses the erased channel and comes back through `catch`,
+/// a rejected promise or a test matcher, and JavaScript code checks it by
+/// identity there (`expect(context.error).toBe(error)`, `e === err`, a
+/// rethrow). A by-value struct erases to a fresh object each time, so those
+/// checks failed; a reference class's erased view carries one stable id.
+fn collect_thrown_class_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
+    let mut note = |locals: &[smelt_mir::LocalDecl], blocks: &[smelt_mir::BasicBlock]| {
+        for block in blocks {
+            let Some(smelt_mir::Terminator::Throw(operand)) = &block.terminator else {
+                continue;
+            };
+            let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand
+            else {
+                continue;
+            };
+            let Some(decl) = usize::try_from(local.0).ok().and_then(|index| locals.get(index)) else {
+                continue;
+            };
+            if let Some(Type::Class { name, .. }) = mir.types.get(decl.ty)
+                && mir.classes.iter().any(|class| class.name == *name)
+            {
+                references.insert(*name);
+            }
+        }
+    };
+    for function in &mir.functions {
+        note(&function.locals, &function.blocks);
+    }
+    for closure in &mir.closures {
+        note(&closure.locals, &closure.blocks);
     }
 }
 

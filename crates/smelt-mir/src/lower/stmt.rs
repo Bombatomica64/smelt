@@ -368,6 +368,23 @@ impl LoweringCtx<'_> {
             self.finally_scopes.push(finally_hir);
         }
 
+        // A `finally` runs on the EXCEPTIONAL exit too: a throw (or a rejected
+        // `await`) out of the `try` body when there is no `catch`, or out of
+        // the `catch` body, runs the clause and then rethrows the same value.
+        // That path is its own handler block, which re-lowers the clause and
+        // ends in a `throw` of the caught value. Before, only the normal and
+        // `return` exits ran it, so `try { await race } finally { clearTimeout(t) }`
+        // left the timer armed when the race rejected.
+        let finally_rethrow = match finally_body_hir {
+            Some(_) => self.finally_rethrow_target(try_span)?,
+            None => None,
+        };
+        if catch_mir_block.is_none()
+            && let Some(target) = finally_rethrow
+        {
+            self.exception_targets.push(target);
+        }
+
         if let Some(catch_block) = catch_mir_block {
             let exception_local = catch_binding
                 .map(|local| {
@@ -388,15 +405,21 @@ impl LoweringCtx<'_> {
             self.set_terminator(Terminator::Goto(normal_exit))?;
         }
 
-        if catch_mir_block.is_some() {
+        if catch_mir_block.is_some() || finally_rethrow.is_some() {
             self.exception_targets.pop();
         }
 
         if let (Some(catch_hir), Some(catch_block)) = (catch_body_hir, catch_mir_block) {
+            if let Some(target) = finally_rethrow {
+                self.exception_targets.push(target);
+            }
             self.current_block = catch_block;
             self.lower_block_stmts(catch_hir)?;
             if self.block()?.terminator.is_none() {
                 self.set_terminator(Terminator::Goto(normal_exit))?;
+            }
+            if finally_rethrow.is_some() {
+                self.exception_targets.pop();
             }
         }
 
@@ -417,8 +440,42 @@ impl LoweringCtx<'_> {
             }
         }
 
+        // The exceptional exit: the clause, then rethrow the caught value. A
+        // `return` inside the clause still wins, as it does in JavaScript.
+        if let (Some(finally_hir), Some(target)) = (finally_body_hir, finally_rethrow)
+            && let Some(exception_local) = target.exception_local
+        {
+            self.current_block = target.catch_block;
+            // A second emission of the same statements: see
+            // `lower_inline_finally` for why the expression memo is cleared.
+            self.lower_inline_finally(finally_hir)?;
+            if self.block()?.terminator.is_none() {
+                self.set_terminator(Terminator::Throw(Operand::Copy(Place::Local(
+                    exception_local,
+                ))))?;
+            }
+        }
+
         self.current_block = after;
         Ok(())
+    }
+
+    /// The handler a `finally` installs for the exceptional exit: a fresh block
+    /// and an erased local receiving the thrown value (see `lower_try_catch`).
+    ///
+    /// `None` when the program interns no erased type: a thrown value is a
+    /// `SmeltUnknown`, so a program without one has nothing to carry, and keeps
+    /// the normal-exit-only lowering.
+    fn finally_rethrow_target(&mut self, span: smelt_hir::Span) -> Result<Option<ExceptionTarget>, LowerError> {
+        let Some(unknown_ty) = self.krate.types.lookup(&smelt_hir::Type::Unknown) else {
+            return Ok(None);
+        };
+        let exception_local = self.push_temp(unknown_ty, span);
+        let catch_block = self.function.push_block(span);
+        Ok(Some(ExceptionTarget {
+            catch_block,
+            exception_local: Some(exception_local),
+        }))
     }
 
     /// Lowers an if statement to MIR with switch terminator.
