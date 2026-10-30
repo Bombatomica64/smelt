@@ -401,16 +401,16 @@ fn main() {
 use super::*;
 
 pub(crate) fn describe(init: Init) -> String {
-    let _smelt_tmp_1: f64 = init.status.clone().clone().unwrap_or(0.0);
+    let _smelt_tmp_1: f64 = init.status.clone().unwrap_or(0.0);
     let _smelt_tmp_2: String = "".to_owned() + &smelt_number_to_string(_smelt_tmp_1);
     let _smelt_tmp_3: String = _smelt_tmp_2 + &"/".to_owned();
-    let _smelt_tmp_4: String = init.status_text.clone().clone().unwrap_or("-".to_owned());
+    let _smelt_tmp_4: String = init.status_text.clone().unwrap_or("-".to_owned());
     let _smelt_tmp_5: String = _smelt_tmp_3 + &_smelt_tmp_4;
     let _smelt_tmp_6: String = _smelt_tmp_5 + &"/".to_owned();
-    let _smelt_tmp_7: bool = init.ok.clone().clone().unwrap_or(false);
+    let _smelt_tmp_7: bool = init.ok.clone().unwrap_or(false);
     let _smelt_tmp_8: String = _smelt_tmp_6 + &_smelt_tmp_7.to_string();
     let _smelt_tmp_9: String = _smelt_tmp_8 + &"/".to_owned();
-    let _smelt_tmp_10: String = init.label.clone().clone().unwrap_or("none".to_owned());
+    let _smelt_tmp_10: String = init.label.clone().unwrap_or("none".to_owned());
     let _smelt_tmp_11: String = _smelt_tmp_9 + &_smelt_tmp_10;
     return _smelt_tmp_11;
 }
@@ -421,7 +421,7 @@ pub(crate) fn describe_maybe(init: Option<Init>) -> String {
     if _smelt_tmp_1 {
     return "absent".to_owned();
     } else {
-    _smelt_tmp_2 = init.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_2 = init.clone().expect("optional value was absent after narrowing");
     let _smelt_tmp_3: String = describe(_smelt_tmp_2);
     return _smelt_tmp_3;
     }

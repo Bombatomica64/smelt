@@ -208,7 +208,7 @@ pub(crate) fn cluster(list: SmeltList<f64>, size: Option<f64>) -> SmeltList<Smel
     let mut _smelt_tmp_15: SmeltList<f64>;
     let mut _smelt_tmp_16: f64;
     let mut _smelt_tmp_17: f64;
-    let _smelt_tmp_6: f64 = size.clone().clone().unwrap_or(2.0);
+    let _smelt_tmp_6: f64 = size.clone().unwrap_or(2.0);
     let size_1: f64 = _smelt_tmp_6;
     let _smelt_tmp_7: f64 = list.len() as f64;
     let _smelt_tmp_8: f64 = _smelt_tmp_7 / size_1;

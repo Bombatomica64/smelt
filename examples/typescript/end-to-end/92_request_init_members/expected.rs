@@ -381,6 +381,14 @@ impl Default for SmeltRequestInit {
     }
 }
 
+thread_local! {
+    /// The spec's default `RequestInit`, shared by every request built without one.
+    static SMELT_DEFAULT_REQUEST_INIT: ::std::rc::Rc<SmeltRequestInit> = ::std::rc::Rc::new(SmeltRequestInit::default());
+}
+
+/// A handle on the shared default `RequestInit` (its members are immutable).
+fn smelt_default_request_init() -> ::std::rc::Rc<SmeltRequestInit> { SMELT_DEFAULT_REQUEST_INIT.with(::std::rc::Rc::clone) }
+
 #[allow(dead_code)]
 impl SmeltRequestInit {
     /// Serialize a spelled `referrer` the way the spec stores it.
@@ -407,12 +415,40 @@ pub struct SmeltRequest {
     headers: SmeltHeaders,
     body: SmeltBody,
     /// The stored `RequestInit` members; see `SmeltRequestInit`.
-    init: SmeltRequestInit,
+    ///
+    /// Shared, because they are immutable once the request exists: a request
+    /// is cloned on every handle copy, and seven owned strings per clone were
+    /// a measurable share of a served request.
+    init: ::std::rc::Rc<SmeltRequestInit>,
 }
 
 impl PartialEq for SmeltRequest { fn eq(&self, other: &Self) -> bool { self.url == other.url && self.method == other.method && self.headers == other.headers && self.body == other.body && self.init == other.init } }
 impl ::std::fmt::Debug for SmeltRequest { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltRequest").field("method", &self.method).field("url", &self.url).field("headers", &self.headers).field("body", &self.body).finish() } }
-impl Default for SmeltRequest { fn default() -> Self { Self::from_parts("", "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty()) } }
+impl Default for SmeltRequest { fn default() -> Self { let headers = SmeltHeaders::new(); let body = SmeltBody::empty(); Self { id: smelt_next_object_id(), url: String::new(), method: "GET".to_owned(), headers, body, init: smelt_default_request_init() } } }
+
+/// Whether `input` is an http(s) URL already in its WHATWG serialization (see `fetch_types_prelude`).
+#[allow(dead_code)]
+fn smelt_url_is_serialized_http(input: &str) -> bool {
+    let (rest, default_port) = if let Some(rest) = input.strip_prefix("http://") { (rest, 80_u32) } else if let Some(rest) = input.strip_prefix("https://") { (rest, 443_u32) } else { return false };
+    let Some(path_start) = rest.find('/') else { return false };
+    let (authority, path) = rest.split_at(path_start);
+    let (host, port) = match authority.split_once(':') { Some((host, port)) => (host, Some(port)), None => (authority, None) };
+    if let Some(port) = port {
+        if port.is_empty() || port.len() > 5 || port.starts_with('0') || !port.bytes().all(|byte| byte.is_ascii_digit()) { return false; }
+        match port.parse::<u32>() { Ok(value) if value <= 65535 && value != default_port => {} _ => return false }
+    }
+    if host.is_empty() { return false; }
+    let labels: Vec<&str> = host.split('.').collect();
+    let dotted_quad = labels.len() == 4 && labels.iter().all(|label| !label.is_empty() && label.len() <= 3 && label.bytes().all(|byte| byte.is_ascii_digit()) && (label.len() == 1 || !label.starts_with('0')) && label.parse::<u32>().is_ok_and(|octet| octet <= 255));
+    if !dotted_quad {
+        if labels.iter().any(|label| label.is_empty() || label.starts_with("xn--") || label.starts_with('-') || label.ends_with('-') || !label.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')) { return false; }
+        let last = labels[labels.len() - 1];
+        if !last.bytes().any(|byte| byte.is_ascii_lowercase()) || last.starts_with("0x") { return false; }
+    }
+    let bytes = path.as_bytes();
+    if !bytes.iter().all(|byte| (0x21..=0x7e).contains(byte) && !b"\"#'<>\\^`{|}".contains(byte)) { return false; }
+    !bytes.windows(2).any(|pair| pair == b"/.") && !bytes.windows(3).any(|triple| triple[0] == b'%' && triple[1] == b'2' && (triple[2] | 0x20) == b'e')
+}
 
 #[allow(dead_code)]
 impl SmeltRequest {
@@ -424,10 +460,12 @@ impl SmeltRequest {
     /// a `Content-Type` adds it unless the caller set one, exactly as on a
     /// response — the pairing belongs to the body, so both holders get it
     /// from the same place.
-    pub fn from_parts(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody) -> Self { Self::from_parts_with_init(input, method, headers, body, SmeltRequestInit::default()) }
+    pub fn from_parts(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody) -> Self { Self::assemble(input, method, headers, body, smelt_default_request_init()) }
     /// The same assembly, carrying the stored `RequestInit` members.
-    pub fn from_parts_with_init(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody, init: SmeltRequestInit) -> Self {
-        let url = ::url::Url::parse(input).map_or_else(|_| input.to_owned(), |parsed| parsed.to_string());
+    pub fn from_parts_with_init(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody, init: SmeltRequestInit) -> Self { Self::assemble(input, method, headers, body, ::std::rc::Rc::new(init)) }
+    /// The assembly both constructors share, over an already-shared `init`.
+    fn assemble(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody, init: ::std::rc::Rc<SmeltRequestInit>) -> Self {
+        let url = if input == "about:blank" || smelt_url_is_serialized_http(input) { input.to_owned() } else { ::url::Url::parse(input).map_or_else(|_| input.to_owned(), |parsed| parsed.to_string()) };
         if let Some(content_type) = body.content_type() && !headers.has("content-type") {
             headers.append("content-type", &content_type);
         }
@@ -469,9 +507,9 @@ impl SmeltRequest {
     ///
     /// The url is already serialized, so it is passed through `from_parts`
     /// unchanged; re-parsing a serialization is a no-op.
-    pub fn tee(&self) -> Self { Self::from_parts_with_init(&self.url, self.method.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee(), self.init.clone()) }
+    pub fn tee(&self) -> Self { Self::from_parts_with_init(&self.url, self.method.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee(), (*self.init).clone()) }
     /// The stored `RequestInit` members, as a copy.
-    pub fn init(&self) -> SmeltRequestInit { self.init.clone() }
+    pub fn init(&self) -> SmeltRequestInit { (*self.init).clone() }
     /// `cache`: a stored `RequestInit` member.
     pub fn cache(&self) -> String { self.init.cache.clone() }
     /// `credentials`: a stored `RequestInit` member.

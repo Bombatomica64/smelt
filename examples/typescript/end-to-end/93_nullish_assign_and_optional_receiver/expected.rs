@@ -443,13 +443,13 @@ fn main() {
     maybe = Some(__smelt_logical_value_3.clone());
     __smelt_logical_2 = __smelt_logical_value_3;
     } else {
-    __smelt_logical_2 = maybe.clone().clone().expect("optional value was absent after narrowing");
+    __smelt_logical_2 = maybe.clone().expect("optional value was absent after narrowing");
     }
     ensured = __smelt_logical_2;
     _smelt_tmp_25 = ensured.clone().set(&"y".to_owned(), &"3".to_owned());
     _smelt_tmp_26 = ensured.get(&"y".to_owned());
     _smelt_tmp_27 = _smelt_tmp_26.clone().unwrap_or("absent".to_owned());
-    _smelt_tmp_28 = maybe.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_28 = maybe.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_29 = _smelt_tmp_28.get(&"y".to_owned());
     _smelt_tmp_30 = _smelt_tmp_29.clone().unwrap_or("absent".to_owned());
     let _ = { println!("{} {}", _smelt_tmp_27, _smelt_tmp_30); };

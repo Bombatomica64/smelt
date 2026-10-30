@@ -388,6 +388,35 @@ impl<T: ?Sized> SmeltAllocationGuard for ::std::rc::Weak<T> {
     fn is_live(&self) -> bool { self.strong_count() != 0 }
 }
 
+/// Hasher for keys that are allocation addresses (or ids minted from them).
+///
+/// The tables are keyed by `Rc::as_ptr` addresses, which an attacker cannot
+/// choose, so std's DoS-resistant SipHash buys nothing here and cost ~3% of a
+/// Hono request (every erased callable touches the table several times). A
+/// single folded 64x64->128 multiply mixes every key bit into both halves of
+/// the hash: the low bits pick hashbrown's bucket and the top seven are its
+/// control byte, and an address's low bits are always zero (alignment), so a
+/// plain multiply or identity hash would leave buckets unused.
+#[derive(Default, Clone, Copy)]
+struct SmeltAddressHasher(u64);
+
+impl ::std::hash::Hasher for SmeltAddressHasher {
+    #[inline]
+    fn finish(&self) -> u64 { self.0 }
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) { for byte in bytes { self.write_u64(u64::from(*byte)); } }
+    #[inline]
+    fn write_u64(&mut self, value: u64) {
+        let product = u128::from(value ^ self.0) * 0x9E37_79B9_7F4A_7C15_u128;
+        self.0 = (product as u64) ^ ((product >> 64) as u64);
+    }
+    #[inline]
+    fn write_usize(&mut self, value: usize) { self.write_u64(value as u64); }
+}
+
+/// `HashMap` keyed by an allocation address, hashed with [`SmeltAddressHasher`].
+type SmeltAddressMap<V> = ::std::collections::HashMap<usize, V, ::std::hash::BuildHasherDefault<SmeltAddressHasher>>;
+
 /// The size below which an address table never sweeps.
 const SMELT_ADDRESS_TABLE_MIN_SWEEP: usize = 256;
 
@@ -430,12 +459,12 @@ impl<V, F: ?Sized> SmeltAddressEntry<V> for SmeltAddressSlot<V, F> {
 /// is then reset to `SMELT_ADDRESS_TABLE_GROWTH` times the surviving count:
 /// the table stays proportional to the number of LIVE allocations it describes.
 struct SmeltAddressTable<V> {
-    entries: ::std::collections::HashMap<usize, Box<dyn SmeltAddressEntry<V>>>,
+    entries: SmeltAddressMap<Box<dyn SmeltAddressEntry<V>>>,
     sweep_at: usize,
 }
 
 impl<V: 'static> SmeltAddressTable<V> {
-    fn new() -> Self { Self { entries: ::std::collections::HashMap::new(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP } }
+    fn new() -> Self { Self { entries: SmeltAddressMap::default(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP } }
     /// Number of entries, live or not yet swept.
     #[allow(dead_code)]
     fn len(&self) -> usize { self.entries.len() }
@@ -1554,7 +1583,7 @@ impl SmeltArrayProps {
 }
 
 /// Named array properties by array identity, swept like `SmeltAddressTable`.
-struct SmeltArrayPropsTable { entries: ::std::collections::HashMap<usize, SmeltArrayProps>, sweep_at: usize }
+struct SmeltArrayPropsTable { entries: SmeltAddressMap<SmeltArrayProps>, sweep_at: usize }
 
 impl SmeltArrayPropsTable {
     /// Number of entries, live or not yet swept.
@@ -1579,7 +1608,7 @@ fn smelt_sweep_array_props(table: &::std::cell::RefCell<SmeltArrayPropsTable>) {
 
 thread_local! {
     /// Named (non-index) properties of erased arrays, keyed by array identity.
-    static SMELT_ARRAY_PROPS: ::std::cell::RefCell<SmeltArrayPropsTable> = ::std::cell::RefCell::new(SmeltArrayPropsTable { entries: ::std::collections::HashMap::new(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP });
+    static SMELT_ARRAY_PROPS: ::std::cell::RefCell<SmeltArrayPropsTable> = ::std::cell::RefCell::new(SmeltArrayPropsTable { entries: SmeltAddressMap::default(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP });
 }
 
 /// Read one named property of the array with this identity.
@@ -3527,13 +3556,13 @@ pub(crate) fn pick(path: String) -> String {
     if _smelt_tmp_5 {
     return "none".to_owned();
     } else {
-    _smelt_tmp_6 = m.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_6 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_7 = Into::<SmeltList<_>>::into((_smelt_tmp_6).to_array_view());
     _smelt_tmp_8 = { let smelt_needle = Some("".to_owned()); let smelt_predicate = |item: &Option<String>| *item == smelt_needle; let smelt_list = &_smelt_tmp_7.borrow(); let smelt_len = smelt_list.len() as i64; let smelt_raw = 1.0 as i64; let smelt_start = if smelt_raw < 0 { (smelt_len + smelt_raw).max(0) } else { smelt_raw } as usize; smelt_list.iter().enumerate().skip(smelt_start).find(|(_, item)| smelt_predicate(*item)).map_or(-1.0, |(idx, _)| idx as f64) };
     index = _smelt_tmp_8;
     _smelt_tmp_9 = "".to_owned() + &smelt_number_to_string(index);
     _smelt_tmp_10 = _smelt_tmp_9 + &":".to_owned();
-    _smelt_tmp_11 = m.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_11 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_12 = _smelt_tmp_11.len() as f64;
     _smelt_tmp_13 = _smelt_tmp_10 + &smelt_number_to_string(_smelt_tmp_12);
     _smelt_tmp_14 = _smelt_tmp_13 + &":".to_owned();
@@ -3590,15 +3619,15 @@ pub(crate) fn describe(text: String) -> () {
     let _ = { println!("{}", "no match".to_owned()); };
     return;
     }
-    _smelt_tmp_10 = m.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_10 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_11 = Into::<SmeltList<_>>::into((_smelt_tmp_10).to_array_view());
     _smelt_tmp_12 = Into::<SmeltList<_>>::into(_smelt_tmp_11.borrow().iter().skip({ let smelt_len = _smelt_tmp_11.len() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take(_smelt_tmp_11.len().saturating_sub({ let smelt_len = _smelt_tmp_11.len() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).cloned().collect::<Vec<_>>());
     rest = Into::<SmeltList<_>>::into(_smelt_tmp_12);
     _smelt_tmp_13 = rest.len() as f64;
-    _smelt_tmp_14 = m.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_14 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_15 = Into::<SmeltList<_>>::into((_smelt_tmp_14).to_array_view());
     _smelt_tmp_16 = _smelt_tmp_15.borrow().iter().map(|item| { item.as_ref().map_or_else(String::new, Clone::clone) }).collect::<Vec<_>>().join(&"|".to_owned());
-    _smelt_tmp_17 = m.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_17 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_18 = Into::<SmeltList<_>>::into((_smelt_tmp_17).to_array_view());
     _smelt_tmp_19 = ::std::rc::Rc::new(|closure_arg_0: Option<String>, closure_arg_1: i64, closure_arg_2: &SmeltList<Option<String>>| {
     let mut _smelt_tmp_4: Option<String>;
@@ -3622,7 +3651,7 @@ pub(crate) fn describe(text: String) -> () {
     }); let smelt_array = _smelt_tmp_18; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     _smelt_tmp_21 = _smelt_tmp_20.borrow().iter().map(|item| { item.as_ref().map_or_else(String::new, Clone::clone) }).collect::<Vec<_>>().join(&",".to_owned());
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_13), _smelt_tmp_16, _smelt_tmp_21); };
-    _smelt_tmp_23 = m.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_23 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_24 = Into::<SmeltList<_>>::into((_smelt_tmp_23).to_array_view());
     _smelt_tmp_25 = 0;
     loop {
@@ -3644,17 +3673,17 @@ pub(crate) fn describe(text: String) -> () {
     continue;
     }
     }
-    _smelt_tmp_32 = m.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_32 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_33 = _smelt_tmp_32.clone().group_owned(1.0 as usize);
     first = _smelt_tmp_33;
     _smelt_tmp_34 = _smelt_tmp_32.group_owned(2.0 as usize);
     second = _smelt_tmp_34;
-    _smelt_tmp_35 = m.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_35 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_36 = Into::<SmeltList<_>>::into((_smelt_tmp_35).to_array_view());
     _smelt_tmp_37 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Option<String>> = vec![]; smelt_list_items }));
     _smelt_tmp_38 = Into::<SmeltList<_>>::into(_smelt_tmp_36.borrow().iter().cloned().chain(_smelt_tmp_37.borrow().iter().cloned()).collect::<Vec<_>>());
     _smelt_tmp_39 = _smelt_tmp_38.len() as f64;
-    _smelt_tmp_40 = m.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_40 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_41 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_42 = second.is_none();
     let _ = { println!("{} {} {} {} {}", smelt_console_number(_smelt_tmp_39), smelt_console_number(_smelt_tmp_40.index()), _smelt_tmp_41.input_owned().clone(), match &first { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_42); };
@@ -3691,7 +3720,7 @@ pub(crate) fn digits(text: String) -> String {
     let _smelt_tmp_6: bool = !(all.clone().is_none());
     let mut _smelt_tmp_7: String = String::new();
     if _smelt_tmp_6 {
-    _smelt_tmp_8 = Into::<SmeltList<_>>::into(all.clone().clone().expect("optional value was absent after narrowing"));
+    _smelt_tmp_8 = Into::<SmeltList<_>>::into(all.clone().expect("optional value was absent after narrowing"));
     _smelt_tmp_9 = _smelt_tmp_8.borrow().join(&"+".to_owned());
     _smelt_tmp_7 = _smelt_tmp_9;
     } else {
