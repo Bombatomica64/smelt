@@ -2,7 +2,7 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8255,
+      "concrete": 8256,
       "generic": 127,
       "erased": 58
     },
@@ -513,7 +513,7 @@
     },
     "examples/typescript/end-to-end/121_callback_into_union_function_arm/input.ts": {
       "values": {
-        "concrete": 31,
+        "concrete": 32,
         "generic": 0,
         "erased": 0
       },
