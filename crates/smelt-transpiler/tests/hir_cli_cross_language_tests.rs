@@ -1489,6 +1489,7 @@ const RUNTIME_FIXTURES: &[&str] = &[
     "erased_null_field_at_optional_type",
     "nullish_fallback_runs_only_when_selected",
     "erased_reference_view_reads_live_fields",
+    "request_url_serialization",
 ];
 
 #[test]

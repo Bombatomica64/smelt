@@ -1072,9 +1072,14 @@ impl FunctionEmitter<'_> {
         }
         // Read by borrow, as `string_char_at_text` does: a scanning loop
         // (`for (i..) url.charCodeAt(i)`, Hono's `getPath` on every request)
-        // copied the whole string once per character.
+        // copied the whole string once per character. When every byte up to
+        // and including `index` is ASCII, the character at `index` IS that
+        // byte, so the code is read directly instead of decoding the prefix
+        // character by character; any other string takes the decoding path,
+        // which is exactly the previous text. The closure keeps a borrowed
+        // receiver's temporaries alive for the whole read.
         Ok(format!(
-            "{}.chars().nth({} as usize).map_or(f64::NAN, |ch| ch as u32 as f64)",
+            "(|smelt_text: &str, smelt_index: usize| match smelt_text.as_bytes().get(..=smelt_index) {{ Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[smelt_index]), _ => smelt_text.chars().nth(smelt_index).map_or(f64::NAN, |ch| ch as u32 as f64) }})(&{}, {} as usize)",
             self.operand_borrow_text(operand)?,
             self.operand_text(index)?
         ))

@@ -907,6 +907,14 @@ fn emit_request_init(writer: &mut CodeWriter) {
         });
     });
     writer.blank_line();
+    writer.line("thread_local! {");
+    writer.line("    /// The spec's default `RequestInit`, shared by every request built without one.");
+    writer.line("    static SMELT_DEFAULT_REQUEST_INIT: ::std::rc::Rc<SmeltRequestInit> = ::std::rc::Rc::new(SmeltRequestInit::default());");
+    writer.line("}");
+    writer.blank_line();
+    writer.line("/// A handle on the shared default `RequestInit` (its members are immutable).");
+    writer.line("fn smelt_default_request_init() -> ::std::rc::Rc<SmeltRequestInit> { SMELT_DEFAULT_REQUEST_INIT.with(::std::rc::Rc::clone) }");
+    writer.blank_line();
     writer.line("#[allow(dead_code)]");
     writer.block("impl SmeltRequestInit", |impl_writer| {
         impl_writer.line("/// Serialize a spelled `referrer` the way the spec stores it.");
@@ -956,13 +964,67 @@ fn emit_request_struct(writer: &mut CodeWriter) {
     // struct, like every other modeled fetch value (`SmeltResponse`,
     // `SmeltHeaders`); the constructor always assigns the real request.
     writer.line(
-        "impl Default for SmeltRequest { fn default() -> Self { Self::from_parts(\"\", \"GET\".to_owned(), SmeltHeaders::new(), SmeltBody::empty()) } }",
+        "impl Default for SmeltRequest { fn default() -> Self { let headers = SmeltHeaders::new(); let body = SmeltBody::empty(); Self { id: smelt_next_object_id(), url: String::new(), method: \"GET\".to_owned(), headers, body, init: smelt_default_request_init() } } }",
     );
+    writer.blank_line();
+}
+
+/// A conservative test for an `http(s)` URL that is already in its WHATWG
+/// serialization, so parsing and re-serializing it would give it back
+/// unchanged.
+///
+/// Every request a served program receives is built from
+/// `http://<host><path>`, and parsing that once per request was ~3% of a
+/// Hono request. The test answers `true` only for a shape whose
+/// serialization is provably the identity, and `false` (take the parser)
+/// for everything else, so it can only skip work, never change a URL:
+///
+/// * scheme `http://` or `https://`, no userinfo, a path that starts with `/`;
+/// * a host of non-empty lowercase `[a-z0-9-]` labels that the host parser
+///   leaves alone: the last label holds a letter and does not start `0x`
+///   (else it is read as an IPv4 number), no label is punycode (`xn--`), or a
+///   canonical dotted quad (four decimal octets, no leading zeros);
+/// * an optional port of digits with no leading zero, at most 65535, and not
+///   the scheme's default (which the serializer drops); no label starts or
+///   ends with `-`;
+/// * a path and query of printable ASCII outside every percent-encode set and
+///   outside the characters the parser rewrites (`\` is a separator, `#`
+///   starts a fragment), with no `.`/`%2e` dot segment to remove.
+const URL_FAST_PATH: &str = r##"/// Whether `input` is an http(s) URL already in its WHATWG serialization (see `fetch_types_prelude`).
+#[allow(dead_code)]
+fn smelt_url_is_serialized_http(input: &str) -> bool {
+    let (rest, default_port) = if let Some(rest) = input.strip_prefix("http://") { (rest, 80_u32) } else if let Some(rest) = input.strip_prefix("https://") { (rest, 443_u32) } else { return false };
+    let Some(path_start) = rest.find('/') else { return false };
+    let (authority, path) = rest.split_at(path_start);
+    let (host, port) = match authority.split_once(':') { Some((host, port)) => (host, Some(port)), None => (authority, None) };
+    if let Some(port) = port {
+        if port.is_empty() || port.len() > 5 || port.starts_with('0') || !port.bytes().all(|byte| byte.is_ascii_digit()) { return false; }
+        match port.parse::<u32>() { Ok(value) if value <= 65535 && value != default_port => {} _ => return false }
+    }
+    if host.is_empty() { return false; }
+    let labels: Vec<&str> = host.split('.').collect();
+    let dotted_quad = labels.len() == 4 && labels.iter().all(|label| !label.is_empty() && label.len() <= 3 && label.bytes().all(|byte| byte.is_ascii_digit()) && (label.len() == 1 || !label.starts_with('0')) && label.parse::<u32>().is_ok_and(|octet| octet <= 255));
+    if !dotted_quad {
+        if labels.iter().any(|label| label.is_empty() || label.starts_with("xn--") || label.starts_with('-') || label.ends_with('-') || !label.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')) { return false; }
+        let last = labels[labels.len() - 1];
+        if !last.bytes().any(|byte| byte.is_ascii_lowercase()) || last.starts_with("0x") { return false; }
+    }
+    let bytes = path.as_bytes();
+    if !bytes.iter().all(|byte| (0x21..=0x7e).contains(byte) && !b"\"#'<>\\^`{|}".contains(byte)) { return false; }
+    !bytes.windows(2).any(|pair| pair == b"/.") && !bytes.windows(3).any(|triple| triple[0] == b'%' && triple[1] == b'2' && (triple[2] | 0x20) == b'e')
+}"##;
+
+/// Emit [`URL_FAST_PATH`].
+fn emit_url_fast_path(writer: &mut CodeWriter) {
+    for line in URL_FAST_PATH.lines() {
+        writer.line(line);
+    }
     writer.blank_line();
 }
 
 /// Emit the request's constructor and its member operations.
 fn emit_request_inherent_impl(writer: &mut CodeWriter) {
+    emit_url_fast_path(writer);
     writer.line("#[allow(dead_code)]");
     writer.block("impl SmeltRequest", |impl_writer| {
         impl_writer.line("/// Assemble a request with a fresh JS reference identity.");
@@ -974,20 +1036,24 @@ fn emit_request_inherent_impl(writer: &mut CodeWriter) {
         impl_writer.line("/// response — the pairing belongs to the body, so both holders get it");
         impl_writer.line("/// from the same place.");
         impl_writer.line(
-            "pub fn from_parts(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody) -> Self { Self::from_parts_with_init(input, method, headers, body, SmeltRequestInit::default()) }",
+            "pub fn from_parts(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody) -> Self { Self::assemble(input, method, headers, body, smelt_default_request_init()) }",
         );
         impl_writer.line("/// The same assembly, carrying the stored `RequestInit` members.");
+        impl_writer.line(
+            "pub fn from_parts_with_init(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody, init: SmeltRequestInit) -> Self { Self::assemble(input, method, headers, body, ::std::rc::Rc::new(init)) }",
+        );
+        impl_writer.line("/// The assembly both constructors share, over an already-shared `init`.");
         impl_writer.block(
-            "pub fn from_parts_with_init(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody, init: SmeltRequestInit) -> Self",
+            "fn assemble(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody, init: ::std::rc::Rc<SmeltRequestInit>) -> Self",
             |fn_writer| {
-                fn_writer.line("let url = ::url::Url::parse(input).map_or_else(|_| input.to_owned(), |parsed| parsed.to_string());");
+                fn_writer.line("let url = if smelt_url_is_serialized_http(input) { input.to_owned() } else { ::url::Url::parse(input).map_or_else(|_| input.to_owned(), |parsed| parsed.to_string()) };");
                 fn_writer.block(
                     "if let Some(content_type) = body.content_type() && !headers.has(\"content-type\")",
                     |arm_writer| {
                         arm_writer.line("headers.append(\"content-type\", &content_type);");
                     },
                 );
-                fn_writer.line("Self { id: smelt_next_object_id(), url, method: Self::normalize_method(&method), headers, body, init: ::std::rc::Rc::new(init) }");
+                fn_writer.line("Self { id: smelt_next_object_id(), url, method: Self::normalize_method(&method), headers, body, init }");
             },
         );
         impl_writer.line("/// The spec's method normalization.");
