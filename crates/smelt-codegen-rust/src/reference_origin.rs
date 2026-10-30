@@ -78,13 +78,13 @@ pub(crate) const STORE_FIELD_DECL: &str =
 pub(crate) const STORE_FIELD_INIT: &str = ", origin: None";
 
 /// The `SmeltObject` methods that stamp and read the origin slot.
-pub(crate) const OBJECT_METHODS: &str = "    /// Record the live typed value this erased object is a view of.\n    ///\n    /// Called by a reference record's erasure with a clone of its handle, so\n    /// narrowing the erased object back hands out the SAME instance rather than\n    /// a copy rebuilt from the field snapshot.\n    #[allow(dead_code)]\n    fn smelt_with_origin<T: 'static>(self, origin: T) -> Self { self.store.borrow_mut().origin = Some(Box::new(origin)); self }\n    /// The live typed value this erased object is a view of, when it is a `T`.\n    #[allow(dead_code)]\n    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { self.store.borrow().origin.as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }";
+pub(crate) const OBJECT_METHODS: &str = "    /// Record the live typed value this erased object is a view of.\n    ///\n    /// Called by a reference record's erasure with a clone of its handle, so\n    /// narrowing the erased object back hands out the SAME instance rather than\n    /// a copy rebuilt from the field snapshot.\n    #[allow(dead_code)]\n    fn smelt_with_origin<T: 'static>(self, origin: T) -> Self { self.store.raw_borrow_mut().origin = Some(Box::new(origin)); self }\n    /// The live typed value this erased object is a view of, when it is a `T`.\n    #[allow(dead_code)]\n    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { self.store.raw_borrow().origin.as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }";
 
 /// The `SmeltRecord` accessor reading the same slot through a record handle.
 ///
 /// A record recovered at `Record<string, unknown>` shares the erased object's
 /// store (`smelt_shared_record`), so the origin survives that view too.
-pub(crate) const RECORD_IMPL: &str = "impl<K, V> SmeltRecord<K, V> {\n    /// The live typed value this record's store is an erased view of, when it is a `T`.\n    #[allow(dead_code)]\n    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { self.store.borrow().origin.as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }\n}";
+pub(crate) const RECORD_IMPL: &str = "impl<K, V> SmeltRecord<K, V> {\n    /// The live typed value this record's store is an erased view of, when it is a `T`.\n    #[allow(dead_code)]\n    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { self.store.raw_borrow().origin.as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }\n}";
 
 /// Stamp `handle` (an expression yielding the typed reference handle) as the
 /// origin of the erased object built by `object_ctor`.

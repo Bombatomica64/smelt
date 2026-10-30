@@ -939,7 +939,11 @@ fn emit_request_struct(writer: &mut CodeWriter) {
         struct_writer.line("headers: SmeltHeaders,");
         struct_writer.line("body: SmeltBody,");
         struct_writer.line("/// The stored `RequestInit` members; see `SmeltRequestInit`.");
-        struct_writer.line("init: SmeltRequestInit,");
+        struct_writer.line("///");
+        struct_writer.line("/// Shared, because they are immutable once the request exists: a request");
+        struct_writer.line("/// is cloned on every handle copy, and seven owned strings per clone were");
+        struct_writer.line("/// a measurable share of a served request.");
+        struct_writer.line("init: ::std::rc::Rc<SmeltRequestInit>,");
     });
     writer.blank_line();
     writer.line(
@@ -983,7 +987,7 @@ fn emit_request_inherent_impl(writer: &mut CodeWriter) {
                         arm_writer.line("headers.append(\"content-type\", &content_type);");
                     },
                 );
-                fn_writer.line("Self { id: smelt_next_object_id(), url, method: Self::normalize_method(&method), headers, body, init }");
+                fn_writer.line("Self { id: smelt_next_object_id(), url, method: Self::normalize_method(&method), headers, body, init: ::std::rc::Rc::new(init) }");
             },
         );
         impl_writer.line("/// The spec's method normalization.");
@@ -1031,10 +1035,10 @@ fn emit_request_inherent_impl(writer: &mut CodeWriter) {
         impl_writer.line("/// The url is already serialized, so it is passed through `from_parts`");
         impl_writer.line("/// unchanged; re-parsing a serialization is a no-op.");
         impl_writer.line(
-            "pub fn tee(&self) -> Self { Self::from_parts_with_init(&self.url, self.method.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee(), self.init.clone()) }",
+            "pub fn tee(&self) -> Self { Self::from_parts_with_init(&self.url, self.method.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee(), (*self.init).clone()) }",
         );
         impl_writer.line("/// The stored `RequestInit` members, as a copy.");
-        impl_writer.line("pub fn init(&self) -> SmeltRequestInit { self.init.clone() }");
+        impl_writer.line("pub fn init(&self) -> SmeltRequestInit { (*self.init).clone() }");
         impl_writer.line("/// `cache`: a stored `RequestInit` member.");
         impl_writer.line("pub fn cache(&self) -> String { self.init.cache.clone() }");
         impl_writer.line("/// `credentials`: a stored `RequestInit` member.");
@@ -1089,9 +1093,12 @@ fn emit_response_traits(writer: &mut CodeWriter, needs_unknown: bool) {
     writer.line("/// body handle and `bodyUsed` cell included.");
     writer.block("impl IntoSmeltUnknown for SmeltResponse", |impl_writer| {
         impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+            // The field record is built on first use (`lazy_view`): a response
+            // erased only to be narrowed back (every Hono handler result) is
+            // recovered from the origin and never reads it.
             fn_writer.line("let smelt_host_origin = self.clone();");
-            fn_writer.line("let body_text = String::from_utf8_lossy(&self.body.peek_bytes()).into_owned();");
-            fn_writer.line("smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_response\".to_owned(), SmeltUnknown::Bool(true)), (\"status\".to_owned(), SmeltUnknown::Number(self.status)), (\"statusText\".to_owned(), SmeltUnknown::String(self.status_text.into())), (\"ok\".to_owned(), SmeltUnknown::Bool(self.status >= 200.0 && self.status <= 299.0)), (\"headers\".to_owned(), self.headers.into_smelt_unknown()), (\"body\".to_owned(), SmeltUnknown::String(body_text.into()))]))), smelt_host_origin)");
+            fn_writer.line("let smelt_id = self.id;");
+            fn_writer.line("smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_id, move || { let body_text = String::from_utf8_lossy(&self.body.peek_bytes()).into_owned(); Vec::from([(\"__smelt_response\".to_owned(), SmeltUnknown::Bool(true)), (\"status\".to_owned(), SmeltUnknown::Number(self.status)), (\"statusText\".to_owned(), SmeltUnknown::String(self.status_text.into())), (\"ok\".to_owned(), SmeltUnknown::Bool(self.status >= 200.0 && self.status <= 299.0)), (\"headers\".to_owned(), self.headers.into_smelt_unknown()), (\"body\".to_owned(), SmeltUnknown::String(body_text.into()))]) })), smelt_host_origin)");
         });
     });
     writer.blank_line();
@@ -1130,9 +1137,10 @@ fn emit_request_traits(writer: &mut CodeWriter, needs_unknown: bool) {
     writer.line("/// do. Same rule, and the same registry, as `host_value_erasure`'s pair.");
     writer.block("impl IntoSmeltUnknown for SmeltRequest", |impl_writer| {
         impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+            // Built on first use, as the response's record is.
             fn_writer.line("let smelt_host_origin = self.clone();");
-            fn_writer.line("let body_text = String::from_utf8_lossy(&self.body.peek_bytes()).into_owned();");
-            fn_writer.line("smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_request\".to_owned(), SmeltUnknown::Bool(true)), (\"url\".to_owned(), SmeltUnknown::String(self.url.into())), (\"method\".to_owned(), SmeltUnknown::String(self.method.into())), (\"headers\".to_owned(), self.headers.into_smelt_unknown()), (\"body\".to_owned(), SmeltUnknown::String(body_text.into()))]))), smelt_host_origin)");
+            fn_writer.line("let smelt_id = self.id;");
+            fn_writer.line("smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_id, move || { let body_text = String::from_utf8_lossy(&self.body.peek_bytes()).into_owned(); Vec::from([(\"__smelt_request\".to_owned(), SmeltUnknown::Bool(true)), (\"url\".to_owned(), SmeltUnknown::String(self.url.into())), (\"method\".to_owned(), SmeltUnknown::String(self.method.into())), (\"headers\".to_owned(), self.headers.into_smelt_unknown()), (\"body\".to_owned(), SmeltUnknown::String(body_text.into()))]) })), smelt_host_origin)");
         });
     });
     writer.blank_line();

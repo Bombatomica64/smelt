@@ -1,0 +1,7 @@
+present 0
+fallback:b 1
+0 1
+fallback:erased 2
+text 2
+fallback:erased 3
+2 1

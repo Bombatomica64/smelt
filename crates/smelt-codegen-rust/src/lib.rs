@@ -106,6 +106,7 @@ pub(crate) mod base_init;
 pub(crate) mod class_proto;
 pub(crate) mod classes;
 pub(crate) mod classify;
+pub(crate) mod lazy_view;
 pub(crate) mod reference_origin;
 pub(crate) mod deps;
 mod function_object_prelude;
@@ -1389,12 +1390,27 @@ fn emit_source_with_free_function_router(
         writer.line("    }");
         writer.line("}");
         writer.blank_line();
+        // A program that erases values with an origin (reference records, host
+        // values) keeps its stores behind `SmeltStoreCell`, so such a view can
+        // build its snapshot on first use (`lazy_view`); every other program
+        // keeps the bare `RefCell` and byte-identical output.
+        let store_cell_new = if needs_reference_origins {
+            for line in lazy_view::STORE_CELL.lines() {
+                writer.line(line);
+            }
+            writer.blank_line();
+            "SmeltStoreCell::new"
+        } else {
+            "::std::cell::RefCell::new"
+        };
         writer.line("#[derive(Debug)]");
         writer.line("pub struct SmeltRecord<K, V> {");
         writer.line("    id: usize,");
-        writer.line(
-            "    store: ::std::rc::Rc<::std::cell::RefCell<SmeltFieldStore<K, V>>>,",
-        );
+        writer.line(if needs_reference_origins {
+            "    store: ::std::rc::Rc<SmeltStoreCell<K, V>>,"
+        } else {
+            "    store: ::std::rc::Rc<::std::cell::RefCell<SmeltFieldStore<K, V>>>,"
+        });
         writer.line("}");
         writer.blank_line();
         // `smelt_next_object_id` is emitted in the `needs_smelt_list` block above
@@ -1490,7 +1506,7 @@ fn emit_source_with_free_function_router(
             writer.line("/// so narrowing the record back hands out the SAME object.");
             writer.line("#[allow(dead_code)]");
             writer.line("fn smelt_with_host_origin<T: 'static>(erased: SmeltUnknown, origin: T) -> SmeltUnknown {");
-            writer.line("    if let SmeltUnknown::Object(object) = &erased { object.store.borrow_mut().origin = Some(Box::new(origin)); }");
+            writer.line("    if let SmeltUnknown::Object(object) = &erased { object.store.raw_borrow_mut().origin = Some(Box::new(origin)); }");
             writer.line("    erased");
             writer.line("}");
             writer.blank_line();
@@ -1609,8 +1625,8 @@ fn emit_source_with_free_function_router(
         writer.line("}");
         writer.blank_line();
         writer.line("impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> {");
-        writer.line("    fn new() -> Self { Self { id: smelt_next_object_id(), store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFieldStore::default())) } }");
-        writer.line("    fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>(id: usize, iter: I) -> Self { let record = Self { id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFieldStore::default())) }; record.extend(iter); record }");
+        writer.line(format!("    fn new() -> Self {{ Self {{ id: smelt_next_object_id(), store: ::std::rc::Rc::new({store_cell_new}(SmeltFieldStore::default())) }} }}"));
+        writer.line(format!("    fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>(id: usize, iter: I) -> Self {{ let record = Self {{ id, store: ::std::rc::Rc::new({store_cell_new}(SmeltFieldStore::default())) }}; record.extend(iter); record }}"));
         writer.line("    fn len(&self) -> usize { self.store.borrow().len() }");
         writer.line("    fn contains_key<Q>(&self, key: &Q) -> bool where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized { self.store.borrow().contains_key(key) }");
         writer.line("    fn insert(&self, key: K, value: V) -> Option<V> { self.store.borrow_mut().insert(key, value) }");
@@ -2168,7 +2184,11 @@ fn emit_source_with_free_function_router(
         writer.line("#[derive(Debug)]");
         writer.line("pub struct SmeltObject {");
         writer.line("    id: usize,");
-        writer.line("    store: ::std::rc::Rc<::std::cell::RefCell<SmeltFieldStore<String, SmeltUnknown>>>,");
+        writer.line(if needs_reference_origins {
+            "    store: ::std::rc::Rc<SmeltStoreCell<String, SmeltUnknown>>,"
+        } else {
+            "    store: ::std::rc::Rc<::std::cell::RefCell<SmeltFieldStore<String, SmeltUnknown>>>,"
+        });
         writer.line("}");
         writer.blank_line();
         writer.line("impl Clone for SmeltObject { fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } } }");
@@ -2191,7 +2211,7 @@ fn emit_source_with_free_function_router(
         writer.line("    /// keys keep the first key\'s position and take the last value, as in JS.");
         writer.line("    fn new(entries: Vec<(String, SmeltUnknown)>) -> Self { Self::with_id(smelt_next_object_id(), entries) }");
         writer.line("    /// Build an erased object that keeps a source value\'s reference identity.");
-        writer.line("    fn with_id(id: usize, entries: Vec<(String, SmeltUnknown)>) -> Self { let object = Self { id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFieldStore::with_capacity(entries.len()))) }; for (key, value) in entries { object.insert(key, value); } object }");
+        writer.line(format!("    fn with_id(id: usize, entries: Vec<(String, SmeltUnknown)>) -> Self {{ let object = Self {{ id, store: ::std::rc::Rc::new({store_cell_new}(SmeltFieldStore::with_capacity(entries.len()))) }}; for (key, value) in entries {{ object.insert(key, value); }} object }}"));
         writer.line("    fn from_unknown_record(record: SmeltRecord<String, SmeltUnknown>) -> Self { Self { id: record.id, store: record.store } }");
         writer.line("    fn len(&self) -> usize { self.store.borrow().len() }");
         writer.line("    #[inline]");
@@ -2205,6 +2225,9 @@ fn emit_source_with_free_function_router(
         writer.line("    fn values(&self) -> Vec<SmeltUnknown> { self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect() }");
         if needs_reference_origins {
             for line in reference_origin::OBJECT_METHODS.lines() {
+                writer.line(line);
+            }
+            for line in lazy_view::OBJECT_LAZY_CTOR.lines() {
                 writer.line(line);
             }
         }
@@ -2648,7 +2671,7 @@ fn emit_source_with_free_function_router(
         writer.line("}");
         writer.blank_line();
         writer.line("/// Named array properties by array identity, swept like `SmeltAddressTable`.");
-        writer.line("struct SmeltArrayPropsTable { entries: ::std::collections::HashMap<usize, SmeltArrayProps>, sweep_at: usize }");
+        writer.line("struct SmeltArrayPropsTable { entries: SmeltAddressMap<SmeltArrayProps>, sweep_at: usize }");
         writer.blank_line();
         writer.line("impl SmeltArrayPropsTable {");
         writer.line("    /// Number of entries, live or not yet swept.");
@@ -2673,7 +2696,7 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.line("thread_local! {");
         writer.line("    /// Named (non-index) properties of erased arrays, keyed by array identity.");
-        writer.line("    static SMELT_ARRAY_PROPS: ::std::cell::RefCell<SmeltArrayPropsTable> = ::std::cell::RefCell::new(SmeltArrayPropsTable { entries: ::std::collections::HashMap::new(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP });");
+        writer.line("    static SMELT_ARRAY_PROPS: ::std::cell::RefCell<SmeltArrayPropsTable> = ::std::cell::RefCell::new(SmeltArrayPropsTable { entries: SmeltAddressMap::default(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP });");
         writer.line("}");
         writer.blank_line();
         writer.line("/// Read one named property of the array with this identity.");

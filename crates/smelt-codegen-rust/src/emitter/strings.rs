@@ -1044,9 +1044,11 @@ impl FunctionEmitter<'_> {
                 "string charAt requires a string receiver and numeric index",
             ));
         }
+        // Read by borrow: `chars()` only reads, and the owned clone
+        // `operand_text` gives was a whole-string copy per character read.
         Ok(format!(
             "{}.chars().nth({} as usize).map(|ch| ch.to_string()).unwrap_or_default()",
-            self.operand_text(operand)?,
+            self.operand_borrow_text(operand)?,
             self.operand_text(index)?
         ))
     }
@@ -1068,9 +1070,12 @@ impl FunctionEmitter<'_> {
                 "string charCodeAt requires a string receiver and numeric index",
             ));
         }
+        // Read by borrow, as `string_char_at_text` does: a scanning loop
+        // (`for (i..) url.charCodeAt(i)`, Hono's `getPath` on every request)
+        // copied the whole string once per character.
         Ok(format!(
             "{}.chars().nth({} as usize).map_or(f64::NAN, |ch| ch as u32 as f64)",
-            self.operand_text(operand)?,
+            self.operand_borrow_text(operand)?,
             self.operand_text(index)?
         ))
     }
