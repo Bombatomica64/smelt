@@ -3218,7 +3218,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSme
         SmeltUnknown::Object(SmeltObject::new(Vec::from([
         ("left".to_owned(), (self.left).into_smelt_unknown()),
         ("right".to_owned(), (self.right).into_smelt_unknown()),
-        ("swap".to_owned(), SmeltUnknown::Null),
+        ("swap".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn() -> Pair<T>> = self.swap.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)()).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
         ])))
     }
 }

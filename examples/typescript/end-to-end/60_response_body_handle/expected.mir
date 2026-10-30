@@ -96,14 +96,14 @@ fn new (FuncId(1)) -> Boom
     %6 temp: String
     %7 temp: Optional<Response>
   bb0:
-    %0 = struct5 {}
+    %0 = struct1 {}
     %4 = copy %1 ?? 500.0
     %3 = move %4
-    %5 = copy %2?.field4
+    %5 = copy %2?.field5
     %6 = move %5 ?? ""
-    %0.field4 = move %6
-    %7 = copy %2?.field3
-    %0.field3 = move %7
+    %0.field5 = move %6
+    %7 = copy %2?.field4
+    %0.field4 = move %7
     %0.field6 = move %3
     return move %0
 
@@ -119,18 +119,18 @@ fn get_response (FuncId(2)) -> Response
     %7 temp: Response
     %8 temp: Response
   bb0:
-    %2 = copy %0.field3 != none
+    %2 = copy %0.field4 != none
     switch move %2 ? bb1 : bb2
   bb1:
-    %3 = copy %0.field3
+    %3 = copy %0.field4
     %4 = response_body move %3
-    %5 = copy %0.field3
+    %5 = copy %0.field4
     %6 = response_headers move %5
     %7 = response_new body=move %4 status=copy %0.field6 headers=move %6
     %1 = move %7
     return move %1
   bb2:
-    %8 = response_new body=copy %0.field4 status=copy %0.field6
+    %8 = response_new body=copy %0.field5 status=copy %0.field6
     return move %8
 
 async fn main (FuncId(3)) -> None throws

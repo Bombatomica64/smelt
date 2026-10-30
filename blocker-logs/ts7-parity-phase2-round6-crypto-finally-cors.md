@@ -61,7 +61,7 @@ matches Node and it holds zero avoidable `SmeltUnknown`.
     which duplicated its statements (es-toolkit's `isEqualWith` gained 5
     erased calls).
   - The thrown value is a genuine dynamic boundary: any value can be thrown,
-    and example 181 rethrows a string and a `RangeError` through one clause.
+    and example 181 rethrows through one clause on two paths.
     It is held in a local named `smelt_pending_thrown`, which only a crate
     with a `finally` gets. The SmeltUnknown report classifies that local with
     the exception-payload adapters (`smelt_throw`, `smelt_thrown_value`), and

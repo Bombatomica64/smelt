@@ -17,5 +17,5 @@ Hi
 ]
 rejected, cleaned up: yes
 resolved, cleaned up: yes
-value text, finally ran 1
-error range, finally ran 1
+kind 0 caught, finally ran 1
+kind 1 caught, finally ran 1

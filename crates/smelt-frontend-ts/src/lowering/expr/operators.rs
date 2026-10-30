@@ -3995,7 +3995,7 @@ impl ModuleBuilder<'_> {
     ) -> Option<smelt_hir::TypeId> {
         let hint = object_hint?;
         if let Some(Type::Dict(_, value_ty)) = self.ctx.krate.types.get(hint) {
-            return Some(*value_ty);
+            return self.unambiguous_property_hint(*value_ty);
         }
         let field_name = match &property.key {
             PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str(),
@@ -4016,7 +4016,36 @@ impl ModuleBuilder<'_> {
         // nothing. `contextual_record_literal_type` already unwraps `Optional`
         // and still declines any literal it cannot construct, so the decision
         // stays where it belongs rather than being pre-empted here.
-        Some(field_ty)
+        self.unambiguous_property_hint(field_ty)
+    }
+
+    /// `hint` as a property value's contextual type, or `None` when it names
+    /// more than one function signature.
+    ///
+    /// A record type lowered to a `Dict` joins every field's type into one
+    /// value union, so `{ handler?: (c: Ctx) => unknown; rewrite?: (r: Req) =>
+    /// Req }` hints each value with BOTH signatures. Such a union cannot say
+    /// which one a function-valued property has: the first function arm used
+    /// to win, typing `rewrite: (req) => req` as `(Ctx) => Ctx` (Hono's
+    /// `mount(app, { replaceRequest: (req) => req })` then rewrote every
+    /// request to `about:blank`). Without the hint the value types itself, its
+    /// arrow parameters through the checker, as with no record hint at all.
+    fn unambiguous_property_hint(&self, hint: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+        (self.function_arm_count(hint) <= 1).then_some(hint)
+    }
+
+    /// How many function types `ty` admits, through nested unions and
+    /// optionals (see `unambiguous_property_hint`).
+    fn function_arm_count(&self, ty: smelt_hir::TypeId) -> usize {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Function(_)) => 1,
+            Some(Type::Optional(inner)) => self.function_arm_count(*inner),
+            Some(Type::Union(members)) => members
+                .iter()
+                .map(|member| self.function_arm_count(*member))
+                .sum(),
+            _ => 0,
+        }
     }
 
     /// Report whether a function body references the implicit `arguments`

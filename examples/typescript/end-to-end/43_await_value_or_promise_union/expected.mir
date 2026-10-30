@@ -96,7 +96,7 @@ fn new (FuncId(3)) -> Cell
     %0 user this: Cell
     %1 param value: Float
   bb0:
-    %0 = struct1 {}
+    %0 = struct0 {}
     %0.field5 = copy %1
     return move %0
 

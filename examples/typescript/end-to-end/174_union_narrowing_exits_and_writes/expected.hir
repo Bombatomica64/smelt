@@ -34,14 +34,14 @@ module examples/typescript/end-to-end/174_union_narrowing_exits_and_writes/input
     #23: None = @10(console_log)
     #24: None = call #23(#16, #20, #22)
     #25: Float = 5.0
-    #26: fn(String | Float | URL) -> String = @2(normalize)
+    #26: fn(Float | String | URL) -> String = @2(normalize)
     #27: String = call #26(#25)
     #28: String = "42"
-    #29: fn(String | Float | URL) -> String = @2(normalize)
+    #29: fn(Float | String | URL) -> String = @2(normalize)
     #30: String = call #29(#28)
     #31: String = "https://a.test/p?q=1"
     #32: URL = url_new #31
-    #33: fn(String | Float | URL) -> String = @2(normalize)
+    #33: fn(Float | String | URL) -> String = @2(normalize)
     #34: String = call #33(#32)
     #35: None = @11(console_log)
     #36: None = call #35(#27, #30, #34)
@@ -60,25 +60,25 @@ module examples/typescript/end-to-end/174_union_narrowing_exits_and_writes/input
     s3: #44
 
 interned types
-  t0 = Circle
-  t1 = Square
-  t2 = String
-  t3 = Circle | Square | String
-  t4 = fn(Circle | Square | String) -> String
-  t5 = Circle | Square
-  t6 = Optional<Circle | Square>
-  t7 = Float
+  t0 = Float
+  t1 = Circle
+  t2 = Square
+  t3 = String
+  t4 = Circle | Square | String
+  t5 = fn(Circle | Square | String) -> String
+  t6 = Circle | Square
+  t7 = Optional<Circle | Square>
   t8 = fn(Optional<Circle | Square>) -> Float
   t9 = URL
-  t10 = String | Float | URL
-  t11 = fn(String | Float | URL) -> String
+  t10 = Float | String | URL
+  t11 = fn(Float | String | URL) -> String
   t12 = Bool
   t13 = fn(Bool) -> String
   t14 = None
   t15 = Square | String
   t16 = Optional<Square>
-  t17 = String | Float
+  t17 = Float | String
   t18 = fn(Circle | Square | String) -> String
   t19 = fn(Optional<Circle | Square>) -> Float
-  t20 = fn(String | Float | URL) -> String
+  t20 = fn(Float | String | URL) -> String
   t21 = fn(Bool) -> String

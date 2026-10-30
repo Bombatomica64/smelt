@@ -54,9 +54,7 @@ interned types
   t21 = Float
   t22 = fn(Float) -> String
   t23 = async fn() -> Future<None>
-  t24 = Unknown
-  t25 = Dict<String, Unknown>
-  t26 = TextEncoder
-  t27 = Future<ArrayBuffer>
-  t28 = List<Float>
-  t29 = Dict<String, List<Float>>
+  t24 = TextEncoder
+  t25 = Future<ArrayBuffer>
+  t26 = List<Float>
+  t27 = Dict<String, List<Float>>

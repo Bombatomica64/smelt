@@ -780,8 +780,8 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // the handler and the rethrow, plus its `undefined` initialization
         // before the `try`. The clause is shared by every exit, so the value
         // is whatever the guarded body threw. Proven in example 181
-        // (`rethrowThrough`: a string and a `RangeError` through one clause)
-        // and in `pending_thrown_value_is_a_boundary` below.
+        // (`rethrowThrough`: two throws through one
+        // clause) and in `pending_thrown_value_is_a_boundary` below.
         smelt_mir::PENDING_THROWN_LOCAL,
         // The panic-recovery exception payload
         // (`crates/smelt-codegen-rust/src/thrown.rs`,

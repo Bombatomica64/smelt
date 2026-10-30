@@ -34,7 +34,7 @@ fn new (FuncId(2)) -> Request
     %0 user this: Request
     %1 param headers: Map<String, String>
   bb0:
-    %0 = struct6 {}
+    %0 = struct2 {}
     %0.field7 = copy %1
     return move %0
 

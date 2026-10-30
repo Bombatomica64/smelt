@@ -3102,10 +3102,10 @@ impl ::std::fmt::Debug for Counter {
 impl IntoSmeltUnknown for Counter {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("bump".to_owned(), SmeltUnknown::Null),
-        ("current".to_owned(), SmeltUnknown::Null),
-        ("reset".to_owned(), SmeltUnknown::Null),
-        ("__smelt_call".to_owned(), SmeltUnknown::Null),
+        ("bump".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn() -> f64> = self.bump.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)()).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ("current".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn() -> f64> = self.current.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)()).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ("reset".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn() -> ()> = self.reset.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)()).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn() -> f64> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)()).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
         ])))
     }
 }

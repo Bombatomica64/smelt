@@ -78,7 +78,7 @@ fn new (FuncId(4)) -> Request
     %1 param routes: List<(String, String)>
     %2 param context: Optional<String>
   bb0:
-    %0 = struct24 {}
+    %0 = struct21 {}
     %0.field29 = copy %1
     %0.field30 = copy %2
     return move %0

@@ -3189,7 +3189,7 @@ impl IntoSmeltUnknown for Counter {
         SmeltUnknown::Object(SmeltObject::new(Vec::from([
         ("label".to_owned(), SmeltUnknown::String(self.label.into())),
         ("builds".to_owned(), SmeltUnknown::Number(self.builds as f64)),
-        ("describe".to_owned(), SmeltUnknown::Null),
+        ("describe".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String) -> String> = self.describe.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
         ])))
     }
 }

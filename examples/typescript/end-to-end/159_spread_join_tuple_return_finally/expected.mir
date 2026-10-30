@@ -17,8 +17,8 @@ fn with_defaults (FuncId(0)) -> String
     %4 = {"domain": "example.com"}
     %5 = dict_assign move %2, [move %3, copy %0, move %4]
     %1 = move %5
-    %6 = copy %1.field13 + " "
-    %7 = move %6 + copy %1.field14
+    %6 = copy %1.field14 + " "
+    %7 = move %6 + copy %1.field15
     return move %7
 
 fn next_accept (FuncId(1)) -> (Float, Optional<Accept>)
@@ -39,7 +39,7 @@ fn next_accept (FuncId(1)) -> (Float, Optional<Accept>)
     %4 = (0.0, undefined)
     return move %4
   bb2:
-    %1.field15 = copy %0
+    %1.field16 = copy %0
     %5 = len copy %0
     %6 = (move %5, move %1)
     return move %6
@@ -116,7 +116,7 @@ async fn caught (FuncId(6)) -> String
   bb2:
     return move %0
   bb3:
-    %7 = instanceof copy %2, class23
+    %7 = instanceof copy %2, class1
     switch move %7 ? bb7 : bb8
   bb4:
     %1 = move %3
@@ -151,7 +151,7 @@ fn new (FuncId(7)) -> Failure
     %0 user this: Failure
     %1 param message: String
   bb0:
-    %0 = struct23 {}
+    %0 = struct1 {}
     %0.field24 = copy %1
     return move %0
 
@@ -194,7 +194,7 @@ async fn main (FuncId(8)) -> None throws
     %0 = move %7
     %8 = tuple_index move %6, 1
     %1 = move %8
-    %9 = move %1?.field15
+    %9 = move %1?.field16
     %10 = call fn1("") -> bb5
   bb5:
     %11 = tuple_index move %10, 1

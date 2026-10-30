@@ -1972,3 +1972,46 @@ console.log(p[KEY_A], p[KEY_B], KEY_A === KEY_B)
     ensure_eq(&stdout, &"1 2 false\n".to_owned(), "unexpected stdout")?;
     Ok(())
 }
+
+/// A function-valued property of a record lowered to a `Dict` takes ITS OWN
+/// field's signature, not the first function type the record mentions.
+///
+/// The `Dict` joins every field's type into one value union, so a record with
+/// two function-typed fields hinted each value with both signatures and the
+/// first one won: Hono's `mount(app, { replaceRequest: (req) => req })` typed
+/// the arrow `(Context) => Context` and rewrote every request to
+/// `about:blank`. The ambiguous hint is now dropped and the arrow types itself
+/// through the TS7 checker, which this CLI path embeds. (The options value is
+/// an erased union here, so this is pinned as a HIR check rather than as an
+/// end-to-end example, whose corpus must stay free of avoidable erasure.)
+#[test]
+fn record_function_field_takes_its_own_signature() -> TestResult {
+    let project = TempProject::new()?;
+    fs::create_dir_all(project.path())?;
+    let source = project.path().join("options.ts");
+    fs::write(
+        &source,
+        r"class Ctx { name: string; constructor(name: string) { this.name = name } }
+class Req { url: string; constructor(url: string) { this.url = url } }
+type Handler = (c: Ctx) => unknown
+type Rewrite = (r: Req) => Req
+type Options = Handler | { optionHandler?: Handler; rewrite?: Rewrite | false }
+function use(options?: Options): string {
+  if (options && typeof options !== 'function' && options.rewrite) {
+    return options.rewrite(new Req('/app')).url
+  }
+  return 'none'
+}
+console.log(use({ rewrite: (req) => req }))
+",
+    )?;
+    let stdout = smelt(&["dump-hir", &utf8_path(&source)?])?;
+    ensure(
+        stdout.contains("fn(Req) -> Req = closure"),
+        "`(req) => req` must take `Rewrite`'s signature",
+    )?;
+    ensure(
+        !stdout.contains("fn(Ctx) -> Ctx = closure"),
+        "`(req) => req` was typed by the first function field (`Handler`)",
+    )
+}

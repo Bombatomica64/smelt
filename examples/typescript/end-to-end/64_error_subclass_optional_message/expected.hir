@@ -56,8 +56,8 @@ interned types
   t2 = Dict<String, String>
   t3 = HTTPException
   t4 = GatewayError
-  t5 = Optional<String>
-  t6 = HTTPExceptionOptions
-  t7 = Optional<HTTPExceptionOptions>
+  t5 = HTTPExceptionOptions
+  t6 = Optional<HTTPExceptionOptions>
+  t7 = Optional<String>
   t8 = Unknown
   t9 = None

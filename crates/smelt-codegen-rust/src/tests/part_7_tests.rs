@@ -15448,3 +15448,45 @@ export function merge(base: Options, options: Partial<Options>): Options {
     assert!(source.contains("options: PartialOptions"), "{source}");
     assert!(!source.contains("dict_assign") && !source.contains("SmeltRecord<String, SmeltUnknown>"), "{source}");
 }
+
+/// An interface's FUNCTION-typed fields survive erasure: the record's
+/// `IntoSmeltUnknown` impl wraps each one in a callable adapter that registers
+/// the typed callable as its origin, instead of writing `SmeltUnknown::Null`.
+///
+/// Hono copied its `Router` (`add`, `match`) through such an erased view in
+/// `Object.assign(this, rest)`, and the router it read back answered `null`
+/// for every `match`, so a `basePath()` app never routed. A borrowed `&T`
+/// parameter is passed a reference to the converted argument.
+#[test]
+fn record_function_fields_erase_to_callable_adapters() {
+    let source = source_for(
+        r"
+interface Router<T> {
+  name: string
+  add(method: string, handler: T): void
+  match(method: string): string
+}
+declare function getRouter(): Router<string>
+export function erase(router: Router<string>): unknown {
+  const { name, ...rest } = router
+  return rest
+}
+",
+    );
+    let impl_start = source
+        .find("IntoSmeltUnknown for Router<")
+        .unwrap_or_else(|| panic!("no Router erasure impl:\n{source}"));
+    let impl_text = &source[impl_start..source[impl_start..].find("\n}\n").map_or(source.len(), |end| impl_start + end)];
+    assert!(
+        impl_text.contains("(\"match\".to_owned(), { let smelt_function_value"),
+        "`match` must erase to an adapter, not `null`:\n{impl_text}"
+    );
+    assert!(
+        impl_text.contains("smelt_register_function_origin(&smelt_erased_function, smelt_function_origin)"),
+        "the adapter must register its typed origin:\n{impl_text}"
+    );
+    assert!(
+        !impl_text.contains("(\"match\".to_owned(), SmeltUnknown::Null)"),
+        "{impl_text}"
+    );
+}

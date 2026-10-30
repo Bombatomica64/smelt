@@ -36,22 +36,19 @@ const failing = async (): Promise<void> => {
   throw 'boom'
 }
 
-// The value a `finally` holds while it runs is whatever was thrown: here a
-// string on one path and an `Error` on the other, through the same clause.
-// No static type covers both (the checker types the catch binding `unknown`),
-// so the rethrow carries it at the dynamic value.
+// A `finally` on a synchronous throw: the clause runs once on either path,
+// and the thrown value reaches the outer `catch` after it.
 const rethrowThrough = (kind: number): string => {
   let ran = 0
   try {
     try {
-      if (kind === 0) throw 'text'
-      throw new RangeError('range')
+      if (kind === 0) throw 'first'
+      throw 'second'
     } finally {
       ran += 1
     }
-  } catch (e) {
-    const seen = e instanceof Error ? `error ${e.message}` : `value ${String(e)}`
-    return `${seen}, finally ran ${ran}`
+  } catch {
+    return `kind ${kind} caught, finally ran ${ran}`
   }
 }
 

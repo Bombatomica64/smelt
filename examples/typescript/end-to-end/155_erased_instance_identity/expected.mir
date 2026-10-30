@@ -54,16 +54,16 @@ async fn run (FuncId(2)) -> None
   bb3:
     goto bb8
   bb4:
-    %10 = unknown_cast move %1 as t0
+    %10 = unknown_cast move %1 as t1
     %2 = move %10
-    %2.field5 = "from-catch"
+    %2.field6 = "from-catch"
     %11 = call fn3(copy %2, "x-one") -> bb6
   bb5:
     goto bb3
   bb6:
-    %12 = string_join copy %0.field6, ","
+    %12 = string_join copy %0.field7, ","
     %13 = move %2 == copy %0
-    %14 = call @console_log(copy %0.field5, move %12, copy %0.field7, move %13) -> bb7
+    %14 = call @console_log(copy %0.field6, move %12, copy %0.field8, move %13) -> bb7
   bb7:
     goto bb3
   bb8:
@@ -71,7 +71,7 @@ async fn run (FuncId(2)) -> None
   bb9:
     %23 = call fn5(1.0, 2.0) -> bb15
   bb10:
-    %17 = unknown_cast move %3 as t0
+    %17 = unknown_cast move %3 as t1
     %4 = move %17
     %18 = call fn3(copy %4, "x-two") -> bb13
   bb11:
@@ -79,10 +79,10 @@ async fn run (FuncId(2)) -> None
   bb12:
     goto bb9
   bb13:
-    %19 = string_join copy %0.field6, ","
+    %19 = string_join copy %0.field7, ","
     %20 = copy %4 == copy %0
     %21 = move %4 != copy %0
-    %22 = call @console_log(move %19, copy %0.field7, move %20, move %21) -> bb14
+    %22 = call @console_log(move %19, copy %0.field8, move %20, move %21) -> bb14
   bb14:
     goto bb9
   bb15:
@@ -106,11 +106,11 @@ fn header (FuncId(3)) -> None
     %3 temp: Float
     %4 temp: Float
   bb0:
-    %2 = copy %0.field6
+    %2 = copy %0.field7
     %3 = list_push copy %2, copy %1
-    %0.field6 = move %2
-    %4 = copy %0.field7 + 1.0
-    %0.field7 = move %4
+    %0.field7 = move %2
+    %4 = copy %0.field8 + 1.0
+    %0.field8 = move %4
     return none
 
 fn new (FuncId(4)) -> Context
@@ -118,11 +118,11 @@ fn new (FuncId(4)) -> Context
     %0 user this: Context
     %1 temp: List<String>
   bb0:
-    %0 = struct1 {}
-    %0.field5 = "init"
+    %0 = struct2 {}
+    %0.field6 = "init"
     %1 = []
-    %0.field6 = move %1
-    %0.field7 = 0.0
+    %0.field7 = move %1
+    %0.field8 = 0.0
     return move %0
 
 fn new (FuncId(5)) -> Point
@@ -131,7 +131,7 @@ fn new (FuncId(5)) -> Point
     %1 param x: Float
     %2 param y: Float
   bb0:
-    %0 = struct13 {}
+    %0 = struct0 {}
     %0.field14 = copy %1
     %0.field15 = copy %2
     return move %0
