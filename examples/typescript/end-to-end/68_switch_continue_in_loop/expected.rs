@@ -189,7 +189,7 @@ pub(crate) fn escape_html(str: String) -> String {
     _smelt_tmp_7 = i < _smelt_tmp_6;
     if !(_smelt_tmp_7) { break; }
     _smelt_tmp_17 = i as f64;
-    _smelt_tmp_8 = str.clone().chars().nth(_smelt_tmp_17 as usize).map_or(f64::NAN, |ch| ch as u32 as f64);
+    _smelt_tmp_8 = (|smelt_text: &str, smelt_index: usize| match smelt_text.as_bytes().get(..=smelt_index) { Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[smelt_index]), _ => smelt_text.chars().nth(smelt_index).map_or(f64::NAN, |ch| ch as u32 as f64) })(&str, _smelt_tmp_17 as usize);
     code = _smelt_tmp_8;
     replacement = "".to_owned();
     match code {

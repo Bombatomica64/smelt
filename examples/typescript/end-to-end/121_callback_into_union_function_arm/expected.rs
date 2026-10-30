@@ -388,6 +388,35 @@ impl<T: ?Sized> SmeltAllocationGuard for ::std::rc::Weak<T> {
     fn is_live(&self) -> bool { self.strong_count() != 0 }
 }
 
+/// Hasher for keys that are allocation addresses (or ids minted from them).
+///
+/// The tables are keyed by `Rc::as_ptr` addresses, which an attacker cannot
+/// choose, so std's DoS-resistant SipHash buys nothing here and cost ~3% of a
+/// Hono request (every erased callable touches the table several times). A
+/// single folded 64x64->128 multiply mixes every key bit into both halves of
+/// the hash: the low bits pick hashbrown's bucket and the top seven are its
+/// control byte, and an address's low bits are always zero (alignment), so a
+/// plain multiply or identity hash would leave buckets unused.
+#[derive(Default, Clone, Copy)]
+struct SmeltAddressHasher(u64);
+
+impl ::std::hash::Hasher for SmeltAddressHasher {
+    #[inline]
+    fn finish(&self) -> u64 { self.0 }
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) { for byte in bytes { self.write_u64(u64::from(*byte)); } }
+    #[inline]
+    fn write_u64(&mut self, value: u64) {
+        let product = u128::from(value ^ self.0) * 0x9E37_79B9_7F4A_7C15_u128;
+        self.0 = (product as u64) ^ ((product >> 64) as u64);
+    }
+    #[inline]
+    fn write_usize(&mut self, value: usize) { self.write_u64(value as u64); }
+}
+
+/// `HashMap` keyed by an allocation address, hashed with [`SmeltAddressHasher`].
+type SmeltAddressMap<V> = ::std::collections::HashMap<usize, V, ::std::hash::BuildHasherDefault<SmeltAddressHasher>>;
+
 /// The size below which an address table never sweeps.
 const SMELT_ADDRESS_TABLE_MIN_SWEEP: usize = 256;
 
@@ -430,12 +459,12 @@ impl<V, F: ?Sized> SmeltAddressEntry<V> for SmeltAddressSlot<V, F> {
 /// is then reset to `SMELT_ADDRESS_TABLE_GROWTH` times the surviving count:
 /// the table stays proportional to the number of LIVE allocations it describes.
 struct SmeltAddressTable<V> {
-    entries: ::std::collections::HashMap<usize, Box<dyn SmeltAddressEntry<V>>>,
+    entries: SmeltAddressMap<Box<dyn SmeltAddressEntry<V>>>,
     sweep_at: usize,
 }
 
 impl<V: 'static> SmeltAddressTable<V> {
-    fn new() -> Self { Self { entries: ::std::collections::HashMap::new(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP } }
+    fn new() -> Self { Self { entries: SmeltAddressMap::default(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP } }
     /// Number of entries, live or not yet swept.
     #[allow(dead_code)]
     fn len(&self) -> usize { self.entries.len() }
@@ -1554,7 +1583,7 @@ impl SmeltArrayProps {
 }
 
 /// Named array properties by array identity, swept like `SmeltAddressTable`.
-struct SmeltArrayPropsTable { entries: ::std::collections::HashMap<usize, SmeltArrayProps>, sweep_at: usize }
+struct SmeltArrayPropsTable { entries: SmeltAddressMap<SmeltArrayProps>, sweep_at: usize }
 
 impl SmeltArrayPropsTable {
     /// Number of entries, live or not yet swept.
@@ -1579,7 +1608,7 @@ fn smelt_sweep_array_props(table: &::std::cell::RefCell<SmeltArrayPropsTable>) {
 
 thread_local! {
     /// Named (non-index) properties of erased arrays, keyed by array identity.
-    static SMELT_ARRAY_PROPS: ::std::cell::RefCell<SmeltArrayPropsTable> = ::std::cell::RefCell::new(SmeltArrayPropsTable { entries: ::std::collections::HashMap::new(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP });
+    static SMELT_ARRAY_PROPS: ::std::cell::RefCell<SmeltArrayPropsTable> = ::std::cell::RefCell::new(SmeltArrayPropsTable { entries: SmeltAddressMap::default(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP });
 }
 
 /// Read one named property of the array with this identity.
@@ -3582,27 +3611,32 @@ use super::*;
 pub(crate) fn timeout__module_main(duration: f64, exception: Option<SmeltUnion4>) -> f64 {
     let exception_1: SmeltUnion4;
     let ex: Ex;
-    let _smelt_tmp_5: SmeltUnion4;
-    let _smelt_tmp_6: bool;
-    let mut _smelt_tmp_7: Ex;
-    let mut _smelt_tmp_8: ::std::rc::Rc<dyn Fn(String) -> Ex> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> Ex> = ::std::rc::Rc::new(move |arg0: String| -> Ex { Default::default() }); smelt_default_callback };
-    let _smelt_tmp_9: Ex;
+    let mut _smelt_tmp_5: SmeltUnion4;
+    let _smelt_tmp_7: bool;
+    let mut _smelt_tmp_8: Ex;
+    let mut _smelt_tmp_9: ::std::rc::Rc<dyn Fn(String) -> Ex> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> Ex> = ::std::rc::Rc::new(move |arg0: String| -> Ex { Default::default() }); smelt_default_callback };
     let _smelt_tmp_10: Ex;
-    let _smelt_tmp_11: f64;
-    let _smelt_tmp_4: Ex = Ex::new(504.0);
-    _smelt_tmp_5 = exception.clone().map_or_else(|| SmeltUnion4::M0(_smelt_tmp_4), |value| value);
-    exception_1 = _smelt_tmp_5;
-    _smelt_tmp_6 = matches!(exception_1.clone(), SmeltUnion4::M1(_));
-    let mut _smelt_tmp_7: Ex = Default::default();
-    if _smelt_tmp_6 {
-    _smelt_tmp_8 = (match exception_1 { SmeltUnion4::M1(value) => value, _ => unreachable!("union guard selected an excluded member") }).clone();
-    _smelt_tmp_9 = (_smelt_tmp_8)("ctx".to_owned());
-    _smelt_tmp_7 = _smelt_tmp_9;
+    let _smelt_tmp_11: Ex;
+    let _smelt_tmp_12: f64;
+    let _smelt_tmp_4: bool = exception.clone().is_none();
+    if _smelt_tmp_4 {
+    let _smelt_tmp_6: Ex = Ex::new(504.0);
+    _smelt_tmp_5 = exception.clone().map_or_else(|| SmeltUnion4::M0(_smelt_tmp_6), |value| value);
     } else {
-    _smelt_tmp_10 = match exception_1 { SmeltUnion4::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_7 = _smelt_tmp_10;
+    _smelt_tmp_5 = exception.clone().expect("optional value was absent after narrowing");
     }
-    ex = _smelt_tmp_7;
-    _smelt_tmp_11 = duration + ex.code;
-    return _smelt_tmp_11;
+    exception_1 = _smelt_tmp_5;
+    _smelt_tmp_7 = matches!(exception_1.clone(), SmeltUnion4::M1(_));
+    let mut _smelt_tmp_8: Ex = Default::default();
+    if _smelt_tmp_7 {
+    _smelt_tmp_9 = (match exception_1 { SmeltUnion4::M1(value) => value, _ => unreachable!("union guard selected an excluded member") }).clone();
+    _smelt_tmp_10 = (_smelt_tmp_9)("ctx".to_owned());
+    _smelt_tmp_8 = _smelt_tmp_10;
+    } else {
+    _smelt_tmp_11 = match exception_1 { SmeltUnion4::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
+    _smelt_tmp_8 = _smelt_tmp_11;
+    }
+    ex = _smelt_tmp_8;
+    _smelt_tmp_12 = duration + ex.code;
+    return _smelt_tmp_12;
 }

@@ -15,34 +15,43 @@ fn timeout__module_examples/typescript/end-to-end/121_callback_into_union_functi
     %1 param exception: Optional<Ex | fn(String) -> Ex>
     %2 user exception: Ex | fn(String) -> Ex
     %3 user ex: Ex
-    %4 temp: Ex
+    %4 temp: Bool
     %5 temp: Ex | fn(String) -> Ex
-    %6 temp: Bool
-    %7 temp: Ex
-    %8 temp: fn(String) -> Ex
-    %9 temp: Ex
+    %6 temp: Ex
+    %7 temp: Bool
+    %8 temp: Ex
+    %9 temp: fn(String) -> Ex
     %10 temp: Ex
-    %11 temp: Float
+    %11 temp: Ex
+    %12 temp: Float
   bb0:
-    %4 = call fn0(504.0) -> bb1
+    %4 = copy %1 == none
+    switch move %4 ? bb1 : bb2
   bb1:
-    %5 = copy %1 ?? move %4
-    %2 = move %5
-    %6 = unknown_is Function copy %2
-    switch move %6 ? bb2 : bb3
+    %6 = call fn0(504.0) -> bb3
   bb2:
-    %8 = unknown_cast move %2 as t2
-    %9 = closure_call move %8("ctx")
-    %7 = move %9
+    %5 = copy %1
     goto bb4
   bb3:
-    %10 = unknown_cast move %2 as t1
-    %7 = move %10
+    %5 = copy %1 ?? move %6
     goto bb4
   bb4:
-    %3 = move %7
-    %11 = copy %0 + copy %3.field2
-    return move %11
+    %2 = move %5
+    %7 = unknown_is Function copy %2
+    switch move %7 ? bb5 : bb6
+  bb5:
+    %9 = unknown_cast move %2 as t2
+    %10 = closure_call move %9("ctx")
+    %8 = move %10
+    goto bb7
+  bb6:
+    %11 = unknown_cast move %2 as t1
+    %8 = move %11
+    goto bb7
+  bb7:
+    %3 = move %8
+    %12 = copy %0 + copy %3.field2
+    return move %12
 
 fn main (FuncId(2)) -> None
   locals

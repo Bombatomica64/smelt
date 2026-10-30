@@ -203,7 +203,7 @@ impl Point3 {
 impl Tagged {
     fn new(tag: Option<String>) -> Self {
     let mut this: Self = Tagged { tag: String::new() };
-    let _smelt_tmp_3: String = tag.clone().clone().unwrap_or("none".to_owned());
+    let _smelt_tmp_3: String = tag.clone().unwrap_or("none".to_owned());
     let tag_1: String = _smelt_tmp_3;
     this.tag = tag_1;
     return this;
@@ -220,7 +220,7 @@ impl Labelled {
     }
     fn __smelt_init_Tagged(smelt_receiver: Self, tag: Option<String>) -> Self {
     let mut this: Self = smelt_receiver;
-    let _smelt_tmp_3: String = tag.clone().clone().unwrap_or("none".to_owned());
+    let _smelt_tmp_3: String = tag.clone().unwrap_or("none".to_owned());
     let tag_1: String = _smelt_tmp_3;
     this.tag = tag_1;
     return this;

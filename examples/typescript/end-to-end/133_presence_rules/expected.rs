@@ -372,10 +372,61 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
     }
 }
 
+/// A snapshot an erased view builds the first time its store is read.
+struct SmeltPendingFill<K, V> {
+    build: Box<dyn FnOnce() -> Vec<(K, V)>>,
+    insert: fn(&mut SmeltFieldStore<K, V>, Vec<(K, V)>),
+}
+
+/// The `RefCell` around a field store, building a pending snapshot on first use.
+///
+/// See `lazy_view` in the code generator: `borrow`/`borrow_mut` are the
+/// `RefCell` ones after materializing; `raw_borrow`/`raw_borrow_mut` skip it
+/// and exist only for the `origin` slot.
+pub struct SmeltStoreCell<K, V> {
+    cell: ::std::cell::RefCell<SmeltFieldStore<K, V>>,
+    pending: ::std::cell::Cell<Option<SmeltPendingFill<K, V>>>,
+}
+
+#[allow(dead_code)]
+impl<K, V> SmeltStoreCell<K, V> {
+    /// A cell over an already-populated store.
+    #[inline]
+    fn new(store: SmeltFieldStore<K, V>) -> Self { Self { cell: ::std::cell::RefCell::new(store), pending: ::std::cell::Cell::new(None) } }
+    /// A cell whose entries `build` produces on the first read or write.
+    fn lazy(store: SmeltFieldStore<K, V>, build: Box<dyn FnOnce() -> Vec<(K, V)>>, insert: fn(&mut SmeltFieldStore<K, V>, Vec<(K, V)>)) -> Self {
+        Self { cell: ::std::cell::RefCell::new(store), pending: ::std::cell::Cell::new(Some(SmeltPendingFill { build, insert })) }
+    }
+    /// Build the pending snapshot, if any, into the store.
+    #[inline]
+    fn materialize(&self) {
+        if let Some(fill) = self.pending.take() {
+            let entries = (fill.build)();
+            (fill.insert)(&mut self.cell.borrow_mut(), entries);
+        }
+    }
+    /// Borrow the store, building a pending snapshot first.
+    #[inline]
+    fn borrow(&self) -> ::std::cell::Ref<'_, SmeltFieldStore<K, V>> { self.materialize(); self.cell.borrow() }
+    /// Mutably borrow the store, building a pending snapshot first.
+    #[inline]
+    fn borrow_mut(&self) -> ::std::cell::RefMut<'_, SmeltFieldStore<K, V>> { self.materialize(); self.cell.borrow_mut() }
+    /// Borrow the store as it is, pending snapshot left unbuilt (the origin slot only).
+    #[inline]
+    fn raw_borrow(&self) -> ::std::cell::Ref<'_, SmeltFieldStore<K, V>> { self.cell.borrow() }
+    /// Mutably borrow the store as it is (the origin slot only).
+    #[inline]
+    fn raw_borrow_mut(&self) -> ::std::cell::RefMut<'_, SmeltFieldStore<K, V>> { self.cell.borrow_mut() }
+}
+
+impl<K: ::std::fmt::Debug, V: ::std::fmt::Debug> ::std::fmt::Debug for SmeltStoreCell<K, V> {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { self.borrow().fmt(formatter) }
+}
+
 #[derive(Debug)]
 pub struct SmeltRecord<K, V> {
     id: usize,
-    store: ::std::rc::Rc<::std::cell::RefCell<SmeltFieldStore<K, V>>>,
+    store: ::std::rc::Rc<SmeltStoreCell<K, V>>,
 }
 
 thread_local! {
@@ -389,6 +440,35 @@ impl<T: ?Sized> SmeltAllocationGuard for ::std::rc::Weak<T> {
     #[inline]
     fn is_live(&self) -> bool { self.strong_count() != 0 }
 }
+
+/// Hasher for keys that are allocation addresses (or ids minted from them).
+///
+/// The tables are keyed by `Rc::as_ptr` addresses, which an attacker cannot
+/// choose, so std's DoS-resistant SipHash buys nothing here and cost ~3% of a
+/// Hono request (every erased callable touches the table several times). A
+/// single folded 64x64->128 multiply mixes every key bit into both halves of
+/// the hash: the low bits pick hashbrown's bucket and the top seven are its
+/// control byte, and an address's low bits are always zero (alignment), so a
+/// plain multiply or identity hash would leave buckets unused.
+#[derive(Default, Clone, Copy)]
+struct SmeltAddressHasher(u64);
+
+impl ::std::hash::Hasher for SmeltAddressHasher {
+    #[inline]
+    fn finish(&self) -> u64 { self.0 }
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) { for byte in bytes { self.write_u64(u64::from(*byte)); } }
+    #[inline]
+    fn write_u64(&mut self, value: u64) {
+        let product = u128::from(value ^ self.0) * 0x9E37_79B9_7F4A_7C15_u128;
+        self.0 = (product as u64) ^ ((product >> 64) as u64);
+    }
+    #[inline]
+    fn write_usize(&mut self, value: usize) { self.write_u64(value as u64); }
+}
+
+/// `HashMap` keyed by an allocation address, hashed with [`SmeltAddressHasher`].
+type SmeltAddressMap<V> = ::std::collections::HashMap<usize, V, ::std::hash::BuildHasherDefault<SmeltAddressHasher>>;
 
 /// The size below which an address table never sweeps.
 const SMELT_ADDRESS_TABLE_MIN_SWEEP: usize = 256;
@@ -432,12 +512,12 @@ impl<V, F: ?Sized> SmeltAddressEntry<V> for SmeltAddressSlot<V, F> {
 /// is then reset to `SMELT_ADDRESS_TABLE_GROWTH` times the surviving count:
 /// the table stays proportional to the number of LIVE allocations it describes.
 struct SmeltAddressTable<V> {
-    entries: ::std::collections::HashMap<usize, Box<dyn SmeltAddressEntry<V>>>,
+    entries: SmeltAddressMap<Box<dyn SmeltAddressEntry<V>>>,
     sweep_at: usize,
 }
 
 impl<V: 'static> SmeltAddressTable<V> {
-    fn new() -> Self { Self { entries: ::std::collections::HashMap::new(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP } }
+    fn new() -> Self { Self { entries: SmeltAddressMap::default(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP } }
     /// Number of entries, live or not yet swept.
     #[allow(dead_code)]
     fn len(&self) -> usize { self.entries.len() }
@@ -769,7 +849,7 @@ fn smelt_function_length(value: &SmeltUnknown) -> f64 { let function = match val
 /// so narrowing the record back hands out the SAME object.
 #[allow(dead_code)]
 fn smelt_with_host_origin<T: 'static>(erased: SmeltUnknown, origin: T) -> SmeltUnknown {
-    if let SmeltUnknown::Object(object) = &erased { object.store.borrow_mut().origin = Some(Box::new(origin)); }
+    if let SmeltUnknown::Object(object) = &erased { object.store.raw_borrow_mut().origin = Some(Box::new(origin)); }
     erased
 }
 
@@ -870,8 +950,8 @@ fn smelt_js_key_order_position<K: SmeltPropertyKey, V>(entries: &[SmeltFieldEntr
 }
 
 impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> {
-    fn new() -> Self { Self { id: smelt_next_object_id(), store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFieldStore::default())) } }
-    fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>(id: usize, iter: I) -> Self { let record = Self { id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFieldStore::default())) }; record.extend(iter); record }
+    fn new() -> Self { Self { id: smelt_next_object_id(), store: ::std::rc::Rc::new(SmeltStoreCell::new(SmeltFieldStore::default())) } }
+    fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>(id: usize, iter: I) -> Self { let record = Self { id, store: ::std::rc::Rc::new(SmeltStoreCell::new(SmeltFieldStore::default())) }; record.extend(iter); record }
     fn len(&self) -> usize { self.store.borrow().len() }
     fn contains_key<Q>(&self, key: &Q) -> bool where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized { self.store.borrow().contains_key(key) }
     fn insert(&self, key: K, value: V) -> Option<V> { self.store.borrow_mut().insert(key, value) }
@@ -1168,7 +1248,7 @@ impl SmeltJsStrictEq for f64 { fn js_strict_eq(&self, other: &Self) -> bool { se
 #[derive(Debug)]
 pub struct SmeltObject {
     id: usize,
-    store: ::std::rc::Rc<::std::cell::RefCell<SmeltFieldStore<String, SmeltUnknown>>>,
+    store: ::std::rc::Rc<SmeltStoreCell<String, SmeltUnknown>>,
 }
 
 impl Clone for SmeltObject { fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } } }
@@ -1183,7 +1263,7 @@ impl SmeltObject {
     /// keys keep the first key's position and take the last value, as in JS.
     fn new(entries: Vec<(String, SmeltUnknown)>) -> Self { Self::with_id(smelt_next_object_id(), entries) }
     /// Build an erased object that keeps a source value's reference identity.
-    fn with_id(id: usize, entries: Vec<(String, SmeltUnknown)>) -> Self { let object = Self { id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFieldStore::with_capacity(entries.len()))) }; for (key, value) in entries { object.insert(key, value); } object }
+    fn with_id(id: usize, entries: Vec<(String, SmeltUnknown)>) -> Self { let object = Self { id, store: ::std::rc::Rc::new(SmeltStoreCell::new(SmeltFieldStore::with_capacity(entries.len()))) }; for (key, value) in entries { object.insert(key, value); } object }
     fn from_unknown_record(record: SmeltRecord<String, SmeltUnknown>) -> Self { Self { id: record.id, store: record.store } }
     fn len(&self) -> usize { self.store.borrow().len() }
     #[inline]
@@ -1201,16 +1281,19 @@ impl SmeltObject {
     /// narrowing the erased object back hands out the SAME instance rather than
     /// a copy rebuilt from the field snapshot.
     #[allow(dead_code)]
-    fn smelt_with_origin<T: 'static>(self, origin: T) -> Self { self.store.borrow_mut().origin = Some(Box::new(origin)); self }
+    fn smelt_with_origin<T: 'static>(self, origin: T) -> Self { self.store.raw_borrow_mut().origin = Some(Box::new(origin)); self }
     /// The live typed value this erased object is a view of, when it is a `T`.
     #[allow(dead_code)]
-    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { self.store.borrow().origin.as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }
+    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { self.store.raw_borrow().origin.as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }
+    /// Build an erased object whose entries `build` produces on first use (see `SmeltStoreCell`).
+    #[allow(dead_code)]
+    fn lazy_with_id(id: usize, build: impl FnOnce() -> Vec<(String, SmeltUnknown)> + 'static) -> Self { Self { id, store: ::std::rc::Rc::new(SmeltStoreCell::lazy(SmeltFieldStore::default(), Box::new(build), |store, entries| { for (key, value) in entries { store.insert(key, value); } })) } }
 }
 
 impl<K, V> SmeltRecord<K, V> {
     /// The live typed value this record's store is an erased view of, when it is a `T`.
     #[allow(dead_code)]
-    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { self.store.borrow().origin.as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }
+    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { self.store.raw_borrow().origin.as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }
 }
 
 /// Return whether an erased object key is visible to JavaScript `for...in` iteration.
@@ -1621,7 +1704,7 @@ impl SmeltArrayProps {
 }
 
 /// Named array properties by array identity, swept like `SmeltAddressTable`.
-struct SmeltArrayPropsTable { entries: ::std::collections::HashMap<usize, SmeltArrayProps>, sweep_at: usize }
+struct SmeltArrayPropsTable { entries: SmeltAddressMap<SmeltArrayProps>, sweep_at: usize }
 
 impl SmeltArrayPropsTable {
     /// Number of entries, live or not yet swept.
@@ -1646,7 +1729,7 @@ fn smelt_sweep_array_props(table: &::std::cell::RefCell<SmeltArrayPropsTable>) {
 
 thread_local! {
     /// Named (non-index) properties of erased arrays, keyed by array identity.
-    static SMELT_ARRAY_PROPS: ::std::cell::RefCell<SmeltArrayPropsTable> = ::std::cell::RefCell::new(SmeltArrayPropsTable { entries: ::std::collections::HashMap::new(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP });
+    static SMELT_ARRAY_PROPS: ::std::cell::RefCell<SmeltArrayPropsTable> = ::std::cell::RefCell::new(SmeltArrayPropsTable { entries: SmeltAddressMap::default(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP });
 }
 
 /// Read one named property of the array with this identity.
@@ -3858,6 +3941,14 @@ impl Default for SmeltRequestInit {
     }
 }
 
+thread_local! {
+    /// The spec's default `RequestInit`, shared by every request built without one.
+    static SMELT_DEFAULT_REQUEST_INIT: ::std::rc::Rc<SmeltRequestInit> = ::std::rc::Rc::new(SmeltRequestInit::default());
+}
+
+/// A handle on the shared default `RequestInit` (its members are immutable).
+fn smelt_default_request_init() -> ::std::rc::Rc<SmeltRequestInit> { SMELT_DEFAULT_REQUEST_INIT.with(::std::rc::Rc::clone) }
+
 #[allow(dead_code)]
 impl SmeltRequestInit {
     /// Serialize a spelled `referrer` the way the spec stores it.
@@ -3884,12 +3975,40 @@ pub struct SmeltRequest {
     headers: SmeltHeaders,
     body: SmeltBody,
     /// The stored `RequestInit` members; see `SmeltRequestInit`.
-    init: SmeltRequestInit,
+    ///
+    /// Shared, because they are immutable once the request exists: a request
+    /// is cloned on every handle copy, and seven owned strings per clone were
+    /// a measurable share of a served request.
+    init: ::std::rc::Rc<SmeltRequestInit>,
 }
 
 impl PartialEq for SmeltRequest { fn eq(&self, other: &Self) -> bool { self.url == other.url && self.method == other.method && self.headers == other.headers && self.body == other.body && self.init == other.init } }
 impl ::std::fmt::Debug for SmeltRequest { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltRequest").field("method", &self.method).field("url", &self.url).field("headers", &self.headers).field("body", &self.body).finish() } }
-impl Default for SmeltRequest { fn default() -> Self { Self::from_parts("", "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty()) } }
+impl Default for SmeltRequest { fn default() -> Self { let headers = SmeltHeaders::new(); let body = SmeltBody::empty(); Self { id: smelt_next_object_id(), url: String::new(), method: "GET".to_owned(), headers, body, init: smelt_default_request_init() } } }
+
+/// Whether `input` is an http(s) URL already in its WHATWG serialization (see `fetch_types_prelude`).
+#[allow(dead_code)]
+fn smelt_url_is_serialized_http(input: &str) -> bool {
+    let (rest, default_port) = if let Some(rest) = input.strip_prefix("http://") { (rest, 80_u32) } else if let Some(rest) = input.strip_prefix("https://") { (rest, 443_u32) } else { return false };
+    let Some(path_start) = rest.find('/') else { return false };
+    let (authority, path) = rest.split_at(path_start);
+    let (host, port) = match authority.split_once(':') { Some((host, port)) => (host, Some(port)), None => (authority, None) };
+    if let Some(port) = port {
+        if port.is_empty() || port.len() > 5 || port.starts_with('0') || !port.bytes().all(|byte| byte.is_ascii_digit()) { return false; }
+        match port.parse::<u32>() { Ok(value) if value <= 65535 && value != default_port => {} _ => return false }
+    }
+    if host.is_empty() { return false; }
+    let labels: Vec<&str> = host.split('.').collect();
+    let dotted_quad = labels.len() == 4 && labels.iter().all(|label| !label.is_empty() && label.len() <= 3 && label.bytes().all(|byte| byte.is_ascii_digit()) && (label.len() == 1 || !label.starts_with('0')) && label.parse::<u32>().is_ok_and(|octet| octet <= 255));
+    if !dotted_quad {
+        if labels.iter().any(|label| label.is_empty() || label.starts_with("xn--") || label.starts_with('-') || label.ends_with('-') || !label.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')) { return false; }
+        let last = labels[labels.len() - 1];
+        if !last.bytes().any(|byte| byte.is_ascii_lowercase()) || last.starts_with("0x") { return false; }
+    }
+    let bytes = path.as_bytes();
+    if !bytes.iter().all(|byte| (0x21..=0x7e).contains(byte) && !b"\"#'<>\\^`{|}".contains(byte)) { return false; }
+    !bytes.windows(2).any(|pair| pair == b"/.") && !bytes.windows(3).any(|triple| triple[0] == b'%' && triple[1] == b'2' && (triple[2] | 0x20) == b'e')
+}
 
 #[allow(dead_code)]
 impl SmeltRequest {
@@ -3901,10 +4020,12 @@ impl SmeltRequest {
     /// a `Content-Type` adds it unless the caller set one, exactly as on a
     /// response — the pairing belongs to the body, so both holders get it
     /// from the same place.
-    pub fn from_parts(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody) -> Self { Self::from_parts_with_init(input, method, headers, body, SmeltRequestInit::default()) }
+    pub fn from_parts(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody) -> Self { Self::assemble(input, method, headers, body, smelt_default_request_init()) }
     /// The same assembly, carrying the stored `RequestInit` members.
-    pub fn from_parts_with_init(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody, init: SmeltRequestInit) -> Self {
-        let url = ::url::Url::parse(input).map_or_else(|_| input.to_owned(), |parsed| parsed.to_string());
+    pub fn from_parts_with_init(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody, init: SmeltRequestInit) -> Self { Self::assemble(input, method, headers, body, ::std::rc::Rc::new(init)) }
+    /// The assembly both constructors share, over an already-shared `init`.
+    fn assemble(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody, init: ::std::rc::Rc<SmeltRequestInit>) -> Self {
+        let url = if input == "about:blank" || smelt_url_is_serialized_http(input) { input.to_owned() } else { ::url::Url::parse(input).map_or_else(|_| input.to_owned(), |parsed| parsed.to_string()) };
         if let Some(content_type) = body.content_type() && !headers.has("content-type") {
             headers.append("content-type", &content_type);
         }
@@ -3946,9 +4067,9 @@ impl SmeltRequest {
     ///
     /// The url is already serialized, so it is passed through `from_parts`
     /// unchanged; re-parsing a serialization is a no-op.
-    pub fn tee(&self) -> Self { Self::from_parts_with_init(&self.url, self.method.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee(), self.init.clone()) }
+    pub fn tee(&self) -> Self { Self::from_parts_with_init(&self.url, self.method.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee(), (*self.init).clone()) }
     /// The stored `RequestInit` members, as a copy.
-    pub fn init(&self) -> SmeltRequestInit { self.init.clone() }
+    pub fn init(&self) -> SmeltRequestInit { (*self.init).clone() }
     /// `cache`: a stored `RequestInit` member.
     pub fn cache(&self) -> String { self.init.cache.clone() }
     /// `credentials`: a stored `RequestInit` member.
@@ -3977,8 +4098,8 @@ impl SmeltRequest {
 impl IntoSmeltUnknown for SmeltRequest {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let smelt_host_origin = self.clone();
-        let body_text = String::from_utf8_lossy(&self.body.peek_bytes()).into_owned();
-        smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([("__smelt_request".to_owned(), SmeltUnknown::Bool(true)), ("url".to_owned(), SmeltUnknown::String(self.url.into())), ("method".to_owned(), SmeltUnknown::String(self.method.into())), ("headers".to_owned(), self.headers.into_smelt_unknown()), ("body".to_owned(), SmeltUnknown::String(body_text.into()))]))), smelt_host_origin)
+        let smelt_id = self.id;
+        smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_id, move || { let body_text = String::from_utf8_lossy(&self.body.peek_bytes()).into_owned(); Vec::from([("__smelt_request".to_owned(), SmeltUnknown::Bool(true)), ("url".to_owned(), SmeltUnknown::String(self.url.into())), ("method".to_owned(), SmeltUnknown::String(self.method.into())), ("headers".to_owned(), self.headers.into_smelt_unknown()), ("body".to_owned(), SmeltUnknown::String(body_text.into()))]) })), smelt_host_origin)
     }
 }
 
@@ -4061,7 +4182,7 @@ impl IntoSmeltUnknown for SmeltUnion4 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
             Self::M0(value) => value.clone().into_smelt_unknown(),
-            Self::M1(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("raw".to_owned(), smelt_object_value.0.borrow().raw.clone().into_smelt_unknown())); smelt_object_entries.push(("count".to_owned(), SmeltUnknown::Number(smelt_object_value.0.borrow().count.clone() as f64))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Wrapper".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); SmeltUnknown::Object(SmeltObject::with_id(smelt_reference_object_identity(&smelt_struct_value.0), smelt_object_entries).smelt_with_origin(smelt_struct_value.clone())) },
+            Self::M1(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("raw".to_owned(), smelt_object_value.0.borrow().raw.clone().into_smelt_unknown())); smelt_object_entries.push(("count".to_owned(), SmeltUnknown::Number(smelt_object_value.0.borrow().count.clone() as f64))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Wrapper".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) },
         }
     }
 }
@@ -4296,7 +4417,7 @@ pub(crate) fn segments(path: String) -> SmeltList<String> {
 pub(crate) fn pick(node_params: SmeltRecord<String, String>, params: Option<SmeltRecord<String, String>>, key: String) -> String {
     let _smelt_tmp_3: Option<String> = params.clone().as_ref().and_then(|_smelt_value| _smelt_value.get(&key.clone()));
     let _smelt_tmp_4: Option<String> = match node_params.get(&key) { Some(value) => Some(value), None => _smelt_tmp_3 };
-    return _smelt_tmp_4.clone().unwrap_or(String::new());
+    return _smelt_tmp_4.clone().unwrap_or_else(|| String::new());
 }
 
 pub(crate) fn pick_or(node_params: SmeltRecord<String, String>, key: String) -> String {

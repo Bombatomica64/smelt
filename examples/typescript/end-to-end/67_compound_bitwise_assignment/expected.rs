@@ -252,12 +252,12 @@ pub(crate) fn constant_time_equal_string(a: String, b: String) -> bool {
     if !(_smelt_tmp_13) { break; }
     _smelt_tmp_14 = i < a_len;
     if _smelt_tmp_14 {
-    _smelt_tmp_16 = a.clone().chars().nth(i as usize).map_or(f64::NAN, |ch| ch as u32 as f64);
+    _smelt_tmp_16 = (|smelt_text: &str, smelt_index: usize| match smelt_text.as_bytes().get(..=smelt_index) { Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[smelt_index]), _ => smelt_text.chars().nth(smelt_index).map_or(f64::NAN, |ch| ch as u32 as f64) })(&a, i as usize);
     _smelt_tmp_15 = _smelt_tmp_16;
     a_char = _smelt_tmp_15;
     _smelt_tmp_17 = i < b_len;
     if _smelt_tmp_17 {
-    _smelt_tmp_19 = b.clone().chars().nth(i as usize).map_or(f64::NAN, |ch| ch as u32 as f64);
+    _smelt_tmp_19 = (|smelt_text: &str, smelt_index: usize| match smelt_text.as_bytes().get(..=smelt_index) { Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[smelt_index]), _ => smelt_text.chars().nth(smelt_index).map_or(f64::NAN, |ch| ch as u32 as f64) })(&b, i as usize);
     _smelt_tmp_18 = _smelt_tmp_19;
     } else {
     _smelt_tmp_18 = 0.0;
@@ -274,7 +274,7 @@ pub(crate) fn constant_time_equal_string(a: String, b: String) -> bool {
     a_char = _smelt_tmp_15;
     _smelt_tmp_17 = i < b_len;
     if _smelt_tmp_17 {
-    _smelt_tmp_19 = b.clone().chars().nth(i as usize).map_or(f64::NAN, |ch| ch as u32 as f64);
+    _smelt_tmp_19 = (|smelt_text: &str, smelt_index: usize| match smelt_text.as_bytes().get(..=smelt_index) { Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[smelt_index]), _ => smelt_text.chars().nth(smelt_index).map_or(f64::NAN, |ch| ch as u32 as f64) })(&b, i as usize);
     _smelt_tmp_18 = _smelt_tmp_19;
     } else {
     _smelt_tmp_18 = 0.0;

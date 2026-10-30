@@ -454,7 +454,7 @@ use super::*;
 
 pub(crate) fn make(preferred: Option<SmeltHeaders>, extra: Option<::std::collections::HashMap<String, String>>) -> SmeltResponse {
     let _smelt_tmp_2: Option<SmeltHeaders> = extra.clone().map(|value| SmeltHeaders::from_pairs(value.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()));
-    let _smelt_tmp_3: Option<SmeltHeaders> = preferred.clone().clone().or(_smelt_tmp_2);
+    let _smelt_tmp_3: Option<SmeltHeaders> = preferred.clone().or(_smelt_tmp_2);
     let _smelt_tmp_4: SmeltResponse = SmeltResponse::from_parts(201.0, String::new(), match _smelt_tmp_3 { Some(smelt_init_headers) => SmeltHeaders::from_pairs(smelt_init_headers.entries_sorted()), None => SmeltHeaders::new() }, SmeltBody::from_text(&"ok".to_owned()));
     return _smelt_tmp_4;
 }

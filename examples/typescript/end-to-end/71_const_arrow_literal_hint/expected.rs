@@ -164,11 +164,11 @@ fn main() {
     let _smelt_tmp_24: f64;
     let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: Option<Opts>| {
     let _smelt_tmp_1: Option<f64> = closure_arg_0.clone().as_ref().and_then(|_smelt_value| _smelt_value.status.clone());
-    let _smelt_tmp_2: f64 = _smelt_tmp_1.clone().clone().unwrap_or(0.0);
+    let _smelt_tmp_2: f64 = _smelt_tmp_1.clone().unwrap_or(0.0);
     let _smelt_tmp_3: String = "optional ".to_owned() + &smelt_number_to_string(_smelt_tmp_2);
     let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &" ".to_owned();
     let _smelt_tmp_5: Option<String> = closure_arg_0.clone().as_ref().and_then(|_smelt_value| _smelt_value.label.clone());
-    let _smelt_tmp_6: String = _smelt_tmp_5.clone().clone().unwrap_or("-".to_owned());
+    let _smelt_tmp_6: String = _smelt_tmp_5.clone().unwrap_or("-".to_owned());
     let _smelt_tmp_7: String = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone();
     _smelt_tmp_7.clone()
     });
@@ -248,7 +248,7 @@ fn main() {
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if _smelt_tmp_5 {
     item = closure_arg_0.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| Default::default());
-    _smelt_tmp_6 = item.status.clone().clone().unwrap_or(0.0);
+    _smelt_tmp_6 = item.status.clone().unwrap_or(0.0);
     _smelt_tmp_7 = sum + _smelt_tmp_6;
     sum = _smelt_tmp_7;
     _smelt_tmp_3 = _smelt_tmp_3 + 1;
@@ -274,10 +274,10 @@ fn main() {
 use super::*;
 
 pub(crate) fn show_fn(opts: Opts) -> String {
-    let _smelt_tmp_1: f64 = opts.status.clone().clone().unwrap_or(0.0);
+    let _smelt_tmp_1: f64 = opts.status.clone().unwrap_or(0.0);
     let _smelt_tmp_2: String = "fn ".to_owned() + &smelt_number_to_string(_smelt_tmp_1);
     let _smelt_tmp_3: String = _smelt_tmp_2 + &" ".to_owned();
-    let _smelt_tmp_4: String = opts.label.clone().clone().unwrap_or("-".to_owned());
+    let _smelt_tmp_4: String = opts.label.clone().unwrap_or("-".to_owned());
     let _smelt_tmp_5: String = _smelt_tmp_3 + &_smelt_tmp_4;
     return _smelt_tmp_5;
 }
