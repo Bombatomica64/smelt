@@ -11,7 +11,7 @@ benchmark and acceptance criteria come first). `bench.sh` is the harness;
 | `node-original` | Node 24 | `examples/typescript/hono_crud` as shipped (`npm run build && npm start`) | `node:sqlite` file `todos.db` | `@hono/node-server` |
 | `node-staging` | Node 24 | staging variant (below), compiled by `tsc` | in-memory array | `serve.ts` shim over `node:http` |
 | `rust-staging` | generated crate, `cargo build --release` | the same staging variant, transpiled by `smelt build` | in-memory array | the same `serve.ts` shim, lowered onto Smelt's hyper-backed `node:http` |
-| `rust-shipped` | generated crate, `cargo build --release` | `examples/typescript/hono_crud` as shipped, transpiled by `smelt build` (Hono from the `[packages.hono]` pin in its `Smelt.toml`) | `node:sqlite` file `todos.db` (rusqlite, bundled SQLite) | `@hono/node-server` `serve()`, modeled natively over the same `node:http` server |
+| `rust-shipped` | generated crate, `cargo build --release` | `examples/typescript/hono_crud` as shipped, transpiled by `smelt build` (Hono from the `[packages.hono]` pin in its `Smelt.toml`, which since perf round 1 also sets `[rust] allocator = "mimalloc"`; see `blocker-logs/hono-crud-perf-round1.md`) | `node:sqlite` file `todos.db` (rusqlite, bundled SQLite) | `@hono/node-server` `serve()`, modeled natively over the same `node:http` server |
 
 `node-staging` vs `rust-staging` is one apples-to-apples pair: identical
 TypeScript source on both sides. `node-original` vs `rust-shipped` is the other:
