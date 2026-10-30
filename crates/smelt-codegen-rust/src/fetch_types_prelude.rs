@@ -729,8 +729,15 @@ fn emit_body_inherent_impl(writer: &mut CodeWriter, needs_unknown: bool) {
         impl_writer.line("/// unread body, so reading one must not consume the other. `Clone`");
         impl_writer.line("/// (the Rust trait) is the *handle* copy and shares both, which is");
         impl_writer.line("/// what assigning a response to another variable does.");
+        impl_writer.line("///");
+        impl_writer.line("/// The spec makes `clone()` of a USED body throw a `TypeError`. A clone");
+        impl_writer.line("/// here is a plain value, so the clone of a used body is itself used:");
+        impl_writer.line("/// every read of it throws that same `TypeError` (`Body is unusable`),");
+        impl_writer.line("/// and `try { await res.clone().json() } catch {}` takes the catch as it");
+        impl_writer.line("/// does in JavaScript. The error surfaces at the first read rather than");
+        impl_writer.line("/// at `clone()` itself.");
         impl_writer.line(
-            "pub fn tee(&self) -> Self { let mut body = Self::from_payload(self.payload.borrow().clone()); body.content_type = self.content_type.clone(); body }",
+            "pub fn tee(&self) -> Self { let mut body = Self::from_payload(self.payload.borrow().clone()); body.content_type = self.content_type.clone(); if self.used.get() { body.used.set(true); } body }",
         );
     });
     writer.blank_line();
