@@ -34,7 +34,21 @@ impl FunctionEmitter<'_> {
         let Some(Type::Function(function)) = self.mir.types.get(call_ty).cloned() else {
             return Ok(None);
         };
-        let slot_text = format!("{}.__smelt_call.clone()", self.operand_text(callee)?);
+        // A callee read through a reference class's `RefCell` renders as
+        // `recv.0.borrow().f.clone()`, whose `Ref` guard would live to the end
+        // of the statement and so across the call. The call is often what
+        // `borrow_mut()`s that same cell (Hono's `router.get(..)` slot sets
+        // `this.#path`), which panicked "already borrowed" at startup. Binding
+        // the slot in its own `let` drops the guard first, the same rule
+        // `indirect_call_text` applies to a plain function-typed field.
+        let slot_text = if self.operand_reads_through_ref_cell(callee) {
+            format!(
+                "{{ let smelt_callable_slot = {}.__smelt_call.clone(); smelt_callable_slot }}",
+                self.operand_text(callee)?
+            )
+        } else {
+            format!("{}.__smelt_call.clone()", self.operand_text(callee)?)
+        };
         let (call_text, source_ty) =
             if self.is_erased_unknown_rest_function(&function) && !function.may_throw {
                 // The slot is a `SmeltErasedFunction`: its ABI takes the argument

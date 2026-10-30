@@ -1156,6 +1156,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let mut field_text = Vec::new();
         for (source_field_match, target_field) in adapted_fields {
             let field_name = sanitize_ident(self.symbol_name(target_field.name)?);
+            let mut value_at_slot_abi = false;
             let value = if let Some(value) =
                 self.virtual_method_storage_field_text(source, target, target_field.name)?
             {
@@ -1179,6 +1180,8 @@ impl<'mir> FunctionEmitter<'mir> {
                 let source_value = format!("{source_base}.{source_field_name}.clone()");
                 let adapted =
                     self.value_at_type_text(&source_value, source_field.ty, target_field.ty, scope)?;
+                value_at_slot_abi = adapted == source_value
+                    && self.record_slot_read_keeps_slot_abi(source, &source_field, target, &target_field);
                 // Narrowing a callable object to a callable interface that
                 // declares fewer members drops the source's own data fields —
                 // in JavaScript those are properties of the *function value*
@@ -1201,8 +1204,14 @@ impl<'mir> FunctionEmitter<'mir> {
                 )?
             };
             // A callable slot keeps the ABI its DECLARATION gave it, whatever
-            // the record was instantiated at (`emitter::record_slot_abi`).
-            let value = self.record_field_value_at_slot_abi(value, target, &target_field)?;
+            // the record was instantiated at (`emitter::record_slot_abi`). A
+            // value read straight off the same slot of the same declaration is
+            // at that ABI already and must not be adapted a second time.
+            let value = if value_at_slot_abi {
+                value
+            } else {
+                self.record_field_value_at_slot_abi(value, target, &target_field)?
+            };
             field_text.push(format!("{field_name}: {value}"));
         }
         if self
