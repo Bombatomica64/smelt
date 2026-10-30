@@ -2653,6 +2653,23 @@ impl FunctionEmitter<'_> {
             }
             _ => String::new(),
         };
+        // A NON-GENERIC reference record builds its snapshot on first use: the
+        // view already holds the live handle, and a value carried across an
+        // erased ABI and narrowed straight back never reads the snapshot at
+        // all (`lazy_view`). A generic one stays eager, because the `'static`
+        // boxed builder could not name its type parameters.
+        if self.is_reference_class_type(target)
+            && !self.type_text_with_impl_trait(target, false)?.contains('<')
+        {
+            let lazy = crate::lazy_view::lazy_reference_object_text(
+                "smelt_reference_object_identity(&smelt_struct_value.0)",
+                &format!("{entries} {host_markers}{class_marker}{proto_entries}{write_through}"),
+                "smelt_struct_value",
+            );
+            return Ok(format!(
+                "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object({lazy}) }}"
+            ));
+        }
         Ok(format!(
             "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); {entries} {host_markers}{class_marker}{proto_entries}{write_through}SmeltUnknown::Object({object_ctor}) }}"
         ))
