@@ -555,6 +555,7 @@ pub fn predeclare_type_declarations_with_path(
     // must still take them. See
     // `ModuleBuilder::collect_class_type_parameter_defaults`.
     builder.collect_class_type_parameter_defaults(&parsed.program);
+    builder.collect_class_constructor_param_types(&parsed.program);
     Ok(())
 }
 

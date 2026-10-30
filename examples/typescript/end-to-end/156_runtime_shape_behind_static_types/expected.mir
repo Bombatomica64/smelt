@@ -100,7 +100,7 @@ fn new (FuncId(5)) -> Reply
     %0 user this: Reply
     %1 param body: String
   bb0:
-    %0 = struct8 {}
+    %0 = struct1 {}
     %0.field9 = copy %1
     return move %0
 

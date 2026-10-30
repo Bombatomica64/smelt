@@ -177,6 +177,13 @@ pub struct HirCtx {
     /// Keyed by the interned spelling of the declared name, which is what an
     /// unqualified type reference to it resolves to.
     pub class_type_params: HashMap<smelt_hir::Symbol, Vec<smelt_hir::TypeParamDef>>,
+    /// Each class declaration's constructor parameter types, lowered in the
+    /// class's own type-parameter scope by a prepass
+    /// (`collect_class_constructor_param_types`), keyed like
+    /// `class_type_params`. A `new C(..)` lowered while `C` is still pending
+    /// (inside its own body, or earlier in an import cycle) types its
+    /// arguments from these.
+    pub class_constructor_params: HashMap<smelt_hir::Symbol, Vec<smelt_hir::TypeId>>,
     /// The interface synthesized for `Partial<X>` of a concrete interface
     /// record `X`, keyed by `X`'s type (see
     /// `ModuleBuilder::partial_record_type`). Crate-wide so every module
@@ -316,6 +323,7 @@ impl HirCtx {
             date_returning_functions: HashSet::new(),
             type_alias_fields: HashMap::new(),
             class_type_params: HashMap::new(),
+            class_constructor_params: HashMap::new(),
             partial_records: HashMap::new(),
             erased_item_type_params: HashMap::new(),
             interface_extends: HashMap::new(),

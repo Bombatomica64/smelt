@@ -20,15 +20,15 @@ module examples/typescript/end-to-end/155_erased_instance_identity/input.ts (Mod
     suspend #4 on #3 -> state5
 
 interned types
-  t0 = Context
-  t1 = None
-  t2 = fn(Context) -> None
-  t3 = Future<None>
-  t4 = async fn(Context) -> Future<None>
-  t5 = async fn() -> Future<None>
-  t6 = String
-  t7 = List<String>
-  t8 = Float
+  t0 = Float
+  t1 = Context
+  t2 = None
+  t3 = fn(Context) -> None
+  t4 = Future<None>
+  t5 = async fn(Context) -> Future<None>
+  t6 = async fn() -> Future<None>
+  t7 = String
+  t8 = List<String>
   t9 = Point
   t10 = fn(Context) -> None
   t11 = Unknown

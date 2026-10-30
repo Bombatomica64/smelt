@@ -54,9 +54,16 @@ class Cache<T> {
         !source.contains(": Cache ="),
         "generic class annotation must not drop its generic args:\n{source}"
     );
+    // The requirement is that the generic arguments are not dropped. This
+    // asserted the `Cache<_>` placeholder, the spelling used while
+    // `new Cache<T>(..)` inside `Cache` lowered without its type arguments.
+    // A construction inside its own class now keeps the explicit arguments
+    // (`new_expr::pending_constructor_hints`), so the local is exactly
+    // `Cache<T>`: the same guarantee, with a precise type instead of an
+    // inferred one.
     assert!(
-        source.contains("Cache<_>"),
-        "expected inference placeholder for the class generic, got:\n{source}"
+        source.contains("Cache<T> = Cache::new(") || source.contains("Cache<_>"),
+        "expected the class generic to be kept, got:\n{source}"
     );
 }
 

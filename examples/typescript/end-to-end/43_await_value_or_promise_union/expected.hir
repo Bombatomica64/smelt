@@ -22,12 +22,12 @@ module examples/typescript/end-to-end/43_await_value_or_promise_union/input.ts (
     suspend #6 on #5 -> state7
 
 interned types
-  t0 = Bool
-  t1 = Cell
-  t2 = Future<Cell>
-  t3 = Cell | Future<Cell>
-  t4 = fn(Bool) -> Cell | Future<Cell>
-  t5 = Float
+  t0 = Float
+  t1 = Bool
+  t2 = Cell
+  t3 = Future<Cell>
+  t4 = Cell | Future<Cell>
+  t5 = fn(Bool) -> Cell | Future<Cell>
   t6 = Future<Float>
   t7 = Float | Future<Float>
   t8 = fn(Bool) -> Float | Future<Float>

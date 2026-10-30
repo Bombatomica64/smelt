@@ -108,6 +108,7 @@ struct FrontendLoweringState {
     /// Carries the DEFAULTS a type reference takes when it omits trailing type
     /// arguments, so the answer is the same whichever entry lowers first.
     ts_class_type_params: HashMap<smelt_hir::Symbol, Vec<smelt_hir::TypeParamDef>>,
+    ts_class_constructor_params: HashMap<smelt_hir::Symbol, Vec<smelt_hir::TypeId>>,
     /// See `HirCtx::partial_records`.
     ts_partial_records: HashMap<smelt_hir::TypeId, smelt_hir::TypeId>,
     /// Declared-but-erased type parameters of TypeScript methods and lifted
@@ -929,6 +930,7 @@ fn predeclare_manifest_type_declarations(
         date_returning_functions: state.ts_date_returning_functions,
         type_alias_fields: state.ts_type_alias_fields,
         class_type_params: state.ts_class_type_params,
+        class_constructor_params: state.ts_class_constructor_params,
         partial_records: state.ts_partial_records,
         erased_item_type_params: state.ts_erased_item_type_params,
         interface_extends: state.ts_interface_extends,
@@ -989,6 +991,7 @@ fn predeclare_manifest_type_declarations(
     state.ts_date_returning_functions = ctx.date_returning_functions;
     state.ts_type_alias_fields = ctx.type_alias_fields;
     state.ts_class_type_params = ctx.class_type_params;
+    state.ts_class_constructor_params = ctx.class_constructor_params;
     state.ts_partial_records = ctx.partial_records;
     state.ts_erased_item_type_params = ctx.erased_item_type_params;
     state.ts_interface_extends = ctx.interface_extends;
@@ -1245,6 +1248,7 @@ fn lower_manifest_source(
                 date_returning_functions: state.ts_date_returning_functions,
                 type_alias_fields: state.ts_type_alias_fields,
                 class_type_params: state.ts_class_type_params,
+                class_constructor_params: state.ts_class_constructor_params,
                 partial_records: state.ts_partial_records,
                 erased_item_type_params: state.ts_erased_item_type_params,
                 interface_extends: state.ts_interface_extends,
@@ -1299,6 +1303,7 @@ fn lower_manifest_source(
                 ts_date_returning_functions: ctx.date_returning_functions,
                 ts_type_alias_fields: ctx.type_alias_fields,
                 ts_class_type_params: ctx.class_type_params,
+                ts_class_constructor_params: ctx.class_constructor_params,
                 ts_partial_records: ctx.partial_records,
                 ts_erased_item_type_params: ctx.erased_item_type_params,
                 ts_interface_extends: ctx.interface_extends,
@@ -1343,6 +1348,7 @@ fn lower_manifest_source(
                 ts_date_returning_functions: state.ts_date_returning_functions,
                 ts_type_alias_fields: state.ts_type_alias_fields,
                 ts_class_type_params: state.ts_class_type_params,
+                ts_class_constructor_params: state.ts_class_constructor_params,
                 ts_partial_records: state.ts_partial_records,
                 ts_erased_item_type_params: state.ts_erased_item_type_params,
                 ts_interface_extends: state.ts_interface_extends,

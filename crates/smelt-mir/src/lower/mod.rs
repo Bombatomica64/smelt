@@ -176,8 +176,9 @@ struct HelperTypes {
     ///
     /// This is a genuine dynamic boundary: `throw` accepts any value and the
     /// rethrow forwards it untouched, so no static type describes it (the same
-    /// reason a `catch (e)` binding is `unknown`); example 181 rethrows a
-    /// string and a `RangeError` through one clause. The fixed name is what
+    /// reason a `catch (e)` binding is `unknown`); example 181 rethrows
+    /// through one clause on two paths, and the classifier's
+    /// `pending_thrown_value_is_a_boundary` covers mixed thrown values. The fixed name is what
     /// lets the `SmeltUnknown` report classify the local as that boundary.
     /// Interned only for a crate that has a `try` with a `finally`, so a
     /// program without one does not gain an erased type it never uses.

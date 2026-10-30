@@ -4730,61 +4730,33 @@ pub(crate) async fn failing__module_main() -> Result<(), Box<dyn std::error::Err
 }
 
 pub(crate) fn rethrow_through__module_main(kind: f64) -> String {
-    let e: SmeltUnknown;
-    let seen: String;
     let mut smelt_pending_thrown: SmeltUnknown;
-    let mut _smelt_tmp_5: bool;
-    let _smelt_tmp_6: bool;
-    let _smelt_tmp_7: SmeltRecord<String, SmeltUnknown>;
-    let _smelt_tmp_8: SmeltUnknown;
-    let _smelt_tmp_9: usize;
-    let _smelt_tmp_10: bool;
-    let mut _smelt_tmp_11: String;
-    let _smelt_tmp_12: String;
-    let _smelt_tmp_13: String;
-    let _smelt_tmp_14: String;
-    let _smelt_tmp_15: String;
-    let _smelt_tmp_16: String;
-    let _smelt_tmp_17: String;
-    let _smelt_tmp_18: f64;
+    let mut _smelt_tmp_3: bool;
+    let _smelt_tmp_4: bool;
+    let _smelt_tmp_5: usize;
+    let _smelt_tmp_6: String;
+    let _smelt_tmp_7: String;
+    let _smelt_tmp_8: String;
+    let _smelt_tmp_9: f64;
     let mut ran: usize = 0;
     smelt_pending_thrown = SmeltUnknown::Undefined;
-    _smelt_tmp_5 = false;
-    _smelt_tmp_6 = kind == 0.0;
-    let mut smelt_pending_thrown: SmeltUnknown = SmeltUnknown::Null;
-    if _smelt_tmp_6 {
-    smelt_pending_thrown = SmeltUnknown::String("text".into());
-    } else {
-    _smelt_tmp_7 = SmeltRecord::from([("__smelt_error".to_owned(), SmeltUnknown::String("RangeError".into())), ("message".to_owned(), SmeltUnknown::String("range".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]);
-    _smelt_tmp_8 = SmeltUnknown::Object(SmeltObject::from_unknown_record(_smelt_tmp_7.clone()));
-    smelt_pending_thrown = _smelt_tmp_8;
-    }
-    _smelt_tmp_5 = true;
-    _smelt_tmp_9 = ran + 1;
-    ran = _smelt_tmp_9;
-    'smelt_branch_6_10_5_1351: {
-    if _smelt_tmp_5 {
-    e = smelt_pending_thrown.clone();
-    break 'smelt_branch_6_10_5_1351;
+    _smelt_tmp_3 = false;
+    _smelt_tmp_4 = kind == 0.0;
+    let smelt_pending_thrown: SmeltUnknown = if _smelt_tmp_4 { SmeltUnknown::String("first".into()) } else { SmeltUnknown::String("second".into()) };
+    _smelt_tmp_3 = true;
+    _smelt_tmp_5 = ran + 1;
+    ran = _smelt_tmp_5;
+    'smelt_branch_6_10_5_619: {
+    if _smelt_tmp_3 {
+    break 'smelt_branch_6_10_5_619;
     }
     return String::new();
     };
-    _smelt_tmp_10 = matches!(smelt_pending_thrown.clone().clone(), SmeltUnknown::Object(value) if value.contains_key("__smelt_error"));
-    let mut _smelt_tmp_11: String = String::new();
-    if _smelt_tmp_10 {
-    _smelt_tmp_12 = "error ".to_owned() + &match smelt_get_unknown_field(&e.clone(), "message").clone() {   SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
-    _smelt_tmp_11 = _smelt_tmp_12;
-    } else {
-    _smelt_tmp_13 = match smelt_pending_thrown {   SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
-    _smelt_tmp_14 = "value ".to_owned() + &_smelt_tmp_13;
-    _smelt_tmp_11 = _smelt_tmp_14;
-    }
-    seen = _smelt_tmp_11;
-    _smelt_tmp_15 = "".to_owned() + &seen;
-    _smelt_tmp_16 = _smelt_tmp_15 + &", finally ran ".to_owned();
-    _smelt_tmp_18 = ran as f64;
-    _smelt_tmp_17 = _smelt_tmp_16 + &smelt_number_to_string(_smelt_tmp_18);
-    return _smelt_tmp_17;
+    _smelt_tmp_6 = "kind ".to_owned() + &smelt_number_to_string(kind);
+    _smelt_tmp_7 = _smelt_tmp_6 + &" caught, finally ran ".to_owned();
+    _smelt_tmp_9 = ran as f64;
+    _smelt_tmp_8 = _smelt_tmp_7 + &smelt_number_to_string(_smelt_tmp_9);
+    return _smelt_tmp_8;
 }
 
 pub(crate) async fn get_key__module_main(secret: SmeltUnion7) -> Result<SmeltCryptoKey, Box<dyn std::error::Error>> {

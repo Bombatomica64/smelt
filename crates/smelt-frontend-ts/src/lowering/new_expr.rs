@@ -3,6 +3,7 @@
 //! Lowers `new ...` expressions, including standard-library container
 //! constructors and user class construction, into typed HIR.
 
+use std::collections::HashMap;
 use super::ModuleBuilder;
 use crate::SmeltError;
 use oxc::ast::ast::{Argument, Expression, ObjectPropertyKind, PropertyKey};
@@ -342,10 +343,14 @@ impl ModuleBuilder<'_> {
                 })
                 != Some(scoped_name)
         {
+            let (hints, _) = self.pending_constructor_hints(scoped_name, new_expr)?;
             let args = new_expr
                 .arguments
                 .iter()
-                .map(|arg| self.argument(arg, body))
+                .enumerate()
+                .map(|(index, arg)| {
+                    self.argument_with_hint(arg, body, hints.get(index).copied().flatten())
+                })
                 .collect::<Result<Vec<_>, _>>()?;
             let class_args = new_expr
                 .type_arguments
@@ -375,14 +380,21 @@ impl ModuleBuilder<'_> {
         let Some(item) = self.classes.item(callee.name.as_str()) else {
             if self.classes.is_pending(callee.name.as_str()) {
                 let class_name = self.intern_type_name(callee.name.as_str());
+                let declared = self
+                    .module_qualified_type_name(callee.name.as_str())
+                    .unwrap_or(class_name);
+                let (hints, class_args) = self.pending_constructor_hints(declared, new_expr)?;
                 let args = new_expr
                     .arguments
                     .iter()
-                    .map(|arg| self.argument(arg, body))
+                    .enumerate()
+                    .map(|(index, arg)| {
+                        self.argument_with_hint(arg, body, hints.get(index).copied().flatten())
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 let ty = self.ctx.krate.types.intern(Type::Class {
                     name: class_name,
-                    args: Vec::new(),
+                    args: class_args,
                 });
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::New {
@@ -513,6 +525,63 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         }))
+    }
+
+    /// Argument hints and class type arguments for `new C<..>(..)` while `C` is
+    /// still pending (its class item does not exist yet).
+    ///
+    /// The hints are the constructor parameter types the prepass recorded
+    /// (`collect_class_constructor_param_types`), with the class's type
+    /// parameters replaced by the explicit type arguments, else their
+    /// defaults. When some parameter has neither, a hint mentioning any type
+    /// parameter is dropped rather than guessed.
+    /// The class arguments are the explicit ones when written, so
+    /// `new Hono<E, S>(..)` inside `Hono` keeps `Hono<E, S>` rather than a bare
+    /// `Hono`; without them the result stays as before.
+    fn pending_constructor_hints(
+        &mut self,
+        declared: smelt_hir::Symbol,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+    ) -> Result<(Vec<Option<smelt_hir::TypeId>>, Vec<smelt_hir::TypeId>), SmeltError> {
+        let explicit = new_expr
+            .type_arguments
+            .as_ref()
+            .map(|type_args| {
+                type_args
+                    .params
+                    .iter()
+                    .map(|arg| self.ts_type_to_hir(arg))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
+        let type_params = self.ctx.class_type_params.get(&declared).cloned().unwrap_or_default();
+        let Some(params) = self.ctx.class_constructor_params.get(&declared).cloned() else {
+            return Ok((Vec::new(), if type_params.len() == explicit.len() { explicit } else { Vec::new() }));
+        };
+        let substitutions: HashMap<smelt_hir::Symbol, smelt_hir::TypeId> = type_params
+            .iter()
+            .enumerate()
+            .filter_map(|(index, param)| {
+                explicit.get(index).copied().or(param.default).map(|ty| (param.name, ty))
+            })
+            .collect();
+        let all_replaced = type_params
+            .iter()
+            .all(|param| substitutions.contains_key(&param.name));
+        let hints = params
+            .into_iter()
+            .map(|ty| {
+                let ty = self.substitute_type_params(ty, &substitutions);
+                (all_replaced || !self.type_mentions_type_param(ty)).then_some(ty)
+            })
+            .collect();
+        let class_args = if !explicit.is_empty() && type_params.len() == explicit.len() {
+            explicit
+        } else {
+            Vec::new()
+        };
+        Ok((hints, class_args))
     }
 
     /// Return whether `new <value>(..)` through a callable of this return type

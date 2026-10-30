@@ -2,18 +2,18 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8239,
-      "generic": 115,
-      "erased": 61
+      "concrete": 8255,
+      "generic": 127,
+      "erased": 58
     },
     "reads": {
-      "concrete": 833,
-      "generic": 30,
-      "erased": 21
+      "concrete": 841,
+      "generic": 34,
+      "erased": 20
     },
     "calls": {
-      "concrete": 2158,
-      "generic": 12,
+      "concrete": 2165,
+      "generic": 13,
       "erased": 2
     }
   },
@@ -1363,18 +1363,35 @@
     },
     "examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts": {
       "values": {
-        "concrete": 112,
+        "concrete": 106,
         "generic": 0,
-        "erased": 5
+        "erased": 2
       },
       "reads": {
         "concrete": 5,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       },
       "calls": {
         "concrete": 24,
         "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/183_self_construction_types_its_arguments/input.ts": {
+      "values": {
+        "concrete": 22,
+        "generic": 12,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 8,
+        "generic": 4,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 7,
+        "generic": 1,
         "erased": 0
       }
     },

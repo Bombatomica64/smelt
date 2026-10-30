@@ -1,0 +1,110 @@
+class ListRouter fields [Public name: String, Public items: List<T>] constructor Some(FuncId(2)) methods [FuncId(0), FuncId(1)]
+class App fields [Public router: Router<String>, Public get_path: fn(String, Optional<Dict<String, Optional<E>>>) -> String] constructor Some(FuncId(3)) methods [FuncId(4)]
+interface Options
+interface Options
+interface Router
+interface Options
+
+fn add (FuncId(0)) -> None
+  locals
+    %0 param this: ListRouter<T>
+    %1 param method: String
+    %2 param path: String
+    %3 param handler: T
+    %4 temp: List<T>
+    %5 temp: Float
+  bb0:
+    %4 = copy %0.field18
+    %5 = list_push copy %4, copy %3
+    %0.field18 = move %4
+    return none
+
+fn match (FuncId(1)) -> List<T>
+  locals
+    %0 param this: ListRouter<T>
+    %1 param method: String
+    %2 param path: String
+  bb0:
+    return copy %0.field18
+
+fn new (FuncId(2)) -> ListRouter<T>
+  locals
+    %0 user this: ListRouter<T>
+    %1 temp: List<T>
+  bb0:
+    %0 = struct11 {}
+    %0.field12 = "list"
+    %1 = []
+    %0.field18 = move %1
+    return move %0
+
+fn new (FuncId(3)) -> App<E>
+  locals
+    %0 user this: App<E>
+    %1 param options: Options<E>
+    %2 temp: ListRouter<String>
+    %3 temp: Optional<Router<String>>
+    %4 temp: fn(String) -> String
+    %5 temp: fn(String, Optional<Dict<String, Optional<E>>>) -> String
+  bb0:
+    %0 = struct8 {}
+    %2 = call fn2() -> bb1
+  bb1:
+    %3 = copy %1.field6 ?? move %2
+    %0.field6 = move %3
+    %4 = closure ClosureId(0) []
+    %5 = copy %1.field7 ?? move %4
+    %0.field7 = move %5
+    return move %0
+
+fn clone (FuncId(4)) -> App<E>
+  locals
+    %0 param this: App<E>
+    %1 temp: Options<E>
+    %2 temp: App<E>
+  bb0:
+    %1 = {"router": copy %0.field6, "getPath": copy %0.field7}
+    %2 = call fn3(move %1) -> bb1
+  bb1:
+    return move %2
+
+fn main (FuncId(5)) -> None throws
+  locals
+    %0 user a: App<String>
+    %1 user b: App<String>
+    %2 temp: App<String>
+    %3 temp: App<String>
+    %4 temp: Router<String>
+    %5 temp: None
+    %6 temp: Router<String>
+    %7 temp: List<String>
+    %8 temp: String
+    %9 temp: Router<String>
+    %10 temp: List<String>
+    %11 temp: String
+    %12 temp: None
+  bb0:
+    %2 = call fn3() -> bb1
+  bb1:
+    %0 = move %2
+    %3 = call fn4(copy %0) -> bb2
+  bb2:
+    %1 = move %3
+    %4 = copy %1.field6
+    %5 = closure_call copy %4.field16("GET", "/x", "h")
+    %6 = copy %1.field6
+    %7 = closure_call copy %6.field17("GET", "/x")
+    %8 = string_join move %7, ","
+    %9 = copy %0.field6
+    %10 = closure_call copy %9.field17("GET", "/x")
+    %11 = string_join move %10, ","
+    %12 = call @console_log(move %8, move %11) -> bb3
+  bb3:
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 param __callback_param_0: String
+  bb0:
+    return copy %0
+

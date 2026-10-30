@@ -33,7 +33,7 @@ fn new (FuncId(2)) -> Wrapper
     %0 user this: Wrapper
     %1 param label: String
   bb0:
-    %0 = struct4 {}
+    %0 = struct0 {}
     %0.field5 = copy %1
     return move %0
 

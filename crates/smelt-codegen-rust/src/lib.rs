@@ -5710,6 +5710,8 @@ fn emit_source_with_free_function_router(
             emit_record_into_smelt_unknown_impl(
                 &mut writer,
                 mir,
+                &context,
+                &scoped_type_params,
                 &name,
                 &impl_generics,
                 &type_params,
@@ -6294,6 +6296,8 @@ fn emit_source_with_free_function_router(
             emit_record_into_smelt_unknown_impl(
                 &mut writer,
                 mir,
+                &context,
+                &scoped_type_params,
                 &name,
                 &impl_generics,
                 &type_params,
@@ -8275,9 +8279,12 @@ fn interface_is_json_serializable(mir: &Mir, interface: &smelt_mir::MirInterface
 /// shapes from typed class/interface records. The implementation keeps that
 /// conversion available without requiring every call site to know the concrete
 /// record type that produced the object.
+#[expect(clippy::too_many_arguments, reason = "the record impl needs its emission context and lexical type parameters beside the existing record facts")]
 fn emit_record_into_smelt_unknown_impl(
     writer: &mut CodeWriter,
     mir: &Mir,
+    context: &EmitContext,
+    scoped_type_params: &HashSet<smelt_hir::Symbol>,
     name: &str,
     impl_generics: &str,
     type_args: &str,
@@ -8349,7 +8356,17 @@ fn emit_record_into_smelt_unknown_impl(
                                 )
                             })
                         }
-                        _ => record_field_unknown_text(mir, &format!("self.{field_name}"), field.ty),
+                        _ => erased_function_field_text(
+                            mir,
+                            context,
+                            scoped_type_params,
+                            &format!("self.{field_name}"),
+                            field.ty,
+                        )
+                        .map_or_else(
+                            || record_field_unknown_text(mir, &format!("self.{field_name}"), field.ty),
+                            Ok,
+                        ),
                     }
                     .unwrap_or_else(|_| "SmeltUnknown::Null".to_owned());
                     fn_writer.line(format!("({key:?}.to_owned(), {value}),"));
@@ -8653,6 +8670,126 @@ fn with_bigint_arm(needs_bigint: bool, line: impl Into<String>, anchor: &str, ar
     }
     debug_assert!(text.contains(anchor), "bigint arm anchor `{anchor}` is missing");
     text.replacen(anchor, &format!("{arm} {anchor}"), 1)
+}
+
+/// Erases a FUNCTION-typed record field (`p: (a: A) => R` or `p?: ..`) to a
+/// callable `SmeltUnknown`, or `None` for a signature this adapter declines.
+///
+/// [`record_field_unknown_text`] spells a function field `SmeltUnknown::Null`
+/// because it has no emitter to render the adapter. The erased view of an
+/// interface struct then lost its methods: Hono's `Object.assign(this, rest)`
+/// copied a `Router` through such a view, and the router it read back had a
+/// `match` that answered `null` for every request. The adapter converts each
+/// argument with `SmeltFromUnknown` (its target type is inferred from the
+/// callable itself, so the interface's own type parameters need no
+/// rendering), erases the result with `IntoSmeltUnknown`, and registers the
+/// typed callable as its origin so converting back yields that same callable.
+///
+/// A parameter the rendered signature borrows (`&T`) gets a reference to the
+/// converted value. Declined, keeping the old spelling: rest, async and
+/// mutable-parameter signatures, an `impl` or `&mut` in the rendered type, and
+/// a parameter type that cannot be produced from an erased value.
+fn erased_function_field_text(
+    mir: &Mir,
+    context: &EmitContext,
+    scoped_type_params: &HashSet<smelt_hir::Symbol>,
+    value_text: &str,
+    ty: TypeId,
+) -> Option<String> {
+    let (optional, function_ty) = match mir.types.get(ty)? {
+        Type::Optional(inner) => (true, *inner),
+        _ => (false, ty),
+    };
+    let Type::Function(function) = mir.types.get(function_ty)? else {
+        return None;
+    };
+    if function.rest.is_some() || function.is_async || !function.mutable_params.is_empty() {
+        return None;
+    }
+    let rendered = FunctionEmitter::type_text_for_with_scoped_type_params(
+        mir,
+        context,
+        function_ty,
+        &TypeSubstitution::lexical(scoped_type_params),
+    )
+    .ok()?;
+    if rendered.contains("impl ") || rendered.contains("&mut") {
+        return None;
+    }
+    let borrowed = rendered_fn_params(&rendered)?
+        .iter()
+        .map(|param| param.starts_with('&'))
+        .collect::<Vec<_>>();
+    if borrowed.len() != function.params.len()
+        || !function
+            .params
+            .iter()
+            .all(|param| type_supports_from_unknown(mir, context, *param))
+    {
+        return None;
+    }
+    let args = borrowed
+        .iter()
+        .enumerate()
+        .map(|(index, borrowed)| {
+            let reference = if *borrowed { "&" } else { "" };
+            format!(
+                "{reference}SmeltFromUnknown::smelt_from_unknown(smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined))"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let call = if function.may_throw {
+        format!("(smelt_function_value)({args})?")
+    } else {
+        format!("(smelt_function_value)({args})")
+    };
+    let adapter = |callable: &str| {
+        format!(
+            "{{ let smelt_function_value: {rendered} = {callable}; let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(({call}).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }}"
+        )
+    };
+    Some(if optional {
+        format!(
+            "{value_text}.map_or(SmeltUnknown::Undefined, |smelt_present| {})",
+            adapter("smelt_present")
+        )
+    } else {
+        adapter(&format!("{value_text}.clone()"))
+    })
+}
+
+/// The top-level parameter types of a rendered `Rc<dyn Fn(..) -> R>`, or
+/// `None` when the text is not that shape.
+fn rendered_fn_params(rendered: &str) -> Option<Vec<String>> {
+    let start = rendered.find("Fn(")? + 3;
+    let mut depth = 0usize;
+    let mut params = Vec::new();
+    let mut current = String::new();
+    for ch in rendered[start..].chars() {
+        match ch {
+            '(' | '<' | '[' => {
+                depth += 1;
+                current.push(ch);
+            }
+            ')' if depth == 0 => {
+                if !current.trim().is_empty() {
+                    params.push(current.trim().to_owned());
+                }
+                return Some(params);
+            }
+            ')' | '>' | ']' => {
+                depth = depth.checked_sub(1)?;
+                current.push(ch);
+            }
+            ',' if depth == 0 => {
+                params.push(current.trim().to_owned());
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+    None
 }
 
 /// Renders a generated record field as a `SmeltUnknown` expression.

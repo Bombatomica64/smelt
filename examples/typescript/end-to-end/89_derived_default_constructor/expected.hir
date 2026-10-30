@@ -79,8 +79,8 @@ interned types
   t1 = Float
   t2 = Point3
   t3 = Deeper
-  t4 = Base
-  t5 = String
+  t4 = String
+  t5 = Base
   t6 = None
   t7 = Point
   t8 = Tagged

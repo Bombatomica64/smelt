@@ -15,22 +15,22 @@ fn describe (FuncId(0)) -> String
     %9 temp: String
     %10 temp: String
   bb0:
-    %1 = instanceof copy %0, class1
+    %1 = instanceof copy %0, class0
     switch move %1 ? bb1 : bb2
   bb1:
-    %2 = unknown_cast copy %0 as t0
+    %2 = unknown_cast copy %0 as t1
     %3 = "circle " + copy %2.field10
     return move %3
   bb2:
     %4 = unknown_cast copy %0 as t15
-    %5 = instanceof move %4, class2
+    %5 = instanceof move %4, class1
     switch move %5 ? bb3 : bb4
   bb3:
-    %6 = unknown_cast copy %0 as t1
+    %6 = unknown_cast copy %0 as t2
     %7 = "square " + copy %6.field13
     return move %7
   bb4:
-    %8 = unknown_cast copy %0 as t2
+    %8 = unknown_cast copy %0 as t3
     %9 = string_upper move %8
     %10 = "named " + move %9
     return move %10
@@ -53,14 +53,14 @@ fn area (FuncId(1)) -> Float
     %13 temp: Square
     %14 temp: Float
   bb0:
-    %1 = instanceof copy %0, class1
+    %1 = instanceof copy %0, class0
     switch move %1 ? bb1 : bb2
   bb1:
     %2 = copy %0
-    %3 = unknown_cast move %2 as t0
+    %3 = unknown_cast move %2 as t1
     %4 = 3.0 * copy %3.field10
     %5 = copy %0
-    %6 = unknown_cast move %5 as t0
+    %6 = unknown_cast move %5 as t1
     %7 = move %4 * copy %6.field10
     return move %7
   bb2:
@@ -71,9 +71,9 @@ fn area (FuncId(1)) -> Float
     goto bb5
   bb4:
     %10 = copy %0
-    %11 = unknown_cast move %10 as t1
+    %11 = unknown_cast move %10 as t2
     %12 = copy %0
-    %13 = unknown_cast move %12 as t1
+    %13 = unknown_cast move %12 as t2
     %14 = copy %11.field13 * copy %13.field13
     %9 = move %14
     goto bb5
@@ -82,7 +82,7 @@ fn area (FuncId(1)) -> Float
 
 fn normalize (FuncId(2)) -> String
   locals
-    %0 param input: String | Float | URL
+    %0 param input: Float | String | URL
     %1 temp: String
     %2 temp: String
     %3 temp: String
@@ -96,17 +96,17 @@ fn normalize (FuncId(2)) -> String
   bb0:
     %1 = primitive_cast_string copy %0
     %0 = move %1
-    %2 = unknown_cast copy %0 as t2
+    %2 = unknown_cast copy %0 as t3
     %3 = move %2
     %4 = "http"
     %5 = string_starts_with move %3, move %4
     switch move %5 ? bb1 : bb2
   bb1:
-    %7 = unknown_cast copy %0 as t2
+    %7 = unknown_cast copy %0 as t3
     %6 = move %7
     goto bb3
   bb2:
-    %8 = unknown_cast copy %0 as t2
+    %8 = unknown_cast copy %0 as t3
     %9 = string_pad_start move %8, 3.0, "0"
     %10 = "#" + move %9
     %6 = move %10
@@ -117,7 +117,7 @@ fn normalize (FuncId(2)) -> String
 fn widen (FuncId(3)) -> String
   locals
     %0 param flag: Bool
-    %1 user value: String | Float
+    %1 user value: Float | String
     %2 temp: String
     %3 temp: Float
     %4 temp: None
@@ -132,7 +132,7 @@ fn widen (FuncId(3)) -> String
     switch copy %0 ? bb1 : bb2
   bb1:
     %1 = "seven"
-    %2 = unknown_cast copy %1 as t2
+    %2 = unknown_cast copy %1 as t3
     %3 = len move %2
     %4 = call @console_log(move %3) -> bb3
   bb2:
@@ -141,11 +141,11 @@ fn widen (FuncId(3)) -> String
   bb3:
     goto bb2
   bb4:
-    %7 = unknown_cast move %1 as t2
+    %7 = unknown_cast move %1 as t3
     %6 = move %7
     goto bb6
   bb5:
-    %8 = unknown_cast move %1 as t7
+    %8 = unknown_cast move %1 as t0
     %9 = move %8 + 1.0
     %10 = "n=" + move %9
     %6 = move %10
@@ -158,7 +158,7 @@ fn new (FuncId(4)) -> Circle
     %0 user this: Circle
     %1 param radius: Float
   bb0:
-    %0 = struct1 {}
+    %0 = struct0 {}
     %0.field10 = copy %1
     return move %0
 
@@ -167,7 +167,7 @@ fn new (FuncId(5)) -> Square
     %0 user this: Square
     %1 param side: Float
   bb0:
-    %0 = struct2 {}
+    %0 = struct1 {}
     %0.field13 = copy %1
     return move %0
 

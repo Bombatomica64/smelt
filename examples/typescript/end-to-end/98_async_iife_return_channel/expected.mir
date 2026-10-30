@@ -39,7 +39,7 @@ fn new (FuncId(3)) -> Reply
     %0 user this: Reply
     %1 param status: Float
   bb0:
-    %0 = struct1 {}
+    %0 = struct0 {}
     %0.field5 = copy %1
     return move %0
 

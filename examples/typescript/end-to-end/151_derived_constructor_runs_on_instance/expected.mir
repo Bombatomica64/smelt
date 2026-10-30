@@ -21,10 +21,10 @@ fn new (FuncId(0)) -> Greeter
     %1 temp: fn() -> String
   bb0:
     %0 = struct12 {}
-    %0.field13 = ""
-    %0.field14 = "x"
+    %0.field17 = ""
+    %0.field18 = "x"
     %1 = closure ClosureId(0) [copy %0]
-    %0.field15 = move %1
+    %0.field19 = move %1
     return move %0
 
 fn new (FuncId(1)) -> SmartGreeter
@@ -36,8 +36,8 @@ fn new (FuncId(1)) -> SmartGreeter
     %1 = call init fn0(move %0) -> bb1
   bb1:
     %0 = move %1
-    %0.field14 = "hi"
-    %0.field13 = "smart"
+    %0.field18 = "hi"
+    %0.field17 = "smart"
     return move %0
 
 fn new (FuncId(2)) -> AppBase<E>
@@ -52,15 +52,15 @@ fn new (FuncId(2)) -> AppBase<E>
   bb0:
     %0 = struct8 {}
     %2 = []
-    %0.field18 = move %2
-    %0.field19 = ""
+    %0.field22 = move %2
+    %0.field23 = ""
     %3 = "base constructor for " + copy %1
     %4 = call @console_log(move %3) -> bb1
   bb1:
     %5 = closure ClosureId(1) [copy %0]
-    %0.field20 = move %5
+    %0.field24 = move %5
     %6 = closure ClosureId(2) [copy %0]
-    %0.field21 = move %6
+    %0.field25 = move %6
     return move %0
 
 fn new (FuncId(3)) -> App<E>
@@ -73,7 +73,7 @@ fn new (FuncId(3)) -> App<E>
     %2 = call init fn2(move %0, "app") -> bb1
   bb1:
     %0 = move %2
-    %0.field19 = copy %1
+    %0.field23 = copy %1
     return move %0
 
 fn new (FuncId(4)) -> PlainApp
@@ -85,7 +85,7 @@ fn new (FuncId(4)) -> PlainApp
     %1 = call init fn2(move %0, "plain") -> bb1
   bb1:
     %0 = move %1
-    %0.field19 = "#"
+    %0.field23 = "#"
     return move %0
 
 fn new (FuncId(5)) -> Tally
@@ -95,12 +95,12 @@ fn new (FuncId(5)) -> Tally
     %2 temp: None
     %3 temp: String
   bb0:
-    %0 = struct29 {}
-    %0.field30 = 0.0
+    %0 = struct13 {}
+    %0.field33 = 0.0
     %2 = call fn6(copy %0, copy %1) -> bb1
   bb1:
-    %3 = "seeded " + copy %0.field30
-    %0.field31 = move %3
+    %3 = "seeded " + copy %0.field33
+    %0.field34 = move %3
     return move %0
 
 fn bump (FuncId(6)) -> None
@@ -109,8 +109,8 @@ fn bump (FuncId(6)) -> None
     %1 param by: Float
     %2 temp: Float
   bb0:
-    %2 = copy %0.field30 + copy %1
-    %0.field30 = move %2
+    %2 = copy %0.field33 + copy %1
+    %0.field33 = move %2
     return none
 
 fn new (FuncId(7)) -> DoubleTally
@@ -123,8 +123,8 @@ fn new (FuncId(7)) -> DoubleTally
     %1 = call init fn5(move %0, 5.0) -> bb1
   bb1:
     %0 = move %1
-    %0.field35 = true
-    %2 = call fn6(copy %0, copy %0.field30) -> bb2
+    %0.field38 = true
+    %2 = call fn6(copy %0, copy %0.field33) -> bb2
   bb2:
     return move %0
 
@@ -134,9 +134,9 @@ fn new (FuncId(8)) -> Point
     %1 param x: Float
     %2 param y: Float
   bb0:
-    %0 = struct36 {}
-    %0.field37 = copy %1
-    %0.field38 = copy %2
+    %0 = struct14 {}
+    %0.field39 = copy %1
+    %0.field40 = copy %2
     return move %0
 
 fn new (FuncId(9)) -> Point3
@@ -148,13 +148,13 @@ fn new (FuncId(9)) -> Point3
     %4 temp: Point3
     %5 temp: Float
   bb0:
-    %0 = struct39 {}
+    %0 = struct15 {}
     %4 = call init fn8(move %0, copy %1, copy %2) -> bb1
   bb1:
     %0 = move %4
-    %0.field40 = 0.0
-    %5 = copy %3 + copy %0.field37
-    %0.field40 = move %5
+    %0.field41 = 0.0
+    %5 = copy %3 + copy %0.field39
+    %0.field41 = move %5
     return move %0
 
 fn new (FuncId(10)) -> Point4
@@ -168,10 +168,10 @@ fn new (FuncId(10)) -> Point4
     %2 = call init fn9(move %0, 1.0, 2.0, 3.0) -> bb1
   bb1:
     %0 = move %2
-    %0.field41 = 9.0
-    %0.field42 = copy %1
-    %3 = copy %0.field41 + copy %0.field40
-    %0.field41 = move %3
+    %0.field42 = 9.0
+    %0.field43 = copy %1
+    %3 = copy %0.field42 + copy %0.field41
+    %0.field42 = move %3
     return move %0
 
 fn new (FuncId(11)) -> Counter
@@ -180,7 +180,7 @@ fn new (FuncId(11)) -> Counter
     %1 param start: Float
     %2 temp: Float
   bb0:
-    %0 = struct43 {}
+    %0 = struct16 {}
     %2 = copy %1 * 10.0
     %0.field44 = move %2
     return move %0
@@ -211,7 +211,7 @@ fn new (FuncId(14)) -> Labelled<T>
     %1 param label: String
   bb0:
     %0 = struct10 {}
-    %0.field22 = copy %1
+    %0.field26 = copy %1
     return move %0
 
 fn new (FuncId(15)) -> Named
@@ -232,7 +232,7 @@ fn describe (FuncId(16)) -> String
     %1 temp: String
     %2 temp: String
   bb0:
-    %1 = copy %0.field22 + ":"
+    %1 = copy %0.field26 + ":"
     %2 = move %1 + copy %0.field48
     return move %2
 
@@ -242,7 +242,7 @@ fn new (FuncId(17)) -> Router<E>
     %1 temp: fn(String) -> Router<E>
   bb0:
     %0 = struct11 {}
-    %0.field22 = "r"
+    %0.field26 = "r"
     %0.field48 = "default"
     %1 = closure ClosureId(3) [copy %0]
     %0.field49 = move %1
@@ -257,7 +257,7 @@ fn new (FuncId(18)) -> RoutedApp<E>
     %1 = call init fn17(move %0) -> bb1
   bb1:
     %0 = move %1
-    %0.field22 = "app"
+    %0.field26 = "app"
     return move %0
 
 fn main (FuncId(19)) -> None throws
@@ -318,41 +318,41 @@ fn main (FuncId(19)) -> None throws
     %7 = call fn1() -> bb1
   bb1:
     %0 = move %7
-    %9 = closure_call copy %0.field15()
+    %9 = closure_call copy %0.field19()
     %10 = call @console_log(move %9) -> bb2
   bb2:
-    %0.field13 = "later"
-    %12 = closure_call copy %0.field15()
+    %0.field17 = "later"
+    %12 = closure_call copy %0.field19()
     %13 = call @console_log(move %12) -> bb3
   bb3:
     %14 = call fn3("/api") -> bb4
   bb4:
     %1 = move %14
-    %16 = closure_call copy %1.field20("/users")
-    %18 = closure_call copy %1.field20("/posts")
+    %16 = closure_call copy %1.field24("/users")
+    %18 = closure_call copy %1.field24("/posts")
     %19 = call @console_log(move %16, move %18) -> bb5
   bb5:
-    %21 = closure_call copy %1.field21("/users")
-    %23 = closure_call copy %1.field21("/nope")
+    %21 = closure_call copy %1.field25("/users")
+    %23 = closure_call copy %1.field25("/nope")
     %24 = call @console_log(move %21, move %23) -> bb6
   bb6:
     %25 = call fn4() -> bb7
   bb7:
     %2 = move %25
-    %27 = closure_call copy %2.field20("a")
-    %29 = closure_call copy %2.field21("a")
-    %30 = len copy %2.field18
+    %27 = closure_call copy %2.field24("a")
+    %29 = closure_call copy %2.field25("a")
+    %30 = len copy %2.field22
     %31 = call @console_log(move %29, move %30) -> bb8
   bb8:
     %32 = call fn7() -> bb9
   bb9:
     %3 = move %32
-    %33 = call @console_log(copy %3.field30, copy %3.field31, copy %3.field35) -> bb10
+    %33 = call @console_log(copy %3.field33, copy %3.field34, copy %3.field38) -> bb10
   bb10:
     %34 = call fn10("p") -> bb11
   bb11:
     %4 = move %34
-    %35 = call @console_log(copy %4.field37, copy %4.field38, copy %4.field40, copy %4.field41, copy %4.field42) -> bb12
+    %35 = call @console_log(copy %4.field39, copy %4.field40, copy %4.field41, copy %4.field42, copy %4.field43) -> bb12
   bb12:
     %36 = call fn13() -> bb13
   bb13:
@@ -365,7 +365,7 @@ fn main (FuncId(19)) -> None throws
   bb16:
     %40 = call fn15("forwarded") -> bb17
   bb17:
-    %41 = call @console_log(copy %40.field22) -> bb18
+    %41 = call @console_log(copy %40.field26) -> bb18
   bb18:
     %42 = call fn18() -> bb19
   bb19:
@@ -391,9 +391,9 @@ closure ClosureId(0) -> String
     %2 temp: String
     %3 temp: String
   bb0:
-    %1 = "base:" + copy %0.field13
+    %1 = "base:" + copy %0.field17
     %2 = copy %1 + ":"
-    %3 = copy %2 + copy %0.field14
+    %3 = copy %2 + copy %0.field18
     return copy %3
 
 closure ClosureId(1) -> Float
@@ -405,11 +405,11 @@ closure ClosureId(1) -> Float
     %4 temp: Float
     %5 temp: Float
   bb0:
-    %2 = copy %1.field18
-    %3 = copy %1.field19 + copy %0
+    %2 = copy %1.field22
+    %3 = copy %1.field23 + copy %0
     %4 = list_push copy %2, copy %3
-    %1.field18 = copy %2
-    %5 = len copy %1.field18
+    %1.field22 = copy %2
+    %5 = len copy %1.field22
     return copy %5
 
 closure ClosureId(2) -> String
@@ -423,9 +423,9 @@ closure ClosureId(2) -> String
     %6 temp: String
     %7 temp: String
   bb0:
-    %3 = copy %1.field19 + copy %0
+    %3 = copy %1.field23 + copy %0
     %2 = copy %3
-    %4 = list_contains copy %1.field18, copy %2
+    %4 = list_contains copy %1.field22, copy %2
     switch copy %4 ? bb1 : bb2
   bb1:
     %6 = "hit " + copy %2

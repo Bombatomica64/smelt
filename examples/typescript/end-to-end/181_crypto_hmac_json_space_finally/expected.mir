@@ -153,74 +153,49 @@ fn rethrow_through__module_examples/typescript/end-to-end/181_crypto_hmac_json_s
   locals
     %0 param kind: Float
     %1 user ran: usize
-    %2 user e: Unknown
-    %3 user seen: String
-    %4 user smelt_pending_thrown: Unknown
-    %5 temp: Bool
-    %6 temp: Bool
-    %7 temp: Dict<String, Unknown>
-    %8 temp: Unknown
-    %9 temp: usize
-    %10 temp: Bool
-    %11 temp: String
-    %12 temp: String
-    %13 temp: String
-    %14 temp: String
-    %15 temp: String
-    %16 temp: String
-    %17 temp: String
-    %18 temp: Float
+    %2 user smelt_pending_thrown: Unknown
+    %3 temp: Bool
+    %4 temp: Bool
+    %5 temp: usize
+    %6 temp: String
+    %7 temp: String
+    %8 temp: String
+    %9 temp: Float
   bb0:
     %1 = 0
     goto bb1
   bb1:
-    %4 = undefined
-    %5 = false
+    %2 = undefined
+    %3 = false
     goto bb4
   bb2:
     return none
   bb3:
-    %10 = instanceof copy %4, class12
-    switch move %10 ? bb11 : bb12
+    %6 = "kind " + copy %0
+    %7 = move %6 + " caught, finally ran "
+    %9 = primitive_cast_float copy %1
+    %8 = move %7 + move %9
+    return move %8
   bb4:
-    %6 = copy %0 == 0.0
-    switch move %6 ? bb8 : bb9
+    %4 = copy %0 == 0.0
+    switch move %4 ? bb8 : bb9
   bb5:
     goto bb2
   bb6:
-    %9 = move %1 + 1
-    %1 = move %9
-    switch move %5 ? bb10 : bb5
+    %5 = move %1 + 1
+    %1 = move %5
+    switch move %3 ? bb10 : bb5
   bb7:
-    %5 = true
+    %3 = true
     goto bb6
   bb8:
-    %4 = "text"
+    %2 = "first"
     goto bb7
   bb9:
-    %7 = {"__smelt_error": "RangeError", "message": "range", "stack": undefined, "cause": undefined}
-    %8 = unknown_cast move %7 as t24
-    %4 = move %8
+    %2 = "second"
     goto bb7
   bb10:
-    %2 = copy %4
     goto bb3
-  bb11:
-    %12 = "error " + copy %2.field13
-    %11 = move %12
-    goto bb13
-  bb12:
-    %13 = primitive_cast_string move %4
-    %14 = "value " + move %13
-    %11 = move %14
-    goto bb13
-  bb13:
-    %3 = move %11
-    %15 = "" + move %3
-    %16 = move %15 + ", finally ran "
-    %18 = primitive_cast_float copy %1
-    %17 = move %16 + move %18
-    return move %17
 
 async fn get_key__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(4)) -> CryptoKey
   locals
@@ -253,7 +228,7 @@ async fn get_key__module_examples/typescript/end-to-end/181_crypto_hmac_json_spa
     %1 = move %3
     %8 = {"name": "HMAC", "hash": "SHA-256"}
     %9 = ["sign", "verify"]
-    %10 = crypto_import_key "raw", move %1, copy %8.field19, copy %8.field20, false, move %9
+    %10 = crypto_import_key "raw", move %1, copy %8.field15, copy %8.field16, false, move %9
     %11 = await move %10
     return move %11
 
@@ -281,7 +256,7 @@ async fn sign__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_
     %6 = {"name": "HMAC", "hash": "SHA-256"}
     %7 = text_encoder_new
     %8 = text_encoder_encode move %7 copy %0
-    %9 = crypto_sign copy %6.field19, move %2, move %8
+    %9 = crypto_sign copy %6.field15, move %2, move %8
     %10 = await move %9
     %3 = move %10
     %11 = typed_array_new Uint8Array move %3
@@ -311,14 +286,14 @@ async fn verify__module_examples/typescript/end-to-end/181_crypto_hmac_json_spac
     %4 = {"name": "HMAC", "hash": "SHA-256"}
     %5 = text_encoder_new
     %6 = text_encoder_encode move %5 copy %1
-    %7 = crypto_sign copy %4.field19, copy %2, move %6
+    %7 = crypto_sign copy %4.field15, copy %2, move %6
     %8 = await move %7
     %3 = move %8
     %9 = {"name": "HMAC", "hash": "SHA-256"}
     %10 = typed_array_new Uint8Array move %3
     %11 = text_encoder_new
     %12 = text_encoder_encode move %11 copy %0
-    %13 = crypto_verify copy %9.field19, copy %2, move %10, move %12
+    %13 = crypto_verify copy %9.field15, copy %2, move %10, move %12
     %14 = await move %13
     return move %14
 

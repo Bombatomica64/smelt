@@ -185,6 +185,73 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Record every class declaration's constructor parameter types (see
+    /// [`crate::context::HirCtx::class_constructor_params`]).
+    ///
+    /// A PREPASS run beside `collect_class_type_parameter_defaults`, for the
+    /// same reason: a construction can be lowered before its class item
+    /// exists. Hono's `#clone()` builds `new Hono<E, ..>({ router, getPath })`
+    /// inside `class Hono` itself; with no parameter types the options object
+    /// had no contextual type, became an erased record, and lost its router on
+    /// the way back into `HonoOptions`. Each annotation is lowered in the
+    /// class's own type-parameter scope; a parameter whose annotation is
+    /// missing or fails to lower records no hint (`Unknown` is not recorded),
+    /// and the class itself reports any real error when it is lowered.
+    pub(in crate::lowering) fn collect_class_constructor_param_types(
+        &mut self,
+        program: &Program<'_>,
+    ) {
+        for statement in &program.body {
+            let class = match statement {
+                Statement::ClassDeclaration(class) => class,
+                Statement::ExportDeclaration(export) => match &export.declaration {
+                    Declaration::ClassDeclaration(class) => class,
+                    _ => continue,
+                },
+                _ => continue,
+            };
+            let Some(id) = class.id.as_ref() else { continue };
+            let Some(constructor) = class.body.body.iter().find_map(|element| match element {
+                oxc::ast::ast::ClassElement::MethodDefinition(method)
+                    if method.kind == oxc::ast::ast::MethodDefinitionKind::Constructor =>
+                {
+                    Some(method)
+                }
+                _ => None,
+            }) else {
+                continue;
+            };
+            if self
+                .push_type_parameter_scope(class.type_parameters.as_deref())
+                .is_err()
+            {
+                self.pop_type_parameter_scope();
+                continue;
+            }
+            let params: Option<Vec<smelt_hir::TypeId>> = constructor
+                .value
+                .params
+                .items
+                .iter()
+                .map(|param| {
+                    let annotation = param.type_annotation.as_ref()?;
+                    let ty = self.ts_type_to_hir(&annotation.type_annotation).ok()?;
+                    Some(if param.optional {
+                        self.ctx.krate.types.intern(smelt_hir::Type::Optional(ty))
+                    } else {
+                        ty
+                    })
+                })
+                .collect();
+            self.pop_type_parameter_scope();
+            let Some(params) = params else { continue };
+            let symbol = self
+                .module_qualified_type_name(id.name.as_str())
+                .unwrap_or_else(|| self.intern_type_name(id.name.as_str()));
+            self.ctx.class_constructor_params.entry(symbol).or_insert(params);
+        }
+    }
+
     /// Pop the current TypeScript type parameter scope.
     pub(in crate::lowering) fn pop_type_parameter_scope(&mut self) {
         self.types.pop_param_scope();

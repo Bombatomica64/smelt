@@ -1,0 +1,94 @@
+module examples/typescript/end-to-end/183_self_construction_types_its_arguments/input.ts (ModuleId(0))
+  body BodyId(6)
+  items
+    interface Router<T> fields [Public name: String, Public add: fn(String, String, T) -> None, Public match: fn(String, String) -> List<T>] methods [Public add(method: String, path: String, handler: T) -> None, Public match(method: String, path: String) -> List<T>]
+    class ListRouter fields [Public name: String, Public items: List<T>] constructor Some(ItemId(7)) methods [ItemId(5), ItemId(6)] implements [Router<T>]
+    type GetPath = fn(String, Optional<Dict<String, Optional<E>>>) -> String
+    interface Options<E> fields [Public strict?: Optional<Bool>, Public router?: Optional<Router<String>>, Public get_path?: Optional<fn(String, Optional<Dict<String, Optional<E>>>) -> String>] methods []
+    class App fields [Public router: Router<String>, Public get_path: fn(String, Optional<Dict<String, Optional<E>>>) -> String] constructor Some(ItemId(11)) methods [ItemId(12)] implements []
+  locals
+    %0 const a: App<String>
+    %1 const b: App<String>
+  exprs
+    #0: App<String> = new App()
+    #1: App<String> = %0
+    #2: fn() -> App<String> = #1.clone
+    #3: App<String> = %0
+    #4: App<String> = #3.clone()
+    #5: App<String> = %1
+    #6: Router<String> = #5.router
+    #7: App<String> = %1
+    #8: Router<String> = #7.router
+    #9: fn(String, String, String) -> None = #8.add
+    #10: App<String> = %1
+    #11: Router<String> = #10.router
+    #12: String = "GET"
+    #13: String = "/x"
+    #14: String = "h"
+    #15: None = closure_call #9(#12, #13, #14)
+    #16: App<String> = %1
+    #17: Router<String> = #16.router
+    #18: App<String> = %1
+    #19: Router<String> = #18.router
+    #20: fn(String, String) -> List<String> = #19.match
+    #21: App<String> = %1
+    #22: Router<String> = #21.router
+    #23: String = "GET"
+    #24: String = "/x"
+    #25: List<String> = closure_call #20(#23, #24)
+    #26: String = ","
+    #27: String = string_join #25, #26
+    #28: App<String> = %0
+    #29: Router<String> = #28.router
+    #30: App<String> = %0
+    #31: Router<String> = #30.router
+    #32: fn(String, String) -> List<String> = #31.match
+    #33: App<String> = %0
+    #34: Router<String> = #33.router
+    #35: String = "GET"
+    #36: String = "/x"
+    #37: List<String> = closure_call #32(#35, #36)
+    #38: String = ","
+    #39: String = string_join #37, #38
+    #40: None = @14(console_log)
+    #41: None = call #40(#27, #39)
+  stmts
+    s0: let %0: App<String> = #0
+    s1: let %1: App<String> = #4
+    s2: #15
+    s3: #41
+
+interned types
+  t0 = E
+  t1 = String
+  t2 = Optional<E>
+  t3 = None
+  t4 = Dict<String, Optional<E>>
+  t5 = Optional<Dict<String, Optional<E>>>
+  t6 = fn(String, Optional<Dict<String, Optional<E>>>) -> String
+  t7 = Bool
+  t8 = Optional<Bool>
+  t9 = Router<String>
+  t10 = Optional<Router<String>>
+  t11 = Optional<fn(String, Optional<Dict<String, Optional<E>>>) -> String>
+  t12 = App
+  t13 = Unknown
+  t14 = Dict<String, Unknown>
+  t15 = fn() -> Unknown
+  t16 = T
+  t17 = Options<E>
+  t18 = List<T>
+  t19 = fn(String, String, T) -> None
+  t20 = fn(String, String) -> List<T>
+  t21 = ListRouter<T>
+  t22 = Float
+  t23 = App<E>
+  t24 = ListRouter<String>
+  t25 = fn(String) -> String
+  t26 = App<String>
+  t27 = fn() -> App<String>
+  t28 = fn(String, String, String) -> None
+  t29 = fn(String, String, String) -> None
+  t30 = List<String>
+  t31 = fn(String, String) -> List<String>
+  t32 = fn(String, String) -> List<String>
