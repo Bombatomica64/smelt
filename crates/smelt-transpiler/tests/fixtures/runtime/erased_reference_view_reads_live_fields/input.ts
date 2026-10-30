@@ -16,15 +16,19 @@ function carry(value: unknown): unknown {
   return value;
 }
 
-const box = new Box();
-const back = carry(box) as Box;
-console.log(back === box, back.bump(), box.value);
+function run(): void {
+  const box = new Box();
+  const back = carry(box) as Box;
+  console.log(back === box, back.bump(), box.value);
 
-const view = carry(box) as { value: number; label: string };
-console.log(view.value, view.label);
-console.log(Object.keys(carry(box) as object).join(','));
-console.log(JSON.stringify(carry(box)));
+  const view = carry(box) as { value: number; label: string };
+  console.log(view.value, view.label);
+  console.log(Object.keys(carry(box) as object).join(','));
+  console.log(JSON.stringify(carry(box)));
 
-const untouched = carry(box);
-box.label = 'b';
-console.log((untouched as Box).label, (untouched as Box) === box);
+  const untouched = carry(box);
+  box.label = 'b';
+  console.log((untouched as Box).label, (untouched as Box) === box);
+}
+
+run();
