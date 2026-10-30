@@ -461,6 +461,14 @@ impl LoweringCtx<'_> {
             }
             ExprKind::OptionalCoalesce { optional, fallback } => {
                 let lowered_optional = self.lower_expr(*optional)?;
+                if let Some(result) = self.lower_short_circuit_coalesce(
+                    &lowered_optional,
+                    *fallback,
+                    expr.ty,
+                    expr.span,
+                )? {
+                    result
+                } else {
                 let lowered_fallback = self.lower_expr(*fallback)?;
                 self.assign_temp(
                     expr.ty,
@@ -470,6 +478,7 @@ impl LoweringCtx<'_> {
                         fallback: lowered_fallback,
                     },
                 )?
+                }
             }
             ExprKind::TypeAssert { value } => {
                 let lowered_value = self.lower_expr(*value)?;
@@ -3401,6 +3410,159 @@ impl LoweringCtx<'_> {
     /// allocate a temp of the expression's type, push a `Statement::Assign` that
     /// stores `value` into it, and hand back `Operand::Copy` of the temp. Each arm
     /// only has to build its `Rvalue`; the temp bookkeeping lives here.
+    /// Lower `optional ?? fallback` with the fallback evaluated only when it
+    /// is selected, or answer `None` to keep the single-rvalue form.
+    ///
+    /// JavaScript's `??` short-circuits: `res ?? this.#notFoundHandler(c)`
+    /// calls the handler only for a nullish `res`. The single
+    /// [`Rvalue::OptionalCoalesce`] takes both operands already lowered, so
+    /// every statement of the fallback ran unconditionally — Hono's dispatch
+    /// rendered a full not-found response on every request it had already
+    /// answered. When the fallback can do work
+    /// ([`Self::hir_expr_is_eager_safe`] is false) this lowers
+    ///
+    /// ```text
+    /// if optional == null { dest = OptionalCoalesce(optional, fallback) }
+    /// else                { dest = optional }
+    /// ```
+    ///
+    /// with the fallback lowered inside the nullish arm only. The nullish arm
+    /// keeps the original rvalue, so the value it selects is rendered exactly
+    /// as before; the present arm is a plain read, which the emitter narrows
+    /// (`Optional<T>` to `T`, or the erased value as is). Only those two
+    /// result shapes take the branch; any other (a widened union, an element
+    /// read whose absence is not an `Option`) keeps the eager form.
+    fn lower_short_circuit_coalesce(
+        &mut self,
+        optional: &Operand,
+        fallback: ExprId,
+        ty: TypeId,
+        span: Span,
+    ) -> Result<Option<Operand>, LowerError> {
+        if self.hir_expr_is_eager_safe(fallback)? {
+            return Ok(None);
+        }
+        let optional_ty = match optional {
+            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
+                self.mir_local(*local)?.ty
+            }
+            _ => return Ok(None),
+        };
+        let shapes_agree = match self.krate.types.get(optional_ty) {
+            Some(Type::Optional(inner)) => *inner == ty,
+            Some(Type::Unknown) => self.krate.types.get(ty) == Some(&Type::Unknown),
+            _ => false,
+        };
+        if !shapes_agree {
+            return Ok(None);
+        }
+        // Read by both the test and an arm, so never moved.
+        let optional = &match optional {
+            Operand::Move(place) => Operand::Copy(place.clone()),
+            other => other.clone(),
+        };
+        let bool_ty = self.loop_bool_ty;
+        let cond = self.assign_temp(
+            bool_ty,
+            span,
+            Rvalue::Binary {
+                op: smelt_hir::BinOp::Eq,
+                lhs: optional.clone(),
+                rhs: Operand::Const(Constant::None),
+            },
+        )?;
+        let dest = self.push_temp(ty, span);
+        let nullish_block = self.function.push_block(span);
+        let present_block = self.function.push_block(span);
+        self.set_terminator(Terminator::Switch {
+            cond,
+            then_block: nullish_block,
+            else_block: present_block,
+        })?;
+
+        self.current_block = nullish_block;
+        let lowered_fallback = self.lower_expr(fallback)?;
+        self.block_mut()?.statements.push(Statement::Assign {
+            dest,
+            value: Rvalue::OptionalCoalesce {
+                optional: optional.clone(),
+                fallback: lowered_fallback,
+            },
+        });
+        let nullish_tail = self
+            .block()?
+            .terminator
+            .is_none()
+            .then_some(self.current_block);
+
+        self.current_block = present_block;
+        self.block_mut()?.statements.push(Statement::Assign {
+            dest,
+            value: Rvalue::Use(optional.clone()),
+        });
+        let present_tail = self.current_block;
+
+        // Allocated after both arms, as `ExprKind::Conditional` does, so every
+        // `goto join_block` is a forward edge for the Rust emitter.
+        let join_block = self.function.push_block(span);
+        if let Some(tail) = nullish_tail {
+            self.current_block = tail;
+            self.set_terminator(Terminator::Goto(join_block))?;
+        }
+        self.current_block = present_tail;
+        self.set_terminator(Terminator::Goto(join_block))?;
+        self.current_block = join_block;
+        Ok(Some(Operand::Copy(Place::Local(dest))))
+    }
+
+    /// Whether evaluating `expr_id` eagerly is unobservable: it reads values
+    /// and builds literals, and calls nothing.
+    ///
+    /// The whitelist is deliberately small; anything outside it (a call, a
+    /// method, a construction, a block) counts as work that a short-circuiting
+    /// operator must not perform when its operand is not selected.
+    fn hir_expr_is_eager_safe(&self, expr_id: ExprId) -> Result<bool, LowerError> {
+        let kind = self.hir_expr(expr_id)?.kind.clone();
+        let leaf_or_read = matches!(
+            kind,
+            ExprKind::Literal(_)
+                | ExprKind::Local(_)
+                | ExprKind::Item(_)
+                | ExprKind::GlobalGet { .. }
+                | ExprKind::Closure(_)
+                | ExprKind::Lambda { .. }
+                | ExprKind::Field { .. }
+                | ExprKind::OptionalField { .. }
+                | ExprKind::Index { .. }
+                | ExprKind::OptionalIndex { .. }
+                | ExprKind::TypeAssert { .. }
+                | ExprKind::UnknownCast { .. }
+                | ExprKind::ListLit(_)
+                | ExprKind::TupleLit(_)
+                | ExprKind::DictLit(_)
+                | ExprKind::SetLit(_)
+                | ExprKind::BinOp { .. }
+                | ExprKind::UnaryOp { .. }
+                | ExprKind::Conditional { .. }
+                | ExprKind::OptionalCoalesce { .. }
+                | ExprKind::Len { .. }
+        );
+        if !leaf_or_read {
+            return Ok(false);
+        }
+        let mut children = Vec::new();
+        let _ = kind.try_map_child_exprs(&mut |child| {
+            children.push(child);
+            Ok::<_, ()>(child)
+        });
+        for child in children {
+            if !self.hir_expr_is_eager_safe(child)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     pub(super) fn assign_temp(
         &mut self,
         ty: TypeId,
