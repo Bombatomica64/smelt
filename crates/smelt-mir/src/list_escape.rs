@@ -1372,6 +1372,7 @@ fn operand_roles(value: &Rvalue) -> Vec<(&Operand, OperandRole)> {
 
         // Scalar-producing inspections of arbitrary values.
         Rvalue::Binary { lhs, rhs, .. } => vec![(lhs, READ), (rhs, READ)],
+        Rvalue::JsonIndent { text, space } => vec![(text, READ), (space, READ)],
         Rvalue::Unary { operand, .. }
         | Rvalue::TypeofValue { value: operand }
         | Rvalue::UnknownIs { value: operand, .. }

@@ -822,6 +822,13 @@ impl Rvalue {
             Self::DateToString { timestamp_ms } => {
                 visit(timestamp_ms);
             }
+            Self::DateToUtcString { timestamp_ms } => {
+                visit(timestamp_ms);
+            }
+            Self::JsonIndent { text, space } => {
+                visit(text);
+                visit(space);
+            }
             Self::DateFromParts { parts } => {
                 for part in parts {
                     visit(part);
@@ -1770,6 +1777,13 @@ impl Rvalue {
             }
             Self::DateToString { timestamp_ms } => {
                 visit(timestamp_ms);
+            }
+            Self::DateToUtcString { timestamp_ms } => {
+                visit(timestamp_ms);
+            }
+            Self::JsonIndent { text, space } => {
+                visit(text);
+                visit(space);
             }
             Self::DateFromParts { parts } => {
                 for part in parts.iter_mut() {

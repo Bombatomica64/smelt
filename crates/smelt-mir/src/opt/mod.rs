@@ -1009,8 +1009,12 @@ fn rewrite_rvalue(
         Rvalue::DateToIsoString { timestamp_ms } => {
             rewrite_operand_except(timestamp_ms, aliases, dest)
         }
-        Rvalue::DateToString { timestamp_ms } => {
+        Rvalue::DateToString { timestamp_ms } | Rvalue::DateToUtcString { timestamp_ms } => {
             rewrite_operand_except(timestamp_ms, aliases, dest)
+        }
+        Rvalue::JsonIndent { text, space } => {
+            let text_changed = rewrite_operand_except(text, aliases, dest);
+            rewrite_operand_except(space, aliases, dest) || text_changed
         }
         Rvalue::DateFromParts { parts } => {
             let mut changed = false;

@@ -550,10 +550,21 @@ fn lower_item_functions(
             loop_bool_ty: helpers.loop_bool_ty,
             closure_base: mir.closures.len(),
         };
+        // A source function named `main` is not the program's entry point:
+        // that is the module body below, which carries the module's name. The
+        // backend recognises the entry by that name, so an item spelled `main`
+        // (`async function main() {..}; main()`) would otherwise be taken for
+        // it and emitted as a second `fn main` (E0428). The `_` spelling is
+        // the one `sanitize_ident` gives every other reference to it.
+        let name = if mir.symbols.get(function.name) == Some("main") {
+            mir.symbols.intern("main_")
+        } else {
+            function.name
+        };
         let spec = FunctionSpec {
             function_id,
             body_id,
-            name: function.name,
+            name,
             return_ty,
             owner: function.owner,
             is_async: function.is_async,

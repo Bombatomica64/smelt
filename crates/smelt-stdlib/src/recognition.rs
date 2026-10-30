@@ -185,6 +185,9 @@ pub const TYPESCRIPT_CALLS: &[CallRecognition] = &[
     // of identifier member reads spells, so a nested namespace needs no shape
     // of its own in this table.
     static_call("crypto.subtle", "digest", RuleId::TsCryptoDigest),
+    static_call("crypto.subtle", "importKey", RuleId::TsCryptoImportKey),
+    static_call("crypto.subtle", "sign", RuleId::TsCryptoSign),
+    static_call("crypto.subtle", "verify", RuleId::TsCryptoVerify),
     // The two `AbortSignal` statics. Both answer a signal; only `timeout`
     // needs the timer queue.
     static_call("AbortSignal", "abort", RuleId::TsAbortSignalAbort),

@@ -1246,6 +1246,12 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::DateToString { timestamp_ms } => {
             format!("date_to_string {}", expr_ref(*timestamp_ms))
         }
+        ExprKind::DateToUtcString { timestamp_ms } => {
+            format!("date_to_utc_string {}", expr_ref(*timestamp_ms))
+        }
+        ExprKind::JsonIndent { text, space } => {
+            format!("json_indent {}, {}", expr_ref(*text), expr_ref(*space))
+        }
         ExprKind::DateFromParts { parts } => format!(
             "date_from_parts [{}]",
             parts
@@ -1570,6 +1576,9 @@ const fn crypto_op_name(op: crate::expr::CryptoOp) -> &'static str {
         crate::expr::CryptoOp::RandomUuid => "random_uuid",
         crate::expr::CryptoOp::GetRandomValues => "get_random_values",
         crate::expr::CryptoOp::Digest => "digest",
+        crate::expr::CryptoOp::ImportKey => "import_key",
+        crate::expr::CryptoOp::Sign => "sign",
+        crate::expr::CryptoOp::Verify => "verify",
     }
 }
 

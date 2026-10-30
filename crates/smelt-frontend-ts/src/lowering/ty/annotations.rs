@@ -993,6 +993,26 @@ return_ty: function.return_ty,
         })
     }
 
+    /// `ArrayBufferView` (a typed-array view or a `DataView`), or with
+    /// `with_storage` `BufferSource` (those plus an `ArrayBuffer`).
+    fn byte_source_union_type(&mut self, with_storage: bool) -> smelt_hir::TypeId {
+        let mut members = vec!["Uint8Array", "DataView"];
+        if with_storage {
+            members.push("ArrayBuffer");
+        }
+        let items = members
+            .into_iter()
+            .map(|name| {
+                let name = self.intern_type_name(name);
+                self.ctx.krate.types.intern(Type::Class {
+                    name,
+                    args: Vec::new(),
+                })
+            })
+            .collect();
+        self.ctx.krate.types.intern(Type::Union(items))
+    }
+
     /// Extract named fields from a TypeScript structural type.
     pub(in crate::lowering) fn type_fields_from_ts(&mut self, ty: &TSType<'_>) -> Result<Vec<Field>, SmeltError> {
         match ty {
@@ -2348,6 +2368,15 @@ return_ty: function.return_ty,
             // `merge(options: Partial<Options>)` required: the call filled the
             // missing ones with defaults, and `{ ...defaults, ...options }`
             // then overwrote the real defaults with them.
+            // The WebIDL byte-source aliases of the TypeScript lib, as the
+            // unions they are: a `BufferSource` is a view or its storage, and
+            // an `ArrayBufferView` a typed array or a `DataView`. Smelt models
+            // each member concretely and reads a union of them through its
+            // live arm, so the alias needs no opaque class of its own.
+            ("BufferSource" | "AllowSharedBufferSource", []) => {
+                Ok(self.byte_source_union_type(true))
+            }
+            ("ArrayBufferView", []) => Ok(self.byte_source_union_type(false)),
             ("Partial", [item]) => {
                 let base = self.ts_type_to_hir(item)?;
                 let span = self.span(reference.span.start, reference.span.end);

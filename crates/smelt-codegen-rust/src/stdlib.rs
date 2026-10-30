@@ -84,6 +84,13 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if needs_crypto_digest_runtime(mir) {
         deps.push(BackendDependency::Sha);
     }
+    // An HMAC key MACs over the same SHA hashers `digest` uses.
+    if needs_crypto_key_runtime(mir) {
+        if !deps.contains(&BackendDependency::Sha) {
+            deps.push(BackendDependency::Sha);
+        }
+        deps.push(BackendDependency::Hmac);
+    }
     if needs_base64_runtime(mir) {
         deps.push(BackendDependency::Base64);
     }
@@ -403,6 +410,27 @@ pub(crate) fn needs_crypto_digest_runtime(mir: &Mir) -> bool {
     })
 }
 
+/// Returns true when generated Rust needs `SmeltCryptoKey` and the
+/// `importKey`/`sign`/`verify` helpers: a call to one of them, or a mention of
+/// the `CryptoKey` type (a parameter or field holding one).
+pub(crate) fn needs_crypto_key_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::CryptoOp {
+                op: smelt_hir::CryptoOp::ImportKey
+                    | smelt_hir::CryptoOp::Sign
+                    | smelt_hir::CryptoOp::Verify,
+                ..
+            }
+        )
+    }) || mir
+        .types
+        .all()
+        .iter()
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::CryptoKey))
+}
+
 /// Returns true when generated Rust needs the `SmeltFormData` type.
 ///
 /// Same pay-for-use rule as [`needs_headers_runtime`]: either a form operation
@@ -477,6 +505,8 @@ pub(crate) fn needs_byte_array_runtime(mir: &Mir) -> bool {
         // Both `crypto` members answer or fill a family value.
         || needs_crypto_random_values_runtime(mir)
         || needs_crypto_digest_runtime(mir)
+        // `sign` answers an `ArrayBuffer`, and all three read byte sources.
+        || needs_crypto_key_runtime(mir)
         // The raw `hash.digest()` answers a view, and an erased `update`
         // argument reads its bytes through the view's boundary adapter.
         || needs_node_hash_runtime(mir)
@@ -666,6 +696,12 @@ pub(crate) fn needs_body_host_method(mir: &Mir) -> bool {
             .any(|closure| reads(&closure.locals, &closure.blocks))
 }
 
+/// Returns true when generated Rust needs `smelt_json_indent`, the layout
+/// behind `JSON.stringify`'s `space` argument.
+pub(crate) fn needs_json_indent_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| matches!(rvalue, Rvalue::JsonIndent { .. }))
+}
+
 /// Returns true when a MIR rvalue uses Unicode normalization APIs.
 fn rvalue_needs_unicode_normalization(rvalue: &Rvalue) -> bool {
     matches!(rvalue, Rvalue::StringNormalize { .. })
@@ -707,6 +743,8 @@ fn rvalue_needs_chrono(rvalue: &Rvalue) -> bool {
             | Rvalue::DateResetNow
             | Rvalue::DateToIsoString { .. }
             | Rvalue::DateToString { .. }
+            | Rvalue::DateToUtcString { .. }
+            | Rvalue::JsonIndent { .. }
             | Rvalue::DateFromParts { .. }
             | Rvalue::DateFromValue { .. }
             | Rvalue::DateGetPart { .. }
@@ -1187,7 +1225,14 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
             .types
             .all()
             .iter()
-            .any(|ty| matches!(ty, Type::Unknown | Type::Never | Type::Union(_)))
+            .any(|ty| match ty {
+                Type::Unknown | Type::Never | Type::Union(_) => true,
+                // A class the backend renders as the carrier itself (`Date`):
+                // `let d: SmeltUnknown` needs the carrier declared even when
+                // the program has no `unknown` of its own.
+                Type::Class { name, .. } => crate::classes::class_name_renders_erased(mir, *name),
+                _ => false,
+            })
         // A THROWN value is a JavaScript error object, which is carried as a
         // `SmeltUnknown` — so a program that can throw needs the carrier and
         // the payload ABI, both of which live in the `needs_unknown` prelude
@@ -1225,6 +1270,9 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
         // bigint is the `SmeltUnknown::BigInt` tag, which only exists in this
         // block (see `bigint_prelude`).
         || needs_bigint_runtime(mir)
+        // A `CryptoKey`'s boundary adapters and the branded `NotSupportedError`
+        // of `importKey`/`sign`/`verify` live in the carrier's block.
+        || needs_crypto_key_runtime(mir)
         // A `Set` whose element type is not a value-equality primitive is
         // emitted as the `SmeltJsSet` runtime container, whose SameValueZero
         // membership projects elements through `IntoSmeltUnknown`. That carrier

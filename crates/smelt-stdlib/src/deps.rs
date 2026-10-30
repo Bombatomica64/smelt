@@ -51,6 +51,9 @@ pub enum BackendDependency {
     /// not knowable from the source spelling in general, and both crates are
     /// small.
     Sha,
+    /// `hmac` for generated `crypto.subtle.sign`/`verify` over an HMAC
+    /// `CryptoKey`.
+    Hmac,
     /// `base64` for generated `btoa` / `atob`.
     ///
     /// The two globals are one dependency because they are the two directions
@@ -121,6 +124,9 @@ impl BackendDependency {
             Self::Uuid => "uuid = { version = \"1\", features = [\"v4\"] }\n",
             Self::GetRandom => "getrandom = \"0.3\"\n",
             Self::Sha => "sha1 = \"0.10\"\nsha2 = \"0.10\"\n",
+            // The MAC over the same `digest`-trait hashers `Sha` brings; a
+            // program needing it is given `Sha` as well.
+            Self::Hmac => "hmac = \"0.12\"\n",
             Self::Base64 => "base64 = \"0.22\"\n",
             Self::Md5 => "md-5 = \"0.10\"\n",
             Self::Rusqlite => "rusqlite = { version = \"0.32\", features = [\"bundled\"] }\n",

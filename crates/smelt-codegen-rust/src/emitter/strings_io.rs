@@ -88,6 +88,48 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Converts a Date timestamp to `Date.prototype.toUTCString()` text: the
+    /// RFC 7231 IMF-fixdate (`Sun, 24 Dec 2000 10:30:59 GMT`), which is what
+    /// HTTP `Expires`/`Date` headers carry. An invalid date reads
+    /// `"Invalid Date"`, as JavaScript's does.
+    pub(super) fn date_to_utc_string_text(&self, timestamp_ms: &Operand) -> Result<String, EmitError> {
+        let timestamp_text = self.date_timestamp_text(timestamp_ms)?;
+        Ok(format!(
+            "{{ let timestamp_ms = ({timestamp_text}) as f64; if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.format(\"%a, %d %b %Y %H:%M:%S GMT\").to_string()).unwrap_or_else(|| \"Invalid Date\".to_owned()) }} else {{ \"Invalid Date\".to_owned() }} }}"
+        ))
+    }
+
+    /// `JSON.stringify(value, replacer, space)`'s indentation: the compact text
+    /// re-laid out by `smelt_json_indent` with the indent `space` names.
+    ///
+    /// The indent string is computed here from the operand's type: a number is
+    /// that many spaces (clamped to 10, below 1 is none), a string its first
+    /// 10 characters, anything else (`null`, `undefined`, an erased value that
+    /// is neither) no indentation, which is the compact text unchanged.
+    pub(super) fn json_indent_text(&self, text: &Operand, space: &Operand) -> Result<String, EmitError> {
+        let text_text = self.operand_text(text)?;
+        let space_ty = self.operand_ty(space)?;
+        let space_text = self.operand_text(space)?;
+        let indent = match self.mir.types.get(space_ty) {
+            Some(Type::Float | Type::Int) => format!(
+                "{{ let smelt_width = ({space_text}) as f64; if smelt_width >= 1.0 {{ \" \".repeat(smelt_width.min(10.0) as usize) }} else {{ String::new() }} }}"
+            ),
+            Some(Type::String) => format!("({space_text}).chars().take(10).collect::<String>()"),
+            Some(Type::Optional(inner)) if matches!(self.mir.types.get(*inner), Some(Type::Float | Type::Int)) => format!(
+                "({space_text}).map_or(String::new(), |smelt_width| {{ let smelt_width = smelt_width as f64; if smelt_width >= 1.0 {{ \" \".repeat(smelt_width.min(10.0) as usize) }} else {{ String::new() }} }})"
+            ),
+            Some(Type::Optional(inner)) if matches!(self.mir.types.get(*inner), Some(Type::String)) => {
+                format!("({space_text}).map_or(String::new(), |smelt_space| smelt_space.chars().take(10).collect::<String>())")
+            }
+            Some(Type::Unknown | Type::Union(_)) => format!(
+                "match ({}) {{ SmeltUnknown::Number(smelt_width) if smelt_width >= 1.0 => \" \".repeat(smelt_width.min(10.0) as usize), SmeltUnknown::String(smelt_space) => smelt_space.chars().take(10).collect::<String>(), _ => String::new() }}",
+                self.erase(space)?
+            ),
+            _ => "String::new()".to_owned(),
+        };
+        Ok(format!("smelt_json_indent(&{text_text}, &{indent})"))
+    }
+
     /// Converts a DateArg-compatible operand to a numeric timestamp expression.
     ///
     /// Frontends model JavaScript `Date` values as timestamps where possible,

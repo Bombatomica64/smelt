@@ -225,7 +225,7 @@ impl ModuleBuilder<'_> {
     /// A getter could still run behind a member read; the field check in
     /// [`Self::plain_record_fields`] only admits interface records, whose
     /// members are data.
-    fn spread_source_is_side_effect_free(expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn spread_source_is_side_effect_free(expression: &Expression<'_>) -> bool {
         match expression {
             Expression::Identifier(_) | Expression::ThisExpression(_) => true,
             Expression::StaticMemberExpression(member) => {

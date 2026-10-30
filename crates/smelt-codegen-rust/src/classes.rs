@@ -1789,6 +1789,27 @@ pub(crate) fn own_virtual_slot_names(mir: &Mir, class: &MirClass) -> Vec<Symbol>
         .collect()
 }
 
+/// Whether a `Type::Class { name }` renders as the erased `SmeltUnknown`
+/// carrier: it names no class or interface of this crate and no stdlib class
+/// with a concrete runtime type (`Date` is the common case).
+///
+/// A modeled class with a CONCRETE generated Rust type never erases: that is
+/// the whole point of modeling it. Asked of the registry
+/// (`StdlibClass::has_concrete_runtime_type`) rather than of a list of
+/// spellings — the list is what silently omitted `ArrayBuffer` when the
+/// typed-array family became concrete. Shared by the emitter and by the
+/// prelude's "does this crate need the carrier" question, which must agree.
+pub(crate) fn class_name_renders_erased(mir: &Mir, name: Symbol) -> bool {
+    if mir.symbols.get(name).is_some_and(|type_name| {
+        smelt_stdlib::typescript_stdlib_class(type_name)
+            .is_some_and(smelt_stdlib::StdlibClass::has_concrete_runtime_type)
+    }) {
+        return false;
+    }
+    !mir.classes.iter().any(|class| class.name == name)
+        && !mir.interfaces.iter().any(|interface| interface.name == name)
+}
+
 /// Return the flattened method set for a class: its own methods plus every
 /// inherited one it does not override.
 ///

@@ -2816,6 +2816,33 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Whether `ty` names a stdlib class backed by a concrete Rust runtime
+    /// type (`StdlibClass::has_concrete_runtime_type`).
+    fn concrete_stdlib_class_type(&self, ty: smelt_hir::TypeId) -> bool {
+        matches!(self.ctx.krate.types.get(ty), Some(Type::Class { name, .. })
+            if self
+                .ctx
+                .krate
+                .symbols
+                .get(*name)
+                .and_then(smelt_stdlib::typescript_stdlib_class)
+                .is_some_and(smelt_stdlib::StdlibClass::has_concrete_runtime_type))
+    }
+
+    /// The union of two conditional arms, flattening an arm that is already a
+    /// union so `A : (B | C)` is `A | B | C`.
+    fn union_of_branch_types(&mut self, then_ty: smelt_hir::TypeId, else_ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
+        let mut members = Vec::new();
+        for arm in [then_ty, else_ty] {
+            match self.ctx.krate.types.get(arm).cloned() {
+                Some(Type::Union(items)) => members.extend(items),
+                _ => members.push(arm),
+            }
+        }
+        members.dedup();
+        self.ctx.krate.types.intern(Type::Union(members))
+    }
+
     /// Whether `ty` is a function type whose declared return is `never`.
     fn function_returns_never(&self, ty: smelt_hir::TypeId) -> bool {
         let ty = self.type_param_constraint_or_self(ty);
@@ -2927,6 +2954,14 @@ impl ModuleBuilder<'_> {
         {
             // not a new erasure: the hint or an arm is already erased
             self.unknown_type()
+        } else if self.concrete_stdlib_class_type(then_ty) || self.concrete_stdlib_class_type(else_ty)
+        {
+            // A modeled stdlib class with a concrete runtime type (a typed
+            // array, `Headers`, `URL`, ..) is no more string-compatible than a
+            // declared one: the string test below accepts any `Type::Class`,
+            // which joined `typeof s === 'string' ? encode(s) : s` over
+            // `string | BufferSource` to `String`. The two arms are two members.
+            self.union_of_branch_types(then_ty, else_ty)
         } else if self.declared_class_type(then_ty) || self.declared_class_type(else_ty) {
             // A *declared* class arm has no common Rust shape with
             // anything but itself, and it does have a concrete join: the

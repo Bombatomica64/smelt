@@ -4954,7 +4954,10 @@ impl<'builder> ModuleBuilder<'builder> {
             RuleId::TsJsonParse => self.json_parse_call(call, body),
             RuleId::TsCryptoRandomUuid
             | RuleId::TsCryptoGetRandomValues
-            | RuleId::TsCryptoDigest => self.crypto_call(rule, call, body),
+            | RuleId::TsCryptoDigest
+            | RuleId::TsCryptoImportKey
+            | RuleId::TsCryptoSign
+            | RuleId::TsCryptoVerify => self.crypto_call(rule, call, body),
             RuleId::TsAbortSignalAbort | RuleId::TsAbortSignalTimeout => {
                 self.abort_signal_static_call(rule, call, body)
             }

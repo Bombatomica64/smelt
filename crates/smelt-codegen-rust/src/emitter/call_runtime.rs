@@ -2376,6 +2376,8 @@ impl FunctionEmitter<'_> {
             )),
             Rvalue::DateToIsoString { timestamp_ms } => self.date_to_iso_string_text(timestamp_ms),
             Rvalue::DateToString { timestamp_ms } => self.date_to_string_text(timestamp_ms),
+            Rvalue::DateToUtcString { timestamp_ms } => self.date_to_utc_string_text(timestamp_ms),
+            Rvalue::JsonIndent { text, space } => self.json_indent_text(text, space),
             Rvalue::DateFromParts { parts } => {
                 let text = self.date_from_parts_text(parts)?;
                 self.date_timestamp_result_text(&text, dest_ty)

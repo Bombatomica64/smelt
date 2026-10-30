@@ -156,8 +156,153 @@ impl ModuleBuilder<'_> {
                     span,
                 })))
             }
+            RuleId::TsCryptoImportKey => {
+                let [format, key_data, algorithm, extractable, usages] = call.arguments.as_slice()
+                else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "`crypto.subtle.importKey` takes five arguments: format, keyData, algorithm, extractable, usages",
+                    ));
+                };
+                let format = self.argument(format, body)?;
+                let key_data = self.argument(key_data, body)?;
+                let key_data = self.crypto_byte_source(key_data, "importKey", span, body)?;
+                let algorithm = self.argument(algorithm, body)?;
+                let (name, hash) = self.crypto_algorithm_name_and_hash(algorithm, span, body)?;
+                let extractable = self.argument(extractable, body)?;
+                let usages = self.argument(usages, body)?;
+                let key_ty = self.crypto_key_type();
+                let ty = self.ctx.krate.types.intern(Type::Future(key_ty));
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::CryptoOp {
+                        op: CryptoOp::ImportKey,
+                        args: Vec::from([format, key_data, name, hash, extractable, usages]),
+                    },
+                    ty,
+                    span,
+                })))
+            }
+            RuleId::TsCryptoSign => {
+                let [algorithm, key, data] = call.arguments.as_slice() else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "`crypto.subtle.sign` takes three arguments: algorithm, key, data",
+                    ));
+                };
+                let algorithm = self.argument(algorithm, body)?;
+                let algorithm = self.crypto_algorithm_name(algorithm, span, body)?;
+                let key = self.argument(key, body)?;
+                let data = self.argument(data, body)?;
+                let data = self.crypto_byte_source(data, "sign", span, body)?;
+                let buffer_ty = self.array_buffer_type();
+                let ty = self.ctx.krate.types.intern(Type::Future(buffer_ty));
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::CryptoOp {
+                        op: CryptoOp::Sign,
+                        args: Vec::from([algorithm, key, data]),
+                    },
+                    ty,
+                    span,
+                })))
+            }
+            RuleId::TsCryptoVerify => {
+                let [algorithm, key, signature, data] = call.arguments.as_slice() else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "`crypto.subtle.verify` takes four arguments: algorithm, key, signature, data",
+                    ));
+                };
+                let algorithm = self.argument(algorithm, body)?;
+                let algorithm = self.crypto_algorithm_name(algorithm, span, body)?;
+                let key = self.argument(key, body)?;
+                let signature = self.argument(signature, body)?;
+                let signature = self.crypto_byte_source(signature, "verify", span, body)?;
+                let data = self.argument(data, body)?;
+                let data = self.crypto_byte_source(data, "verify", span, body)?;
+                let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+                let ty = self.ctx.krate.types.intern(Type::Future(bool_ty));
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::CryptoOp {
+                        op: CryptoOp::Verify,
+                        args: Vec::from([algorithm, key, signature, data]),
+                    },
+                    ty,
+                    span,
+                })))
+            }
             _ => Ok(None),
         }
+    }
+
+    /// The `CryptoKey` class type (`StdlibClass::CryptoKey`).
+    fn crypto_key_type(&mut self) -> smelt_hir::TypeId {
+        let name = self.intern_type_name("CryptoKey");
+        self.ctx.krate.types.intern(Type::Class {
+            name,
+            args: Vec::new(),
+        })
+    }
+
+    /// Accept a `BufferSource` argument (a typed-array view, an `ArrayBuffer`,
+    /// or a value whose type carries no shape), as `digest` does; refuse
+    /// anything else rather than reading zero bytes from it.
+    fn crypto_byte_source(
+        &self,
+        data: smelt_hir::ExprId,
+        member: &str,
+        span: smelt_hir::Span,
+        body: &Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let data = self.byte_source_behind_assertion(data, body);
+        let data_ty = Self::expr_ty(body, data);
+        let accepted = self.is_typed_array_view_type(data_ty)
+            || self.is_array_buffer_type(data_ty)
+            || matches!(
+                self.ctx.krate.types.get(data_ty),
+                Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+            );
+        if !accepted {
+            return Err(SmeltError::unsupported(
+                span,
+                format!(
+                    "`crypto.subtle.{member}` reads a `BufferSource`: a typed-array view or an `ArrayBuffer` (got {:?})",
+                    self.ctx.krate.types.get(data_ty)
+                ),
+            ));
+        }
+        Ok(data)
+    }
+
+    /// Reduce an `importKey` algorithm (`"HMAC"` or `{ name: "HMAC", hash:
+    /// "SHA-256" }`, whose `hash` may itself be `{ name }`) to its name and
+    /// hash strings. A bare string names no hash; the empty string stands for
+    /// "none given", which the runtime reports as the spec's `TypeError`.
+    fn crypto_algorithm_name_and_hash(
+        &mut self,
+        algorithm: smelt_hir::ExprId,
+        span: smelt_hir::Span,
+        body: &mut Body,
+    ) -> Result<(smelt_hir::ExprId, smelt_hir::ExprId), SmeltError> {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let name = self.crypto_algorithm_name(algorithm, span, body)?;
+        if matches!(self.ctx.krate.types.get(Self::expr_ty(body, algorithm)), Some(Type::String)) {
+            let none = body.push_expr(Expr {
+                kind: ExprKind::Literal(smelt_hir::Literal::String(String::new())),
+                ty: string_ty,
+                span,
+            });
+            return Ok((name, none));
+        }
+        let hash_field = self.intern_source_name("hash");
+        let hash = body.push_expr(Expr {
+            kind: ExprKind::Field {
+                receiver: algorithm,
+                field: hash_field,
+            },
+            ty: string_ty,
+            span,
+        });
+        Ok((name, hash))
     }
 
     /// Look through an erased type assertion whose operand is already a

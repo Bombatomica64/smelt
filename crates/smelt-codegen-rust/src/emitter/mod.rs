@@ -360,7 +360,9 @@ impl EmitContext {
             let base = sanitize_ident(source_name);
             let rust_name =
                 if !function.is_test && source_name == "main" && function.return_ty == none_ty {
-                    base
+                    // The binary's entry point keeps its Rust name; a SOURCE
+                    // item named `main` renames (see `rust::sanitize_ident`).
+                    "main".to_owned()
                 } else if duplicate_counts.get(&function.name).copied().unwrap_or(0) > 1
                     || source_name.starts_with("__smelt_module_")
                 {

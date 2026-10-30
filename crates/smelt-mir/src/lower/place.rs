@@ -499,6 +499,8 @@ impl LoweringCtx<'_> {
             | ExprKind::DateTimezoneContext { .. }
             | ExprKind::DateToIsoString { .. }
             | ExprKind::DateToString { .. }
+            | ExprKind::DateToUtcString { .. }
+            | ExprKind::JsonIndent { .. }
             | ExprKind::DateFromParts { .. }
             | ExprKind::DateFromValue { .. }
             | ExprKind::DateGetPart { .. }

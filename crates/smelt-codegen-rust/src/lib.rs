@@ -716,6 +716,7 @@ fn emit_source_with_free_function_router(
     let needs_url = stdlib::needs_url_runtime(mir);
     let needs_crypto_random_values = stdlib::needs_crypto_random_values_runtime(mir);
     let needs_crypto_digest = stdlib::needs_crypto_digest_runtime(mir);
+    let needs_crypto_key = stdlib::needs_crypto_key_runtime(mir);
     let needs_form_data = stdlib::needs_form_data_runtime(mir);
     let needs_response = stdlib::needs_response_runtime(mir);
     let needs_request = stdlib::needs_request_runtime(mir);
@@ -959,6 +960,9 @@ fn emit_source_with_free_function_router(
     }
     if stdlib::needs_uri_encode_runtime(mir) {
         emit_runtime_gate(&mut writer, PreludeGate::UriEncode)?;
+    }
+    if stdlib::needs_json_indent_runtime(mir) {
+        emit_json_indent_helper(&mut writer);
     }
     if stdlib::needs_locale_compare_runtime(mir) {
         emit_runtime_gate(&mut writer, PreludeGate::LocaleCompare)?;
@@ -6020,7 +6024,7 @@ fn emit_source_with_free_function_router(
     // their signatures, and `getRandomValues` reaches into its byte storage.
     // Emitted only for the members a program actually calls, so a crate that
     // hashes carries neither `getrandom` nor the fill helper.
-    if needs_crypto_random_values || needs_crypto_digest {
+    if needs_crypto_random_values || needs_crypto_digest || needs_crypto_key {
         crypto_prelude::emit(
             &mut writer,
             crypto_prelude::CryptoDemand {
@@ -6033,6 +6037,7 @@ fn emit_source_with_free_function_router(
                 } else {
                     crypto_prelude::DigestThrow::Message
                 }),
+                key: needs_crypto_key && needs_unknown,
             },
         );
     }
@@ -6716,6 +6721,45 @@ fn source_module_name(name: &str) -> String {
 /// collisions while keeping `Setter.rs` as the artifact file.
 fn generated_source_module_ident(file_stem: &str) -> String {
     sanitize_ident(&format!("__smelt_module_{file_stem}"))
+}
+
+/// Emit `smelt_json_indent(text, indent)`: lay compact JSON text out the way
+/// `JSON.stringify(value, replacer, space)` does.
+///
+/// JavaScript's indented form puts every member and element on its own line,
+/// one `indent` deeper than its container, writes `": "` after a key, and
+/// keeps an empty object or array as `{}` / `[]`. That is a pure function of
+/// the compact text, so the helper walks it once, tracking string literals
+/// (whose brackets, commas and colons are content), rather than re-serializing
+/// a parsed value, which could respell numbers. An empty `indent` answers the
+/// text unchanged.
+fn emit_json_indent_helper(writer: &mut CodeWriter) {
+    writer.line("/// `JSON.stringify(value, replacer, space)`'s layout over compact JSON text.");
+    writer.line("#[allow(dead_code)]");
+    writer.block("fn smelt_json_indent(text: &str, indent: &str) -> String", |fn_writer| {
+        fn_writer.line("if indent.is_empty() { return text.to_owned(); }");
+        fn_writer.line("let chars: Vec<char> = text.chars().collect();");
+        fn_writer.line("let mut out = String::with_capacity(text.len() * 2);");
+        fn_writer.line("let mut depth = 0_usize;");
+        fn_writer.line("let mut in_string = false;");
+        fn_writer.line("let mut escaped = false;");
+        fn_writer.line("let mut index = 0_usize;");
+        fn_writer.block("while index < chars.len()", |loop_writer| {
+            loop_writer.line("let ch = chars[index];");
+            loop_writer.line("if in_string { out.push(ch); if escaped { escaped = false; } else if ch == '\\\\' { escaped = true; } else if ch == '\"' { in_string = false; } index += 1; continue; }");
+            loop_writer.block("match ch", |match_writer| {
+                match_writer.line("'\"' => { in_string = true; out.push(ch); }");
+                match_writer.line("'{' | '[' => { let close = if ch == '{' { '}' } else { ']' }; if chars.get(index + 1) == Some(&close) { out.push(ch); out.push(close); index += 2; continue; } depth += 1; out.push(ch); out.push('\\n'); out.push_str(&indent.repeat(depth)); }");
+                match_writer.line("'}' | ']' => { depth = depth.saturating_sub(1); out.push('\\n'); out.push_str(&indent.repeat(depth)); out.push(ch); }");
+                match_writer.line("',' => { out.push(','); out.push('\\n'); out.push_str(&indent.repeat(depth)); }");
+                match_writer.line("':' => { out.push_str(\": \"); }");
+                match_writer.line("_ => out.push(ch),");
+            });
+            loop_writer.line("index += 1;");
+        });
+        fn_writer.line("out");
+    });
+    writer.blank_line();
 }
 
 /// Returns whether this generated function must remain the Rust crate root.

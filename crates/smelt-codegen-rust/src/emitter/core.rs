@@ -5937,29 +5937,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Returns whether a class-shaped type is emitted as `SmeltUnknown`.
     pub(super) fn is_erased_class_type(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Class { name, .. }) => {
-                // A modeled class with a CONCRETE generated Rust type never
-                // erases: that is the whole point of modeling it as a real Rust
-                // value. Asked of the registry
-                // (`StdlibClass::has_concrete_runtime_type`) rather than of a
-                // list of spellings here — the list is what silently omitted
-                // `ArrayBuffer` when the typed-array family became concrete, so
-                // a coercion into an `SmeltArrayBuffer` slot erased instead of
-                // recovering and the generated crate stopped compiling. The
-                // three `node:http` classes were omitted the same way.
-                if self.symbol_name(*name).is_ok_and(|type_name| {
-                    smelt_stdlib::typescript_stdlib_class(type_name)
-                        .is_some_and(smelt_stdlib::StdlibClass::has_concrete_runtime_type)
-                }) {
-                    return false;
-                }
-                !self.mir.classes.iter().any(|class| class.name == *name)
-                    && !self
-                        .mir
-                        .interfaces
-                        .iter()
-                        .any(|interface| interface.name == *name)
-            }
+            Some(Type::Class { name, .. }) => crate::classes::class_name_renders_erased(self.mir, *name),
             _ => false,
         }
     }

@@ -1108,6 +1108,14 @@ pub enum ExprKind {
     JsonStringify {
         value: ExprId,
     },
+    /// The `space` argument of `JSON.stringify(value, replacer, space)`:
+    /// re-indent compact JSON `text` the way JavaScript lays out an indented
+    /// result. `space` is the source argument (a number clamped to 10, a
+    /// string cut to 10 characters; anything else means no indentation).
+    JsonIndent {
+        text: ExprId,
+        space: ExprId,
+    },
     /// `JSON.parse(text)` / Python `json.loads(text)`.
     ///
     /// `decode` is `true` when the expression's type is a target the SOURCE
@@ -1207,6 +1215,11 @@ pub enum ExprKind {
     },
     /// Convert a Date timestamp to JavaScript `Date.prototype.toString()` output.
     DateToString {
+        timestamp_ms: ExprId,
+    },
+    /// Convert a Date timestamp to `Date.prototype.toUTCString()` output, the
+    /// HTTP-date form (`Sun, 24 Dec 2000 10:30:59 GMT`).
+    DateToUtcString {
         timestamp_ms: ExprId,
     },
     DateFromParts {

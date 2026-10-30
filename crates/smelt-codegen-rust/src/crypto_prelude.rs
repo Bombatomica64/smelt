@@ -24,14 +24,15 @@
 //! `SmeltCrypto` to hold. Emitting one would mean `crypto.randomUUID()` built
 //! an object to immediately discard.
 //!
+//! * `subtle.importKey`/`sign`/`verify` — the key-taking half, for `raw` HMAC
+//!   keys (what signed cookies and HMAC JWTs use), over `hmac`. A `CryptoKey`
+//!   is the concrete `SmeltCryptoKey`. See [`emit_crypto_key`].
+//!
 //! ## What is not here
 //!
-//! The key-taking half of `SubtleCrypto` (`importKey`/`sign`/`verify`). That is
-//! a key-management surface — JWK and raw key material, per-algorithm
-//! parameters, a `CryptoKey` value with its own extractable/usages state — not
-//! three more calls, so it stays *declared* in
-//! `smelt_stdlib::host_modules` and using it is a named blocker. See
-//! `CRYPTO_KEY_REASON` there.
+//! The other key formats (`jwk`, `spki`, `pkcs8`) and the asymmetric and
+//! cipher algorithms. They throw the spec's `NotSupportedError` at run time,
+//! which a source `catch` can read, rather than computing a wrong answer.
 
 use crate::rust::CodeWriter;
 
@@ -62,6 +63,10 @@ pub struct CryptoDemand {
     pub fill_erased_view: bool,
     /// Emit the digest helper, reporting a bad name this way.
     pub digest: Option<DigestThrow>,
+    /// Emit `SmeltCryptoKey` and the `importKey`/`sign`/`verify` helpers.
+    /// Requires the erased carrier (the key's boundary adapters and the
+    /// branded throws live beside it).
+    pub key: bool,
 }
 
 /// Emit the `WebCrypto` helpers a generated crate uses.
@@ -78,6 +83,146 @@ pub fn emit(writer: &mut CodeWriter, demand: CryptoDemand) {
     if let Some(throw) = demand.digest {
         emit_digest(writer, throw);
     }
+    if demand.key {
+        emit_crypto_key(writer);
+    }
+}
+
+/// The SHA hashers an HMAC key can name, as `(spec spelling, sha crate path)`.
+const HMAC_HASHES: [(&str, &str); 4] = [
+    ("SHA-1", "sha1::Sha1"),
+    ("SHA-256", "sha2::Sha256"),
+    ("SHA-384", "sha2::Sha384"),
+    ("SHA-512", "sha2::Sha512"),
+];
+
+/// Emit `SmeltCryptoKey` and `crypto.subtle.importKey`/`sign`/`verify`.
+///
+/// A `CryptoKey` is a value with state (its algorithm, hash, key bytes and
+/// the extractable/usages fixed at import), so unlike the keyless members it
+/// is a real type. The key bytes are `Rc`-shared: a key is immutable, and a
+/// clone of it is the same key.
+///
+/// Only `raw` HMAC keys are modeled. Every other format, algorithm or hash
+/// answers the spec's `NotSupportedError`, branded so a source `catch` reads
+/// `error.name`; `sign`/`verify` with an algorithm the key was not imported
+/// for answer `InvalidAccessError`. `verify` compares in constant time, as the
+/// spec requires of a MAC check.
+fn emit_crypto_key(writer: &mut CodeWriter) {
+    writer.line("/// A WebCrypto `CryptoKey`: an imported `raw` HMAC key.");
+    writer.line("#[derive(Clone, Debug, Default)]");
+    writer.line("#[allow(dead_code)]");
+    writer.block("pub struct SmeltCryptoKey", |struct_writer| {
+        struct_writer.line("id: usize,");
+        struct_writer.line("algorithm: String,");
+        struct_writer.line("hash: String,");
+        struct_writer.line("key: ::std::rc::Rc<Vec<u8>>,");
+        struct_writer.line("extractable: bool,");
+        struct_writer.line("usages: Vec<String>,");
+    });
+    writer.line("#[allow(dead_code)]");
+    writer.block("impl SmeltCryptoKey", |impl_writer| {
+        impl_writer.line("/// JS reference identity of this key.");
+        impl_writer.line("pub fn id(&self) -> usize { self.id }");
+        impl_writer.line("/// `key.type`: a symmetric key is `\"secret\"`.");
+        impl_writer.line("pub fn key_type(&self) -> String { \"secret\".to_owned() }");
+        impl_writer.line("/// `key.extractable`.");
+        impl_writer.line("pub fn extractable(&self) -> bool { self.extractable }");
+        impl_writer.line("/// `key.usages`.");
+        impl_writer.line("pub fn usages(&self) -> SmeltList<String> { SmeltList::new(self.usages.clone()) }");
+    });
+    writer.blank_line();
+    writer.line("/// Erase a key for a dynamic boundary: the spec's visible members, with the");
+    writer.line("/// live key riding in the origin slot so narrowing it back recovers it.");
+    writer.block("impl IntoSmeltUnknown for SmeltCryptoKey", |impl_writer| {
+        impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+            fn_writer.line("let smelt_host_origin = self.clone();");
+            fn_writer.line("let algorithm = SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"name\".to_owned(), SmeltUnknown::String(self.algorithm.clone().into())), (\"hash\".to_owned(), SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"name\".to_owned(), SmeltUnknown::String(self.hash.clone().into()))]))))])));");
+            fn_writer.line("let usages = SmeltUnknown::Array(self.usages.iter().map(|usage| SmeltUnknown::String(usage.clone().into())).collect::<Vec<_>>().into());");
+            fn_writer.line("smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_crypto_key\".to_owned(), SmeltUnknown::Bool(true)), (\"type\".to_owned(), SmeltUnknown::String(\"secret\".into())), (\"extractable\".to_owned(), SmeltUnknown::Bool(self.extractable)), (\"algorithm\".to_owned(), algorithm), (\"usages\".to_owned(), usages)]))), smelt_host_origin)");
+        });
+    });
+    writer.blank_line();
+    writer.line("/// Recover a key from an erased value: only a key that was erased in this");
+    writer.line("/// thread carries its material, so anything else is a broken boundary.");
+    writer.block("impl SmeltFromUnknown for SmeltCryptoKey", |impl_writer| {
+        impl_writer.block("fn smelt_from_unknown(value: SmeltUnknown) -> Self", |fn_writer| {
+            fn_writer.line("smelt_restore_host_origin::<Self>(&value).unwrap_or_else(|| panic!(\"erased value is not a CryptoKey\"))");
+        });
+    });
+    writer.blank_line();
+    let not_supported = crate::thrown::throw_expr(&crate::thrown::error_payload_record_expr(
+        "NotSupportedError",
+        "\"Algorithm: Unrecognized name\"",
+    ));
+    let invalid_access = crate::thrown::throw_expr(&crate::thrown::error_payload_record_expr(
+        "InvalidAccessError",
+        "\"The requested operation is not valid for the provided key\"",
+    ));
+    writer.line("/// The canonical spelling of a supported HMAC hash name, matched");
+    writer.line("/// case-insensitively as the spec's algorithm normalization does.");
+    writer.line("#[allow(dead_code)]");
+    writer.block("fn smelt_crypto_hmac_hash(hash: &str) -> Option<&'static str>", |fn_writer| {
+        fn_writer.line("let hash = hash.trim().to_ascii_uppercase();");
+        for (spelling, _) in HMAC_HASHES {
+            fn_writer.line(format!("if hash == \"{spelling}\" {{ return Some(\"{spelling}\"); }}"));
+        }
+        fn_writer.line("None");
+    });
+    writer.blank_line();
+    writer.line("/// The HMAC tag of `data` under `key` with the named hash.");
+    writer.line("#[allow(dead_code)]");
+    writer.block("fn smelt_crypto_hmac_tag(hash: &str, key: &[u8], data: &[u8]) -> Vec<u8>", |fn_writer| {
+        fn_writer.line("use hmac::Mac as _;");
+        for (spelling, hasher) in HMAC_HASHES {
+            fn_writer.line(format!(
+                "if hash == \"{spelling}\" {{ let mut mac = hmac::Hmac::<{hasher}>::new_from_slice(key).expect(\"HMAC accepts a key of any length\"); mac.update(data); return mac.finalize().into_bytes().to_vec(); }}"
+            ));
+        }
+        fn_writer.line("Vec::new()");
+    });
+    writer.blank_line();
+    writer.line("/// `crypto.subtle.importKey(format, keyData, algorithm, extractable, usages)`.");
+    writer.line("#[allow(dead_code)]");
+    writer.block(
+        "fn smelt_crypto_import_key(format: &str, key: Vec<u8>, algorithm: &str, hash: &str, extractable: bool, usages: Vec<String>) -> Result<SmeltCryptoKey, Box<dyn ::std::error::Error>>",
+        |fn_writer| {
+            fn_writer.line(format!(
+                "if format != \"raw\" || !algorithm.trim().eq_ignore_ascii_case(\"HMAC\") {{ return Err({not_supported}); }}"
+            ));
+            fn_writer.line(format!(
+                "let Some(hash) = smelt_crypto_hmac_hash(hash) else {{ return Err({not_supported}); }};"
+            ));
+            fn_writer.line("Ok(SmeltCryptoKey { id: smelt_next_object_id(), algorithm: \"HMAC\".to_owned(), hash: hash.to_owned(), key: ::std::rc::Rc::new(key), extractable, usages })");
+        },
+    );
+    writer.blank_line();
+    writer.line("/// `crypto.subtle.sign(algorithm, key, data)`: the MAC as an `ArrayBuffer`.");
+    writer.line("#[allow(dead_code)]");
+    writer.block(
+        "fn smelt_crypto_sign(algorithm: &str, key: &SmeltCryptoKey, data: &[u8]) -> Result<SmeltArrayBuffer, Box<dyn ::std::error::Error>>",
+        |fn_writer| {
+            fn_writer.line(format!(
+                "if !algorithm.trim().eq_ignore_ascii_case(&key.algorithm) {{ return Err({invalid_access}); }}"
+            ));
+            fn_writer.line("Ok(SmeltArrayBuffer::from_bytes(smelt_crypto_hmac_tag(&key.hash, &key.key, data)))");
+        },
+    );
+    writer.blank_line();
+    writer.line("/// `crypto.subtle.verify(algorithm, key, signature, data)`, comparing the");
+    writer.line("/// tags in constant time.");
+    writer.line("#[allow(dead_code)]");
+    writer.block(
+        "fn smelt_crypto_verify(algorithm: &str, key: &SmeltCryptoKey, signature: &[u8], data: &[u8]) -> Result<bool, Box<dyn ::std::error::Error>>",
+        |fn_writer| {
+            fn_writer.line(format!(
+                "if !algorithm.trim().eq_ignore_ascii_case(&key.algorithm) {{ return Err({invalid_access}); }}"
+            ));
+            fn_writer.line("let expected = smelt_crypto_hmac_tag(&key.hash, &key.key, data);");
+            fn_writer.line("Ok(expected.len() == signature.len() && expected.iter().zip(signature).fold(0_u8, |acc, (left, right)| acc | (left ^ right)) == 0)");
+        },
+    );
+    writer.blank_line();
 }
 
 /// Emit `crypto.getRandomValues(view)`.
