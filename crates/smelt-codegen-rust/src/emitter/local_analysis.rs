@@ -85,6 +85,20 @@ impl FunctionEmitter<'_> {
                     Statement::StorageLive(_) | Statement::StorageDead(_) => {}
                 }
             }
+            if let Some(
+                Terminator::Call {
+                    unwind: Some(handler),
+                    ..
+                }
+                | Terminator::Await {
+                    unwind: Some(handler),
+                    ..
+                },
+            ) = &block.terminator
+                && let Some(local) = handler.exception_local
+            {
+                index.unwind_written.insert(local);
+            }
             if let Some(Terminator::Call {
                 callee: Callee::Static(function_id),
                 args,
@@ -188,6 +202,13 @@ impl FunctionEmitter<'_> {
             return true;
         }
         let index = self.local_write_index();
+        // Written by a statement AND by an unwind edge: a `finally`'s thrown
+        // value is initialized before its `try` and overwritten when a throw
+        // reaches the handler. (A `catch` binding is written by its unwind
+        // edges alone, which all bind it once in their own handler code.)
+        if index.unwind_written.contains(&local) && self.local_assignment_count(local) > 0 {
+            return true;
+        }
         // Written in place, borrowed mutably, captured for shared access, or
         // passed to a parameter emitted as `&mut T` (see `LocalWriteIndex`).
         if index.mutated.contains(&local) {
@@ -715,6 +736,9 @@ pub(super) struct LocalWriteIndex {
     /// for which `block_can_repeat || block_is_reached_from_repeating_region`
     /// holds (see [`repeat_reachable_blocks`]).
     repeat_reachable: HashSet<smelt_mir::BlockId>,
+    /// Locals an unwind edge writes: the handler local of a `Call` or `Await`
+    /// terminator, which receives the thrown value.
+    unwind_written: HashSet<LocalId>,
 }
 
 /// The blocks of `function` that lie on a cycle, or are reachable from a block

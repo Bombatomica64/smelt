@@ -15,7 +15,7 @@ reads, per source file:
 | --- | --- |
 | values | every local of every function and closure: parameters, bindings, temporaries |
 | reads | every assignment of a property/element read: `Use` of a field/index place, `OptionalField`, `OptionalIndex`, `ListIndex`, `TupleIndex`, `DictGet`; classified by the type of the local it lands in |
-| calls | every `Call` terminator; classified by its result type and, for an indirect call, by the callee value's type (the worse wins) |
+| calls | every `Call` terminator and every `ClosureCall`/`ClosureCallSpread` statement (lowering picks between the two by context: inside a guarded `try` a closure call is a terminator); classified by its result type and, for a call through a value, by the callee value's type (the worse wins). Statements counted since round 6 of TS7 parity phase 2 |
 
 Each entry is:
 

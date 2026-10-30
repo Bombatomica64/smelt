@@ -149,7 +149,24 @@ fn propagate_to_successors(
     in_sets: &mut [BlockDefinitions],
     queue: &mut VecDeque<crate::BlockId>,
 ) {
+    // The exception edge of a throwing call or await also DEFINES the handler's
+    // exception local: the backend binds the thrown value to it on the way in
+    // (a `catch (e)` binding, or the value a `finally` rethrows).
+    let unwind_handler = match terminator {
+        Terminator::Call { unwind, .. } | Terminator::Await { unwind, .. } => *unwind,
+        _ => None,
+    };
     for successor in terminator.successors() {
+        let edge_definitions;
+        let definitions = match unwind_handler {
+            Some(handler) if handler.catch_block == successor => {
+                let mut with_exception = definitions.clone();
+                with_exception.extend(handler.exception_local);
+                edge_definitions = with_exception;
+                &edge_definitions
+            }
+            _ => definitions,
+        };
         let Some(existing) = in_sets.get_mut(block_index(successor)) else {
             continue;
         };

@@ -1211,16 +1211,21 @@ export function pick(options: Record<string, unknown>): unknown {
 ",
     );
 
+    // A missing field falls back instead of panicking. The fallback is
+    // `.unwrap_or_else(|| smelt_record_inherited(..))` since a destructuring
+    // read, like any property read, consults the prototype entries an erased
+    // object carries before answering `undefined`; the requirement here is
+    // only that it does not `expect` the field.
     assert!(
-        source.contains(".get(&\"leading\".to_owned()).unwrap_or("),
+        source.contains(".get(&\"leading\".to_owned()).unwrap_or"),
         "{source}"
     );
     assert!(
-        source.contains(".get(&\"trailing\".to_owned()).unwrap_or("),
+        source.contains(".get(&\"trailing\".to_owned()).unwrap_or"),
         "{source}"
     );
     assert!(
-        source.contains(".get(&\"maxWait\".to_owned()).unwrap_or("),
+        source.contains(".get(&\"maxWait\".to_owned()).unwrap_or"),
         "{source}"
     );
     assert!(!source.contains("expect(\"missing field\")"), "{source}");

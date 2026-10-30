@@ -15,9 +15,13 @@
 //!   a `Use` of a field/index place, `OptionalField`, `OptionalIndex`,
 //!   `ListIndex`, `TupleIndex` and `DictGet`, classified by the type of the
 //!   local the read lands in;
-//! - **calls** — every `Call` terminator, classified by its result type and,
-//!   for an indirect call, by the type of the callee value (the worse of the
-//!   two wins).
+//! - **calls** — every `Call` terminator and every call of a closure value
+//!   lowered as a statement (`ClosureCall`, `ClosureCallSpread`), classified
+//!   by its result type and, for a call through a value, by the type of the
+//!   callee value (the worse of the two wins). Both spellings count because
+//!   lowering picks between them by context alone: inside a `try` a closure
+//!   call becomes a terminator so a throw reaches the handler, and a call
+//!   must not appear or vanish from the metric when it moves.
 //!
 //! Each is **concrete**, **generic** (it mentions a type parameter that the
 //! Rust output carries as a real generic) or **erased** (its Rust type
@@ -254,6 +258,23 @@ fn measure_body(
                 && let Some(ty) = local_ty(*dest)
             {
                 counts.reads.add(emitter.typedness_of(ty));
+            }
+        }
+        for statement in &block.statements {
+            if let Statement::Assign {
+                dest,
+                value:
+                    Rvalue::ClosureCall { callee, .. } | Rvalue::ClosureCallSpread { callee, .. },
+            } = statement
+            {
+                let result =
+                    local_ty(*dest).map_or(Typedness::Erased, |ty| emitter.typedness_of(ty));
+                let callee = operand_local(callee)
+                    .and_then(local_ty)
+                    .map(|ty| emitter.typedness_of(ty))
+                    .or_else(|| projected_read(emitter, callee, &local_ty))
+                    .unwrap_or(Typedness::Concrete);
+                counts.calls.add(result.max(callee));
             }
         }
         if let Some(Terminator::Call { callee, dest, .. }) = &block.terminator {

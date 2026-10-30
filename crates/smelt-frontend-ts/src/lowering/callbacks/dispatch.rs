@@ -1715,6 +1715,22 @@ impl ModuleBuilder<'_> {
                             ty: self.ctx.krate.types.intern(Type::List(item_ty)),
                         });
                     }
+                    // An ERASED receiver the TS7 checker narrowed to an array
+                    // (an untyped `origin` after `typeof` checks removed its
+                    // string and function arms, Hono's CORS) is not the
+                    // string the compact IR's `includes` assumes. Its nodes
+                    // carry no source span to ask the checker with later, so
+                    // the arrow is handed to closure-body lowering here,
+                    // whose `includes` reads the checker at the real span.
+                    if member.property.name == "includes"
+                        && matches!(self.ctx.krate.types.get(receiver.ty), Some(Type::Unknown))
+                        && self.checker_types_as_array(member.object.span().start, member.object.span().end)
+                    {
+                        return Err(SmeltError::unsupported(
+                            self.span(member.span.start, member.span.end),
+                            "callback expression kind is not supported yet",
+                        ));
+                    }
                     let method = self.intern_source_name(member.property.name.as_str());
                     let declared_method_return = self
                         .class_field_type(receiver.ty, method)

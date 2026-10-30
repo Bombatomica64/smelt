@@ -2,18 +2,18 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8127,
+      "concrete": 8239,
       "generic": 115,
-      "erased": 56
+      "erased": 61
     },
     "reads": {
-      "concrete": 828,
+      "concrete": 833,
       "generic": 30,
-      "erased": 20
+      "erased": 21
     },
     "calls": {
-      "concrete": 1942,
-      "generic": 7,
+      "concrete": 2158,
+      "generic": 12,
       "erased": 2
     }
   },
@@ -183,7 +183,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 15,
+        "concrete": 16,
         "generic": 3,
         "erased": 0
       }
@@ -200,7 +200,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 6,
+        "concrete": 7,
         "generic": 0,
         "erased": 0
       }
@@ -217,7 +217,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 3,
+        "concrete": 20,
         "generic": 0,
         "erased": 0
       }
@@ -251,7 +251,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 8,
+        "concrete": 9,
         "generic": 0,
         "erased": 0
       }
@@ -336,7 +336,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 10,
+        "concrete": 16,
         "generic": 0,
         "erased": 0
       }
@@ -370,7 +370,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 3,
+        "concrete": 9,
         "generic": 0,
         "erased": 0
       }
@@ -387,7 +387,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 6,
+        "concrete": 12,
         "generic": 0,
         "erased": 0
       }
@@ -404,7 +404,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 5,
+        "concrete": 19,
         "generic": 0,
         "erased": 0
       }
@@ -455,7 +455,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 2,
+        "concrete": 6,
         "generic": 0,
         "erased": 0
       }
@@ -472,7 +472,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 8,
+        "concrete": 12,
         "generic": 0,
         "erased": 0
       }
@@ -523,7 +523,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 12,
+        "concrete": 13,
         "generic": 0,
         "erased": 0
       }
@@ -574,7 +574,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 6,
+        "concrete": 8,
         "generic": 0,
         "erased": 0
       }
@@ -591,7 +591,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 5,
+        "concrete": 7,
         "generic": 0,
         "erased": 0
       }
@@ -625,7 +625,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 3,
+        "concrete": 7,
         "generic": 0,
         "erased": 0
       }
@@ -693,7 +693,7 @@
         "erased": 2
       },
       "calls": {
-        "concrete": 9,
+        "concrete": 13,
         "generic": 0,
         "erased": 0
       }
@@ -727,7 +727,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 49,
+        "concrete": 51,
         "generic": 0,
         "erased": 0
       }
@@ -744,7 +744,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 25,
+        "concrete": 28,
         "generic": 0,
         "erased": 0
       }
@@ -795,7 +795,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 41,
+        "concrete": 42,
         "generic": 0,
         "erased": 0
       }
@@ -812,7 +812,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 12,
+        "concrete": 13,
         "generic": 0,
         "erased": 0
       }
@@ -863,7 +863,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 34,
+        "concrete": 44,
         "generic": 2,
         "erased": 0
       }
@@ -880,7 +880,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 11,
+        "concrete": 24,
         "generic": 0,
         "erased": 0
       }
@@ -897,7 +897,7 @@
         "erased": 2
       },
       "calls": {
-        "concrete": 27,
+        "concrete": 44,
         "generic": 0,
         "erased": 0
       }
@@ -914,7 +914,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 18,
+        "concrete": 20,
         "generic": 0,
         "erased": 0
       }
@@ -948,7 +948,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 12,
+        "concrete": 19,
         "generic": 0,
         "erased": 0
       }
@@ -1033,7 +1033,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 10,
+        "concrete": 12,
         "generic": 0,
         "erased": 0
       }
@@ -1084,7 +1084,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 11,
+        "concrete": 16,
         "generic": 0,
         "erased": 0
       }
@@ -1186,7 +1186,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 2,
+        "concrete": 3,
         "generic": 0,
         "erased": 0
       }
@@ -1254,7 +1254,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 6,
+        "concrete": 8,
         "generic": 0,
         "erased": 0
       }
@@ -1271,7 +1271,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 18,
+        "concrete": 22,
         "generic": 0,
         "erased": 0
       }
@@ -1288,7 +1288,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 11,
+        "concrete": 17,
         "generic": 0,
         "erased": 0
       }
@@ -1323,7 +1323,7 @@
       },
       "calls": {
         "concrete": 19,
-        "generic": 1,
+        "generic": 3,
         "erased": 0
       }
     },
@@ -1356,8 +1356,25 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 41,
-        "generic": 1,
+        "concrete": 46,
+        "generic": 4,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts": {
+      "values": {
+        "concrete": 112,
+        "generic": 0,
+        "erased": 5
+      },
+      "reads": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 1
+      },
+      "calls": {
+        "concrete": 24,
+        "generic": 0,
         "erased": 0
       }
     },
@@ -1560,7 +1577,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 6,
+        "concrete": 12,
         "generic": 0,
         "erased": 0
       }
@@ -1713,7 +1730,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 8,
+        "concrete": 16,
         "generic": 0,
         "erased": 0
       }
@@ -1747,7 +1764,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 7,
+        "concrete": 11,
         "generic": 0,
         "erased": 0
       }
@@ -1764,7 +1781,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 3,
+        "concrete": 5,
         "generic": 0,
         "erased": 0
       }
@@ -2002,7 +2019,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 7,
+        "concrete": 9,
         "generic": 0,
         "erased": 0
       }
@@ -2036,7 +2053,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 13,
+        "concrete": 15,
         "generic": 0,
         "erased": 0
       }
@@ -2070,7 +2087,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 16,
+        "concrete": 17,
         "generic": 0,
         "erased": 0
       }
@@ -2223,7 +2240,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 7,
+        "concrete": 12,
         "generic": 0,
         "erased": 0
       }
@@ -2665,7 +2682,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 12,
+        "concrete": 14,
         "generic": 0,
         "erased": 0
       }
@@ -2682,7 +2699,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 10,
+        "concrete": 12,
         "generic": 0,
         "erased": 0
       }
@@ -2699,7 +2716,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 7,
+        "concrete": 11,
         "generic": 0,
         "erased": 0
       }

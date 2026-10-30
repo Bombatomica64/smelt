@@ -639,7 +639,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 40] = [
+    const BOUNDARY_MARKERS: [&str; 41] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -774,6 +774,15 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // type, generated union arm, or scoped generic can express that.
         "smelt_throw(",
         "smelt_thrown_value(",
+        // The value a `finally` holds while its clause runs on an exceptional
+        // exit (`smelt_mir::PENDING_THROWN_LOCAL`, see `lower_try_catch`): the
+        // same exception payload as the two adapters above, parked between
+        // the handler and the rethrow, plus its `undefined` initialization
+        // before the `try`. The clause is shared by every exit, so the value
+        // is whatever the guarded body threw. Proven in example 181
+        // (`rethrowThrough`: a string and a `RangeError` through one clause)
+        // and in `pending_thrown_value_is_a_boundary` below.
+        smelt_mir::PENDING_THROWN_LOCAL,
         // The panic-recovery exception payload
         // (`crates/smelt-codegen-rust/src/thrown.rs`,
         // `panic_payload_record_expr`). When a call inside a `try` is not
@@ -1772,6 +1781,24 @@ mod tests {
 
     /// A JavaScript symbol VALUE has no static counterpart; its use as a member
     /// KEY has one and must stay unaffected.
+    /// A `finally`'s pending thrown value is the exception payload: any
+    /// JavaScript value, held only between the handler and the rethrow. An
+    /// ordinary erased temporary next to it stays avoidable.
+    #[test]
+    fn pending_thrown_value_is_a_boundary() {
+        for line in [
+            "    let mut smelt_pending_thrown: SmeltUnknown;",
+            "    smelt_pending_thrown = SmeltUnknown::Undefined;",
+            "    let mut smelt_pending_thrown_1: SmeltUnknown;",
+        ] {
+            assert_eq!(classify_line(line, false), Category::LegitimateBoundary, "{line}");
+        }
+        assert_eq!(
+            classify_line("    let _smelt_tmp_4: SmeltUnknown;", false),
+            Category::AvoidableErasure
+        );
+    }
+
     #[test]
     fn symbol_value_is_a_boundary() {
         let symbol_value =

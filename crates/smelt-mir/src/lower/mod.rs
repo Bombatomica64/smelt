@@ -153,6 +153,11 @@ type LoweredPlace = (Place, PlaceWritebacks);
 type LoweredPlaceBase = (LocalId, PlaceWritebacks);
 
 
+/// Name of the local a `finally` holds a thrown value in while its clause
+/// runs (see `HelperTypes::thrown_ty`). Public so the `SmeltUnknown` report can
+/// recognize the boundary by it.
+pub const PENDING_THROWN_LOCAL: &str = "smelt_pending_thrown";
+
 /// Synthetic MIR helper types shared by every body lowered in one run.
 ///
 /// These are the interned types [`lower_hir`] pre-computes once so each
@@ -166,6 +171,17 @@ struct HelperTypes {
     loop_index_ty: TypeId,
     /// The bool type used for generated loop conditions.
     loop_bool_ty: TypeId,
+    /// The erased type a `finally`'s exceptional exit holds the thrown value
+    /// at, and the name of the local holding it (`smelt_pending_thrown`).
+    ///
+    /// This is a genuine dynamic boundary: `throw` accepts any value and the
+    /// rethrow forwards it untouched, so no static type describes it (the same
+    /// reason a `catch (e)` binding is `unknown`); example 181 rethrows a
+    /// string and a `RangeError` through one clause. The fixed name is what
+    /// lets the `SmeltUnknown` report classify the local as that boundary.
+    /// Interned only for a crate that has a `try` with a `finally`, so a
+    /// program without one does not gain an erased type it never uses.
+    thrown_ty: Option<(TypeId, smelt_hir::Symbol)>,
 }
 
 /// Lowers a HIR crate to MIR, or returns lowering errors if the conversion fails.
@@ -207,6 +223,26 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
         none: mir.types.intern(Type::None),
         loop_index_ty: mir.types.intern(Type::Float),
         loop_bool_ty: mir.types.intern(Type::Bool),
+        thrown_ty: krate
+            .bodies
+            .iter()
+            .any(|body| {
+                body.stmts.iter().any(|stmt| {
+                    matches!(
+                        stmt,
+                        smelt_hir::Stmt::TryCatch {
+                            finally_body: Some(_),
+                            ..
+                        }
+                    )
+                })
+            })
+            .then(|| {
+                (
+                    mir.types.intern(Type::Unknown),
+                    mir.symbols.intern(PENDING_THROWN_LOCAL),
+                )
+            }),
     };
     let mut errors = Vec::new();
 
@@ -548,6 +584,7 @@ fn lower_item_functions(
             languages: tables.languages,
             loop_index_ty: helpers.loop_index_ty,
             loop_bool_ty: helpers.loop_bool_ty,
+            thrown_ty: helpers.thrown_ty,
             closure_base: mir.closures.len(),
         };
         // A source function named `main` is not the program's entry point:
@@ -621,6 +658,7 @@ fn lower_module_bodies(
             languages: tables.languages,
             loop_index_ty: helpers.loop_index_ty,
             loop_bool_ty: helpers.loop_bool_ty,
+            thrown_ty: helpers.thrown_ty,
             closure_base: mir.closures.len(),
         };
         let spec = FunctionSpec {

@@ -6712,12 +6712,13 @@ fn body_module_names(
 
 /// Returns the source-shaped Rust file stem for one lowered source module.
 fn source_module_name(name: &str) -> String {
-    let sanitized = sanitize_ident(name);
-    if sanitized == "main" || sanitized == "lib" {
-        format!("source_{sanitized}")
-    } else {
-        sanitized
+    // Decided on the SOURCE stem: `sanitize_ident` renames an identifier
+    // spelled `main` (the binary's entry point), which would otherwise turn
+    // `main.ts` into `main_.rs` instead of the established `source_main.rs`.
+    if name == "main" || name == "lib" {
+        return format!("source_{name}");
     }
+    sanitize_ident(name)
 }
 
 /// Returns the private Rust module identifier used to include a source file.

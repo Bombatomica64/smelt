@@ -341,7 +341,14 @@ impl SmeltBody {
     /// unread body, so reading one must not consume the other. `Clone`
     /// (the Rust trait) is the *handle* copy and shares both, which is
     /// what assigning a response to another variable does.
-    pub fn tee(&self) -> Self { let mut body = Self::from_payload(self.payload.borrow().clone()); body.content_type = self.content_type.clone(); body }
+    ///
+    /// The spec makes `clone()` of a USED body throw a `TypeError`. A clone
+    /// here is a plain value, so the clone of a used body is itself used:
+    /// every read of it throws that same `TypeError` (`Body is unusable`),
+    /// and `try { await res.clone().json() } catch {}` takes the catch as it
+    /// does in JavaScript. The error surfaces at the first read rather than
+    /// at `clone()` itself.
+    pub fn tee(&self) -> Self { let mut body = Self::from_payload(self.payload.borrow().clone()); body.content_type = self.content_type.clone(); if self.used.get() { body.used.set(true); } body }
 }
 
 /// The stored, read-only members of a WHATWG `RequestInit`.

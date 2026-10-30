@@ -776,6 +776,16 @@ impl ModuleBuilder<'_> {
         if self.list_surface_type(haystack_ty).is_some() {
             return Ok(None);
         }
+        // An ERASED receiver the checker narrowed to an array is not a string:
+        // `typeof o === 'string' ? .. : typeof o === 'function' ? .. :
+        // o.includes(x)` over an untyped parameter (Hono's CORS `origin`). The
+        // call is left to the runtime `includes`, which dispatches on the
+        // value; asserting it to `String` searched `"[object Object]"`.
+        if self.type_contains_unknown(haystack_ty)
+            && self.checker_types_as_array(member.object.span().start, member.object.span().end)
+        {
+            return Ok(None);
+        }
         // A union of concrete members with a string arm (`string | fn` after a
         // `typeof path === 'string'` guard Smelt's erased locals do not
         // re-type) is also asserted down to `String`.
