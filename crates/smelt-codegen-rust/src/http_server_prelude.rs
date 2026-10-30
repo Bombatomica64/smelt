@@ -367,9 +367,12 @@ fn emit_server_response(writer: &mut CodeWriter) {
                 loop_writer.line("self.ended_signal.notified().await;");
             });
         });
-        impl_writer.line("/// The status, headers and body, ready for the wire.");
+        impl_writer.line("/// The status, headers and body, moved out for the wire.");
+        impl_writer.line("///");
+        impl_writer.line("/// Called once, after `end`, when nothing can write the response any more;");
+        impl_writer.line("/// taking the buffers spares a copy of every header and the whole body.");
         impl_writer.line(
-            "pub fn into_wire_parts(&self) -> (u16, Vec<(String, String)>, Vec<u8>) { (self.status.get(), self.headers.borrow().clone(), self.body.borrow().clone()) }",
+            "pub fn into_wire_parts(&self) -> (u16, Vec<(String, String)>, Vec<u8>) { (self.status.get(), ::std::mem::take(&mut *self.headers.borrow_mut()), ::std::mem::take(&mut *self.body.borrow_mut())) }",
         );
     });
     writer.blank_line();
@@ -522,7 +525,9 @@ fn emit_connection_glue(writer: &mut CodeWriter) {
             // to keep the map's value type a string.
             fn_writer.line("let mut headers: Vec<(String, String)> = Vec::new();");
             fn_writer.block("for (name, value) in &parts.headers", |loop_writer| {
-                loop_writer.line("let key = name.as_str().to_ascii_lowercase();");
+                // `http::HeaderName` is lowercase by construction (hyper's parser
+                // lowercases every name), so the key is the name as it is.
+                loop_writer.line("let key = name.as_str().to_owned();");
                 loop_writer.line("let text = value.to_str().unwrap_or_default().to_owned();");
                 loop_writer.block("match headers.iter_mut().find(|(existing, _)| *existing == key)", |match_writer| {
                     match_writer.line("Some(existing) => { existing.1.push_str(\", \"); existing.1.push_str(&text); }");
@@ -621,6 +626,14 @@ fn smelt_fetch_server_respond(response: SmeltServerResponse, answer: Result<Smel
             Ok(value) => smelt_await_flatten(value).await,
             Err(error) => Err(error),
         };
+        smelt_fetch_server_write(&response, settled);
+    });
+}
+
+/// Write a settled fetch answer (or the error it settled with) and end `response`.
+#[allow(dead_code)]
+fn smelt_fetch_server_write(response: &SmeltServerResponse, settled: Result<SmeltUnknown, Box<dyn ::std::error::Error>>) {
+    {
         match settled {
             Ok(value) => {
                 let answered = <SmeltResponse as SmeltFromUnknown>::smelt_from_unknown(value);
@@ -646,7 +659,7 @@ fn smelt_fetch_server_respond(response: SmeltServerResponse, answer: Result<Smel
             }
         }
         response.end(None);
-    });
+    }
 }"#;
 
 /// Emit [`FETCH_SERVER`].
