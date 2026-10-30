@@ -1712,22 +1712,10 @@ const EXPECTED_FIXTURE_FAILURES: &[ExpectedFailure] = &[
         cause: "a static generic method's callback parameter is emitted at the declared, not \
                 the substituted, type (E0308)",
     },
-    ExpectedFailure {
-        name: "source_class_named_box_with_callback_sink",
-        errors: 43,
-        cause: "a source class named `Box` collides with the generated/prelude `Box`, so its \
-                uses take the wrong arity (E0107)",
-    },
     // -- Also failing at HEAD. These come from the same rescued suite but were
     // not part of the campaign's re-verified ten, so they are recorded as
     // observed rather than asserted to be pre-existing. Anyone fixing one
     // should confirm which it is and update this note.
-    ExpectedFailure {
-        name: "generic_class_method_and_free_maker",
-        errors: 282,
-        cause: "same generic-class family as generic_class_method_callback: the class's own \
-                `T` never reaches the emitted struct (E0277)",
-    },
     ExpectedFailure {
         name: "map_valued_callback",
         errors: 0,
