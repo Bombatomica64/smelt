@@ -487,6 +487,24 @@ impl ModuleBuilder<'_> {
         if let Some(view) = self.match_array_view(iter, span, body) {
             return view;
         }
+        // A `Headers` iterates its `[name, value]` entries (its default
+        // iterator IS `entries()`), typed as the method is. Asked before the
+        // `Type::Class` arm below, which asserted the modeled value into an
+        // erased list: Hono's `for (const [k, v] of new Headers(init))` in
+        // `Context#newResponse` then panicked "unknown is not iterable" on the
+        // erased record.
+        if self.is_headers_type(iter_ty) {
+            let ty = self.headers_op_result_type(smelt_hir::HeadersOp::Entries);
+            return body.push_expr(Expr {
+                kind: ExprKind::HeadersOp {
+                    op: smelt_hir::HeadersOp::Entries,
+                    headers: iter,
+                    args: Vec::new(),
+                },
+                ty,
+                span,
+            });
+        }
         match self.ctx.krate.types.get(iter_ty).cloned() {
             Some(Type::Set(item_ty)) => {
                 let ty = self.ctx.krate.types.intern(Type::List(item_ty));

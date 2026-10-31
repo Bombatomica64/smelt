@@ -2906,7 +2906,7 @@ fn smelt_drain_due_timers(id_barrier: u64) {
 }
 
 async fn smelt_sleep_ms(delay_ms: f64) {
-    if SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; }
+    while SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; }
     smelt_drain_promise_tasks().await;
     let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };
     let target_ms = smelt_mono_ms().saturating_add(delay_ms);
@@ -4572,6 +4572,18 @@ impl IntoSmeltUnknown for SmeltUnion29 {
 }
 impl SmeltUnion29 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M0(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M1(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M2(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M3(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M4(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M5(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M6(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M7(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M8(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M9(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M10(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltDataView>() { return Self::M11(smelt_origin); } }
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M1(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M2(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
@@ -4648,6 +4660,19 @@ impl IntoSmeltUnknown for SmeltUnion31 {
 }
 impl SmeltUnion31 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M1(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M2(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M3(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M4(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M5(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M6(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M7(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M8(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M9(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M10(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M11(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltDataView>() { return Self::M12(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltArrayBuffer>() { return Self::M13(smelt_origin); } }
         if matches!(value, SmeltUnknown::String(_)) { return Self::M0(match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }); }
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M1(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M2(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
@@ -4724,6 +4749,19 @@ impl IntoSmeltUnknown for SmeltUnion41 {
 }
 impl SmeltUnion41 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M0(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M1(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M2(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M3(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M4(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M5(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M6(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M7(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M8(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M9(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltTypedArray>() { return Self::M10(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltDataView>() { return Self::M11(smelt_origin); } }
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltArrayBuffer>() { return Self::M12(smelt_origin); } }
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M1(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M2(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone())); }

@@ -537,7 +537,7 @@ impl ModuleBuilder<'_> {
     /// These are the spec's own types, not approximations: `get` is
     /// `string | null` (an `Optional(String)`, so the caller narrows a real
     /// `Option`), the mutations are `void`, and the projections are lists.
-    fn headers_op_result_type(&mut self, op: HeadersOp) -> smelt_hir::TypeId {
+    pub(in crate::lowering) fn headers_op_result_type(&mut self, op: HeadersOp) -> smelt_hir::TypeId {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         match op {
             HeadersOp::Get => self.ctx.krate.types.intern(Type::Optional(string_ty)),

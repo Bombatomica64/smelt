@@ -1218,6 +1218,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "180_virtual_slots_partial_records_typed_spreads",
     "181_crypto_hmac_json_space_finally",
     "183_self_construction_types_its_arguments",
+    "184_nested_prime_race_headers_body",
     "14_c_for_loop",
     "15_break_continue",
     "16_switch_break_no_fallthrough",

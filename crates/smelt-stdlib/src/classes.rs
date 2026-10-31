@@ -233,6 +233,7 @@ impl StdlibClass {
                 | Self::SqliteDatabase
                 | Self::SqliteStatement
                 | Self::CryptoKey
+                | Self::ReadableStream
         )
     }
 
@@ -319,15 +320,12 @@ impl StdlibClass {
     /// hand-maintained list of spellings produced the moment `ArrayBuffer`
     /// became concrete.
     ///
-    /// It is [`Self::erases_through_adapter`] plus the two classes that have a
-    /// concrete runtime type but no adapter of their own:
-    /// [`Self::MatchGroups`] (the same `SmeltMatch` value under a second name)
-    /// and [`Self::ReadableStream`] (the `SmeltBody` handle, which carries no
-    /// state a record could describe).
+    /// It is [`Self::erases_through_adapter`] plus the one class that has a
+    /// concrete runtime type but no adapter of its own: [`Self::MatchGroups`]
+    /// (the same `SmeltMatch` value under a second name).
     #[must_use]
     pub const fn has_concrete_runtime_type(self) -> bool {
-        self.erases_through_adapter()
-            || matches!(self, Self::MatchGroups | Self::ReadableStream)
+        self.erases_through_adapter() || matches!(self, Self::MatchGroups)
     }
 
     /// Return whether values of this class are the generated `SmeltBlob` type.
