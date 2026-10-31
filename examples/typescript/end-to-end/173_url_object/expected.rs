@@ -4148,6 +4148,21 @@ impl SmeltBody {
     pub fn tee(&self) -> Self { let mut body = Self::from_payload(self.payload.borrow().clone()); body.content_type = self.content_type.clone(); if self.used.get() { body.used.set(true); } body }
 }
 
+/// Erase a body for a dynamic boundary, retaining the live handle.
+impl IntoSmeltUnknown for SmeltBody {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let smelt_host_origin = self.clone();
+        smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([("__smelt_class".to_owned(), SmeltUnknown::String("ReadableStream".into())), ("locked".to_owned(), SmeltUnknown::Bool(self.locked()))]))), smelt_host_origin)
+    }
+}
+
+/// Recover a body from an erased value: the retained handle, else empty.
+impl SmeltFromUnknown for SmeltBody {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        smelt_restore_host_origin::<Self>(&value).unwrap_or_else(Self::empty)
+    }
+}
+
 /// The stored, read-only members of a WHATWG `RequestInit`.
 ///
 /// `Default` is the spec's own set for a request constructed from a URL,

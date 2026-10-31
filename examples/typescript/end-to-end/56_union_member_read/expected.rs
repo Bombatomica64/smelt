@@ -3877,6 +3877,21 @@ impl SmeltBody {
     pub fn tee(&self) -> Self { let mut body = Self::from_payload(self.payload.borrow().clone()); body.content_type = self.content_type.clone(); if self.used.get() { body.used.set(true); } body }
 }
 
+/// Erase a body for a dynamic boundary, retaining the live handle.
+impl IntoSmeltUnknown for SmeltBody {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let smelt_host_origin = self.clone();
+        smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([("__smelt_class".to_owned(), SmeltUnknown::String("ReadableStream".into())), ("locked".to_owned(), SmeltUnknown::Bool(self.locked()))]))), smelt_host_origin)
+    }
+}
+
+/// Recover a body from an erased value: the retained handle, else empty.
+impl SmeltFromUnknown for SmeltBody {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        smelt_restore_host_origin::<Self>(&value).unwrap_or_else(Self::empty)
+    }
+}
+
 /// A WHATWG `Response`: a status line, a header list, and a body.
 ///
 /// The status line and headers are plain fields because the spec makes
@@ -3997,6 +4012,7 @@ impl IntoSmeltUnknown for SmeltUnion3 {
 }
 impl SmeltUnion3 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltResponse>() { return Self::M2(smelt_origin); } }
         if matches!(value, SmeltUnknown::Number(_)) { return Self::M0(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }); }
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M1(__smelt_from_unknown_record_0((value).into_smelt_unknown())); }
         Self::M2(<SmeltResponse as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
@@ -4040,6 +4056,7 @@ impl IntoSmeltUnknown for SmeltUnion7 {
 }
 impl SmeltUnion7 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
+        if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltResponse>() { return Self::M1(smelt_origin); } }
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(__smelt_from_unknown_record_0((value).into_smelt_unknown())); }
         Self::M1(<SmeltResponse as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
     }

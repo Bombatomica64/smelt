@@ -2,17 +2,17 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8256,
+      "concrete": 8317,
       "generic": 127,
       "erased": 58
     },
     "reads": {
-      "concrete": 841,
+      "concrete": 844,
       "generic": 34,
       "erased": 20
     },
     "calls": {
-      "concrete": 2165,
+      "concrete": 2180,
       "generic": 13,
       "erased": 2
     }
@@ -1392,6 +1392,23 @@
       "calls": {
         "concrete": 7,
         "generic": 1,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/184_nested_prime_race_headers_body/input.ts": {
+      "values": {
+        "concrete": 61,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 3,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 15,
+        "generic": 0,
         "erased": 0
       }
     },

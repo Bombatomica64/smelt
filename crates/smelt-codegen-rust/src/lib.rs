@@ -4798,7 +4798,17 @@ fn emit_source_with_free_function_router(
             // the prefix's effects in place and defers all timekeeping to the
             // first real poll, so a long sleep started inside a primed body
             // cannot outrun deadlines armed after it (see `SMELT_PRIME_DEPTH`).
-            writer.line("    if SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; }");
+            //
+            // It stays suspended for as long as ANY prime is running, not for
+            // one poll. Primes nest (an async body calls an async function that
+            // calls another), and each enclosing prime re-polls the futures it
+            // awaits within the same synchronous pass, so a single yield was
+            // spent by the second layer and the sleep advanced the clock inside
+            // the prefix. Hono's `timeout` middleware armed its 1000ms deadline,
+            // called `next()`, and the six-deep prime under it slept the
+            // handler's 1100ms, firing the deadline before `Promise.race`
+            // existed; the race then saw the handler resolved and returned 200.
+            writer.line("    while SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; }");
             writer.line(format!(
                 "    {drain_promise_tasks}().await;",
                 drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,

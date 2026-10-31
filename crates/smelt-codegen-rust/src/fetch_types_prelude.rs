@@ -553,6 +553,36 @@ fn emit_traits(writer: &mut CodeWriter, needs_unknown: bool) {
 pub fn emit_body(writer: &mut CodeWriter, needs_unknown: bool) {
     emit_body_struct(writer);
     emit_body_inherent_impl(writer, needs_unknown);
+    emit_body_traits(writer, needs_unknown);
+}
+
+/// Emit the `ReadableStream` (`SmeltBody`) dynamic-boundary adapters.
+///
+/// A body crossing an erased slot keeps its bytes: the record carries the
+/// `ReadableStream` class tag and the live handle in its origin slot, so
+/// narrowing it back is the SAME body, `bodyUsed` cell included, as for the
+/// `Request`/`Response` that hold one. It used to erase field-wise to a bare
+/// `{ __smelt_class: "ReadableStream" }`, so Hono's `c.newResponse(res.body,
+/// res)` (its `HTTPException` error handler) answered with an empty body.
+fn emit_body_traits(writer: &mut CodeWriter, needs_unknown: bool) {
+    if !needs_unknown {
+        return;
+    }
+    writer.line("/// Erase a body for a dynamic boundary, retaining the live handle.");
+    writer.block("impl IntoSmeltUnknown for SmeltBody", |impl_writer| {
+        impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+            fn_writer.line("let smelt_host_origin = self.clone();");
+            fn_writer.line("smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_class\".to_owned(), SmeltUnknown::String(\"ReadableStream\".into())), (\"locked\".to_owned(), SmeltUnknown::Bool(self.locked()))]))), smelt_host_origin)");
+        });
+    });
+    writer.blank_line();
+    writer.line("/// Recover a body from an erased value: the retained handle, else empty.");
+    writer.block("impl SmeltFromUnknown for SmeltBody", |impl_writer| {
+        impl_writer.block("fn smelt_from_unknown(value: SmeltUnknown) -> Self", |fn_writer| {
+            fn_writer.line("smelt_restore_host_origin::<Self>(&value).unwrap_or_else(Self::empty)");
+        });
+    });
+    writer.blank_line();
 }
 
 /// Emit the `SmeltBody` enum, its identity, and its single-use flag.

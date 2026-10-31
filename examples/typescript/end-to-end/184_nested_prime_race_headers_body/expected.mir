@@ -1,0 +1,198 @@
+async fn slow_handler (FuncId(0)) -> String
+  locals
+    %0 temp: Future<None>
+    %1 temp: None
+  bb0:
+    %0 = call fn8(1100.0) -> bb1
+  bb1:
+    %1 = await move %0
+    return "handler finished"
+
+async fn layer1 (FuncId(1)) -> String
+  locals
+    %0 temp: Future<String>
+    %1 temp: String
+  bb0:
+    %0 = call fn0() -> bb1
+  bb1:
+    %1 = await move %0
+    return move %1
+
+async fn layer2 (FuncId(2)) -> String
+  locals
+    %0 temp: Future<String>
+    %1 temp: String
+  bb0:
+    %0 = call fn1() -> bb1
+  bb1:
+    %1 = await move %0
+    return move %1
+
+async fn layer3 (FuncId(3)) -> String
+  locals
+    %0 temp: Future<String>
+    %1 temp: String
+  bb0:
+    %0 = call fn2() -> bb1
+  bb1:
+    %1 = await move %0
+    return move %1
+
+async fn layer4 (FuncId(4)) -> String
+  locals
+    %0 temp: Future<String>
+    %1 temp: String
+  bb0:
+    %0 = call fn3() -> bb1
+  bb1:
+    %1 = await move %0
+    return move %1
+
+async fn dispatch_outer (FuncId(5)) -> String
+  locals
+    %0 temp: Future<String>
+    %1 temp: String
+  bb0:
+    %0 = call fn4() -> bb1
+  bb1:
+    %1 = await move %0
+    return move %1
+
+async fn with_deadline (FuncId(6)) -> String
+  locals
+    %0 param ms: Float
+    %1 user deadline: Future<String>
+    %2 temp: Future<None>
+    %3 temp: fn() -> String
+    %4 temp: Future<String>
+    %5 temp: Future<String>
+    %6 temp: Future<String>
+    %7 temp: String
+  bb0:
+    %2 = call fn8(copy %0) -> bb1
+  bb1:
+    %3 = closure ClosureId(0) [copy %0]
+    %4 = async_then(move %2, move %3)
+    %1 = move %4
+    %5 = call fn5() -> bb2
+  bb2:
+    %6 = async_race(move %5, move %1)
+    %7 = await move %6
+    return move %7
+
+async fn run (FuncId(7)) -> None
+  locals
+    %0 user headers: Headers
+    %1 user __smelt_for_item: (String, String)
+    %2 user name: String
+    %3 user value: String
+    %4 user original: Response
+    %5 user copy: Response
+    %6 temp: Future<String>
+    %7 temp: String
+    %8 temp: None
+    %9 temp: Future<String>
+    %10 temp: String
+    %11 temp: None
+    %12 temp: Dict<String, String>
+    %13 temp: Headers
+    %14 temp: List<(String, String)>
+    %15 temp: usize
+    %16 temp: usize
+    %17 temp: Bool
+    %18 temp: String
+    %19 temp: String
+    %20 temp: String
+    %21 temp: String
+    %22 temp: String
+    %23 temp: None
+    %24 temp: Response
+    %25 temp: Optional<ReadableStream>
+    %26 temp: Float
+    %27 temp: Response
+    %28 temp: Float
+    %29 temp: Future<String>
+    %30 temp: String
+    %31 temp: None
+  bb0:
+    %6 = call fn6(1000.0) -> bb1
+  bb1:
+    %7 = await move %6
+    %8 = call @console_log(move %7) -> bb2
+  bb2:
+    %9 = call fn6(1500.0) -> bb3
+  bb3:
+    %10 = await move %9
+    %11 = call @console_log(move %10) -> bb4
+  bb4:
+    %12 = {"X-One": "1", "x-two": "2"}
+    %13 = headers_new move %12
+    %0 = move %13
+    %14 = headers_entries move %0
+    %15 = 0
+    goto bb5
+  bb5:
+    %16 = len copy %14
+    %17 = copy %15 < move %16
+    switch move %17 ? bb6 : bb8
+  bb6:
+    %1 = copy %14[copy %15]
+    %18 = tuple_index copy %1, 0
+    %2 = move %18
+    %19 = tuple_index move %1, 1
+    %3 = move %19
+    %20 = "" + move %2
+    %21 = move %20 + "="
+    %22 = move %21 + move %3
+    %23 = call @console_log(move %22) -> bb9
+  bb7:
+    %15 = copy %15 + 1
+    goto bb5
+  bb8:
+    %24 = response_new body="payload text" status=504.0
+    %4 = move %24
+    %25 = response_body copy %4
+    %26 = response_status move %4
+    %27 = response_new body=move %25 status=move %26
+    %5 = move %27
+    %28 = response_status copy %5
+    %29 = response_text move %5
+    %30 = await move %29
+    %31 = call @console_log(move %28, move %30) -> bb10
+  bb9:
+    goto bb7
+  bb10:
+    return none
+
+fn sleep__module_examples/typescript/end-to-end/184_nested_prime_race_headers_body/input.ts (FuncId(8)) -> Future<None>
+  locals
+    %0 param ms: Float
+    %1 temp: Future<None>
+  bb0:
+    %1 = async_sleep(copy %0)
+    return move %1
+
+async fn main (FuncId(9)) -> None throws
+  locals
+    %0 temp: Future<None>
+    %1 temp: None
+    %2 temp: Future<None>
+    %3 temp: None
+  bb0:
+    %0 = call fn7() -> bb1
+  bb1:
+    %1 = async_spawn_local(move %0)
+    %2 = async_exit_drain()
+    %3 = await move %2
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 user ms: Float
+    %1 temp: String
+    %2 temp: String
+  bb0:
+    %1 = "deadline " + copy %0
+    %2 = copy %1 + " won"
+    return copy %2
+

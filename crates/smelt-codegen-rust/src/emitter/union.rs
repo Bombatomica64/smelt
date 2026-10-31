@@ -702,6 +702,33 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let order = self.union_recovery_order(members);
         let mut body = String::new();
+        // A modeled host class (a `ReadableStream` body, a `Blob`, a typed
+        // array) erases to an object whose ORIGIN slot holds the live value,
+        // and all of them share the `Object` tag, so the tag guards below cannot
+        // tell them apart: the first object arm caught every one, and Hono's
+        // `new Response(res.body)` rebuilt the body as an empty typed array.
+        // The origin's Rust type decides exactly, so those arms are asked first
+        // and hand back the original value. Anything without an origin falls
+        // through to the guards unchanged.
+        for (index, &member) in members.iter().enumerate() {
+            let Some(Type::Class { name, .. }) = self.mir.types.get(member) else {
+                continue;
+            };
+            let host_adapter = crate::stdlib::stdlib_class_of_class_symbol(self.mir, *name)
+                .is_some_and(smelt_stdlib::StdlibClass::erases_through_adapter);
+            let shares_tag = members.iter().enumerate().any(|(other, ty)| {
+                other != index
+                    && self.union_member_unknown_pattern(*ty)
+                        == self.union_member_unknown_pattern(member)
+            });
+            if !host_adapter || !shares_tag {
+                continue;
+            }
+            let member_text = self.rust_type(member, false, substitution)?.into_string();
+            body.push_str(&format!(
+                "        if let SmeltUnknown::Object(smelt_host) = &value {{ if let Some(smelt_origin) = smelt_host.smelt_origin::<{member_text}>() {{ return Self::M{index}(smelt_origin); }} }}\n"
+            ));
+        }
         for (position, &index) in order.iter().enumerate() {
             let Some(&member) = members.get(index) else {
                 continue;
