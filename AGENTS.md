@@ -30,11 +30,21 @@ Full check before a commit only (compiles + type-checks all tests):
 cargo clippy --all-targets
 cargo test
 
-## corgi (optional cargo wrapper)
-[corgi](https://corgi.build/) shares one build cache across all worktrees of a machine. `cargo install corgi-build`, then use it for the tight loop from the workspace root:
+## corgi (required for builds)
+Agents MUST use [corgi](https://corgi.build/) instead of `cargo` for every build, check, clippy and run. It keeps one shared build cache per machine (`~/.local/share/corgi`) instead of a `target/` per worktree, so parallel worktrees and subagents stop duplicating multi-GB artifacts. Install once with `cargo install corgi-build`, then run from the workspace root:
 corgi check --workspace --lib
 corgi clippy --workspace --lib
-It sandboxes rustc, so any non-`.rs` file read at compile time (`include_str!`) must be declared in `corgi.toml` under `[extra-inputs]` (key = package name, globs relative to that crate). `corgi test` is NOT supported yet: the integration tests spawn `cargo` on generated crates, bake `env!("CARGO_MANIFEST_DIR")` into binaries and read repo-wide files, so keep using `cargo test` / `cargo clippy --all-targets` before a commit.
+corgi build --workspace
+corgi run -p smelt-transpiler --bin smelt -- <args>
+Use plain `cargo` only for what corgi does not support: `cargo test`, `cargo clippy --all-targets` (full check before a commit), `cargo install` and third-party subcommands. `corgi test` does not work yet: the integration tests spawn `cargo` on generated crates, bake `env!("CARGO_MANIFEST_DIR")` into binaries and read repo-wide files.
+
+corgi sandboxes rustc, so any non-`.rs` file read at compile time (`include_str!`) must be declared in `corgi.toml` under `[extra-inputs]` (key = package name, globs relative to that crate).
+
+### Keep track of artifacts (do not pollute the system)
+- Before a heavy build, note the store size: `du -sh ~/.local/share/corgi`. Report it again in your final message if it grew by more than ~2 GB.
+- Do not create extra `target/` dirs or `--target-dir` exports in worktrees or `/tmp`; the shared store is the only build output. Generated-crate builds and scratch output go under `~/scratch/<task>/` and are deleted when the task ends.
+- When you finish, remove worktrees you created (`git worktree remove`) and trim the store: `corgi clean --older-than 3d` (`corgi clean --cache` wipes it entirely; only with the user's OK).
+- Never leave background builds or runners running past the end of the task.
 
 ## Generated Rust diagnostics
 when working on generated Rust warnings or blockers, use:
