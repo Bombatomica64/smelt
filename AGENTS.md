@@ -42,7 +42,7 @@ corgi sandboxes rustc, so any non-`.rs` file read at compile time (`include_str!
 
 ### Keep track of artifacts (do not pollute the system)
 - Before a heavy build, note the store size: `du -sh ~/.local/share/corgi`. Report it again in your final message if it grew by more than ~2 GB.
-- Do not create extra `target/` dirs or `--target-dir` exports in worktrees or `/tmp`; the shared store is the only build output. Generated-crate builds and scratch output go under `~/scratch/<task>/` and are deleted when the task ends.
+- The shared store is the only real build output; corgi only exports the final binaries into the worktree's `target/`. Do not add `--target-dir` exports or run plain `cargo build` (which creates a full private `target/`) in worktrees or `/tmp`. Generated-crate builds and scratch output go under `~/scratch/<task>/` and are deleted when the task ends.
 - When you finish, remove worktrees you created (`git worktree remove`) and trim the store: `corgi clean --older-than 3d` (`corgi clean --cache` wipes it entirely; only with the user's OK).
 - Never leave background builds or runners running past the end of the task.
 
