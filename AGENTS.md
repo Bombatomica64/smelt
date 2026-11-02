@@ -30,6 +30,12 @@ Full check before a commit only (compiles + type-checks all tests):
 cargo clippy --all-targets
 cargo test
 
+## corgi (optional cargo wrapper)
+[corgi](https://corgi.build/) shares one build cache across all worktrees of a machine. `cargo install corgi-build`, then use it for the tight loop from the workspace root:
+corgi check --workspace --lib
+corgi clippy --workspace --lib
+It sandboxes rustc, so any non-`.rs` file read at compile time (`include_str!`) must be declared in `corgi.toml` under `[extra-inputs]` (key = package name, globs relative to that crate). `corgi test` is NOT supported yet: the integration tests spawn `cargo` on generated crates, bake `env!("CARGO_MANIFEST_DIR")` into binaries and read repo-wide files, so keep using `cargo test` / `cargo clippy --all-targets` before a commit.
+
 ## Generated Rust diagnostics
 when working on generated Rust warnings or blockers, use:
 `cargo run --bin smelt -- rust-diagnostics --cargo-manifest <generated-crate>/Cargo.toml --output blocker-logs/<name>.md`

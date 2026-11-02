@@ -1,0 +1,4 @@
+# corgi config: non-.rs files read at compile time (include_str!) must be declared,
+# because corgi sandboxes rustc/build scripts to the declared inputs.
+[extra-inputs]
+smelt-specialize = ["guest/**"]
