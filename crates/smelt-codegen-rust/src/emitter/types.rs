@@ -107,22 +107,35 @@ impl FunctionEmitter<'_> {
         self.param_type_is_by_shared_reference(param)
     }
 
+    /// Which inherited-copy substitution applies right now; see
+    /// [`InheritedScope`].
+    fn inherited_scope(&self) -> InheritedScope<'_> {
+        if self.inherited_bound_suspended.get() {
+            return InheritedScope::Suspended;
+        }
+        let map = self.role.inherited_type_args();
+        if map.is_empty() {
+            InheritedScope::None
+        } else {
+            InheritedScope::Active(map)
+        }
+    }
+
     /// The receiving-scope argument of a declaring base's type parameter inside
     /// an inherited copy, unless such a bound is being rendered already.
     fn inherited_bound(&self, name: Symbol) -> Option<TypeId> {
-        if self.rendering_inherited_bound.get() {
-            return None;
+        match self.inherited_scope() {
+            InheritedScope::Active(map) => map.get(&name).copied(),
+            InheritedScope::None | InheritedScope::Suspended => None,
         }
-        self.role.inherited_type_args().get(&name).copied()
     }
 
-    /// Run `render` on an inherited bound with the inherited map switched off;
-    /// see `rendering_inherited_bound`.
+    /// Run `render` on an inherited bound with the inherited map suspended
+    /// (see [`InheritedScope::Suspended`]); the previous state is restored
+    /// when the guard drops, whichever way `render` returns.
     fn with_inherited_bound<R>(&self, render: impl FnOnce() -> R) -> R {
-        let previous = self.rendering_inherited_bound.replace(true);
-        let result = render();
-        self.rendering_inherited_bound.set(previous);
-        result
+        let _suspended = InheritedBoundSuspension::enter(self);
+        render()
     }
 
     /// The type-shape half of the by-shared-reference rule, decided on the
@@ -2577,5 +2590,47 @@ impl FunctionEmitter<'_> {
                 Err(_) => false,
             }
         })
+    }
+}
+
+/// Whether an inherited copy's base-to-receiver type substitution applies to
+/// the type being rendered.
+///
+/// An inherited or base-initializer copy (or a closure inside one) maps the
+/// declaring base's type parameters to their arguments in the receiving
+/// class's scope (`emit_role::EmitRole::inherited_type_args`). The bound such a
+/// parameter maps to is itself spelled in the RECEIVING class's scope, whose
+/// parameter may share a declaring parameter's name (`C<T> extends B<T[]>`),
+/// so while a bound is rendered the map is suspended — applying it inside
+/// would recurse forever.
+enum InheritedScope<'a> {
+    /// The emitter applies no substitution.
+    None,
+    /// The substitution applies.
+    Active(&'a HashMap<Symbol, TypeId>),
+    /// A bound from the substitution is being rendered; it does not apply.
+    Suspended,
+}
+
+/// Holds [`InheritedScope::Suspended`] for as long as it lives.
+struct InheritedBoundSuspension<'e, 'm> {
+    /// The emitter whose substitution is suspended.
+    emitter: &'e FunctionEmitter<'m>,
+    /// The suspension state to restore on drop.
+    previous: bool,
+}
+
+impl<'e, 'm> InheritedBoundSuspension<'e, 'm> {
+    /// Suspend `emitter`'s inherited substitution.
+    fn enter(emitter: &'e FunctionEmitter<'m>) -> Self {
+        let previous = emitter.inherited_bound_suspended.replace(true);
+        Self { emitter, previous }
+    }
+}
+
+impl Drop for InheritedBoundSuspension<'_, '_> {
+    /// Restore the previous suspension state.
+    fn drop(&mut self) {
+        self.emitter.inherited_bound_suspended.set(self.previous);
     }
 }

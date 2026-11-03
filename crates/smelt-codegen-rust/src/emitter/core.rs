@@ -109,7 +109,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 generics: emit_role::OwnGenerics::Declared,
             },
             hoisted_module_item: std::cell::Cell::new(false),
-            rendering_inherited_bound: std::cell::Cell::new(false),
+            inherited_bound_suspended: std::cell::Cell::new(false),
             flow: flow_state::ControlFlowState::default(),
         }
     }
@@ -563,7 +563,7 @@ impl<'mir> FunctionEmitter<'mir> {
         self.record_conversion_stack.borrow_mut().clear();
         self.type_expansion_stack.borrow_mut().clear();
         self.hoisted_module_item.set(false);
-        self.rendering_inherited_bound.set(false);
+        self.inherited_bound_suspended.set(false);
         self.flow.reset();
     }
 

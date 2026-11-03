@@ -1389,11 +1389,10 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// scope, which is the truthful answer for a module-level item: a generic
     /// function's erased *value* is its `T = SmeltUnknown` instantiation.
     hoisted_module_item: std::cell::Cell<bool>,
-    /// Set while a bound from the inherited type-argument map is rendered: the bound is
-    /// spelled in the RECEIVING class's scope, whose parameter may share a
-    /// declaring parameter's name (`C<T> extends B<T[]>`), so the map must not
-    /// apply inside it (it would recurse forever).
-    rendering_inherited_bound: std::cell::Cell<bool>,
+    /// Set while a bound from the inherited type-argument map is rendered, so
+    /// the map does not apply inside it; read as `types::InheritedScope` and
+    /// held through the `InheritedBoundSuspension` guard.
+    inherited_bound_suspended: std::cell::Cell<bool>,
     /// Structured control-flow emission state (recursion depths, the flow of
     /// the last emitted region tail, pending loop joins); see [`flow_state`].
     flow: flow_state::ControlFlowState,
