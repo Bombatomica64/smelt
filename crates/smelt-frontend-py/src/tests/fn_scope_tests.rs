@@ -138,7 +138,7 @@ async def run() -> int:
 ");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
-    let mut async_methods = 0;
+    let mut async_methods = 0_usize;
     for item in &ctx.krate.items {
         if let Item::Function(function) = item
             && matches!(function.owner, smelt_hir::FunctionOwner::ClassMethod { .. })
@@ -148,9 +148,9 @@ async def run() -> int:
                 matches!(ctx.krate.types.get(function.return_ty), Some(Type::Future(_))),
                 "an async method returns a future",
             )?;
-            async_methods += 1;
+            async_methods += 1_usize;
         }
     }
-    ensure_eq(&async_methods, &2, "async method count")?;
+    ensure_eq(&async_methods, &2_usize, "async method count")?;
     ensure(function_named(&ctx, module_id, "run")?.is_async, "run stays async")
 }

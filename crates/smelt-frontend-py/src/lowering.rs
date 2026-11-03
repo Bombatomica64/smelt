@@ -396,8 +396,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
         // Pass 2 — lower the remaining module-level statements into the
         // module body.
-        for (stmt, declared) in module.body.iter().zip(declared) {
-            if declared {
+        for (stmt, is_declared) in module.body.iter().zip(declared) {
+            if is_declared {
                 continue;
             }
             if let Err(err) = self.statement(stmt, &mut body) {
@@ -459,9 +459,8 @@ impl ModuleBuilder<'_> {
             _ if is_module_all_assignment(stmt) => true,
             _ if let Some(name) = type_param_declaration_name(stmt) => {
                 // Recorded so a parameterised alias can order its parameters.
-                let name = name.to_owned();
-                if !self.type_param_names.contains(&name) {
-                    self.type_param_names.push(name);
+                if !self.type_param_names.iter().any(|known| known == name) {
+                    self.type_param_names.push(name.to_owned());
                 }
                 true
             }
