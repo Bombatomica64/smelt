@@ -223,6 +223,16 @@ fn is_rust_prelude_name(name: &str) -> bool {
 }
 
 /// Returns true when the identifier is reserved by Rust.
+///
+/// This is the full keyword list of the Rust 2024 edition generated crates
+/// are built with: the strict keywords, the 2018 additions (`async`, `await`,
+/// `dyn`), and every reserved keyword, including `gen`, which the 2024 edition
+/// reserved for generator blocks. A name on it is renamed with a trailing `_`
+/// (not spelled as a raw identifier) because `self`, `Self`, `super` and
+/// `crate` cannot be raw identifiers at all, and one scheme for every keyword
+/// keeps a declaration and its references agreeing without knowing which
+/// edition introduced the word. The weak keywords (`union`, `raw`, `safe`,
+/// `macro_rules`) remain valid identifiers and are deliberately absent.
 fn is_rust_keyword(name: &str) -> bool {
     matches!(
         name,
@@ -276,6 +286,7 @@ fn is_rust_keyword(name: &str) -> bool {
             | "virtual"
             | "yield"
             | "try"
+            | "gen"
     )
 }
 
@@ -320,6 +331,15 @@ mod tests {
         assert_eq!(sanitize_identifier("valid_name"), "valid_name");
         assert_eq!(sanitize_identifier("1st-value"), "_st_value");
         assert_eq!(sanitize_identifier("fn"), "fn_");
+        // Reserved by the 2024 edition only; `fn gen` does not parse there.
+        assert_eq!(sanitize_identifier("gen"), "gen_");
+        for reserved in ["async", "await", "dyn", "try", "abstract", "become", "box", "do",
+            "final", "macro", "override", "priv", "typeof", "unsized", "virtual", "yield"]
+        {
+            assert_eq!(sanitize_identifier(reserved), format!("{reserved}_"));
+        }
+        // Weak keywords are ordinary identifiers.
+        assert_eq!(sanitize_identifier("union"), "union");
         assert_eq!(RustIdent::new("self").as_str(), "self_");
     }
 
