@@ -1504,6 +1504,10 @@ pub(crate) fn emit_union_definitions(
 /// How one arm of a concrete union answers a named property read; see
 /// [`FunctionEmitter::concrete_union_member_reads`].
 #[derive(Clone, Copy)]
+#[expect(
+    variant_size_differences,
+    reason = "a 24-byte `Copy` value; boxing `Host` would cost `Copy` and an allocation to save ~16 bytes"
+)]
 pub(super) enum UnionArmRead {
     /// A record arm's declared field, of this type.
     Field(TypeId),
