@@ -2724,6 +2724,14 @@ fn emit_source_with_free_function_router(
         writer.line("/// time it erases (a match's `index`): such an entry is never pinned.");
         writer.line("fn smelt_array_store_named_property(array: &SmeltArray, key: String, property: SmeltUnknown, derived: bool) { SMELT_ARRAY_PROPS.with(|props| { if props.borrow().wants_sweep(array.id) { smelt_sweep_array_props(props); } let mut props = props.borrow_mut(); let entry = props.slot(array.id); entry.own(&array.values); if array.detached && !derived { entry.pinned = true; } match entry.props.iter_mut().find(|(name, _)| *name == key) { Some(slot) => slot.1 = property, None => entry.props.push((key, property)) } }); }");
         writer.blank_line();
+        writer.line("/// Write several named properties of `array` at once: one table lookup for all of them.");
+        writer.line("///");
+        writer.line("/// The same as calling `smelt_array_store_named_property` per pair, which a");
+        writer.line("/// regex match's erasure did three times per match (`index`, `input`,");
+        writer.line("/// `groups`), each with its own sweep check, slot lookup and owner check.");
+        writer.line("#[allow(dead_code)]");
+        writer.line("fn smelt_array_store_named_properties<const N: usize>(array: &SmeltArray, properties: [(&'static str, SmeltUnknown); N], derived: bool) { SMELT_ARRAY_PROPS.with(|props| { if props.borrow().wants_sweep(array.id) { smelt_sweep_array_props(props); } let mut props = props.borrow_mut(); let entry = props.slot(array.id); entry.own(&array.values); if array.detached && !derived { entry.pinned = true; } for (key, property) in properties { match entry.props.iter_mut().find(|(name, _)| name == key) { Some(slot) => slot.1 = property, None => entry.props.push((key.to_owned(), property)) } } }); }");
+        writer.blank_line();
         writer.line("/// Make a typed copy's buffer an owner of `id`'s named properties, if it has any.");
         writer.line("///");
         writer.line("/// A copy carries the id onward (`as string[]` of a regex match), so the");
@@ -7305,9 +7313,7 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool, needs_smelt_li
                 fn_writer.line("let groups = self.named.iter().map(|(name, value)| (name.clone(), value.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into())))).collect::<Vec<_>>();");
                 fn_writer.line("let array = SmeltArray::with_id(self.id, elements);");
                 // Derived from this match, and rewritten by its every erasure.
-                fn_writer.line("smelt_array_store_named_property(&array, \"index\".to_owned(), SmeltUnknown::Number(self.match_index as f64), true);");
-                fn_writer.line("smelt_array_store_named_property(&array, \"input\".to_owned(), SmeltUnknown::String(self.input), true);");
-                fn_writer.line("smelt_array_store_named_property(&array, \"groups\".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)), true);");
+                fn_writer.line("smelt_array_store_named_properties(&array, [(\"index\", SmeltUnknown::Number(self.match_index as f64)), (\"input\", SmeltUnknown::String(self.input)), (\"groups\", SmeltUnknown::Object(SmeltObject::new(groups)))], true);");
                 fn_writer.line("SmeltUnknown::Array(array)");
             });
         });

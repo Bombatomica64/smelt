@@ -449,6 +449,14 @@ impl FunctionEmitter<'_> {
                     out.push_str(&format!("    let _ = {rendered_value};\n"));
                     return Ok(());
                 }
+                if self.deferred_capture_cells.borrow().contains(dest) {
+                    // The cell was declared without a value; its one
+                    // assignment creates it (see `capture_cell_created_at_assignment`).
+                    out.push_str(&format!(
+                        "    smelt_capture_{name} = ::std::rc::Rc::new(::std::cell::RefCell::new({rendered_value}));\n"
+                    ));
+                    return Ok(());
+                }
                 if self.is_local_declared(*dest)
                     && (!matches!(local.kind, LocalKind::Temp)
                         || self.mutable_locals.contains(dest)

@@ -59,6 +59,7 @@ impl<'mir> FunctionEmitter<'mir> {
             mutable_locals: assigned_locals(mir, context, function),
             declared_locals: RefCell::new(declared_locals),
             predeclared_locals,
+            deferred_capture_cells: RefCell::new(HashSet::new()),
             static_typeof_str_locals: typeof_str_locals::static_typeof_str_locals(mir, function),
             folded_throw_payloads,
             termination_cache: RefCell::new(HashMap::new()),
@@ -524,7 +525,15 @@ impl<'mir> FunctionEmitter<'mir> {
             } else {
                 ""
             };
-            if self.local_uses_shared_capture_storage(local) {
+            if self.local_uses_shared_capture_storage(local)
+                && self.capture_cell_created_at_assignment(local)?
+            {
+                out.push_str(&format!(
+                    "    let smelt_capture_{name}: ::std::rc::Rc<::std::cell::RefCell<{}>>;\n",
+                    self.capture_cell_type_text(local, decl.ty)?
+                ));
+                self.deferred_capture_cells.borrow_mut().insert(local);
+            } else if self.local_uses_shared_capture_storage(local) {
                 out.push_str(&format!(
                     "    let smelt_capture_{name}: ::std::rc::Rc<::std::cell::RefCell<{}>> = ::std::rc::Rc::new(::std::cell::RefCell::new({}));\n",
                     self.capture_cell_type_text(local, decl.ty)?,
@@ -2856,6 +2865,7 @@ impl<'mir> FunctionEmitter<'mir> {
             names: HashMap::new(),
             mutable_locals: HashSet::new(),
             declared_locals: RefCell::new(HashSet::new()),
+            deferred_capture_cells: RefCell::new(HashSet::new()),
             predeclared_locals: HashSet::new(),
             static_typeof_str_locals: HashSet::new(),
             folded_throw_payloads: HashSet::new(),
@@ -2923,6 +2933,7 @@ impl<'mir> FunctionEmitter<'mir> {
             names: HashMap::new(),
             mutable_locals: HashSet::new(),
             declared_locals: RefCell::new(HashSet::new()),
+            deferred_capture_cells: RefCell::new(HashSet::new()),
             predeclared_locals: HashSet::new(),
             static_typeof_str_locals: HashSet::new(),
             folded_throw_payloads: HashSet::new(),
@@ -2977,6 +2988,7 @@ impl<'mir> FunctionEmitter<'mir> {
             names: HashMap::new(),
             mutable_locals: HashSet::new(),
             declared_locals: RefCell::new(HashSet::new()),
+            deferred_capture_cells: RefCell::new(HashSet::new()),
             predeclared_locals: HashSet::new(),
             static_typeof_str_locals: HashSet::new(),
             folded_throw_payloads: HashSet::new(),

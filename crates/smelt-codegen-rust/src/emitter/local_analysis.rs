@@ -598,6 +598,43 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Whether a predeclared shared-capture local can have its cell created at
+    /// its one assignment instead of being seeded at function entry.
+    ///
+    /// A captured local lives in an `Rc<RefCell<T>>` that closures clone. It
+    /// used to be created at entry around `T`'s default, which for a class is a
+    /// whole placeholder instance: Hono's `_dispatch` built (and dropped) a
+    /// throwaway `Context` per request only to overwrite it a few statements
+    /// later (`blocker-logs/hono-crud-perf-round2.md`). When the local has
+    /// exactly one write, a plain `Assign` in a block that cannot repeat (so it
+    /// runs at most once and the cell is never re-created under a closure that
+    /// already shares it), is not a parameter or an unwind target, and the
+    /// definite-assignment walk finds no read before it, the cell is declared
+    /// uninitialized and the assignment creates it. Rust's own
+    /// initialization check then guards the emitted code as well.
+    pub(super) fn capture_cell_created_at_assignment(
+        &self,
+        local: LocalId,
+    ) -> Result<bool, EmitError> {
+        if self.function.params.contains(&local) || self.is_base_initializer_receiver(local) {
+            return Ok(false);
+        }
+        let index = self.local_write_index();
+        if index.unwind_written.contains(&local)
+            || index.writes.get(&local).copied().unwrap_or(0) != 1
+            || index.assignments.get(&local).copied().unwrap_or(0) != 1
+        {
+            return Ok(false);
+        }
+        let Some([block]) = index.assign_blocks.get(&local).map(Vec::as_slice) else {
+            return Ok(false);
+        };
+        if index.repeat_reachable.contains(block) {
+            return Ok(false);
+        }
+        Ok(!self.local_may_be_used_before_assignment(local)?)
+    }
+
     /// Returns whether `local` may be read before a real MIR assignment.
     pub(super) fn local_may_be_used_before_assignment(&self, local: LocalId) -> Result<bool, EmitError> {
         let assigned = self.function.params.contains(&local);
