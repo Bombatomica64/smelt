@@ -200,9 +200,69 @@ impl TypedArrayElement {
     }
 }
 
+/// What kind of host identity an entry is; the flags this replaces could be
+/// combined in ways no entry means (a boxed wrapper with bytes, a typed-array
+/// element on an identity-only object).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum HostKind {
+    /// Identity only: a record carrying the marker is the whole value
+    /// (`new WeakMap()` has nothing a bare marker record fails to answer).
+    Identity,
+    /// A boxed primitive wrapper (`new Number(1)`).
+    ///
+    /// Boxed wrappers are distinct from the same-named coercion calls
+    /// (`Number(x)`), which lower to primitive values. The wrapper object has
+    /// `typeof === "object"`, so the runtime `typeof` narrowing must miss it
+    /// while `instanceof` still resolves through the marker.
+    Boxed,
+    /// Backed by bytes.
+    Bytes {
+        /// Storage (owns bytes) or view (reads someone's bytes).
+        role: ByteBufferRole,
+        /// The element type this view reads out of its bytes, for the typed
+        /// arrays.
+        ///
+        /// `Some` for the eleven typed-array views and for Node's `Buffer` (a
+        /// `Uint8Array` subclass). `None` for `ArrayBuffer`/`SharedArrayBuffer`,
+        /// which own bytes without interpreting them, and for `DataView`, whose
+        /// element type is chosen per `getFloat32`/`setInt16`/... call rather
+        /// than by the view.
+        ///
+        /// A `Some` entry is what makes `length` the element count, an indexed
+        /// read decode at the right width and signedness, and
+        /// `new Float32Array(arrayBuffer)` see two elements where
+        /// `new Uint8Array(arrayBuffer)` sees eight.
+        element: Option<TypedArrayElement>,
+    },
+    /// The record's METHODS are bound by a runtime helper rather than being
+    /// members of the record itself.
+    ///
+    /// The marker record is only the identity half and a subsystem owns the
+    /// behaviour — `AbortController`'s `abort()` and `AbortSignal`'s
+    /// `addEventListener` are bound by `smelt_abort_method` when the field is
+    /// READ, not stored in the record. Such an identity must never be built
+    /// reflectively from its class name alone (`new (proto.constructor)()`,
+    /// which es-toolkit's `clone` uses): the record would answer `instanceof`
+    /// correctly and then have no state for any of those methods to act on.
+    /// [`reflectively_constructible`] is that question.
+    HelperBacked,
+}
+
+impl HostKind {
+    /// The byte storage role, for a byte-backed kind.
+    #[must_use]
+    pub const fn byte_buffer_role(self) -> Option<ByteBufferRole> {
+        match self {
+            Self::Bytes { role, .. } => Some(role),
+            Self::Identity | Self::Boxed | Self::HelperBacked => None,
+        }
+    }
+}
+
 /// A single host-object identity: the JavaScript constructor name, the dedicated
-/// identity marker key stamped onto the constructed record, and whether the
-/// identity denotes a boxed primitive wrapper.
+/// identity marker key stamped onto the constructed record, and what kind of
+/// identity it is.
 ///
 /// The `marker` is the `__smelt_<name>` key that gives the constructed record its
 /// distinct identity. `instanceof` resolves through this key, and the runtime
@@ -215,13 +275,6 @@ pub struct HostObject {
     pub class_name: &'static str,
     /// The dedicated identity marker key (`"__smelt_weakmap"`).
     pub marker: &'static str,
-    /// Whether this identity is a boxed primitive wrapper (`new Number(1)`).
-    ///
-    /// Boxed wrappers are distinct from the same-named coercion calls
-    /// (`Number(x)`), which lower to primitive values. The wrapper object has
-    /// `typeof === "object"`, so the runtime `typeof` narrowing must miss it while
-    /// `instanceof` still resolves through the marker.
-    pub is_boxed_primitive: bool,
     /// The `Object.prototype.toString.call(x)` body for this identity.
     ///
     /// Defaults to `class_name`, which is right for every host object whose
@@ -231,53 +284,54 @@ pub struct HostObject {
     /// `isEqualWith` comments "Buffers are also treated as `[object Uint8Array]`s"
     /// and routes them through the typed-array arm).
     pub to_string_tag: &'static str,
-    /// Byte storage role, when this host object is backed by bytes.
+    /// What kind of identity this is; the single source of truth for whether
+    /// it is boxed, byte-backed (and with which element type) or helper-backed.
+    pub kind: HostKind,
+    /// `kind.byte_buffer_role()`, kept as a field for existing readers.
     ///
-    /// `None` for the identity-only host objects (`WeakMap`, `Intl.*`, the boxed
-    /// wrappers, ...) that have no byte surface.
+    /// Always equal to [`HostKind::byte_buffer_role`] of [`Self::kind`]: the
+    /// only constructor ([`entry`]) derives it, and the struct is
+    /// `#[non_exhaustive]`, so no other crate can build an inconsistent one.
     pub byte_buffer: Option<ByteBufferRole>,
-    /// The element type this view reads out of its bytes, for the typed arrays.
-    ///
-    /// `Some` for the eleven typed-array views and for Node's `Buffer` (a
-    /// `Uint8Array` subclass). `None` for `ArrayBuffer`/`SharedArrayBuffer`, which
-    /// own bytes without interpreting them, for `DataView`, whose element type is
-    /// chosen per `getFloat32`/`setInt16`/... call rather than by the view, and for
-    /// every host object with no byte surface at all.
-    ///
-    /// A `Some` entry is what makes `length` the element count, an indexed read
-    /// decode at the right width and signedness, and
-    /// `new Float32Array(arrayBuffer)` see two elements where
-    /// `new Uint8Array(arrayBuffer)` sees eight.
-    pub element: Option<TypedArrayElement>,
-    /// Whether the record's METHODS are bound by a runtime helper rather than
-    /// being members of the record itself.
-    ///
-    /// `false` for the identity-only host objects, where a record carrying the
-    /// marker is the whole value: `new WeakMap()` has nothing a bare marker
-    /// record fails to answer.
-    ///
-    /// `true` where the marker record is only the identity half and a subsystem
-    /// owns the behaviour — `AbortController`'s `abort()` and `AbortSignal`'s
-    /// `addEventListener` are bound by `smelt_abort_method` when the field is
-    /// READ, not stored in the record. Such an identity must never be built
-    /// reflectively from its class name alone (`new (proto.constructor)()`,
-    /// which es-toolkit's `clone` uses): the record would answer `instanceof`
-    /// correctly and then have no state for any of those methods to act on.
-    /// [`reflectively_constructible`] is that question.
-    pub helper_backed_methods: bool,
 }
 
-/// Concise constructor for a host-object registry entry.
-const fn host(class_name: &'static str, marker: &'static str) -> HostObject {
-    HostObject {
-        class_name,
-        marker,
-        is_boxed_primitive: false,
-        to_string_tag: class_name,
-        byte_buffer: None,
-        element: None,
-        helper_backed_methods: false,
+impl HostObject {
+    /// Whether this identity is a boxed primitive wrapper (see [`HostKind::Boxed`]).
+    #[must_use]
+    pub const fn is_boxed_primitive(&self) -> bool {
+        matches!(self.kind, HostKind::Boxed)
     }
+
+    /// The fixed element type of a typed-array view (see [`HostKind::Bytes`]).
+    #[must_use]
+    pub const fn element(&self) -> Option<TypedArrayElement> {
+        match self.kind {
+            HostKind::Bytes { element, .. } => element,
+            HostKind::Identity | HostKind::Boxed | HostKind::HelperBacked => None,
+        }
+    }
+
+    /// Whether a runtime helper owns the record's methods (see
+    /// [`HostKind::HelperBacked`]).
+    #[must_use]
+    pub const fn helper_backed_methods(&self) -> bool {
+        matches!(self.kind, HostKind::HelperBacked)
+    }
+}
+
+/// The one registry-entry constructor; derives the `byte_buffer` projection.
+const fn entry(
+    class_name: &'static str,
+    marker: &'static str,
+    to_string_tag: &'static str,
+    kind: HostKind,
+) -> HostObject {
+    HostObject { class_name, marker, to_string_tag, kind, byte_buffer: kind.byte_buffer_role() }
+}
+
+/// Concise constructor for an identity-only registry entry.
+const fn host(class_name: &'static str, marker: &'static str) -> HostObject {
+    entry(class_name, marker, class_name, HostKind::Identity)
 }
 
 /// Concise constructor for a byte-backed host-object registry entry.
@@ -292,15 +346,7 @@ const fn byte_buffer(
     role: ByteBufferRole,
     element: Option<TypedArrayElement>,
 ) -> HostObject {
-    HostObject {
-        class_name,
-        marker,
-        is_boxed_primitive: false,
-        to_string_tag,
-        byte_buffer: Some(role),
-        element,
-        helper_backed_methods: false,
-    }
+    entry(class_name, marker, to_string_tag, HostKind::Bytes { role, element })
 }
 
 /// Concise constructor for one of the eleven typed-array view registry entries.
@@ -314,46 +360,22 @@ const fn typed_array(
     marker: &'static str,
     element: TypedArrayElement,
 ) -> HostObject {
-    HostObject {
-        class_name,
-        marker,
-        is_boxed_primitive: false,
-        to_string_tag: class_name,
-        byte_buffer: Some(ByteBufferRole::View),
-        element: Some(element),
-        helper_backed_methods: false,
-    }
+    byte_buffer(class_name, marker, class_name, ByteBufferRole::View, Some(element))
 }
 
 /// Concise constructor for a boxed-primitive-wrapper registry entry.
 const fn boxed(class_name: &'static str, marker: &'static str) -> HostObject {
-    HostObject {
-        class_name,
-        marker,
-        is_boxed_primitive: true,
-        to_string_tag: class_name,
-        byte_buffer: None,
-        element: None,
-        helper_backed_methods: false,
-    }
+    entry(class_name, marker, class_name, HostKind::Boxed)
 }
 
 /// Concise constructor for an identity whose METHODS a subsystem owns.
 ///
-/// See [`HostObject::helper_backed_methods`]. The record is the identity half
-/// only, so it belongs in this registry — `instanceof`, the spec tag and the
-/// enumeration filters all want it — while reflective construction from the
-/// class name alone must not stand in for the surface.
+/// See [`HostKind::HelperBacked`]. The record is the identity half only, so it
+/// belongs in this registry — `instanceof`, the spec tag and the enumeration
+/// filters all want it — while reflective construction from the class name
+/// alone must not stand in for the surface.
 const fn helper_backed(class_name: &'static str, marker: &'static str) -> HostObject {
-    HostObject {
-        class_name,
-        marker,
-        is_boxed_primitive: false,
-        to_string_tag: class_name,
-        byte_buffer: None,
-        element: None,
-        helper_backed_methods: true,
-    }
+    entry(class_name, marker, class_name, HostKind::HelperBacked)
 }
 
 /// The canonical set of host objects whose identity Smelt models with a dedicated
@@ -564,14 +586,14 @@ pub fn host_object_marker(class_name: &str) -> Option<&'static str> {
 /// Reflective construction has only a class NAME to work from, so for a host
 /// class it builds a record carrying that class's marker. That is right for an
 /// identity-only host object and wrong for one whose behaviour a subsystem owns
-/// (see [`HostObject::helper_backed_methods`]): the record would answer
+/// (see [`HostKind::HelperBacked`]): the record would answer
 /// `instanceof` and then have no state behind any of its methods.
 ///
 /// Answers `true` for a name that is not in this registry at all, so a caller
 /// deciding about some other kind of class is unaffected.
 #[must_use]
 pub fn reflectively_constructible(class_name: &str) -> bool {
-    host_object_by_class(class_name).is_none_or(|entry| !entry.helper_backed_methods)
+    host_object_by_class(class_name).is_none_or(|host_entry| !host_entry.helper_backed_methods())
 }
 
 /// Every host-object identity marker key, for the runtime host-marker registry.
@@ -595,14 +617,14 @@ pub fn host_object_markers() -> impl Iterator<Item = &'static str> {
 pub fn byte_buffer_host_objects() -> impl Iterator<Item = (&'static str, ByteBufferRole)> {
     HOST_OBJECTS
         .iter()
-        .filter_map(|entry| entry.byte_buffer.map(|role| (entry.marker, role)))
+        .filter_map(|host_entry| host_entry.kind.byte_buffer_role().map(|role| (host_entry.marker, role)))
 }
 
 /// Return the byte-storage role of a host constructor, or `None` when the host
 /// object has no byte surface.
 #[must_use]
 pub fn byte_buffer_role(class_name: &str) -> Option<ByteBufferRole> {
-    host_object_by_class(class_name).and_then(|entry| entry.byte_buffer)
+    host_object_by_class(class_name).and_then(|host_entry| host_entry.kind.byte_buffer_role())
 }
 
 /// Every byte-backed host object that reads its bytes through a fixed element
@@ -616,7 +638,7 @@ pub fn byte_buffer_role(class_name: &str) -> Option<ByteBufferRole> {
 pub fn typed_array_host_objects() -> impl Iterator<Item = (&'static str, TypedArrayElement)> {
     HOST_OBJECTS
         .iter()
-        .filter_map(|entry| entry.element.map(|element| (entry.marker, element)))
+        .filter_map(|host_entry| host_entry.element().map(|element| (host_entry.marker, element)))
 }
 
 /// Return the fixed element type of a host constructor's view, or `None`.
@@ -625,7 +647,7 @@ pub fn typed_array_host_objects() -> impl Iterator<Item = (&'static str, TypedAr
 /// ones (`ArrayBuffer`, `DataView`), whose bytes carry no single element type.
 #[must_use]
 pub fn typed_array_element(class_name: &str) -> Option<TypedArrayElement> {
-    host_object_by_class(class_name).and_then(|entry| entry.element)
+    host_object_by_class(class_name).and_then(HostObject::element)
 }
 
 /// Resolve a `DataView` accessor name into its direction and element type.
@@ -697,7 +719,7 @@ mod tests {
     fn boxed_primitive_wrappers_are_classified() {
         let boxed = HOST_OBJECTS
             .iter()
-            .filter(|entry| entry.is_boxed_primitive)
+            .filter(|entry| entry.is_boxed_primitive())
             .map(|entry| entry.class_name)
             .collect::<std::collections::HashSet<_>>();
         assert_eq!(
@@ -712,6 +734,14 @@ mod tests {
     /// the two roles `ArrayBuffer.isView` distinguishes. A regression here would
     /// silently change `isTypedArray`, since es-toolkit defines it as
     /// `ArrayBuffer.isView(x) && !(x instanceof DataView)`.
+    /// The `byte_buffer` field is a projection of `kind` for every entry.
+    #[test]
+    fn byte_buffer_field_projects_the_kind() {
+        for entry in HOST_OBJECTS {
+            assert_eq!(entry.byte_buffer, entry.kind.byte_buffer_role(), "{}", entry.class_name);
+        }
+    }
+
     #[test]
     fn byte_buffer_roles_are_classified() {
         let mut storage = Vec::new();
@@ -796,7 +826,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("`{name}` must have a host-object registry entry"));
             assert_eq!(entry.byte_buffer, Some(ByteBufferRole::View));
             assert!(
-                entry.element.is_some(),
+                entry.element().is_some(),
                 "`{name}` must carry an element type",
             );
             assert_eq!(entry.to_string_tag, name);
