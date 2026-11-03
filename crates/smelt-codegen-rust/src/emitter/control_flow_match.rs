@@ -33,7 +33,7 @@ impl FunctionEmitter<'_> {
         let scrutinee_ty = self.operand_ty(scrutinee)?;
         let hoisted_join = self.match_join(arms, default)?;
         out.push_str(&format!("    match {scrutinee_text} {{\n"));
-        let match_declared = self.declared_locals_snapshot();
+        let match_declared = self.declared_scope();
         // On the no-hoisted-join path each arm renders its own tail, so the
         // match diverges only when every arm *and* the catch-all diverge. Track
         // it across arms rather than trusting the last arm emitted, so a
@@ -49,20 +49,22 @@ impl FunctionEmitter<'_> {
             let arm_flow = self.emit_match_arm(self.block(arm.target)?, hoisted_join, out)?;
             arms_diverge = arms_diverge && arm_flow.diverges();
             out.push_str("        }\n");
-            self.restore_declared_locals(match_declared.clone());
+            match_declared.reset();
         }
         if let Some(default_block) = default {
             out.push_str("        _ => {\n");
             let arm_flow = self.emit_match_arm(self.block(default_block)?, hoisted_join, out)?;
             arms_diverge = arms_diverge && arm_flow.diverges();
             out.push_str("        }\n");
-            self.restore_declared_locals(match_declared);
         } else {
             // A synthesized empty catch-all arm falls through, so the match as
             // a whole never diverges.
             out.push_str("        _ => {}\n");
             arms_diverge = false;
         }
+        // Every arm ended with the set reset to the snapshot; close the
+        // scope HERE so a join emitted below keeps its declarations.
+        match_declared.close();
         out.push_str("    }\n");
         if let Some(join) = hoisted_join {
             // Control resumes at the shared join; its tail decides divergence.
@@ -98,7 +100,7 @@ impl FunctionEmitter<'_> {
         let scrutinee_text = self.match_scrutinee_text(scrutinee)?;
         let scrutinee_ty = self.operand_ty(scrutinee)?;
         out.push_str(&format!("    match {scrutinee_text} {{\n"));
-        let match_declared = self.declared_locals_snapshot();
+        let match_declared = self.declared_scope();
         for arm in arms {
             out.push_str(&format!(
                 "        {} => {{\n",
@@ -112,7 +114,7 @@ impl FunctionEmitter<'_> {
                 &mut visited.clone(),
             )?;
             out.push_str("        }\n");
-            self.restore_declared_locals(match_declared.clone());
+            match_declared.reset();
         }
         if let Some(default_block) = default {
             out.push_str("        _ => {\n");
@@ -124,10 +126,12 @@ impl FunctionEmitter<'_> {
                 &mut visited.clone(),
             )?;
             out.push_str("        }\n");
-            self.restore_declared_locals(match_declared);
         } else {
             out.push_str("        _ => {}\n");
         }
+        // Every arm ended with the set reset to the snapshot; close the
+        // scope HERE so a join emitted below keeps its declarations.
+        match_declared.close();
         out.push_str("    }\n");
         Ok(())
     }

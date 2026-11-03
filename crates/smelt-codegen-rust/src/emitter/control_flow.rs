@@ -173,7 +173,7 @@ impl FunctionEmitter<'_> {
         {
             let repeated = self.block(repeat_block)?;
             let exit = self.block(exit_block)?;
-            let loop_declared = self.declared_locals_snapshot();
+            let loop_declared = self.declared_scope();
             out.push_str("    loop {\n");
             for statement in &block.statements {
                 self.emit_statement_for_block(block, statement, out)?;
@@ -192,7 +192,7 @@ impl FunctionEmitter<'_> {
                 out,
             )?;
             out.push_str("    }\n");
-            self.restore_declared_locals(loop_declared);
+            loop_declared.close();
             return self.emit_block(exit, out);
         }
 
@@ -216,7 +216,7 @@ impl FunctionEmitter<'_> {
                 .any(|(idx, _)| idx != cond_statement_idx);
             let then = self.block(then_block)?;
             let else_ = self.block(else_block)?;
-            let loop_declared = self.declared_locals_snapshot();
+            let loop_declared = self.declared_scope();
             if has_header_work {
                 out.push_str("    loop {\n");
                 for statement in &block.statements {
@@ -240,7 +240,7 @@ impl FunctionEmitter<'_> {
                 out,
             )?;
             out.push_str("    }\n");
-            self.restore_declared_locals(loop_declared);
+            loop_declared.close();
             return self.emit_block(else_, out);
         }
 
@@ -255,7 +255,7 @@ impl FunctionEmitter<'_> {
             let then = self.block(then_block)?;
             let latch = self.block(latch_block)?;
             let else_ = self.block(else_block)?;
-            let loop_declared = self.declared_locals_snapshot();
+            let loop_declared = self.declared_scope();
             if has_header_work {
                 out.push_str("    loop {\n");
                 for statement in &block.statements {
@@ -282,7 +282,7 @@ impl FunctionEmitter<'_> {
                 self.emit_statement(statement, out)?;
             }
             out.push_str("    }\n");
-            self.restore_declared_locals(loop_declared);
+            loop_declared.close();
             return self.emit_block(else_, out);
         }
 
@@ -1315,7 +1315,7 @@ impl FunctionEmitter<'_> {
         let local = self.local_decl(dest)?;
         // Rejoin the arms at their common tail when the region allows it (see
         // `throwing_join`): each arm stops there and the tail is emitted once.
-        let declared_before_arms = self.declared_locals_snapshot();
+        let declared_before_arms = self.declared_scope();
         let join = self.throwing_continuation_join(target, handler.catch_block, continuation);
         let fresh_visited = BlockIdSet::default();
         let joined_continuation = join.and_then(|join| match continuation {
@@ -1375,7 +1375,7 @@ impl FunctionEmitter<'_> {
                 }
             }
             self.mark_local_declared(dest);
-            let __smelt_arm_declared = self.declared_locals_snapshot();
+            let __smelt_arm_declared = self.declared_scope();
             self.emit_continuation(target, arm_continuation, out)?;
             out.push_str("        }\n");
             // Each arm of the emitted `match` re-emits the SAME continuation,
@@ -1385,7 +1385,7 @@ impl FunctionEmitter<'_> {
             // declared -- the E0425 in
             // `blocker-logs/top-level-try-await-tail.md`. The same
             // snapshot-per-arm rule the closure emitter already follows.
-            self.restore_declared_locals(__smelt_arm_declared.clone());
+            __smelt_arm_declared.reset();
             out.push_str("        Err(__smelt_panic) => {\n");
             out.push_str(&format!(
                 "            let __smelt_error = {};\n",
@@ -1414,12 +1414,16 @@ impl FunctionEmitter<'_> {
                 self.mark_local_declared(exception_local);
             }
             self.emit_continuation(handler.catch_block, arm_continuation, out)?;
-            self.restore_declared_locals(__smelt_arm_declared);
+            __smelt_arm_declared.close();
             out.push_str("        }\n");
             out.push_str("    }\n");
             if let Some(join) = join.filter(|_| joined_continuation.is_some()) {
-                self.restore_declared_locals(declared_before_arms);
+                declared_before_arms.close();
                 self.emit_throwing_continuation_tail(join, continuation, out)?;
+            } else {
+                // No join: the continuation was emitted inside the arms, and the
+                // declarations stay as the arms left them.
+                declared_before_arms.keep();
             }
             return Ok(());
         };
@@ -1459,10 +1463,10 @@ impl FunctionEmitter<'_> {
         // Each of the three arms re-emits the SAME continuation into its own
         // Rust lexical scope, so each needs its own declaration set — see the
         // note on the two-arm site above.
-        let __smelt_arm_declared = self.declared_locals_snapshot();
+        let __smelt_arm_declared = self.declared_scope();
         self.emit_continuation(target, arm_continuation, out)?;
         out.push_str("        }\n");
-        self.restore_declared_locals(__smelt_arm_declared.clone());
+        __smelt_arm_declared.reset();
         out.push_str("        Ok(Err(__smelt_error)) => {\n");
         if let Some(exception_local) = handler.exception_local {
             let exception_name = self.local_name(exception_local)?;
@@ -1479,7 +1483,7 @@ impl FunctionEmitter<'_> {
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
         out.push_str("        }\n");
-        self.restore_declared_locals(__smelt_arm_declared.clone());
+        __smelt_arm_declared.reset();
         out.push_str("        Err(__smelt_panic) => {\n");
         out.push_str(&format!(
                 "            let __smelt_error = {};\n",
@@ -1503,12 +1507,16 @@ impl FunctionEmitter<'_> {
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
-        self.restore_declared_locals(__smelt_arm_declared);
+        __smelt_arm_declared.close();
         out.push_str("        }\n");
         out.push_str("    }\n");
         if let Some(join) = join.filter(|_| joined_continuation.is_some()) {
-            self.restore_declared_locals(declared_before_arms);
+            declared_before_arms.close();
             self.emit_throwing_continuation_tail(join, continuation, out)?;
+        } else {
+            // No join: the continuation was emitted inside the arms, and the
+            // declarations stay as the arms left them.
+            declared_before_arms.keep();
         }
         Ok(())
     }
@@ -1526,7 +1534,7 @@ impl FunctionEmitter<'_> {
         let local = self.local_decl(dest)?;
         // Rejoin the arms at their common tail when the region allows it (see
         // `throwing_join`): each arm stops there and the tail is emitted once.
-        let declared_before_arms = self.declared_locals_snapshot();
+        let declared_before_arms = self.declared_scope();
         let join = self.throwing_continuation_join(target, handler.catch_block, continuation);
         let fresh_visited = BlockIdSet::default();
         let joined_continuation = join.and_then(|join| match continuation {
@@ -1580,7 +1588,7 @@ impl FunctionEmitter<'_> {
             ));
         }
         self.mark_local_declared(dest);
-        let __smelt_arm_declared = self.declared_locals_snapshot();
+        let __smelt_arm_declared = self.declared_scope();
         self.emit_continuation(target, arm_continuation, out)?;
         out.push_str("        }\n");
         // Each arm of the emitted `match` re-emits the SAME continuation, and
@@ -1589,7 +1597,7 @@ impl FunctionEmitter<'_> {
         // temporary instead of assigning to the name the first arm declared --
         // the E0425 in `blocker-logs/top-level-try-await-tail.md`. The same
         // snapshot-per-arm rule the closure emitter already follows.
-        self.restore_declared_locals(__smelt_arm_declared.clone());
+        __smelt_arm_declared.reset();
         out.push_str("        Err(__smelt_error) => {\n");
         // A rejected future carries the same error channel as a throwing call, so
         // an erased catch binding recovers the rejection's payload here too
@@ -1604,12 +1612,16 @@ impl FunctionEmitter<'_> {
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
-        self.restore_declared_locals(__smelt_arm_declared);
+        __smelt_arm_declared.close();
         out.push_str("        }\n");
         out.push_str("    }\n");
         if let Some(join) = join.filter(|_| joined_continuation.is_some()) {
-            self.restore_declared_locals(declared_before_arms);
+            declared_before_arms.close();
             self.emit_throwing_continuation_tail(join, continuation, out)?;
+        } else {
+            // No join: the continuation was emitted inside the arms, and the
+            // declarations stay as the arms left them.
+            declared_before_arms.keep();
         }
         Ok(())
     }
@@ -1649,7 +1661,7 @@ impl FunctionEmitter<'_> {
         }
 
         if matches!(then.terminator, Some(Terminator::Goto(target)) if target == current) {
-            let loop_declared = self.declared_locals_snapshot();
+            let loop_declared = self.declared_scope();
             out.push_str(&format!(
                 "    while {} {{\n",
                 self.truthy_operand_text(cond)?
@@ -1663,16 +1675,16 @@ impl FunctionEmitter<'_> {
                 out,
             )?;
             out.push_str("    }\n");
-            self.restore_declared_locals(loop_declared);
+            loop_declared.close();
             return self.emit_block(else_, out);
         }
 
         if matches!(then.terminator, Some(Terminator::Goto(target)) if target == else_block) {
-            let branch_declared = self.declared_locals_snapshot();
+            let branch_declared = self.declared_scope();
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
             self.emit_block_until_goto(then, else_block, RegionExit::Join, out)?;
             out.push_str("    }\n");
-            self.restore_declared_locals(branch_declared);
+            branch_declared.close();
             return self.emit_block(else_, out);
         }
 
@@ -1724,7 +1736,7 @@ impl FunctionEmitter<'_> {
                     self.type_text_with_impl_trait(local.ty, false)?
                 ));
                 self.mark_local_declared(then_dest);
-                let branch_declared = self.declared_locals_snapshot();
+                let branch_declared = self.declared_scope();
                 out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
                 for statement in then_prefix {
                     self.emit_statement(statement, out)?;
@@ -1732,24 +1744,24 @@ impl FunctionEmitter<'_> {
                 let then_text = self.rvalue_text_for_dest(then_value, local.ty)?;
                 out.push_str(&format!("    {name} = {then_text};\n"));
                 out.push_str("    } else {\n");
-                self.restore_declared_locals(branch_declared.clone());
+                branch_declared.reset();
                 for statement in else_prefix {
                     self.emit_statement(statement, out)?;
                 }
                 let else_text = self.rvalue_text_for_dest(else_value, local.ty)?;
                 out.push_str(&format!("    {name} = {else_text};\n"));
                 out.push_str("    }\n");
-                self.restore_declared_locals(branch_declared);
+                branch_declared.close();
                 return self.emit_block(self.block(*then_target)?, out);
             }
-            let branch_declared = self.declared_locals_snapshot();
+            let branch_declared = self.declared_scope();
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
             self.emit_block_until_goto(then, *then_target, RegionExit::Join, out)?;
             out.push_str("    } else {\n");
-            self.restore_declared_locals(branch_declared.clone());
+            branch_declared.reset();
             self.emit_block_until_goto(else_, *else_target, RegionExit::Join, out)?;
             out.push_str("    }\n");
-            self.restore_declared_locals(branch_declared);
+            branch_declared.close();
             return self.emit_block(self.block(*then_target)?, out);
         }
 
@@ -1777,7 +1789,7 @@ impl FunctionEmitter<'_> {
                 else_block.0,
                 out.len()
             );
-            let branch_declared = self.declared_locals_snapshot();
+            let branch_declared = self.declared_scope();
             out.push_str(&format!("    {branch_label}: {{\n"));
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
             for statement in &then.statements {
@@ -1785,10 +1797,10 @@ impl FunctionEmitter<'_> {
             }
             out.push_str(&format!("    break {branch_label};\n"));
             out.push_str("    }\n");
-            self.restore_declared_locals(branch_declared.clone());
+            branch_declared.reset();
             self.emit_block_until_goto(else_, *else_target, RegionExit::Join, out)?;
             out.push_str("    };\n");
-            self.restore_declared_locals(branch_declared);
+            branch_declared.close();
             return self.emit_block(self.block(*else_target)?, out);
         }
 
@@ -1798,28 +1810,28 @@ impl FunctionEmitter<'_> {
         if let Some(Terminator::Goto(then_target)) = then.terminator
             && self.branch_join_target(else_.id, &mut BlockIdSet::default())? == Some(then_target)
         {
-            let branch_declared = self.declared_locals_snapshot();
+            let branch_declared = self.declared_scope();
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
             self.emit_block_until_goto(then, then_target, RegionExit::Join, out)?;
             out.push_str("    } else {\n");
-            self.restore_declared_locals(branch_declared.clone());
+            branch_declared.reset();
             self.emit_block_until_goto(else_, then_target, RegionExit::Join, out)?;
             out.push_str("    }\n");
-            self.restore_declared_locals(branch_declared);
+            branch_declared.close();
             return self.emit_block(self.block(then_target)?, out);
         }
 
         if let Some(Terminator::Goto(else_target)) = else_.terminator
             && self.branch_join_target(then.id, &mut BlockIdSet::default())? == Some(else_target)
         {
-            let branch_declared = self.declared_locals_snapshot();
+            let branch_declared = self.declared_scope();
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
             self.emit_block_until_goto(then, else_target, RegionExit::Join, out)?;
             out.push_str("    } else {\n");
-            self.restore_declared_locals(branch_declared.clone());
+            branch_declared.reset();
             self.emit_block_until_goto(else_, else_target, RegionExit::Join, out)?;
             out.push_str("    }\n");
-            self.restore_declared_locals(branch_declared);
+            branch_declared.close();
             return self.emit_block(self.block(else_target)?, out);
         }
 
@@ -1852,11 +1864,11 @@ impl FunctionEmitter<'_> {
                 &mut BlockIdSet::default(),
             )
         {
-            let branch_declared = self.declared_locals_snapshot();
+            let branch_declared = self.declared_scope();
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
             self.emit_block_until_goto(then, else_block, RegionExit::Join, out)?;
             out.push_str("    }\n");
-            self.restore_declared_locals(branch_declared);
+            branch_declared.close();
             return self.emit_block(else_, out);
         }
 
@@ -1868,17 +1880,17 @@ impl FunctionEmitter<'_> {
                     .while_header_with_latch(self.block(then_target)?)?
                     .is_some())
         {
-            let branch_declared = self.declared_locals_snapshot();
+            let branch_declared = self.declared_scope();
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
             for statement in &then.statements {
                 self.emit_statement(statement, out)?;
             }
             self.emit_block(self.block(then_target)?, out)?;
             out.push_str("    } else {\n");
-            self.restore_declared_locals(branch_declared.clone());
+            branch_declared.reset();
             self.emit_block(else_, out)?;
             out.push_str("    }\n");
-            self.restore_declared_locals(branch_declared);
+            branch_declared.close();
             return Ok(());
         }
 
@@ -1909,16 +1921,16 @@ impl FunctionEmitter<'_> {
             && then_target.0 > current.0
             && self.block_can_reach(else_.id, then_target, &mut BlockIdSet::default())
         {
-            let branch_declared = self.declared_locals_snapshot();
+            let branch_declared = self.declared_scope();
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
             for statement in &then.statements {
                 self.emit_statement(statement, out)?;
             }
             out.push_str("    } else {\n");
-            self.restore_declared_locals(branch_declared.clone());
+            branch_declared.reset();
             self.emit_block_until_goto(else_, then_target, RegionExit::Join, out)?;
             out.push_str("    }\n");
-            self.restore_declared_locals(branch_declared);
+            branch_declared.close();
             return self.emit_block(self.block(then_target)?, out);
         }
 
@@ -1930,7 +1942,7 @@ impl FunctionEmitter<'_> {
                 else_block.0,
                 out.len()
             );
-            let branch_declared = self.declared_locals_snapshot();
+            let branch_declared = self.declared_scope();
             out.push_str(&format!("    {branch_label}: {{\n"));
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
             for statement in &then.statements {
@@ -1939,10 +1951,10 @@ impl FunctionEmitter<'_> {
             if then_target.0 <= current.0 {
                 out.push_str(&format!("    break {branch_label};\n"));
                 out.push_str("    }\n");
-                self.restore_declared_locals(branch_declared.clone());
+                branch_declared.reset();
                 self.emit_block_until_goto(else_, then_target, RegionExit::Join, out)?;
                 out.push_str("    };\n");
-                self.restore_declared_locals(branch_declared);
+                branch_declared.close();
                 // After the labeled block, the `break {branch_label}` path (the
                 // then-branch) rejoins the shared continuation at `then_target`.
                 // When that continuation always diverges (returns/throws), re-emit
@@ -1965,10 +1977,10 @@ impl FunctionEmitter<'_> {
             }
             out.push_str(&format!("    break {branch_label};\n"));
             out.push_str("    }\n");
-            self.restore_declared_locals(branch_declared.clone());
+            branch_declared.reset();
             self.emit_block(else_, out)?;
             out.push_str("    };\n");
-            self.restore_declared_locals(branch_declared);
+            branch_declared.close();
             // Control always falls through the labeled-block *statement*: the
             // `break {branch_label}` path exits the block and the else body
             // rejoins after it, so the reconstruction never diverges the
@@ -1986,23 +1998,23 @@ impl FunctionEmitter<'_> {
         if self.block_eventually_terminates(then.id, &mut BlockIdSet::default())?
             && self.block_eventually_terminates(else_.id, &mut BlockIdSet::default())?
         {
-            let branch_declared = self.declared_locals_snapshot();
+            let branch_declared = self.declared_scope();
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
             self.emit_block(then, out)?;
             out.push_str("    } else {\n");
-            self.restore_declared_locals(branch_declared.clone());
+            branch_declared.reset();
             self.emit_block(else_, out)?;
             out.push_str("    }\n");
-            self.restore_declared_locals(branch_declared);
+            branch_declared.close();
             return Ok(());
         }
 
         if self.block_eventually_terminates(then.id, &mut BlockIdSet::default())? {
-            let branch_declared = self.declared_locals_snapshot();
+            let branch_declared = self.declared_scope();
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
             self.emit_block(then, out)?;
             out.push_str("    }\n");
-            self.restore_declared_locals(branch_declared);
+            branch_declared.close();
             if else_.id.0 <= current.0 {
                 out.push_str("    loop { break; }\n");
                 return Ok(());
@@ -2011,14 +2023,14 @@ impl FunctionEmitter<'_> {
         }
 
         if self.block_eventually_terminates(else_.id, &mut BlockIdSet::default())? {
-            let branch_declared = self.declared_locals_snapshot();
+            let branch_declared = self.declared_scope();
             out.push_str(&format!(
                 "    if !({}) {{\n",
                 self.truthy_operand_text(cond)?
             ));
             self.emit_block(else_, out)?;
             out.push_str("    }\n");
-            self.restore_declared_locals(branch_declared);
+            branch_declared.close();
             if then.id.0 <= current.0 {
                 out.push_str("    loop { break; }\n");
                 return Ok(());
@@ -2031,14 +2043,14 @@ impl FunctionEmitter<'_> {
             self.branch_join_target(else_.id, &mut BlockIdSet::default())?,
         ) && then_join == else_join
         {
-            let branch_declared = self.declared_locals_snapshot();
+            let branch_declared = self.declared_scope();
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
             self.emit_block_until_goto(then, then_join, RegionExit::Join, out)?;
             out.push_str("    } else {\n");
-            self.restore_declared_locals(branch_declared.clone());
+            branch_declared.reset();
             self.emit_block_until_goto(else_, then_join, RegionExit::Join, out)?;
             out.push_str("    }\n");
-            self.restore_declared_locals(branch_declared);
+            branch_declared.close();
             return self.emit_block(self.block(then_join)?, out);
         }
 
@@ -2071,29 +2083,29 @@ impl FunctionEmitter<'_> {
         if self.block_never_falls_through(then.id, &mut BlockIdSet::default())?
             && self.block_never_falls_through(else_.id, &mut BlockIdSet::default())?
         {
-            let branch_declared = self.declared_locals_snapshot();
+            let branch_declared = self.declared_scope();
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
             self.emit_block(then, out)?;
             out.push_str("    } else {\n");
-            self.restore_declared_locals(branch_declared.clone());
+            branch_declared.reset();
             self.emit_block(else_, out)?;
             out.push_str("    }\n");
-            self.restore_declared_locals(branch_declared);
+            branch_declared.close();
             return Ok(());
         }
 
-        let branch_declared = self.declared_locals_snapshot();
+        let branch_declared = self.declared_scope();
         out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
         for statement in &then.statements {
             self.emit_statement(statement, out)?;
         }
         out.push_str("    } else {\n");
-        self.restore_declared_locals(branch_declared.clone());
+        branch_declared.reset();
         for statement in &else_.statements {
             self.emit_statement(statement, out)?;
         }
         out.push_str("    }\n");
-        self.restore_declared_locals(branch_declared);
+        branch_declared.close();
         Ok(())
     }
 
@@ -3012,7 +3024,7 @@ impl FunctionEmitter<'_> {
             };
             self.truthy_operand_text(cond)?
         };
-        let loop_declared = self.declared_locals_snapshot();
+        let loop_declared = self.declared_scope();
         out.push_str("    loop {\n");
         self.emit_condition_region(block, decision, out, &mut BlockIdSet::default())?;
         out.push_str(&format!("    if {cond_text} {{\n"));
@@ -3039,7 +3051,7 @@ impl FunctionEmitter<'_> {
             out.push_str("    }\n");
         }
         out.push_str("    }\n");
-        self.restore_declared_locals(loop_declared);
+        loop_declared.close();
         Ok(())
     }
 
@@ -3198,7 +3210,7 @@ impl FunctionEmitter<'_> {
                     );
                 };
                 let cond_text = self.truthy_operand_text(cond)?;
-                let branch_declared = self.declared_locals_snapshot();
+                let branch_declared = self.declared_scope();
                 if *then_block == join && *else_block == join {
                     // Both edges already are the join: no branch to emit.
                 } else if *then_block == join {
@@ -3210,12 +3222,12 @@ impl FunctionEmitter<'_> {
                     self.emit_join_region_arm(*then_block, join, stop, out)?;
                     if *else_block != join {
                         out.push_str("    } else {\n");
-                        self.restore_declared_locals(branch_declared.clone());
+                        branch_declared.reset();
                         self.emit_join_region_arm(*else_block, join, stop, out)?;
                     }
                     out.push_str("    }\n");
                 }
-                self.restore_declared_locals(branch_declared);
+                branch_declared.close();
                 if join == stop {
                     return Ok(());
                 }
@@ -3389,7 +3401,7 @@ impl FunctionEmitter<'_> {
                 // block both arms duplicate — is NOT in scope in the else-arm,
                 // which must declare it again (E0425 `_smelt_tmp_N` when the
                 // else-arm assigned it bare).
-                let branch_declared = self.declared_locals_snapshot();
+                let branch_declared = self.declared_scope();
                 out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
                 // Each branch can legitimately converge on the same join block.
                 // Sharing the recursion guard across siblings makes the later
@@ -3403,7 +3415,7 @@ impl FunctionEmitter<'_> {
                     &mut then_visited,
                 )?;
                 out.push_str("    } else {\n");
-                self.restore_declared_locals(branch_declared.clone());
+                branch_declared.reset();
                 let mut else_visited = visited.clone();
                 self.emit_loop_branch_inner(
                     self.block(*else_block)?,
@@ -3413,7 +3425,7 @@ impl FunctionEmitter<'_> {
                     &mut else_visited,
                 )?;
                 out.push_str("    }\n");
-                self.restore_declared_locals(branch_declared);
+                branch_declared.close();
                 Ok(())
             }
             Some(Terminator::Match {
@@ -3576,7 +3588,7 @@ impl FunctionEmitter<'_> {
         let Some(join) = self.loop_branch_join(switch, continue_target, break_target) else {
             return Ok(false);
         };
-        let branch_declared = self.declared_locals_snapshot();
+        let branch_declared = self.declared_scope();
         let join_scope = self.flow.push_loop_join_stop(join, continue_target);
         let mut arms = String::new();
         let emitted = (|| -> Result<(), EmitError> {
@@ -3590,7 +3602,7 @@ impl FunctionEmitter<'_> {
                 &mut then_visited,
             )?;
             arms.push_str("    } else {\n");
-            self.restore_declared_locals(branch_declared.clone());
+            branch_declared.reset();
             let mut else_visited = visited.clone();
             self.emit_loop_branch_inner(
                 self.block(else_block)?,
@@ -3603,7 +3615,7 @@ impl FunctionEmitter<'_> {
             Ok(())
         })();
         let violated = join_scope.finish();
-        self.restore_declared_locals(branch_declared);
+        branch_declared.close();
         emitted?;
         if violated {
             return Ok(false);
@@ -3677,7 +3689,7 @@ impl FunctionEmitter<'_> {
                 .enumerate()
                 .any(|(idx, _)| idx != cond_statement_idx);
             let then = self.block(then_block)?;
-            let loop_declared = self.declared_locals_snapshot();
+            let loop_declared = self.declared_scope();
             if has_header_work {
                 out.push_str("    loop {\n");
                 for statement in &block.statements {
@@ -3701,7 +3713,7 @@ impl FunctionEmitter<'_> {
                 out,
             )?;
             out.push_str("    }\n");
-            self.restore_declared_locals(loop_declared);
+            loop_declared.close();
             self.emit_after_nested_loop(else_block, stop, exit, out, visited)?;
             return Ok(true);
         }
@@ -3724,7 +3736,7 @@ impl FunctionEmitter<'_> {
                 .any(|(idx, _)| idx != cond_statement_idx);
             let then = self.block(then_block)?;
             let latch = self.block(latch_block)?;
-            let loop_declared = self.declared_locals_snapshot();
+            let loop_declared = self.declared_scope();
             if has_header_work {
                 out.push_str("    loop {\n");
                 for statement in &block.statements {
@@ -3751,7 +3763,7 @@ impl FunctionEmitter<'_> {
                 self.emit_statement(statement, out)?;
             }
             out.push_str("    }\n");
-            self.restore_declared_locals(loop_declared);
+            loop_declared.close();
             self.emit_after_nested_loop(else_block, stop, exit, out, visited)?;
             return Ok(true);
         }

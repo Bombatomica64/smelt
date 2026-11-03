@@ -540,14 +540,30 @@ impl<'mir> FunctionEmitter<'mir> {
     /// again (the generic body-cleanliness trial renders the body once to decide
     /// on generics, then the real emit renders it again).
     ///
-    /// Body rendering records which locals have already been declared; that must
-    /// start empty on the next pass or the re-rendered body would omit
-    /// declarations. Only the parameter locals are pre-declared at function
-    /// entry, matching [`FunctionEmitter::new`].
+    /// This is ALL the state a body render mutates; everything else on the
+    /// emitter is either fixed at construction (names, the local analyses, the
+    /// role) or a cache of a pure function of the MIR (termination, post
+    /// dominators, loop exits, the local write index) that stays valid.
+    ///
+    /// - the declared-locals set starts over with only the parameters
+    ///   pre-declared, matching [`FunctionEmitter::new`], or the re-rendered
+    ///   body would omit declarations;
+    /// - the deferred capture cells are re-recorded by the parameter preludes;
+    /// - the structural expansion stacks and the scope flags are empty/off
+    ///   between renders (their guards restore them; this also covers a render
+    ///   abandoned by an error);
+    /// - the control-flow state ([`flow_state::ControlFlowState`]) starts over.
     fn reset_body_emission_state(&self) {
-        let mut declared = self.declared_locals.borrow_mut();
-        declared.clear();
-        declared.extend(self.function.params.iter().copied());
+        {
+            let mut declared = self.declared_locals.borrow_mut();
+            declared.clear();
+            declared.extend(self.function.params.iter().copied());
+        }
+        self.deferred_capture_cells.borrow_mut().clear();
+        self.record_conversion_stack.borrow_mut().clear();
+        self.type_expansion_stack.borrow_mut().clear();
+        self.hoisted_module_item.set(false);
+        self.rendering_inherited_bound.set(false);
         self.flow.reset();
     }
 
@@ -6037,19 +6053,20 @@ impl<'mir> FunctionEmitter<'mir> {
         self.declared_locals.borrow().contains(&local)
     }
 
-    /// Captures the currently visible Rust local declarations.
+    /// Open a nested Rust local-declaration scope.
     ///
-    /// MIR locals are function-scoped, but generated Rust branch bodies create
-    /// nested lexical scopes. Code that emits a branch restores this snapshot
-    /// after the branch so locals introduced only inside that branch do not
-    /// leak into later sibling or outer Rust scopes.
-    pub(super) fn declared_locals_snapshot(&self) -> HashSet<LocalId> {
-        self.declared_locals.borrow().clone()
-    }
-
-    /// Restores a previously captured Rust local declaration scope.
-    pub(super) fn restore_declared_locals(&self, snapshot: HashSet<LocalId>) {
-        *self.declared_locals.borrow_mut() = snapshot;
+    /// Generated Rust has lexical scopes for branches, loops, and closures, so
+    /// a local declared inside one must not count as declared in a later
+    /// sibling or outer scope. The returned guard remembers the declared set as
+    /// it is now: [`DeclaredLocalsScope::reset`] restores it between sibling
+    /// branches, [`DeclaredLocalsScope::close`] at the scope's end, and dropping
+    /// the guard restores it too, so an early `?` (whose error a caller may
+    /// catch and fall back from) cannot leak the branch's declarations.
+    pub(super) fn declared_scope(&self) -> DeclaredLocalsScope<'_> {
+        DeclaredLocalsScope {
+            declared: &self.declared_locals,
+            snapshot: Some(self.declared_locals.borrow().clone()),
+        }
     }
 
     /// Gets the declaration of a local owned by another MIR function.
@@ -6771,4 +6788,50 @@ pub(super) enum SlotReceiver {
         /// The Rust name of the new instance handle.
         handle: String,
     },
+}
+
+/// A nested Rust local-declaration scope opened by
+/// [`FunctionEmitter::declared_scope`].
+///
+/// Every success path ends it explicitly: [`Self::close`] restores the set it
+/// captured, [`Self::keep`] leaves the current declarations in place (the
+/// region continued in the same Rust scope, e.g. a `match` whose continuation
+/// is emitted after it with no join). Dropping it without either — an early
+/// `?` — restores the captured set, so an error a caller catches and falls
+/// back from cannot leak the abandoned region's declarations.
+pub(super) struct DeclaredLocalsScope<'e> {
+    /// The emitter's declared-locals set.
+    declared: &'e RefCell<HashSet<LocalId>>,
+    /// The set as it was when the scope opened; `None` once kept.
+    snapshot: Option<HashSet<LocalId>>,
+}
+
+impl DeclaredLocalsScope<'_> {
+    /// Restore the captured set and keep the scope open (between siblings).
+    pub(super) fn reset(&self) {
+        if let Some(snapshot) = &self.snapshot {
+            self.declared.borrow_mut().clone_from(snapshot);
+        }
+    }
+
+    /// Restore the captured set and end the scope.
+    pub(super) fn close(mut self) {
+        if let Some(snapshot) = self.snapshot.take() {
+            *self.declared.borrow_mut() = snapshot;
+        }
+    }
+
+    /// End the scope keeping the declarations made inside it.
+    pub(super) fn keep(mut self) {
+        self.snapshot = None;
+    }
+}
+
+impl Drop for DeclaredLocalsScope<'_> {
+    /// Restore the captured set when the scope was abandoned by an early exit.
+    fn drop(&mut self) {
+        if let Some(snapshot) = self.snapshot.take() {
+            *self.declared.borrow_mut() = snapshot;
+        }
+    }
 }
