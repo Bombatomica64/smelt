@@ -5814,9 +5814,18 @@ fn emit_source_with_free_function_router(
         writer.line("#[derive(Clone, Debug)]");
         writer.block("pub struct SmeltRegExp", |struct_writer| {
             struct_writer.line("id: usize,");
-            struct_writer.line("source: String,");
-            struct_writer.line("flags: String,");
+            // `source` and `flags` are immutable for a RegExp's lifetime, and
+            // generated code clones values freely (aggressive clone strategy):
+            // shared `Rc<str>` keeps a clone at reference-count increments
+            // instead of two string copies, and the compiled automaton is
+            // memoized on the value so `exec` skips rebuilding and hashing the
+            // translated pattern on every call
+            // (`blocker-logs/hono-crud-perf-round2.md`).
+            struct_writer.line("source: ::std::rc::Rc<str>,");
+            struct_writer.line("flags: ::std::rc::Rc<str>,");
             struct_writer.line("last_index: ::std::rc::Rc<::std::cell::RefCell<usize>>,");
+            struct_writer.line("/// The compiled automaton, shared by every clone (`None` inside: the pattern does not compile).");
+            struct_writer.line("compiled: ::std::rc::Rc<::std::cell::OnceCell<::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>>,");
         });
         writer.blank_line();
         writer.line("impl PartialEq for SmeltRegExp { fn eq(&self, other: &Self) -> bool { self.source == other.source && self.flags == other.flags && *self.last_index.borrow() == *other.last_index.borrow() } }");
@@ -5830,7 +5839,7 @@ fn emit_source_with_free_function_router(
             impl_writer.line("/// `/a\\/b/`, and the two compare equal.");
             impl_writer.block("pub fn new(source: String, flags: String) -> Self", |fn_writer| {
                 fn_writer.line("let source = Self::escape_pattern_source(source);");
-                fn_writer.line("Self { id: smelt_next_object_id(), source, flags, last_index: ::std::rc::Rc::new(::std::cell::RefCell::new(0)) }");
+                fn_writer.line("Self { id: smelt_next_object_id(), source: source.into(), flags: flags.into(), last_index: ::std::rc::Rc::new(::std::cell::RefCell::new(0)), compiled: ::std::rc::Rc::default() }");
             });
             impl_writer.line("/// Escape every unescaped `/` outside a character class (`EscapeRegExpPattern`).");
             impl_writer.block("fn escape_pattern_source(source: String) -> String", |fn_writer| {
@@ -5865,17 +5874,19 @@ fn emit_source_with_free_function_router(
             impl_writer.line("/// (for example a module-level pattern referenced from a hot function)");
             impl_writer.line("/// compiles it at most once per thread. Compilation is a pure function of");
             impl_writer.line("/// the pattern text, so sharing it is unobservable; the mutable");
-            impl_writer.line("/// `lastIndex` state stays per-`SmeltRegExp`.");
+            impl_writer.line("/// `lastIndex` state stays per-`SmeltRegExp`. The result is also kept on");
+            impl_writer.line("/// the value itself (shared by its clones), so a hot `exec` neither");
+            impl_writer.line("/// rebuilds the translated pattern nor hashes it again.");
             impl_writer.block("fn try_compiled(&self) -> Option<::std::rc::Rc<fancy_regex::Regex>>", |fn_writer| {
+                fn_writer.line("if let Some(compiled) = self.compiled.get() { return compiled.clone(); }");
                 fn_writer.line("let mut prefix = String::new();");
                 fn_writer.line("if self.has_flag('i') { prefix.push('i'); }");
                 fn_writer.line("if self.has_flag('m') { prefix.push('m'); }");
                 fn_writer.line("if self.has_flag('s') { prefix.push('s'); }");
                 fn_writer.line("let translated_source = self.source.replace(\"[^]\", \"(?s:.)\");");
                 fn_writer.line("let pattern = if prefix.is_empty() { translated_source } else { format!(\"(?{prefix}){translated_source}\") };");
-                fn_writer.line("if let Some(cached) = SMELT_REGEX_CACHE.with(|cache| cache.borrow().get(&pattern).cloned()) { return cached; }");
-                fn_writer.line("let compiled = fancy_regex::RegexBuilder::new(&pattern).delegate_size_limit(SMELT_REGEX_SIZE_LIMIT).delegate_dfa_size_limit(SMELT_REGEX_DFA_SIZE_LIMIT).build().ok().map(::std::rc::Rc::new);");
-                fn_writer.line("SMELT_REGEX_CACHE.with(|cache| { cache.borrow_mut().insert(pattern, compiled.clone()); });");
+                fn_writer.line("let compiled = if let Some(cached) = SMELT_REGEX_CACHE.with(|cache| cache.borrow().get(&pattern).cloned()) { cached } else { let compiled = fancy_regex::RegexBuilder::new(&pattern).delegate_size_limit(SMELT_REGEX_SIZE_LIMIT).delegate_dfa_size_limit(SMELT_REGEX_DFA_SIZE_LIMIT).build().ok().map(::std::rc::Rc::new); SMELT_REGEX_CACHE.with(|cache| { cache.borrow_mut().insert(pattern, compiled.clone()); }); compiled };");
+                fn_writer.line("let _ = self.compiled.set(compiled.clone());");
                 fn_writer.line("compiled");
             });
             impl_writer.line("/// Match a string with JavaScript String.prototype.match semantics.");
@@ -7110,12 +7121,20 @@ fn emit_own_keys_projection(writer: &mut CodeWriter) {
 /// `SmeltUnknown::Object` property bag, which erased its statically known
 /// structure. `SmeltMatch` models that structure with concrete Rust fields:
 ///
-/// * `groups` — numbered capture groups as `Vec<Option<String>>` (an absent
+/// * `groups` — numbered capture groups as a shared `Vec<Option<String>>` (an absent
 ///   optional group is `None`, matching JavaScript `undefined`).
 /// * `named` — named capture groups keyed by their original name (and a
 ///   snake_case alias so generated snake_cased field reads still resolve).
 /// * `match_index` — the zero-based match offset (`.index`).
 /// * `input` — the full searched string (`.input`).
+///
+/// The payload (`groups`, `named`, `input`) sits behind `Rc` because a match is
+/// never written after `exec` builds it (writes to a match are not lowered
+/// through this type) while generated code clones values freely under the
+/// aggressive clone strategy: a deep copy of every group string per clone was
+/// ~17 heap allocations per request in Hono's RegExpRouter
+/// (`blocker-logs/hono-crud-perf-round2.md`). Sharing keeps a clone at three
+/// reference-count increments.
 ///
 /// Typed accessors (`group`, `named_group`, `index`, `input`, `len`) let
 /// callers read the shape without any dynamic tagging. When a match value has
@@ -7130,13 +7149,13 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool, needs_smelt_li
         struct_writer.line("id: usize,");
         struct_writer.line("/// Numbered capture groups; entry 0 is the whole match. An absent");
         struct_writer.line("/// optional group is `None` (JavaScript `undefined`).");
-        struct_writer.line("groups: Vec<Option<String>>,");
+        struct_writer.line("groups: ::std::rc::Rc<Vec<Option<String>>>,");
         struct_writer.line("/// Named capture groups keyed by name (plus a snake_case alias).");
-        struct_writer.line("named: ::std::collections::HashMap<String, Option<String>>,");
+        struct_writer.line("named: ::std::rc::Rc<::std::collections::HashMap<String, Option<String>>>,");
         struct_writer.line("/// Zero-based offset of the match within `input` (`.index`).");
         struct_writer.line("match_index: usize,");
         struct_writer.line("/// The full string that was searched (`.input`).");
-        struct_writer.line("input: String,");
+        struct_writer.line("input: ::std::rc::Rc<str>,");
     });
     writer.blank_line();
     // `id` is reference identity, not content: two matches produced by separate
@@ -7164,7 +7183,7 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool, needs_smelt_li
                     });
                     for_writer.line("named.insert(snake, value);");
                 });
-                fn_writer.line("Self { id: smelt_next_object_id(), groups, named, match_index, input: input.to_owned() }");
+                fn_writer.line("Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(groups), named: ::std::rc::Rc::new(named), match_index, input: input.into() }");
             },
         );
         impl_writer.line("/// Build the array a GLOBAL `String.prototype.match` answers.");
@@ -7176,7 +7195,7 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool, needs_smelt_li
         impl_writer.line("/// groups, and `index` is 0 with `input` the searched string, which a");
         impl_writer.line("/// global match's reader does not consult.");
         impl_writer.block("fn from_global_matches(matches: Vec<String>, input: &str) -> Self", |fn_writer| {
-            fn_writer.line("Self { id: smelt_next_object_id(), groups: matches.into_iter().map(Some).collect(), named: ::std::collections::HashMap::new(), match_index: 0, input: input.to_owned() }");
+            fn_writer.line("Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(matches.into_iter().map(Some).collect()), named: ::std::rc::Rc::default(), match_index: 0, input: input.into() }");
         });
         // The array view names `SmeltList`, which only exists when the
         // program uses lists; a program that only reads groups never asks for
@@ -7189,7 +7208,7 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool, needs_smelt_li
             impl_writer.line("/// but copies its entries: array methods lowered against it only read");
             impl_writer.line("/// (writes to a match are not lowered through it).");
             impl_writer.block("pub fn to_array_view(&self) -> SmeltList<Option<String>>", |fn_writer| {
-                fn_writer.line("SmeltList::with_id(self.id, self.groups.clone())");
+                fn_writer.line("SmeltList::with_id(self.id, self.groups.as_ref().clone())");
             });
         }
         impl_writer.line("/// Read a numbered capture group (`match[n]`).");
@@ -7225,7 +7244,7 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool, needs_smelt_li
         });
         impl_writer.line("/// The full searched string as an owned value (`match.input`).");
         impl_writer.block("pub fn input_owned(&self) -> String", |fn_writer| {
-            fn_writer.line("self.input.clone()");
+            fn_writer.line("self.input.to_string()");
         });
         impl_writer.line("/// Number of numbered capture groups, including the whole match.");
         impl_writer.block("fn len(&self) -> usize", |fn_writer| {
@@ -7267,11 +7286,11 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool, needs_smelt_li
         writer.block("impl IntoSmeltUnknown for SmeltMatch", |impl_writer| {
             impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
                 fn_writer.line("let elements = self.groups.iter().map(|value| value.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))).collect::<Vec<_>>();");
-                fn_writer.line("let groups = self.named.into_iter().map(|(name, value)| (name, value.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into())))).collect::<Vec<_>>();");
+                fn_writer.line("let groups = self.named.iter().map(|(name, value)| (name.clone(), value.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into())))).collect::<Vec<_>>();");
                 fn_writer.line("let array = SmeltArray::with_id(self.id, elements);");
                 // Derived from this match, and rewritten by its every erasure.
                 fn_writer.line("smelt_array_store_named_property(&array, \"index\".to_owned(), SmeltUnknown::Number(self.match_index as f64), true);");
-                fn_writer.line("smelt_array_store_named_property(&array, \"input\".to_owned(), SmeltUnknown::String(self.input.into()), true);");
+                fn_writer.line("smelt_array_store_named_property(&array, \"input\".to_owned(), SmeltUnknown::String(self.input), true);");
                 fn_writer.line("smelt_array_store_named_property(&array, \"groups\".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)), true);");
                 fn_writer.line("SmeltUnknown::Array(array)");
             });
@@ -7293,9 +7312,9 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool, needs_smelt_li
                         arm_writer.line("let mut named = ::std::collections::HashMap::new();");
                         arm_writer.line("if let Some(SmeltUnknown::Object(entries)) = values.named_property(\"groups\") { for (name, entry) in entries.iter() { named.insert(name, group_of(entry)); } }");
                         arm_writer.line("let match_index = match values.named_property(\"index\") { Some(SmeltUnknown::Number(index)) if index.is_finite() && index >= 0.0 => index as usize, _ => 0 };");
-                        arm_writer.line("let input = match values.named_property(\"input\") { Some(SmeltUnknown::String(input)) => input.to_string(), _ => String::new() };");
+                        arm_writer.line("let input = match values.named_property(\"input\") { Some(SmeltUnknown::String(input)) => input, _ => ::std::rc::Rc::default() };");
                         arm_writer.line("let id = values.id;");
-                        arm_writer.line("Self { id, groups: values.into_vec().into_iter().map(group_of).collect(), named, match_index, input }");
+                        arm_writer.line("Self { id, groups: ::std::rc::Rc::new(values.into_vec().into_iter().map(group_of).collect()), named: ::std::rc::Rc::new(named), match_index, input }");
                     });
                     match_writer.block("SmeltUnknown::Object(map) =>", |arm_writer| {
                         arm_writer.line("let mut groups = Vec::new();");
@@ -7303,8 +7322,8 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool, needs_smelt_li
                         arm_writer.line("let mut named = ::std::collections::HashMap::new();");
                         arm_writer.line("if let Some(SmeltUnknown::Object(entries)) = map.get(\"groups\") { for (name, entry) in entries.iter() { named.insert(name, group_of(entry)); } }");
                         arm_writer.line("let match_index = match map.get(\"index\") { Some(SmeltUnknown::Number(index)) if index.is_finite() && index >= 0.0 => index as usize, _ => 0 };");
-                        arm_writer.line("let input = match map.get(\"input\") { Some(SmeltUnknown::String(input)) => input.to_string(), _ => String::new() };");
-                        arm_writer.line("Self { id: map.id, groups, named, match_index, input }");
+                        arm_writer.line("let input = match map.get(\"input\") { Some(SmeltUnknown::String(input)) => input, _ => ::std::rc::Rc::default() };");
+                        arm_writer.line("Self { id: map.id, groups: ::std::rc::Rc::new(groups), named: ::std::rc::Rc::new(named), match_index, input }");
                     });
                     match_writer.line("_ => Self::default(),");
                 });
