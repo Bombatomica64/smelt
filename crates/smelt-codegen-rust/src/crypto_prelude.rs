@@ -34,6 +34,11 @@
 //! cipher algorithms. They throw the spec's `NotSupportedError` at run time,
 //! which a source `catch` can read, rather than computing a wrong answer.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use crate::rust::CodeWriter;
 
 /// How the digest helper reports an unrecognized algorithm name.
@@ -43,7 +48,7 @@ use crate::rust::CodeWriter;
 /// one has no erased value for a `catch` to inspect anyway, so the message is
 /// all there is to carry.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DigestThrow {
+pub(crate) enum DigestThrow {
     /// Brand the error record, so `error.name` reads `"NotSupportedError"`.
     Branded,
     /// Carry the message alone.
@@ -56,7 +61,7 @@ pub enum DigestThrow {
 /// implied it, so the AND-ing of "the program calls this" with "the crate has
 /// that carrier" happens once, at the call site where both are known.
 #[derive(Clone, Copy, Debug)]
-pub struct CryptoDemand {
+pub(crate) struct CryptoDemand {
     /// Emit the fill helper over the concrete `SmeltUint8Array`.
     pub fill_concrete_view: bool,
     /// Emit the fill helper over the erased byte-backed host record.
@@ -73,7 +78,7 @@ pub struct CryptoDemand {
 ///
 /// Every helper is gated, so a program that only calls `randomUUID` emits none
 /// of them and carries neither hash crate nor `getrandom`.
-pub fn emit(writer: &mut CodeWriter, demand: CryptoDemand) {
+pub(crate) fn emit(writer: &mut CodeWriter, demand: CryptoDemand) {
     if demand.fill_concrete_view {
         emit_random_values(writer);
     }

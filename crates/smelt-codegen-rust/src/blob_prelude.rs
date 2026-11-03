@@ -49,6 +49,11 @@
 //! `[blob, "x"]` parts array) turned a `0xFF` byte into the three bytes of
 //! U+FFFD.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use crate::rust::CodeWriter;
 
 /// Emit the `SmeltBlob` runtime type.
@@ -56,7 +61,7 @@ use crate::rust::CodeWriter;
 /// `needs_unknown` gates the erasure adapters (`IntoSmeltUnknown` /
 /// `SmeltFromUnknown`): a program that never crosses the dynamic boundary does
 /// not emit the carrier type, so the impls must not be emitted either.
-pub fn emit(writer: &mut CodeWriter, needs_unknown: bool) {
+pub(crate) fn emit(writer: &mut CodeWriter, needs_unknown: bool) {
     emit_struct(writer);
     emit_inherent_impl(writer);
     emit_traits(writer, needs_unknown);

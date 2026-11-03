@@ -30,14 +30,19 @@
 //! adapters by [`emit_throwing_support`]. Every other setter ignores a value it
 //! cannot apply, as the spec says.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use crate::rust::CodeWriter;
 use crate::thrown::{THROW_FN, error_payload_record_expr};
 
 /// Name of the generated adapter behind `new URL(input, base?)`.
-pub const URL_NEW_FN: &str = "smelt_url_new_throwing";
+pub(crate) const URL_NEW_FN: &str = "smelt_url_new_throwing";
 
 /// Name of the generated adapter behind `url.href = text`.
-pub const URL_SET_HREF_FN: &str = "smelt_url_set_href_throwing";
+pub(crate) const URL_SET_HREF_FN: &str = "smelt_url_set_href_throwing";
 
 /// The component getters and setters, as `(component, getter, setter)`.
 ///
@@ -63,7 +68,7 @@ const COMPONENTS: &[(&str, Option<&str>)] = &[
 /// Requires `SmeltUrlSearchParams` (its `searchParams`), which the gate in
 /// `stdlib::needs_url_search_params_runtime` guarantees, and
 /// `smelt_next_object_id`.
-pub fn emit(writer: &mut CodeWriter, needs_unknown: bool) {
+pub(crate) fn emit(writer: &mut CodeWriter, needs_unknown: bool) {
     emit_struct(writer);
     emit_inherent_impl(writer);
     if needs_unknown {
@@ -209,7 +214,7 @@ fn emit_boundary_adapters(writer: &mut CodeWriter) {
 /// Emit the throwing `URL` adapters into the erased-error block of the prelude.
 ///
 /// Node's message for both is `Invalid URL`, and a program can read it.
-pub fn emit_throwing_support(writer: &mut CodeWriter) {
+pub(crate) fn emit_throwing_support(writer: &mut CodeWriter) {
     let error = error_payload_record_expr("TypeError", "\"Invalid URL\".to_owned()");
     writer.blank_line();
     writer.line("/// `new URL(input, base?)`, throwing a catchable `TypeError` for text that is not a URL.");

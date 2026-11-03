@@ -30,13 +30,18 @@
 //! from the live list *before* its call, so a re-entrant `emit` cannot run it
 //! twice.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use crate::rust::CodeWriter;
 
 /// Emit the `SmeltEventEmitter` runtime type.
 ///
 /// Gated on its own use (`stdlib::needs_event_emitter_runtime`): the listener store is
 /// the erased callable ABI, so an emitter cannot exist without the carrier.
-pub fn emit(writer: &mut CodeWriter) {
+pub(crate) fn emit(writer: &mut CodeWriter) {
     emit_struct(writer);
     emit_inherent_impl(writer);
     emit_erasure(writer);

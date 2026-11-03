@@ -25,6 +25,11 @@
 //!   `Uint8Array` (the byte-view family's erased face, which is why a program
 //!   using `node:sqlite` always carries that family: `stdlib::needs_byte_array_runtime`).
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use crate::rust::CodeWriter;
 
 /// The runtime types and their conversions.
@@ -281,7 +286,7 @@ impl SmeltSqliteStatement {
 /// connection. A record that did not come from an erasure recovers as a handle
 /// that is not open — a real state of both types (the one `close()` leaves) —
 /// rather than as a fabricated connection.
-pub fn emit(writer: &mut CodeWriter) {
+pub(crate) fn emit(writer: &mut CodeWriter) {
     for line in SQLITE_RUNTIME.lines() {
         writer.line(line);
     }

@@ -30,10 +30,15 @@
 //! the point) rather than reimplementing digit generation, which is the part
 //! that would be easy to get subtly wrong.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use crate::rust::CodeWriter;
 
 /// The emitted helper's name, so emit sites and the prelude agree on it.
-pub const NUMBER_TO_STRING_FN: &str = "smelt_number_to_string";
+pub(crate) const NUMBER_TO_STRING_FN: &str = "smelt_number_to_string";
 
 /// The console's number formatter, which differs from the spec's in one value.
 ///
@@ -51,7 +56,7 @@ pub const NUMBER_TO_STRING_FN: &str = "smelt_number_to_string";
 /// a `SmeltConsoleFormat` trait with one impl per reachable Rust type, so the
 /// impl is chosen by the expression's real type instead of by the emitter's
 /// guess at it.
-pub const CONSOLE_NUMBER_FN: &str = "smelt_console_number";
+pub(crate) const CONSOLE_NUMBER_FN: &str = "smelt_console_number";
 
 
 /// Emit `smelt_number_to_string(f64) -> String`.
@@ -61,7 +66,7 @@ pub const CONSOLE_NUMBER_FN: &str = "smelt_console_number";
 /// property key, an array join and `console.log`. A crate that never
 /// stringifies a number carries it unused, which is inert under the generated
 /// crate's `#![allow(dead_code)]` — the same trade the `typeof` helper makes.
-pub fn emit(writer: &mut CodeWriter) {
+pub(crate) fn emit(writer: &mut CodeWriter) {
     writer.line("/// `Number::toString(value, 10)`: JavaScript's number formatting.");
     writer.line("///");
     writer.line("/// Exponential notation at `n > 21` and `n <= -6`, where `n` is the");

@@ -27,14 +27,19 @@
 //! be in the JS grammar: there the two agree, and digit-to-float rounding is
 //! the part worth not reimplementing.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use crate::rust::CodeWriter;
 
 /// The emitted helper's name, so emit sites and the prelude agree on it.
-pub const STRING_TO_NUMBER_FN: &str = "smelt_string_to_number";
+pub(crate) const STRING_TO_NUMBER_FN: &str = "smelt_string_to_number";
 
 /// The call text that converts the `&str`-coercible expression `text` with
 /// the JavaScript rule, for an emit site that builds its code with `format!`.
-pub fn string_to_number_call(text: &str) -> String {
+pub(crate) fn string_to_number_call(text: &str) -> String {
     format!("{STRING_TO_NUMBER_FN}(&({text}))")
 }
 
@@ -43,7 +48,7 @@ pub fn string_to_number_call(text: &str) -> String {
 /// Emitted unconditionally, like `smelt_number_to_string`: it is core coercion
 /// machinery, reached by `Number(s)`/`+s` on a static string as well as by the
 /// erased-value conversions, so no single feature flag owns it.
-pub fn emit(writer: &mut CodeWriter) {
+pub(crate) fn emit(writer: &mut CodeWriter) {
     writer.line("/// ECMA-262 `StringToNumber`: the number JavaScript's `Number(text)` answers.");
     writer.line("#[allow(dead_code)]");
     writer.block(
