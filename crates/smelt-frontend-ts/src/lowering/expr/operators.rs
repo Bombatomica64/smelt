@@ -4261,7 +4261,7 @@ impl ModuleBuilder<'_> {
             None,
             self.span(function_body.span.start, function_body.span.end),
         );
-        body.is_generator = function.generator;
+        body.set_generator(function.generator);
         let mut params = Vec::new();
         let mut param_names = HashSet::new();
         let mut errors = Vec::new();
@@ -4473,7 +4473,7 @@ impl ModuleBuilder<'_> {
             Self::push_generator_return(accumulator, function, &mut body);
         }
         if function.r#async {
-            body.build_async_state_machine();
+            body.finish_async();
         }
         self.current_arguments_arities.pop();
         self.scope.restore_bindings(saved_locals);

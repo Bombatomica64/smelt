@@ -227,8 +227,7 @@ async def run() -> int:
         "expected await expression",
     )?;
     let state_machine = body
-        .async_state_machine
-        .as_ref()
+        .async_state_machine()
         .ok_or_else(|| "async body should record suspension metadata".to_owned())?;
     ensure_eq(&state_machine.suspensions.len(), &1, "suspension count")?;
     Ok(())

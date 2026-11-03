@@ -1228,8 +1228,8 @@ export class Values {
         })
         .ok_or_else(|| "missing async generator class method".to_owned())?;
     let body = function_body(&ctx, function)?;
-    ensure!(body.async_state_machine.is_some());
-    ensure!(body.is_generator);
+    ensure!(body.async_state_machine().is_some());
+    ensure!(body.is_generator());
     ensure!(matches!(
         ctx.krate.types.get(function.return_ty),
         Some(Type::Generator { is_async: true, .. })
@@ -1267,7 +1267,7 @@ export class Values {
         .bodies
         .iter()
         .filter(|body| {
-            body.is_generator
+            body.is_generator()
                 && body
                     .exprs
                     .iter()

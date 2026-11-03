@@ -1064,7 +1064,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.append_module_exit_drain(&mut body, span);
             // Every async body carries its await-point metadata; the module
             // body is no exception, and MIR rejects an async body without it.
-            body.build_async_state_machine();
+            body.finish_async();
         }
         let body_id = self.ctx.krate.push_body(body);
         module.body = Some(body_id);

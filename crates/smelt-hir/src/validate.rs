@@ -127,7 +127,7 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
                 if krate
                     .bodies
                     .get(closure.body.0 as usize)
-                    .is_some_and(|body| body.async_state_machine.is_some())
+                    .is_some_and(|body| body.async_state_machine().is_some())
                     && let Some(slot) = async_bodies.get_mut(closure.body.0 as usize)
                 {
                     *slot = true;
@@ -323,7 +323,7 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
 
         let body_is_async = async_bodies.get(body_idx).copied().unwrap_or(false);
         let body_is_referenced = referenced.get(body_idx).copied().unwrap_or(false);
-        match (&body.async_state_machine, body_is_async) {
+        match (body.async_state_machine(), body_is_async) {
             _ if !body_is_referenced => {}
             (Some(_), false) => errors.push(ValidationError {
                 message: format!("body {body_idx} has an async state machine but is not async"),
@@ -333,7 +333,25 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
             }),
             _ => {}
         }
-        if let Some(machine) = &body.async_state_machine {
+        if let Some(machine) = body.async_state_machine() {
+            // The machine is derived from the body's awaits when the frontend
+            // calls `Body::finish_async`; an `await` pushed after that call
+            // would have no suspension point and never suspend.
+            for (expr_idx, expr) in body.exprs.iter().enumerate() {
+                if matches!(expr.kind, ExprKind::Await(_))
+                    && !machine
+                        .suspensions
+                        .iter()
+                        .any(|suspension| suspension.await_expr.0 as usize == expr_idx)
+                {
+                    errors.push(ValidationError {
+                        message: format!(
+                            "body {body_idx} await expr {expr_idx} has no suspension point \
+                             (its async state machine was built before it)"
+                        ),
+                    });
+                }
+            }
             if machine.states.len() != machine.suspensions.len() + 1 {
                 errors.push(ValidationError {
                     message: format!(
@@ -371,4 +389,86 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
     }
 
     errors
+}
+
+#[cfg(test)]
+mod tests {
+    //! Async body-kind checks: a machine must agree with its body.
+    use crate::{
+        Body, Crate, Expr, ExprKind, FileId, Language, Literal, Module, SourceFile, Span, Type,
+    };
+
+    /// An async module body awaiting two literals, with its state machine
+    /// derived after `awaits_before_finish` of the awaits were pushed.
+    fn async_module(awaits_before_finish: usize) -> Crate {
+        let mut krate = Crate::new();
+        let span = Span::new(FileId(0), 0, 0);
+        let int = krate.types.intern(Type::Int);
+        let future_ty = krate.types.intern(Type::Future(int));
+        let mut body = Body::new(None, span);
+        let push_await = |body: &mut Body| {
+            let future = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Int(1)),
+                ty: future_ty,
+                span,
+            });
+            body.push_expr(Expr {
+                kind: ExprKind::Await(future),
+                ty: int,
+                span,
+            });
+        };
+        for _ in 0..awaits_before_finish {
+            push_await(&mut body);
+        }
+        body.finish_async();
+        for _ in awaits_before_finish..2 {
+            push_await(&mut body);
+        }
+        let body_id = krate.push_body(body);
+        let mut module = Module::new(
+            "main",
+            SourceFile {
+                path: "main.ts".to_owned(),
+                language: Language::TypeScript,
+                file: FileId(0),
+            },
+        );
+        module.is_async = true;
+        module.body = Some(body_id);
+        krate.push_module(module);
+        krate
+    }
+
+    #[test]
+    fn a_machine_built_after_every_await_validates() {
+        let errors = super::validate(&async_module(2));
+        assert!(errors.is_empty(), "{errors:?}");
+    }
+
+    #[test]
+    fn a_machine_built_before_an_await_is_rejected() {
+        let errors = super::validate(&async_module(1));
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message.contains("has no suspension point")),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn generator_and_async_compose_in_either_order() {
+        let span = Span::new(FileId(0), 0, 0);
+        let mut body = Body::new(None, span);
+        body.set_generator(true);
+        body.finish_async();
+        assert!(body.is_generator() && body.async_state_machine().is_some());
+        let mut body = Body::new(None, span);
+        body.finish_async();
+        body.set_generator(true);
+        assert!(body.is_generator() && body.async_state_machine().is_some());
+        body.set_generator(false);
+        assert!(!body.is_generator() && body.async_state_machine().is_some());
+    }
 }

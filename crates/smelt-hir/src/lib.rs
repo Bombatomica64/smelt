@@ -61,7 +61,7 @@ pub mod type_normalize;
 mod validate;
 
 pub use body::{
-    AsyncState, AsyncStateId, AsyncStateMachine, AsyncSuspensionPoint, Block, Body, LocalDecl,
+    AsyncState, AsyncStateId, AsyncStateMachine, AsyncSuspensionPoint, Block, Body, BodyKind, LocalDecl,
     MatchArm, Pattern, Stmt,
 };
 pub use expr::{

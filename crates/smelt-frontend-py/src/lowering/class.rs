@@ -1633,7 +1633,7 @@ impl ModuleBuilder<'_> {
                 this.statement(stmt, &mut fn_body)?;
             }
             if func.is_async {
-                fn_body.build_async_state_machine();
+                fn_body.finish_async();
             }
             Ok((fn_body, params))
         })?;

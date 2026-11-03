@@ -70,7 +70,9 @@ impl Crate {
     /// Adds a body to the crate and returns its ID.
     pub fn push_body(&mut self, body: Body) -> BodyId {
         let id = BodyId(id_index(self.bodies.len()));
-        self.bodies.push(Body { id, ..body });
+        let mut body = body;
+        body.id = id;
+        self.bodies.push(body);
         id
     }
 }

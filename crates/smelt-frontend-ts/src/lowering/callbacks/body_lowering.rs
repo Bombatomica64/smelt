@@ -1836,7 +1836,7 @@ impl ModuleBuilder<'_> {
             actual_return_ty = inferred;
         }
         if is_async {
-            closure_body.build_async_state_machine();
+            closure_body.finish_async();
         }
         self.scope.restore_bindings(bindings_before_body);
         self.current_async = saved_async;

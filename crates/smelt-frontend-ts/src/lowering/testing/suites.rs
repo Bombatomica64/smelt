@@ -700,7 +700,7 @@ impl ModuleBuilder<'_> {
         // returns the pending promise for the framework to await).
         let is_async = arrow.r#async || Self::body_contains_await(&body);
         if is_async {
-            body.build_async_state_machine();
+            body.finish_async();
         }
 
         let name = self.intern_source_name(test_name);
@@ -824,7 +824,7 @@ impl ModuleBuilder<'_> {
         // lowered body inlined an `await` (async matcher desugaring).
         let is_async = function.r#async || Self::body_contains_await(&body);
         if is_async {
-            body.build_async_state_machine();
+            body.finish_async();
         }
 
         let name = self.intern_source_name(test_name);

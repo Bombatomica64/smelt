@@ -372,7 +372,7 @@ impl ModuleBuilder<'_> {
             inferred_return_ty = self.last_return_type(&body);
         }
         if arrow.r#async {
-            body.build_async_state_machine();
+            body.finish_async();
         }
         // Any `fn.prop = value` write this body collected must have been rebuilt
         // into a callable-interface struct by now; a leftover is a dropped write.

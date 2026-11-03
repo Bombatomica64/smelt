@@ -237,7 +237,7 @@ impl ModuleBuilder<'_> {
                 .iter()
                 .find_map(|stmt| this.statement(stmt, &mut fn_body).err());
             if func.is_async {
-                fn_body.build_async_state_machine();
+                fn_body.finish_async();
             }
             if let Some(err) = body_error {
                 return Err(err);

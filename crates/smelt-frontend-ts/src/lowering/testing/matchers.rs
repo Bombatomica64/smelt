@@ -5127,7 +5127,7 @@ impl ModuleBuilder<'_> {
                 None,
                 self.span(function_body.span.start, function_body.span.end),
             );
-            closure_body.is_generator = function.generator;
+            closure_body.set_generator(function.generator);
             let mut closure_params = Vec::new();
             let mut param_names = HashSet::new();
             let mut saved_locals = Vec::new();
@@ -5364,7 +5364,7 @@ impl ModuleBuilder<'_> {
                 Self::push_generator_return(accumulator, function, &mut closure_body);
             }
             if function.r#async {
-                closure_body.build_async_state_machine();
+                closure_body.finish_async();
             }
             self.current_return_ty = saved_return_ty;
             self.current_async = saved_async;

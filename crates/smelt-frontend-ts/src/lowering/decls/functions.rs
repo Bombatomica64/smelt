@@ -321,7 +321,7 @@ impl ModuleBuilder<'_> {
             None,
             self.span(function_body.span.start, function_body.span.end),
         );
-        body.is_generator = function.generator;
+        body.set_generator(function.generator);
         let mut params = Vec::new();
 
         let mut destructured_params = Vec::new();
@@ -604,7 +604,7 @@ impl ModuleBuilder<'_> {
             Self::push_generator_return(accumulator, function, &mut body);
         }
         if function.r#async {
-            body.build_async_state_machine();
+            body.finish_async();
         }
         // Any `fn.prop = value` write this body collected must have been rebuilt
         // into a callable-interface struct by now; a leftover is a dropped write.
@@ -1092,7 +1092,7 @@ impl ModuleBuilder<'_> {
             None,
             self.span(function_body.span.start, function_body.span.end),
         );
-        body.is_generator = function.generator;
+        body.set_generator(function.generator);
         let mut params = Vec::new();
         let mut errors = Vec::new();
         if let Some((_, receiver_ty)) = receiver {
@@ -1205,7 +1205,7 @@ impl ModuleBuilder<'_> {
             Self::push_generator_return(accumulator, function, &mut body);
         }
         if function.r#async {
-            body.build_async_state_machine();
+            body.finish_async();
         }
 
         self.scope.restore_bindings(saved_locals);
@@ -3608,7 +3608,7 @@ impl ModuleBuilder<'_> {
             None,
             self.span(function_body.span.start, function_body.span.end),
         );
-        body.is_generator = method.value.generator;
+        body.set_generator(method.value.generator);
         let mut params = Vec::new();
         let this_symbol = self.ctx.krate.symbols.intern("this");
         let this_local = body.push_local(LocalDecl {
@@ -3920,7 +3920,7 @@ impl ModuleBuilder<'_> {
             Self::push_generator_return(accumulator, &method.value, &mut body);
         }
         if method.value.r#async {
-            body.build_async_state_machine();
+            body.finish_async();
         }
         self.scope.restore_bindings(saved_locals);
         self.current_class = saved_class;
