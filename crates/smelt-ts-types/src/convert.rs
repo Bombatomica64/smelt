@@ -87,8 +87,24 @@ impl<'checker> Converter<'checker> {
     }
 
     /// Finishes conversion and returns the table.
+    ///
+    /// Every [`Self::convert`] fills the slot it reserves before returning, so
+    /// no slot is left pending.
     pub(crate) fn finish(self) -> TsTypeTable {
+        debug_assert!(self.table.is_complete(), "a reserved type slot was never filled");
         self.table
+    }
+
+    /// Runs `expand` one structural level deeper, or returns `None` at
+    /// [`MAX_STRUCTURAL_DEPTH`]. The depth is restored however `expand` returns.
+    fn nested<T>(&mut self, expand: impl FnOnce(&mut Self) -> T) -> Option<T> {
+        if self.depth >= MAX_STRUCTURAL_DEPTH {
+            return None;
+        }
+        self.depth = self.depth.saturating_add(1);
+        let expanded = expand(self);
+        self.depth = self.depth.saturating_sub(1);
+        Some(expanded)
     }
 
     /// Converts `ty`, returning its interned id.
@@ -248,19 +264,16 @@ impl<'checker> Converter<'checker> {
 
     /// An anonymous, mapped or object-literal type, expanded to its members.
     fn structural_kind(&mut self, ty: P<Type>) -> TsTypeKind {
-        if self.depth >= MAX_STRUCTURAL_DEPTH {
-            return TsTypeKind::Truncated;
-        }
-        self.depth = self.depth.saturating_add(1);
-        let object = TsObjectType {
-            symbol: ty.symbol().map(|symbol| self.symbol_ref(symbol)),
-            properties: self.properties(ty),
-            call_signatures: self.signatures(ty, SignatureKind::Call),
-            construct_signatures: self.signatures(ty, SignatureKind::Construct),
-            index_signatures: self.index_signatures(ty),
-        };
-        self.depth = self.depth.saturating_sub(1);
-        TsTypeKind::Object(object)
+        self.nested(|converter| {
+            TsTypeKind::Object(TsObjectType {
+                symbol: ty.symbol().map(|symbol| converter.symbol_ref(symbol)),
+                properties: converter.properties(ty),
+                call_signatures: converter.signatures(ty, SignatureKind::Call),
+                construct_signatures: converter.signatures(ty, SignatureKind::Construct),
+                index_signatures: converter.index_signatures(ty),
+            })
+        })
+        .unwrap_or(TsTypeKind::Truncated)
     }
 
     /// Resolved properties of a structural type.
