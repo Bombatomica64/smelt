@@ -9,7 +9,7 @@ async fn run (FuncId(0)) -> None
     %3 user from_message: Response
     %4 temp: Dict<String, String>
     %5 temp: Response
-    %6 temp: Dict<String, Unknown>
+    %6 temp: BoomOptions
     %7 temp: Boom
     %8 temp: Response
     %9 temp: Float
@@ -21,7 +21,7 @@ async fn run (FuncId(0)) -> None
     %15 temp: Future<String>
     %16 temp: String
     %17 temp: None
-    %18 temp: Dict<String, String>
+    %18 temp: BoomOptions
     %19 temp: Boom
     %20 temp: Response
     %21 temp: Float

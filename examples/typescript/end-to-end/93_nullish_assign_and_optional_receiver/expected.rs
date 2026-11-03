@@ -136,19 +136,24 @@ impl SmeltHeaders {
     /// `set-cookie` is the exception the spec carves out: its values are
     /// never combined, so each cookie stays its own entry.
     pub fn entries_sorted(&self) -> Vec<(String, String)> {
-        let entries = self.entries.borrow().clone();
-        let mut names: Vec<String> = entries.iter().map(|(name, _)| name.clone()).collect();
-        names.sort();
-        names.dedup();
-        let mut combined = Vec::new();
-        for name in names {
-            let values: Vec<String> = entries.iter().filter(|(entry_name, _)| *entry_name == name).map(|(_, value)| value.clone()).collect();
-            if name == "set-cookie" {
-                for value in values { combined.push((name.clone(), value)); }
+        let entries = self.entries.borrow();
+        let mut order: Vec<usize> = (0..entries.len()).collect();
+        order.sort_by(|left, right| entries[*left].0.cmp(&entries[*right].0));
+        let mut combined: Vec<(String, String)> = Vec::with_capacity(order.len());
+        let mut start = 0;
+        while start < order.len() {
+            let name = &entries[order[start]].0;
+            let mut end = start + 1;
+            while end < order.len() && entries[order[end]].0 == *name { end += 1; }
+            if end - start == 1 || name == "set-cookie" {
+                for position in &order[start..end] { combined.push((name.clone(), entries[*position].1.clone())); }
             }
             else {
-                combined.push((name.clone(), values.join(", ")));
+                let mut joined = String::new();
+                for (count, position) in order[start..end].iter().enumerate() { if count > 0 { joined.push_str(", "); } joined.push_str(&entries[*position].1); }
+                combined.push((name.clone(), joined));
             }
+            start = end;
         }
         combined
     }

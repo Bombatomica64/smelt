@@ -2,13 +2,13 @@ module examples/typescript/end-to-end/179_inherited_members_of_generic_bases/inp
   body BodyId(15)
   items
     interface Box1<T> fields [Public value: T] methods []
-    class Base fields [Public items: List<T>] constructor Some(ItemId(8)) methods [ItemId(5), ItemId(6), ItemId(7)] implements []
-    class Middle fields [] constructor Some(ItemId(11)) methods [ItemId(10)] implements []
-    class Leaf fields [] constructor Some(ItemId(13)) methods [] implements []
-    class Nums fields [] constructor Some(ItemId(15)) methods [] implements []
+    class Base fields [Public items: List<T>] constructor Some(ItemId(5)) methods [ItemId(2), ItemId(3), ItemId(4)] implements []
+    class Middle fields [] constructor Some(ItemId(8)) methods [ItemId(7)] implements []
+    class Leaf fields [] constructor Some(ItemId(10)) methods [] implements []
+    class Nums fields [] constructor Some(ItemId(12)) methods [] implements []
     interface ParseResult<T> fields [Public value: T] methods []
-    class Parser fields [Public parse: fn(String) -> ParseResult<T>] constructor Some(ItemId(19)) methods [ItemId(18)] implements []
-    class YearParser fields [] constructor Some(ItemId(22)) methods [ItemId(21)] implements []
+    class Parser fields [Public parse: fn(String) -> ParseResult<T>] constructor Some(ItemId(15)) methods [ItemId(14)] implements []
+    class YearParser fields [] constructor Some(ItemId(18)) methods [ItemId(17)] implements []
   locals
     %0 const leaf: Leaf
     %1 const joined: List<String>
@@ -33,7 +33,7 @@ module examples/typescript/end-to-end/179_inherited_members_of_generic_bases/inp
     #15: fn() -> Float = #14.total
     #16: Leaf = %0
     #17: Float = #16.total()
-    #18: None = @24(console_log)
+    #18: None = @20(console_log)
     #19: None = call #18(#7, #13, #17)
     #20: Leaf = %0
     #21: fn(fn(List<String>) -> String) -> List<String> = #20.map
@@ -43,7 +43,7 @@ module examples/typescript/end-to-end/179_inherited_members_of_generic_bases/inp
     #25: List<String> = %1
     #26: String = ","
     #27: String = string_join #25, #26
-    #28: None = @25(console_log)
+    #28: None = @21(console_log)
     #29: None = call #28(#27)
     #30: Nums = new Nums()
     #31: Nums = %2
@@ -63,7 +63,7 @@ module examples/typescript/end-to-end/179_inherited_members_of_generic_bases/inp
     #45: List<String> = #43.map(#44)
     #46: String = " "
     #47: String = string_join #45, #46
-    #48: None = @26(console_log)
+    #48: None = @22(console_log)
     #49: None = call #48(#47)
     #50: YearParser = new YearParser()
     #51: Parser<Float> = %3
@@ -71,7 +71,7 @@ module examples/typescript/end-to-end/179_inherited_members_of_generic_bases/inp
     #53: Parser<Float> = %3
     #54: String = "2016"
     #55: Float = #53.run(#54)
-    #56: None = @27(console_log)
+    #56: None = @23(console_log)
     #57: None = call #56(#55)
   stmts
     s0: let %0: Leaf = #0

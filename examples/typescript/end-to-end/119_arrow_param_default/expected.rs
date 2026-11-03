@@ -144,14 +144,14 @@ fn main() {
     let _smelt_tmp_4: f64;
     let _smelt_tmp_6: SmeltList<f64>;
     let _smelt_tmp_8: f64;
-    let mut _smelt_tmp_10: ::std::rc::Rc<dyn Fn(String, String) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, String) -> String> = ::std::rc::Rc::new(move |arg0: String, arg1: String| -> String { String::new() }); smelt_default_callback };
+    let _smelt_tmp_10: ::std::rc::Rc<dyn Fn(String, String) -> String>;
     let _smelt_tmp_11: String;
-    let mut _smelt_tmp_13: ::std::rc::Rc<dyn Fn(String, String) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, String) -> String> = ::std::rc::Rc::new(move |arg0: String, arg1: String| -> String { String::new() }); smelt_default_callback };
+    let _smelt_tmp_13: ::std::rc::Rc<dyn Fn(String, String) -> String>;
     let _smelt_tmp_14: String;
-    let mut _smelt_tmp_16: ::std::rc::Rc<dyn Fn(f64, f64) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, f64) -> f64> = ::std::rc::Rc::new(move |arg0: f64, arg1: f64| -> f64 { 0.0 }); smelt_default_callback };
+    let _smelt_tmp_16: ::std::rc::Rc<dyn Fn(f64, f64) -> f64>;
     let _smelt_tmp_17: f64;
     let _smelt_tmp_18: f64;
-    let mut _smelt_tmp_20: ::std::rc::Rc<dyn Fn(f64, f64) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, f64) -> f64> = ::std::rc::Rc::new(move |arg0: f64, arg1: f64| -> f64 { 0.0 }); smelt_default_callback };
+    let _smelt_tmp_20: ::std::rc::Rc<dyn Fn(f64, f64) -> f64>;
     let _smelt_tmp_21: f64;
     let _smelt_tmp_2: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0, 5.0]; smelt_list_items }));
     let _smelt_tmp_3: SmeltList<SmeltList<f64>> = cluster(_smelt_tmp_2, None::<f64>);

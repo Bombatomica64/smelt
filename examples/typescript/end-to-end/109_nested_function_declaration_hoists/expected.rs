@@ -180,7 +180,7 @@ pub(crate) fn count_up_hoisted(base: f64) -> f64 {
 
 pub(crate) fn pick_label(flag: bool) -> String {
     let decorate: ::std::rc::Rc<dyn Fn(String) -> String>;
-    let mut _smelt_tmp_2: ::std::rc::Rc<dyn Fn(String) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback };
+    let _smelt_tmp_2: ::std::rc::Rc<dyn Fn(String) -> String>;
     let _smelt_tmp_3: String;
     if flag {
     _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: String| {

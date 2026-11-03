@@ -9,12 +9,8 @@ class StrictYear fields [] constructor Some(FuncId(23)) methods [FuncId(22)]
 class Lists fields [Public items: List<List<String>>] constructor Some(FuncId(25)) methods [FuncId(24)]
 interface Parsed
 interface Options
-interface Parsed
-interface Options
 interface PartialOptions
-interface Parsed
 interface Pair
-interface Options
 
 fn make_pair (FuncId(0)) -> Pair<T>
   locals

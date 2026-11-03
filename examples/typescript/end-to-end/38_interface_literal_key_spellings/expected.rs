@@ -1402,7 +1402,7 @@ fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> 
 fn smelt_for_in_object_keys(map: &SmeltObject) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); let shape = smelt_for_in_object_shape(map); for key in map.keys() { if key.starts_with("__smelt_proto:") { continue; } if smelt_is_for_in_shape_key(shape, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in map.keys() { if let Some(inherited) = key.strip_prefix("__smelt_proto:") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }
 
 /// Every key JavaScript `for...in` yields for a typed record, prototype chain included.
-fn smelt_for_in_record_keys<V>(record: &SmeltRecord<String, V>) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for key in record.keys() { if key.starts_with("__smelt_proto:") { continue; } if smelt_is_for_in_record_key(record, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in record.keys() { if let Some(inherited) = key.strip_prefix("__smelt_proto:") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }
+fn smelt_for_in_record_keys<V>(record: &SmeltRecord<String, V>) -> Vec<String> { let mut keys = Vec::new(); let mut has_inherited = false; for key in record.keys() { if key.starts_with("__smelt_proto:") { has_inherited = true; continue; } if smelt_is_for_in_record_key(record, &key) { keys.push(key); } } if has_inherited { for key in record.keys() { if let Some(inherited) = key.strip_prefix("__smelt_proto:") { if !keys.iter().any(|existing| existing == inherited) { keys.push(inherited.to_owned()); } } } } keys }
 
 /// Own entries of a `SmeltJsMap` backing, with representation markers removed.
 ///
@@ -1619,6 +1619,14 @@ fn smelt_array_named_property(id: usize, key: &str) -> Option<SmeltUnknown> { SM
 /// `derived` marks a property the erasure of a typed value rewrites every
 /// time it erases (a match's `index`): such an entry is never pinned.
 fn smelt_array_store_named_property(array: &SmeltArray, key: String, property: SmeltUnknown, derived: bool) { SMELT_ARRAY_PROPS.with(|props| { if props.borrow().wants_sweep(array.id) { smelt_sweep_array_props(props); } let mut props = props.borrow_mut(); let entry = props.slot(array.id); entry.own(&array.values); if array.detached && !derived { entry.pinned = true; } match entry.props.iter_mut().find(|(name, _)| *name == key) { Some(slot) => slot.1 = property, None => entry.props.push((key, property)) } }); }
+
+/// Write several named properties of `array` at once: one table lookup for all of them.
+///
+/// The same as calling `smelt_array_store_named_property` per pair, which a
+/// regex match's erasure did three times per match (`index`, `input`,
+/// `groups`), each with its own sweep check, slot lookup and owner check.
+#[allow(dead_code)]
+fn smelt_array_store_named_properties<const N: usize>(array: &SmeltArray, properties: [(&'static str, SmeltUnknown); N], derived: bool) { SMELT_ARRAY_PROPS.with(|props| { if props.borrow().wants_sweep(array.id) { smelt_sweep_array_props(props); } let mut props = props.borrow_mut(); let entry = props.slot(array.id); entry.own(&array.values); if array.detached && !derived { entry.pinned = true; } for (key, property) in properties { match entry.props.iter_mut().find(|(name, _)| name == key) { Some(slot) => slot.1 = property, None => entry.props.push((key.to_owned(), property)) } } }); }
 
 /// Make a typed copy's buffer an owner of `id`'s named properties, if it has any.
 ///
@@ -3199,9 +3207,11 @@ fn smelt_regex_substitution(replacement: &str, haystack: &str, captures: &fancy_
 #[derive(Clone, Debug)]
 pub struct SmeltRegExp {
     id: usize,
-    source: String,
-    flags: String,
+    source: ::std::rc::Rc<str>,
+    flags: ::std::rc::Rc<str>,
     last_index: ::std::rc::Rc<::std::cell::RefCell<usize>>,
+    /// The compiled automaton, shared by every clone (`None` inside: the pattern does not compile).
+    compiled: ::std::rc::Rc<::std::cell::OnceCell<::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>>,
 }
 
 impl PartialEq for SmeltRegExp { fn eq(&self, other: &Self) -> bool { self.source == other.source && self.flags == other.flags && *self.last_index.borrow() == *other.last_index.borrow() } }
@@ -3215,7 +3225,7 @@ impl SmeltRegExp {
     /// `/a\/b/`, and the two compare equal.
     pub fn new(source: String, flags: String) -> Self {
         let source = Self::escape_pattern_source(source);
-        Self { id: smelt_next_object_id(), source, flags, last_index: ::std::rc::Rc::new(::std::cell::RefCell::new(0)) }
+        Self { id: smelt_next_object_id(), source: source.into(), flags: flags.into(), last_index: ::std::rc::Rc::new(::std::cell::RefCell::new(0)), compiled: ::std::rc::Rc::default() }
     }
     /// Escape every unescaped `/` outside a character class (`EscapeRegExpPattern`).
     fn escape_pattern_source(source: String) -> String {
@@ -3250,17 +3260,19 @@ impl SmeltRegExp {
     /// (for example a module-level pattern referenced from a hot function)
     /// compiles it at most once per thread. Compilation is a pure function of
     /// the pattern text, so sharing it is unobservable; the mutable
-    /// `lastIndex` state stays per-`SmeltRegExp`.
+    /// `lastIndex` state stays per-`SmeltRegExp`. The result is also kept on
+    /// the value itself (shared by its clones), so a hot `exec` neither
+    /// rebuilds the translated pattern nor hashes it again.
     fn try_compiled(&self) -> Option<::std::rc::Rc<fancy_regex::Regex>> {
+        if let Some(compiled) = self.compiled.get() { return compiled.clone(); }
         let mut prefix = String::new();
         if self.has_flag('i') { prefix.push('i'); }
         if self.has_flag('m') { prefix.push('m'); }
         if self.has_flag('s') { prefix.push('s'); }
         let translated_source = self.source.replace("[^]", "(?s:.)");
         let pattern = if prefix.is_empty() { translated_source } else { format!("(?{prefix}){translated_source}") };
-        if let Some(cached) = SMELT_REGEX_CACHE.with(|cache| cache.borrow().get(&pattern).cloned()) { return cached; }
-        let compiled = fancy_regex::RegexBuilder::new(&pattern).delegate_size_limit(SMELT_REGEX_SIZE_LIMIT).delegate_dfa_size_limit(SMELT_REGEX_DFA_SIZE_LIMIT).build().ok().map(::std::rc::Rc::new);
-        SMELT_REGEX_CACHE.with(|cache| { cache.borrow_mut().insert(pattern, compiled.clone()); });
+        let compiled = if let Some(cached) = SMELT_REGEX_CACHE.with(|cache| cache.borrow().get(&pattern).cloned()) { cached } else { let compiled = fancy_regex::RegexBuilder::new(&pattern).delegate_size_limit(SMELT_REGEX_SIZE_LIMIT).delegate_dfa_size_limit(SMELT_REGEX_DFA_SIZE_LIMIT).build().ok().map(::std::rc::Rc::new); SMELT_REGEX_CACHE.with(|cache| { cache.borrow_mut().insert(pattern, compiled.clone()); }); compiled };
+        let _ = self.compiled.set(compiled.clone());
         compiled
     }
     /// Match a string with JavaScript String.prototype.match semantics.
@@ -3400,13 +3412,13 @@ pub struct SmeltMatch {
     id: usize,
     /// Numbered capture groups; entry 0 is the whole match. An absent
     /// optional group is `None` (JavaScript `undefined`).
-    groups: Vec<Option<String>>,
+    groups: ::std::rc::Rc<Vec<Option<String>>>,
     /// Named capture groups keyed by name (plus a snake_case alias).
-    named: ::std::collections::HashMap<String, Option<String>>,
+    named: ::std::rc::Rc<::std::collections::HashMap<String, Option<String>>>,
     /// Zero-based offset of the match within `input` (`.index`).
     match_index: usize,
     /// The full string that was searched (`.input`).
-    input: String,
+    input: ::std::rc::Rc<str>,
 }
 
 /// Structural equality over the match content, ignoring reference identity.
@@ -3427,7 +3439,7 @@ impl SmeltMatch {
             }
             named.insert(snake, value);
         }
-        Self { id: smelt_next_object_id(), groups, named, match_index, input: input.to_owned() }
+        Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(groups), named: ::std::rc::Rc::new(named), match_index, input: input.into() }
     }
     /// Build the array a GLOBAL `String.prototype.match` answers.
     ///
@@ -3438,7 +3450,7 @@ impl SmeltMatch {
     /// groups, and `index` is 0 with `input` the searched string, which a
     /// global match's reader does not consult.
     fn from_global_matches(matches: Vec<String>, input: &str) -> Self {
-        Self { id: smelt_next_object_id(), groups: matches.into_iter().map(Some).collect(), named: ::std::collections::HashMap::new(), match_index: 0, input: input.to_owned() }
+        Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(matches.into_iter().map(Some).collect()), named: ::std::rc::Rc::default(), match_index: 0, input: input.into() }
     }
     /// The match viewed as the JavaScript array it is (`[...match]`).
     ///
@@ -3447,7 +3459,7 @@ impl SmeltMatch {
     /// but copies its entries: array methods lowered against it only read
     /// (writes to a match are not lowered through it).
     pub fn to_array_view(&self) -> SmeltList<Option<String>> {
-        SmeltList::with_id(self.id, self.groups.clone())
+        SmeltList::with_id(self.id, self.groups.as_ref().clone())
     }
     /// Read a numbered capture group (`match[n]`).
     fn group(&self, index: usize) -> Option<&str> {
@@ -3482,7 +3494,7 @@ impl SmeltMatch {
     }
     /// The full searched string as an owned value (`match.input`).
     pub fn input_owned(&self) -> String {
-        self.input.clone()
+        self.input.to_string()
     }
     /// Number of numbered capture groups, including the whole match.
     fn len(&self) -> usize {
@@ -3519,11 +3531,9 @@ impl SmeltMatch {
 impl IntoSmeltUnknown for SmeltMatch {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let elements = self.groups.iter().map(|value| value.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))).collect::<Vec<_>>();
-        let groups = self.named.into_iter().map(|(name, value)| (name, value.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into())))).collect::<Vec<_>>();
+        let groups = self.named.iter().map(|(name, value)| (name.clone(), value.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into())))).collect::<Vec<_>>();
         let array = SmeltArray::with_id(self.id, elements);
-        smelt_array_store_named_property(&array, "index".to_owned(), SmeltUnknown::Number(self.match_index as f64), true);
-        smelt_array_store_named_property(&array, "input".to_owned(), SmeltUnknown::String(self.input.into()), true);
-        smelt_array_store_named_property(&array, "groups".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)), true);
+        smelt_array_store_named_properties(&array, [("index", SmeltUnknown::Number(self.match_index as f64)), ("input", SmeltUnknown::String(self.input)), ("groups", SmeltUnknown::Object(SmeltObject::new(groups)))], true);
         SmeltUnknown::Array(array)
     }
 }
@@ -3544,9 +3554,9 @@ impl SmeltFromUnknown for SmeltMatch {
                 let mut named = ::std::collections::HashMap::new();
                 if let Some(SmeltUnknown::Object(entries)) = values.named_property("groups") { for (name, entry) in entries.iter() { named.insert(name, group_of(entry)); } }
                 let match_index = match values.named_property("index") { Some(SmeltUnknown::Number(index)) if index.is_finite() && index >= 0.0 => index as usize, _ => 0 };
-                let input = match values.named_property("input") { Some(SmeltUnknown::String(input)) => input.to_string(), _ => String::new() };
+                let input = match values.named_property("input") { Some(SmeltUnknown::String(input)) => input, _ => ::std::rc::Rc::default() };
                 let id = values.id;
-                Self { id, groups: values.into_vec().into_iter().map(group_of).collect(), named, match_index, input }
+                Self { id, groups: ::std::rc::Rc::new(values.into_vec().into_iter().map(group_of).collect()), named: ::std::rc::Rc::new(named), match_index, input }
             }
             SmeltUnknown::Object(map) => {
                 let mut groups = Vec::new();
@@ -3554,8 +3564,8 @@ impl SmeltFromUnknown for SmeltMatch {
                 let mut named = ::std::collections::HashMap::new();
                 if let Some(SmeltUnknown::Object(entries)) = map.get("groups") { for (name, entry) in entries.iter() { named.insert(name, group_of(entry)); } }
                 let match_index = match map.get("index") { Some(SmeltUnknown::Number(index)) if index.is_finite() && index >= 0.0 => index as usize, _ => 0 };
-                let input = match map.get("input") { Some(SmeltUnknown::String(input)) => input.to_string(), _ => String::new() };
-                Self { id: map.id, groups, named, match_index, input }
+                let input = match map.get("input") { Some(SmeltUnknown::String(input)) => input, _ => ::std::rc::Rc::default() };
+                Self { id: map.id, groups: ::std::rc::Rc::new(groups), named: ::std::rc::Rc::new(named), match_index, input }
             }
             _ => Self::default(),
         }

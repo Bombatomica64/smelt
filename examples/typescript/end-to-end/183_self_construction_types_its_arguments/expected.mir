@@ -1,9 +1,7 @@
 class ListRouter fields [Public name: String, Public items: List<T>] constructor Some(FuncId(2)) methods [FuncId(0), FuncId(1)]
 class App fields [Public router: Router<String>, Public get_path: fn(String, Optional<Dict<String, Optional<E>>>) -> String] constructor Some(FuncId(3)) methods [FuncId(4)]
 interface Options
-interface Options
 interface Router
-interface Options
 
 fn add (FuncId(0)) -> None
   locals

@@ -287,7 +287,7 @@ fn main (FuncId(10)) -> None throws
     %27 temp: Float
     %28 temp: None
     %29 temp: TableRouter
-    %30 temp: List<TableRouter>
+    %30 temp: List<Router>
     %31 temp: SmartRouter
     %32 temp: None
     %33 temp: fn(String, String) -> List<String>

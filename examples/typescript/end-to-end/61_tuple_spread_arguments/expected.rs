@@ -163,7 +163,7 @@ fn main() {
     let mut _smelt_tmp_16: bool;
     let mut _smelt_tmp_19: usize;
     let mut _smelt_tmp_20: (String, f64);
-    let mut _smelt_tmp_23: ::std::rc::Rc<dyn Fn(String, String, f64) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, String, f64) -> String> = ::std::rc::Rc::new(move |arg0: String, arg1: String, arg2: f64| -> String { String::new() }); smelt_default_callback };
+    let mut _smelt_tmp_23: ::std::rc::Rc<dyn Fn(String, String, f64) -> String>;
     let mut _smelt_tmp_24: String;
     let mut _smelt_tmp_32: f64;
     let mut _smelt_tmp_33: String;

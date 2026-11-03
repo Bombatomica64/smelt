@@ -1,10 +1,6 @@
 class Request fields [Hidden #routes: List<(String, String)>, Hidden #context: Optional<String>] constructor Some(FuncId(4)) methods [FuncId(5), FuncId(6)]
 interface Options
 interface Tagged
-interface Options
-interface Tagged
-interface Options
-interface Tagged
 
 fn configure (FuncId(0)) -> String
   locals
@@ -121,9 +117,9 @@ fn main (FuncId(7)) -> None
     %9 temp: Tagged<String, Float>
     %10 temp: String
     %11 temp: None
-    %12 temp: List<String>
-    %13 temp: List<String>
-    %14 temp: List<List<String>>
+    %12 temp: (String, String)
+    %13 temp: (String, String)
+    %14 temp: List<(String, String)>
     %15 temp: Request
     %16 temp: List<(String, String)>
     %17 temp: String
@@ -148,8 +144,8 @@ fn main (FuncId(7)) -> None
   bb5:
     %11 = call @console_log(move %10) -> bb6
   bb6:
-    %12 = ["a", "/x"]
-    %13 = ["b", "/y"]
+    %12 = ("a", "/x")
+    %13 = ("b", "/y")
     %14 = [move %12, move %13]
     %15 = call fn4(move %14, "ctx") -> bb7
   bb7:

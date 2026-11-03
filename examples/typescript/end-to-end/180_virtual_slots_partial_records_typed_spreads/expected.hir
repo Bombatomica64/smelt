@@ -1,19 +1,19 @@
 module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_spreads/input.ts (ModuleId(0))
   body BodyId(30)
   items
-    class Shape fields [Public name: fn() -> String, Public sides: fn() -> Float] constructor Some(ItemId(11)) methods [ItemId(8), ItemId(9), ItemId(10)] implements []
-    class Square fields [] constructor Some(ItemId(15)) methods [ItemId(13), ItemId(14)] implements []
-    class Tile fields [] constructor Some(ItemId(17)) methods [] implements []
-    class Counter fields [Public items: List<Float>, Public accept: fn(Float) -> Bool] constructor Some(ItemId(21)) methods [ItemId(19), ItemId(20)] implements []
-    class Plain fields [] constructor Some(ItemId(23)) methods [] implements []
+    class Shape fields [Public name: fn() -> String, Public sides: fn() -> Float] constructor Some(ItemId(9)) methods [ItemId(6), ItemId(7), ItemId(8)] implements []
+    class Square fields [] constructor Some(ItemId(13)) methods [ItemId(11), ItemId(12)] implements []
+    class Tile fields [] constructor Some(ItemId(15)) methods [] implements []
+    class Counter fields [Public items: List<Float>, Public accept: fn(Float) -> Bool] constructor Some(ItemId(19)) methods [ItemId(17), ItemId(18)] implements []
+    class Plain fields [] constructor Some(ItemId(21)) methods [] implements []
     interface Parsed<T> fields [Public value: T] methods []
-    class Parser fields [Public validate: fn(T) -> Bool, Public parse: fn(String) -> Parsed<T>, Public fallback: fn() -> T] constructor Some(ItemId(28)) methods [ItemId(26), ItemId(27)] implements []
-    class YearParser fields [Public validate: fn(Float) -> Bool] constructor Some(ItemId(33)) methods [ItemId(30), ItemId(31), ItemId(32)] implements []
-    class StrictYear fields [] constructor Some(ItemId(36)) methods [ItemId(35)] implements []
+    class Parser fields [Public validate: fn(T) -> Bool, Public parse: fn(String) -> Parsed<T>, Public fallback: fn() -> T] constructor Some(ItemId(25)) methods [ItemId(23), ItemId(24)] implements []
+    class YearParser fields [Public validate: fn(Float) -> Bool] constructor Some(ItemId(30)) methods [ItemId(27), ItemId(28), ItemId(29)] implements []
+    class StrictYear fields [] constructor Some(ItemId(33)) methods [ItemId(32)] implements []
     interface Pair<T> fields [Public left: T, Public right: T, Public swap: fn() -> Pair<T>] methods [Public swap() -> Pair<T>]
     fn make_pair<T> owner Module
     fn apply owner Module
-    class Lists fields [Public items: List<List<String>>] constructor Some(ItemId(40)) methods [ItemId(39)] implements []
+    class Lists fields [Public items: List<List<String>>] constructor Some(ItemId(37)) methods [ItemId(36)] implements []
     interface Options fields [Public origin: String, Public credentials?: Optional<Bool>, Public max_age?: Optional<Float>] methods []
     fn merge owner Module
   locals
@@ -41,7 +41,7 @@ module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_sp
     #11: fn() -> String = #10.describe
     #12: Tile = new Tile()
     #13: String = #12.describe()
-    #14: None = @43(console_log)
+    #14: None = @39(console_log)
     #15: None = call #14(#3, #4, #8, #9, #13)
     #16: Plain = new Plain()
     #17: Plain = %0
@@ -60,7 +60,7 @@ module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_sp
     #30: Plain = %0
     #31: Float = 5.0
     #32: Float = #30.push(#31)
-    #33: None = @44(console_log)
+    #33: None = @40(console_log)
     #34: None = call #33(#21, #27, #32)
     #35: YearParser = new YearParser()
     #36: fn(String) -> Float = #35.run
@@ -77,7 +77,7 @@ module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_sp
     #47: StrictYear = new StrictYear()
     #48: String = "1999"
     #49: Float = #47.run(#48)
-    #50: None = @45(console_log)
+    #50: None = @41(console_log)
     #51: None = call #50(#39, #44, #49)
     #52: StrictYear = new StrictYear()
     #53: Parser<Float> = %1
@@ -90,16 +90,16 @@ module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_sp
     #60: Parser<Float> = %1
     #61: String = "1950"
     #62: Float = #60.run(#61)
-    #63: None = @46(console_log)
+    #63: None = @42(console_log)
     #64: None = call #63(#57, #62)
     #65: Float = 1.0
     #66: Float = 2.0
-    #67: fn(T, T) -> Pair<T> = @5(make_pair)
+    #67: fn(T, T) -> Pair<T> = @3(make_pair)
     #68: Pair<Float> = call #67(#65, #66)
     #69: fn() -> Pair<Float> = #68.swap
     #70: Float = 1.0
     #71: Float = 2.0
-    #72: fn(T, T) -> Pair<T> = @5(make_pair)
+    #72: fn(T, T) -> Pair<T> = @3(make_pair)
     #73: Pair<Float> = call #72(#70, #71)
     #74: Pair<Float> = closure_call #69()
     #75: Pair<Float> = %2
@@ -111,10 +111,10 @@ module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_sp
     #81: Pair<Float> = %2
     #82: Pair<Float> = closure_call #80()
     #83: Float = #82.left
-    #84: None = @47(console_log)
+    #84: None = @43(console_log)
     #85: None = call #84(#76, #78, #83)
     #86: fn(List<String>) -> String = closure BodyId(28) captures 0 -> String
-    #87: fn(fn(List<String>) -> String) -> String = @6(apply)
+    #87: fn(fn(List<String>) -> String) -> String = @4(apply)
     #88: String = call #87(#86)
     #89: Lists = new Lists()
     #90: Lists = new Lists()
@@ -124,7 +124,7 @@ module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_sp
     #94: List<String> = #92.map(#93)
     #95: String = ","
     #96: String = string_join #94, #95
-    #97: None = @48(console_log)
+    #97: None = @44(console_log)
     #98: None = call #97(#88, #96)
     #99: String = "origin"
     #100: String = "*"
@@ -134,7 +134,7 @@ module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_sp
     #104: String = "credentials"
     #105: Bool = true
     #106: PartialOptions = {#104: #105}
-    #107: fn(PartialOptions) -> Options = @7(merge)
+    #107: fn(PartialOptions) -> Options = @5(merge)
     #108: Options = call #107(#106)
     #109: Options = %4
     #110: String = #109.origin
@@ -143,14 +143,14 @@ module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_sp
     #113: Optional<Bool> = #112.credentials
     #114: Options = %4
     #115: Optional<Float> = #114.max_age
-    #116: None = @49(console_log)
+    #116: None = @45(console_log)
     #117: None = call #116(#110, #113, #115)
     #118: String = "origin"
     #119: String = "a"
     #120: String = "maxAge"
     #121: Float = 9.0
     #122: PartialOptions = {#118: #119, #120: #121}
-    #123: fn(PartialOptions) -> Options = @7(merge)
+    #123: fn(PartialOptions) -> Options = @5(merge)
     #124: Options = call #123(#122)
     #125: Options = %5
     #126: String = #125.origin
@@ -159,7 +159,7 @@ module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_sp
     #129: Optional<Bool> = #128.credentials
     #130: Options = %5
     #131: Optional<Float> = #130.max_age
-    #132: None = @50(console_log)
+    #132: None = @46(console_log)
     #133: None = call #132(#126, #129, #131)
     #134: Options = %3
     #135: Options = %6
@@ -181,7 +181,7 @@ module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_sp
     #151: Options = %8
     #152: Options = %8
     #153: Optional<Bool> = #152.credentials
-    #154: None = @51(console_log)
+    #154: None = @47(console_log)
     #155: None = call #154(#148, #150, #153)
   stmts
     s0: #15

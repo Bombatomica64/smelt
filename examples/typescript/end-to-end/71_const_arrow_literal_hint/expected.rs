@@ -150,14 +150,14 @@ fn main() {
     let total: ::std::rc::Rc<dyn Fn(&SmeltList<Opts>) -> f64>;
     let _smelt_tmp_7: Opts;
     let _smelt_tmp_8: String;
-    let mut _smelt_tmp_10: ::std::rc::Rc<dyn Fn(Opts) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(Opts) -> String> = ::std::rc::Rc::new(move |arg0: Opts| -> String { String::new() }); smelt_default_callback };
+    let _smelt_tmp_10: ::std::rc::Rc<dyn Fn(Opts) -> String>;
     let _smelt_tmp_11: Opts;
     let _smelt_tmp_12: String;
-    let mut _smelt_tmp_14: ::std::rc::Rc<dyn Fn(Opts) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(Opts) -> String> = ::std::rc::Rc::new(move |arg0: Opts| -> String { String::new() }); smelt_default_callback };
+    let _smelt_tmp_14: ::std::rc::Rc<dyn Fn(Opts) -> String>;
     let _smelt_tmp_15: Opts;
     let _smelt_tmp_16: String;
     let _smelt_tmp_18: String;
-    let mut _smelt_tmp_20: ::std::rc::Rc<dyn Fn(&SmeltList<Opts>) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(&SmeltList<Opts>) -> f64> = ::std::rc::Rc::new(move |arg0: &SmeltList<Opts>| -> f64 { 0.0 }); smelt_default_callback };
+    let _smelt_tmp_20: ::std::rc::Rc<dyn Fn(&SmeltList<Opts>) -> f64>;
     let _smelt_tmp_21: Opts;
     let _smelt_tmp_22: Opts;
     let _smelt_tmp_23: SmeltList<Opts>;
