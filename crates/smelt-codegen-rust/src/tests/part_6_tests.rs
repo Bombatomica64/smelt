@@ -1479,7 +1479,9 @@ fn no_profile_sets_panic_abort_while_the_panic_route_exists() {
     // into a process abort, so the manifest must never carry it -- in any
     // profile, under any allocator or release-profile combination.
     for allocator in [GeneratedAllocator::System, GeneratedAllocator::Mimalloc] {
-        for release_profile in [ReleaseProfile::Default, ReleaseProfile::Optimized] {
+        for release_profile in
+            [ReleaseProfile::Default, ReleaseProfile::Optimized, ReleaseProfile::WholeProgram]
+        {
             let manifest = deps::cargo_toml(
                 &EmitOptions::default().crate_name,
                 &[GeneratedDep::Tokio, GeneratedDep::Genawaiter],
@@ -1493,6 +1495,27 @@ fn no_profile_sets_panic_abort_while_the_panic_route_exists() {
             );
         }
     }
+}
+
+#[test]
+fn release_profiles_emit_their_lto_mode() {
+    // `optimized` (the default) is thin LTO; `whole-program` is the opt-in fat
+    // LTO; `default` leaves Cargo's stock profile alone. Each keeps one codegen
+    // unit where it sets a profile at all.
+    let manifest = |release_profile| {
+        deps::cargo_toml(
+            &EmitOptions::default().crate_name,
+            &[GeneratedDep::Tokio],
+            GeneratedAllocator::System,
+            release_profile,
+        )
+    };
+    let optimized = manifest(ReleaseProfile::Optimized);
+    assert!(optimized.contains("[profile.release]\nlto = \"thin\"\ncodegen-units = 1\n"), "{optimized}");
+    let whole_program = manifest(ReleaseProfile::WholeProgram);
+    assert!(whole_program.contains("[profile.release]\nlto = \"fat\"\ncodegen-units = 1\n"), "{whole_program}");
+    let stock = manifest(ReleaseProfile::Default);
+    assert!(!stock.contains("[profile.release]"), "{stock}");
 }
 
 #[test]

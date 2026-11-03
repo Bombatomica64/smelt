@@ -36,6 +36,10 @@ edition = "2024"
 # (rusqlite's bundled SQLite), so mimalloc's C build costs it nothing new. See `smelt_codegen_rust::GeneratedAllocator` for why Smelt leaves this
 # choice to the application.
 allocator = "mimalloc"
+# Fat LTO: also optimizes hyper/tokio/serde_json together with the generated
+# code. +3.4% requests/s on `GET /todos/abc` for ~25% more release build time,
+# a trade a long-running server takes (blocker-logs/hono-crud-perf-round2.md).
+release-profile = "whole-program"
 
 [rust.dependencies]
 axum = "0.7"

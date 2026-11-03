@@ -188,6 +188,7 @@ fn codegen_release_profile(profile: ReleaseProfile) -> smelt_codegen_rust::Relea
     match profile {
         ReleaseProfile::Optimized => smelt_codegen_rust::ReleaseProfile::Optimized,
         ReleaseProfile::Default => smelt_codegen_rust::ReleaseProfile::Default,
+        ReleaseProfile::WholeProgram => smelt_codegen_rust::ReleaseProfile::WholeProgram,
     }
 }
 

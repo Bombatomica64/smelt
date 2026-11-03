@@ -428,10 +428,17 @@ impl ModuleBuilder<'_> {
                 // router's `interface Context` whenever it lowered before
                 // `context.ts`.
                 let class_name = self.resolve_type_reference_symbol(callee.name.as_str());
+                // Constructor parameter types are known from the prepass even
+                // before the class item exists; see the registered-class path
+                // below for why the arguments need them.
+                let (hints, _) = self.pending_constructor_hints(class_name, new_expr)?;
                 let args = new_expr
                     .arguments
                     .iter()
-                    .map(|arg| self.argument(arg, body))
+                    .enumerate()
+                    .map(|(index, arg)| {
+                        self.argument_with_hint(arg, body, hints.get(index).copied().flatten())
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 let ty = self.ctx.krate.types.intern(Type::Class {
                     name: class_name,
@@ -465,10 +472,21 @@ impl ModuleBuilder<'_> {
             ));
         }
         let class_name = class.name;
+        // Each argument is lowered against its constructor parameter's type,
+        // exactly as a call argument is against its parameter's: an object
+        // literal passed for `options?: ContextOptions<E>` is then built as
+        // that struct instead of a `Record<string, unknown>` the constructor
+        // has to take apart key by key (`blocker-logs/hono-crud-perf-round2.md`).
+        // The hints come from the prepass's constructor parameter types with
+        // the class's type parameters substituted by the explicit type
+        // arguments, else their defaults; a hint still naming an unsubstituted
+        // type parameter is dropped rather than guessed.
+        let (hints, _) = self.pending_constructor_hints(class_name, new_expr)?;
         let args = new_expr
             .arguments
             .iter()
-            .map(|arg| self.argument(arg, body))
+            .enumerate()
+            .map(|(index, arg)| self.argument_with_hint(arg, body, hints.get(index).copied().flatten()))
             .collect::<Result<Vec<_>, _>>()?;
         let explicit_type_args = new_expr
             .type_arguments
