@@ -1517,7 +1517,7 @@ fn emit_source_with_free_function_router(
             writer.line("/// so narrowing the record back hands out the SAME object.");
             writer.line("#[allow(dead_code)]");
             writer.line("fn smelt_with_host_origin<T: 'static>(erased: SmeltUnknown, origin: T) -> SmeltUnknown {");
-            writer.line("    if let SmeltUnknown::Object(object) = &erased { object.store.raw_borrow_mut().origin = Some(Box::new(origin)); }");
+            writer.line("    if let SmeltUnknown::Object(object) = &erased { *object.store.origin_mut() = Some(Box::new(origin)); }");
             writer.line("    erased");
             writer.line("}");
             writer.blank_line();
