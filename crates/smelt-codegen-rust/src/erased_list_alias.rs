@@ -74,7 +74,7 @@ pub const ERASED_GENERIC_ARRAY_ALIAS_FN: &str = "smelt_alias_erased_generic_arra
 /// out-of-scope (erased) one. A `Type::Unknown` element is a source
 /// `unknown[]` and keeps its plain spelling; see the module docs.
 #[must_use]
-pub fn leaves_erased_generic(source_item: Option<&Type>) -> bool {
+pub(crate) fn leaves_erased_generic(source_item: Option<&Type>) -> bool {
     matches!(source_item, Some(Type::TypeParam { .. }))
 }
 
@@ -86,7 +86,7 @@ pub fn leaves_erased_generic(source_item: Option<&Type>) -> bool {
 /// reflexive `From`, or a `Vec<SmeltUnknown>`). The result is the same list
 /// handle: same id, same buffer.
 #[must_use]
-pub fn list_alias_text(value: &str) -> String {
+pub(crate) fn list_alias_text(value: &str) -> String {
     format!("{ERASED_GENERIC_LIST_ALIAS_FN}({value})")
 }
 
@@ -100,7 +100,7 @@ pub fn list_alias_text(value: &str) -> String {
 /// id, so the erased value is the same array. The `SmeltUnknown::Array` tag
 /// stays at the call site so the report still counts the occurrence.
 #[must_use]
-pub fn array_alias_text(value: &str) -> String {
+pub(crate) fn array_alias_text(value: &str) -> String {
     format!("SmeltUnknown::Array({ERASED_GENERIC_ARRAY_ALIAS_FN}({value}))")
 }
 
@@ -112,7 +112,7 @@ pub fn array_alias_text(value: &str) -> String {
 /// everywhere it appears renders as a Rust generic and never reaches a helper,
 /// which then sits unused under the generated crate's `#![allow(dead_code)]`.
 #[must_use]
-pub fn needed(mir: &Mir) -> bool {
+pub(crate) fn needed(mir: &Mir) -> bool {
     mir.types.all().iter().any(|ty| {
         matches!(ty, Type::List(item)
             if matches!(mir.types.get(*item), Some(Type::TypeParam { .. })))
@@ -125,7 +125,7 @@ pub fn needed(mir: &Mir) -> bool {
 /// the array helper's conversion goes through. Each helper is one `.into()`
 /// call marked `#[inline]`, so it compiles to the conversion #250 emitted
 /// inline and keeps that change's speedup.
-pub fn emit_prelude(writer: &mut CodeWriter) {
+pub(crate) fn emit_prelude(writer: &mut CodeWriter) {
     writer.line(
         "/// Hand an erased generic list to an erased-list slot: the same array, never a copy.",
     );

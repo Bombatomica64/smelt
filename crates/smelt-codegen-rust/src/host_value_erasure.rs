@@ -47,7 +47,7 @@ use crate::rust::CodeWriter;
 /// rebuilt from JSON. Each type decides for itself, because the honest answer
 /// differs and guessing one for all of them is how a wrong value gets in.
 #[derive(Clone, Copy)]
-pub enum Recovery {
+pub(crate) enum Recovery {
     /// Recover losslessly: the record carries everything the value is.
     ///
     /// The expression builds the value from the record, so the origin registry
@@ -75,7 +75,7 @@ pub enum Recovery {
 ///
 /// `name` is the JavaScript property name; `value_expr` is a Rust expression
 /// over `self` producing a `SmeltUnknown`.
-pub struct DataProperty {
+pub(crate) struct DataProperty {
     /// The JavaScript property name.
     pub name: &'static str,
     /// A Rust expression over `self` yielding the property's erased value.
@@ -89,7 +89,7 @@ pub struct DataProperty {
 /// record non-enumerable in `for...in` and what `instanceof` resolves through.
 /// Both come from the shared host-object registry, so this emitter and
 /// `instance_of_text` cannot disagree about a class's identity.
-pub fn emit_adapters(
+pub(crate) fn emit_adapters(
     writer: &mut CodeWriter,
     type_name: &str,
     marker: &str,

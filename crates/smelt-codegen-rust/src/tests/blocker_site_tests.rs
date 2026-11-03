@@ -25,7 +25,7 @@ fn emit_error_for(ts: &str) -> EmitError {
         Err(errors) => panic!("MIR lowering failed: {errors:?}"),
     };
     smelt_mir::opt::optimize(&mut mir);
-    match crate::emit_source(&mir) {
+    match emit_source(&mir) {
         Ok(source) => panic!("expected an emitter blocker, got source:\n{source}"),
         Err(error) => error,
     }

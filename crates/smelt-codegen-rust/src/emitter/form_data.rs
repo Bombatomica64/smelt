@@ -219,7 +219,7 @@ impl FunctionEmitter<'_> {
                 };
                 arms.push(format!(
                     "{}::M{index}(smelt_entry) => {arm}",
-                    super::union::union_name(value_ty)
+                    union::union_name(value_ty)
                 ));
             }
             return Ok(format!("match ({value_text}).clone() {{ {} }}", arms.join(", ")));
