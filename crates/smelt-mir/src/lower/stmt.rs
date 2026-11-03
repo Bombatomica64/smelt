@@ -13,12 +13,13 @@ use std::collections::HashMap;
 use smelt_hir::{ExprId, LocalId as HirLocalId, Stmt as HirStmt};
 
 use crate::{
-    BlockId, Constant, HirOrigin, LocalDecl, LocalId, LocalKind, NegativeIndex, Operand, Place, Rvalue, Statement,
+    BlockId, Constant, ExceptionHandler, GeneratorCleanup, HirOrigin, LocalDecl, LocalId, LocalKind, NegativeIndex, Operand, Place, Rvalue, Statement,
     Terminator,
 };
 
-use super::context::{ExceptionTarget, LoopTargets, LoweringCtx};
-use super::{LoweredFunction, LowerError, lower_literal, usize_from_u32};
+use super::context::LoweringCtx;
+use super::scope::{ControlScope, FinallyClause, LoopExit, LoopTargets, Protected};
+use super::{LoweredFunction, LowerError, lower_literal};
 
 impl LoweringCtx<'_> {
     /// Lowers the entire function body to MIR.
@@ -38,19 +39,17 @@ impl LoweringCtx<'_> {
         self.lower_block_stmts(self.body.root)?;
 
         let root = self.hir_block(self.body.root)?;
-        if self.block()?.terminator.is_some() {
+        if self.is_terminated()? {
             return Ok((self.function, self.closures));
         }
 
         if let Some(tail) = root.tail {
             let operand = self.lower_expr(tail)?;
-            self.set_terminator(Terminator::Return(operand))?;
+            self.terminate(Terminator::Return(operand))?;
+        } else if matches!(self.function.origin, HirOrigin::ClassConstructor { .. }) {
+            self.terminate(Terminator::Return(Operand::Move(Place::Local(LocalId(0)))))?;
         } else {
-            if matches!(self.function.origin, HirOrigin::ClassConstructor { .. }) {
-                self.set_terminator(Terminator::Return(Operand::Move(Place::Local(LocalId(0)))))?;
-                return Ok((self.function, self.closures));
-            }
-            self.set_terminator(Terminator::Return(self.valueless_return_operand()))?;
+            self.terminate(Terminator::Return(self.valueless_return_operand()))?;
         }
 
         Ok((self.function, self.closures))
@@ -86,7 +85,7 @@ impl LoweringCtx<'_> {
         let block = self.hir_block(block_id)?;
         let stmt_ids = block.stmts.clone();
         for stmt_id in stmt_ids {
-            if self.block()?.terminator.is_some() {
+            if self.is_terminated()? {
                 break;
             }
             let stmt = self.hir_stmt(stmt_id)?.clone();
@@ -155,7 +154,7 @@ impl LoweringCtx<'_> {
                 // at the expression's own type first. Constants and compiler temps
                 // need no copy (no source statement can name them), which keeps the
                 // MIR of every function without this shape unchanged.
-                if !self.finally_scopes.is_empty()
+                if self.has_pending_finally()
                     && !self.operand_is_finalizer_stable(&lowered_operand)?
                 {
                     let expr_info = self.hir_expr(*expr)?;
@@ -196,18 +195,7 @@ impl LoweringCtx<'_> {
             HirStmt::For { pat, iter, body } => self.lower_for(*pat, *iter, *body),
             HirStmt::Throw(expr) => {
                 let lowered_operand = self.lower_expr(*expr)?;
-                if let Some(target) = self.exception_targets.last().copied() {
-                    if let Some(exception_local) = target.exception_local {
-                        self.block_mut()?.statements.push(Statement::Assign {
-                            dest: exception_local,
-                            value: Rvalue::Use(lowered_operand),
-                        });
-                    }
-                    self.set_terminator(Terminator::Goto(target.catch_block))?;
-                } else {
-                    self.set_terminator(Terminator::Throw(lowered_operand))?;
-                }
-                Ok(())
+                self.lower_throw(lowered_operand)
             }
             HirStmt::TryCatch {
                 body,
@@ -215,20 +203,8 @@ impl LoweringCtx<'_> {
                 catch_body,
                 finally_body,
             } => self.lower_try_catch(*body, *catch_binding, *catch_body, *finally_body),
-            HirStmt::Break => {
-                let Some(targets) = self.loops.last().copied() else {
-                    return Err(self.error("break used outside a loop", None));
-                };
-                self.set_terminator(Terminator::Goto(targets.break_target))?;
-                Ok(())
-            }
-            HirStmt::Continue => {
-                let Some(targets) = self.loops.last().copied() else {
-                    return Err(self.error("continue used outside a loop", None));
-                };
-                self.set_terminator(Terminator::Goto(targets.continue_target))?;
-                Ok(())
-            }
+            HirStmt::Break => self.lower_loop_exit(LoopExit::Break),
+            HirStmt::Continue => self.lower_loop_exit(LoopExit::Continue),
         }
     }
 
@@ -242,92 +218,37 @@ impl LoweringCtx<'_> {
         match operand {
             Operand::Const(_) => Ok(true),
             Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
-                Ok(matches!(self.mir_local(*local)?.kind, crate::LocalKind::Temp))
+                Ok(matches!(self.mir_local(*local)?.kind, LocalKind::Temp))
             }
             Operand::Copy(_) | Operand::Move(_) => Ok(false),
         }
     }
 
-    /// Terminates the current block with a `return`, honoring enclosing finalizers.
-    ///
-    /// Outside a `try`/`finally` this is just `Terminator::Return`. Inside one,
-    /// JavaScript runs every enclosing finalizer *before* the function returns, and
-    /// the MIR block the finalizer was lowered into cannot be reused — its exit
-    /// falls through to the code after the `try`. So each enclosing finalizer is
-    /// *re-lowered inline*, innermost first, ahead of the `Return` terminator: the
-    /// classic finalizer-duplication strategy.
-    ///
-    /// Duplication rather than a shared cleanup block reached by `Goto` is
-    /// deliberate. A `return` can sit arbitrarily deep inside loops and branches,
-    /// and codegen reconstructs structured Rust from the CFG; a jump *out of a loop*
-    /// to a shared cleanup block is a shape that reconstruction gets wrong (it
-    /// degrades to a plain `break`, so control falls into the code after the loop
-    /// and the wrong value is returned — it silently broke `isEqual` on arrays with
-    /// differing values). Inlining introduces no new control-flow shape at all, at
-    /// the cost of repeating the normally tiny cleanup once per early exit.
-    ///
-    /// Without any of this the finalizer was skipped entirely whenever the `try`
-    /// body returned. es-toolkit's `areObjectsEqual` clears its recursion stack in a
-    /// `finally` and returns from inside the `try`, so the stale entries made
-    /// `isEqualWith({ constructor: [1] }, { constructor: ['1'] })` answer `true`.
-    ///
-    /// A finalizer that itself terminates (its own `return`/`throw`) wins, exactly
-    /// as in JavaScript: the walk stops as soon as the block has a terminator and
-    /// the pending `Return` is dropped.
-    fn lower_return(&mut self, value: Operand) -> Result<(), LowerError> {
-        if self.finally_scopes.is_empty() {
-            self.set_terminator(Terminator::Return(value))?;
-            return Ok(());
-        }
-        let scopes = std::mem::take(&mut self.finally_scopes);
-        let mut result = Ok(());
-        let mut terminated = false;
-        for depth in (0..scopes.len()).rev() {
-            // While one finalizer is inlined, only the finalizers OUTSIDE it are
-            // still pending, so a `return` nested in it resumes at the right depth
-            // instead of re-entering itself.
-            self.finally_scopes = scopes[..depth].to_vec();
-            result = self.lower_inline_finally(scopes[depth]);
-            if result.is_err() {
-                break;
-            }
-            match self.block() {
-                Ok(block) => {
-                    if block.terminator.is_some() {
-                        terminated = true;
-                        break;
-                    }
+    /// Terminates the cursor's block with a throw of `value`: into the
+    /// innermost enclosing handler when a `try` encloses the cursor, out of the
+    /// function otherwise.
+    fn lower_throw(&mut self, value: Operand) -> Result<(), LowerError> {
+        match self.current_exception_handler() {
+            Some(handler) => {
+                if let Some(exception_local) = handler.exception_local {
+                    self.block_mut()?.statements.push(Statement::Assign {
+                        dest: exception_local,
+                        value: Rvalue::Use(value),
+                    });
                 }
-                Err(error) => {
-                    result = Err(error);
-                    break;
-                }
+                self.terminate(Terminator::Goto(handler.catch_block))
             }
+            None => self.terminate(Terminator::Throw(value)),
         }
-        self.finally_scopes = scopes;
-        result?;
-        if !terminated {
-            self.set_terminator(Terminator::Return(value))?;
-        }
-        Ok(())
-    }
-
-    /// Re-lowers one `finally` block inline at the current cursor.
-    ///
-    /// The HIR-expression memo is cleared for the duration: it caches "this
-    /// `ExprId` already became this operand", which is exactly what must *not*
-    /// hold when the same source statements are emitted a second time — otherwise
-    /// the duplicated cleanup would compile to nothing. Clearing is safe because
-    /// each syntactic position owns its `ExprId`, so no entry that the surrounding
-    /// code still needs can be produced inside the finalizer.
-    fn lower_inline_finally(&mut self, finally_hir: smelt_hir::BlockId) -> Result<(), LowerError> {
-        let saved_exprs = std::mem::take(&mut self.exprs);
-        let result = self.lower_block_stmts(finally_hir);
-        self.exprs = saved_exprs;
-        result
     }
 
     /// Lowers try/catch/finally into explicit catch and cleanup blocks.
+    ///
+    /// The `try` body and the `catch` body are each lowered inside their own
+    /// [`ControlScope::Protected`] region (pushed with [`Self::with_scope`]), so
+    /// a throw inside either finds its handler and an early exit finds the
+    /// `finally` clause through the one scope stack. The `finally` clause's
+    /// exceptional-exit protocol is owned by [`FinallyPlan`].
     pub(super) fn lower_try_catch(
         &mut self,
         body_hir: smelt_hir::BlockId,
@@ -341,188 +262,82 @@ impl LoweringCtx<'_> {
         let finally_mir_block = finally_body_hir
             .map(|block| {
                 let span = self.hir_block(block)?.span;
-                Ok(self.function.push_block(span))
+                Ok((block, self.function.push_block(span)))
             })
             .transpose()?;
-        let normal_exit = finally_mir_block.unwrap_or(after);
+        let normal_exit = finally_mir_block.map_or(after, |(_, block)| block);
         let catch_mir_block = catch_body_hir
             .map(|block| {
                 let span = self.hir_block(block)?.span;
                 Ok(self.function.push_block(span))
             })
             .transpose()?;
-
-        // A `finally` runs on the EXCEPTIONAL exit too: a throw (or a rejected
-        // `await`) out of the `try` body when there is no `catch`, or out of
-        // the `catch` body, runs the clause and then rethrows the same value.
-        // The handler stores the value and raises `pending_throw`, then joins
-        // the one `finally` block the normal exit uses; the clause's end
-        // rethrows when the flag is up. The clause is emitted once, so its
-        // statements are not duplicated per exit. Before, only the normal and
-        // `return` exits ran it, so `try { await race } finally { clearTimeout(t) }`
-        // left the timer armed when the race rejected.
-        let finally_rethrow = match finally_mir_block {
-            Some(_) => self.finally_rethrow_target(try_span),
-            None => None,
-        };
-        // Both are read at the clause's end on every path into it, so both are
-        // set before the `try` starts.
-        if let Some(target) = finally_rethrow {
-            let exception_local = target.thrown;
-            let pending = target.pending;
-            let statements = &mut self.block_mut()?.statements;
-            statements.push(Statement::Assign {
-                dest: exception_local,
-                value: Rvalue::Use(Operand::Const(Constant::Undefined)),
-            });
-            statements.push(Statement::Assign {
-                dest: pending,
-                value: Rvalue::Use(Operand::Const(Constant::Bool(false))),
-            });
+        let finally = finally_mir_block
+            .map(|(hir, block)| FinallyPlan::new(self, hir, block, after, try_span))
+            .transpose()?;
+        if let Some(plan) = &finally {
+            plan.arm(self)?;
         }
-        self.set_terminator(Terminator::Goto(try_block))?;
+        self.terminate(Terminator::Goto(try_block))?;
 
-        if let Some(finally_block) = finally_mir_block {
-            self.generator_cleanups.push(crate::GeneratorCleanup {
-                block: finally_block,
-                after,
-            });
-        }
-        // Track the clause for the duration of the `try` and `catch` bodies: a
-        // `return` in either must run it before it leaves the function (see
-        // `lower_return`). The *HIR* block, because the return path re-lowers the
-        // same source statements rather than jumping into the MIR block above.
-        if let Some(finally_hir) = finally_body_hir {
-            self.finally_scopes.push(finally_hir);
-        }
-
-        if catch_mir_block.is_none()
-            && let Some(target) = finally_rethrow
-        {
-            self.exception_targets.push(target.handler());
-        }
-
-        if let Some(catch_block) = catch_mir_block {
-            let exception_local = catch_binding
-                .map(|local| {
-                    self.locals.get(&local).copied().ok_or_else(|| {
-                        self.error("catch binding references an unknown local", None)
+        let clause = finally.as_ref().map(FinallyPlan::clause);
+        let catch_handler = catch_mir_block
+            .map(|catch_block| {
+                let exception_local = catch_binding
+                    .map(|local| {
+                        self.locals.get(&local).copied().ok_or_else(|| {
+                            self.error("catch binding references an unknown local", None)
+                        })
                     })
+                    .transpose()?;
+                Ok(ExceptionHandler {
+                    catch_block,
+                    exception_local,
                 })
-                .transpose()?;
-            self.exception_targets.push(ExceptionTarget {
-                catch_block,
-                exception_local,
-            });
-        }
+            })
+            .transpose()?;
+        let rethrow_handler = finally.as_ref().map(FinallyPlan::handler);
 
-        self.current_block = try_block;
-        self.lower_block_stmts(body_hir)?;
-        if self.block()?.terminator.is_none() {
-            self.set_terminator(Terminator::Goto(normal_exit))?;
-        }
+        // The `try` body: a throw goes to the `catch`, or — without one —
+        // straight to the `finally`'s exceptional exit.
+        self.switch_to(try_block);
+        self.with_scope(
+            ControlScope::Protected(Protected {
+                handler: catch_handler.or(rethrow_handler),
+                finally: clause,
+            }),
+            |this| {
+                this.lower_block_stmts(body_hir)?;
+                this.terminate_if_open(Terminator::Goto(normal_exit))
+            },
+        )?;
 
-        if catch_mir_block.is_some() || finally_rethrow.is_some() {
-            self.exception_targets.pop();
-        }
-
+        // The `catch` body: still guarded by the `finally`, whose exceptional
+        // exit now receives a throw out of the handler itself.
         if let (Some(catch_hir), Some(catch_block)) = (catch_body_hir, catch_mir_block) {
-            if let Some(target) = finally_rethrow {
-                self.exception_targets.push(target.handler());
-            }
-            self.current_block = catch_block;
-            self.lower_block_stmts(catch_hir)?;
-            if self.block()?.terminator.is_none() {
-                self.set_terminator(Terminator::Goto(normal_exit))?;
-            }
-            if finally_rethrow.is_some() {
-                self.exception_targets.pop();
-            }
+            self.switch_to(catch_block);
+            self.with_scope(
+                ControlScope::Protected(Protected {
+                    handler: rethrow_handler,
+                    finally: clause,
+                }),
+                |this| {
+                    this.lower_block_stmts(catch_hir)?;
+                    this.terminate_if_open(Terminator::Goto(normal_exit))
+                },
+            )?;
         }
 
-        if finally_mir_block.is_some() {
-            self.generator_cleanups.pop();
-        }
-        // Pop before lowering the clause itself, so a `return` written *inside* it
-        // resumes at the next enclosing clause instead of re-entering this one.
-        if finally_body_hir.is_some() {
-            self.finally_scopes.pop();
-        }
-
-        // The exceptional exit's handler: raise the flag and join the clause.
-        if let (Some(target), Some(finally_block)) = (finally_rethrow, finally_mir_block) {
-            self.current_block = target.catch_block;
-            self.block_mut()?.statements.push(Statement::Assign {
-                dest: target.pending,
-                value: Rvalue::Use(Operand::Const(Constant::Bool(true))),
-            });
-            self.set_terminator(Terminator::Goto(finally_block))?;
+        // The clause itself is lowered after both regions are popped, so an
+        // exit written *inside* it resumes at the next enclosing clause instead
+        // of re-entering this one.
+        if let Some(plan) = &finally {
+            plan.lower_exceptional_entry(self)?;
+            plan.lower_clause(self)?;
         }
 
-        if let (Some(finally_hir), Some(finally_block)) = (finally_body_hir, finally_mir_block) {
-            self.current_block = finally_block;
-            self.lower_block_stmts(finally_hir)?;
-            // A `return` inside the clause wins over a pending throw, as it
-            // does in JavaScript: such a path is already terminated here.
-            if self.block()?.terminator.is_none() {
-                match finally_rethrow {
-                    Some(target) => {
-                        let rethrow_block = self.function.push_block(try_span);
-                        self.set_terminator(Terminator::Switch {
-                            cond: Operand::Copy(Place::Local(target.pending)),
-                            then_block: rethrow_block,
-                            else_block: after,
-                        })?;
-                        self.current_block = rethrow_block;
-                        self.lower_rethrow(target.thrown)?;
-                    }
-                    None => self.set_terminator(Terminator::Goto(after))?,
-                }
-            }
-        }
-
-        self.current_block = after;
+        self.switch_to(after);
         Ok(())
-    }
-
-    /// The handler a `finally` installs for the exceptional exit (see
-    /// `lower_try_catch`): a fresh block, the erased local receiving the
-    /// thrown value and the `pending_throw` flag the clause's end tests.
-    ///
-    /// The thrown value is held at the erased type `lower_hir` interns for a
-    /// crate with a `finally` (`thrown_ty`); `None` only if it was not.
-    fn finally_rethrow_target(&mut self, span: smelt_hir::Span) -> Option<FinallyRethrow> {
-        let (unknown_ty, name) = self.thrown_ty?;
-        let thrown = self.function.push_local(LocalDecl {
-            ty: unknown_ty,
-            kind: LocalKind::UserBinding(name),
-            span,
-        });
-        let pending = self.push_temp(self.loop_bool_ty, span);
-        let catch_block = self.function.push_block(span);
-        Some(FinallyRethrow {
-            catch_block,
-            thrown,
-            pending,
-        })
-    }
-
-    /// Rethrows `thrown` exactly as a source `throw` at the cursor would: into
-    /// an enclosing `try`'s handler when there is one, out of the function
-    /// otherwise.
-    fn lower_rethrow(&mut self, thrown: LocalId) -> Result<(), LowerError> {
-        let rethrown = Operand::Copy(Place::Local(thrown));
-        if let Some(outer) = self.exception_targets.last().copied() {
-            if let Some(outer_local) = outer.exception_local {
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest: outer_local,
-                    value: Rvalue::Use(rethrown),
-                });
-            }
-            self.set_terminator(Terminator::Goto(outer.catch_block))
-        } else {
-            self.set_terminator(Terminator::Throw(rethrown))
-        }
     }
 
     /// Lowers an if statement to MIR with switch terminator.
@@ -541,35 +356,44 @@ impl LoweringCtx<'_> {
         };
         let then_mir = self.function.push_block(then_span);
         let else_mir = self.function.push_block(else_span);
-        self.set_terminator(Terminator::Switch {
+        self.terminate(Terminator::Switch {
             cond: lowered_cond,
             then_block: then_mir,
             else_block: else_mir,
         })?;
 
-        self.current_block = then_mir;
+        self.switch_to(then_mir);
         self.lower_block_stmts(then_hir)?;
 
         if let Some(else_block_hir) = else_hir {
             let join = self.function.push_block(self.block()?.span);
-            if self.block()?.terminator.is_none() {
-                self.set_terminator(Terminator::Goto(join))?;
-            }
+            self.terminate_if_open(Terminator::Goto(join))?;
 
-            self.current_block = else_mir;
+            self.switch_to(else_mir);
             self.lower_block_stmts(else_block_hir)?;
-            if self.block()?.terminator.is_none() {
-                self.set_terminator(Terminator::Goto(join))?;
-            }
-            self.current_block = join;
+            self.terminate_if_open(Terminator::Goto(join))?;
+            self.switch_to(join);
         } else {
-            if self.block()?.terminator.is_none() {
-                self.set_terminator(Terminator::Goto(else_mir))?;
-            }
-            self.current_block = else_mir;
+            self.terminate_if_open(Terminator::Goto(else_mir))?;
+            self.switch_to(else_mir);
         }
 
         Ok(())
+    }
+
+    /// Lowers a loop body at the cursor with the loop's `break`/`continue`
+    /// targets in scope, then falls through to `fallthrough` (the header or
+    /// latch) unless the body already left.
+    fn lower_loop_body(
+        &mut self,
+        body_hir: smelt_hir::BlockId,
+        targets: LoopTargets,
+        fallthrough: BlockId,
+    ) -> Result<(), LowerError> {
+        self.with_scope(ControlScope::Loop(targets), |this| {
+            this.lower_block_stmts(body_hir)?;
+            this.terminate_if_open(Terminator::Goto(fallthrough))
+        })
     }
 
     /// Lowers a while loop to MIR with switch terminator.
@@ -580,29 +404,28 @@ impl LoweringCtx<'_> {
     ) -> Result<(), LowerError> {
         let preheader_span = self.block()?.span;
         let header = self.function.push_block(preheader_span);
-        self.set_terminator(Terminator::Goto(header))?;
-        self.current_block = header;
+        self.terminate(Terminator::Goto(header))?;
+        self.switch_to(header);
         let body_span = self.hir_block(body_hir)?.span;
         let body_mir = self.function.push_block(body_span);
         let after = self.function.push_block(preheader_span);
         let lowered_cond = self.lower_expr(cond)?;
-        self.set_terminator(Terminator::Switch {
+        self.terminate(Terminator::Switch {
             cond: lowered_cond,
             then_block: body_mir,
             else_block: after,
         })?;
 
-        self.loops.push(LoopTargets {
-            break_target: after,
-            continue_target: header,
-        });
-        self.current_block = body_mir;
-        self.lower_block_stmts(body_hir)?;
-        if self.block()?.terminator.is_none() {
-            self.set_terminator(Terminator::Goto(header))?;
-        }
-        self.loops.pop();
-        self.current_block = after;
+        self.switch_to(body_mir);
+        self.lower_loop_body(
+            body_hir,
+            LoopTargets {
+                break_target: after,
+                continue_target: header,
+            },
+            header,
+        )?;
+        self.switch_to(after);
         Ok(())
     }
 
@@ -616,31 +439,30 @@ impl LoweringCtx<'_> {
     ) -> Result<(), LowerError> {
         let preheader_span = self.block()?.span;
         let header = self.function.push_block(preheader_span);
-        self.set_terminator(Terminator::Goto(header))?;
-        self.current_block = header;
+        self.terminate(Terminator::Goto(header))?;
+        self.switch_to(header);
         let body_span = self.hir_block(body_hir)?.span;
         let body_mir = self.function.push_block(body_span);
         let latch = self.function.push_block(body_span);
         let after = self.function.push_block(preheader_span);
         let lowered_cond = self.lower_expr(cond)?;
-        self.set_terminator(Terminator::Switch {
+        self.terminate(Terminator::Switch {
             cond: lowered_cond,
             then_block: body_mir,
             else_block: after,
         })?;
 
-        self.loops.push(LoopTargets {
-            break_target: after,
-            continue_target: latch,
-        });
-        self.current_block = body_mir;
-        self.lower_block_stmts(body_hir)?;
-        if self.block()?.terminator.is_none() {
-            self.set_terminator(Terminator::Goto(latch))?;
-        }
-        self.loops.pop();
+        self.switch_to(body_mir);
+        self.lower_loop_body(
+            body_hir,
+            LoopTargets {
+                break_target: after,
+                continue_target: latch,
+            },
+            latch,
+        )?;
 
-        self.current_block = latch;
+        self.switch_to(latch);
         let (place, writebacks) = self.lower_place(update_target)?;
         let value = self.lower_expr(update_value)?;
         self.block_mut()?.statements.push(Statement::AssignPlace {
@@ -648,10 +470,8 @@ impl LoweringCtx<'_> {
             value: Rvalue::Use(value),
         });
         self.write_back_place_receivers(writebacks)?;
-        if self.block()?.terminator.is_none() {
-            self.set_terminator(Terminator::Goto(header))?;
-        }
-        self.current_block = after;
+        self.terminate_if_open(Terminator::Goto(header))?;
+        self.switch_to(after);
         Ok(())
     }
 
@@ -671,36 +491,33 @@ impl LoweringCtx<'_> {
     ) -> Result<(), LowerError> {
         let preheader_span = self.block()?.span;
         let header = self.function.push_block(preheader_span);
-        self.set_terminator(Terminator::Goto(header))?;
-        self.current_block = header;
+        self.terminate(Terminator::Goto(header))?;
+        self.switch_to(header);
         let body_span = self.hir_block(body_hir)?.span;
         let body_mir = self.function.push_block(body_span);
         let latch = self.function.push_block(body_span);
         let after = self.function.push_block(preheader_span);
         let lowered_cond = self.lower_expr(cond)?;
-        self.set_terminator(Terminator::Switch {
+        self.terminate(Terminator::Switch {
             cond: lowered_cond,
             then_block: body_mir,
             else_block: after,
         })?;
 
-        self.loops.push(LoopTargets {
-            break_target: after,
-            continue_target: latch,
-        });
-        self.current_block = body_mir;
-        self.lower_block_stmts(body_hir)?;
-        if self.block()?.terminator.is_none() {
-            self.set_terminator(Terminator::Goto(latch))?;
-        }
-        self.loops.pop();
+        self.switch_to(body_mir);
+        self.lower_loop_body(
+            body_hir,
+            LoopTargets {
+                break_target: after,
+                continue_target: latch,
+            },
+            latch,
+        )?;
 
-        self.current_block = latch;
+        self.switch_to(latch);
         self.lower_block_stmts(update_hir)?;
-        if self.block()?.terminator.is_none() {
-            self.set_terminator(Terminator::Goto(header))?;
-        }
-        self.current_block = after;
+        self.terminate_if_open(Terminator::Goto(header))?;
+        self.switch_to(after);
         Ok(())
     }
 
@@ -747,8 +564,8 @@ impl LoweringCtx<'_> {
         });
 
         let header = self.function.push_block(self.block()?.span);
-        self.set_terminator(Terminator::Goto(header))?;
-        self.current_block = header;
+        self.terminate(Terminator::Goto(header))?;
+        self.switch_to(header);
         let len = self.push_temp(float_ty, self.block()?.span);
         self.block_mut()?.statements.push(Statement::Assign {
             dest: len,
@@ -766,17 +583,13 @@ impl LoweringCtx<'_> {
         let body_mir = self.function.push_block(self.hir_block(body_hir)?.span);
         let update_block = self.function.push_block(self.block()?.span);
         let after = self.function.push_block(self.block()?.span);
-        self.set_terminator(Terminator::Switch {
+        self.terminate(Terminator::Switch {
             cond: Operand::Copy(Place::Local(cond)),
             then_block: body_mir,
             else_block: after,
         })?;
 
-        self.loops.push(LoopTargets {
-            break_target: after,
-            continue_target: update_block,
-        });
-        self.current_block = body_mir;
+        self.switch_to(body_mir);
         self.block_mut()?.statements.push(Statement::Assign {
             dest: item_local,
             value: Rvalue::Use(Operand::Copy(Place::Index {
@@ -787,12 +600,15 @@ impl LoweringCtx<'_> {
                 negative: NegativeIndex::OutOfRange,
             })),
         });
-        self.lower_block_stmts(body_hir)?;
-        if self.block()?.terminator.is_none() {
-            self.set_terminator(Terminator::Goto(update_block))?;
-        }
-        self.loops.pop();
-        self.current_block = update_block;
+        self.lower_loop_body(
+            body_hir,
+            LoopTargets {
+                break_target: after,
+                continue_target: update_block,
+            },
+            update_block,
+        )?;
+        self.switch_to(update_block);
         let one = Operand::Const(Constant::Float(1.0));
         self.block_mut()?.statements.push(Statement::AssignPlace {
             place: Place::Local(idx),
@@ -802,8 +618,8 @@ impl LoweringCtx<'_> {
                 rhs: one,
             },
         });
-        self.set_terminator(Terminator::Goto(header))?;
-        self.current_block = after;
+        self.terminate(Terminator::Goto(header))?;
+        self.switch_to(after);
         Ok(())
     }
 
@@ -864,17 +680,9 @@ impl LoweringCtx<'_> {
         if default.is_none()
             && let Some(target) = default_target
         {
-            let target_index =
-                usize_from_u32(target.0, "synthesized MIR match default block index")?;
-            let Some(block) = self.function.blocks.get_mut(target_index) else {
-                return Err(self.error(
-                    "synthesized MIR match default block is missing after allocation",
-                    Some(span),
-                ));
-            };
-            block.terminator = Some(Terminator::Goto(join));
+            self.terminate_block(target, Terminator::Goto(join))?;
         }
-        self.set_terminator(Terminator::Match {
+        self.terminate(Terminator::Match {
             scrutinee: lowered_scrutinee,
             arms: mir_arms,
             default: default_target,
@@ -887,44 +695,165 @@ impl LoweringCtx<'_> {
         });
 
         for (target, hir_block) in arm_blocks {
-            self.current_block = target;
+            self.switch_to(target);
             self.lower_block_stmts(hir_block)?;
-            if self.block()?.terminator.is_none() {
-                self.set_terminator(Terminator::Goto(join))?;
-            }
+            self.terminate_if_open(Terminator::Goto(join))?;
         }
 
         if let (Some(target), Some(default_block)) = (default_target, default)
             && !default_already_lowered
         {
-            self.current_block = target;
+            self.switch_to(target);
             self.lower_block_stmts(default_block)?;
-            if self.block()?.terminator.is_none() {
-                self.set_terminator(Terminator::Goto(join))?;
-            }
+            self.terminate_if_open(Terminator::Goto(join))?;
         }
 
-        self.current_block = join;
+        self.switch_to(join);
         Ok(())
     }
 }
 
-/// The exceptional exit of a `try` with a `finally`: the handler block, the
-/// local holding the thrown value and the flag that makes the clause's end
-/// rethrow it.
-#[derive(Clone, Copy)]
-struct FinallyRethrow {
-    catch_block: BlockId,
+/// The `finally` clause of one `try`, and the only writer of its
+/// exceptional-exit protocol.
+///
+/// A `finally` runs on the EXCEPTIONAL exit too: a throw (or a rejected
+/// `await`) out of the `try` body when there is no `catch`, or out of the
+/// `catch` body, runs the clause and then rethrows the same value. The handler
+/// stores the value in `thrown` and raises `pending`, then joins the one
+/// `finally` block the normal exit uses; the clause's end rethrows when the
+/// flag is up. The clause is emitted once, so its statements are not
+/// duplicated per exit. Before, only the normal and `return` exits ran it, so
+/// `try { await race } finally { clearTimeout(t) }` left the timer armed when
+/// the race rejected.
+///
+/// The protocol, in the order the methods must be called:
+/// 1. [`Self::arm`] at the `try` entry clears `thrown` and `pending` (both are
+///    read at the clause's end on every path into it);
+/// 2. the guarded regions throw into [`Self::handler`];
+/// 3. [`Self::lower_exceptional_entry`] fills that handler block: raise the
+///    flag, join the clause;
+/// 4. [`Self::lower_clause`] lowers the clause and its exit: rethrow when the
+///    flag is up, continue after the `try` otherwise.
+struct FinallyPlan {
+    /// The clause's HIR block.
+    hir: smelt_hir::BlockId,
+    /// The MIR block the clause is lowered into (the normal exit's target).
+    block: BlockId,
+    /// The continuation after the whole `try` statement.
+    after: BlockId,
+    /// The exceptional exit's handler block.
+    handler_block: BlockId,
+    /// The erased local holding the thrown value while the clause runs.
     thrown: LocalId,
+    /// Whether the clause was entered by a throw (and must rethrow).
     pending: LocalId,
+    /// The `try` body's span, for the synthesized rethrow block.
+    span: smelt_hir::Span,
 }
 
-impl FinallyRethrow {
-    /// The exception target the guarded bodies throw into.
-    const fn handler(self) -> ExceptionTarget {
-        ExceptionTarget {
-            catch_block: self.catch_block,
+impl FinallyPlan {
+    /// Allocates the clause's handler block and its two protocol locals.
+    ///
+    /// The thrown value is held at the erased type `lower_hir` interns for a
+    /// crate with a `finally` (`thrown_ty`). `lower_hir` derives that from the
+    /// same HIR statements this lowers, so a missing type is an internal
+    /// inconsistency: it is reported as an error rather than quietly lowering
+    /// the clause without its exceptional exit (which would let a throw skip
+    /// the cleanup).
+    fn new(
+        ctx: &mut LoweringCtx<'_>,
+        hir: smelt_hir::BlockId,
+        block: BlockId,
+        after: BlockId,
+        span: smelt_hir::Span,
+    ) -> Result<Self, LowerError> {
+        let Some((unknown_ty, name)) = ctx.thrown_ty else {
+            return Err(ctx.error(
+                "internal error: a `finally` clause was lowered without the crate's \
+                 pending-thrown type",
+                Some(span),
+            ));
+        };
+        let thrown = ctx.function.push_local(LocalDecl {
+            ty: unknown_ty,
+            kind: LocalKind::UserBinding(name),
+            span,
+        });
+        let pending = ctx.push_temp(ctx.loop_bool_ty, span);
+        let handler_block = ctx.function.push_block(span);
+        Ok(Self {
+            hir,
+            block,
+            after,
+            handler_block,
+            thrown,
+            pending,
+            span,
+        })
+    }
+
+    /// The clause as the guarded regions see it on the scope stack.
+    const fn clause(&self) -> FinallyClause {
+        FinallyClause {
+            hir: self.hir,
+            cleanup: GeneratorCleanup {
+                block: self.block,
+                after: self.after,
+            },
+        }
+    }
+
+    /// The exception handler the guarded regions throw into.
+    const fn handler(&self) -> ExceptionHandler {
+        ExceptionHandler {
+            catch_block: self.handler_block,
             exception_local: Some(self.thrown),
         }
+    }
+
+    /// Clears the protocol locals at the `try` entry (cursor's block).
+    fn arm(&self, ctx: &mut LoweringCtx<'_>) -> Result<(), LowerError> {
+        let statements = &mut ctx.block_mut()?.statements;
+        statements.push(Statement::Assign {
+            dest: self.thrown,
+            value: Rvalue::Use(Operand::Const(Constant::Undefined)),
+        });
+        statements.push(Statement::Assign {
+            dest: self.pending,
+            value: Rvalue::Use(Operand::Const(Constant::Bool(false))),
+        });
+        Ok(())
+    }
+
+    /// Fills the handler block: raise the flag and join the clause.
+    fn lower_exceptional_entry(&self, ctx: &mut LoweringCtx<'_>) -> Result<(), LowerError> {
+        ctx.switch_to(self.handler_block);
+        ctx.block_mut()?.statements.push(Statement::Assign {
+            dest: self.pending,
+            value: Rvalue::Use(Operand::Const(Constant::Bool(true))),
+        });
+        ctx.terminate(Terminator::Goto(self.block))
+    }
+
+    /// Lowers the clause into its block, then its exit: a rethrow of the
+    /// pending value when the flag is up, the code after the `try` otherwise.
+    ///
+    /// An abrupt exit inside the clause (`return`, `break`, its own `throw`)
+    /// wins over a pending throw, as it does in JavaScript and Python: such a
+    /// path is already terminated and gets no rethrow edge.
+    fn lower_clause(&self, ctx: &mut LoweringCtx<'_>) -> Result<(), LowerError> {
+        ctx.switch_to(self.block);
+        ctx.lower_block_stmts(self.hir)?;
+        if ctx.is_terminated()? {
+            return Ok(());
+        }
+        let rethrow_block = ctx.function.push_block(self.span);
+        ctx.terminate(Terminator::Switch {
+            cond: Operand::Copy(Place::Local(self.pending)),
+            then_block: rethrow_block,
+            else_block: self.after,
+        })?;
+        ctx.switch_to(rethrow_block);
+        ctx.lower_throw(Operand::Copy(Place::Local(self.thrown)))
     }
 }

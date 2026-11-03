@@ -1,0 +1,24 @@
+body 1
+finally 1
+finally 2
+after for-of
+body 1
+finally 1
+finally 2
+body 3
+finally 3
+after while
+inner 1
+outer 1
+inner 2
+outer 2
+after nested
+loop finally 0
+loop finally 1
+still in try
+outer finally
+caught 1
+finally 1
+after catch
+outer catch
+from try

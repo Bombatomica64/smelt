@@ -59,14 +59,14 @@ impl LoweringCtx<'_> {
                     .collect::<Result<Vec<_>, _>>()?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 let target = self.function.push_block(expr.span);
-                self.set_terminator(Terminator::Call {
+                self.terminate(Terminator::Call {
                     callee: callee_id,
                     args: lowered_args,
                     dest,
                     target,
                     unwind: self.current_exception_handler(),
                 })?;
-                self.current_block = target;
+                self.switch_to(target);
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::Item(_) => {
@@ -124,13 +124,13 @@ impl LoweringCtx<'_> {
                 let dest = self.push_temp(expr.ty, expr.span);
                 let then_block = self.function.push_block(expr.span);
                 let else_block = self.function.push_block(expr.span);
-                self.set_terminator(Terminator::Switch {
+                self.terminate(Terminator::Switch {
                     cond: cond_operand,
                     then_block,
                     else_block,
                 })?;
 
-                self.current_block = then_block;
+                self.switch_to(then_block);
                 let then_operand = self.lower_expr(*then_expr)?;
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
@@ -145,7 +145,7 @@ impl LoweringCtx<'_> {
                     .is_none()
                     .then_some(self.current_block);
 
-                self.current_block = else_block;
+                self.switch_to(else_block);
                 let else_operand = self.lower_expr(*else_expr)?;
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
@@ -174,15 +174,15 @@ impl LoweringCtx<'_> {
                 // mirrors the join-ordering fix already applied to `lower_match`.
                 let join_block = self.function.push_block(expr.span);
                 if let Some(tail) = then_tail {
-                    self.current_block = tail;
-                    self.set_terminator(Terminator::Goto(join_block))?;
+                    self.switch_to(tail);
+                    self.terminate(Terminator::Goto(join_block))?;
                 }
                 if let Some(tail) = else_tail {
-                    self.current_block = tail;
-                    self.set_terminator(Terminator::Goto(join_block))?;
+                    self.switch_to(tail);
+                    self.terminate(Terminator::Goto(join_block))?;
                 }
 
-                self.current_block = join_block;
+                self.switch_to(join_block);
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::FunctionTableLookup { key, cases } => {
@@ -362,14 +362,14 @@ impl LoweringCtx<'_> {
                     let receiver_operand = self.lower_expr(*receiver)?;
                     let dest = self.push_temp(expr.ty, expr.span);
                     let target = self.function.push_block(expr.span);
-                    self.set_terminator(Terminator::Call {
+                    self.terminate(Terminator::Call {
                         callee: Callee::Static(getter),
                         args: vec![receiver_operand],
                         dest,
                         target,
                         unwind: self.current_exception_handler(),
                     })?;
-                    self.current_block = target;
+                    self.switch_to(target);
                     return Ok(Operand::Copy(Place::Local(dest)));
                 }
                 let receiver_operand = self.lower_expr(*receiver)?;
@@ -684,14 +684,14 @@ impl LoweringCtx<'_> {
                     // `is_fallible` is the one place that split is recorded.
                     let dest = self.push_temp(expr.ty, expr.span);
                     let target = self.function.push_block(expr.span);
-                    self.set_terminator(Terminator::Call {
+                    self.terminate(Terminator::Call {
                         callee: Callee::Builtin(BuiltinFn::UriDecode(*op)),
                         args: vec![lowered_operand],
                         dest,
                         target,
                         unwind: self.current_exception_handler(),
                     })?;
-                    self.current_block = target;
+                    self.switch_to(target);
                     Operand::Copy(Place::Local(dest))
                 } else {
                     self.assign_temp(
@@ -719,14 +719,14 @@ impl LoweringCtx<'_> {
                     // functions are total and stay rvalues.
                     let dest = self.push_temp(expr.ty, expr.span);
                     let target = self.function.push_block(expr.span);
-                    self.set_terminator(Terminator::Call {
+                    self.terminate(Terminator::Call {
                         callee: Callee::Builtin(BuiltinFn::HostModule(*op)),
                         args: arg_operands,
                         dest,
                         target,
                         unwind: self.current_exception_handler(),
                     })?;
-                    self.current_block = target;
+                    self.switch_to(target);
                     Operand::Copy(Place::Local(dest))
                 } else {
                     self.assign_temp(
@@ -748,14 +748,14 @@ impl LoweringCtx<'_> {
                 let lowered_flags = self.lower_expr(*flags)?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 let target = self.function.push_block(expr.span);
-                self.set_terminator(Terminator::Call {
+                self.terminate(Terminator::Call {
                     callee: Callee::Builtin(BuiltinFn::RegExpCompile),
                     args: vec![lowered_pattern, lowered_flags],
                     dest,
                     target,
                     unwind: self.current_exception_handler(),
                 })?;
-                self.current_block = target;
+                self.switch_to(target);
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::Base64Transcode { op, operand } => {
@@ -766,14 +766,14 @@ impl LoweringCtx<'_> {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 let target = self.function.push_block(expr.span);
-                self.set_terminator(Terminator::Call {
+                self.terminate(Terminator::Call {
                     callee: Callee::Builtin(BuiltinFn::Base64(*op)),
                     args: vec![lowered_operand],
                     dest,
                     target,
                     unwind: self.current_exception_handler(),
                 })?;
-                self.current_block = target;
+                self.switch_to(target);
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::ObjectToStringTag { operand } => {
@@ -1505,7 +1505,7 @@ impl LoweringCtx<'_> {
                 }
                 let dest = self.push_temp(expr.ty, expr.span);
                 let target = self.function.push_block(expr.span);
-                self.set_terminator(Terminator::Call {
+                self.terminate(Terminator::Call {
                     callee: Callee::Builtin(BuiltinFn::DataViewAccess {
                         write: *write,
                         element: *element,
@@ -1515,7 +1515,7 @@ impl LoweringCtx<'_> {
                     target,
                     unwind: self.current_exception_handler(),
                 })?;
-                self.current_block = target;
+                self.switch_to(target);
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::BigIntCall { op, args } => {
@@ -1529,14 +1529,14 @@ impl LoweringCtx<'_> {
                     .collect::<Result<Vec<_>, _>>()?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 let target = self.function.push_block(expr.span);
-                self.set_terminator(Terminator::Call {
+                self.terminate(Terminator::Call {
                     callee: Callee::Builtin(BuiltinFn::BigInt(*op)),
                     args: call_args,
                     dest,
                     target,
                     unwind: self.current_exception_handler(),
                 })?;
-                self.current_block = target;
+                self.switch_to(target);
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::ByteArrayOp { op, bytes, args } => {
@@ -1622,14 +1622,14 @@ impl LoweringCtx<'_> {
                 }
                 let dest = self.push_temp(expr.ty, expr.span);
                 let target = self.function.push_block(expr.span);
-                self.set_terminator(Terminator::Call {
+                self.terminate(Terminator::Call {
                     callee: Callee::Builtin(BuiltinFn::UrlNew),
                     args,
                     dest,
                     target,
                     unwind: self.current_exception_handler(),
                 })?;
-                self.current_block = target;
+                self.switch_to(target);
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::UrlOp {
@@ -1645,14 +1645,14 @@ impl LoweringCtx<'_> {
                 }
                 let dest = self.push_temp(expr.ty, expr.span);
                 let target = self.function.push_block(expr.span);
-                self.set_terminator(Terminator::Call {
+                self.terminate(Terminator::Call {
                     callee: Callee::Builtin(BuiltinFn::UrlSetHref),
                     args: call_args,
                     dest,
                     target,
                     unwind: self.current_exception_handler(),
                 })?;
-                self.current_block = target;
+                self.switch_to(target);
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::UrlOp { op, url, args } => {
@@ -1975,7 +1975,7 @@ impl LoweringCtx<'_> {
                     Rvalue::GeneratorYield {
                         value: operand,
                         unwind: self.current_exception_handler(),
-                        cleanup: self.generator_cleanups.last().copied(),
+                        cleanup: self.current_generator_cleanup(),
                     },
                 )?
             }
@@ -2543,7 +2543,7 @@ impl LoweringCtx<'_> {
                 let text_operand = self.lower_expr(*text)?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 let target = self.function.push_block(expr.span);
-                self.set_terminator(Terminator::Call {
+                self.terminate(Terminator::Call {
                     callee: Callee::Builtin(BuiltinFn::JsonParse {
                         target: decode.then_some(expr.ty),
                     }),
@@ -2552,7 +2552,7 @@ impl LoweringCtx<'_> {
                     target,
                     unwind: self.current_exception_handler(),
                 })?;
-                self.current_block = target;
+                self.switch_to(target);
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::HttpGetText { url } => {
@@ -2934,14 +2934,14 @@ impl LoweringCtx<'_> {
                 );
                 let dest = self.push_temp(expr.ty, expr.span);
                 let target = self.function.push_block(expr.span);
-                self.set_terminator(Terminator::Call {
+                self.terminate(Terminator::Call {
                     callee: Callee::Static(callee_id),
                     args: lowered_args,
                     dest,
                     target,
                     unwind: self.current_exception_handler(),
                 })?;
-                self.current_block = target;
+                self.switch_to(target);
                 Operand::Copy(Place::Local(dest))
                 }
             }
@@ -2963,14 +2963,14 @@ impl LoweringCtx<'_> {
                 };
                 let dest = self.push_temp(expr.ty, expr.span);
                 let target = self.function.push_block(expr.span);
-                self.set_terminator(Terminator::Call {
+                self.terminate(Terminator::Call {
                     callee: Callee::Static(callee_id),
                     args: lowered_args,
                     dest,
                     target,
                     unwind: self.current_exception_handler(),
                 })?;
-                self.current_block = target;
+                self.switch_to(target);
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::BaseConstructorInit {
@@ -2989,14 +2989,14 @@ impl LoweringCtx<'_> {
                 let callee_id = self.resolve_base_initializer(*base, expr.span)?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 let target = self.function.push_block(expr.span);
-                self.set_terminator(Terminator::Call {
+                self.terminate(Terminator::Call {
                     callee: Callee::BaseInit(callee_id),
                     args: lowered_args,
                     dest,
                     target,
                     unwind: self.current_exception_handler(),
                 })?;
-                self.current_block = target;
+                self.switch_to(target);
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::Await(future) => {
@@ -3004,13 +3004,13 @@ impl LoweringCtx<'_> {
                 let dest = self.push_temp(expr.ty, expr.span);
                 if self.current_exception_handler().is_some() {
                     let target = self.function.push_block(expr.span);
-                    self.set_terminator(Terminator::Await {
+                    self.terminate(Terminator::Await {
                         future: lowered_future,
                         dest,
                         target,
                         unwind: self.current_exception_handler(),
                     })?;
-                    self.current_block = target;
+                    self.switch_to(target);
                 } else {
                     self.block_mut()?.statements.push(Statement::Assign {
                         dest,
@@ -3101,14 +3101,14 @@ impl LoweringCtx<'_> {
                     !callee_is_async && self.current_exception_handler().is_some();
                 if inner_throws || needs_unwind_edge {
                     let target = self.function.push_block(expr.span);
-                    self.set_terminator(Terminator::Call {
+                    self.terminate(Terminator::Call {
                         callee: Callee::Indirect(callee_operand),
                         args: lowered_args,
                         dest,
                         target,
                         unwind: self.current_exception_handler(),
                     })?;
-                    self.current_block = target;
+                    self.switch_to(target);
                     return Ok(Operand::Copy(Place::Local(dest)));
                 }
                 self.block_mut()?.statements.push(Statement::Assign {
@@ -3473,13 +3473,13 @@ impl LoweringCtx<'_> {
         let dest = self.push_temp(ty, span);
         let nullish_block = self.function.push_block(span);
         let present_block = self.function.push_block(span);
-        self.set_terminator(Terminator::Switch {
+        self.terminate(Terminator::Switch {
             cond,
             then_block: nullish_block,
             else_block: present_block,
         })?;
 
-        self.current_block = nullish_block;
+        self.switch_to(nullish_block);
         let lowered_fallback = self.lower_expr(fallback)?;
         self.block_mut()?.statements.push(Statement::Assign {
             dest,
@@ -3494,7 +3494,7 @@ impl LoweringCtx<'_> {
             .is_none()
             .then_some(self.current_block);
 
-        self.current_block = present_block;
+        self.switch_to(present_block);
         self.block_mut()?.statements.push(Statement::Assign {
             dest,
             value: Rvalue::Use(read),
@@ -3505,12 +3505,12 @@ impl LoweringCtx<'_> {
         // `goto join_block` is a forward edge for the Rust emitter.
         let join_block = self.function.push_block(span);
         if let Some(tail) = nullish_tail {
-            self.current_block = tail;
-            self.set_terminator(Terminator::Goto(join_block))?;
+            self.switch_to(tail);
+            self.terminate(Terminator::Goto(join_block))?;
         }
-        self.current_block = present_tail;
-        self.set_terminator(Terminator::Goto(join_block))?;
-        self.current_block = join_block;
+        self.switch_to(present_tail);
+        self.terminate(Terminator::Goto(join_block))?;
+        self.switch_to(join_block);
         Ok(Some(Operand::Copy(Place::Local(dest))))
     }
 

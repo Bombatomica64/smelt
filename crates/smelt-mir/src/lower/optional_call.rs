@@ -96,7 +96,7 @@ impl LoweringCtx<'_> {
         let dest = self.push_temp(result_ty, span);
         let present_block = self.function.push_block(span);
         let absent_block = self.function.push_block(span);
-        self.set_terminator(Terminator::Switch {
+        self.terminate(Terminator::Switch {
             cond: present,
             then_block: present_block,
             else_block: absent_block,
@@ -104,7 +104,7 @@ impl LoweringCtx<'_> {
 
         // Present arm: unwrap, call with the handler as the unwind edge, and
         // wrap the result back into the optional destination.
-        self.current_block = present_block;
+        self.switch_to(present_block);
         let unwrapped = self.assign_temp(
             inner_ty,
             span,
@@ -116,14 +116,14 @@ impl LoweringCtx<'_> {
         }
         let call_dest = self.push_temp(call_ty, span);
         let after_call = self.function.push_block(span);
-        self.set_terminator(Terminator::Call {
+        self.terminate(Terminator::Call {
             callee: Callee::Static(callee_id),
             args: lowered_args,
             dest: call_dest,
             target: after_call,
             unwind: Some(unwind),
         })?;
-        self.current_block = after_call;
+        self.switch_to(after_call);
         self.block_mut()?.statements.push(Statement::Assign {
             dest,
             value: Rvalue::Use(Operand::Copy(Place::Local(call_dest))),
@@ -131,7 +131,7 @@ impl LoweringCtx<'_> {
         let present_tail = self.current_block;
 
         // Absent arm: the chain short-circuits to `undefined`.
-        self.current_block = absent_block;
+        self.switch_to(absent_block);
         self.block_mut()?.statements.push(Statement::Assign {
             dest,
             value: Rvalue::Use(Operand::Const(Constant::None)),
@@ -140,10 +140,10 @@ impl LoweringCtx<'_> {
         // The join is allocated last so every `goto` into it is a forward
         // edge (see the ordering note on `ExprKind::Conditional`).
         let join_block = self.function.push_block(span);
-        self.set_terminator(Terminator::Goto(join_block))?;
-        self.current_block = present_tail;
-        self.set_terminator(Terminator::Goto(join_block))?;
-        self.current_block = join_block;
+        self.terminate(Terminator::Goto(join_block))?;
+        self.switch_to(present_tail);
+        self.terminate(Terminator::Goto(join_block))?;
+        self.switch_to(join_block);
         Ok(Some(Operand::Copy(Place::Local(dest))))
     }
 

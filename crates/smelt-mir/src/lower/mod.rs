@@ -41,6 +41,8 @@ mod optional_call;
 mod place;
 /// Statement, block, and control-flow terminator lowering.
 mod stmt;
+/// The lexical control-scope stack (loops, `try` regions) and block cursor.
+mod scope;
 
 /// Closure ABI ownership: construction, escape analysis, and throwing widening.
 mod closures;

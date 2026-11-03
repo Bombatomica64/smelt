@@ -1,0 +1,491 @@
+fn break_out_of_for_of (FuncId(0)) -> None throws
+  locals
+    %0 user x: Float
+    %1 temp: List<Float>
+    %2 temp: usize
+    %3 temp: usize
+    %4 temp: Bool
+    %5 user smelt_pending_thrown: Unknown
+    %6 temp: Bool
+    %7 temp: Bool
+    %8 temp: List<String>
+    %9 temp: String
+    %10 temp: Float
+    %11 temp: List<String>
+    %12 temp: String
+    %13 temp: Float
+    %14 temp: List<String>
+    %15 temp: String
+    %16 temp: Float
+    %17 temp: List<String>
+    %18 temp: Float
+  bb0:
+    %1 = [1.0, 2.0, 3.0]
+    %2 = 0
+    goto bb1
+  bb1:
+    %3 = len copy %1
+    %4 = copy %2 < move %3
+    switch move %4 ? bb2 : bb4
+  bb2:
+    %0 = copy %1[copy %2]
+    %5 = undefined
+    %6 = false
+    goto bb5
+  bb3:
+    %2 = copy %2 + 1
+    goto bb1
+  bb4:
+    %17 = global_get #0
+    %18 = list_push move %17, "after for-of"
+    return none
+  bb5:
+    %7 = copy %0 == 2.0
+    switch move %7 ? bb9 : bb10
+  bb6:
+    goto bb3
+  bb7:
+    %14 = global_get #0
+    %15 = "finally " + move %0
+    %16 = list_push move %14, move %15
+    switch move %6 ? bb11 : bb6
+  bb8:
+    %6 = true
+    goto bb7
+  bb9:
+    %8 = global_get #0
+    %9 = "finally " + move %0
+    %10 = list_push move %8, move %9
+    goto bb4
+  bb10:
+    %11 = global_get #0
+    %12 = "body " + copy %0
+    %13 = list_push move %11, move %12
+    goto bb7
+  bb11:
+    throw move %5
+
+fn continue_in_while (FuncId(1)) -> None throws
+  locals
+    %0 user i: usize
+    %1 temp: Bool
+    %2 temp: usize
+    %3 user smelt_pending_thrown: Unknown
+    %4 temp: Bool
+    %5 temp: Bool
+    %6 temp: List<String>
+    %7 temp: String
+    %8 temp: Float
+    %9 temp: List<String>
+    %10 temp: String
+    %11 temp: Float
+    %12 temp: List<String>
+    %13 temp: String
+    %14 temp: Float
+    %15 temp: List<String>
+    %16 temp: Float
+    %17 temp: Float
+    %18 temp: Float
+    %19 temp: Float
+  bb0:
+    %0 = 0
+    goto bb1
+  bb1:
+    %1 = copy %0 < 3
+    switch move %1 ? bb2 : bb3
+  bb2:
+    %2 = move %0 + 1
+    %0 = move %2
+    %3 = undefined
+    %4 = false
+    goto bb4
+  bb3:
+    %15 = global_get #0
+    %16 = list_push move %15, "after while"
+    return none
+  bb4:
+    %5 = copy %0 == 2
+    switch move %5 ? bb8 : bb9
+  bb5:
+    goto bb1
+  bb6:
+    %12 = global_get #0
+    %17 = primitive_cast_float copy %0
+    %13 = "finally " + move %17
+    %14 = list_push move %12, move %13
+    switch move %4 ? bb10 : bb5
+  bb7:
+    %4 = true
+    goto bb6
+  bb8:
+    %6 = global_get #0
+    %18 = primitive_cast_float copy %0
+    %7 = "finally " + move %18
+    %8 = list_push move %6, move %7
+    goto bb1
+  bb9:
+    %9 = global_get #0
+    %19 = primitive_cast_float copy %0
+    %10 = "body " + move %19
+    %11 = list_push move %9, move %10
+    goto bb6
+  bb10:
+    throw move %3
+
+fn nested_try (FuncId(2)) -> None throws
+  locals
+    %0 user x: Float
+    %1 temp: List<Float>
+    %2 temp: usize
+    %3 temp: usize
+    %4 temp: Bool
+    %5 user smelt_pending_thrown: Unknown
+    %6 temp: Bool
+    %7 user smelt_pending_thrown: Unknown
+    %8 temp: Bool
+    %9 temp: Bool
+    %10 temp: List<String>
+    %11 temp: String
+    %12 temp: Float
+    %13 temp: List<String>
+    %14 temp: String
+    %15 temp: Float
+    %16 temp: List<String>
+    %17 temp: String
+    %18 temp: Float
+    %19 temp: List<String>
+    %20 temp: String
+    %21 temp: Float
+    %22 temp: List<String>
+    %23 temp: String
+    %24 temp: Float
+    %25 temp: List<String>
+    %26 temp: String
+    %27 temp: Float
+    %28 temp: List<String>
+    %29 temp: Float
+  bb0:
+    %1 = [1.0, 2.0]
+    %2 = 0
+    goto bb1
+  bb1:
+    %3 = len copy %1
+    %4 = copy %2 < move %3
+    switch move %4 ? bb2 : bb4
+  bb2:
+    %0 = copy %1[copy %2]
+    %5 = undefined
+    %6 = false
+    goto bb5
+  bb3:
+    %2 = copy %2 + 1
+    goto bb1
+  bb4:
+    %28 = global_get #0
+    %29 = list_push move %28, "after nested"
+    return none
+  bb5:
+    %7 = undefined
+    %8 = false
+    goto bb9
+  bb6:
+    goto bb3
+  bb7:
+    %25 = global_get #0
+    %26 = "outer " + move %0
+    %27 = list_push move %25, move %26
+    switch move %6 ? bb16 : bb6
+  bb8:
+    %6 = true
+    goto bb7
+  bb9:
+    %9 = copy %0 == 1.0
+    switch move %9 ? bb13 : bb14
+  bb10:
+    goto bb7
+  bb11:
+    %22 = global_get #0
+    %23 = "inner " + copy %0
+    %24 = list_push move %22, move %23
+    switch move %8 ? bb15 : bb10
+  bb12:
+    %8 = true
+    goto bb11
+  bb13:
+    %10 = global_get #0
+    %11 = "inner " + copy %0
+    %12 = list_push move %10, move %11
+    %13 = global_get #0
+    %14 = "outer " + move %0
+    %15 = list_push move %13, move %14
+    goto bb3
+  bb14:
+    %16 = global_get #0
+    %17 = "inner " + copy %0
+    %18 = list_push move %16, move %17
+    %19 = global_get #0
+    %20 = "outer " + move %0
+    %21 = list_push move %19, move %20
+    goto bb4
+  bb15:
+    %5 = move %7
+    goto bb8
+  bb16:
+    throw move %5
+
+fn loop_inside_try (FuncId(3)) -> None throws
+  locals
+    %0 user i: usize
+    %1 user smelt_pending_thrown: Unknown
+    %2 temp: Bool
+    %3 temp: Bool
+    %4 user smelt_pending_thrown: Unknown
+    %5 temp: Bool
+    %6 temp: Bool
+    %7 temp: List<String>
+    %8 temp: String
+    %9 temp: Float
+    %10 temp: List<String>
+    %11 temp: String
+    %12 temp: Float
+    %13 temp: usize
+    %14 temp: List<String>
+    %15 temp: Float
+    %16 temp: List<String>
+    %17 temp: Float
+    %18 temp: Float
+    %19 temp: Float
+  bb0:
+    %1 = undefined
+    %2 = false
+    goto bb1
+  bb1:
+    %0 = 0
+    goto bb5
+  bb2:
+    return none
+  bb3:
+    %16 = global_get #0
+    %17 = list_push move %16, "outer finally"
+    switch move %2 ? bb16 : bb2
+  bb4:
+    %2 = true
+    goto bb3
+  bb5:
+    %3 = copy %0 < 3
+    switch move %3 ? bb6 : bb8
+  bb6:
+    %4 = undefined
+    %5 = false
+    goto bb9
+  bb7:
+    %13 = move %0 + 1
+    %0 = move %13
+    goto bb5
+  bb8:
+    %14 = global_get #0
+    %15 = list_push move %14, "still in try"
+    goto bb3
+  bb9:
+    %6 = copy %0 == 1
+    switch move %6 ? bb13 : bb14
+  bb10:
+    goto bb7
+  bb11:
+    %10 = global_get #0
+    %18 = primitive_cast_float copy %0
+    %11 = "loop finally " + move %18
+    %12 = list_push move %10, move %11
+    switch move %5 ? bb15 : bb10
+  bb12:
+    %5 = true
+    goto bb11
+  bb13:
+    %7 = global_get #0
+    %19 = primitive_cast_float copy %0
+    %8 = "loop finally " + move %19
+    %9 = list_push move %7, move %8
+    goto bb8
+  bb14:
+    goto bb11
+  bb15:
+    %1 = move %4
+    goto bb4
+  bb16:
+    throw move %1
+
+fn break_from_catch (FuncId(4)) -> None throws
+  locals
+    %0 user x: Float
+    %1 temp: List<Float>
+    %2 temp: usize
+    %3 temp: usize
+    %4 temp: Bool
+    %5 user smelt_pending_thrown: Unknown
+    %6 temp: Bool
+    %7 temp: Bool
+    %8 temp: List<String>
+    %9 temp: String
+    %10 temp: Float
+    %11 temp: List<String>
+    %12 temp: String
+    %13 temp: Float
+    %14 temp: List<String>
+    %15 temp: String
+    %16 temp: Float
+    %17 temp: List<String>
+    %18 temp: Float
+  bb0:
+    %1 = [1.0, 2.0]
+    %2 = 0
+    goto bb1
+  bb1:
+    %3 = len copy %1
+    %4 = copy %2 < move %3
+    switch move %4 ? bb2 : bb4
+  bb2:
+    %0 = copy %1[copy %2]
+    %5 = undefined
+    %6 = false
+    goto bb5
+  bb3:
+    %2 = copy %2 + 1
+    goto bb1
+  bb4:
+    %17 = global_get #0
+    %18 = list_push move %17, "after catch"
+    return none
+  bb5:
+    %7 = copy %0 == 1.0
+    switch move %7 ? bb10 : bb11
+  bb6:
+    goto bb3
+  bb7:
+    %14 = global_get #0
+    %15 = "finally " + move %0
+    %16 = list_push move %14, move %15
+    switch move %6 ? bb12 : bb6
+  bb8:
+    %8 = global_get #0
+    %9 = "caught " + copy %0
+    %10 = list_push move %8, move %9
+    %11 = global_get #0
+    %12 = "finally " + move %0
+    %13 = list_push move %11, move %12
+    goto bb4
+  bb9:
+    %6 = true
+    goto bb7
+  bb10:
+    goto bb8
+  bb11:
+    goto bb7
+  bb12:
+    throw move %5
+
+fn finally_throw_skips_own_catch (FuncId(5)) -> String
+  locals
+    %0 param fail: Bool
+    %1 user smelt_pending_thrown: Unknown
+    %2 temp: Bool
+  bb0:
+    goto bb1
+  bb1:
+    %1 = undefined
+    %2 = false
+    goto bb4
+  bb2:
+    return none
+  bb3:
+    return "outer catch"
+  bb4:
+    switch copy %0 ? bb9 : bb10
+  bb5:
+    goto bb2
+  bb6:
+    switch copy %0 ? bb13 : bb14
+  bb7:
+    switch copy %0 ? bb11 : bb12
+  bb8:
+    %2 = true
+    goto bb6
+  bb9:
+    goto bb3
+  bb10:
+    return "from try"
+  bb11:
+    goto bb3
+  bb12:
+    return "own catch"
+  bb13:
+    goto bb3
+  bb14:
+    switch move %2 ? bb15 : bb5
+  bb15:
+    goto bb3
+
+fn smelt_global_init__log__0 (FuncId(6)) -> List<String>
+  locals
+    %0 temp: List<String>
+  bb0:
+    %0 = []
+    return move %0
+
+fn main (FuncId(7)) -> None throws
+  locals
+    %0 user line: String
+    %1 temp: None
+    %2 temp: None
+    %3 temp: None
+    %4 temp: None
+    %5 temp: None
+    %6 temp: None
+    %7 temp: List<String>
+    %8 temp: String
+    %9 temp: Float
+    %10 temp: List<String>
+    %11 temp: String
+    %12 temp: Float
+    %13 temp: List<String>
+    %14 temp: usize
+    %15 temp: usize
+    %16 temp: Bool
+    %17 temp: None
+  bb0:
+    %1 = global_get #0
+    %2 = call fn0() -> bb1
+  bb1:
+    %3 = call fn1() -> bb2
+  bb2:
+    %4 = call fn2() -> bb3
+  bb3:
+    %5 = call fn3() -> bb4
+  bb4:
+    %6 = call fn4() -> bb5
+  bb5:
+    %7 = global_get #0
+    %8 = call fn5(true) -> bb6
+  bb6:
+    %9 = list_push move %7, move %8
+    %10 = global_get #0
+    %11 = call fn5(false) -> bb7
+  bb7:
+    %12 = list_push move %10, move %11
+    %13 = global_get #0
+    %14 = 0
+    goto bb8
+  bb8:
+    %15 = len copy %13
+    %16 = copy %14 < move %15
+    switch move %16 ? bb9 : bb11
+  bb9:
+    %0 = copy %13[copy %14]
+    %17 = call @console_log(move %0) -> bb12
+  bb10:
+    %14 = copy %14 + 1
+    goto bb8
+  bb11:
+    return none
+  bb12:
+    goto bb10
+
