@@ -21,9 +21,15 @@
 //! `RefCell` it wraps — every existing call site is unchanged — except that a
 //! store created with a pending snapshot builds it first. A view built eagerly
 //! has nothing pending and behaves byte for byte as before. Only the origin
-//! slot is read and written without building the snapshot
-//! (`raw_borrow`/`raw_borrow_mut`), because the origin is exactly the part of
-//! the view that does not depend on it.
+//! slot is read and written without building the snapshot (`origin` /
+//! `origin_mut`), because the origin is exactly the part of the view that does
+//! not depend on it. That convention is enforced by the cell's surface: the
+//! unbuilt store is reachable ONLY as its `origin` slot, so no caller can read
+//! the entries of a view whose snapshot is still pending.
+//!
+//! `pending` is taken out of its `Cell` before the builder runs, so a builder
+//! that reads this same store again (a snapshot of a value whose fields reach
+//! the view) sees nothing pending instead of building twice.
 //!
 //! # Why this preserves behaviour
 //!
@@ -56,8 +62,8 @@ struct SmeltPendingFill<K, V> {
 /// The `RefCell` around a field store, building a pending snapshot on first use.
 ///
 /// See `lazy_view` in the code generator: `borrow`/`borrow_mut` are the
-/// `RefCell` ones after materializing; `raw_borrow`/`raw_borrow_mut` skip it
-/// and exist only for the `origin` slot.
+/// `RefCell` ones after materializing; `origin`/`origin_mut` skip it and reach
+/// nothing but the `origin` slot.
 pub struct SmeltStoreCell<K, V> {
     cell: ::std::cell::RefCell<SmeltFieldStore<K, V>>,
     pending: ::std::cell::Cell<Option<SmeltPendingFill<K, V>>>,
@@ -86,12 +92,12 @@ impl<K, V> SmeltStoreCell<K, V> {
     /// Mutably borrow the store, building a pending snapshot first.
     #[inline]
     fn borrow_mut(&self) -> ::std::cell::RefMut<'_, SmeltFieldStore<K, V>> { self.materialize(); self.cell.borrow_mut() }
-    /// Borrow the store as it is, pending snapshot left unbuilt (the origin slot only).
+    /// The origin slot, pending snapshot left unbuilt.
     #[inline]
-    fn raw_borrow(&self) -> ::std::cell::Ref<'_, SmeltFieldStore<K, V>> { self.cell.borrow() }
-    /// Mutably borrow the store as it is (the origin slot only).
+    fn origin(&self) -> ::std::cell::Ref<'_, Option<Box<dyn ::std::any::Any>>> { ::std::cell::Ref::map(self.cell.borrow(), |store| &store.origin) }
+    /// The origin slot, mutably, pending snapshot left unbuilt.
     #[inline]
-    fn raw_borrow_mut(&self) -> ::std::cell::RefMut<'_, SmeltFieldStore<K, V>> { self.cell.borrow_mut() }
+    fn origin_mut(&self) -> ::std::cell::RefMut<'_, Option<Box<dyn ::std::any::Any>>> { ::std::cell::RefMut::map(self.cell.borrow_mut(), |store| &mut store.origin) }
 }
 
 impl<K: ::std::fmt::Debug, V: ::std::fmt::Debug> ::std::fmt::Debug for SmeltStoreCell<K, V> {

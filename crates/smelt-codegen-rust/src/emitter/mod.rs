@@ -115,6 +115,9 @@ mod construct;
 mod control_flow_match;
 mod core;
 mod dict_entry_update;
+pub(crate) mod emit_role;
+mod flow_state;
+mod helper_reservation;
 mod blob;
 mod fetch_types;
 mod url;
@@ -323,6 +326,67 @@ pub(crate) struct EmitContext {
     pub(crate) backend_erasures: RefCell<Vec<smelt_hir::ErasureRecord>>,
 }
 
+/// The state of an [`EmitContext`]'s body-render outputs at one point, restored
+/// when the checkpoint is dropped.
+///
+/// A body render does not only produce text: it MINTS module-level items into
+/// the shared context as it goes — function-item value accessors (erased,
+/// erased-`SmeltErasedFunction` and typed), hoisted record conversion and
+/// adapter helpers — flags the `util.inspect` runtime as used, and records the
+/// backend's own erasure decisions. The generic body-cleanliness trial
+/// (`EmitContext::populate_generic_functions`) renders bodies whose text is
+/// thrown away; without a rollback everything those renders minted was still
+/// flushed into the crate (helpers no emitted code calls, ordinals shifted by
+/// discarded renders, erasure records for decisions the real emission never
+/// made). Holding a checkpoint across the trial makes a discarded render leave
+/// nothing behind.
+///
+/// The maps are cloned rather than journaled: trials run before any real
+/// emission, when they are empty or hold only what earlier trials rolled
+/// back, so the clones are of (near-)empty maps. `backend_erasures` is
+/// append-only and is truncated back to its length.
+pub(crate) struct ContextCheckpoint<'c> {
+    /// The context restored on drop.
+    context: &'c EmitContext,
+    /// See [`EmitContext::function_item_accessors`].
+    function_item_accessors: ::std::collections::BTreeMap<usize, String>,
+    /// See [`EmitContext::function_item_erased_fn_accessors`].
+    function_item_erased_fn_accessors: ::std::collections::BTreeMap<usize, String>,
+    /// See [`EmitContext::function_item_typed_accessors`].
+    function_item_typed_accessors:
+        ::std::collections::BTreeMap<(usize, String), (usize, String)>,
+    /// See [`EmitContext::record_conversion_helpers`].
+    record_conversion_helpers: ::std::collections::BTreeMap<String, (usize, String)>,
+    /// See [`EmitContext::record_adapter_helpers`].
+    record_adapter_helpers: ::std::collections::BTreeMap<(String, String), (usize, String)>,
+    /// See [`EmitContext::console_inspect_used`].
+    console_inspect_used: bool,
+    /// The number of backend erasures recorded at the checkpoint.
+    backend_erasures_len: usize,
+}
+
+impl Drop for ContextCheckpoint<'_> {
+    /// Restore every body-render output of the context to the checkpoint.
+    fn drop(&mut self) {
+        let context = self.context;
+        *context.function_item_accessors.borrow_mut() =
+            std::mem::take(&mut self.function_item_accessors);
+        *context.function_item_erased_fn_accessors.borrow_mut() =
+            std::mem::take(&mut self.function_item_erased_fn_accessors);
+        *context.function_item_typed_accessors.borrow_mut() =
+            std::mem::take(&mut self.function_item_typed_accessors);
+        *context.record_conversion_helpers.borrow_mut() =
+            std::mem::take(&mut self.record_conversion_helpers);
+        *context.record_adapter_helpers.borrow_mut() =
+            std::mem::take(&mut self.record_adapter_helpers);
+        context.console_inspect_used.set(self.console_inspect_used);
+        context
+            .backend_erasures
+            .borrow_mut()
+            .truncate(self.backend_erasures_len);
+    }
+}
+
 impl EmitContext {
     /// Builds crate-level name and signature indexes for Rust emission.
     pub(crate) fn new(mir: &Mir) -> Result<Self, EmitError> {
@@ -438,6 +502,24 @@ impl EmitContext {
         })
     }
 
+    /// Capture everything a body render writes into this shared context, so a
+    /// TRIAL render can be rolled back (see [`ContextCheckpoint`]).
+    pub(crate) fn checkpoint(&self) -> ContextCheckpoint<'_> {
+        ContextCheckpoint {
+            context: self,
+            function_item_accessors: self.function_item_accessors.borrow().clone(),
+            function_item_erased_fn_accessors: self
+                .function_item_erased_fn_accessors
+                .borrow()
+                .clone(),
+            function_item_typed_accessors: self.function_item_typed_accessors.borrow().clone(),
+            record_conversion_helpers: self.record_conversion_helpers.borrow().clone(),
+            record_adapter_helpers: self.record_adapter_helpers.borrow().clone(),
+            console_inspect_used: self.console_inspect_used.get(),
+            backend_erasures_len: self.backend_erasures.borrow().len(),
+        }
+    }
+
     /// Record that a `console.log` argument renders through `SmeltInspect`.
     pub(crate) fn mark_console_inspect_used(&self) {
         self.console_inspect_used.set(true);
@@ -544,7 +626,7 @@ impl EmitContext {
         for _ in 0..MAX_ROUNDS {
             let mut next = HashSet::new();
             for function in &signature_safe {
-                let emitter = FunctionEmitter::new(mir, self, function)?;
+                let emitter = FunctionEmitter::for_generic_trial(mir, self, function)?;
                 if emitter.renders_real_generics()? {
                     next.insert(function.id);
                 }
@@ -1290,31 +1372,11 @@ pub(crate) struct FunctionEmitter<'mir> {
     none_ty: TypeId,
     /// Synthetic unknown local used when malformed MIR references a missing local.
     unknown_local: LocalDecl,
-    /// When set, a generic free function's own type parameters are treated as
-    /// out of scope (erased to `SmeltUnknown`) even though the function declares
-    /// them.
-    ///
-    /// A generic free function only emits real Rust generics when its body keeps
-    /// each type parameter opaque. The emitter trial-renders the body with the
-    /// type parameters in scope; if the rendered body still references the erased
-    /// `SmeltUnknown` carrier (the body inspects, compares, or erases a
-    /// `T`-typed value), emission falls back to the fully erased signature by
-    /// setting this flag and re-rendering. See [`FunctionEmitter::emit`].
-    suppress_type_params: RefCell<bool>,
-    /// Type parameters that are in scope in the enclosing Rust output but are
-    /// not declared by this emitter's own function.
-    ///
-    /// A closure is emitted inline inside its enclosing function, so any generic
-    /// parameters that function declares (`fn difference<T>`) are visible to the
-    /// closure body in the generated Rust. The closure is rendered through a
-    /// *separate* synthetic [`MirFunction`] with no type parameters of its own,
-    /// so without this the sub-emitter would erase every `T`-typed closure
-    /// parameter to `SmeltUnknown` and force the enclosing signature to erase too
-    /// (see [`FunctionEmitter::current_function_type_params`]). The set is
-    /// populated from the enclosing emitter's in-scope type parameters at
-    /// construction time, so it is already gated by the enclosing function's
-    /// erasure decision.
-    enclosing_type_params: HashSet<Symbol>,
+    /// What this emitter renders (own item, inherited copy, base initializer
+    /// copy, closure body) and the scope that role carries; see
+    /// [`emit_role`]. Fixed by the constructor, except an own item's
+    /// [`emit_role::OwnGenerics`] decision.
+    role: emit_role::EmitRole,
     /// Set while rendering text that is HOISTED to module level.
     ///
     /// `function_item_erased_accessor` builds the body of a module-level
@@ -1327,50 +1389,13 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// scope, which is the truthful answer for a module-level item: a generic
     /// function's erased *value* is its `T = SmeltUnknown` instantiation.
     hoisted_module_item: std::cell::Cell<bool>,
-    /// Set while this method is emitted as an INHERITED copy into a subclass's
-    /// `impl` block.
-    ///
-    /// Smelt flattens inheritance, so a base method is re-emitted in every
-    /// subclass's impl. A fluent base method annotated with its own class
-    /// (`route(..): Hono<..> { return this }`) is JavaScript's polymorphic
-    /// `this`: at runtime it answers the RECEIVER, which in the subclass copy is
-    /// the subclass. With flattened structs the declaring class is a different
-    /// Rust type, so the copy has to return `Self` (was E0308).
-    emitting_inherited_copy: bool,
-    /// For an INHERITED copy: the class whose `impl` block receives it. Its
-    /// type parameters, not the declaring base's, are the ones in scope.
-    inherited_impl_owner: Option<Symbol>,
-    /// Inside a CLOSURE of an inherited copy: each type parameter of the
-    /// DECLARING base class mapped to its argument in the receiving class's
-    /// scope, composed through every `extends Base<..>` level in between
-    /// (`crate::classes::inherited_type_substitution`). The copy itself is
-    /// emitted from a type-substituted clone of its function
-    /// (`crate::classes::substituted_inherited_member`), but its closures are
-    /// separate MIR items still spelled in the base's scope, so they render
-    /// through this map instead.
-    inherited_type_args: HashMap<Symbol, TypeId>,
-    /// While [`FunctionEmitter::renders_real_generics`] tries a free function
-    /// as generic: that function. Its own recursive calls (from its body or
-    /// a closure in it) are rendered as calls to the generic it is being tried
-    /// as, see [`FunctionEmitter::callee_emits_generics`].
-    trial_generic_function: std::cell::Cell<Option<FuncId>>,
-    /// The map an inherited copy (or a closure inside one) hands to the
-    /// closures it emits; see `inherited_type_args`. Not applied to the copy's
-    /// own, already substituted, types.
-    closure_inherited_type_args: HashMap<Symbol, TypeId>,
-    /// Set while a bound from `inherited_type_args` is rendered: the bound is
-    /// spelled in the RECEIVING class's scope, whose parameter may share a
-    /// declaring parameter's name (`C<T> extends B<T[]>`), so the map must not
-    /// apply inside it (it would recurse forever).
-    rendering_inherited_bound: std::cell::Cell<bool>,
-    /// Set while this CONSTRUCTOR is emitted as a base initializer copy into the
-    /// named (derived) class's `impl` block; see `crate::base_init` and
-    /// [`FunctionEmitter::mark_base_initializer_copy`].
-    base_initializer_owner: Option<Symbol>,
-    /// The locals holding the base-initializer receiver in this emitter: the
-    /// copy's own `this`, or a closure's capture of it. See
-    /// [`FunctionEmitter::inherit_base_initializer_receiver`].
-    base_initializer_receivers: HashSet<LocalId>,
+    /// Set while a bound from the inherited type-argument map is rendered, so
+    /// the map does not apply inside it; read as `types::InheritedScope` and
+    /// held through the `InheritedBoundSuspension` guard.
+    inherited_bound_suspended: std::cell::Cell<bool>,
+    /// Structured control-flow emission state (recursion depths, the flow of
+    /// the last emitted region tail, pending loop joins); see [`flow_state`].
+    flow: flow_state::ControlFlowState,
 }
 
 /// Wraps a list-valued expression so it reads as its backing `Vec`.

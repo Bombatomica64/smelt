@@ -706,12 +706,358 @@ fn emit_source_with_free_function_router(
         String,
     ) -> Result<Option<String>, EmitError>,
 ) -> Result<(String, Vec<smelt_hir::ErasureRecord>), EmitError> {
-    let mut writer = CodeWriter::new();
     let context = EmitContext::new(mir)?;
     // Decide, once, which free functions emit real Rust generics (signature
     // safety plus a body-cleanliness trial) so the definition and every call
     // site agree on the generic-vs-erased shape.
     context.populate_generic_functions(mir)?;
+    // The remaining phases, in the order they write the crate root. Each is
+    // one `CrateBuilder` method; see there for why a phase must come where it
+    // does.
+    let mut krate = CrateBuilder::with_prelude(mir, &context, allocator)?;
+    krate.emit_mutable_globals()?;
+    krate.emit_free_functions(&mut route_free_function)?;
+    krate.emit_class_impls()?;
+    krate.flush_hoisted_items();
+    krate.splice_console_inspect()?;
+    krate.emit_main_fallback()?;
+    Ok(krate.finish())
+}
+
+/// The crate root under construction, phase by phase.
+///
+/// [`emit_source_with_free_function_router`] runs the phases in order:
+/// generic decision (before any body is rendered), runtime prelude ending in
+/// [`PRELUDE_END_MARKER`], module globals, free functions, class `impl`s,
+/// the hoisted items those bodies minted, the `util.inspect` runtime spliced in
+/// ahead of the marker, and the `fn main` fallback. The builder owns the
+/// output text and the marker position, so a later phase cannot lose the
+/// prelude boundary it splices at.
+struct CrateBuilder<'a> {
+    /// The program being emitted.
+    mir: &'a Mir,
+    /// The shared crate-level emission context.
+    context: &'a EmitContext,
+    /// The crate root text so far.
+    out: String,
+    /// Byte offset of the prelude end marker in `out` (where the
+    /// `util.inspect` runtime is spliced).
+    prelude_end: usize,
+    /// Whether the crate carries the erased `SmeltUnknown` carrier (decided by
+    /// the prelude, read by the class phase).
+    needs_unknown: bool,
+}
+
+impl<'a> CrateBuilder<'a> {
+    /// Emit the runtime prelude and the prelude end marker.
+    fn with_prelude(
+        mir: &'a Mir,
+        context: &'a EmitContext,
+        allocator: GeneratedAllocator,
+    ) -> Result<Self, EmitError> {
+        let (mut out, needs_unknown) = emit_runtime_prelude(mir, context, allocator)?;
+
+        // Stable sentinel marking the end of the fixed runtime prelude and the start
+        // of program-specific code. Tooling (`smelt smelt-unknown-report`) keys on
+        // this exact comment to separate shared runtime scaffolding — the
+        // `SmeltUnknown` enum, its impls, and the `smelt_*` helpers above — from the
+        // generated program below, so `SmeltUnknown` occurrences in the prelude are
+        // never mistaken for program-level erasure. Keep the text byte-for-byte
+        // stable; changing it silently reclassifies every prelude occurrence.
+        //
+        // Normalize the trailing whitespace first so the marker always sits after
+        // exactly one blank line, regardless of how the last prelude block ended.
+        while out.ends_with('\n') {
+            out.pop();
+        }
+        let prelude_end = out.len();
+        out.push_str(&format!("\n\n{PRELUDE_END_MARKER}\n"));
+        Ok(Self {
+            mir,
+            context,
+            out,
+            prelude_end,
+            needs_unknown,
+        })
+    }
+
+    /// Emit the module-level mutable globals.
+    fn emit_mutable_globals(&mut self) -> Result<(), EmitError> {
+        let (mir, context, out) = (self.mir, self.context, &mut self.out);
+        // Emit one thread-local cell per module-level mutable global. These are
+        // program-specific mangled names (not fixed runtime symbols): each `#[test]`
+        // thread observes fresh module state initialized from the source literal,
+        // deterministic and mirroring vitest's per-file module isolation. Copy
+        // primitives use a `const`-initialized `Cell`; strings use the non-const
+        // `RefCell` form because a `.to_owned()` initializer cannot be `const`.
+        if !mir.globals.is_empty() {
+            out.push('\n');
+            out.push_str(&emit_mutable_globals(mir, context)?);
+        }
+        Ok(())
+    }
+
+    /// Emit every free function, handing each to `route_free_function`.
+    fn emit_free_functions(&mut self,
+        route_free_function: &mut impl FnMut(&MirFunction, &EmitContext, String) -> Result<Option<String>, EmitError>,
+    ) -> Result<(), EmitError> {
+        let (mir, context, out) = (self.mir, self.context, &mut self.out);
+        let mut has_emitted_root_function = false;
+        for function in &mir.functions {
+            if matches!(
+                function.origin,
+                HirOrigin::ClassConstructor { .. }
+                    | HirOrigin::ClassMethod { .. }
+                    | HirOrigin::ClassStaticMethod { .. }
+            ) {
+                continue;
+            }
+            let mut emitter = FunctionEmitter::new(mir, context, function)?;
+            let mut emitted_function_source = String::new();
+            emitter.emit(&mut emitted_function_source)?;
+            let routed_function_source =
+                route_free_function(function, context, emitted_function_source)?;
+            let Some(root_function_source) = routed_function_source else {
+                continue;
+            };
+            if has_emitted_root_function || !mir.classes.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(&root_function_source);
+            has_emitted_root_function = true;
+        }
+        Ok(())
+    }
+
+    /// Emit every class `impl` block (constructors, base initializers,
+    /// inherited and own methods, erased-view members, protocol impls).
+    fn emit_class_impls(&mut self) -> Result<(), EmitError> {
+        let needs_unknown = self.needs_unknown;
+        let (mir, context, out) = (self.mir, self.context, &mut self.out);
+        let mut emitted_impl_names = HashSet::new();
+        for class in &mir.classes {
+            let name = class_name_text(mir, class)?;
+            if !emitted_impl_names.insert(name.clone()) {
+                continue;
+            }
+            let impl_generics = class_impl_generics_text(mir, context, class)?;
+            let type_args = class_type_args_text(mir, context, class)?;
+            out.push_str(&format!("\nimpl{impl_generics} {name}{type_args} {{\n"));
+            if !class.is_abstract
+                && let Some(constructor) = class.constructor
+                && let Some(function) = mir.functions.get(id_index(
+                    constructor.0,
+                    "constructor index does not fit usize",
+                )?)
+            {
+                let mut emitter = FunctionEmitter::new(mir, context, function)?;
+                emitter.emit_method(out)?;
+            }
+            // Each ancestor constructor this class's `super(..)` chain runs is
+            // re-emitted here as an initializer over `Self`, exactly as inherited
+            // methods are below: see `base_init` for why the base body must run on
+            // the derived instance rather than on a separately constructed base.
+            for base_constructor in base_init::base_initializer_chain(mir, class)? {
+                if let Some(function) = mir.functions.get(id_index(
+                    base_constructor.0,
+                    "base constructor index does not fit usize",
+                )?) {
+                    let substituted = classes::substituted_inherited_member(mir, function, class.name);
+                    let copied_body = substituted.as_ref().unwrap_or(function);
+                    let mut emitter =
+                        FunctionEmitter::base_initializer_copy(mir, context, copied_body, class.name)?;
+                    emitter.emit_method(out)?;
+                }
+            }
+            // Inherited methods are emitted into the subclass's own impl block:
+            // Smelt flattens inheritance and Rust has no method inheritance, so a
+            // base method is otherwise not callable on a subclass receiver.
+            for method in &effective_class_methods(mir, class) {
+                if let Some(function) = mir
+                    .functions
+                    .get(id_index(method.0, "method index does not fit usize")?)
+                {
+                    let substituted = classes::substituted_inherited_member(mir, function, class.name);
+                    let copied_body = substituted.as_ref().unwrap_or(function);
+                    // A method whose declaring class is not this impl's class is an
+                    // INHERITED copy: its polymorphic-`this` return type belongs to
+                    // the impl, not to the class that declared it.
+                    let mut emitter = if matches!(
+                        function.origin,
+                        HirOrigin::ClassMethod { class: owner, .. } if owner == class.name
+                    ) {
+                        FunctionEmitter::new(mir, context, copied_body)?
+                    } else {
+                        FunctionEmitter::inherited_copy(mir, context, copied_body, class.name)?
+                    };
+                    emitter.emit_method(out)?;
+                }
+            }
+            for static_method in &class.static_methods {
+                if let Some(function) = mir.functions.get(id_index(
+                    static_method.0,
+                    "static method index does not fit usize",
+                )?) {
+                    let mut emitter = FunctionEmitter::new(mir, context, function)?;
+                    emitter.emit_method(out)?;
+                }
+            }
+            // A class instance that crosses into erased code keeps its methods, as
+            // prototype-carried members. Without this the erased view held only
+            // fields, and every method read off it answered `undefined` — which the
+            // erased call sites silently replaced with a fabricated default.
+            // Gated on `needs_unknown`: the adapters are written in terms of the
+            // erased carrier, and a program that never erases anything does not
+            // emit `SmeltUnknown` at all (the Python specialization fixtures are
+            // exactly that shape, and unconditional emission made them E0425).
+            if needs_unknown
+                && let Some(proto_entries) =
+                    class_proto::class_proto_entries_method(mir, context, class)?
+            {
+                out.push_str(&proto_entries);
+            }
+            if needs_unknown && let Some(host) = field_setter_host(mir, context, class) {
+                let emitter = FunctionEmitter::new(mir, context, host)?;
+                out.push_str(
+                    &emitter.reference_field_setter_method_text(&effective_class_fields(mir, class))?,
+                );
+                let fields = effective_class_fields(mir, class);
+                if emitter::view_write_through::has_live_callable_fields(
+                    mir,
+                    context.program_reads_this(),
+                    &fields,
+                ) {
+                    out.push_str(&emitter.reference_callable_field_getter_method_text(&fields)?);
+                }
+            }
+            out.push_str("}\n");
+            for protocol in &class.protocols {
+                match protocol {
+                    MirClassProtocol::Add { method } => {
+                        let function = mir
+                            .functions
+                            .get(id_index(method.0, "add protocol method index does not fit usize")?)
+                            .ok_or_else(|| EmitError::new("add protocol method is missing"))?;
+                        let mut emitter = FunctionEmitter::new(mir, context, function)?;
+                        emitter.emit_python_add_impl(
+                            out,
+                            &name,
+                            &impl_generics,
+                            &type_args,
+                        )?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Flush the module-level items the bodies above minted into the context:
+    /// function-item accessors and hoisted record conversion/adapter helpers.
+    fn flush_hoisted_items(&mut self) {
+        let (context, out) = (self.context, &mut self.out);
+        // Flushed HERE, after every free function AND every class impl body has been
+        // emitted: a function-item value can first be erased inside a constructor or
+        // method body, which the free-function loop above skips and the class loop
+        // below emits. Minting the accessor's name and emitting its definition are
+        // one decision, so the flush has to sit after the last place that can mint
+        // one (was `E0425: __smelt_fn_value_<key> not in scope` for a named function
+        // used as a value only from a method body).
+        // Flush the per-function-item value accessors collected while erasing
+        // function-item-as-value wrappers to `SmeltUnknown`. Each accessor lazily
+        // builds and caches ONE erased `SmeltUnknown::Function` so that every
+        // reference to the same named function value shares one inner `Rc`, keeping
+        // JavaScript reference identity (`===`) stable across references. Sorted by
+        // item key via the `BTreeMap` for deterministic golden output.
+        for (key, body) in context.function_item_accessors.borrow().iter() {
+            out.push_str(&format!(
+                "\nfn __smelt_fn_value_{key}() -> SmeltUnknown {{\n    thread_local! {{ static SMELT_FN_VALUE: ::std::cell::OnceCell<SmeltUnknown> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_VALUE.with(|cell| cell.get_or_init(|| {body}).clone())\n}}\n"
+            ));
+        }
+
+        // Flush the per-function-item accessors for the CONCRETE `SmeltErasedFunction`
+        // type. Each caches ONE `SmeltErasedFunction` so repeated calls of a nullary
+        // function-item constant (`doNothing()`/`constant()`) return clones sharing
+        // one inner callback `Rc`, keeping JavaScript function-singleton identity.
+        // A non-empty collector means a closure was lowered to `SmeltErasedFunction`,
+        // so `needs_erased_function` is necessarily true and the struct is emitted.
+        for (key, body) in context.function_item_erased_fn_accessors.borrow().iter() {
+            out.push_str(&format!(
+                "\nfn __smelt_fn_erased_{key}() -> SmeltErasedFunction {{\n    thread_local! {{ static SMELT_FN_ERASED: ::std::cell::OnceCell<SmeltErasedFunction> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_ERASED.with(|cell| cell.get_or_init(|| {body}).clone())\n}}\n"
+            ));
+        }
+
+        // Flush the per-function-item accessors for TYPED callable values (see
+        // `EmitContext::function_item_typed_accessors`): one cached `Rc` per item
+        // and rendered callable type, so every typed reference to a named function
+        // shares one identity. The wrapper is bound at its declared type first so
+        // the unsizing coercion to `Rc<dyn Fn..>` happens at a `let`; the type is
+        // spelled once, as an alias, rather than restated in each of the three
+        // positions that name it.
+        for ((key, type_text), (ordinal, body)) in context.function_item_typed_accessors.borrow().iter() {
+            out.push_str(&format!(
+                "\ntype SmeltFnTyped{key}_{ordinal} = {type_text};\nfn __smelt_fn_typed_{key}_{ordinal}() -> SmeltFnTyped{key}_{ordinal} {{\n    thread_local! {{ static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped{key}_{ordinal}> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| {{ let smelt_function: SmeltFnTyped{key}_{ordinal} = {body}; smelt_function }}).clone())\n}}\n"
+            ));
+        }
+
+        // Flush the hoisted erased-record-to-class conversions (see
+        // `EmitContext::record_conversion_helpers`): each recovered class type's
+        // conversion is spelled once here and called from every site.
+        for (type_text, (ordinal, body)) in context.record_conversion_helpers.borrow().iter() {
+            out.push_str(&format!(
+                "\nfn {RECORD_CONVERSION_HELPER_PREFIX}{ordinal}(smelt_value: SmeltUnknown) -> {type_text} {{\n    {body}\n}}\n"
+            ));
+        }
+        // The self-reaching record-to-record adapters, likewise spelled once.
+        for ((source_text, target_text), (ordinal, body)) in context.record_adapter_helpers.borrow().iter() {
+            out.push_str(&format!(
+                "\nfn {RECORD_ADAPTER_HELPER_PREFIX}{ordinal}(smelt_value: {source_text}) -> {target_text} {{\n    {body}\n}}\n"
+            ));
+        }
+    }
+
+    /// Splice the `util.inspect` runtime in ahead of the prelude end marker,
+    /// when a body used it.
+    fn splice_console_inspect(&mut self) -> Result<(), EmitError> {
+        // The `util.inspect` formatter is pay-for-use like the rest of the
+        // prelude, but whether a `console.log` argument needs it is decided while
+        // the bodies above are emitted, so it is spliced in ahead of the prelude
+        // marker only now. See `emitter::console_inspect`.
+        let console_inspect = emitter::emit_console_inspect_support(self.mir, self.context)?;
+        if !console_inspect.is_empty() {
+            // The marker position was recorded when the prelude phase wrote it, so
+            // the splice point cannot be lost (it used to be searched for, and a
+            // missing marker silently dropped the runtime).
+            self.out
+                .insert_str(self.prelude_end, &format!("\n\n{}", console_inspect.trim_end()));
+        }
+        Ok(())
+    }
+
+    /// Give a crate whose program has no `main` an empty one.
+    fn emit_main_fallback(&mut self) -> Result<(), EmitError> {
+        let (mir, out) = (self.mir, &mut self.out);
+        if !has_main_function(mir)? {
+            out.push_str("\nfn main() {}\n");
+        }
+        Ok(())
+    }
+
+    /// The finished crate root and the backend's erasure records.
+    fn finish(self) -> (String, Vec<smelt_hir::ErasureRecord>) {
+        (self.out, self.context.take_backend_erasures())
+    }
+}
+
+/// Emit the runtime prelude: every runtime type and helper the program needs,
+/// up to (not including) the prelude end marker. Also answers whether the
+/// crate carries the erased `SmeltUnknown` carrier.
+fn emit_runtime_prelude(
+    mir: &Mir,
+    context: &EmitContext,
+    allocator: GeneratedAllocator,
+) -> Result<(String, bool), EmitError> {
+    let mut writer = CodeWriter::new();
     let needs_serde_json =
         stdlib::backend_dependencies(mir).contains(&smelt_stdlib::BackendDependency::SerdeJson);
     let needs_regex =
@@ -1517,7 +1863,7 @@ fn emit_source_with_free_function_router(
             writer.line("/// so narrowing the record back hands out the SAME object.");
             writer.line("#[allow(dead_code)]");
             writer.line("fn smelt_with_host_origin<T: 'static>(erased: SmeltUnknown, origin: T) -> SmeltUnknown {");
-            writer.line("    if let SmeltUnknown::Object(object) = &erased { object.store.raw_borrow_mut().origin = Some(Box::new(origin)); }");
+            writer.line("    if let SmeltUnknown::Object(object) = &erased { *object.store.origin_mut() = Some(Box::new(origin)); }");
             writer.line("    erased");
             writer.line("}");
             writer.blank_line();
@@ -5637,8 +5983,8 @@ fn emit_source_with_free_function_router(
         if !emitted_class_names.insert(name.clone()) {
             continue;
         }
-        let type_params = interface_type_params_text(mir, &context, interface)?;
-        let impl_generics = interface_impl_generics_text(mir, &context, interface)?;
+        let type_params = interface_type_params_text(mir, context, interface)?;
+        let impl_generics = interface_impl_generics_text(mir, context, interface)?;
         let fields = effective_interface_fields(mir, interface);
         // A shape whose fields are written after construction is a reference
         // record: it needs the shared-cell handle so aliases observe the write,
@@ -5647,7 +5993,7 @@ fn emit_source_with_free_function_router(
             emit_reference_record_storage(
                 &mut writer,
                 mir,
-                &context,
+                context,
                 &ReferenceRecordShape {
                     name,
                     type_params: type_params.clone(),
@@ -5681,7 +6027,7 @@ fn emit_source_with_free_function_router(
         // and comparing two of them must keep working.
         let interface_supports_partial_eq = fields
             .iter()
-            .all(|field| type_supports_partial_eq(mir, &context, field.ty, &mut Vec::new()));
+            .all(|field| type_supports_partial_eq(mir, context, field.ty, &mut Vec::new()));
         let interface_partial_eq_derive = if interface_supports_partial_eq {
             ", PartialEq"
         } else {
@@ -5735,7 +6081,7 @@ fn emit_source_with_free_function_router(
                 .into_string();
                 let field_ty = FunctionEmitter::type_text_for_with_scoped_type_params(
                     mir,
-                    &context,
+                    context,
                     field.ty,
                     &TypeSubstitution::lexical(&scoped_type_params),
                 )
@@ -5752,7 +6098,7 @@ fn emit_source_with_free_function_router(
             emit_default_impl_for_storage_type(
                 &mut writer,
                 mir,
-                &context,
+                context,
                 &name,
                 &impl_generics,
                 &type_params,
@@ -5767,7 +6113,7 @@ fn emit_source_with_free_function_router(
             emit_record_into_smelt_unknown_impl(
                 &mut writer,
                 mir,
-                &context,
+                context,
                 &scoped_type_params,
                 &name,
                 &impl_generics,
@@ -5778,7 +6124,7 @@ fn emit_source_with_free_function_router(
             emit_record_from_smelt_unknown_impl(
                 &mut writer,
                 mir,
-                &context,
+                context,
                 &name,
                 &impl_generics,
                 &type_params,
@@ -6151,11 +6497,11 @@ fn emit_source_with_free_function_router(
             continue;
         }
         if context.is_reference_class(class.name) {
-            emit_reference_class_storage(&mut writer, mir, &context, class, needs_unknown)?;
+            emit_reference_class_storage(&mut writer, mir, context, class, needs_unknown)?;
             continue;
         }
-        let type_params = class_type_params_text(mir, &context, class)?;
-        let impl_generics = class_impl_generics_text(mir, &context, class)?;
+        let type_params = class_type_params_text(mir, context, class)?;
+        let impl_generics = class_impl_generics_text(mir, context, class)?;
         let mut field_lines = Vec::new();
         let fields = effective_class_fields(mir, class);
         let scoped_type_params = class
@@ -6188,7 +6534,7 @@ fn emit_source_with_free_function_router(
         // future handle) are the two prelude shapes without `PartialEq`, so the
         // derive is gated on their absence.
         let supports_partial_eq = fields.iter().all(|field| {
-            type_supports_partial_eq(mir, &context, field.ty, &mut Vec::new())
+            type_supports_partial_eq(mir, context, field.ty, &mut Vec::new())
         });
         let partial_eq_derive = if supports_partial_eq { ", PartialEq" } else { "" };
         // A GENERIC value class cannot use these derives at all. Every one of
@@ -6230,7 +6576,7 @@ fn emit_source_with_free_function_router(
         for field in &fields {
             let field_type_text = FunctionEmitter::type_text_for_with_scoped_type_params(
                 mir,
-                &context,
+                context,
                 field.ty,
                 &TypeSubstitution::lexical(&scoped_type_params),
             )?;
@@ -6272,7 +6618,7 @@ fn emit_source_with_free_function_router(
             emit_default_impl_for_storage_type(
                 &mut writer,
                 mir,
-                &context,
+                context,
                 &name,
                 &default_generics,
                 &type_params,
@@ -6346,7 +6692,7 @@ fn emit_source_with_free_function_router(
                             .map_or_else(|| "field".to_owned(), RustIdent::into_string);
                         let field_ty = FunctionEmitter::type_text_for_with_scoped_type_params(
                             mir,
-                            &context,
+                            context,
                             field.ty,
                             &TypeSubstitution::lexical(&scoped_type_params),
                         )
@@ -6364,7 +6710,7 @@ fn emit_source_with_free_function_router(
             emit_record_into_smelt_unknown_impl(
                 &mut writer,
                 mir,
-                &context,
+                context,
                 &scoped_type_params,
                 &name,
                 &impl_generics,
@@ -6375,7 +6721,7 @@ fn emit_source_with_free_function_router(
             emit_record_from_smelt_unknown_impl(
                 &mut writer,
                 mir,
-                &context,
+                context,
                 &name,
                 &impl_generics,
                 &type_params,
@@ -6386,7 +6732,7 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
     }
 
-    let union_definitions = emitter::emit_union_definitions(mir, &context)?;
+    let union_definitions = emitter::emit_union_definitions(mir, context)?;
     if !union_definitions.is_empty() {
         for line in union_definitions.lines() {
             writer.line(line);
@@ -6396,257 +6742,14 @@ fn emit_source_with_free_function_router(
     // Strict JSON entry decoders (`emitter::json_decode`): boundary adapters
     // from the parsed JSON value into each source-declared target's concrete
     // type. Emitted beside the union definitions they construct.
-    let json_decoders = emitter::emit_json_decoders(mir, &context)?;
+    let json_decoders = emitter::emit_json_decoders(mir, context)?;
     if !json_decoders.is_empty() {
         for line in json_decoders.lines() {
             writer.line(line);
         }
     }
 
-    let mut out = writer.finish();
-
-    // Stable sentinel marking the end of the fixed runtime prelude and the start
-    // of program-specific code. Tooling (`smelt smelt-unknown-report`) keys on
-    // this exact comment to separate shared runtime scaffolding — the
-    // `SmeltUnknown` enum, its impls, and the `smelt_*` helpers above — from the
-    // generated program below, so `SmeltUnknown` occurrences in the prelude are
-    // never mistaken for program-level erasure. Keep the text byte-for-byte
-    // stable; changing it silently reclassifies every prelude occurrence.
-    //
-    // Normalize the trailing whitespace first so the marker always sits after
-    // exactly one blank line, regardless of how the last prelude block ended.
-    while out.ends_with('\n') {
-        out.pop();
-    }
-    out.push_str(&format!("\n\n{PRELUDE_END_MARKER}\n"));
-
-    // Emit one thread-local cell per module-level mutable global. These are
-    // program-specific mangled names (not fixed runtime symbols): each `#[test]`
-    // thread observes fresh module state initialized from the source literal,
-    // deterministic and mirroring vitest's per-file module isolation. Copy
-    // primitives use a `const`-initialized `Cell`; strings use the non-const
-    // `RefCell` form because a `.to_owned()` initializer cannot be `const`.
-    if !mir.globals.is_empty() {
-        out.push('\n');
-        out.push_str(&emit_mutable_globals(mir, &context)?);
-    }
-
-    let mut has_emitted_root_function = false;
-    for function in &mir.functions {
-        if matches!(
-            function.origin,
-            HirOrigin::ClassConstructor { .. }
-                | HirOrigin::ClassMethod { .. }
-                | HirOrigin::ClassStaticMethod { .. }
-        ) {
-            continue;
-        }
-        let mut emitter = FunctionEmitter::new(mir, &context, function)?;
-        let mut emitted_function_source = String::new();
-        emitter.emit(&mut emitted_function_source)?;
-        let routed_function_source =
-            route_free_function(function, &context, emitted_function_source)?;
-        let Some(root_function_source) = routed_function_source else {
-            continue;
-        };
-        if has_emitted_root_function || !mir.classes.is_empty() {
-            out.push('\n');
-        }
-        out.push_str(&root_function_source);
-        has_emitted_root_function = true;
-    }
-
-    let mut emitted_impl_names = HashSet::new();
-    for class in &mir.classes {
-        let name = class_name_text(mir, class)?;
-        if !emitted_impl_names.insert(name.clone()) {
-            continue;
-        }
-        let impl_generics = class_impl_generics_text(mir, &context, class)?;
-        let type_args = class_type_args_text(mir, &context, class)?;
-        out.push_str(&format!("\nimpl{impl_generics} {name}{type_args} {{\n"));
-        if !class.is_abstract
-            && let Some(constructor) = class.constructor
-            && let Some(function) = mir.functions.get(id_index(
-                constructor.0,
-                "constructor index does not fit usize",
-            )?)
-        {
-            let mut emitter = FunctionEmitter::new(mir, &context, function)?;
-            emitter.emit_method(&mut out)?;
-        }
-        // Each ancestor constructor this class's `super(..)` chain runs is
-        // re-emitted here as an initializer over `Self`, exactly as inherited
-        // methods are below: see `base_init` for why the base body must run on
-        // the derived instance rather than on a separately constructed base.
-        for base_constructor in base_init::base_initializer_chain(mir, class)? {
-            if let Some(function) = mir.functions.get(id_index(
-                base_constructor.0,
-                "base constructor index does not fit usize",
-            )?) {
-                let substituted = classes::substituted_inherited_member(mir, function, class.name);
-                let copied_body = substituted.as_ref().unwrap_or(function);
-                let mut emitter = FunctionEmitter::new(mir, &context, copied_body)?;
-                emitter.mark_base_initializer_copy(class.name);
-                emitter.emit_method(&mut out)?;
-            }
-        }
-        // Inherited methods are emitted into the subclass's own impl block:
-        // Smelt flattens inheritance and Rust has no method inheritance, so a
-        // base method is otherwise not callable on a subclass receiver.
-        for method in &effective_class_methods(mir, class) {
-            if let Some(function) = mir
-                .functions
-                .get(id_index(method.0, "method index does not fit usize")?)
-            {
-                let substituted = classes::substituted_inherited_member(mir, function, class.name);
-                let copied_body = substituted.as_ref().unwrap_or(function);
-                let mut emitter = FunctionEmitter::new(mir, &context, copied_body)?;
-                // A method whose declaring class is not this impl's class is an
-                // INHERITED copy: its polymorphic-`this` return type belongs to
-                // the impl, not to the class that declared it.
-                if !matches!(
-                    function.origin,
-                    HirOrigin::ClassMethod { class: owner, .. } if owner == class.name
-                ) {
-                    emitter.mark_inherited_copy(class.name);
-                }
-                emitter.emit_method(&mut out)?;
-            }
-        }
-        for static_method in &class.static_methods {
-            if let Some(function) = mir.functions.get(id_index(
-                static_method.0,
-                "static method index does not fit usize",
-            )?) {
-                let mut emitter = FunctionEmitter::new(mir, &context, function)?;
-                emitter.emit_method(&mut out)?;
-            }
-        }
-        // A class instance that crosses into erased code keeps its methods, as
-        // prototype-carried members. Without this the erased view held only
-        // fields, and every method read off it answered `undefined` — which the
-        // erased call sites silently replaced with a fabricated default.
-        // Gated on `needs_unknown`: the adapters are written in terms of the
-        // erased carrier, and a program that never erases anything does not
-        // emit `SmeltUnknown` at all (the Python specialization fixtures are
-        // exactly that shape, and unconditional emission made them E0425).
-        if needs_unknown
-            && let Some(proto_entries) =
-                class_proto::class_proto_entries_method(mir, &context, class)?
-        {
-            out.push_str(&proto_entries);
-        }
-        if needs_unknown && let Some(host) = field_setter_host(mir, &context, class) {
-            let emitter = FunctionEmitter::new(mir, &context, host)?;
-            out.push_str(
-                &emitter.reference_field_setter_method_text(&effective_class_fields(mir, class))?,
-            );
-            let fields = effective_class_fields(mir, class);
-            if emitter::view_write_through::has_live_callable_fields(
-                mir,
-                context.program_reads_this(),
-                &fields,
-            ) {
-                out.push_str(&emitter.reference_callable_field_getter_method_text(&fields)?);
-            }
-        }
-        out.push_str("}\n");
-        for protocol in &class.protocols {
-            match protocol {
-                MirClassProtocol::Add { method } => {
-                    let function = mir
-                        .functions
-                        .get(id_index(method.0, "add protocol method index does not fit usize")?)
-                        .ok_or_else(|| EmitError::new("add protocol method is missing"))?;
-                    let mut emitter = FunctionEmitter::new(mir, &context, function)?;
-                    emitter.emit_python_add_impl(
-                        &mut out,
-                        &name,
-                        &impl_generics,
-                        &type_args,
-                    )?;
-                }
-            }
-        }
-    }
-
-    // Flushed HERE, after every free function AND every class impl body has been
-    // emitted: a function-item value can first be erased inside a constructor or
-    // method body, which the free-function loop above skips and the class loop
-    // below emits. Minting the accessor's name and emitting its definition are
-    // one decision, so the flush has to sit after the last place that can mint
-    // one (was `E0425: __smelt_fn_value_<key> not in scope` for a named function
-    // used as a value only from a method body).
-    // Flush the per-function-item value accessors collected while erasing
-    // function-item-as-value wrappers to `SmeltUnknown`. Each accessor lazily
-    // builds and caches ONE erased `SmeltUnknown::Function` so that every
-    // reference to the same named function value shares one inner `Rc`, keeping
-    // JavaScript reference identity (`===`) stable across references. Sorted by
-    // item key via the `BTreeMap` for deterministic golden output.
-    for (key, body) in context.function_item_accessors.borrow().iter() {
-        out.push_str(&format!(
-            "\nfn __smelt_fn_value_{key}() -> SmeltUnknown {{\n    thread_local! {{ static SMELT_FN_VALUE: ::std::cell::OnceCell<SmeltUnknown> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_VALUE.with(|cell| cell.get_or_init(|| {body}).clone())\n}}\n"
-        ));
-    }
-
-    // Flush the per-function-item accessors for the CONCRETE `SmeltErasedFunction`
-    // type. Each caches ONE `SmeltErasedFunction` so repeated calls of a nullary
-    // function-item constant (`doNothing()`/`constant()`) return clones sharing
-    // one inner callback `Rc`, keeping JavaScript function-singleton identity.
-    // A non-empty collector means a closure was lowered to `SmeltErasedFunction`,
-    // so `needs_erased_function` is necessarily true and the struct is emitted.
-    for (key, body) in context.function_item_erased_fn_accessors.borrow().iter() {
-        out.push_str(&format!(
-            "\nfn __smelt_fn_erased_{key}() -> SmeltErasedFunction {{\n    thread_local! {{ static SMELT_FN_ERASED: ::std::cell::OnceCell<SmeltErasedFunction> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_ERASED.with(|cell| cell.get_or_init(|| {body}).clone())\n}}\n"
-        ));
-    }
-
-    // Flush the per-function-item accessors for TYPED callable values (see
-    // `EmitContext::function_item_typed_accessors`): one cached `Rc` per item
-    // and rendered callable type, so every typed reference to a named function
-    // shares one identity. The wrapper is bound at its declared type first so
-    // the unsizing coercion to `Rc<dyn Fn..>` happens at a `let`; the type is
-    // spelled once, as an alias, rather than restated in each of the three
-    // positions that name it.
-    for ((key, type_text), (ordinal, body)) in context.function_item_typed_accessors.borrow().iter() {
-        out.push_str(&format!(
-            "\ntype SmeltFnTyped{key}_{ordinal} = {type_text};\nfn __smelt_fn_typed_{key}_{ordinal}() -> SmeltFnTyped{key}_{ordinal} {{\n    thread_local! {{ static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped{key}_{ordinal}> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| {{ let smelt_function: SmeltFnTyped{key}_{ordinal} = {body}; smelt_function }}).clone())\n}}\n"
-        ));
-    }
-
-    // Flush the hoisted erased-record-to-class conversions (see
-    // `EmitContext::record_conversion_helpers`): each recovered class type's
-    // conversion is spelled once here and called from every site.
-    for (type_text, (ordinal, body)) in context.record_conversion_helpers.borrow().iter() {
-        out.push_str(&format!(
-            "\nfn {RECORD_CONVERSION_HELPER_PREFIX}{ordinal}(smelt_value: SmeltUnknown) -> {type_text} {{\n    {body}\n}}\n"
-        ));
-    }
-    // The self-reaching record-to-record adapters, likewise spelled once.
-    for ((source_text, target_text), (ordinal, body)) in context.record_adapter_helpers.borrow().iter() {
-        out.push_str(&format!(
-            "\nfn {RECORD_ADAPTER_HELPER_PREFIX}{ordinal}(smelt_value: {source_text}) -> {target_text} {{\n    {body}\n}}\n"
-        ));
-    }
-
-    // The `util.inspect` formatter is pay-for-use like the rest of the
-    // prelude, but whether a `console.log` argument needs it is decided while
-    // the bodies above are emitted, so it is spliced in ahead of the prelude
-    // marker only now. See `emitter::console_inspect`.
-    let console_inspect = emitter::emit_console_inspect_support(mir, &context)?;
-    if !console_inspect.is_empty() {
-        let marker = format!("\n\n{PRELUDE_END_MARKER}\n");
-        if let Some(position) = out.find(&marker) {
-            out.insert_str(position, &format!("\n\n{}", console_inspect.trim_end()));
-        }
-    }
-
-    if !has_main_function(mir)? {
-        out.push_str("\nfn main() {}\n");
-    }
-
-    Ok((out, context.take_backend_erasures()))
+    Ok((writer.finish(), needs_unknown))
 }
 
 /// Rust sources split by original source module.

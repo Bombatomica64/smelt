@@ -45,7 +45,7 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Deserialize, Serialize};
 use smelt_hir::{Type, TypeId};
 use smelt_mir::{
-    BasicBlock, Callee, ClosureId, HirOrigin, LocalDecl, Mir, Operand, Place, Rvalue, Statement,
+    BasicBlock, Callee, ClosureId, LocalDecl, Mir, Operand, Place, Rvalue, Statement,
     Terminator,
 };
 
@@ -166,7 +166,7 @@ pub(crate) fn measure(mir: &Mir) -> Result<TypednessMeasurement, EmitError> {
     let owners = closure_owners(mir);
     let mut measurement = TypednessMeasurement::default();
     for (index, function) in mir.functions.iter().enumerate() {
-        let emitter = FunctionEmitter::new(mir, &context, function)?;
+        let mut emitter = FunctionEmitter::new(mir, &context, function)?;
         emitter.apply_crate_generic_decision();
         let file = function_file(mir, &function.blocks, function.entry);
         let counts = measurement.files.entry(file).or_default();
@@ -182,8 +182,8 @@ pub(crate) fn measure(mir: &Mir) -> Result<TypednessMeasurement, EmitError> {
     // Closures whose owner could not be found (none in well-formed MIR) are
     // measured in a context with no type parameters in scope.
     if let Some(first) = mir.functions.first() {
-        let emitter = FunctionEmitter::new(mir, &context, first)?;
-        *emitter.suppress_type_params.borrow_mut() = true;
+        let mut emitter = FunctionEmitter::new(mir, &context, first)?;
+        emitter.erase_own_generics();
         for closure in mir
             .closures
             .iter()
@@ -404,18 +404,6 @@ fn closure_owners(mir: &Mir) -> HashMap<ClosureId, usize> {
 }
 
 impl FunctionEmitter<'_> {
-    /// Apply the crate-wide decision whether this free function emits real
-    /// Rust generics (see `EmitContext::populate_generic_functions`): a free
-    /// function outside that set renders its type parameters erased. The same
-    /// rule [`FunctionEmitter::emit`] applies before emitting a body.
-    pub(super) fn apply_crate_generic_decision(&self) {
-        if matches!(self.function.origin, HirOrigin::Body(_))
-            && !self.context.is_generic_function(self.function.id)
-        {
-            *self.suppress_type_params.borrow_mut() = true;
-        }
-    }
-
     /// The type(s) a field (`Some(name)`) or element (`None`) read of a value
     /// of type `base` produces, when the type table answers it.
     fn projected_type(&self, base: TypeId, field: Option<smelt_hir::Symbol>) -> Option<Vec<TypeId>> {
