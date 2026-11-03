@@ -776,8 +776,10 @@ impl FunctionEmitter<'_> {
         if self.type_expansion_stack.borrow().contains(&(source, target)) {
             return None;
         }
-        self.type_expansion_stack.borrow_mut().push((source, target));
-        Some(TypeExpansionGuard { stack: &self.type_expansion_stack })
+        Some(helper_reservation::push_entry(
+            &self.type_expansion_stack,
+            (source, target),
+        ))
     }
 
     /// Returns whether rendered value text is a trivial place that can be
@@ -2484,7 +2486,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
             return Ok("SmeltUnknown::Null".to_owned());
         };
-        self.record_conversion_stack.borrow_mut().push(target);
+        let conversion_entry = helper_reservation::push_entry(&self.record_conversion_stack, target);
         let fields = self
             .mir
             .classes
@@ -2553,7 +2555,7 @@ impl FunctionEmitter<'_> {
                 ))
             })
             .collect::<Result<Vec<_>, EmitError>>();
-        self.record_conversion_stack.borrow_mut().pop();
+        drop(conversion_entry);
         let entries = entries_result?.join(" ");
 
         // Inject a hidden provenance marker so an erased class instance is no longer
@@ -3120,7 +3122,7 @@ impl FunctionEmitter<'_> {
         ) else {
             return Ok("Default::default()".to_owned());
         };
-        self.record_conversion_stack.borrow_mut().push(target);
+        let conversion_entry = helper_reservation::push_entry(&self.record_conversion_stack, target);
         let adapter_result = self.string_dict_record_adapter_text(
             "smelt_record_map",
             string_ty,
@@ -3128,7 +3130,7 @@ impl FunctionEmitter<'_> {
             target,
                             scope,
         );
-        self.record_conversion_stack.borrow_mut().pop();
+        drop(conversion_entry);
         if let Some(adapter) = adapter_result? {
             // A reference record's adapter first asks the record view
             // for the live instance it stands for, and that view only
@@ -3172,25 +3174,21 @@ impl FunctionEmitter<'_> {
             // converts that inner value by calling this same helper, and the
             // recursion guard in `extract_value_text` needs the ordinal to name
             // it. The call is lazy (it runs when `swap` is called), so the
-            // generated recursion is finite.
-            let next = {
-                let mut helpers = self.context.record_conversion_helpers.borrow_mut();
-                let next = helpers.len();
-                helpers.insert(module_text.clone(), (next, "Default::default()".to_owned()));
-                next
-            };
+            // generated recursion is finite. The reservation is released on
+            // every path that does not commit a body (see `helper_reservation`).
+            let reservation = helper_reservation::reserve(
+                &self.context.record_conversion_helpers,
+                module_text.clone(),
+            );
             let module_scope = self.render_scope();
             let body = self.inline_record_conversion("smelt_value", target, &module_scope)?;
             if body == "Default::default()" {
                 // Nothing to hoist, and a body that is only a default cannot
                 // have called its own reservation.
-                self.context.record_conversion_helpers.borrow_mut().remove(&module_text);
+                drop(reservation);
                 return Ok(Some(body));
             }
-            if let Some(entry) = self.context.record_conversion_helpers.borrow_mut().get_mut(&module_text) {
-                entry.1 = body;
-            }
-            next
+            reservation.commit(body)
         };
         drop(hoisted);
         Ok(Some(format!(
@@ -3795,16 +3793,8 @@ impl FunctionEmitter<'_> {
 /// Held by value at the expansion site (see
 /// [`FunctionEmitter::enter_type_expansion`]) so the stack stays balanced even
 /// when the expansion returns an `EmitError` through `?`.
-pub(super) struct TypeExpansionGuard<'emit> {
-    stack: &'emit RefCell<Vec<(TypeId, TypeId)>>,
-}
-
-impl Drop for TypeExpansionGuard<'_> {
-    /// Pops this expansion's entry from the shared expansion stack.
-    fn drop(&mut self) {
-        self.stack.borrow_mut().pop();
-    }
-}
+pub(super) type TypeExpansionGuard<'emit> =
+    helper_reservation::StackEntryGuard<'emit, (TypeId, TypeId)>;
 
 /// Whether an expression is cheap and side-effect-free to evaluate more than
 /// once. Bare locals and dotted field reads (`x`, `foo.bar.baz`) qualify; any

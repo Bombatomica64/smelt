@@ -117,6 +117,7 @@ mod core;
 mod dict_entry_update;
 pub(crate) mod emit_role;
 mod flow_state;
+mod helper_reservation;
 mod blob;
 mod fetch_types;
 mod url;

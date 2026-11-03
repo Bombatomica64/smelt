@@ -1482,24 +1482,21 @@ impl<'mir> FunctionEmitter<'mir> {
         let ordinal = if let Some(ordinal) = existing {
             ordinal
         } else {
-            let next = {
-                let mut helpers = self.context.record_adapter_helpers.borrow_mut();
-                let next = helpers.len();
-                helpers.insert(module.clone(), (next, "Default::default()".to_owned()));
-                next
+            // Reserved before the body renders (the cycle calls it); released
+            // unless a body is committed (see `helper_reservation`).
+            let reservation =
+                helper_reservation::reserve(&self.context.record_adapter_helpers, module.clone());
+            let body = {
+                // The helper's body is a fresh module-level item: the
+                // expansions in progress at this call site are not its own.
+                let _suspended = helper_reservation::suspend(&self.type_expansion_stack);
+                let module_scope = self.render_scope();
+                self.structural_record_adapter_text("smelt_value", source, target, &module_scope)
             };
-            let saved = std::mem::take(&mut *self.type_expansion_stack.borrow_mut());
-            let module_scope = self.render_scope();
-            let body = self.structural_record_adapter_text("smelt_value", source, target, &module_scope);
-            *self.type_expansion_stack.borrow_mut() = saved;
             let Some(body) = body? else {
-                self.context.record_adapter_helpers.borrow_mut().remove(&module);
                 return Ok(None);
             };
-            if let Some(entry) = self.context.record_adapter_helpers.borrow_mut().get_mut(&module) {
-                entry.1 = body;
-            }
-            next
+            reservation.commit(body)
         };
         drop(hoisted);
         Ok(Some(format!(
