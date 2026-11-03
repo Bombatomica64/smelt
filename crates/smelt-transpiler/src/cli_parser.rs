@@ -1,6 +1,6 @@
 //! CLI argument parsing and command definitions.
 
-use clap::{Parser, Subcommand};
+use clap::{ArgGroup, Args as ClapArgs, Parser, Subcommand, ValueEnum};
 
 /// Top-level CLI arguments for the smelt command.
 #[derive(Parser, Debug)]
@@ -30,13 +30,9 @@ pub struct Args {
 pub enum Command {
     /// Read manifest, transpile, and emit a Rust crate
     Build {
-        /// Print compact HIR after frontend lowering and stop
-        #[arg(long)]
-        hir: bool,
-
-        /// Print full debug HIR after frontend lowering and stop
-        #[arg(long = "hir-debug")]
-        hir_debug: bool,
+        /// `--hir` / `--hir-debug`: print HIR after frontend lowering and stop.
+        #[command(flatten)]
+        hir: HirFlags,
 
         /// Define a build-time value, like Bun's `--define`: `KEY=VALUE` where
         /// VALUE is JSON text, e.g. `--define 'process.env.NODE_ENV="production"'`.
@@ -58,8 +54,8 @@ pub enum Command {
     Check {
         /// Diagnostic output: `human` (default, fail-fast) or `json` (collect
         /// every module's categorized diagnostics in one recoverable pass).
-        #[arg(long = "message-format", default_value = "human")]
-        message_format: String,
+        #[arg(long = "message-format", value_enum, default_value_t = MessageFormat::Human)]
+        message_format: MessageFormat,
 
         /// Set an erasure reason's severity: `<reason>[:<glob>]=<allow|warn|deny>`
         /// (`all` for every reason). Repeatable; overrides `[erasure]`.
@@ -120,6 +116,9 @@ pub enum Command {
         into a failing family, `--guard` to prove a prior fix still passes, and \
         `--full` for the whole-suite inventory and largest failing groups. \
         Requires at least one of `--focus`, `--guard`, or `--full`.")]
+    #[command(group(
+        ArgGroup::new("runs").args(["focus", "guard", "full"]).required(true).multiple(true)
+    ))]
     RustTestReport {
         /// Path to the generated Rust crate `Cargo.toml`.
         #[arg(long = "cargo-manifest", value_name = "PATH")]
@@ -171,8 +170,8 @@ pub enum Command {
         run_tests: bool,
 
         /// Report format: `md` (default) or `json`.
-        #[arg(long, default_value = "md", value_name = "FORMAT")]
-        format: String,
+        #[arg(long, value_enum, default_value_t = ReportFormat::Markdown, value_name = "FORMAT")]
+        format: ReportFormat,
 
         /// Write the report to this file instead of stdout.
         #[arg(long, value_name = "PATH")]
@@ -201,8 +200,8 @@ pub enum Command {
         roots: Vec<String>,
 
         /// Report format: `md` (default) or `json` (also the baseline format).
-        #[arg(long, default_value = "md", value_name = "FORMAT")]
-        format: String,
+        #[arg(long, value_enum, default_value_t = ReportFormat::Markdown, value_name = "FORMAT")]
+        format: ReportFormat,
 
         /// Prior JSON report to diff against for an advisory regression note.
         #[arg(long, value_name = "PATH")]
@@ -241,8 +240,8 @@ pub enum Command {
         inputs: Vec<String>,
 
         /// Report format: `md` (default) or `json`.
-        #[arg(long, default_value = "md", value_name = "FORMAT")]
-        format: String,
+        #[arg(long, value_enum, default_value_t = ReportFormat::Markdown, value_name = "FORMAT")]
+        format: ReportFormat,
 
         /// Write the report to this file instead of stdout.
         #[arg(long, value_name = "PATH")]
@@ -268,8 +267,8 @@ pub enum Command {
         paths: Vec<String>,
 
         /// Report format: `md` (default) or `json` (also the baseline format).
-        #[arg(long, default_value = "md", value_name = "FORMAT")]
-        format: String,
+        #[arg(long, value_enum, default_value_t = ReportFormat::Markdown, value_name = "FORMAT")]
+        format: ReportFormat,
 
         /// Baseline report to compare against.
         #[arg(long, value_name = "PATH")]
@@ -309,8 +308,8 @@ pub enum Command {
         manifest: String,
 
         /// Report format: `md` (default) or `json`.
-        #[arg(long, default_value = "md", value_name = "FORMAT")]
-        format: String,
+        #[arg(long, value_enum, default_value_t = ReportFormat::Markdown, value_name = "FORMAT")]
+        format: ReportFormat,
 
         /// Expand this function into a per-local table; repeat for several.
         #[arg(long, value_name = "NAME")]
@@ -331,6 +330,58 @@ pub enum Command {
     DumpSchema,
 }
 
+/// How `smelt build` prints HIR instead of building.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HirMode {
+    /// Compact HIR (`--hir`).
+    Compact,
+    /// Full debug HIR (`--hir-debug`).
+    Debug,
+}
+
+/// The two spellings of [`HirMode`] on `smelt build`; at most one is given.
+#[derive(ClapArgs, Debug, Clone, Copy)]
+pub struct HirFlags {
+    /// Print compact HIR after frontend lowering and stop
+    #[arg(long, conflicts_with = "hir_debug")]
+    hir: bool,
+
+    /// Print full debug HIR after frontend lowering and stop
+    #[arg(long = "hir-debug")]
+    hir_debug: bool,
+}
+
+impl HirFlags {
+    /// The requested HIR mode, or `None` to build normally.
+    #[must_use]
+    pub const fn mode(self) -> Option<HirMode> {
+        match (self.hir, self.hir_debug) {
+            (_, true) => Some(HirMode::Debug),
+            (true, false) => Some(HirMode::Compact),
+            (false, false) => None,
+        }
+    }
+}
+
+/// Output format of the report subcommands (`--format`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum ReportFormat {
+    /// Human-readable Markdown.
+    #[value(name = "md", alias = "markdown")]
+    Markdown,
+    /// Machine-readable JSON.
+    Json,
+}
+
+/// Diagnostic output of `smelt check` (`--message-format`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum MessageFormat {
+    /// Fail fast with human-readable errors, writing declaration stubs.
+    Human,
+    /// Collect every module's categorized diagnostics as JSON.
+    Json,
+}
+
 /// Parse one `--define KEY=VALUE` argument, splitting at the first `=`.
 fn parse_define(argument: &str) -> Result<(String, String), String> {
     let (key, value) = argument
@@ -340,4 +391,60 @@ fn parse_define(argument: &str) -> Result<(String, String), String> {
         return Err(format!("`--define {argument}` has an empty KEY"));
     }
     Ok((key.to_owned(), value.to_owned()))
+}
+
+#[cfg(test)]
+mod tests {
+    //! Parsing of the typed CLI options, in their existing spellings.
+
+    use super::{Args, Command, HirMode, MessageFormat, ReportFormat};
+    use clap::Parser as _;
+
+    /// Parse a command line, panicking with clap's message on failure.
+    fn parse(argv: &[&str]) -> Command {
+        Args::try_parse_from(argv).map(|args| args.command).expect("parses")
+    }
+
+    #[test]
+    fn hir_flags_map_to_one_mode() {
+        // `None` when the command is not `build` at all.
+        let mode = |argv: &[&str]| {
+            if let Command::Build { hir, .. } = parse(argv) { Some(hir.mode()) } else { None }
+        };
+        assert_eq!(mode(&["smelt", "build"]), Some(None));
+        assert_eq!(mode(&["smelt", "build", "--hir"]), Some(Some(HirMode::Compact)));
+        assert_eq!(mode(&["smelt", "build", "--hir-debug"]), Some(Some(HirMode::Debug)));
+        assert!(Args::try_parse_from(["smelt", "build", "--hir", "--hir-debug"]).is_err());
+    }
+
+    #[test]
+    fn formats_keep_their_spellings() {
+        for (spelling, expected) in
+            [("md", ReportFormat::Markdown), ("markdown", ReportFormat::Markdown), ("json", ReportFormat::Json)]
+        {
+            assert!(matches!(
+                parse(&["smelt", "probe", "--format", spelling]),
+                Command::Probe { format, .. } if format == expected
+            ));
+        }
+        assert!(Args::try_parse_from(["smelt", "probe", "--format", "yaml"]).is_err());
+        assert!(matches!(
+            parse(&["smelt", "check", "--message-format", "json"]),
+            Command::Check { message_format: MessageFormat::Json, .. }
+        ));
+        assert!(matches!(
+            parse(&["smelt", "check"]),
+            Command::Check { message_format: MessageFormat::Human, .. }
+        ));
+    }
+
+    #[test]
+    fn rust_test_report_needs_a_run() {
+        assert!(Args::try_parse_from(["smelt", "rust-test-report", "--cargo-manifest", "C"]).is_err());
+        for run in [&["--full"][..], &["--focus", "f"], &["--guard", "g", "--full"]] {
+            let mut argv = vec!["smelt", "rust-test-report", "--cargo-manifest", "C"];
+            argv.extend_from_slice(run);
+            assert!(Args::try_parse_from(argv).is_ok(), "{run:?}");
+        }
+    }
 }

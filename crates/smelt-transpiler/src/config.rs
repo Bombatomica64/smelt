@@ -198,9 +198,54 @@ pub struct Source {
 /// `node_modules`. This section names the sources instead: a local directory
 /// (`path`) or a repository pinned to a revision (`git` + `rev`), the way a
 /// Cargo dependency is pinned. Exactly one of `path` and `git` is given.
+///
+/// The TOML spelling is the flat table [`PackageSourceToml`] describes; it is
+/// validated while the manifest is parsed, so a declaration that names both
+/// sources, neither, a `git` without `rev`, or a `rev` on a `path` source is a
+/// manifest parse error rather than something resolution has to re-check.
+#[derive(Clone, Deserialize, Debug)]
+#[serde(try_from = "PackageSourceToml")]
+pub struct PackageSource {
+    /// Where the package's sources come from.
+    pub location: PackageLocation,
+    /// Entry module, relative to the package root. Defaults to `src/index.ts`,
+    /// then `index.ts`. Subpath imports (`name/sub`) resolve next to it.
+    pub entry: Option<PathBuf>,
+    /// Package-root-relative globs of modules left out of the crate, with the
+    /// same syntax and pruning as `[sources] exclude`.
+    pub exclude: Option<Vec<String>>,
+}
+
+/// The source tree a `[packages.<name>]` declaration names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PackageLocation {
+    /// A local directory, relative to `Smelt.toml`.
+    Path(PathBuf),
+    /// A git repository pinned to a revision.
+    Git {
+        /// Repository to fetch the sources from (`git clone` URL).
+        url: String,
+        /// Revision to check out: a tag or a commit.
+        rev: String,
+    },
+}
+
+/// Where the TypeScript sources of one dependency live: `[packages.<name>]`.
+///
+/// A package published to npm usually ships compiled JavaScript and `.d.ts`
+/// declarations only, and Smelt lowers TypeScript SOURCE, so a bare import of
+/// it (`import { Hono } from 'hono'`) has nothing to resolve to in
+/// `node_modules`. This section names the sources instead: a local directory
+/// (`path`) or a repository pinned to a revision (`git` + `rev`), the way a
+/// Cargo dependency is pinned. Exactly one of `path` and `git` is given.
+//
+// This is the TOML (and JSON schema) spelling; it is converted into
+// `PackageSource` as the manifest is parsed. (A plain comment, so the
+// generated schema description stays what `smelt-schema.json` has.)
 #[derive(Clone, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct PackageSource {
+#[schemars(rename = "PackageSource")]
+pub struct PackageSourceToml {
     /// Directory holding the package's sources, relative to `Smelt.toml`.
     pub path: Option<PathBuf>,
     /// Repository to fetch the sources from (`git clone` URL).
@@ -213,6 +258,42 @@ pub struct PackageSource {
     /// Package-root-relative globs of modules left out of the crate, with the
     /// same syntax and pruning as `[sources] exclude`.
     pub exclude: Option<Vec<String>>,
+}
+
+impl TryFrom<PackageSourceToml> for PackageSource {
+    type Error = String;
+
+    /// Accept exactly `path`, or `git` with `rev`.
+    fn try_from(raw: PackageSourceToml) -> Result<Self, Self::Error> {
+        let location = match (raw.path, raw.git, raw.rev) {
+            (Some(path), None, None) => PackageLocation::Path(path),
+            (Some(_), None, Some(_)) => {
+                return Err(
+                    "`rev` pins a `git` source; a `path` package has no revision to pin".to_owned()
+                );
+            }
+            (None, Some(url), Some(rev)) => PackageLocation::Git { url, rev },
+            (None, Some(_), None) => {
+                return Err("`git` needs a pinned `rev` (a tag or a commit)".to_owned());
+            }
+            (Some(_), Some(_), _) | (None, None, _) => {
+                return Err("give exactly one of `path` and `git`".to_owned());
+            }
+        };
+        Ok(Self { location, entry: raw.entry, exclude: raw.exclude })
+    }
+}
+
+impl JsonSchema for PackageSource {
+    /// The schema is the TOML spelling's.
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        PackageSourceToml::schema_name()
+    }
+
+    /// The schema is the TOML spelling's.
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        PackageSourceToml::json_schema(generator)
+    }
 }
 
 /// Output configuration from the [output] section.

@@ -144,7 +144,9 @@ pub enum TsTypeKind {
     Object(TsObjectType),
     /// A type the checker keeps unevaluated because it still depends on a free type parameter.
     Deferred(TsDeferredKind),
-    /// A structural type nested deeper than the expansion limit; only `display` describes it.
+    /// A structural type nested deeper than the expansion limit (or one the
+    /// converter cannot classify); only `display` describes it. Never a slot
+    /// still being converted, which the table keeps as a separate state.
     Truncated,
 }
 
@@ -272,18 +274,45 @@ pub struct TsLocation {
     pub end: u32,
 }
 
+/// One slot of a [`TsTypeTable`].
+#[derive(Clone, Debug)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "a pending slot is transient and becomes a filled one; boxing would add an allocation per type"
+)]
+enum Slot {
+    /// Handed out by [`TsTypeTable::reserve`] and not filled yet.
+    ///
+    /// Distinct from [`TsTypeKind::Truncated`] (a type cut off at the
+    /// expansion limit): a pending slot is a builder state that must not
+    /// survive conversion, and readers never see one.
+    Pending,
+    /// A converted type.
+    Filled(TsType),
+}
+
 /// Arena of resolved types.
 #[derive(Clone, Debug, Default)]
 pub struct TsTypeTable {
     /// Types indexed by [`TsTypeId`].
-    types: Vec<TsType>,
+    types: Vec<Slot>,
 }
 
 impl TsTypeTable {
-    /// Returns the type stored under `id`, or `None` for an id from another table.
+    /// Returns the type stored under `id`, or `None` for an id from another
+    /// table (or a slot still being converted).
     #[must_use]
     pub fn get(&self, id: TsTypeId) -> Option<&TsType> {
-        self.types.get(usize::try_from(id.0).ok()?)
+        match self.types.get(usize::try_from(id.0).ok()?)? {
+            Slot::Filled(ty) => Some(ty),
+            Slot::Pending => None,
+        }
+    }
+
+    /// Whether every reserved slot has been filled.
+    #[must_use]
+    pub fn is_complete(&self) -> bool {
+        self.types.iter().all(|slot| matches!(slot, Slot::Filled(_)))
     }
 
     /// Number of stored types.
@@ -304,14 +333,64 @@ impl TsTypeTable {
     /// Builder API for the checker bridge (`smelt-ts-types`); consumers only read.
     pub fn reserve(&mut self) -> TsTypeId {
         let id = TsTypeId(u32::try_from(self.types.len()).unwrap_or(u32::MAX));
-        self.types.push(TsType { kind: TsTypeKind::Truncated, display: String::new(), alias: None });
+        self.types.push(Slot::Pending);
         id
     }
 
     /// Fills a slot handed out by [`Self::reserve`].
+    ///
+    /// # Panics
+    ///
+    /// When `id` was not reserved by this table or its slot is already
+    /// filled: both are converter bugs that would otherwise silently leave a
+    /// wrong or missing type behind.
     pub fn fill(&mut self, id: TsTypeId, ty: TsType) {
-        if let Some(slot) = usize::try_from(id.0).ok().and_then(|index| self.types.get_mut(index)) {
-            *slot = ty;
+        let slot = usize::try_from(id.0).ok().and_then(|index| self.types.get_mut(index));
+        assert!(
+            matches!(slot, Some(Slot::Pending)),
+            "TsTypeTable::fill: {id:?} is not a pending slot of this table"
+        );
+        if let Some(pending) = slot {
+            *pending = Slot::Filled(ty);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! The reserve/fill builder protocol of [`TsTypeTable`].
+
+    use super::{TsType, TsTypeId, TsTypeKind, TsTypeTable};
+
+    /// A filled `string` type.
+    fn string_type() -> TsType {
+        TsType { kind: TsTypeKind::String, display: "string".to_owned(), alias: None }
+    }
+
+    #[test]
+    fn a_pending_slot_is_not_a_truncated_type() {
+        let mut table = TsTypeTable::default();
+        let id = table.reserve();
+        assert!(table.get(id).is_none(), "a pending slot reads as absent, not as Truncated");
+        assert!(!table.is_complete());
+        table.fill(id, string_type());
+        assert_eq!(table.get(id).map(|ty| &ty.kind), Some(&TsTypeKind::String));
+        assert!(table.is_complete());
+    }
+
+    #[test]
+    #[should_panic(expected = "not a pending slot")]
+    fn filling_an_unreserved_id_fails_loudly() {
+        let mut table = TsTypeTable::default();
+        table.fill(TsTypeId(3), string_type());
+    }
+
+    #[test]
+    #[should_panic(expected = "not a pending slot")]
+    fn filling_a_slot_twice_fails_loudly() {
+        let mut table = TsTypeTable::default();
+        let id = table.reserve();
+        table.fill(id, string_type());
+        table.fill(id, string_type());
     }
 }

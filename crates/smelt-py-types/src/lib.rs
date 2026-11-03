@@ -321,8 +321,9 @@ struct FunctionReturnVisitor<'a, 'db> {
     environment: &'a ProgramEnvironment<'db>,
     /// `ty` semantic model used to query inferred expression types.
     model: &'a SemanticModel<'db>,
-    /// Canonical spellings gathered from each `return <expr>` site, in order.
-    spellings: Vec<String>,
+    /// Canonical spelling gathered from each `return` site, in order; `None`
+    /// for a return whose value type could not be represented.
+    spellings: Vec<Option<String>>,
 }
 
 impl<'db> FunctionReturnVisitor<'_, 'db> {
@@ -334,18 +335,15 @@ impl<'db> FunctionReturnVisitor<'_, 'db> {
             Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
             Stmt::Return(ret) => {
                 if let Some(value) = ret.value.as_deref() {
-                    if let Some(ty) = value.inferred_type(self.model)
-                        && let Some(spelling) = displayable_type(self.db, self.environment, ty)
-                    {
-                        self.spellings.push(spelling);
-                    } else {
-                        // A return whose value type we cannot represent makes the
-                        // whole return type unresolved; mark it and stop trusting
-                        // a partial union.
-                        self.spellings.push(UNRESOLVED_MARKER.to_owned());
-                    }
+                    // A return whose value type we cannot represent (`None`)
+                    // makes the whole return type unresolved; it is recorded
+                    // so a partial union is never trusted.
+                    let spelling = value
+                        .inferred_type(self.model)
+                        .and_then(|ty| displayable_type(self.db, self.environment, ty));
+                    self.spellings.push(spelling);
                 } else {
-                    self.spellings.push("None".to_owned());
+                    self.spellings.push(Some("None".to_owned()));
                 }
             }
             other => self.walk_children(other),
@@ -369,11 +367,10 @@ impl<'db> FunctionReturnVisitor<'_, 'db> {
             // No `return <expr>` at all — the function returns `None`.
             return Some("None".to_owned());
         }
-        if self.spellings.iter().any(|s| s == UNRESOLVED_MARKER) {
-            return None;
-        }
+        // Any unrepresentable return makes the whole return type unresolved.
+        let spellings = self.spellings.into_iter().collect::<Option<Vec<String>>>()?;
         let mut unique: Vec<String> = Vec::new();
-        for spelling in self.spellings {
+        for spelling in spellings {
             if !unique.contains(&spelling) {
                 unique.push(spelling);
             }
@@ -386,9 +383,6 @@ impl<'db> FunctionReturnVisitor<'_, 'db> {
         Some(unique.join(" | "))
     }
 }
-
-/// Sentinel pushed for a `return` whose value type could not be represented.
-const UNRESOLVED_MARKER: &str = "\u{0}unresolved";
 
 /// Return the direct control-flow child statements of `stmt`, excluding the
 /// bodies of nested function/class definitions.

@@ -51,14 +51,8 @@ use crate::{
 /// File name of the sidecar `smelt build` writes next to the generated `src/`.
 pub(crate) const SIDECAR_FILE_NAME: &str = "smelt-typedness.json";
 
-/// Output format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TypednessFormat {
-    /// Human-readable Markdown.
-    Markdown,
-    /// JSON (also the sidecar and baseline format).
-    Json,
-}
+/// Report output format; the `--format` value enum shared by every report.
+pub(crate) type TypednessFormat = crate::cli_parser::ReportFormat;
 
 /// One program's record: its counts, or `None` when it failed to lower.
 pub(crate) type ProgramRecord = Option<TypednessCounts>;

@@ -41,14 +41,8 @@ use crate::{CliResult, config_parser, lowering};
 /// Rows kept per grouped table.
 const TOP_GROUPS: usize = 30;
 
-/// Output format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ParityFormat {
-    /// Human-readable Markdown.
-    Markdown,
-    /// JSON.
-    Json,
-}
+/// Report output format; the `--format` value enum shared by every report.
+pub(crate) type ParityFormat = crate::cli_parser::ReportFormat;
 
 /// Command options.
 #[derive(Debug)]

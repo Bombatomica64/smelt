@@ -20,6 +20,10 @@ use crate::manifest::{
 use crate::sound::SoundSettings;
 use crate::timing;
 
+mod driver;
+
+use driver::{ManifestSeed, ModuleInputs, RecoverableLowering, SeededLowering};
+
 /// Source language inferred from a file path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SourceLang {
@@ -75,93 +79,6 @@ fn is_typescript_declaration_path(path: &str) -> bool {
 
 /// Represents a lowered crate with its modules.
 pub(crate) type LoweredCrate = (smelt_hir::Crate, Vec<(String, ModuleId)>);
-
-/// Cross-file frontend metadata that is not represented directly in the shared HIR crate.
-#[derive(Default)]
-struct FrontendLoweringState {
-    /// TypeScript re-export aliases visible to later manifest entries.
-    ts_export_aliases: HashMap<String, smelt_hir::ItemId>,
-    /// TypeScript exports grouped by source module path.
-    ts_module_exports: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
-    /// TypeScript global-object alias names grouped by source module path.
-    ts_module_global_object_aliases: HashMap<String, std::collections::HashSet<String>>,
-    /// TypeScript exported object constants used as namespace-like APIs.
-    ts_object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
-    /// TypeScript exported object constants with static literal values.
-    ts_object_consts: HashMap<String, smelt_frontend_ts::ObjectConst>,
-    /// TypeScript exported object constants whose values can be projected.
-    ts_object_value_collections: HashMap<String, smelt_frontend_ts::ConstCollection>,
-    /// TypeScript exported array/set constants visible across manifest entries.
-    ts_const_collections: HashMap<String, smelt_frontend_ts::ConstCollection>,
-    /// TypeScript const-folded `enum` member values visible across manifest entries.
-    ts_enum_members: HashMap<String, HashMap<String, smelt_frontend_ts::ConstLiteral>>,
-    /// TypeScript overload signatures visible across manifest entries.
-    ts_overloads: HashMap<String, Vec<smelt_frontend_ts::OverloadSignature>>,
-    /// TypeScript rest-parameter metadata visible across manifest entries.
-    ts_function_rests: HashMap<String, smelt_frontend_ts::RestParam>,
-    /// TypeScript functions whose source return contract is a JavaScript `Date`.
-    ts_date_returning_functions: std::collections::HashSet<smelt_hir::ItemId>,
-    /// TypeScript structural type-alias fields visible across manifest entries.
-    ts_type_alias_fields: HashMap<smelt_hir::Symbol, Vec<smelt_hir::Field>>,
-    /// TypeScript class type-parameter declarations visible across manifest entries.
-    ///
-    /// Carries the DEFAULTS a type reference takes when it omits trailing type
-    /// arguments, so the answer is the same whichever entry lowers first.
-    ts_class_type_params: HashMap<smelt_hir::Symbol, Vec<smelt_hir::TypeParamDef>>,
-    ts_class_constructor_params: HashMap<smelt_hir::Symbol, Vec<smelt_hir::TypeId>>,
-    /// See `HirCtx::partial_records`.
-    ts_partial_records: HashMap<smelt_hir::TypeId, smelt_hir::TypeId>,
-    /// Declared-but-erased type parameters of TypeScript methods and lifted
-    /// arrows, keyed by crate-wide item id, so a call from another entry still
-    /// instantiates them (see `HirCtx::erased_item_type_params`).
-    ts_erased_item_type_params: HashMap<smelt_hir::ItemId, Vec<smelt_hir::TypeParamDef>>,
-    /// TypeScript interface heritage edges visible across manifest entries.
-    ts_interface_extends: HashMap<smelt_hir::Symbol, Vec<smelt_frontend_ts::InterfaceHeritageRef>>,
-    /// TypeScript interface string index signature value types visible across manifest entries.
-    ts_interface_index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
-    /// TypeScript class string index signature value types visible across manifest entries.
-    ts_class_index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
-    /// TypeScript interface call signatures visible across manifest entries.
-    ts_interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<smelt_hir::FunctionType>>,
-    /// TypeScript interface construct signatures visible across manifest entries.
-    ts_interface_construct_signatures: HashMap<smelt_hir::Symbol, Vec<smelt_hir::FunctionType>>,
-    /// TypeScript callable intersection fields visible across manifest entries.
-    ts_callable_fields: HashMap<smelt_hir::TypeId, Vec<smelt_hir::Field>>,
-    /// TypeScript aliases whose source surface is a callable object intersection.
-    ts_callable_object_aliases: std::collections::HashSet<smelt_hir::Symbol>,
-    /// Modeled host constructor names reassigned via `globalThis.<Name> =`
-    /// anywhere in the crate (the crate-level host-global override pre-pass).
-    ///
-    /// Seeded once before lowering begins by scanning every source, so a write
-    /// in a spec file activates the dynamic override machinery in the predicate
-    /// module even though that module lowers first.
-    ts_written_host_globals: std::collections::HashSet<String>,
-    /// Project source files the dependency closure did not reach.
-    ///
-    /// The manifest's source roots minus its excludes, minus the crate's own
-    /// sources: files this project owns that are not in the crate. Seeded once
-    /// before lowering so a type reference can say "that module is yours but
-    /// the crate does not have it" instead of erasing to a nominal class; see
-    /// `HirCtx::project_sources_outside_crate`.
-    ts_project_sources_outside_crate: std::collections::HashSet<String>,
-    /// Rust-facing class names for class names declared by more than one module,
-    /// keyed by module path then source class name.
-    ///
-    /// Seeded once before lowering begins, so whether a name is ambiguous never
-    /// depends on lowering order; see `HirCtx::type_renames` and
-    /// [`manifest_type_renames`].
-    ts_type_renames: HashMap<String, HashMap<String, String>>,
-    /// Crate-unique module identity per module path, from
-    /// [`manifest_module_names`]; see `HirCtx::module_identities`.
-    ts_module_identities: HashMap<String, String>,
-    /// Crate-wide module-level unique-symbol consts; see
-    /// `HirCtx::predeclared_unique_symbols`.
-    ts_predeclared_unique_symbols: HashMap<String, HashMap<String, String>>,
-    /// Python module/package namespaces visible through `import package`.
-    py_module_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
-    /// Python `IntEnum` member values visible to later manifest entries.
-    py_enum_members: HashMap<String, HashMap<String, i64>>,
-}
 
 /// Lowers TypeScript source files to HIR.
 pub(crate) fn lower_typescript_files(
@@ -344,7 +261,7 @@ fn ordered_dependency_paths(target: PathBuf) -> Option<Vec<PathBuf>> {
     // Typed versions of packages are a manifest-build feature: they are looked
     // up from the project root, which a single-file command does not have.
     let sources = dependency_closure(vec![root], &[], Path::new("."), &[], None).ok()?;
-    let ordered = order_manifest_sources(&sources).ok()?;
+    let ordered = order_manifest_sources(&sources);
     Some(
         ordered
             .into_iter()
@@ -376,36 +293,71 @@ pub(crate) struct ManifestDiagnostic {
     /// diagnostics, which are always errors (the field is additive so existing
     /// consumers of the JSON keep working).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) severity: Option<&'static str>,
+    pub(crate) severity: Option<Severity>,
 }
 
-/// RAII guard that silences panic backtraces and restores the prior hook on drop.
+/// Severity of an erasure diagnostic, serialized as `warning` / `error`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Severity {
+    /// The erasure reason is set to `warn`.
+    Warning,
+    /// The erasure reason is set to `deny`.
+    Error,
+}
+
+thread_local! {
+    /// How many [`QuietPanics`] guards are alive on this thread.
+    static QUIET_PANIC_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Installs, once per process, the panic hook that consults [`QUIET_PANIC_DEPTH`].
+static QUIET_PANIC_HOOK: std::sync::Once = std::sync::Once::new();
+
+/// RAII guard that silences panic messages on the current thread while alive.
 ///
 /// Used by recoverable/probing lowering where individual-file panics are caught
 /// and reported rather than aborting the process.
+///
+/// Swapping the process-global hook per guard is unsound under threads (one
+/// thread's restore clobbers another's silence) and under nesting dropped out
+/// of order. Instead a single hook is installed once for the whole process: it
+/// wraps whatever hook was active then and forwards to it unless the panicking
+/// thread holds at least one guard. Guards only bump a thread-local depth, so
+/// they nest freely and never affect other threads. The guard is `!Send`
+/// because the depth it decrements on drop belongs to the creating thread.
 pub(crate) struct QuietPanics {
-    /// The panic hook to restore on drop.
-    previous: Option<Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Sync + Send + 'static>>,
+    /// Ties the guard to the thread whose depth it incremented.
+    _not_send: std::marker::PhantomData<*const ()>,
 }
 
 impl QuietPanics {
-    /// Install a no-op panic hook, remembering the previous one.
+    /// Silence panic messages on this thread until the guard drops.
     pub(crate) fn install() -> Self {
-        let previous = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_info| {}));
-        Self {
-            previous: Some(previous),
-        }
+        QUIET_PANIC_HOOK.call_once(|| {
+            let previous = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
+                if QUIET_PANIC_DEPTH.with(std::cell::Cell::get) == 0 {
+                    previous(info);
+                }
+            }));
+        });
+        QUIET_PANIC_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
+        Self { _not_send: std::marker::PhantomData }
     }
 }
 
 impl Drop for QuietPanics {
-    /// Restore the panic hook that was active before `install()`.
+    /// Leave this guard's quiet scope on the current thread.
     fn drop(&mut self) {
-        if let Some(previous) = self.previous.take() {
-            std::panic::set_hook(previous);
-        }
+        QUIET_PANIC_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
     }
+}
+
+/// Whether panic messages are currently silenced on this thread.
+#[cfg(test)]
+fn panics_are_quiet() -> bool {
+    QUIET_PANIC_DEPTH.with(std::cell::Cell::get) > 0
 }
 
 /// Recursively collect every TypeScript/Python source file under the manifest
@@ -510,16 +462,15 @@ pub(crate) fn lower_manifest_entries(
         )
     })?;
 
-    let ordered_sources = timing::measure("manifest.order_sources", || {
-        order_manifest_sources(&sources)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
-            .map(|ordered| {
-                ordered
-                    .into_iter()
-                    .filter_map(|idx| sources.get(idx))
-                    .collect::<Vec<_>>()
-            })
-    })?;
+    // Ordering cannot fail (import cycles are cut deliberately).
+    let Ok(ordered_sources) = timing::measure("manifest.order_sources", || {
+        Ok::<_, std::convert::Infallible>(
+            order_manifest_sources(&sources)
+                .into_iter()
+                .filter_map(|idx| sources.get(idx))
+                .collect::<Vec<_>>(),
+        )
+    });
 
     if ordered_sources.is_empty() {
         return Err(io::Error::new(
@@ -758,21 +709,23 @@ fn glob_segment_match(path: &str, pattern: &str) -> bool {
     true
 }
 
-/// Seed the crate-level host-global override set from every TypeScript source.
+/// The crate-level host-global override set, scanned from every TypeScript source.
 ///
 /// The scan runs once before per-file lowering so a `globalThis.<Name> =` write
 /// in any module (typically a spec file) activates the dynamic override
 /// machinery — presence guards, `new` dispatch, reads — in the module that
 /// defines the predicate, even though that module lowers first.
-fn seed_written_host_globals(sources: &[&ManifestSource], state: &mut FrontendLoweringState) {
-    for source in sources {
-        let path = source.path.display().to_string();
-        if source.lang.is_typescript() {
-            state.ts_written_host_globals.extend(
-                smelt_frontend_ts::scan_written_host_globals(&source.source, &path),
-            );
-        }
-    }
+fn scan_written_host_globals(sources: &[&ManifestSource]) -> std::collections::HashSet<String> {
+    sources
+        .iter()
+        .filter(|source| source.lang.is_typescript())
+        .flat_map(|source| {
+            smelt_frontend_ts::scan_written_host_globals(
+                &source.source,
+                &source.path.display().to_string(),
+            )
+        })
+        .collect()
 }
 
 /// Crate-unique module identity for each source path.
@@ -905,110 +858,6 @@ fn sources_outside_crate(
         .collect()
 }
 
-/// Predeclare type aliases and class method surfaces across the TypeScript manifest.
-///
-/// This gives strongly connected import components the same declaration
-/// visibility as TypeScript: a barrel cycle may affect runtime initialization
-/// order, but it does not hide a type alias declared by another module.
-fn predeclare_manifest_type_declarations(
-    mut krate: smelt_hir::Crate,
-    mut state: FrontendLoweringState,
-    sources: &[&ManifestSource],
-) -> Result<(smelt_hir::Crate, FrontendLoweringState), Box<dyn std::error::Error>> {
-    let mut ctx = smelt_frontend_ts::HirCtx {
-        krate,
-        export_aliases: state.ts_export_aliases,
-        module_exports: state.ts_module_exports,
-        module_global_object_aliases: state.ts_module_global_object_aliases,
-        object_namespaces: state.ts_object_namespaces,
-        object_consts: state.ts_object_consts,
-        object_value_collections: state.ts_object_value_collections,
-        const_collections: state.ts_const_collections,
-        enum_members: state.ts_enum_members,
-        overloads: state.ts_overloads,
-        function_rests: state.ts_function_rests,
-        date_returning_functions: state.ts_date_returning_functions,
-        type_alias_fields: state.ts_type_alias_fields,
-        class_type_params: state.ts_class_type_params,
-        class_constructor_params: state.ts_class_constructor_params,
-        partial_records: state.ts_partial_records,
-        erased_item_type_params: state.ts_erased_item_type_params,
-        interface_extends: state.ts_interface_extends,
-        interface_index_values: state.ts_interface_index_values,
-        class_index_values: state.ts_class_index_values,
-        interface_call_signatures: state.ts_interface_call_signatures,
-        interface_construct_signatures: state.ts_interface_construct_signatures,
-        callable_fields: state.ts_callable_fields,
-        callable_object_aliases: state.ts_callable_object_aliases,
-        written_host_globals: state.ts_written_host_globals,
-        project_sources_outside_crate: state.ts_project_sources_outside_crate,
-        type_renames: state.ts_type_renames,
-        module_identities: state.ts_module_identities,
-        predeclared_unique_symbols: state.ts_predeclared_unique_symbols,
-    };
-    // Unique-symbol consts first, for EVERY source: a class surface below may
-    // key a member by a symbol another module (possibly one ordered later in
-    // an import cycle) declares.
-    for (idx, source) in sources.iter().enumerate() {
-        let path = source.path.display().to_string();
-        if SourceLang::from_path(&path).is_ok_and(SourceLang::is_typescript) {
-            smelt_frontend_ts::predeclare_unique_symbol_consts_with_path(
-                &source.source,
-                FileId(u32::try_from(idx).unwrap_or(u32::MAX)),
-                &path,
-                &mut ctx,
-            );
-        }
-    }
-    for (idx, source) in sources.iter().enumerate() {
-        let path = source.path.display().to_string();
-        if source.lang.is_typescript() {
-            smelt_frontend_ts::predeclare_type_declarations_with_path(
-                &source.source,
-                FileId(u32::try_from(idx).unwrap_or(u32::MAX)),
-                &path,
-                &mut ctx,
-            )
-            .map_err(|errors| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("{}:\n{errors:#?}", source.path.display()),
-                )
-            })?;
-        }
-    }
-    krate = ctx.krate;
-    state.ts_export_aliases = ctx.export_aliases;
-    state.ts_module_exports = ctx.module_exports;
-    state.ts_module_global_object_aliases = ctx.module_global_object_aliases;
-    state.ts_object_namespaces = ctx.object_namespaces;
-    state.ts_object_consts = ctx.object_consts;
-    state.ts_object_value_collections = ctx.object_value_collections;
-    state.ts_const_collections = ctx.const_collections;
-    state.ts_enum_members = ctx.enum_members;
-    state.ts_overloads = ctx.overloads;
-    state.ts_function_rests = ctx.function_rests;
-    state.ts_date_returning_functions = ctx.date_returning_functions;
-    state.ts_type_alias_fields = ctx.type_alias_fields;
-    state.ts_class_type_params = ctx.class_type_params;
-    state.ts_class_constructor_params = ctx.class_constructor_params;
-    state.ts_partial_records = ctx.partial_records;
-    state.ts_erased_item_type_params = ctx.erased_item_type_params;
-    state.ts_interface_extends = ctx.interface_extends;
-    state.ts_interface_index_values = ctx.interface_index_values;
-    state.ts_class_index_values = ctx.class_index_values;
-    state.ts_interface_call_signatures = ctx.interface_call_signatures;
-    state.ts_interface_construct_signatures = ctx.interface_construct_signatures;
-    state.ts_callable_fields = ctx.callable_fields;
-    state.ts_callable_object_aliases = ctx.callable_object_aliases;
-    state.ts_written_host_globals = ctx.written_host_globals;
-    state.ts_project_sources_outside_crate = ctx.project_sources_outside_crate;
-    state.ts_type_renames = ctx.type_renames;
-    state.ts_module_identities = ctx.module_identities;
-    state.ts_predeclared_unique_symbols = ctx.predeclared_unique_symbols;
-    Ok((krate, state))
-}
-
 /// Lowers the manifest sources, in manifest order, into one HIR crate, seeding
 /// host-global write scanning and applying prepared specialization results.
 fn lower_ordered_manifest_sources(
@@ -1016,29 +865,20 @@ fn lower_ordered_manifest_sources(
     specialization: &crate::specialization::PreparedSpecialization,
     outside_crate: std::collections::HashSet<String>,
 ) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
-    let mut krate = smelt_hir::Crate::new();
-    let mut state = FrontendLoweringState {
-        ts_project_sources_outside_crate: outside_crate,
-        ..FrontendLoweringState::default()
-    };
-    seed_written_host_globals(sources, &mut state);
     let ts_facts = crate::ts_facts::analyze_sources(sources);
     let inputs = ModuleInputs { specialization, ts_facts: ts_facts.as_ref() };
-    state.ts_type_renames = manifest_type_renames(sources);
-    state.ts_module_identities = manifest_module_identities(sources);
-    (krate, state) = predeclare_manifest_type_declarations(krate, state, sources)?;
+    let mut lowering =
+        SeededLowering::new(ManifestSeed::scan(sources, outside_crate)).predeclare(sources)?;
     let mut modules = Vec::new();
     let module_names = manifest_module_names(sources);
 
     for (idx, source) in sources.iter().enumerate() {
-        let (next_krate, next_state, outcome) =
-            lower_manifest_source(krate, state, source, idx, inputs);
-        krate = next_krate;
-        state = next_state;
-        let module = outcome.map_err(|diagnostics| manifest_source_error(source, &diagnostics))?;
+        let module = lowering
+            .lower_source(source, idx, inputs)
+            .map_err(|diagnostics| manifest_source_error(source, &diagnostics))?;
         let file = &source.path;
         if let Ok(module_idx) = usize::try_from(module.0)
-            && let Some(module_value) = krate.modules.get_mut(module_idx)
+            && let Some(module_value) = lowering.krate_mut().modules.get_mut(module_idx)
         {
             module_value.name = module_names
                 .get(idx)
@@ -1048,7 +888,7 @@ fn lower_ordered_manifest_sources(
         modules.push((file.display().to_string(), module));
     }
 
-    Ok((krate, modules))
+    Ok((lowering.into_crate(), modules))
 }
 
 /// The build error for a manifest source the frontend rejected.
@@ -1115,41 +955,25 @@ pub(crate) fn collect_manifest_diagnostics(
         Some(sound_settings(config, manifest_dir)),
     )?;
     let ordered_sources = order_manifest_sources(&sources)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
         .into_iter()
         .filter_map(|idx| sources.get(idx))
         .collect::<Vec<_>>();
     let specialization = crate::specialization::prepare(config, manifest_path, &ordered_sources)?;
 
     let _quiet = QuietPanics::install();
-    let mut krate = smelt_hir::Crate::new();
-    let mut state = FrontendLoweringState::default();
-    seed_written_host_globals(&ordered_sources, &mut state);
     let ts_facts = crate::ts_facts::analyze_sources(&ordered_sources);
     let inputs = ModuleInputs { specialization: &specialization, ts_facts: ts_facts.as_ref() };
-    state.ts_type_renames = manifest_type_renames(&ordered_sources);
-    state.ts_module_identities = manifest_module_identities(&ordered_sources);
-    (krate, state) = predeclare_manifest_type_declarations(krate, state, &ordered_sources)?;
+    // The probe does not resolve which project sources the crate lacks, so the
+    // seed carries an empty set (see `sources_outside_crate`).
+    let seed = ManifestSeed::scan(&ordered_sources, std::collections::HashSet::new());
+    let mut lowering =
+        RecoverableLowering::new(SeededLowering::new(seed).predeclare(&ordered_sources)?);
     let mut diagnostics = Vec::new();
-    // `None` once a frontend panic consumed the crate; the erasure diagnostics
-    // below then have nothing to read.
-    let mut surviving = Some(krate);
     for (idx, source) in ordered_sources.iter().enumerate() {
-        let Some(current) = surviving.take() else {
-            break;
-        };
-        let lowered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            lower_manifest_source(current, state, source, idx, inputs)
-        }));
-        match lowered {
-            Ok((next_krate, next_state, outcome)) => {
-                surviving = Some(next_krate);
-                state = next_state;
-                if let Err(file_diagnostics) = outcome {
-                    diagnostics.extend(file_diagnostics);
-                }
-            }
-            Err(_panic) => {
+        match lowering.lower_source(source, idx, inputs) {
+            Some(Ok(_module)) => {}
+            Some(Err(file_diagnostics)) => diagnostics.extend(file_diagnostics),
+            None => {
                 diagnostics.push(ManifestDiagnostic {
                     file: source.path.display().to_string(),
                     category: DiagnosticCategory::Internal,
@@ -1165,7 +989,8 @@ pub(crate) fn collect_manifest_diagnostics(
             }
         }
     }
-    if let (Some(settings), Some(krate)) = (erasure, &surviving) {
+    // A poisoned crate has no erasure records worth reading.
+    if let (Some(settings), Some(krate)) = (erasure, lowering.krate()) {
         diagnostics.extend(erasure_diagnostics(krate, manifest_dir, settings));
     }
     Ok(diagnostics)
@@ -1181,8 +1006,8 @@ fn erasure_diagnostics(
         .into_iter()
         .filter_map(|record| {
             let severity = match record.severity.as_str() {
-                "warn" => "warning",
-                "deny" => "error",
+                "warn" => Severity::Warning,
+                "deny" => Severity::Error,
                 _ => return None,
             };
             let reason = smelt_hir::ErasureReason::named(&record.reason)?;
@@ -1197,178 +1022,6 @@ fn erasure_diagnostics(
             })
         })
         .collect()
-}
-
-/// Whole-crate inputs every module's frontend lowering reads.
-#[derive(Clone, Copy)]
-struct ModuleInputs<'input> {
-    /// Materialized specialization data.
-    specialization: &'input crate::specialization::PreparedSpecialization,
-    /// TypeScript 7 checker facts for the crate's TypeScript sources.
-    ts_facts: Option<&'input smelt_ts_model::TsTypeFacts>,
-}
-
-/// Lowers one manifest file, returning the (possibly mutated) crate and state
-/// plus either the lowered module or its categorized diagnostics.
-///
-/// The crate and state are returned even when the file has lowering errors, so
-/// a recoverable driver can keep lowering the remaining modules with the
-/// already-lowered modules still resolvable. The source's language was decided
-/// when it was read, so there is no unrecoverable failure left to report here.
-fn lower_manifest_source(
-    krate: smelt_hir::Crate,
-    state: FrontendLoweringState,
-    source: &ManifestSource,
-    idx: usize,
-    inputs: ModuleInputs<'_>,
-) -> (
-    smelt_hir::Crate,
-    FrontendLoweringState,
-    Result<ModuleId, Vec<ManifestDiagnostic>>,
-) {
-    let file = &source.path;
-    let file_string = file.display().to_string();
-    let file_id = FileId(u32::try_from(idx).unwrap_or(u32::MAX));
-    // The collector decided the language (a laid typed-version file can carry
-    // TypeScript text under a `.js` path), so the path is not re-classified.
-    match source.lang {
-        SourceLang::TypeScript | SourceLang::TypeScriptDeclaration => {
-            let mut ctx = smelt_frontend_ts::HirCtx {
-                krate,
-                export_aliases: state.ts_export_aliases,
-                module_exports: state.ts_module_exports,
-                module_global_object_aliases: state.ts_module_global_object_aliases,
-                object_namespaces: state.ts_object_namespaces,
-                object_consts: state.ts_object_consts,
-                object_value_collections: state.ts_object_value_collections,
-                const_collections: state.ts_const_collections,
-                enum_members: state.ts_enum_members,
-                overloads: state.ts_overloads,
-                function_rests: state.ts_function_rests,
-                date_returning_functions: state.ts_date_returning_functions,
-                type_alias_fields: state.ts_type_alias_fields,
-                class_type_params: state.ts_class_type_params,
-                class_constructor_params: state.ts_class_constructor_params,
-                partial_records: state.ts_partial_records,
-                erased_item_type_params: state.ts_erased_item_type_params,
-                interface_extends: state.ts_interface_extends,
-                interface_index_values: state.ts_interface_index_values,
-                class_index_values: state.ts_class_index_values,
-                interface_call_signatures: state.ts_interface_call_signatures,
-                interface_construct_signatures: state.ts_interface_construct_signatures,
-                callable_fields: state.ts_callable_fields,
-                callable_object_aliases: state.ts_callable_object_aliases,
-                written_host_globals: state.ts_written_host_globals,
-                project_sources_outside_crate: state.ts_project_sources_outside_crate,
-                type_renames: state.ts_type_renames,
-                module_identities: state.ts_module_identities,
-                predeclared_unique_symbols: state.ts_predeclared_unique_symbols,
-            };
-            let outcome = smelt_frontend_ts::to_hir_with_options(
-                &source.source,
-                file_id,
-                &file_string,
-                &mut ctx,
-                smelt_frontend_ts::FrontendOptions {
-                    specialization: inputs.specialization.typescript.as_ref(),
-                    excluded_modules: &source.excluded_imports,
-                    ts_facts: inputs.ts_facts,
-                },
-            )
-            .map_err(|errors| {
-                manifest_diagnostics(
-                    &file_string,
-                    &source.source,
-                    errors.iter().map(|e| {
-                        (
-                            e.category,
-                            e.code,
-                            e.message.clone(),
-                            (e.span.file == file_id).then_some(e.span.start),
-                        )
-                    }),
-                )
-            });
-            let next_state = FrontendLoweringState {
-                ts_export_aliases: ctx.export_aliases,
-                ts_module_exports: ctx.module_exports,
-                ts_module_global_object_aliases: ctx.module_global_object_aliases,
-                ts_object_namespaces: ctx.object_namespaces,
-                ts_object_consts: ctx.object_consts,
-                ts_object_value_collections: ctx.object_value_collections,
-                ts_const_collections: ctx.const_collections,
-                ts_enum_members: ctx.enum_members,
-                ts_overloads: ctx.overloads,
-                ts_function_rests: ctx.function_rests,
-                ts_date_returning_functions: ctx.date_returning_functions,
-                ts_type_alias_fields: ctx.type_alias_fields,
-                ts_class_type_params: ctx.class_type_params,
-                ts_class_constructor_params: ctx.class_constructor_params,
-                ts_partial_records: ctx.partial_records,
-                ts_erased_item_type_params: ctx.erased_item_type_params,
-                ts_interface_extends: ctx.interface_extends,
-                ts_interface_index_values: ctx.interface_index_values,
-                ts_class_index_values: ctx.class_index_values,
-                ts_interface_call_signatures: ctx.interface_call_signatures,
-                ts_interface_construct_signatures: ctx.interface_construct_signatures,
-                ts_callable_fields: ctx.callable_fields,
-                ts_callable_object_aliases: ctx.callable_object_aliases,
-                ts_written_host_globals: ctx.written_host_globals,
-                ts_project_sources_outside_crate: ctx.project_sources_outside_crate,
-                ts_type_renames: ctx.type_renames,
-                ts_module_identities: ctx.module_identities,
-                ts_predeclared_unique_symbols: ctx.predeclared_unique_symbols,
-                py_module_namespaces: state.py_module_namespaces,
-                py_enum_members: state.py_enum_members,
-            };
-            (ctx.krate, next_state, outcome)
-        }
-        SourceLang::Python | SourceLang::PythonDeclaration => {
-            let (next_krate, py_module_namespaces, py_enum_members, outcome) =
-                crate::python::lower_manifest_source(
-                    krate,
-                    state.py_module_namespaces,
-                    state.py_enum_members,
-                    &source.source,
-                    file_id,
-                    &file_string,
-                    inputs.specialization.python.as_ref(),
-                );
-            let next_state = FrontendLoweringState {
-                ts_export_aliases: state.ts_export_aliases,
-                ts_module_exports: state.ts_module_exports,
-                ts_module_global_object_aliases: state.ts_module_global_object_aliases,
-                ts_object_namespaces: state.ts_object_namespaces,
-                ts_object_consts: state.ts_object_consts,
-                ts_object_value_collections: state.ts_object_value_collections,
-                ts_const_collections: state.ts_const_collections,
-                ts_enum_members: state.ts_enum_members,
-                ts_overloads: state.ts_overloads,
-                ts_function_rests: state.ts_function_rests,
-                ts_date_returning_functions: state.ts_date_returning_functions,
-                ts_type_alias_fields: state.ts_type_alias_fields,
-                ts_class_type_params: state.ts_class_type_params,
-                ts_class_constructor_params: state.ts_class_constructor_params,
-                ts_partial_records: state.ts_partial_records,
-                ts_erased_item_type_params: state.ts_erased_item_type_params,
-                ts_interface_extends: state.ts_interface_extends,
-                ts_interface_index_values: state.ts_interface_index_values,
-                ts_class_index_values: state.ts_class_index_values,
-                ts_interface_call_signatures: state.ts_interface_call_signatures,
-                ts_interface_construct_signatures: state.ts_interface_construct_signatures,
-                ts_callable_fields: state.ts_callable_fields,
-                ts_callable_object_aliases: state.ts_callable_object_aliases,
-                ts_written_host_globals: state.ts_written_host_globals,
-                ts_project_sources_outside_crate: state.ts_project_sources_outside_crate,
-                ts_type_renames: state.ts_type_renames,
-                ts_module_identities: state.ts_module_identities,
-                ts_predeclared_unique_symbols: state.ts_predeclared_unique_symbols,
-                py_module_namespaces,
-                py_enum_members,
-            };
-            (next_krate, next_state, outcome)
-        }
-    }
 }
 
 /// Build per-file [`ManifestDiagnostic`]s from a frontend's categorized errors.
@@ -1465,7 +1118,8 @@ mod tests {
     //! Unit tests for source-file glob matching and `[sources] exclude` filtering.
 
     use super::{
-        empty_test_glob_warning, is_excluded_source, path_matches_glob, retain_included_paths,
+        QuietPanics, empty_test_glob_warning, is_excluded_source, panics_are_quiet,
+        path_matches_glob, retain_included_paths,
     };
     use std::path::{Path, PathBuf};
 
@@ -1604,5 +1258,45 @@ mod tests {
         assert!(warning.contains("`a/**/*.test.ts`"), "{warning}");
         assert!(warning.contains("`b/**/*.test.ts`"), "{warning}");
         assert!(warning.contains("src, lib"), "{warning}");
+    }
+
+    #[test]
+    fn quiet_panics_nest_and_stay_on_their_thread() {
+        assert!(!panics_are_quiet());
+        let outer = QuietPanics::install();
+        {
+            let _inner = QuietPanics::install();
+            assert!(panics_are_quiet());
+            // Another thread is never silenced by this thread's guards.
+            let other = std::thread::spawn(panics_are_quiet).join().expect("thread ran");
+            assert!(!other);
+        }
+        // Dropping the inner guard keeps the outer one in force.
+        assert!(panics_are_quiet());
+        drop(outer);
+        assert!(!panics_are_quiet());
+    }
+
+    #[test]
+    fn quiet_panics_survive_out_of_order_drops() {
+        let first = QuietPanics::install();
+        let second = QuietPanics::install();
+        drop(first);
+        assert!(panics_are_quiet());
+        drop(second);
+        assert!(!panics_are_quiet());
+    }
+
+    /// Severity keeps the JSON spelling `check --message-format json` emits.
+    #[test]
+    fn severity_serializes_as_before() {
+        assert_eq!(
+            serde_json::to_string(&super::Severity::Warning).expect("serializes"),
+            r#""warning""#
+        );
+        assert_eq!(
+            serde_json::to_string(&super::Severity::Error).expect("serializes"),
+            r#""error""#
+        );
     }
 }

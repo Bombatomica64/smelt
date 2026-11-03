@@ -58,63 +58,64 @@ impl SmeltWorkspace {
                 .placeholder("Generated Rust will appear here…")
         });
 
-        let sub_ts = cx.subscribe(&ts_input, |this, _entity, event, sub_cx| {
+        let sub_ts = cx.subscribe_in(&ts_input, window, |this, _entity, event, window, sub_cx| {
             if matches!(event, InputEvent::Change) {
-                this.recompile(sub_cx);
+                this.recompile(window, sub_cx);
                 sub_cx.notify();
             }
         });
-        let sub_py = cx.subscribe(&py_input, |this, _entity, event, sub_cx| {
+        let sub_py = cx.subscribe_in(&py_input, window, |this, _entity, event, window, sub_cx| {
             if matches!(event, InputEvent::Change) {
-                this.recompile(sub_cx);
+                this.recompile(window, sub_cx);
                 sub_cx.notify();
             }
         });
 
-        let example = examples::by_id(DEFAULT_EXAMPLE_ID);
-        ts_input.update(cx, |state, update_cx| {
-            state.set_value(example.ts_source, window, update_cx);
-        });
-        py_input.update(cx, |state, update_cx| {
-            state.set_value(example.py_source, window, update_cx);
-        });
-
-        let report = compile_report(example.ts_source, example.py_source);
-        output_input.update(cx, |state, update_cx| {
-            state.set_value(report.rust_or_empty(), window, update_cx);
-        });
-        let compile_count = u32::from(report.ok);
-
-        Self {
+        let mut workspace = Self {
             ts_input,
             py_input,
             output_input,
             active_example_id: DEFAULT_EXAMPLE_ID,
             active_output_tab: OutputTab::Rust,
-            report,
-            compile_count,
+            // Nothing compiled yet: the empty-input report runs no stage.
+            report: compile_report("", ""),
+            compile_count: 0,
             _subscriptions: vec![sub_ts, sub_py],
+        };
+        workspace.load_example(DEFAULT_EXAMPLE_ID, window, cx);
+        workspace
+    }
+
+    /// Reads current source texts and recompiles.
+    fn recompile(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
+        let ts_text = self.ts_input.read(cx).value().to_string();
+        let py_text = self.py_input.read(cx).value().to_string();
+        self.apply_report(compile_report(&ts_text, &py_text), window, cx);
+    }
+
+    /// The single transition for a new compile result.
+    ///
+    /// Counts a successful compilation, re-clamps the visible tab to what the
+    /// new report can show, and syncs the read-only output editor. Doing all
+    /// three here (rather than syncing during render) keeps the view state a
+    /// function of the report.
+    fn apply_report(&mut self, report: CompileReport, window: &mut Window, cx: &mut Context<'_, Self>) {
+        if report.is_ok() {
+            self.compile_count = self.compile_count.saturating_add(1);
+        }
+        self.report = report;
+        self.select_tab(self.active_output_tab);
+        let target = self.report.rust_or_empty();
+        if self.output_input.read(cx).value() != target {
+            self.output_input.update(cx, |state, update_cx| {
+                state.set_value(target, window, update_cx);
+            });
         }
     }
 
-    /// Reads current source texts, recompiles, and adjusts the visible tab.
-    fn recompile(&mut self, cx: &Context<'_, Self>) {
-        let ts_text = self.ts_input.read(cx).value().to_string();
-        let py_text = self.py_input.read(cx).value().to_string();
-        let report = compile_report(&ts_text, &py_text);
-
-        if report.ok {
-            self.compile_count = self.compile_count.saturating_add(1);
-            // Leaving Diagnostics with nothing to show is confusing — fall back.
-            if self.active_output_tab == OutputTab::Diagnostics && report.diagnostics.is_empty() {
-                self.active_output_tab = OutputTab::Rust;
-            }
-        } else if self.active_output_tab == OutputTab::Rust && report.rust_source.is_none() {
-            // No Rust to show on failure — surface the diagnostics instead.
-            self.active_output_tab = OutputTab::Diagnostics;
-        }
-
-        self.report = report;
+    /// Shows `tab`, or the nearest available tab when it has nothing to show.
+    fn select_tab(&mut self, tab: OutputTab) {
+        self.active_output_tab = tab.clamp(&self.report);
     }
 
     /// Loads a showcase example into both editors and recompiles.
@@ -127,25 +128,13 @@ impl SmeltWorkspace {
         self.py_input.update(cx, |state, update_cx| {
             state.set_value(example.py_source, window, update_cx);
         });
-        self.recompile(cx);
-        self.sync_output_input(window, cx);
+        self.recompile(window, cx);
     }
 
     /// Restores the active example's source.
     fn reset_active(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
         let id = self.active_example_id;
         self.load_example(id, window, cx);
-    }
-
-    /// Keeps the read-only output editor in sync with the generated Rust.
-    fn sync_output_input(&self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        let target = self.report.rust_or_empty();
-        if self.output_input.read(cx).value() == target {
-            return;
-        }
-        self.output_input.update(cx, |state, update_cx| {
-            state.set_value(target, window, update_cx);
-        });
     }
 
     /// Counts lines in an input entity's current value.
@@ -168,19 +157,17 @@ impl Render for SmeltWorkspace {
     /// Builds the workspace element tree for the current frame.
     #[expect(clippy::too_many_lines, reason = "single top-level GPUI element tree")]
     fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
-        self.sync_output_input(window, cx);
-
         let example = examples::by_id(self.active_example_id);
         let ts_lines = Self::line_count(&self.ts_input, cx);
         let py_lines = Self::line_count(&self.py_input, cx);
         let rust_lines = self.report.rust_or_empty().lines().count();
         let ts_dirty = Self::is_dirty(&self.ts_input, example.ts_source, cx);
         let py_dirty = Self::is_dirty(&self.py_input, example.py_source, cx);
-        let diagnostic_count = self.report.diagnostics.len();
+        let diagnostic_count = self.report.diagnostics().len();
 
         // ── Listeners ───────────────────────────────────────────────
-        let on_compile = cx.listener(|this, _e: &ClickEvent, _w, ctx| {
-            this.recompile(ctx);
+        let on_compile = cx.listener(|this, _e: &ClickEvent, w, ctx| {
+            this.recompile(w, ctx);
             ctx.notify();
         });
         let on_reset = cx.listener(|this, _e: &ClickEvent, w, ctx| {
@@ -188,7 +175,7 @@ impl Render for SmeltWorkspace {
             ctx.notify();
         });
         let on_export_btn = cx.listener(|this, _e: &ClickEvent, _w, ctx| {
-            this.active_output_tab = OutputTab::Export;
+            this.select_tab(OutputTab::Export);
             ctx.notify();
         });
         let rust_for_header = self.report.rust_or_empty();
@@ -197,19 +184,19 @@ impl Render for SmeltWorkspace {
         });
 
         let on_tab_rust = cx.listener(|this, _e: &ClickEvent, _w, ctx| {
-            this.active_output_tab = OutputTab::Rust;
+            this.select_tab(OutputTab::Rust);
             ctx.notify();
         });
         let on_tab_diag = cx.listener(|this, _e: &ClickEvent, _w, ctx| {
-            this.active_output_tab = OutputTab::Diagnostics;
+            this.select_tab(OutputTab::Diagnostics);
             ctx.notify();
         });
         let on_tab_pipe = cx.listener(|this, _e: &ClickEvent, _w, ctx| {
-            this.active_output_tab = OutputTab::Pipeline;
+            this.select_tab(OutputTab::Pipeline);
             ctx.notify();
         });
         let on_tab_export = cx.listener(|this, _e: &ClickEvent, _w, ctx| {
-            this.active_output_tab = OutputTab::Export;
+            this.select_tab(OutputTab::Export);
             ctx.notify();
         });
 
@@ -217,18 +204,18 @@ impl Render for SmeltWorkspace {
         let content = match self.active_output_tab {
             OutputTab::Rust => output::render_rust_tab(&self.output_input).into_any_element(),
             OutputTab::Diagnostics => {
-                output::render_diagnostics_tab(&self.report.diagnostics).into_any_element()
+                output::render_diagnostics_tab(self.report.diagnostics()).into_any_element()
             }
             OutputTab::Pipeline => {
-                pipeline::render_pipeline(&self.report.stages).into_any_element()
+                pipeline::render_pipeline(&self.report.stages()).into_any_element()
             }
             OutputTab::Export => {
                 let rust_for_export = self.report.rust_or_empty();
                 let diag_text = self
                     .report
-                    .diagnostics
+                    .diagnostics()
                     .iter()
-                    .map(|d| format!("[{}] {}", d.stage, d.message))
+                    .map(|d| format!("[{}] {}", d.stage_label(), d.message))
                     .collect::<Vec<_>>()
                     .join("\n\n");
                 let on_copy_rust = cx.listener(move |_t, _e: &ClickEvent, _w, ctx| {
@@ -284,7 +271,7 @@ impl Render for SmeltWorkspace {
             .bg(theme::bg_base())
             .text_color(theme::text_primary())
             .child(render_header(
-                self.report.ok,
+                self.report.is_ok(),
                 self.report.duration,
                 rust_lines,
                 on_compile,
@@ -327,7 +314,7 @@ impl Render for SmeltWorkspace {
                     ),
             )
             .child(render_status_bar(
-                self.report.ok,
+                self.report.is_ok(),
                 self.report.failing_stage(),
                 self.compile_count,
                 self.report.duration,
