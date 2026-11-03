@@ -99,7 +99,7 @@ impl ModuleBuilder<'_> {
 
             // --- Await ---
             Expr::Await(await_expr) => {
-                if !self.current_async {
+                if self.scope.kind != FnKind::Async {
                     return Err(SmeltError::unsupported(
                         self.span(await_expr.range),
                         "await expressions are only supported inside async functions",

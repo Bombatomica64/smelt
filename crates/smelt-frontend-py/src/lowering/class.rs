@@ -1523,7 +1523,7 @@ impl ModuleBuilder<'_> {
         let is_new = !is_static && method_name_str == "__new__";
         let is_classmethod = !is_static && self.is_classmethod(func)?;
 
-        let return_ty = if is_init {
+        let declared_return_ty = if is_init {
             self.intern_type(Type::None)
         } else if is_new && func.returns.is_none() {
             class_ty
@@ -1543,93 +1543,100 @@ impl ModuleBuilder<'_> {
             }
         };
 
-        let saved_locals = std::mem::take(&mut self.locals);
-        let mut fn_body = Body::new(None, span);
-        let mut params: Vec<Param> = Vec::new();
-
-        // Add the implicit receiver local for use inside the method body.
-        // A `@staticmethod` has no implicit receiver, so this is skipped and all
-        // declared parameters are lowered as ordinary function parameters.
-        let implicit_receiver_name = if is_classmethod || is_new {
-            "cls"
+        // An `async def` method is a coroutine like an `async def` function:
+        // its call answers an awaitable, and `await` is legal in its body.
+        let return_ty = if func.is_async {
+            self.future_type(declared_return_ty)
         } else {
-            "self"
+            declared_return_ty
         };
-        if !is_static {
-            let self_sym = self.intern_name(implicit_receiver_name);
-            let self_local = fn_body.push_local(LocalDecl {
-                name: Some(self_sym),
-                ty: class_ty,
-                mutable: false,
-                span,
-            });
-            self.locals
-                .insert(implicit_receiver_name.to_owned(), self_local);
-            if !is_init && !is_classmethod && !is_new {
-                fn_body.params.push(self_local);
-                params.push(Param {
-                    name: self_sym,
-                    local: self_local,
+        // A fresh function scope, restored on every exit (see `with_fn_scope`).
+        let (fn_body, params) = self.with_fn_scope(FnKind::of(func.is_async), |this| {
+            let mut fn_body = Body::new(None, span);
+            let mut params: Vec<Param> = Vec::new();
+
+            // Add the implicit receiver local for use inside the method body.
+            // A `@staticmethod` has no implicit receiver, so this is skipped and all
+            // declared parameters are lowered as ordinary function parameters.
+            let implicit_receiver_name = if is_classmethod || is_new {
+                "cls"
+            } else {
+                "self"
+            };
+            if !is_static {
+                let self_sym = this.intern_name(implicit_receiver_name);
+                let self_local = fn_body.push_local(LocalDecl {
+                    name: Some(self_sym),
                     ty: class_ty,
+                    mutable: false,
                     span,
                 });
+                this.scope.locals
+                    .insert(implicit_receiver_name.to_owned(), self_local);
+                if !is_init && !is_classmethod && !is_new {
+                    fn_body.params.push(self_local);
+                    params.push(Param {
+                        name: self_sym,
+                        local: self_local,
+                        ty: class_ty,
+                        span,
+                    });
+                }
             }
-        }
 
-        let mut first = true;
-        for param_with_default in func.parameters.iter_non_variadic_params() {
-            let p = &param_with_default.parameter;
-            let param_name_str = p.name.as_str();
-            // Skip the implicit receiver; it was added above. Static methods
-            // have no implicit receiver, so every parameter is a real argument.
-            if !is_static
-                && first
-                && (param_name_str == implicit_receiver_name
-                    || ((is_classmethod || is_new) && param_name_str == "self"))
-            {
+            let mut first = true;
+            for param_with_default in func.parameters.iter_non_variadic_params() {
+                let p = &param_with_default.parameter;
+                let param_name_str = p.name.as_str();
+                // Skip the implicit receiver; it was added above. Static methods
+                // have no implicit receiver, so every parameter is a real argument.
+                if !is_static
+                    && first
+                    && (param_name_str == implicit_receiver_name
+                        || ((is_classmethod || is_new) && param_name_str == "self"))
+                {
+                    first = false;
+                    continue;
+                }
                 first = false;
-                continue;
+
+                let param_ty = match p.annotation.as_deref() {
+                    Some(ann) => this.annotation_to_hir(ann)?,
+                    // No annotation: consult `ty` (issue #93) before erroring.
+                    None => this.resolved_param_ty(p).ok_or_else(|| {
+                        SmeltError::type_constraint(
+                            this.span(p.range),
+                            format!(
+                                "parameter '{param_name_str}' in '{class_name_str}.{method_name_str}' must have a type annotation"
+                            ),
+                        )
+                    })?,
+                };
+
+                let param_sym = this.intern_name(param_name_str);
+                let local = fn_body.push_local(LocalDecl {
+                    name: Some(param_sym),
+                    ty: param_ty,
+                    mutable: false,
+                    span: this.span(p.range),
+                });
+                fn_body.params.push(local);
+                this.scope.locals.insert(param_name_str.to_owned(), local);
+                params.push(Param {
+                    name: param_sym,
+                    local,
+                    ty: param_ty,
+                    span: this.span(p.range),
+                });
             }
-            first = false;
-
-            let param_ty = match p.annotation.as_deref() {
-                Some(ann) => self.annotation_to_hir(ann)?,
-                // No annotation: consult `ty` (issue #93) before erroring.
-                None => self.resolved_param_ty(p).ok_or_else(|| {
-                    SmeltError::type_constraint(
-                        self.span(p.range),
-                        format!(
-                            "parameter '{param_name_str}' in '{class_name_str}.{method_name_str}' must have a type annotation"
-                        ),
-                    )
-                })?,
-            };
-
-            let param_sym = self.intern_name(param_name_str);
-            let local = fn_body.push_local(LocalDecl {
-                name: Some(param_sym),
-                ty: param_ty,
-                mutable: false,
-                span: self.span(p.range),
-            });
-            fn_body.params.push(local);
-            self.locals.insert(param_name_str.to_owned(), local);
-            params.push(Param {
-                name: param_sym,
-                local,
-                ty: param_ty,
-                span: self.span(p.range),
-            });
-        }
-
-        for stmt in &func.body {
-            if let Err(err) = self.statement(stmt, &mut fn_body) {
-                self.locals = saved_locals;
-                return Err(err);
+            for stmt in &func.body {
+                this.statement(stmt, &mut fn_body)?;
             }
-        }
-
-        self.locals = saved_locals;
+            if func.is_async {
+                fn_body.build_async_state_machine();
+            }
+            Ok((fn_body, params))
+        })?;
 
         let body_id = self.ctx.krate.push_body(fn_body);
 
@@ -1663,7 +1670,7 @@ impl ModuleBuilder<'_> {
             rest: None,
             required_params: None,
             return_ty,
-            is_async: false,
+            is_async: func.is_async,
             is_test: false,
             body: Some(body_id),
             owner,

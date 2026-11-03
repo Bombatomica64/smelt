@@ -69,8 +69,9 @@ pub(crate) struct ModuleBuilder<'ctx> {
     path: String,
     /// Shared HIR context being populated.
     ctx: &'ctx mut HirCtx,
-    /// In-scope locals while lowering a body.
-    locals: HashMap<String, smelt_hir::LocalId>,
+    /// State owned by the function body being lowered; swapped wholesale by
+    /// [`Self::with_fn_scope`].
+    scope: FnScope,
     /// Module-level items (functions / classes) for call resolution.
     items: HashMap<String, ItemId>,
     /// Names exported by the module currently being lowered.
@@ -101,12 +102,8 @@ pub(crate) struct ModuleBuilder<'ctx> {
     module_namespaces: HashMap<String, HashMap<String, ItemId>>,
     /// Pytest fixture functions available to tests in this module.
     pytest_fixtures: HashMap<String, PytestFixture>,
-    /// Whether the current lowered function body is async.
-    current_async: bool,
     /// Whether this module should use pytest-specific test discovery rules.
     pytest_mode: bool,
-    /// Local lambda callbacks with explicit callable annotations.
-    local_callbacks: HashMap<String, LocalCallback>,
     /// Variadic parameter metadata for top-level Python function items.
     function_variadics: HashMap<String, FunctionVariadics>,
     /// Materialized final bindings for this source module.
@@ -116,6 +113,46 @@ pub(crate) struct ModuleBuilder<'ctx> {
     /// Module-scope and class-body bindings, used to resolve what a
     /// decorator, base class or metaclass expression denotes.
     bindings: ModuleBindings,
+}
+
+/// What kind of body the lowering cursor is in.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum FnKind {
+    /// Module top level (and class bodies): no enclosing function.
+    #[default]
+    Module,
+    /// A `def` body.
+    Sync,
+    /// An `async def` body: the only place `await` is legal.
+    Async,
+}
+
+impl FnKind {
+    /// The kind of a `def` (`is_async == false`) or `async def` body.
+    const fn of(is_async: bool) -> Self {
+        if is_async { Self::Async } else { Self::Sync }
+    }
+}
+
+/// Lowering state that belongs to ONE function body.
+///
+/// Every function, method and synthesized constructor is lowered inside
+/// [`ModuleBuilder::with_fn_scope`], which installs a fresh `FnScope` and puts
+/// the enclosing one back on every exit, error included. Before, each site
+/// saved and restored the fields by hand and an early `?` (a failed parameter
+/// annotation, a rejected statement) skipped the restore: the failed
+/// function's locals and async-ness leaked into every item and module
+/// statement lowered after it -- a module-level `print(x)` after
+/// `def f(x: int, y: <bad>)` resolved `x` to the dead function's local and
+/// panicked indexing the module body.
+#[derive(Debug, Default)]
+struct FnScope {
+    /// In-scope locals by source name.
+    locals: HashMap<String, smelt_hir::LocalId>,
+    /// The kind of body being lowered.
+    kind: FnKind,
+    /// Local lambda callbacks with explicit callable annotations, by name.
+    local_callbacks: HashMap<String, LocalCallback>,
 }
 
 /// A local Python lambda value that can be consumed by callback APIs without escaping.
@@ -254,7 +291,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             pytest_mode: test_support::is_pytest_file(&path),
             path,
             ctx,
-            locals: HashMap::new(),
+            scope: FnScope::default(),
             items,
             exports: HashMap::new(),
             enum_members,
@@ -265,13 +302,39 @@ impl<'ctx> ModuleBuilder<'ctx> {
             type_param_names: Vec::new(),
             module_namespaces,
             pytest_fixtures: HashMap::new(),
-            current_async: false,
-            local_callbacks: HashMap::new(),
             function_variadics: HashMap::new(),
             specialization,
             resolved_types: crate::ty_resolve::ResolvedTypes::disabled(),
             bindings: ModuleBindings::default(),
         }
+    }
+
+    /// Lower one function body in a fresh [`FnScope`] of `kind`.
+    ///
+    /// The enclosing scope is restored when `lower` returns, whatever it
+    /// returns, so a failing body cannot leak its locals, its async-ness or its
+    /// callbacks into what is lowered next.
+    fn with_fn_scope<T>(&mut self, kind: FnKind, lower: impl FnOnce(&mut Self) -> T) -> T {
+        let enclosing = std::mem::replace(
+            &mut self.scope,
+            FnScope {
+                kind,
+                ..FnScope::default()
+            },
+        );
+        let result = lower(self);
+        self.scope = enclosing;
+        result
+    }
+
+    /// Lower a nested block whose bindings must not outlive it (an `except`
+    /// handler, a comprehension): the visible locals are restored when `lower`
+    /// returns, whatever it returns.
+    fn with_block_scope<T>(&mut self, lower: impl FnOnce(&mut Self) -> T) -> T {
+        let enclosing = self.scope.locals.clone();
+        let result = lower(self);
+        self.scope.locals = enclosing;
+        result
     }
 
     /// Install the `ty`-resolved module types used to fill in missing

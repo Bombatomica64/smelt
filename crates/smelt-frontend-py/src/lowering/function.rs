@@ -175,64 +175,75 @@ impl ModuleBuilder<'_> {
         let base_name = func.name.as_str();
         let generated_name = format!("{base_name}__case_{case_index}");
         let name = self.intern_name(&generated_name);
-        let return_ty = self.intern_type(Type::None);
-        let saved_locals = std::mem::take(&mut self.locals);
-        let saved_async = self.current_async;
-        self.current_async = false;
+        // An `async def` test row is itself async, exactly like an
+        // unparametrized `async def` test (see `function_def`).
+        let none_ty = self.intern_type(Type::None);
+        let return_ty = if func.is_async {
+            self.future_type(none_ty)
+        } else {
+            none_ty
+        };
         let func_span = self.span(func.range);
-        let mut fn_body = Body::new(None, func_span);
-        let root_block = fn_body.root;
+        // Same fresh, unconditionally restored function scope as an
+        // unparametrized test (`function_def`); an `async def` row awaits like
+        // one too.
+        let fn_body = self.with_fn_scope(FnKind::of(func.is_async), |this| {
+            let mut fn_body = Body::new(None, func_span);
+            let root_block = fn_body.root;
 
-        for fixture in self.pytest_fixtures.values().copied() {
-            if fixture.autouse {
-                let callee = fn_body.push_expr(HirExpr {
-                    kind: ExprKind::Item(fixture.item),
-                    ty: fixture.ty,
-                    span: func_span,
-                });
-                let value = fn_body.push_expr(HirExpr {
-                    kind: ExprKind::Call {
-                        callee,
-                        args: Vec::new(),
-                    },
-                    ty: fixture.ty,
-                    span: func_span,
-                });
-                fn_body.push_stmt_to_block(root_block, HirStmt::Expr(value));
+            for fixture in this.pytest_fixtures.values().copied() {
+                if fixture.autouse {
+                    let callee = fn_body.push_expr(HirExpr {
+                        kind: ExprKind::Item(fixture.item),
+                        ty: fixture.ty,
+                        span: func_span,
+                    });
+                    let value = fn_body.push_expr(HirExpr {
+                        kind: ExprKind::Call {
+                            callee,
+                            args: Vec::new(),
+                        },
+                        ty: fixture.ty,
+                        span: func_span,
+                    });
+                    fn_body.push_stmt_to_block(root_block, HirStmt::Expr(value));
+                }
             }
-        }
 
-        for (param_name, value) in parametrize.names.iter().zip(row) {
-            let ty = self.pytest_literal_type(value, func_span)?;
-            let sym = self.intern_name(param_name);
-            let local = fn_body.push_local(LocalDecl {
-                name: Some(sym),
-                ty,
-                mutable: false,
-                span: func_span,
-            });
-            self.locals.insert(param_name.clone(), local);
-            let value_expr = self.pytest_literal_expr(value, &mut fn_body, func_span)?;
-            let pat = fn_body.push_pattern(HirPattern::Binding(local));
-            fn_body.push_stmt_to_block(
-                root_block,
-                HirStmt::Let {
-                    pat,
+            for (param_name, value) in parametrize.names.iter().zip(row) {
+                let ty = this.pytest_literal_type(value, func_span)?;
+                let sym = this.intern_name(param_name);
+                let local = fn_body.push_local(LocalDecl {
+                    name: Some(sym),
                     ty,
-                    value: Some(value_expr),
-                },
-            );
-        }
+                    mutable: false,
+                    span: func_span,
+                });
+                this.scope.locals.insert(param_name.clone(), local);
+                let value_expr = this.pytest_literal_expr(value, &mut fn_body, func_span)?;
+                let pat = fn_body.push_pattern(HirPattern::Binding(local));
+                fn_body.push_stmt_to_block(
+                    root_block,
+                    HirStmt::Let {
+                        pat,
+                        ty,
+                        value: Some(value_expr),
+                    },
+                );
+            }
 
-        let body_error = func
-            .body
-            .iter()
-            .find_map(|stmt| self.statement(stmt, &mut fn_body).err());
-        self.locals = saved_locals;
-        self.current_async = saved_async;
-        if let Some(err) = body_error {
-            return Err(err);
-        }
+            let body_error = func
+                .body
+                .iter()
+                .find_map(|stmt| this.statement(stmt, &mut fn_body).err());
+            if func.is_async {
+                fn_body.build_async_state_machine();
+            }
+            if let Some(err) = body_error {
+                return Err(err);
+            }
+            Ok(fn_body)
+        })?;
         let body_id = self.ctx.krate.push_body(fn_body);
         let item = Item::Function(Function {
             name,
@@ -243,8 +254,8 @@ impl ModuleBuilder<'_> {
             params: Vec::new(),
             rest: None,
             required_params: None,
-return_ty,
-            is_async: false,
+            return_ty,
+            is_async: func.is_async,
             is_test: true,
             body: Some(body_id),
             owner: FunctionOwner::Module,

@@ -414,7 +414,7 @@ impl ModuleBuilder<'_> {
     /// The loop targets, element/key/value, and `if` guards all lower through
     /// the normal expression path, so the full expression language is available
     /// inside comprehension bodies. Comprehension targets are scoped to the
-    /// comprehension: `self.locals` is snapshotted on entry and restored on exit
+    /// comprehension: the locals are snapshotted on entry and restored on exit
     /// so the loop variables do not leak into the enclosing scope.
     fn comprehension(
         &mut self,
@@ -423,10 +423,7 @@ impl ModuleBuilder<'_> {
         span: Span,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let saved_locals = self.locals.clone();
-        let result = self.comprehension_impl(generators, source, span, body);
-        self.locals = saved_locals;
-        result
+        self.with_block_scope(|this| this.comprehension_impl(generators, source, span, body))
     }
 
     /// Inner comprehension lowering; see [`Self::comprehension`] for the
@@ -685,7 +682,7 @@ impl ModuleBuilder<'_> {
                 Ok(ClosureCallback { expr, return_ty })
             }
             Expr::Name(name) => {
-                let Some(callback) = self.local_callbacks.get(name.id.as_str()).cloned() else {
+                let Some(callback) = self.scope.local_callbacks.get(name.id.as_str()).cloned() else {
                     return Err(SmeltError::unsupported(
                         self.span(name.range),
                         format!("local callback `{}` is not defined", name.id),
@@ -1157,7 +1154,7 @@ impl ModuleBuilder<'_> {
                 if let Some(param) = params.get(name.id.as_str()).cloned() {
                     return Ok(param);
                 }
-                let Some(local) = self.locals.get(name.id.as_str()).copied() else {
+                let Some(local) = self.scope.locals.get(name.id.as_str()).copied() else {
                     return Err(SmeltError::unsupported(
                         self.span(name.range),
                         format!("unresolved callback identifier `{}`", name.id),

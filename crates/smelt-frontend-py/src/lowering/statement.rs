@@ -51,7 +51,7 @@ impl ModuleBuilder<'_> {
                     return Ok(());
                 }
                 if let Expr::Name(target_name) = target_expr
-                    && !self.locals.contains_key(target_name.id.as_str())
+                    && !self.scope.locals.contains_key(target_name.id.as_str())
                 {
                     let value = self.expression(&s.value, body)?;
                     let value_ty = Self::expr_ty(body, value);
@@ -264,14 +264,14 @@ impl ModuleBuilder<'_> {
                 // Bindings and body locals introduced by the handler must not
                 // leak into the surrounding scope, matching the TypeScript
                 // `catch` lowering.
-                let previous_locals = self.locals.clone();
-                let catch_binding = handler
-                    .name
-                    .as_ref()
-                    .map(|name| self.except_binding(name.as_str(), name.range, body));
-                let catch_block = self.block_from_stmts(&handler.body, body)?;
-                self.locals = previous_locals;
-                (catch_binding, Some(catch_block))
+                self.with_block_scope(|this| {
+                    let catch_binding = handler
+                        .name
+                        .as_ref()
+                        .map(|name| this.except_binding(name.as_str(), name.range, body));
+                    let catch_block = this.block_from_stmts(&handler.body, body)?;
+                    Ok::<_, SmeltError>((catch_binding, Some(catch_block)))
+                })?
             }
         };
 
@@ -307,7 +307,7 @@ impl ModuleBuilder<'_> {
             mutable: false,
             span: self.span(range),
         });
-        self.locals.insert(name.to_owned(), local);
+        self.scope.locals.insert(name.to_owned(), local);
         local
     }
 
@@ -419,7 +419,7 @@ impl ModuleBuilder<'_> {
             mutable: true,
             span: self.span(target_name.range),
         });
-        self.locals.insert(name_str.to_owned(), local);
+        self.scope.locals.insert(name_str.to_owned(), local);
 
         let pat = body.push_pattern(HirPattern::Binding(local));
         body.push_stmt_to_block(block, HirStmt::Let { pat, ty, value });
@@ -454,8 +454,8 @@ impl ModuleBuilder<'_> {
             mutable: true,
             span,
         });
-        self.locals.insert(name.to_owned(), local);
-        self.local_callbacks.insert(
+        self.scope.locals.insert(name.to_owned(), local);
+        self.scope.local_callbacks.insert(
             name.to_owned(),
             LocalCallback {
                 callback,
@@ -525,7 +525,7 @@ impl ModuleBuilder<'_> {
 
         // The enclosing class comes from the `self` receiver's type, which is
         // the owning class for every method body.
-        let Some(&self_local) = self.locals.get("self") else {
+        let Some(&self_local) = self.scope.locals.get("self") else {
             return Err(SmeltError::unsupported(
                 span,
                 "super().__init__() requires a `self` receiver",
@@ -867,8 +867,8 @@ impl ModuleBuilder<'_> {
             mutable: true,
             span: self.span(func.range),
         });
-        self.locals.insert(name_text.to_owned(), local);
-        self.local_callbacks.insert(
+        self.scope.locals.insert(name_text.to_owned(), local);
+        self.scope.local_callbacks.insert(
             name_text.to_owned(),
             LocalCallback {
                 callback,
@@ -1181,7 +1181,7 @@ impl ModuleBuilder<'_> {
             mutable: false,
             span: self.span(name.range),
         });
-        self.locals.insert(name.id.to_string(), local);
+        self.scope.locals.insert(name.id.to_string(), local);
         Ok(local)
     }
 
