@@ -51,7 +51,7 @@ on:
 # `labeled` events are excluded from cancellation. Without that exclusion,
 # applying ANY label to a PR would land in this group and cancel a legitimate
 # in-flight run for the same ref — and because the label run deliberately skips
-# coverage/corpus/clippy (see their `if:`), the PR would be left with no result
+# test/corpus/clippy (see their `if:`), the PR would be left with no result
 # for those checks at all until the next push. A label event may therefore never
 # cancel anything; a subsequent push still cancels the label run, which is
 # correct because that run tested older code.
@@ -237,11 +237,74 @@ jobs:
             --test python_specialization_parity \
             --test typescript_specialization_parity
 
+  # PR test gate: runs only the tests a change can affect, on stable with a
+  # warm cache. The instrumented nightly run below (`coverage`) is main-only.
+  #
+  # Selection is per workspace package (scripts/ci_affected_packages.py): the
+  # packages that own a changed file plus every package that depends on them,
+  # `--workspace` for anything the script does not recognise (root manifests,
+  # Cargo.lock, this workflow, unknown paths), and nothing for paths no
+  # `cargo test` reads (third_party/, blocker-logs/, ...). A change to the
+  # frontend, MIR or emitter still reaches `smelt-transpiler`, whose end-to-end
+  # corpus is the bulk of the suite, so those PRs run nearly everything; the
+  # selection mainly spares leaf-only PRs (runtime, python, ts-types, test
+  # harness) the transpiler corpus.
+  #
+  # The diff is taken against the merge commit's first parent (`HEAD^1`), which
+  # is exactly the PR's change on top of its current base.
+  test:
+    # See the note on `clippy`: never re-run just because a label was added.
+    if: ${{ github.event_name == 'pull_request' && github.event.action != 'labeled' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - name: Select affected packages
+        id: affected
+        run: |
+          git diff --name-only HEAD^1 HEAD | python3 scripts/ci_affected_packages.py -
+
+      - name: Install Rust
+        if: ${{ steps.affected.outputs.mode != 'none' }}
+        uses: dtolnay/rust-toolchain@stable
+
+      # Own lane, not `build`: the corpus/sandbox jobs save `build` with only
+      # the subset of the workspace they compile, and whichever job finishes
+      # first wins the save.
+      - name: Cache cargo
+        if: ${{ steps.affected.outputs.mode != 'none' }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test
+
+      # Same pinned oracle as the coverage job; see the note there.
+      - name: Install Node (pinned oracle for the end-to-end goldens)
+        if: ${{ steps.affected.outputs.mode != 'none' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+
+      - name: Install sandbox prerequisites
+        if: ${{ steps.affected.outputs.mode != 'none' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          npm install --global typescript@5.9.3
+
+      - name: Test affected packages
+        if: ${{ steps.affected.outputs.mode != 'none' }}
+        run: |
+          cargo test ${{ steps.affected.outputs.args }}
+
   coverage:
-    # See the note on `clippy`. This one matters most: coverage is the critical
-    # path at 6 min 18 s, so without this guard every label added to any PR would
-    # burn a full 6-minute run for nothing.
-    if: ${{ github.event.action != 'labeled' }}
+    # Main-only: the instrumented nightly build cannot use a cache (see below)
+    # and only main's run publishes the badge and README tables, so pull
+    # requests are gated by the `test` job above instead.
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -385,7 +448,7 @@ jobs:
   #
   # Once applied, the label sticks: every later push to the PR re-runs them.
   # Rationale: ~7 min of runner time per PR run for three jobs that sit well
-  # inside the coverage critical path, so skipping them saves runner minutes on
+  # inside the test/coverage critical path, so skipping them saves runner minutes on
   # docs/CI-only PRs without making anyone wait longer.
   # ==========================================================================
   remeda-regression:
