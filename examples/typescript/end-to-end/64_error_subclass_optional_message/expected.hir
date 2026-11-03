@@ -12,7 +12,7 @@ module examples/typescript/end-to-end/64_error_subclass_optional_message/input.t
     #0: Float = 404.0
     #1: String = "message"
     #2: String = "not found"
-    #3: Dict<String, String> = {#1: #2}
+    #3: HTTPExceptionOptions = {#1: #2}
     #4: HTTPException = new HTTPException(#0, #3)
     #5: HTTPException = %0
     #6: HTTPException = %0

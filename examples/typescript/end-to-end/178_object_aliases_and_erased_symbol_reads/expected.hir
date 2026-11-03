@@ -5,7 +5,7 @@ module examples/typescript/end-to-end/178_object_aliases_and_erased_symbol_reads
     interface Tagged<T = String, N extends Float = Float> fields [Public value: T, Public count: N] methods []
     fn configure owner Module
     fn first owner Module
-    class Request fields [Hidden #routes: List<(String, String)>, Hidden #context: Optional<String>] constructor Some(ItemId(10)) methods [ItemId(11), ItemId(12)] implements []
+    class Request fields [Hidden #routes: List<(String, String)>, Hidden #context: Optional<String>] constructor Some(ItemId(6)) methods [ItemId(7), ItemId(8)] implements []
     fn paths owner Module
     fn context_of owner Module
   locals
@@ -14,50 +14,50 @@ module examples/typescript/end-to-end/178_object_aliases_and_erased_symbol_reads
     %2 const noRoutes: List<(String, String)>
   exprs
     #0: Unknown = symbol("Symbol()@663")
-    #1: fn(Optional<Options>) -> String = @4(configure)
+    #1: fn(Optional<Options>) -> String = @2(configure)
     #2: String = call #1()
     #3: String = "label"
     #4: String = "custom"
     #5: Options = {#3: #4}
-    #6: fn(Optional<Options>) -> String = @4(configure)
+    #6: fn(Optional<Options>) -> String = @2(configure)
     #7: String = call #6(#5)
     #8: String = "limit"
     #9: Float = 9.0
     #10: Options = {#8: #9}
-    #11: fn(Optional<Options>) -> String = @4(configure)
+    #11: fn(Optional<Options>) -> String = @2(configure)
     #12: String = call #11(#10)
-    #13: None = @14(console_log)
+    #13: None = @10(console_log)
     #14: None = call #13(#2, #7, #12)
     #15: String = "value"
     #16: String = "a"
     #17: String = "count"
     #18: Float = 2.0
     #19: Tagged<String, Float> = {#15: #16, #17: #18}
-    #20: fn(Tagged<String, Float>) -> String = @5(first)
+    #20: fn(Tagged<String, Float>) -> String = @3(first)
     #21: String = call #20(#19)
-    #22: None = @15(console_log)
+    #22: None = @11(console_log)
     #23: None = call #22(#21)
     #24: String = "a"
     #25: String = "/x"
-    #26: List<String> = [#24, #25]
+    #26: (String, String) = (#24, #25)
     #27: String = "b"
     #28: String = "/y"
-    #29: List<String> = [#27, #28]
-    #30: List<List<String>> = [#26, #29]
+    #29: (String, String) = (#27, #28)
+    #30: List<(String, String)> = [#26, #29]
     #31: String = "ctx"
     #32: Request = new Request(#30, #31)
     #33: List<(String, String)> = []
     #34: Request = %1
-    #35: fn(Request) -> String = @6(paths)
+    #35: fn(Request) -> String = @4(paths)
     #36: String = call #35(#34)
     #37: Request = %1
-    #38: fn(Request) -> String = @7(context_of)
+    #38: fn(Request) -> String = @5(context_of)
     #39: String = call #38(#37)
     #40: List<(String, String)> = %2
     #41: Request = new Request(#40)
-    #42: fn(Request) -> String = @7(context_of)
+    #42: fn(Request) -> String = @5(context_of)
     #43: String = call #42(#41)
-    #44: None = @16(console_log)
+    #44: None = @12(console_log)
     #45: None = call #44(#36, #39, #43)
   stmts
     s0: let %0: Unknown = #0

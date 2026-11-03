@@ -86,7 +86,7 @@ module examples/typescript/end-to-end/153_this_param_function_as_method/input.ts
     #65: None = @18(console_log)
     #66: None = call #65(#64)
     #67: TableRouter = new TableRouter()
-    #68: List<TableRouter> = [#67]
+    #68: List<Router> = [#67]
     #69: SmartRouter = new SmartRouter(#68)
     #70: SmartRouter = %1
     #71: fn(String, String, String) -> None = #70.add

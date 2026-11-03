@@ -36,8 +36,6 @@ interned types
   t14 = Optional<ReadableStream>
   t15 = Headers
   t16 = Dict<String, String>
-  t17 = Unknown
-  t18 = Dict<String, Unknown>
-  t19 = fn() -> Response
-  t20 = Future<String>
-  t21 = async fn() -> Future<None>
+  t17 = fn() -> Response
+  t18 = Future<String>
+  t19 = async fn() -> Future<None>

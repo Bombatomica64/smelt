@@ -1497,7 +1497,7 @@ fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> 
 fn smelt_for_in_object_keys(map: &SmeltObject) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); let shape = smelt_for_in_object_shape(map); for key in map.keys() { if key.starts_with("__smelt_proto:") { continue; } if smelt_is_for_in_shape_key(shape, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in map.keys() { if let Some(inherited) = key.strip_prefix("__smelt_proto:") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }
 
 /// Every key JavaScript `for...in` yields for a typed record, prototype chain included.
-fn smelt_for_in_record_keys<V>(record: &SmeltRecord<String, V>) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for key in record.keys() { if key.starts_with("__smelt_proto:") { continue; } if smelt_is_for_in_record_key(record, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in record.keys() { if let Some(inherited) = key.strip_prefix("__smelt_proto:") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }
+fn smelt_for_in_record_keys<V>(record: &SmeltRecord<String, V>) -> Vec<String> { let mut keys = Vec::new(); let mut has_inherited = false; for key in record.keys() { if key.starts_with("__smelt_proto:") { has_inherited = true; continue; } if smelt_is_for_in_record_key(record, &key) { keys.push(key); } } if has_inherited { for key in record.keys() { if let Some(inherited) = key.strip_prefix("__smelt_proto:") { if !keys.iter().any(|existing| existing == inherited) { keys.push(inherited.to_owned()); } } } } keys }
 
 /// Own entries of a `SmeltJsMap` backing, with representation markers removed.
 ///
@@ -1714,6 +1714,14 @@ fn smelt_array_named_property(id: usize, key: &str) -> Option<SmeltUnknown> { SM
 /// `derived` marks a property the erasure of a typed value rewrites every
 /// time it erases (a match's `index`): such an entry is never pinned.
 fn smelt_array_store_named_property(array: &SmeltArray, key: String, property: SmeltUnknown, derived: bool) { SMELT_ARRAY_PROPS.with(|props| { if props.borrow().wants_sweep(array.id) { smelt_sweep_array_props(props); } let mut props = props.borrow_mut(); let entry = props.slot(array.id); entry.own(&array.values); if array.detached && !derived { entry.pinned = true; } match entry.props.iter_mut().find(|(name, _)| *name == key) { Some(slot) => slot.1 = property, None => entry.props.push((key, property)) } }); }
+
+/// Write several named properties of `array` at once: one table lookup for all of them.
+///
+/// The same as calling `smelt_array_store_named_property` per pair, which a
+/// regex match's erasure did three times per match (`index`, `input`,
+/// `groups`), each with its own sweep check, slot lookup and owner check.
+#[allow(dead_code)]
+fn smelt_array_store_named_properties<const N: usize>(array: &SmeltArray, properties: [(&'static str, SmeltUnknown); N], derived: bool) { SMELT_ARRAY_PROPS.with(|props| { if props.borrow().wants_sweep(array.id) { smelt_sweep_array_props(props); } let mut props = props.borrow_mut(); let entry = props.slot(array.id); entry.own(&array.values); if array.detached && !derived { entry.pinned = true; } for (key, property) in properties { match entry.props.iter_mut().find(|(name, _)| name == key) { Some(slot) => slot.1 = property, None => entry.props.push((key.to_owned(), property)) } } }); }
 
 /// Make a typed copy's buffer an owner of `id`'s named properties, if it has any.
 ///
@@ -3350,9 +3358,11 @@ fn smelt_regex_substitution(replacement: &str, haystack: &str, captures: &fancy_
 #[derive(Clone, Debug)]
 pub struct SmeltRegExp {
     id: usize,
-    source: String,
-    flags: String,
+    source: ::std::rc::Rc<str>,
+    flags: ::std::rc::Rc<str>,
     last_index: ::std::rc::Rc<::std::cell::RefCell<usize>>,
+    /// The compiled automaton, shared by every clone (`None` inside: the pattern does not compile).
+    compiled: ::std::rc::Rc<::std::cell::OnceCell<::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>>,
 }
 
 impl PartialEq for SmeltRegExp { fn eq(&self, other: &Self) -> bool { self.source == other.source && self.flags == other.flags && *self.last_index.borrow() == *other.last_index.borrow() } }
@@ -3366,7 +3376,7 @@ impl SmeltRegExp {
     /// `/a\/b/`, and the two compare equal.
     pub fn new(source: String, flags: String) -> Self {
         let source = Self::escape_pattern_source(source);
-        Self { id: smelt_next_object_id(), source, flags, last_index: ::std::rc::Rc::new(::std::cell::RefCell::new(0)) }
+        Self { id: smelt_next_object_id(), source: source.into(), flags: flags.into(), last_index: ::std::rc::Rc::new(::std::cell::RefCell::new(0)), compiled: ::std::rc::Rc::default() }
     }
     /// Escape every unescaped `/` outside a character class (`EscapeRegExpPattern`).
     fn escape_pattern_source(source: String) -> String {
@@ -3401,17 +3411,19 @@ impl SmeltRegExp {
     /// (for example a module-level pattern referenced from a hot function)
     /// compiles it at most once per thread. Compilation is a pure function of
     /// the pattern text, so sharing it is unobservable; the mutable
-    /// `lastIndex` state stays per-`SmeltRegExp`.
+    /// `lastIndex` state stays per-`SmeltRegExp`. The result is also kept on
+    /// the value itself (shared by its clones), so a hot `exec` neither
+    /// rebuilds the translated pattern nor hashes it again.
     fn try_compiled(&self) -> Option<::std::rc::Rc<fancy_regex::Regex>> {
+        if let Some(compiled) = self.compiled.get() { return compiled.clone(); }
         let mut prefix = String::new();
         if self.has_flag('i') { prefix.push('i'); }
         if self.has_flag('m') { prefix.push('m'); }
         if self.has_flag('s') { prefix.push('s'); }
         let translated_source = self.source.replace("[^]", "(?s:.)");
         let pattern = if prefix.is_empty() { translated_source } else { format!("(?{prefix}){translated_source}") };
-        if let Some(cached) = SMELT_REGEX_CACHE.with(|cache| cache.borrow().get(&pattern).cloned()) { return cached; }
-        let compiled = fancy_regex::RegexBuilder::new(&pattern).delegate_size_limit(SMELT_REGEX_SIZE_LIMIT).delegate_dfa_size_limit(SMELT_REGEX_DFA_SIZE_LIMIT).build().ok().map(::std::rc::Rc::new);
-        SMELT_REGEX_CACHE.with(|cache| { cache.borrow_mut().insert(pattern, compiled.clone()); });
+        let compiled = if let Some(cached) = SMELT_REGEX_CACHE.with(|cache| cache.borrow().get(&pattern).cloned()) { cached } else { let compiled = fancy_regex::RegexBuilder::new(&pattern).delegate_size_limit(SMELT_REGEX_SIZE_LIMIT).delegate_dfa_size_limit(SMELT_REGEX_DFA_SIZE_LIMIT).build().ok().map(::std::rc::Rc::new); SMELT_REGEX_CACHE.with(|cache| { cache.borrow_mut().insert(pattern, compiled.clone()); }); compiled };
+        let _ = self.compiled.set(compiled.clone());
         compiled
     }
     /// Match a string with JavaScript String.prototype.match semantics.
@@ -3551,13 +3563,13 @@ pub struct SmeltMatch {
     id: usize,
     /// Numbered capture groups; entry 0 is the whole match. An absent
     /// optional group is `None` (JavaScript `undefined`).
-    groups: Vec<Option<String>>,
+    groups: ::std::rc::Rc<Vec<Option<String>>>,
     /// Named capture groups keyed by name (plus a snake_case alias).
-    named: ::std::collections::HashMap<String, Option<String>>,
+    named: ::std::rc::Rc<::std::collections::HashMap<String, Option<String>>>,
     /// Zero-based offset of the match within `input` (`.index`).
     match_index: usize,
     /// The full string that was searched (`.input`).
-    input: String,
+    input: ::std::rc::Rc<str>,
 }
 
 /// Structural equality over the match content, ignoring reference identity.
@@ -3578,7 +3590,7 @@ impl SmeltMatch {
             }
             named.insert(snake, value);
         }
-        Self { id: smelt_next_object_id(), groups, named, match_index, input: input.to_owned() }
+        Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(groups), named: ::std::rc::Rc::new(named), match_index, input: input.into() }
     }
     /// Build the array a GLOBAL `String.prototype.match` answers.
     ///
@@ -3589,7 +3601,7 @@ impl SmeltMatch {
     /// groups, and `index` is 0 with `input` the searched string, which a
     /// global match's reader does not consult.
     fn from_global_matches(matches: Vec<String>, input: &str) -> Self {
-        Self { id: smelt_next_object_id(), groups: matches.into_iter().map(Some).collect(), named: ::std::collections::HashMap::new(), match_index: 0, input: input.to_owned() }
+        Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(matches.into_iter().map(Some).collect()), named: ::std::rc::Rc::default(), match_index: 0, input: input.into() }
     }
     /// The match viewed as the JavaScript array it is (`[...match]`).
     ///
@@ -3598,7 +3610,7 @@ impl SmeltMatch {
     /// but copies its entries: array methods lowered against it only read
     /// (writes to a match are not lowered through it).
     pub fn to_array_view(&self) -> SmeltList<Option<String>> {
-        SmeltList::with_id(self.id, self.groups.clone())
+        SmeltList::with_id(self.id, self.groups.as_ref().clone())
     }
     /// Read a numbered capture group (`match[n]`).
     fn group(&self, index: usize) -> Option<&str> {
@@ -3633,7 +3645,7 @@ impl SmeltMatch {
     }
     /// The full searched string as an owned value (`match.input`).
     pub fn input_owned(&self) -> String {
-        self.input.clone()
+        self.input.to_string()
     }
     /// Number of numbered capture groups, including the whole match.
     fn len(&self) -> usize {
@@ -3670,11 +3682,9 @@ impl SmeltMatch {
 impl IntoSmeltUnknown for SmeltMatch {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let elements = self.groups.iter().map(|value| value.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))).collect::<Vec<_>>();
-        let groups = self.named.into_iter().map(|(name, value)| (name, value.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into())))).collect::<Vec<_>>();
+        let groups = self.named.iter().map(|(name, value)| (name.clone(), value.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into())))).collect::<Vec<_>>();
         let array = SmeltArray::with_id(self.id, elements);
-        smelt_array_store_named_property(&array, "index".to_owned(), SmeltUnknown::Number(self.match_index as f64), true);
-        smelt_array_store_named_property(&array, "input".to_owned(), SmeltUnknown::String(self.input.into()), true);
-        smelt_array_store_named_property(&array, "groups".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)), true);
+        smelt_array_store_named_properties(&array, [("index", SmeltUnknown::Number(self.match_index as f64)), ("input", SmeltUnknown::String(self.input)), ("groups", SmeltUnknown::Object(SmeltObject::new(groups)))], true);
         SmeltUnknown::Array(array)
     }
 }
@@ -3695,9 +3705,9 @@ impl SmeltFromUnknown for SmeltMatch {
                 let mut named = ::std::collections::HashMap::new();
                 if let Some(SmeltUnknown::Object(entries)) = values.named_property("groups") { for (name, entry) in entries.iter() { named.insert(name, group_of(entry)); } }
                 let match_index = match values.named_property("index") { Some(SmeltUnknown::Number(index)) if index.is_finite() && index >= 0.0 => index as usize, _ => 0 };
-                let input = match values.named_property("input") { Some(SmeltUnknown::String(input)) => input.to_string(), _ => String::new() };
+                let input = match values.named_property("input") { Some(SmeltUnknown::String(input)) => input, _ => ::std::rc::Rc::default() };
                 let id = values.id;
-                Self { id, groups: values.into_vec().into_iter().map(group_of).collect(), named, match_index, input }
+                Self { id, groups: ::std::rc::Rc::new(values.into_vec().into_iter().map(group_of).collect()), named: ::std::rc::Rc::new(named), match_index, input }
             }
             SmeltUnknown::Object(map) => {
                 let mut groups = Vec::new();
@@ -3705,8 +3715,8 @@ impl SmeltFromUnknown for SmeltMatch {
                 let mut named = ::std::collections::HashMap::new();
                 if let Some(SmeltUnknown::Object(entries)) = map.get("groups") { for (name, entry) in entries.iter() { named.insert(name, group_of(entry)); } }
                 let match_index = match map.get("index") { Some(SmeltUnknown::Number(index)) if index.is_finite() && index >= 0.0 => index as usize, _ => 0 };
-                let input = match map.get("input") { Some(SmeltUnknown::String(input)) => input.to_string(), _ => String::new() };
-                Self { id: map.id, groups, named, match_index, input }
+                let input = match map.get("input") { Some(SmeltUnknown::String(input)) => input, _ => ::std::rc::Rc::default() };
+                Self { id: map.id, groups: ::std::rc::Rc::new(groups), named: ::std::rc::Rc::new(named), match_index, input }
             }
             _ => Self::default(),
         }
@@ -3930,43 +3940,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bound2: ::std::rc::Rc<dyn Fn() -> String>;
     let verbs: SmeltList<String>;
     let app: App;
-    let mut _smelt_tmp_13: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = ::std::rc::Rc::new(move |arg0: String, arg1: String| -> SmeltList<String> { SmeltList::new(Vec::<String>::new()) }); smelt_default_callback };
+    let _smelt_tmp_13: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>>;
     let _smelt_tmp_14: SmeltList<String>;
     let _smelt_tmp_15: String;
-    let mut _smelt_tmp_17: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = ::std::rc::Rc::new(move |arg0: String, arg1: String| -> SmeltList<String> { SmeltList::new(Vec::<String>::new()) }); smelt_default_callback };
+    let _smelt_tmp_17: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>>;
     let _smelt_tmp_18: SmeltList<String>;
     let _smelt_tmp_19: String;
-    let mut _smelt_tmp_21: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = ::std::rc::Rc::new(move |arg0: String, arg1: String| -> SmeltList<String> { SmeltList::new(Vec::<String>::new()) }); smelt_default_callback };
+    let _smelt_tmp_21: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>>;
     let _smelt_tmp_22: SmeltList<String>;
     let _smelt_tmp_23: f64;
     let _smelt_tmp_25: SmeltList<String>;
     let _smelt_tmp_26: SmeltList<SmeltList<String>>;
-    let _smelt_tmp_30: SmeltList<TableRouter>;
-    let mut _smelt_tmp_33: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = ::std::rc::Rc::new(move |arg0: String, arg1: String| -> SmeltList<String> { SmeltList::new(Vec::<String>::new()) }); smelt_default_callback };
+    let _smelt_tmp_30: SmeltList<Router>;
+    let _smelt_tmp_33: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>>;
     let _smelt_tmp_34: SmeltList<String>;
     let _smelt_tmp_35: String;
-    let mut _smelt_tmp_37: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = ::std::rc::Rc::new(move |arg0: String, arg1: String| -> SmeltList<String> { SmeltList::new(Vec::<String>::new()) }); smelt_default_callback };
+    let _smelt_tmp_37: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>>;
     let _smelt_tmp_38: SmeltList<String>;
     let _smelt_tmp_39: String;
-    let mut _smelt_tmp_41: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = ::std::rc::Rc::new(move |arg0: String, arg1: String| -> SmeltList<String> { SmeltList::new(Vec::<String>::new()) }); smelt_default_callback };
+    let _smelt_tmp_41: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>>;
     let _smelt_tmp_42: SmeltList<String>;
     let _smelt_tmp_43: f64;
-    let mut _smelt_tmp_46: ::std::rc::Rc<dyn Fn(String) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback };
+    let _smelt_tmp_46: ::std::rc::Rc<dyn Fn(String) -> String>;
     let _smelt_tmp_47: SmeltRecord<String, String>;
-    let mut _smelt_tmp_48: ::std::rc::Rc<dyn Fn(String) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback };
-    let mut _smelt_tmp_49: ::std::rc::Rc<dyn Fn(String) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback };
+    let _smelt_tmp_48: ::std::rc::Rc<dyn Fn(String) -> String>;
+    let _smelt_tmp_49: ::std::rc::Rc<dyn Fn(String) -> String>;
     let _smelt_tmp_50: String;
-    let mut _smelt_tmp_52: ::std::rc::Rc<dyn Fn(String) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback };
+    let _smelt_tmp_52: ::std::rc::Rc<dyn Fn(String) -> String>;
     let _smelt_tmp_53: SmeltRecord<String, String>;
-    let mut _smelt_tmp_54: ::std::rc::Rc<dyn Fn(String) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback };
-    let mut _smelt_tmp_55: ::std::rc::Rc<dyn Fn() -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> String> = ::std::rc::Rc::new(move || -> String { String::new() }); smelt_default_callback };
+    let _smelt_tmp_54: ::std::rc::Rc<dyn Fn(String) -> String>;
+    let _smelt_tmp_55: ::std::rc::Rc<dyn Fn() -> String>;
     let _smelt_tmp_56: String;
     let _smelt_tmp_58: SmeltList<String>;
-    let mut _smelt_tmp_60: ::std::rc::Rc<dyn Fn(String) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback };
+    let _smelt_tmp_60: ::std::rc::Rc<dyn Fn(String) -> f64>;
     let _smelt_tmp_61: f64;
-    let mut _smelt_tmp_62: ::std::rc::Rc<dyn Fn(String) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback };
+    let _smelt_tmp_62: ::std::rc::Rc<dyn Fn(String) -> f64>;
     let _smelt_tmp_63: f64;
-    let mut _smelt_tmp_64: ::std::rc::Rc<dyn Fn(String) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback };
+    let _smelt_tmp_64: ::std::rc::Rc<dyn Fn(String) -> f64>;
     let _smelt_tmp_65: f64;
     let _smelt_tmp_9: TableRouter = TableRouter::new();
     r = _smelt_tmp_9;
@@ -3990,8 +4000,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_27: f64 = r.count({ let smelt_l: SmeltList<_> = _smelt_tmp_26.clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| { let smelt_tuple_values = value.to_vec(); (smelt_tuple_values.get(0).cloned().unwrap_or(String::new()), smelt_tuple_values.get(1).cloned().unwrap_or(String::new())) }).collect::<Vec<_>>()) });
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_27)); };
     let _smelt_tmp_29: TableRouter = TableRouter::new();
-    _smelt_tmp_30 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<TableRouter> = vec![_smelt_tmp_29.clone()]; smelt_list_items }));
-    let _smelt_tmp_31: SmartRouter = SmartRouter::new({ let smelt_l: SmeltList<_> = _smelt_tmp_30.clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| { let smelt_struct_value = value.clone(); Router { name: smelt_struct_value.0.borrow().name.clone(), add: { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(String, String, String) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: String, arg2: String| -> () { let mut smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.add(arg0.clone(), arg1.clone(), arg2.clone()) }); smelt_virtual_method }, match_: { let smelt_slot_receiver = smelt_struct_value.clone(); let smelt_slot: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = ::std::rc::Rc::new(move |smelt_slot_arg_0, smelt_slot_arg_1| { let _smelt_this_guard = smelt_push_this_lazy({ let smelt_bound_receiver = smelt_slot_receiver.clone(); ::std::rc::Rc::new(move || ::std::clone::Clone::clone(&smelt_bound_receiver).into_smelt_unknown()) }); let smelt_slot_callee = { let smelt_callback = smelt_slot_receiver.0.borrow().match_.clone().clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = ::std::rc::Rc::new(move |arg0: String, arg1: String| (smelt_callback)(arg0, arg1)); smelt_adapted }; (smelt_slot_callee)(smelt_slot_arg_0, smelt_slot_arg_1) }); smelt_slot } } }).collect::<Vec<_>>()) });
+    _smelt_tmp_30 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Router> = vec![{ let smelt_struct_value = _smelt_tmp_29.clone().clone(); Router { name: smelt_struct_value.0.borrow().name.clone(), add: { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(String, String, String) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: String, arg2: String| -> () { let mut smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.add(arg0.clone(), arg1.clone(), arg2.clone()) }); smelt_virtual_method }, match_: { let smelt_slot_receiver = smelt_struct_value.clone(); let smelt_slot: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = ::std::rc::Rc::new(move |smelt_slot_arg_0, smelt_slot_arg_1| { let _smelt_this_guard = smelt_push_this_lazy({ let smelt_bound_receiver = smelt_slot_receiver.clone(); ::std::rc::Rc::new(move || ::std::clone::Clone::clone(&smelt_bound_receiver).into_smelt_unknown()) }); let smelt_slot_callee = { let smelt_callback = smelt_slot_receiver.0.borrow().match_.clone().clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = ::std::rc::Rc::new(move |arg0: String, arg1: String| (smelt_callback)(arg0, arg1)); smelt_adapted }; (smelt_slot_callee)(smelt_slot_arg_0, smelt_slot_arg_1) }); smelt_slot } } }]; smelt_list_items }));
+    let _smelt_tmp_31: SmartRouter = SmartRouter::new(_smelt_tmp_30);
     s = _smelt_tmp_31;
     let _ = s.add("GET".to_owned(), "/x".to_owned(), "hx".to_owned())?;
     _smelt_tmp_33 = { let smelt_bound_callee = s.0.borrow().match_.clone().clone();                          let smelt_bound_receiver = s.clone().clone();                          let smelt_bound: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = ::std::rc::Rc::new(move |smelt_bound_arg_0, smelt_bound_arg_1| {                          let _smelt_this_guard = smelt_push_this_lazy({ let smelt_bound_receiver = smelt_bound_receiver.clone(); ::std::rc::Rc::new(move || { let smelt_object_value = smelt_bound_receiver.clone(); let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("name".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().name.clone()).into()))); smelt_object_entries.push(("match".to_owned(), { let smelt_function_value = smelt_object_value.0.borrow().match_.clone(); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({ let smelt_l = (smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }, match smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }); let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>())) })); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("SmartRouter".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); smelt_object_entries.push(("__smelt_method:__smelt_set_field".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({ let smelt_receiver = smelt_struct_value.clone(); move |smelt_args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::String(smelt_key)) = smelt_args.first() { smelt_receiver.__smelt_set_field(&smelt_key.to_string(), smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)); } Ok(SmeltUnknown::Undefined) } })))); smelt_object_entries.push(("__smelt_method:__smelt_get_callable_field".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({ let smelt_receiver = smelt_struct_value.clone(); move |smelt_args: Vec<SmeltUnknown>| { Ok(match smelt_args.first() { Some(SmeltUnknown::String(smelt_key)) => smelt_receiver.__smelt_get_callable_field(&smelt_key.to_string()), _ => SmeltUnknown::Undefined }) } })))); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) }) });                          (smelt_bound_callee)(smelt_bound_arg_0, smelt_bound_arg_1) }); smelt_bound };
@@ -4221,7 +4231,7 @@ impl App {
     let mut verb: String;
     let mut _smelt_tmp_8: usize;
     let mut _smelt_tmp_9: bool;
-    let mut _smelt_tmp_10: ::std::rc::Rc<dyn Fn(String) -> Result<f64, Box<dyn std::error::Error>>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> Result<f64, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |arg0: String| -> Result<f64, Box<dyn std::error::Error>> { Ok::<_, Box<dyn std::error::Error>>(0.0) }); smelt_default_callback };
+    let mut _smelt_tmp_10: ::std::rc::Rc<dyn Fn(String) -> Result<f64, Box<dyn std::error::Error>>>;
     let mut this: Self = App(::std::rc::Rc::new(::std::cell::RefCell::new(AppInner { get: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback }, post: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback }, _routes: None::<SmeltList<String>> })));
     let _smelt_tmp_3: Option<SmeltList<String>> = Some(Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items })));
     this.0.borrow_mut()._routes = _smelt_tmp_3;

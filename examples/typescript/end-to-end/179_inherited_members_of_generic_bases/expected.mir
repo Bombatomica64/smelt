@@ -6,10 +6,6 @@ class Parser fields [Public parse: fn(String) -> ParseResult<T>] constructor Som
 class YearParser fields [] constructor Some(FuncId(11)) methods [FuncId(10)]
 interface Box1
 interface ParseResult
-interface Box1
-interface ParseResult
-interface Box1
-interface ParseResult
 
 fn push (FuncId(0)) -> Float
   locals

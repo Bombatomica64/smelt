@@ -194,16 +194,16 @@ module examples/typescript/end-to-end/151_derived_constructor_runs_on_instance/i
 
 interned types
   t0 = SmartGreeter
-  t1 = String
-  t2 = App
-  t3 = PlainApp
-  t4 = DoubleTally
-  t5 = Point4
-  t6 = FromThree
-  t7 = RoutedApp
-  t8 = E
-  t9 = T
-  t10 = Float
+  t1 = Float
+  t2 = String
+  t3 = App
+  t4 = PlainApp
+  t5 = DoubleTally
+  t6 = Point4
+  t7 = FromThree
+  t8 = RoutedApp
+  t9 = E
+  t10 = T
   t11 = Greeter
   t12 = fn() -> String
   t13 = fn() -> String

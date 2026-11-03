@@ -36,7 +36,7 @@ fn main (FuncId(2)) -> None
     %0 user described: HTTPException
     %1 user bare: HTTPException
     %2 user gateway: GatewayError
-    %3 temp: Dict<String, String>
+    %3 temp: HTTPExceptionOptions
     %4 temp: HTTPException
     %5 temp: None
     %6 temp: HTTPException

@@ -81,9 +81,9 @@ module examples/typescript/end-to-end/100_elided_type_parameters/input.ts (Modul
 interned types
   t0 = String
   t1 = Route
-  t2 = Session
-  t3 = Cell
-  t4 = Float
+  t2 = Float
+  t3 = Session
+  t4 = Cell
   t5 = Pair
   t6 = Method
   t7 = Env

@@ -7,10 +7,10 @@ module examples/typescript/end-to-end/143_module_arrows_are_items/input.ts (Modu
     fn join owner Module
     fn scan__module_examples/typescript/end-to-end/143_module_arrows_are_items/input.ts owner Module
     interface Brand fields [Public _brand: String] methods []
-    class Counter fields [Public total: Float] constructor Some(ItemId(12)) methods [ItemId(9), ItemId(10), ItemId(11)] implements []
+    class Counter fields [Public total: Float] constructor Some(ItemId(10)) methods [ItemId(7), ItemId(8), ItemId(9)] implements []
     fn run owner Module
   exprs
-    #0: async fn() -> Future<None> = @2(run)
+    #0: async fn() -> Future<None> = @1(run)
     #1: Future<None> = call #0()
     #2: None = async_spawn_local(#1)
     #3: Future<None> = async_exit_drain()
