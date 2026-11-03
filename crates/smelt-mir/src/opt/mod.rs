@@ -28,11 +28,70 @@ pub use move_on_last_use::MoveOnLastUse;
 pub use unobserved_receiver_bind::UnobservedReceiverBind;
 
 /// A MIR optimization pass that transforms the MIR.
+///
+/// A `Pass` may run any number of times, interleaved with the other fixpoint
+/// passes, until none of them changes the MIR: it must be safe to re-run on its
+/// own output and must report `true` only when it actually changed something,
+/// or the fixpoint in [`Pipeline::run`] would not terminate.
 pub trait Pass {
     /// Returns the name of this pass for debugging purposes.
     fn name(&self) -> &'static str;
     /// Runs the pass on the given MIR. Returns true if the MIR was modified.
     fn run(&self, mir: &mut Mir) -> bool;
+}
+
+/// A MIR pass that runs exactly once, after the fixpoint has settled.
+///
+/// A separate trait (rather than a [`Pass`] the pipeline is careful to place
+/// last) so that putting such a pass into the fixpoint is a type error. A final
+/// pass relies on the *final* shape of every body -- e.g. [`IntegerRange`]
+/// proves ranges over locals that copy propagation might otherwise still merge
+/// -- and may produce output the fixpoint passes would rewrite again.
+pub trait FinalPass {
+    /// Returns the name of this pass for debugging purposes.
+    fn name(&self) -> &'static str;
+    /// Runs the pass on the given MIR. Returns true if the MIR was modified.
+    fn run(&self, mir: &mut Mir) -> bool;
+}
+
+/// The MIR optimization pipeline: a fixpoint phase, then a final phase.
+///
+/// The ordering invariant is structural: `fixpoint` holds only [`Pass`]es and
+/// `post` only [`FinalPass`]es, and [`Self::run`] always finishes the first
+/// before starting the second.
+pub struct Pipeline {
+    /// Passes re-run, in order, until a whole round changes nothing.
+    pub fixpoint: Vec<Box<dyn Pass>>,
+    /// Passes run once each, in order, on the settled MIR.
+    pub post: Vec<Box<dyn FinalPass>>,
+}
+
+impl Pipeline {
+    /// The default pipeline used by [`optimize`].
+    #[must_use]
+    pub fn default_pipeline() -> Self {
+        Self {
+            fixpoint: default_passes(),
+            post: vec![Box::<IntegerRange>::default()],
+        }
+    }
+
+    /// Runs the fixpoint passes until a round changes nothing, then each final
+    /// pass once.
+    pub fn run(&self, mir: &mut Mir) {
+        loop {
+            let mut changed = false;
+            for pass in &self.fixpoint {
+                changed |= pass.run(mir);
+            }
+            if !changed {
+                break;
+            }
+        }
+        for pass in &self.post {
+            pass.run(mir);
+        }
+    }
 }
 
 /// Copy propagation optimization that eliminates alias assignments.
@@ -55,7 +114,7 @@ impl Pass for CopyPropagation {
     }
 }
 
-/// Returns the default set of optimization passes.
+/// Returns the default fixpoint passes of [`Pipeline::default_pipeline`].
 #[must_use]
 pub fn default_passes() -> Vec<Box<dyn Pass>> {
     vec![
@@ -68,24 +127,14 @@ pub fn default_passes() -> Vec<Box<dyn Pass>> {
     ]
 }
 
-/// Applies all default optimization passes to the MIR.
+/// Applies the default optimization [`Pipeline`] to the MIR.
 ///
-/// [`IntegerRange`] runs once, after the fixpoint: it reasons about the final
-/// shape of every body (copy propagation can merge the locals it would
-/// otherwise prove separately), and nothing in the fixpoint passes creates new
-/// integer-provable `number` locals from a retyped one.
+/// [`IntegerRange`] is a [`FinalPass`]: it runs once, after the fixpoint. It
+/// reasons about the final shape of every body (copy propagation can merge the
+/// locals it would otherwise prove separately), and nothing in the fixpoint
+/// passes creates new integer-provable `number` locals from a retyped one.
 pub fn optimize(mir: &mut Mir) {
-    let passes = default_passes();
-    loop {
-        let mut changed = false;
-        for pass in &passes {
-            changed |= pass.run(mir);
-        }
-        if !changed {
-            break;
-        }
-    }
-    IntegerRange.run(mir);
+    Pipeline::default_pipeline().run(mir);
 }
 
 /// Propagates copies within a function. Returns true if the function was modified.

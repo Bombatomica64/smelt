@@ -698,22 +698,85 @@ fn lower_module_bodies(
 
 /// Run the whole-program closure/throwing finalization passes on lowered MIR.
 ///
-/// Closure ABI finalization: `closures` owns escape analysis and the
-/// throwing-closure type widening; the general function-throwing propagation in
-/// `passes::throwing` feeds the widening, which is why the two interleave. See
-/// [`closures`] for the invariants this publishes. Erased-record promotion and
-/// operational type normalization then run once over the finalized MIR.
+/// Each step states what it requires of the MIR and what it establishes for
+/// the steps after it; the order below is the only one that satisfies all of
+/// them.
 fn run_finalization_passes(mir: &mut Mir) {
+    // Requires: every body lowered. Establishes: the return type of every
+    // fallible builtin call is in the type table (the backend coerces through
+    // it).
     intern_fallible_builtin_return_types(mir);
+    // Requires: every body lowered. Establishes: each generic record
+    // instantiation the program uses is interned.
     passes::generic_records::intern_generic_record_instantiations(mir);
+    // Requires: closures constructed. Establishes: `escapes` on every closure
+    // (invariants 1-2 in `closures`), which throwing widening reads.
     closures::mark_escaping_closures(mir);
-    passes::throwing::propagate_throwing_functions(mir);
-    closures::widen_throwing_closure_types(mir);
-    passes::throwing::propagate_throwing_functions(mir);
-    closures::widen_throwing_closure_types(mir);
+    // Requires: escape facts. Establishes: `can_throw` on every function and
+    // closure, and the throwing ABI on every local holding a throwing closure
+    // (invariants 3-4 in `closures`) -- jointly, at their fixpoint.
+    run_throwing_fixpoint(mir);
+    // Requires: final local types (widening retypes function-typed locals).
+    // Establishes: an erased record that is mutated is promoted.
     crate::promote_erased_mutated_records(mir);
+    // Requires: final local types. Establishes: operational type
+    // normalization the emitter relies on.
     crate::normalize_operational_types(mir);
+    // Requires: normalized types. Establishes: inherited member types interned.
     passes::inherited_types::intern_inherited_member_types(mir);
+}
+
+/// Upper bound on [`run_throwing_fixpoint`] rounds.
+///
+/// Both passes only ever flip a flag from "does not throw" to "throws" (a
+/// function's `can_throw`, a function type's `may_throw`), so the joint state
+/// rises monotonically and settles in a handful of rounds; the bound only
+/// guards against a future non-monotone change.
+const MAX_THROWING_ROUNDS: usize = 32;
+
+/// Run throw propagation and throwing-closure widening to their joint fixpoint.
+///
+/// The two feed each other: [`passes::throwing::propagate_throwing_functions`]
+/// marks a body throwing when it calls through a local typed with the throwing
+/// ABI, and [`closures::widen_throwing_closure_types`] gives that ABI to every
+/// local holding a closure marked throwing. The pair runs until a round leaves
+/// the observable state (every `can_throw` flag and every local and capture
+/// type) unchanged. It used to be unrolled exactly twice; no source program is
+/// known to need a third round (a five-closure call chain settles in two), but
+/// the fixpoint makes that a checked property instead of an assumption.
+fn run_throwing_fixpoint(mir: &mut Mir) {
+    let mut state = throwing_state(mir);
+    let mut converged = false;
+    for _ in 0..MAX_THROWING_ROUNDS {
+        passes::throwing::propagate_throwing_functions(mir);
+        closures::widen_throwing_closure_types(mir);
+        let next = throwing_state(mir);
+        if next == state {
+            converged = true;
+            break;
+        }
+        state = next;
+    }
+    debug_assert!(
+        converged,
+        "throwing propagation/widening did not converge in {MAX_THROWING_ROUNDS} rounds"
+    );
+}
+
+/// The part of the MIR the throwing fixpoint reads and writes: every body's
+/// `can_throw` and local types, and every closure capture's type.
+fn throwing_state(mir: &Mir) -> Vec<u64> {
+    let mut state = Vec::new();
+    for function in &mir.functions {
+        state.push(u64::from(function.can_throw));
+        state.extend(function.locals.iter().map(|local| u64::from(local.ty.0)));
+    }
+    for closure in &mir.closures {
+        state.push(u64::from(closure.can_throw));
+        state.extend(closure.locals.iter().map(|local| u64::from(local.ty.0)));
+        state.extend(closure.captures.iter().map(|capture| u64::from(capture.ty.0)));
+    }
+    state
 }
 
 /// Interns the return type of every fallible builtin the program calls.
