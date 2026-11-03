@@ -2,17 +2,17 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8440,
+      "concrete": 8525,
       "generic": 127,
       "erased": 65
     },
     "reads": {
-      "concrete": 848,
+      "concrete": 854,
       "generic": 34,
       "erased": 20
     },
     "calls": {
-      "concrete": 2188,
+      "concrete": 2206,
       "generic": 13,
       "erased": 2
     }
@@ -1425,6 +1425,23 @@
       },
       "calls": {
         "concrete": 8,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/186_nested_body_statement_sinks/input.ts": {
+      "values": {
+        "concrete": 85,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 18,
         "generic": 0,
         "erased": 0
       }
