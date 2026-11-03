@@ -94,6 +94,12 @@ impl FunctionEmitter<'_> {
                 // projects its own struct field. Erasing first would throw away
                 // a type the source already fixed, and in a crate that interns
                 // no `unknown` there is no erased carrier to answer with at all.
+                if smelt_stdlib::typescript_field_rule(self.symbol_source_name(*field)?)
+                    == Some(smelt_stdlib::FieldRule::TsLength)
+                    && let Some(text) = self.concrete_union_length_read_text(*base)?
+                {
+                    return Ok(text);
+                }
                 if let Some(text) = self.concrete_union_field_read_text(*base, *field)? {
                     return Ok(text);
                 }
@@ -445,6 +451,11 @@ impl FunctionEmitter<'_> {
                 if let Some(text) = self.typed_array_index_read_text(base_ty, *base, index)? {
                     return Ok(text);
                 }
+                // A generated union of tuples/lists reads each arm at its own
+                // type instead of erasing (see `concrete_union_index_reads`).
+                if let Some(text) = self.concrete_union_index_read_text(*base, index, *negative)? {
+                    return Ok(text);
+                }
                 match self.mir.types.get(base_ty) {
                     Some(Type::List(item_ty)) => {
                         // A list index READ only ever calls `.get(..).cloned()`
@@ -505,52 +516,8 @@ impl FunctionEmitter<'_> {
                         ))
                     }
                     Some(Type::Dict(key_ty, value_ty)) => {
-                        let key_text = if self.mir.types.get(*key_ty) == Some(&Type::String) {
-                            let source_key = self.operand_ty(index)?;
-                            let index_text = self.operand_text(index)?;
-                            self.property_key_to_string_text(&index_text, source_key)?
-                        } else {
-                            self.value_at_type(index, *key_ty)?
-                        };
                         let base_text = self.local_value_text(*base)?;
-                        let default_value = self.default_value(*value_ty)?;
-                        // A missing key answers `undefined`, which only a value
-                        // type that RENDERS as `SmeltUnknown` can hold. A union
-                        // with a generated enum (`SmeltUnionNNNN`) does not: the
-                        // record's Rust value type is that enum, so answering
-                        // `SmeltUnknown::Undefined` was `expected SmeltUnion127,
-                        // found SmeltUnknown` (9 of the router slice's errors).
-                        // It falls to the same `unwrap_or(default)` every other
-                        // concrete value type uses, whose union arm
-                        // `default_value` already emits. A union WITHOUT a
-                        // generated enum still renders as `SmeltUnknown` and
-                        // still answers `undefined`.
-                        let value_is_unknownish = matches!(
-                            self.mir.types.get(*value_ty),
-                            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                        ) && self.concrete_union_members(*value_ty).is_none();
-                        if (self.dict_uses_smelt_record(*key_ty)
-                            || self.dict_uses_js_key_map(*key_ty))
-                            && value_is_unknownish
-                        {
-                            Ok(format!(
-                                "{base_text}.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Undefined)"
-                            ))
-                        } else if self.dict_uses_smelt_record(*key_ty)
-                            || self.dict_uses_js_key_map(*key_ty)
-                        {
-                            Ok(format!(
-                                "{base_text}.get(&{key_text}).unwrap_or({default_value})"
-                            ))
-                        } else if value_is_unknownish {
-                            Ok(format!(
-                                "{base_text}.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Undefined)"
-                            ))
-                        } else {
-                            Ok(format!(
-                                "{base_text}.get(&{key_text}).cloned().unwrap_or({default_value})"
-                            ))
-                        }
+                        self.dict_index_read_text(&base_text, *key_ty, *value_ty, index)
                     }
                     Some(Type::String) => {
                         let base_text = self.local_value_text(*base)?;
@@ -1003,6 +970,65 @@ impl FunctionEmitter<'_> {
                 }
                 self.place_text(place)
             }
+        }
+    }
+
+    /// A typed dictionary read `base[index]`, with `base_text` the receiver.
+    ///
+    /// Shared by a dictionary-typed place and a dictionary arm of a concrete
+    /// union (`concrete_union_index_reads`), so both answer a missing key the
+    /// same way.
+    pub(super) fn dict_index_read_text(
+        &self,
+        base_text: &str,
+        key_ty: TypeId,
+        value_ty: TypeId,
+        index: &Operand,
+    ) -> Result<String, EmitError> {
+        let key_text = if self.mir.types.get(key_ty) == Some(&Type::String) {
+            let source_key = self.operand_ty(index)?;
+            let index_text = self.operand_text(index)?;
+            self.property_key_to_string_text(&index_text, source_key)?
+        } else {
+            self.value_at_type(index, key_ty)?
+        };
+        let default_value = self.default_value(value_ty)?;
+        // A missing key answers `undefined`, which only a value
+        // type that RENDERS as `SmeltUnknown` can hold. A union
+        // with a generated enum (`SmeltUnionNNNN`) does not: the
+        // record's Rust value type is that enum, so answering
+        // `SmeltUnknown::Undefined` was `expected SmeltUnion127,
+        // found SmeltUnknown` (9 of the router slice's errors).
+        // It falls to the same `unwrap_or(default)` every other
+        // concrete value type uses, whose union arm
+        // `default_value` already emits. A union WITHOUT a
+        // generated enum still renders as `SmeltUnknown` and
+        // still answers `undefined`.
+        let value_is_unknownish = matches!(
+            self.mir.types.get(value_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) && self.concrete_union_members(value_ty).is_none();
+        if (self.dict_uses_smelt_record(key_ty)
+            || self.dict_uses_js_key_map(key_ty))
+            && value_is_unknownish
+        {
+            Ok(format!(
+                "{base_text}.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Undefined)"
+            ))
+        } else if self.dict_uses_smelt_record(key_ty)
+            || self.dict_uses_js_key_map(key_ty)
+        {
+            Ok(format!(
+                "{base_text}.get(&{key_text}).unwrap_or({default_value})"
+            ))
+        } else if value_is_unknownish {
+            Ok(format!(
+                "{base_text}.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Undefined)"
+            ))
+        } else {
+            Ok(format!(
+                "{base_text}.get(&{key_text}).cloned().unwrap_or({default_value})"
+            ))
         }
     }
 

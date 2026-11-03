@@ -1,0 +1,4 @@
+handlers=2 head=first stash=3 value=/users/7 direct=/users/7 fallback= outcomeLength=2
+handlers=1 head=only stash=undefined value=9 direct=9 fallback=none outcomeLength=1
+2 tuple 7
+3 a bc
