@@ -353,10 +353,6 @@ impl ModuleBuilder<'_> {
             then_block: throw_block,
             else_block: None,
         };
-        if let Some(block) = self.current_statement_block {
-            body.push_stmt_to_block(block, stmt);
-        } else {
-            body.push_stmt(stmt);
-        }
+        self.push_stmt_to_sink(body, stmt);
     }
 }

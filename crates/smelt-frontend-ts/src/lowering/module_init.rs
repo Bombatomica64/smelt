@@ -7,6 +7,7 @@ use super::support::{
     const_literal_from_item, implemented_function_names, insert_visible_item,
     is_implemented_overload_signature, item_name, module_export_name,
 };
+use super::state::fn_ctx::FnCtx;
 use super::state::class_registry::ClassRegistry;
 use super::state::interface_registry::InterfaceRegistry;
 use super::state::const_registry::ConstRegistry;
@@ -477,20 +478,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ),
             types: TypeScope::new(type_alias_fields, callable_fields, callable_object_aliases),
             current_class: None,
-            current_async: false,
-            current_return_ty: None,
-            current_generator_yields: None,
-            current_arguments_arities: Vec::new(),
-            current_statement_block: None,
+            fn_ctx: FnCtx::default(),
             array_view_receivers: Vec::new(),
-            deferred_postfix_updates: None,
             class_expression_binding_name: None,
             asymmetric_matchers_lowered: 0,
             forward_referenced_locals: HashSet::new(),
             presence_widened_bindings: HashMap::new(),
             defining_local_functions: Vec::new(),
             allow_unknown_index_access,
-            preserve_specialization_receiver: false,
             object_namespaces,
             consts: ConstRegistry::new(
                 const_literals,
@@ -608,8 +603,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         //
         // Restored after the body so a nested non-async function still rejects
         // `await` in its own body.
-        let previous_async = self.current_async;
-        self.current_async = true;
+        let outer_fn_ctx = std::mem::replace(&mut self.fn_ctx, FnCtx::module());
 
         let mut module = Module::new(
             "main",
@@ -626,7 +620,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let mut top_level_test_setup = Vec::new();
         for statement in &program.body {
             if let Statement::ImportDeclaration(import) = statement {
-                self.erasure_anchor = self.span(statement.span().start, statement.span().end);
+                self.anchor_top_level_statement(self.span(statement.span().start, statement.span().end));
                 self.import_declaration(import, &mut module);
             }
         }
@@ -752,7 +746,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Statement::ImportDeclaration(_) = statement {
                 continue;
             }
-            self.erasure_anchor = self.span(statement.span().start, statement.span().end);
+            self.anchor_top_level_statement(self.span(statement.span().start, statement.span().end));
             // A queued arrow still waiting on a class is lowered no later than
             // its own source position, where every class above it is lowered.
             if let Some(start) = Self::variable_statement_start(statement) {
@@ -979,7 +973,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
 
         for statement in &program.body {
-            self.erasure_anchor = self.span(statement.span().start, statement.span().end);
+            self.anchor_top_level_statement(self.span(statement.span().start, statement.span().end));
             if matches!(
                 statement,
                 Statement::FunctionDeclaration(_)
@@ -1053,7 +1047,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
         self.record_module_exports(&module, &previous_export_aliases);
 
-        self.current_async = previous_async;
+        self.fn_ctx = outer_fn_ctx;
         // The body needs the async runtime when it awaits, or when it starts
         // work the event loop must finish before the program exits: a floating
         // promise (`run();` on an async function, whose result nobody awaits)

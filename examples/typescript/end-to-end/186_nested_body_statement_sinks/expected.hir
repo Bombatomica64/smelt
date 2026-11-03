@@ -1,0 +1,54 @@
+module examples/typescript/end-to-end/186_nested_body_statement_sinks/input.ts (ModuleId(0))
+  body BodyId(13)
+  items
+    fn method_default owner Module
+    fn field_initializer owner Module
+    fn method_default_in_loop owner Module
+    fn class_expression_in_deferring_declaration owner Module
+    fn constructor_default owner Module
+  exprs
+    #0: Float = 3.0
+    #1: fn(Float) -> Float = @0(method_default)
+    #2: Float = call #1(#0)
+    #3: None = @18(console_log)
+    #4: None = call #3(#2)
+    #5: Float = 1.0
+    #6: fn(Float) -> Float = @1(field_initializer)
+    #7: Float = call #6(#5)
+    #8: None = @19(console_log)
+    #9: None = call #8(#7)
+    #10: Float = 3.0
+    #11: fn(Float) -> Float = @2(method_default_in_loop)
+    #12: Float = call #11(#10)
+    #13: None = @20(console_log)
+    #14: None = call #13(#12)
+    #15: Float = 3.0
+    #16: fn(Float) -> Float = @3(class_expression_in_deferring_declaration)
+    #17: Float = call #16(#15)
+    #18: None = @21(console_log)
+    #19: None = call #18(#17)
+    #20: Float = 2.0
+    #21: fn(Float) -> Float = @4(constructor_default)
+    #22: Float = call #21(#20)
+    #23: None = @22(console_log)
+    #24: None = call #23(#22)
+  stmts
+    s0: #4
+    s1: #9
+    s2: #14
+    s3: #19
+    s4: #24
+
+interned types
+  t0 = Float
+  t1 = fn(Float) -> Float
+  t2 = Bool
+  t3 = K
+  t4 = Optional<Float>
+  t5 = None
+  t6 = fn(Float, Float) -> Float
+  t7 = Counter
+  t8 = Scaled
+  t9 = C
+  t10 = Pair
+  t11 = fn(Float) -> Float

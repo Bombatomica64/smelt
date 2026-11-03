@@ -91,6 +91,65 @@ pub(in crate::lowering) struct CallableLocalPropWrites(HashMap<LocalId, Callable
 #[derive(Debug, Default)]
 pub(in crate::lowering) struct Narrowings(Vec<HashMap<String, TypeId>>);
 
+/// Which [`LocalScope`] groups a nested body starts empty and gives back on
+/// exit; see [`LocalScope::enter_body`].
+///
+/// A small flag set: combine groups with [`ScopeGroups::with`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(in crate::lowering) struct ScopeGroups(u8);
+
+impl ScopeGroups {
+    /// The name-to-local bindings.
+    pub(in crate::lowering) const BINDINGS: Self = Self(1);
+    /// The `Date`-identity local facts.
+    pub(in crate::lowering) const DATE_VALUES: Self = Self(1 << 1);
+    /// The collected callable-local property writes.
+    pub(in crate::lowering) const CALLABLE_PROPS: Self = Self(1 << 2);
+    /// The explicit-`any` local facts.
+    pub(in crate::lowering) const EXPLICIT_ANY: Self = Self(1 << 3);
+    /// The flow-narrowing stack.
+    pub(in crate::lowering) const NARROWINGS: Self = Self(1 << 4);
+    /// Every group.
+    pub(in crate::lowering) const ALL: Self = Self(0b1_1111);
+
+    /// These groups together with `other`.
+    pub(in crate::lowering) const fn with(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// Whether every group of `other` is in this set.
+    const fn has(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+}
+
+/// The groups a nested body took out of the enclosing one, handed back by
+/// [`LocalScope::leave_body`].
+#[derive(Debug)]
+#[must_use = "a body scope frame must be given back with `LocalScope::leave_body`"]
+pub(in crate::lowering) struct BodyScopeFrame {
+    /// The enclosing bindings, when they were taken.
+    bindings: Option<LocalBindings>,
+    /// The enclosing `Date`-identity facts, when they were taken.
+    date_values: Option<DateValueLocals>,
+    /// The enclosing callable-local writes, when they were taken.
+    callable_props: Option<CallableLocalPropWrites>,
+    /// The enclosing explicit-`any` facts, when they were taken.
+    explicit_any: Option<ExplicitAnyLocals>,
+    /// The enclosing narrowing stack, when it was taken.
+    narrowings: Option<Narrowings>,
+}
+
+impl BodyScopeFrame {
+    /// The enclosing body's bindings, when this frame took them.
+    ///
+    /// Capture collection reads the enclosing bindings while the nested
+    /// body's are installed.
+    pub(in crate::lowering) const fn enclosing_bindings(&self) -> Option<&LocalBindings> {
+        self.bindings.as_ref()
+    }
+}
+
 /// Everything the lowering pass knows about the locals of the body in progress.
 ///
 /// See the module docs for the invariants this owns.
@@ -116,6 +175,41 @@ pub(in crate::lowering) struct LocalScope {
 }
 
 impl LocalScope {
+    /// Take `groups` out for a nested body, leaving them empty.
+    ///
+    /// The frame gives exactly those groups back through [`Self::leave_body`];
+    /// groups not named stay visible to the nested body.
+    pub(in crate::lowering) fn enter_body(&mut self, groups: ScopeGroups) -> BodyScopeFrame {
+        BodyScopeFrame {
+            bindings: groups.has(ScopeGroups::BINDINGS).then(|| self.take_bindings()),
+            date_values: groups.has(ScopeGroups::DATE_VALUES).then(|| self.take_date_values()),
+            callable_props: groups
+                .has(ScopeGroups::CALLABLE_PROPS)
+                .then(|| self.take_callable_prop_writes()),
+            explicit_any: groups.has(ScopeGroups::EXPLICIT_ANY).then(|| self.take_explicit_any()),
+            narrowings: groups.has(ScopeGroups::NARROWINGS).then(|| self.take_narrowings()),
+        }
+    }
+
+    /// Give back the groups [`Self::enter_body`] took.
+    pub(in crate::lowering) fn leave_body(&mut self, frame: BodyScopeFrame) {
+        if let Some(saved) = frame.bindings {
+            self.restore_bindings(saved);
+        }
+        if let Some(saved) = frame.date_values {
+            self.restore_date_values(saved);
+        }
+        if let Some(saved) = frame.callable_props {
+            self.restore_callable_prop_writes(saved);
+        }
+        if let Some(saved) = frame.explicit_any {
+            self.restore_explicit_any(saved);
+        }
+        if let Some(saved) = frame.narrowings {
+            self.restore_narrowings(saved);
+        }
+    }
+
     /// Bind a source name to a lowered local, returning the binding it replaced
     /// so a caller restoring a lexical scope can put the previous one back.
     pub(in crate::lowering) fn bind(&mut self, name: String, local: LocalId) -> Option<LocalId> {

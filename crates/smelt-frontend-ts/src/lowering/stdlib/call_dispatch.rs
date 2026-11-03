@@ -4255,11 +4255,7 @@ impl<'builder> ModuleBuilder<'builder> {
             ty,
             value: Some(value),
         };
-        if let Some(block) = self.current_statement_block {
-            body.push_stmt_to_block(block, stmt);
-        } else {
-            body.push_stmt(stmt);
-        }
+        self.push_stmt_to_sink(body, stmt);
         local
     }
 

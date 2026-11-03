@@ -3,6 +3,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::lowering::state::fn_ctx::BodyKind;
+use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::support::visibility;
 use crate::lowering::decls::super_call;
 use crate::lowering::{
@@ -307,318 +309,257 @@ impl ModuleBuilder<'_> {
             ));
         }
 
-        let saved_locals = self.scope.take_bindings();
-        let saved_date_value_locals = self.scope.take_date_values();
-        let saved_callable_local_props = self.scope.take_callable_prop_writes();
-        let saved_explicit_any_locals = self.scope.take_explicit_any();
-        let saved_narrowed_locals = self.scope.take_narrowings();
-        let saved_async = self.current_async;
-        let saved_return_ty = self.current_return_ty;
-        let saved_generator_yields = self.current_generator_yields;
-        self.current_async = function.r#async;
-        self.current_return_ty = declared_return_ty;
-        let mut body = Body::new(
-            None,
-            self.span(function_body.span.start, function_body.span.end),
-        );
-        body.set_generator(function.generator);
-        let mut params = Vec::new();
+        let ctx = self.nested_fn_ctx(BodyKind::Function, function.r#async, declared_return_ty);
+        let lowered = self.with_nested_body(ctx, ScopeGroups::ALL, |this, _| {
+            let mut body = Body::new(
+                None,
+                this.span(function_body.span.start, function_body.span.end),
+            );
+            body.set_generator(function.generator);
+            let mut params = Vec::new();
 
-        let mut destructured_params = Vec::new();
-        let mut defaulted_params = Vec::new();
-        // A `function` that reads its own `arguments` is variadic: the object is the
-        // ACTUAL argument list, which a declared-arity signature cannot carry (see
-        // `lowering::arguments_forwarding`). Replace the parameter list with one rest
-        // list and re-bind each declared name from it. Every other function keeps its
-        // declared parameters untouched.
-        let arguments_forwarding = match self.arguments_forwarding_params(function, &mut body) {
-            Ok(forwarding) => forwarding,
-            Err(error) => {
-                self.scope.restore_bindings(saved_locals);
-                self.scope.restore_date_values(saved_date_value_locals);
-                self.scope
-                    .restore_callable_prop_writes(saved_callable_local_props);
-                self.scope.restore_explicit_any(saved_explicit_any_locals);
-                self.scope.restore_narrowings(saved_narrowed_locals);
-                self.current_async = saved_async;
-                self.current_return_ty = saved_return_ty;
-                self.current_generator_yields = saved_generator_yields;
-                self.pop_type_parameter_scope();
-                return Err(error);
-            }
-        };
-        if let Some(forwarding) = &arguments_forwarding {
-            params.extend(forwarding.params.iter().cloned());
-            for (name, local) in forwarding.binding_pairs() {
-                self.scope.bind(name, local);
-            }
-        }
-        for (index, param) in function
-            .params
-            .items
-            .iter()
-            .enumerate()
-            .take(if arguments_forwarding.is_some() {
-                0
-            } else {
-                usize::MAX
-            })
-        {
-            let ty = match self.function_parameter_type(param) {
-                Ok(value) => value,
+            let mut destructured_params = Vec::new();
+            let mut defaulted_params = Vec::new();
+            // A `function` that reads its own `arguments` is variadic: the object is the
+            // ACTUAL argument list, which a declared-arity signature cannot carry (see
+            // `lowering::arguments_forwarding`). Replace the parameter list with one rest
+            // list and re-bind each declared name from it. Every other function keeps its
+            // declared parameters untouched.
+            let arguments_forwarding = match this.arguments_forwarding_params(function, &mut body) {
+                Ok(forwarding) => forwarding,
                 Err(error) => {
-                    self.scope.restore_bindings(saved_locals);
-                    self.scope.restore_date_values(saved_date_value_locals);
-                    self.scope.restore_callable_prop_writes(saved_callable_local_props);
-                    self.scope.restore_explicit_any(saved_explicit_any_locals);
-                    self.scope.restore_narrowings(saved_narrowed_locals);
-                    self.current_async = saved_async;
-                    self.current_return_ty = saved_return_ty;
-                    self.current_generator_yields = saved_generator_yields;
-                    self.pop_type_parameter_scope();
                     return Err(error);
                 }
             };
-            let (param_name, span, source_name) =
-                if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
-                    (
-                        self.intern_source_name(binding.name.as_str()),
-                        self.span(binding.span.start, binding.span.end),
-                        Some(binding.name.to_string()),
-                    )
+            if let Some(forwarding) = &arguments_forwarding {
+                params.extend(forwarding.params.iter().cloned());
+                for (name, local) in forwarding.binding_pairs() {
+                    this.scope.bind(name, local);
+                }
+            }
+            for (index, param) in function
+                .params
+                .items
+                .iter()
+                .enumerate()
+                .take(if arguments_forwarding.is_some() {
+                    0
                 } else {
-                    let synthetic_name = format!("__param{index}");
-                    (
-                        self.intern_source_name(&synthetic_name),
-                        self.span(param.span.start, param.span.end),
-                        None,
-                    )
+                    usize::MAX
+                })
+            {
+                let ty = match this.function_parameter_type(param) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return Err(error);
+                    }
                 };
-            // A default initializer makes the parameter optional for callers:
-            // the ABI parameter is `Optional<T>` and a body prelude applies the
-            // default (JavaScript evaluates defaults per call, in callee
-            // scope), so omitted arguments lower through the general
-            // `Optional` machinery instead of per-function fixups.
-            //
-            // Defaults that equal the type's zero value (`= 0`, `= ""`,
-            // `= []`, `= {}`, `= new Map()`, ...) keep the plain ABI instead:
-            // call sites already synthesize exactly that value for omitted
-            // arguments, and keeping the parameter un-wrapped preserves
-            // mutable-reference threading for state accumulators such as
-            // Remeda's `cloneImplementation(value, refFrom = [], refTo = [])`,
-            // where recursive callees must observe the caller's array.
-            let default_initializer = source_name
-                .is_some()
-                .then_some(param.initializer.as_ref())
-                .flatten()
-                .filter(|initializer| !Self::initializer_is_type_zero_default(initializer));
-            let ty = if default_initializer.is_some()
-                && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)))
-            {
-                self.ctx.krate.types.intern(Type::Optional(ty))
-            } else {
-                ty
-            };
-            let local = body.push_local(LocalDecl {
-                name: Some(param_name),
-                ty,
-                mutable: false,
-                span,
-            });
-            body.params.push(local);
-            if self.type_is_known_date_value(ty) {
-                self.scope.mark_date_value(local);
-            }
-            if let Some(source_name) = source_name {
-                self.scope.bind(source_name.clone(), local);
-                if let Some(initializer) = default_initializer {
-                    defaulted_params.push((local, ty, &**initializer, param_name, source_name, span));
-                }
-            } else {
-                destructured_params.push((&param.pattern, local, ty));
-            }
-            params.push(Param {
-                name: param_name,
-                local,
-                ty,
-                span,
-            });
-        }
-        let rest = if let Some(forwarding) = &arguments_forwarding {
-            Some(RestParam {
-                index: forwarding.rest_index,
-                item_ty: forwarding.item_ty,
-            })
-        } else if let Some(rest) = &function.params.rest {
-            let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
-                self.scope.restore_bindings(saved_locals);
-                self.scope.restore_date_values(saved_date_value_locals);
-                self.scope.restore_callable_prop_writes(saved_callable_local_props);
-                self.scope.restore_explicit_any(saved_explicit_any_locals);
-                self.scope.restore_narrowings(saved_narrowed_locals);
-                self.current_async = saved_async;
-                self.current_return_ty = saved_return_ty;
-                self.current_generator_yields = saved_generator_yields;
-                self.pop_type_parameter_scope();
-                return Err(SmeltError::unsupported(
-                    self.span(rest.span.start, rest.span.end),
-                    "destructured rest parameters need rest binding lowering",
-                ));
-            };
-            let ty = match rest
-                .type_annotation
-                .as_ref()
-                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                .transpose()
-                .and_then(|value| {
-                    value.ok_or_else(|| {
-                        SmeltError::unsupported(
-                            self.span(rest.span.start, rest.span.end),
-                            "rest function parameters must have explicit array type annotations",
+                let (param_name, span, source_name) =
+                    if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                        (
+                            this.intern_source_name(binding.name.as_str()),
+                            this.span(binding.span.start, binding.span.end),
+                            Some(binding.name.to_string()),
                         )
-                    })
-                }) {
-                Ok(value) => value,
-                Err(error) => {
-                    self.scope.restore_bindings(saved_locals);
-                    self.scope.restore_date_values(saved_date_value_locals);
-                    self.scope.restore_callable_prop_writes(saved_callable_local_props);
-                    self.scope.restore_explicit_any(saved_explicit_any_locals);
-                    self.scope.restore_narrowings(saved_narrowed_locals);
-                    self.current_async = saved_async;
-                    self.current_return_ty = saved_return_ty;
-                    self.current_generator_yields = saved_generator_yields;
-                    self.pop_type_parameter_scope();
-                    return Err(error);
-                }
-            };
-            // A fixed-width tuple rest is fixed parameters plus a tuple binding
-            // of them (`lowering::tuple_rest`).
-            if let Some(elements) = self.fixed_tuple_rest_elements(ty) {
-                let span = self.span(binding.span.start, binding.span.end);
-                for param in
-                    self.bind_tuple_rest_params(binding.name.as_str(), ty, &elements, span, &mut body)
+                    } else {
+                        let synthetic_name = format!("__param{index}");
+                        (
+                            this.intern_source_name(&synthetic_name),
+                            this.span(param.span.start, param.span.end),
+                            None,
+                        )
+                    };
+                // A default initializer makes the parameter optional for callers:
+                // the ABI parameter is `Optional<T>` and a body prelude applies the
+                // default (JavaScript evaluates defaults per call, in callee
+                // scope), so omitted arguments lower through the general
+                // `Optional` machinery instead of per-function fixups.
+                //
+                // Defaults that equal the type's zero value (`= 0`, `= ""`,
+                // `= []`, `= {}`, `= new Map()`, ...) keep the plain ABI instead:
+                // call sites already synthesize exactly that value for omitted
+                // arguments, and keeping the parameter un-wrapped preserves
+                // mutable-reference threading for state accumulators such as
+                // Remeda's `cloneImplementation(value, refFrom = [], refTo = [])`,
+                // where recursive callees must observe the caller's array.
+                let default_initializer = source_name
+                    .is_some()
+                    .then_some(param.initializer.as_ref())
+                    .flatten()
+                    .filter(|initializer| !Self::initializer_is_type_zero_default(initializer));
+                let ty = if default_initializer.is_some()
+                    && !matches!(this.ctx.krate.types.get(ty), Some(Type::Optional(_)))
                 {
-                    params.push(Param {
-                        name: param.name,
-                        local: param.local,
-                        ty: param.ty,
-                        span,
-                    });
+                    this.ctx.krate.types.intern(Type::Optional(ty))
+                } else {
+                    ty
+                };
+                let local = body.push_local(LocalDecl {
+                    name: Some(param_name),
+                    ty,
+                    mutable: false,
+                    span,
+                });
+                body.params.push(local);
+                if this.type_is_known_date_value(ty) {
+                    this.scope.mark_date_value(local);
                 }
-                None
-            } else {
-            let Ok((ty, item_ty)) = self.rest_param_array_type(ty) else {
-                self.scope.restore_bindings(saved_locals);
-                self.scope.restore_date_values(saved_date_value_locals);
-                self.scope.restore_callable_prop_writes(saved_callable_local_props);
-                self.scope.restore_explicit_any(saved_explicit_any_locals);
-                self.scope.restore_narrowings(saved_narrowed_locals);
-                self.current_async = saved_async;
-                self.current_return_ty = saved_return_ty;
-                self.current_generator_yields = saved_generator_yields;
-                self.pop_type_parameter_scope();
-                return Err(SmeltError::unsupported(
-                    self.span(rest.span.start, rest.span.end),
-                    "rest function parameter type must be an array type",
-                ));
-            };
-            let param_name = self.intern_source_name(binding.name.as_str());
-            let local = body.push_local(LocalDecl {
-                name: Some(param_name),
-                ty,
-                mutable: false,
-                span: self.span(binding.span.start, binding.span.end),
-            });
-            body.params.push(local);
-            self.scope.bind(binding.name.to_string(), local);
-            let index = params.len();
-            params.push(Param {
-                name: param_name,
-                local,
-                ty,
-                span: self.span(binding.span.start, binding.span.end),
-            });
-            Some(RestParam { index, item_ty })
+                if let Some(source_name) = source_name {
+                    this.scope.bind(source_name.clone(), local);
+                    if let Some(initializer) = default_initializer {
+                        defaulted_params.push((local, ty, &**initializer, param_name, source_name, span));
+                    }
+                } else {
+                    destructured_params.push((&param.pattern, local, ty));
+                }
+                params.push(Param {
+                    name: param_name,
+                    local,
+                    ty,
+                    span,
+                });
             }
-        } else {
-            None
-        };
-        let required_params = function
-            .params
-            .items
-            .iter()
-            .position(|param| param.optional || Self::formal_parameter_has_default(param))
-            .unwrap_or(function.params.items.len());
+            let rest = if let Some(forwarding) = &arguments_forwarding {
+                Some(RestParam {
+                    index: forwarding.rest_index,
+                    item_ty: forwarding.item_ty,
+                })
+            } else if let Some(rest) = &function.params.rest {
+                let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
+                    return Err(SmeltError::unsupported(
+                        this.span(rest.span.start, rest.span.end),
+                        "destructured rest parameters need rest binding lowering",
+                    ));
+                };
+                let ty = match rest
+                    .type_annotation
+                    .as_ref()
+                    .map(|annotation| this.ts_type_to_hir(&annotation.type_annotation))
+                    .transpose()
+                    .and_then(|value| {
+                        value.ok_or_else(|| {
+                            SmeltError::unsupported(
+                                this.span(rest.span.start, rest.span.end),
+                                "rest function parameters must have explicit array type annotations",
+                            )
+                        })
+                    }) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return Err(error);
+                    }
+                };
+                // A fixed-width tuple rest is fixed parameters plus a tuple binding
+                // of them (`lowering::tuple_rest`).
+                if let Some(elements) = this.fixed_tuple_rest_elements(ty) {
+                    let span = this.span(binding.span.start, binding.span.end);
+                    for param in
+                        this.bind_tuple_rest_params(binding.name.as_str(), ty, &elements, span, &mut body)
+                    {
+                        params.push(Param {
+                            name: param.name,
+                            local: param.local,
+                            ty: param.ty,
+                            span,
+                        });
+                    }
+                    None
+                } else {
+                let Ok((ty, item_ty)) = this.rest_param_array_type(ty) else {
+                    return Err(SmeltError::unsupported(
+                        this.span(rest.span.start, rest.span.end),
+                        "rest function parameter type must be an array type",
+                    ));
+                };
+                let param_name = this.intern_source_name(binding.name.as_str());
+                let local = body.push_local(LocalDecl {
+                    name: Some(param_name),
+                    ty,
+                    mutable: false,
+                    span: this.span(binding.span.start, binding.span.end),
+                });
+                body.params.push(local);
+                this.scope.bind(binding.name.to_string(), local);
+                let index = params.len();
+                params.push(Param {
+                    name: param_name,
+                    local,
+                    ty,
+                    span: this.span(binding.span.start, binding.span.end),
+                });
+                Some(RestParam { index, item_ty })
+                }
+            } else {
+                None
+            };
+            let required_params = function
+                .params
+                .items
+                .iter()
+                .position(|param| param.optional || Self::formal_parameter_has_default(param))
+                .unwrap_or(function.params.items.len());
 
-        let mut errors = Vec::new();
-        for (pattern, local, ty) in destructured_params {
-            let root = body.root;
-            let value = body.push_expr(Expr {
-                kind: ExprKind::Local(local),
-                ty,
-                span: self.span(function.span.start, function.span.end),
-            });
+            let mut errors = Vec::new();
+            for (pattern, local, ty) in destructured_params {
+                let root = body.root;
+                let value = body.push_expr(Expr {
+                    kind: ExprKind::Local(local),
+                    ty,
+                    span: this.span(function.span.start, function.span.end),
+                });
+                if let Err(error) =
+                    this.binding_declaration(pattern, Some(value), Some(ty), false, &mut body, root)
+                {
+                    errors.push(error);
+                }
+            }
+            if let Err(error) = this.apply_parameter_defaults(defaulted_params, &mut body) {
+                errors.push(error);
+            }
             if let Err(error) =
-                self.binding_declaration(pattern, Some(value), Some(ty), false, &mut body, root)
+                this.predeclare_forward_referenced_locals(&function_body.statements, &mut body)
             {
                 errors.push(error);
             }
-        }
-        if let Err(error) = self.apply_parameter_defaults(defaulted_params, &mut body) {
-            errors.push(error);
-        }
-        if let Err(error) =
-            self.predeclare_forward_referenced_locals(&function_body.statements, &mut body)
-        {
-            errors.push(error);
-        }
-        if let Err(error) =
-            self.predeclare_local_function_declarations(&function_body.statements, &mut body)
-        {
-            errors.push(error);
-        }
-        let generator_yields = function
-            .generator
-            .then(|| self.initialize_generator_yield_accumulator(function, &mut body));
-        self.current_generator_yields = generator_yields;
-        // With the variadic rewrite the whole argument list is the single rest
-        // parameter, so the FIXED arity is zero — that is what tells
-        // `arguments_object_expression` to read the list rather than the declared
-        // parameters.
-        self.current_arguments_arities
-            .push(if arguments_forwarding.is_some() {
-                0
-            } else {
-                function.params.items.len()
-            });
-        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
-            if self.is_super_call_statement(statement) {
-                continue;
-            }
-            if let Err(error) = self.statement(statement, &mut body) {
+            if let Err(error) =
+                this.predeclare_local_function_declarations(&function_body.statements, &mut body)
+            {
                 errors.push(error);
             }
-        }
-        if let Some(accumulator) = generator_yields {
-            Self::push_generator_return(accumulator, function, &mut body);
-        }
-        if function.r#async {
-            body.finish_async();
-        }
-        // Any `fn.prop = value` write this body collected must have been rebuilt
-        // into a callable-interface struct by now; a leftover is a dropped write.
-        self.report_unconsumed_callable_props(&mut errors);
-        self.scope.restore_bindings(saved_locals);
-        self.scope.restore_date_values(saved_date_value_locals);
-        self.scope.restore_callable_prop_writes(saved_callable_local_props);
-        self.scope.restore_explicit_any(saved_explicit_any_locals);
-        self.scope.restore_narrowings(saved_narrowed_locals);
-        self.current_async = saved_async;
-        self.current_return_ty = saved_return_ty;
-        self.current_generator_yields = saved_generator_yields;
-        self.current_arguments_arities.pop();
+            let generator_yields = function
+                .generator
+                .then(|| this.initialize_generator_yield_accumulator(function, &mut body));
+            this.fn_ctx.generator = generator_yields;
+            // With the variadic rewrite the whole argument list is the single rest
+            // parameter, so the FIXED arity is zero — that is what tells
+            // `arguments_object_expression` to read the list rather than the declared
+            // parameters.
+            this.fn_ctx.arguments_arity = Some(if arguments_forwarding.is_some() {
+                    0
+                } else {
+                    function.params.items.len()
+                });
+            for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
+                if this.is_super_call_statement(statement) {
+                    continue;
+                }
+                if let Err(error) = this.statement(statement, &mut body) {
+                    errors.push(error);
+                }
+            }
+            if let Some(accumulator) = generator_yields {
+                Self::push_generator_return(accumulator, function, &mut body);
+            }
+            if function.r#async {
+                body.finish_async();
+            }
+            // Any `fn.prop = value` write this body collected must have been rebuilt
+            // into a callable-interface struct by now; a leftover is a dropped write.
+            this.report_unconsumed_callable_props(&mut errors);
+            Ok((body, params, rest, required_params, errors))
+        });
         self.pop_type_parameter_scope();
+        let (body, params, rest, required_params, errors) = lowered?;
 
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
@@ -717,7 +658,7 @@ impl ModuleBuilder<'_> {
             return_ty: _,
             next_ty,
         }) = self
-            .current_return_ty
+            .fn_ctx.return_ty
             .and_then(|ty| self.ctx.krate.types.get(ty))
         {
             return GeneratorYieldAccumulator {
@@ -1079,141 +1020,133 @@ impl ModuleBuilder<'_> {
             ));
         }
 
-        let saved_locals = self.scope.take_bindings();
-        let saved_narrowed_locals = self.scope.take_narrowings();
-        let saved_async = self.current_async;
-        let saved_return_ty = self.current_return_ty;
-        let saved_generator_yields = self.current_generator_yields;
-        let saved_preserve_receiver = self.preserve_specialization_receiver;
-        self.current_async = function.r#async;
-        self.current_return_ty = Some(return_ty);
-        self.preserve_specialization_receiver = receiver.is_some();
-        let mut body = Body::new(
-            None,
-            self.span(function_body.span.start, function_body.span.end),
-        );
-        body.set_generator(function.generator);
-        let mut params = Vec::new();
-        let mut errors = Vec::new();
-        if let Some((_, receiver_ty)) = receiver {
-            let this_name = self.intern_source_name("this");
-            let this_local = body.push_local(LocalDecl {
-                name: Some(this_name),
-                ty: receiver_ty,
-                mutable: true,
-                span: self.span(function.span.start, function.span.start),
-            });
-            body.params.push(this_local);
-            self.scope.bind("this".to_owned(), this_local);
-            params.push(Param {
-                name: this_name,
-                local: this_local,
-                ty: receiver_ty,
-                span: self.span(function.span.start, function.span.start),
-            });
-        }
-
-        for (index, param) in function.params.items.iter().enumerate() {
-            let result = (|| {
-                let ty = if let Some(annotation) = &param.type_annotation {
-                    self.ts_type_to_hir(&annotation.type_annotation)?
-                } else if let Some(function_ty) = &hinted_function {
-                    function_ty.params.get(index).copied().ok_or_else(|| {
-                        SmeltError::unsupported(
-                            self.span(param.span.start, param.span.end),
-                            "function expression parameter is missing from contextual callable type",
-                        )
-                    })?
-                } else {
-                    return Err(SmeltError::unsupported(
-                        self.span(param.span.start, param.span.end),
-                        "function expression parameters must have explicit type annotations",
-                    ));
-                };
-                let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
-                    return Err(SmeltError::unsupported(
-                        self.span(param.span.start, param.span.end),
-                        "function expression parameters must be identifiers",
-                    ));
-                };
-                let param_name = self.intern_source_name(binding.name.as_str());
-                let local = body.push_local(LocalDecl {
-                    name: Some(param_name),
-                    ty,
-                    mutable: false,
-                    span: self.span(binding.span.start, binding.span.end),
+        let mut ctx = self.nested_fn_ctx(BodyKind::Function, function.r#async, Some(return_ty));
+        // A lifted specialization keeps its concrete `this` through `this as T`.
+        ctx.preserve_receiver = receiver.is_some();
+        let scope = ScopeGroups::BINDINGS.with(ScopeGroups::NARROWINGS);
+        let (body, params, errors) = self.with_nested_body(ctx, scope, |this, _| {
+            let mut body = Body::new(
+                None,
+                this.span(function_body.span.start, function_body.span.end),
+            );
+            body.set_generator(function.generator);
+            let mut params = Vec::new();
+            let mut errors = Vec::new();
+            if let Some((_, receiver_ty)) = receiver {
+                let this_name = this.intern_source_name("this");
+                let this_local = body.push_local(LocalDecl {
+                    name: Some(this_name),
+                    ty: receiver_ty,
+                    mutable: true,
+                    span: this.span(function.span.start, function.span.start),
                 });
-                body.params.push(local);
-                self.scope.bind(binding.name.to_string(), local);
+                body.params.push(this_local);
+                this.scope.bind("this".to_owned(), this_local);
                 params.push(Param {
-                    name: param_name,
-                    local,
-                    ty,
-                    span: self.span(binding.span.start, binding.span.end),
+                    name: this_name,
+                    local: this_local,
+                    ty: receiver_ty,
+                    span: this.span(function.span.start, function.span.start),
                 });
-                debug_assert_eq!(
-                    usize::try_from(local.0).unwrap_or(usize::MAX),
-                    index + usize::from(receiver.is_some()),
-                    "function expression parameters should be added in source order",
-                );
-                Ok(())
-            })();
-            if let Err(error) = result {
-                errors.push(error);
-                break;
             }
-        }
-        let receiver_count = usize::from(receiver.is_some());
-        let source_param_count = params.len().saturating_sub(receiver_count);
-        if errors.is_empty()
-            && let Some(function_ty) = &hinted_function
-            && function_ty.params.len() > source_param_count
-        {
-            for (index, ty) in function_ty
-                .params
-                .iter()
-                .copied()
-                .enumerate()
-                .skip(source_param_count)
+
+            for (index, param) in function.params.items.iter().enumerate() {
+                let result = (|| {
+                    let ty = if let Some(annotation) = &param.type_annotation {
+                        this.ts_type_to_hir(&annotation.type_annotation)?
+                    } else if let Some(function_ty) = &hinted_function {
+                        function_ty.params.get(index).copied().ok_or_else(|| {
+                            SmeltError::unsupported(
+                                this.span(param.span.start, param.span.end),
+                                "function expression parameter is missing from contextual callable type",
+                            )
+                        })?
+                    } else {
+                        return Err(SmeltError::unsupported(
+                            this.span(param.span.start, param.span.end),
+                            "function expression parameters must have explicit type annotations",
+                        ));
+                    };
+                    let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
+                        return Err(SmeltError::unsupported(
+                            this.span(param.span.start, param.span.end),
+                            "function expression parameters must be identifiers",
+                        ));
+                    };
+                    let param_name = this.intern_source_name(binding.name.as_str());
+                    let local = body.push_local(LocalDecl {
+                        name: Some(param_name),
+                        ty,
+                        mutable: false,
+                        span: this.span(binding.span.start, binding.span.end),
+                    });
+                    body.params.push(local);
+                    this.scope.bind(binding.name.to_string(), local);
+                    params.push(Param {
+                        name: param_name,
+                        local,
+                        ty,
+                        span: this.span(binding.span.start, binding.span.end),
+                    });
+                    debug_assert_eq!(
+                        usize::try_from(local.0).unwrap_or(usize::MAX),
+                        index + usize::from(receiver.is_some()),
+                        "function expression parameters should be added in source order",
+                    );
+                    Ok(())
+                })();
+                if let Err(error) = result {
+                    errors.push(error);
+                    break;
+                }
+            }
+            let receiver_count = usize::from(receiver.is_some());
+            let source_param_count = params.len().saturating_sub(receiver_count);
+            if errors.is_empty()
+                && let Some(function_ty) = &hinted_function
+                && function_ty.params.len() > source_param_count
             {
-                let param_name = self.intern_source_name(&format!("__unused{index}"));
-                let local = body.push_local(LocalDecl {
-                    name: Some(param_name),
-                    ty,
-                    mutable: false,
-                    span: self.span(function.span.start, function.span.end),
-                });
-                body.params.push(local);
-                params.push(Param {
-                    name: param_name,
-                    local,
-                    ty,
-                    span: self.span(function.span.start, function.span.end),
-                });
+                for (index, ty) in function_ty
+                    .params
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .skip(source_param_count)
+                {
+                    let param_name = this.intern_source_name(&format!("__unused{index}"));
+                    let local = body.push_local(LocalDecl {
+                        name: Some(param_name),
+                        ty,
+                        mutable: false,
+                        span: this.span(function.span.start, function.span.end),
+                    });
+                    body.params.push(local);
+                    params.push(Param {
+                        name: param_name,
+                        local,
+                        ty,
+                        span: this.span(function.span.start, function.span.end),
+                    });
+                }
             }
-        }
-        let generator_yields = function
-            .generator
-            .then(|| self.initialize_generator_yield_accumulator(function, &mut body));
-        self.current_generator_yields = generator_yields;
-        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
-            if let Err(error) = self.statement(statement, &mut body) {
-                errors.push(error);
+            let generator_yields = function
+                .generator
+                .then(|| this.initialize_generator_yield_accumulator(function, &mut body));
+            this.fn_ctx.generator = generator_yields;
+            for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
+                if let Err(error) = this.statement(statement, &mut body) {
+                    errors.push(error);
+                }
             }
-        }
-        if let Some(accumulator) = generator_yields {
-            Self::push_generator_return(accumulator, function, &mut body);
-        }
-        if function.r#async {
-            body.finish_async();
-        }
+            if let Some(accumulator) = generator_yields {
+                Self::push_generator_return(accumulator, function, &mut body);
+            }
+            if function.r#async {
+                body.finish_async();
+            }
 
-        self.scope.restore_bindings(saved_locals);
-        self.scope.restore_narrowings(saved_narrowed_locals);
-        self.current_async = saved_async;
-        self.current_return_ty = saved_return_ty;
-        self.current_generator_yields = saved_generator_yields;
-        self.preserve_specialization_receiver = saved_preserve_receiver;
+            (body, params, errors)
+        });
         self.pop_type_parameter_scope();
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
@@ -2796,129 +2729,133 @@ impl ModuleBuilder<'_> {
         field_initializers: &[(smelt_hir::Symbol, ClassFieldInit<'_>, smelt_hir::TypeId, Span)],
         span: Span,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        let saved_locals = self.scope.take_bindings();
         let saved_class = self.current_class.replace(class_text.to_owned());
-        let mut body = Body::new(None, span);
-        let this_symbol = self.ctx.krate.symbols.intern("this");
-        let this_local = body.push_local(LocalDecl {
-            name: Some(this_symbol),
-            ty: class_ty,
-            mutable: true,
-            span,
-        });
-        self.scope.bind("this".to_owned(), this_local);
-        let forwarded = if has_base {
-            self.reproducible_base_constructor_signature(class_text)
-        } else {
-            None
-        };
-        let (params, required_params) = if let Some(forwarded) = forwarded {
-            // `constructor(...args) { super(...args) }`, spelled positionally:
-            // one local per base parameter, then the same `super(...)` lowering
-            // an explicit derived constructor uses, so the base's parameter
-            // defaults, field initializers, parameter properties and its own
-            // `super(...)` all run exactly once and in source order.
-            let mut params = Vec::new();
-            let mut arguments = Vec::new();
-            for parameter in &forwarded.parameters {
-                let local = body.push_local(LocalDecl {
-                    name: Some(parameter.0),
-                    ty: parameter.1,
+        let ctx = self.nested_fn_ctx(BodyKind::Method, false, Some(class_ty));
+        let scope = ScopeGroups::BINDINGS;
+        let lowered = self.with_nested_body(ctx, scope, |this, _| {
+            let mut body = Body::new(None, span);
+            let this_symbol = this.ctx.krate.symbols.intern("this");
+            let this_local = body.push_local(LocalDecl {
+                name: Some(this_symbol),
+                ty: class_ty,
+                mutable: true,
+                span,
+            });
+            this.scope.bind("this".to_owned(), this_local);
+            let forwarded = if has_base {
+                this.reproducible_base_constructor_signature(class_text)
+            } else {
+                None
+            };
+            let (params, required_params) = if let Some(forwarded) = forwarded {
+                // `constructor(...args) { super(...args) }`, spelled positionally:
+                // one local per base parameter, then the same `super(...)` lowering
+                // an explicit derived constructor uses, so the base's parameter
+                // defaults, field initializers, parameter properties and its own
+                // `super(...)` all run exactly once and in source order.
+                let mut params = Vec::new();
+                let mut arguments = Vec::new();
+                for parameter in &forwarded.parameters {
+                    let local = body.push_local(LocalDecl {
+                        name: Some(parameter.0),
+                        ty: parameter.1,
+                        mutable: false,
+                        span,
+                    });
+                    body.params.push(local);
+                    params.push(Param {
+                        name: parameter.0,
+                        local,
+                        ty: parameter.1,
+                        span,
+                    });
+                    arguments.push(body.push_expr(Expr {
+                        kind: ExprKind::Local(local),
+                        ty: parameter.1,
+                        span,
+                    }));
+                }
+                // The forwarded `super(...)` runs BEFORE this class's own field
+                // initializers, exactly as JavaScript orders them.
+                Self::lower_base_constructor_init(
+                    forwarded.base,
+                    &arguments,
+                    this_local,
+                    class_ty,
+                    span,
+                    &mut body,
+                );
+                (params, forwarded.required_params)
+            } else if let Some(base_name) = this.error_like_base_name(class_text).filter(|_| has_base) {
+                // `class E extends Error {}`: the implicit constructor forwards to
+                // the builtin `Error(message?: string)`, whose signature IS known,
+                // so the forwarded message is a typed optional string and runs the
+                // same slot initialization an explicit `super(message)` does.
+                // Ignoring it (the erased fallback below) left every such error with
+                // an empty `message` and `name`.
+                let string_ty = this.ctx.krate.types.intern(Type::String);
+                let message_ty = this.ctx.krate.types.intern(Type::Optional(string_ty));
+                let message_symbol = this.ctx.krate.symbols.intern("message");
+                let message_local = body.push_local(LocalDecl {
+                    name: Some(message_symbol),
+                    ty: message_ty,
                     mutable: false,
                     span,
                 });
-                body.params.push(local);
-                params.push(Param {
-                    name: parameter.0,
-                    local,
-                    ty: parameter.1,
-                    span,
-                });
-                arguments.push(body.push_expr(Expr {
-                    kind: ExprKind::Local(local),
-                    ty: parameter.1,
-                    span,
-                }));
-            }
-            // The forwarded `super(...)` runs BEFORE this class's own field
-            // initializers, exactly as JavaScript orders them.
-            Self::lower_base_constructor_init(
-                forwarded.base,
-                &arguments,
-                this_local,
-                class_ty,
-                span,
-                &mut body,
-            );
-            (params, forwarded.required_params)
-        } else if let Some(base_name) = self.error_like_base_name(class_text).filter(|_| has_base) {
-            // `class E extends Error {}`: the implicit constructor forwards to
-            // the builtin `Error(message?: string)`, whose signature IS known,
-            // so the forwarded message is a typed optional string and runs the
-            // same slot initialization an explicit `super(message)` does.
-            // Ignoring it (the erased fallback below) left every such error with
-            // an empty `message` and `name`.
-            let string_ty = self.ctx.krate.types.intern(Type::String);
-            let message_ty = self.ctx.krate.types.intern(Type::Optional(string_ty));
-            let message_symbol = self.ctx.krate.symbols.intern("message");
-            let message_local = body.push_local(LocalDecl {
-                name: Some(message_symbol),
-                ty: message_ty,
-                mutable: false,
-                span,
-            });
-            body.params.push(message_local);
-            let message = body.push_expr(Expr {
-                kind: ExprKind::Local(message_local),
-                ty: message_ty,
-                span,
-            });
-            self.lower_error_base_super_call(
-                &base_name,
-                &[message],
-                this_local,
-                class_ty,
-                class_text,
-                span,
-                &mut body,
-            );
-            (
-                vec![Param {
-                    name: message_symbol,
-                    local: message_local,
+                body.params.push(message_local);
+                let message = body.push_expr(Expr {
+                    kind: ExprKind::Local(message_local),
                     ty: message_ty,
                     span,
-                }],
-                Some(0),
-            )
-        } else if has_base {
-            // A base this lowering cannot reproduce: see the doc comment for why
-            // the forwarded argument is a genuine dynamic boundary here.
-            let unknown_ty = self.erase(ErasureReason::UnmodeledType);
-            let arg_ty = self.ctx.krate.types.intern(Type::Optional(unknown_ty));
-            let arg_symbol = self.ctx.krate.symbols.intern("_smelt_super_arg");
-            let arg_local = body.push_local(LocalDecl {
-                name: Some(arg_symbol),
-                ty: arg_ty,
-                mutable: false,
-                span,
-            });
-            body.params.push(arg_local);
-            (
-                vec![Param {
-                    name: arg_symbol,
-                    local: arg_local,
-                    ty: arg_ty,
+                });
+                this.lower_error_base_super_call(
+                    &base_name,
+                    &[message],
+                    this_local,
+                    class_ty,
+                    class_text,
                     span,
-                }],
-                Some(0),
-            )
-        } else {
-            (Vec::new(), None)
-        };
-        self.emit_class_field_initializers(this_local, class_ty, field_initializers, &mut body)?;
-        self.scope.restore_bindings(saved_locals);
+                    &mut body,
+                );
+                (
+                    vec![Param {
+                        name: message_symbol,
+                        local: message_local,
+                        ty: message_ty,
+                        span,
+                    }],
+                    Some(0),
+                )
+            } else if has_base {
+                // A base this lowering cannot reproduce: see the doc comment for why
+                // the forwarded argument is a genuine dynamic boundary here.
+                let unknown_ty = this.erase(ErasureReason::UnmodeledType);
+                let arg_ty = this.ctx.krate.types.intern(Type::Optional(unknown_ty));
+                let arg_symbol = this.ctx.krate.symbols.intern("_smelt_super_arg");
+                let arg_local = body.push_local(LocalDecl {
+                    name: Some(arg_symbol),
+                    ty: arg_ty,
+                    mutable: false,
+                    span,
+                });
+                body.params.push(arg_local);
+                (
+                    vec![Param {
+                        name: arg_symbol,
+                        local: arg_local,
+                        ty: arg_ty,
+                        span,
+                    }],
+                    Some(0),
+                )
+            } else {
+                (Vec::new(), None)
+            };
+            this.emit_class_field_initializers(this_local, class_ty, field_initializers, &mut body)?;
+            Ok((body, params, required_params))
+        });
         self.current_class = saved_class;
+        let (body, params, required_params) = lowered?;
         let body_id = self.ctx.krate.push_body(body);
         let name = self.ctx.krate.symbols.intern("new");
         Ok(self.ctx.krate.push_item(Item::Function(Function {
@@ -3597,337 +3534,315 @@ impl ModuleBuilder<'_> {
             ));
         }
 
-        let saved_locals = self.scope.take_bindings();
         let saved_class = self.current_class.replace(class_text.to_owned());
-        let saved_async = self.current_async;
-        let saved_return_ty = self.current_return_ty;
-        let saved_generator_yields = self.current_generator_yields;
-        self.current_async = method.value.r#async;
-        self.current_return_ty = Some(return_ty);
-        let mut body = Body::new(
-            None,
-            self.span(function_body.span.start, function_body.span.end),
-        );
-        body.set_generator(method.value.generator);
-        let mut params = Vec::new();
-        let this_symbol = self.ctx.krate.symbols.intern("this");
-        let this_local = body.push_local(LocalDecl {
-            name: Some(this_symbol),
-            ty: class_ty,
-            mutable: true,
-            span: self.span(method.span.start, method.span.start),
-        });
-        // A static method has no `this` receiver: it must not bind `this` and
-        // must not carry a receiver parameter, so it lowers to a receiver-free
-        // associated function.
-        if !is_static {
-            self.scope.bind("this".to_owned(), this_local);
-            if !is_constructor {
-                body.params.push(this_local);
-                params.push(Param {
-                    name: this_symbol,
-                    local: this_local,
-                    ty: class_ty,
-                    span: self.span(method.span.start, method.span.start),
-                });
-            }
-        }
-
-        let mut destructured_params = Vec::new();
-        let mut defaulted_params = Vec::new();
-        let mut parameter_property_initializers = Vec::new();
-        for (index, param) in method.value.params.items.iter().enumerate() {
-            let declared_ty = self.function_parameter_type(param)?;
-            let (param_name, span, source_name) =
-                if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
-                    (
-                        self.intern_source_name(binding.name.as_str()),
-                        self.span(binding.span.start, binding.span.end),
-                        Some(binding.name.to_string()),
-                    )
-                } else {
-                    let synthetic_name = format!("__param{index}");
-                    (
-                        self.intern_source_name(&synthetic_name),
-                        self.span(param.span.start, param.span.end),
-                        None,
-                    )
-                };
-            // Methods and constructors take parameter defaults through exactly the
-            // machinery plain functions use (see `function_declaration_named`): the
-            // ABI parameter widens to `Optional<T>` and a body prelude applies the
-            // declared initializer, so an omitted argument evaluates the source
-            // default instead of the Rust type's zero value. Defaults that already
-            // equal the type's zero value keep the plain ABI, matching the free
-            // function rule.
-            let default_initializer = source_name
-                .is_some()
-                .then_some(param.initializer.as_ref())
-                .flatten()
-                .filter(|initializer| !Self::initializer_is_type_zero_default(initializer));
-            let abi_ty = if default_initializer.is_some()
-                && !matches!(
-                    self.ctx.krate.types.get(declared_ty),
-                    Some(Type::Optional(_))
-                )
-            {
-                self.ctx.krate.types.intern(Type::Optional(declared_ty))
-            } else {
-                declared_ty
-            };
-            let local = body.push_local(LocalDecl {
-                name: Some(param_name),
-                ty: abi_ty,
-                mutable: false,
-                span,
+        let ctx = self.nested_fn_ctx(BodyKind::Method, method.value.r#async, Some(return_ty));
+        let scope = ScopeGroups::BINDINGS;
+        let lowered = self.with_nested_body(ctx, scope, |this, _| {
+            let mut body = Body::new(
+                None,
+                this.span(function_body.span.start, function_body.span.end),
+            );
+            body.set_generator(method.value.generator);
+            let mut params = Vec::new();
+            let this_symbol = this.ctx.krate.symbols.intern("this");
+            let this_local = body.push_local(LocalDecl {
+                name: Some(this_symbol),
+                ty: class_ty,
+                mutable: true,
+                span: this.span(method.span.start, method.span.start),
             });
-            body.params.push(local);
-            if let Some(source_name) = source_name {
-                self.scope.bind(source_name.clone(), local);
-                if let Some(initializer) = default_initializer {
-                    defaulted_params
-                        .push((local, abi_ty, &**initializer, param_name, source_name, span));
+            // A static method has no `this` receiver: it must not bind `this` and
+            // must not carry a receiver parameter, so it lowers to a receiver-free
+            // associated function.
+            if !is_static {
+                this.scope.bind("this".to_owned(), this_local);
+                if !is_constructor {
+                    body.params.push(this_local);
+                    params.push(Param {
+                        name: this_symbol,
+                        local: this_local,
+                        ty: class_ty,
+                        span: this.span(method.span.start, method.span.start),
+                    });
                 }
-            } else {
-                destructured_params.push((&param.pattern, local, abi_ty));
             }
-            params.push(Param {
-                name: param_name,
-                local,
-                ty: abi_ty,
-                span,
-            });
-            if is_constructor && (param.accessibility.is_some() || param.readonly) {
-                // The declared (non-`Optional`) type is the field's type: the
-                // widened ABI slot only exists to carry "argument omitted". The
-                // initializing local is resolved after the default prelude runs,
-                // so a defaulted parameter property stores the applied value.
-                let field = Field {
-                    name: param_name,
-                    ty: declared_ty,
-                    visibility: visibility(param.accessibility),
-                    optional: false,
-                    span,
-                };
-                self.classes.extend_fields(class_text.to_owned(), [field]);
-                parameter_property_initializers.push((
-                    param_name,
-                    binding_source_name(&param.pattern).map(str::to_owned),
-                    declared_ty,
-                    span,
-                ));
-            }
-        }
-        // A rest parameter binds the list of the remaining arguments, exactly as
-        // in `function_declaration_named`. Methods used to skip it, so every
-        // read of the rest name in the body was an unresolved identifier.
-        let rest = match method.value.params.rest.as_ref() {
-            Some(rest) => {
-                let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
-                    self.scope.restore_bindings(saved_locals);
-                    self.current_class = saved_class;
-                    self.current_async = saved_async;
-                    self.current_return_ty = saved_return_ty;
-                    self.current_generator_yields = saved_generator_yields;
-                    self.pop_type_parameter_scope();
-                    return Err(SmeltError::unsupported(
-                        self.span(rest.span.start, rest.span.end),
-                        "destructured rest parameters need rest binding lowering",
-                    ));
-                };
-                let declared = match rest
-                    .type_annotation
-                    .as_ref()
-                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                    .transpose()
+
+            let mut destructured_params = Vec::new();
+            let mut defaulted_params = Vec::new();
+            let mut parameter_property_initializers = Vec::new();
+            for (index, param) in method.value.params.items.iter().enumerate() {
+                let declared_ty = this.function_parameter_type(param)?;
+                let (param_name, span, source_name) =
+                    if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                        (
+                            this.intern_source_name(binding.name.as_str()),
+                            this.span(binding.span.start, binding.span.end),
+                            Some(binding.name.to_string()),
+                        )
+                    } else {
+                        let synthetic_name = format!("__param{index}");
+                        (
+                            this.intern_source_name(&synthetic_name),
+                            this.span(param.span.start, param.span.end),
+                            None,
+                        )
+                    };
+                // Methods and constructors take parameter defaults through exactly the
+                // machinery plain functions use (see `function_declaration_named`): the
+                // ABI parameter widens to `Optional<T>` and a body prelude applies the
+                // declared initializer, so an omitted argument evaluates the source
+                // default instead of the Rust type's zero value. Defaults that already
+                // equal the type's zero value keep the plain ABI, matching the free
+                // function rule.
+                let default_initializer = source_name
+                    .is_some()
+                    .then_some(param.initializer.as_ref())
+                    .flatten()
+                    .filter(|initializer| !Self::initializer_is_type_zero_default(initializer));
+                let abi_ty = if default_initializer.is_some()
+                    && !matches!(
+                        this.ctx.krate.types.get(declared_ty),
+                        Some(Type::Optional(_))
+                    )
                 {
-                    Ok(Some(declared)) => declared,
-                    Ok(None) => {
-                        let item = self.erase(ErasureReason::MissingAnnotation);
-                        self.ctx.krate.types.intern(Type::List(item))
-                    }
-                    Err(error) => {
-                        self.scope.restore_bindings(saved_locals);
-                        self.current_class = saved_class;
-                        self.current_async = saved_async;
-                        self.current_return_ty = saved_return_ty;
-                        self.current_generator_yields = saved_generator_yields;
-                        self.pop_type_parameter_scope();
-                        return Err(error);
-                    }
-                };
-                // A fixed-width tuple rest is fixed parameters plus a tuple
-                // binding of them (`lowering::tuple_rest`).
-                if let Some(elements) = self.fixed_tuple_rest_elements(declared) {
-                    let span = self.span(binding.span.start, binding.span.end);
-                    for param in self.bind_tuple_rest_params(
-                        binding.name.as_str(),
-                        declared,
-                        &elements,
-                        span,
-                        &mut body,
-                    ) {
-                        params.push(Param {
-                            name: param.name,
-                            local: param.local,
-                            ty: param.ty,
-                            span,
-                        });
-                    }
-                    None
+                    this.ctx.krate.types.intern(Type::Optional(declared_ty))
                 } else {
-                let (ty, item_ty) = match self.rest_param_array_type(declared) {
-                    Ok(pair) => pair,
-                    Err(error) => {
-                        self.scope.restore_bindings(saved_locals);
-                        self.current_class = saved_class;
-                        self.current_async = saved_async;
-                        self.current_return_ty = saved_return_ty;
-                        self.current_generator_yields = saved_generator_yields;
-                        self.pop_type_parameter_scope();
-                        return Err(error);
-                    }
+                    declared_ty
                 };
-                let param_name = self.intern_source_name(binding.name.as_str());
-                let span = self.span(binding.span.start, binding.span.end);
                 let local = body.push_local(LocalDecl {
                     name: Some(param_name),
-                    ty,
+                    ty: abi_ty,
                     mutable: false,
                     span,
                 });
                 body.params.push(local);
-                self.scope.bind(binding.name.to_string(), local);
-                let index = params.len();
+                if let Some(source_name) = source_name {
+                    this.scope.bind(source_name.clone(), local);
+                    if let Some(initializer) = default_initializer {
+                        defaulted_params
+                            .push((local, abi_ty, &**initializer, param_name, source_name, span));
+                    }
+                } else {
+                    destructured_params.push((&param.pattern, local, abi_ty));
+                }
                 params.push(Param {
                     name: param_name,
                     local,
-                    ty,
+                    ty: abi_ty,
                     span,
                 });
-                Some(RestParam { index, item_ty })
+                if is_constructor && (param.accessibility.is_some() || param.readonly) {
+                    // The declared (non-`Optional`) type is the field's type: the
+                    // widened ABI slot only exists to carry "argument omitted". The
+                    // initializing local is resolved after the default prelude runs,
+                    // so a defaulted parameter property stores the applied value.
+                    let field = Field {
+                        name: param_name,
+                        ty: declared_ty,
+                        visibility: visibility(param.accessibility),
+                        optional: false,
+                        span,
+                    };
+                    this.classes.extend_fields(class_text.to_owned(), [field]);
+                    parameter_property_initializers.push((
+                        param_name,
+                        binding_source_name(&param.pattern).map(str::to_owned),
+                        declared_ty,
+                        span,
+                    ));
                 }
             }
-            None => None,
-        };
-        // A DERIVED constructor initializes its own fields and parameter
-        // properties when `super(...)` returns, not on entry: JavaScript runs the
-        // base constructor over the instance first, so a field the derived class
-        // redeclares (`msg = 'hi'` over the base's `msg = 'x'`) must be written
-        // after the base's initialization, never before it.
-        let defer_own_initializers = is_constructor
-            && self.classes.base(class_text).is_some()
-            && function_body
-                .statements
-                .iter()
-                .any(|statement| self.is_super_call_statement(statement));
-        if is_constructor && !defer_own_initializers {
-            self.emit_class_field_initializers(
-                this_local,
-                class_ty,
-                field_initializers,
-                &mut body,
-            )?;
-        }
+            // A rest parameter binds the list of the remaining arguments, exactly as
+            // in `function_declaration_named`. Methods used to skip it, so every
+            // read of the rest name in the body was an unresolved identifier.
+            let rest = match method.value.params.rest.as_ref() {
+                Some(rest) => {
+                    let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
+                        return Err(SmeltError::unsupported(
+                            this.span(rest.span.start, rest.span.end),
+                            "destructured rest parameters need rest binding lowering",
+                        ));
+                    };
+                    let declared = match rest
+                        .type_annotation
+                        .as_ref()
+                        .map(|annotation| this.ts_type_to_hir(&annotation.type_annotation))
+                        .transpose()
+                    {
+                        Ok(Some(declared)) => declared,
+                        Ok(None) => {
+                            let item = this.erase(ErasureReason::MissingAnnotation);
+                            this.ctx.krate.types.intern(Type::List(item))
+                        }
+                        Err(error) => {
+                            return Err(error);
+                        }
+                    };
+                    // A fixed-width tuple rest is fixed parameters plus a tuple
+                    // binding of them (`lowering::tuple_rest`).
+                    if let Some(elements) = this.fixed_tuple_rest_elements(declared) {
+                        let span = this.span(binding.span.start, binding.span.end);
+                        for param in this.bind_tuple_rest_params(
+                            binding.name.as_str(),
+                            declared,
+                            &elements,
+                            span,
+                            &mut body,
+                        ) {
+                            params.push(Param {
+                                name: param.name,
+                                local: param.local,
+                                ty: param.ty,
+                                span,
+                            });
+                        }
+                        None
+                    } else {
+                    let (ty, item_ty) = match this.rest_param_array_type(declared) {
+                        Ok(pair) => pair,
+                        Err(error) => {
+                            return Err(error);
+                        }
+                    };
+                    let param_name = this.intern_source_name(binding.name.as_str());
+                    let span = this.span(binding.span.start, binding.span.end);
+                    let local = body.push_local(LocalDecl {
+                        name: Some(param_name),
+                        ty,
+                        mutable: false,
+                        span,
+                    });
+                    body.params.push(local);
+                    this.scope.bind(binding.name.to_string(), local);
+                    let index = params.len();
+                    params.push(Param {
+                        name: param_name,
+                        local,
+                        ty,
+                        span,
+                    });
+                    Some(RestParam { index, item_ty })
+                    }
+                }
+                None => None,
+            };
+            // A DERIVED constructor initializes its own fields and parameter
+            // properties when `super(...)` returns, not on entry: JavaScript runs the
+            // base constructor over the instance first, so a field the derived class
+            // redeclares (`msg = 'hi'` over the base's `msg = 'x'`) must be written
+            // after the base's initialization, never before it.
+            let defer_own_initializers = is_constructor
+                && this.classes.base(class_text).is_some()
+                && function_body
+                    .statements
+                    .iter()
+                    .any(|statement| this.is_super_call_statement(statement));
+            if is_constructor && !defer_own_initializers {
+                this.emit_class_field_initializers(
+                    this_local,
+                    class_ty,
+                    field_initializers,
+                    &mut body,
+                )?;
+            }
 
-        let mut errors = Vec::new();
-        for (pattern, local, ty) in destructured_params {
-            let root = body.root;
-            let value = body.push_expr(Expr {
-                kind: ExprKind::Local(local),
-                ty,
-                span: self.span(method.span.start, method.span.end),
-            });
+            let mut errors = Vec::new();
+            for (pattern, local, ty) in destructured_params {
+                let root = body.root;
+                let value = body.push_expr(Expr {
+                    kind: ExprKind::Local(local),
+                    ty,
+                    span: this.span(method.span.start, method.span.end),
+                });
+                if let Err(error) =
+                    this.binding_declaration(pattern, Some(value), Some(ty), false, &mut body, root)
+                {
+                    errors.push(error);
+                }
+            }
+            if let Err(error) = this.apply_parameter_defaults(defaulted_params, &mut body) {
+                errors.push(error);
+            }
+            // Parameter properties are emitted after the default prelude so a
+            // `constructor(public size = 10)` stores `10`, not the `Optional` slot.
+            let resolved_parameter_properties = parameter_property_initializers
+                .into_iter()
+                .filter_map(|(field, source_name, ty, span)| {
+                    let local =
+                        source_name.and_then(|source_name| this.scope.lookup(&source_name))?;
+                    Some((field, local, ty, span))
+                })
+                .collect::<Vec<_>>();
+            if is_constructor && !defer_own_initializers {
+                Self::emit_parameter_property_initializers(
+                    this_local,
+                    class_ty,
+                    &resolved_parameter_properties,
+                    &mut body,
+                );
+            }
             if let Err(error) =
-                self.binding_declaration(pattern, Some(value), Some(ty), false, &mut body, root)
+                this.predeclare_forward_referenced_locals(&function_body.statements, &mut body)
             {
                 errors.push(error);
             }
-        }
-        if let Err(error) = self.apply_parameter_defaults(defaulted_params, &mut body) {
-            errors.push(error);
-        }
-        // Parameter properties are emitted after the default prelude so a
-        // `constructor(public size = 10)` stores `10`, not the `Optional` slot.
-        let resolved_parameter_properties = parameter_property_initializers
-            .into_iter()
-            .filter_map(|(field, source_name, ty, span)| {
-                let local =
-                    source_name.and_then(|source_name| self.scope.lookup(&source_name))?;
-                Some((field, local, ty, span))
-            })
-            .collect::<Vec<_>>();
-        if is_constructor && !defer_own_initializers {
-            Self::emit_parameter_property_initializers(
-                this_local,
-                class_ty,
-                &resolved_parameter_properties,
-                &mut body,
-            );
-        }
-        if let Err(error) =
-            self.predeclare_forward_referenced_locals(&function_body.statements, &mut body)
-        {
-            errors.push(error);
-        }
-        if let Err(error) =
-            self.predeclare_local_function_declarations(&function_body.statements, &mut body)
-        {
-            errors.push(error);
-        }
-        let generator_yields = method
-            .value
-            .generator
-            .then(|| self.initialize_generator_yield_accumulator(&method.value, &mut body));
-        self.current_generator_yields = generator_yields;
-        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
-            // `super(...)` has no callee to defer to once inheritance is flattened
-            // into the derived struct, so it lowers to the base's initialization
-            // applied to `this` instead of running as an ordinary call.
-            if self.is_super_call_statement(statement) {
-                if let Err(error) = self.lower_super_call_statement(
-                    statement,
-                    this_local,
-                    class_ty,
-                    class_text,
-                    &mut body,
-                ) {
-                    errors.push(error);
-                }
-                if defer_own_initializers {
-                    if let Err(error) = self.emit_class_field_initializers(
+            if let Err(error) =
+                this.predeclare_local_function_declarations(&function_body.statements, &mut body)
+            {
+                errors.push(error);
+            }
+            let generator_yields = method
+                .value
+                .generator
+                .then(|| this.initialize_generator_yield_accumulator(&method.value, &mut body));
+            this.fn_ctx.generator = generator_yields;
+            for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
+                // `super(...)` has no callee to defer to once inheritance is flattened
+                // into the derived struct, so it lowers to the base's initialization
+                // applied to `this` instead of running as an ordinary call.
+                if this.is_super_call_statement(statement) {
+                    if let Err(error) = this.lower_super_call_statement(
+                        statement,
                         this_local,
                         class_ty,
-                        field_initializers,
+                        class_text,
                         &mut body,
                     ) {
                         errors.push(error);
                     }
-                    Self::emit_parameter_property_initializers(
-                        this_local,
-                        class_ty,
-                        &resolved_parameter_properties,
-                        &mut body,
-                    );
+                    if defer_own_initializers {
+                        if let Err(error) = this.emit_class_field_initializers(
+                            this_local,
+                            class_ty,
+                            field_initializers,
+                            &mut body,
+                        ) {
+                            errors.push(error);
+                        }
+                        Self::emit_parameter_property_initializers(
+                            this_local,
+                            class_ty,
+                            &resolved_parameter_properties,
+                            &mut body,
+                        );
+                    }
+                    continue;
                 }
-                continue;
+                if let Err(error) = this.statement(statement, &mut body) {
+                    errors.push(error);
+                }
             }
-            if let Err(error) = self.statement(statement, &mut body) {
-                errors.push(error);
+            if let Some(accumulator) = generator_yields {
+                Self::push_generator_return(accumulator, &method.value, &mut body);
             }
-        }
-        if let Some(accumulator) = generator_yields {
-            Self::push_generator_return(accumulator, &method.value, &mut body);
-        }
-        if method.value.r#async {
-            body.finish_async();
-        }
-        self.scope.restore_bindings(saved_locals);
+            if method.value.r#async {
+                body.finish_async();
+            }
+            Ok((body, params, rest, errors))
+        });
         self.current_class = saved_class;
-        self.current_async = saved_async;
-        self.current_return_ty = saved_return_ty;
-        self.current_generator_yields = saved_generator_yields;
         self.pop_type_parameter_scope();
+        let (body, params, rest, errors) = lowered?;
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }

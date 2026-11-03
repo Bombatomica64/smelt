@@ -1,6 +1,7 @@
 //! `ModuleBuilder` lowering methods (part 06): assertion/expectation lowering
 //! and related HIR construction helpers split out of `lowering.rs`.
 
+use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::{LocalCallback, LocalCallbackDefault, ModuleBuilder, RestParam, TestMatcher};
 use crate::SmeltError;
 use oxc::ast::ast::{Argument, BindingPattern, Expression, PropertyKey, Statement};
@@ -1456,11 +1457,7 @@ impl ModuleBuilder<'_> {
             ty: bool_ty,
             value: Some(false_expr),
         };
-        if let Some(block) = self.current_statement_block {
-            body.push_stmt_to_block(block, did_throw_stmt);
-        } else {
-            body.push_stmt(did_throw_stmt);
-        }
+        self.push_stmt_to_sink(body, did_throw_stmt);
 
         let try_block = if let Argument::ArrowFunctionExpression(arrow) = actual_arg {
             let none_ty = self.ctx.krate.types.intern(Type::None);
@@ -1605,11 +1602,7 @@ impl ModuleBuilder<'_> {
             catch_body: Some(catch_block),
             finally_body: None,
         };
-        if let Some(block) = self.current_statement_block {
-            body.push_stmt_to_block(block, try_stmt);
-        } else {
-            body.push_stmt(try_stmt);
-        }
+        self.push_stmt_to_sink(body, try_stmt);
 
         let did_throw_check = body.push_expr(Expr {
             kind: ExprKind::Local(did_throw),
@@ -1798,17 +1791,10 @@ impl ModuleBuilder<'_> {
     /// Assertions are built while lowering an expression, so they cannot use
     /// `Body::push_stmt` directly: that always appends to the function root,
     /// which would hoist an assertion out of the `if` or loop body it was
-    /// written in. `current_statement_block` names the block the enclosing
-    /// statement lowering is filling.
+    /// written in. The statement sink names the block the enclosing statement
+    /// lowering is filling.
     pub(in crate::lowering) fn push_assertion_stmt(&self, body: &mut Body, stmt: Stmt) {
-        match self.current_statement_block {
-            Some(block) => {
-                body.push_stmt_to_block(block, stmt);
-            }
-            None => {
-                body.push_stmt(stmt);
-            }
-        }
+        self.push_stmt_to_sink(body, stmt);
     }
 
     /// Push a throwing failure block guarded by a boolean condition.
@@ -1828,11 +1814,7 @@ impl ModuleBuilder<'_> {
             then_block: failure_block,
             else_block: None,
         };
-        if let Some(block) = self.current_statement_block {
-            body.push_stmt_to_block(block, failure_stmt);
-        } else {
-            body.push_stmt(failure_stmt);
-        }
+        self.push_stmt_to_sink(body, failure_stmt);
     }
 
     /// Build the runtime message thrown by a failed synthesized assertion.
@@ -4514,14 +4496,13 @@ impl ModuleBuilder<'_> {
             } else {
                 None
             };
-            let prior_deferred_updates = self.deferred_postfix_updates.replace(Vec::new());
-            let value_result = declarator
-                .init
-                .as_ref()
-                .map(|init| self.expression_with_hint(init, body, annotated_ty))
-                .transpose();
-            let deferred_updates = self.deferred_postfix_updates.take().unwrap_or_default();
-            self.deferred_postfix_updates = prior_deferred_updates;
+            let (value_result, deferred_updates) = self.with_deferred_updates(|this| {
+                declarator
+                    .init
+                    .as_ref()
+                    .map(|init| this.expression_with_hint(init, body, annotated_ty))
+                    .transpose()
+            });
             let value = value_result?;
             let annotated_ty = self.presence_widened_binding_type(declarator, annotated_ty, value, body);
             let value = value.map(|value| self.keyed_read_into_optional_slot(value, annotated_ty, body));
@@ -5335,41 +5316,36 @@ impl ModuleBuilder<'_> {
                 });
             }
 
-            let saved_return_ty = self.current_return_ty;
-            let saved_async = self.current_async;
-            let saved_generator_yields = self.current_generator_yields;
-            self.current_return_ty = declared_return_ty;
-            self.current_async = function.r#async;
-            let generator_yields = function
-                .generator
-                .then(|| self.initialize_generator_yield_accumulator(function, &mut closure_body));
-            self.current_generator_yields = generator_yields;
-            // With the variadic rewrite the whole argument list is the single rest
-            // parameter, so the FIXED arity is zero — that is what tells
-            // `arguments_object_expression` to read the list rather than the
-            // declared parameters.
-            self.current_arguments_arities.push(if arguments_forwarding.is_some() {
-                0
-            } else {
-                function.params.items.len()
-            });
-            let mut lowering_result = Ok(());
-            for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
-                if let Err(error) = self.statement(statement, &mut closure_body) {
-                    lowering_result = Err(error);
-                    break;
+            let ctx = self.nested_fn_ctx(BodyKind::Function, function.r#async, declared_return_ty);
+            let lowering_result = self.with_fn_ctx(ctx, |this| {
+                let generator_yields = function
+                    .generator
+                    .then(|| this.initialize_generator_yield_accumulator(function, &mut closure_body));
+                this.fn_ctx.generator = generator_yields;
+                // With the variadic rewrite the whole argument list is the single rest
+                // parameter, so the FIXED arity is zero — that is what tells
+                // `arguments_object_expression` to read the list rather than the
+                // declared parameters.
+                this.fn_ctx.arguments_arity = Some(if arguments_forwarding.is_some() {
+                    0
+                } else {
+                    function.params.items.len()
+                });
+                let mut lowering_result = Ok(());
+                for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
+                    if let Err(error) = this.statement(statement, &mut closure_body) {
+                        lowering_result = Err(error);
+                        break;
+                    }
                 }
-            }
-            if let Some(accumulator) = generator_yields {
-                Self::push_generator_return(accumulator, function, &mut closure_body);
-            }
-            if function.r#async {
-                closure_body.finish_async();
-            }
-            self.current_return_ty = saved_return_ty;
-            self.current_async = saved_async;
-            self.current_generator_yields = saved_generator_yields;
-            self.current_arguments_arities.pop();
+                if let Some(accumulator) = generator_yields {
+                    Self::push_generator_return(accumulator, function, &mut closure_body);
+                }
+                if function.r#async {
+                    closure_body.finish_async();
+                }
+                lowering_result
+            });
             for (name, prior) in saved_locals.into_iter().rev() {
                 if let Some(local) = prior {
                     self.scope.bind(name, local);

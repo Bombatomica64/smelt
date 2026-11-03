@@ -822,16 +822,14 @@ struct ModuleBuilder<'ctx> {
     types: state::type_scope::TypeScope,
     /// Currently processing class name, if any.
     current_class: Option<String>,
-    /// Whether the current lowered function body is async.
-    current_async: bool,
-    /// Declared return type for the current lowered function body.
-    current_return_ty: Option<smelt_hir::TypeId>,
-    /// Synthetic yield accumulator for the current generator function body.
-    current_generator_yields: Option<GeneratorYieldAccumulator>,
-    /// Active JavaScript `arguments` object arities for function bodies.
-    current_arguments_arities: Vec<usize>,
-    /// HIR block that owns side-effect statements emitted while lowering an expression.
-    current_statement_block: Option<smelt_hir::BlockId>,
+    /// The context of the function body being lowered: async-ness, return
+    /// type, generator types, `arguments` arity, statement sink, postfix-update
+    /// mode and specialization receiver.
+    ///
+    /// Owns the one-body-one-context invariant documented on
+    /// [`state::fn_ctx::FnCtx`]; nested bodies are entered only through
+    /// `with_fn_ctx`.
+    fn_ctx: state::fn_ctx::FnCtx,
     /// AST receivers (by node address) of the array-method calls currently
     /// being lowered.
     ///
@@ -843,8 +841,6 @@ struct ModuleBuilder<'ctx> {
     /// Keyed by the node's address because the address identifies exactly the
     /// one receiver node; nested calls push and pop their own entries.
     array_view_receivers: Vec<usize>,
-    /// Postfix updates waiting for the variable initializer that reads their original value.
-    deferred_postfix_updates: Option<Vec<Stmt>>,
     /// Name a class EXPRESSION takes from the binding it initializes.
     ///
     /// `const Foo = class { … }` declares a class named `Foo` — that is the
@@ -889,8 +885,6 @@ struct ModuleBuilder<'ctx> {
     defining_local_functions: Vec<String>,
     /// Whether type-test-only lowering may index erased unknown metadata.
     allow_unknown_index_access: bool,
-    /// Whether a lifted specialization callable keeps its concrete `this` type through assertions.
-    preserve_specialization_receiver: bool,
     /// Provenance of source names this module did not declare: value,
     /// type-only and namespace imports, test builtins, `@date-fns/tz`
     /// factories, and `globalThis` aliases.

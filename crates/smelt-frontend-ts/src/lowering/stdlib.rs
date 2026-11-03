@@ -453,11 +453,7 @@ impl ModuleBuilder<'_> {
 
     /// Push `stmt` into the statement block the current expression lowers into.
     fn push_current_stmt(&self, body: &mut Body, stmt: Stmt) {
-        if let Some(block) = self.current_statement_block {
-            body.push_stmt_to_block(block, stmt);
-        } else {
-            body.push_stmt(stmt);
-        }
+        self.push_stmt_to_sink(body, stmt);
     }
 
     /// Return the concrete record type represented by an `Object.assign` source.
@@ -1223,17 +1219,16 @@ impl ModuleBuilder<'_> {
             ty: unknown_ty,
             span,
         });
-        let previous_block = self.current_statement_block.replace(catch_block);
-        let lowered = self.expect_matcher_call(
-            call,
-            Some(LoweredActual {
-                value: caught_expr,
-                inverted,
-            }),
-            body,
-        );
-        self.current_statement_block = previous_block;
-        lowered?;
+        self.with_stmt_block(catch_block, |this| {
+            this.expect_matcher_call(
+                call,
+                Some(LoweredActual {
+                    value: caught_expr,
+                    inverted,
+                }),
+                body,
+            )
+        })?;
 
         self.push_assertion_stmt(
             body,

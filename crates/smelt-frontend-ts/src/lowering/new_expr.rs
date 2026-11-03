@@ -2173,10 +2173,10 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let anchor = self.push_erasure_anchor(self.expression_span(expression));
-        let lowered = self.expression_shape_with_hint(expression, body, type_hint);
-        self.restore_erasure_anchor(anchor);
-        let lowered = lowered?;
+        let anchor = self.expression_span(expression);
+        let lowered = self.with_erasure_anchor(anchor, |this| {
+            this.expression_shape_with_hint(expression, body, type_hint)
+        })?;
         // A read of a Bun `int32` slot is a `number` to every consumer.
         Ok(self.int32_read_as_number(lowered, body))
     }
@@ -2598,10 +2598,10 @@ impl ModuleBuilder<'_> {
                 self.assignment_expression_value(assign, body)
             }
             Expression::YieldExpression(yield_expr) => {
-                if yield_expr.delegate && self.current_generator_yields.is_some() {
+                if yield_expr.delegate && self.fn_ctx.generator.is_some() {
                     return self.generator_delegate_expression(yield_expr, body);
                 }
-                if self.current_generator_yields.is_some() {
+                if self.fn_ctx.generator.is_some() {
                     return self.generator_yield_expression(yield_expr, body);
                 }
                 Err(SmeltError::unsupported(
@@ -2785,7 +2785,7 @@ impl ModuleBuilder<'_> {
     /// arm is taken.
     ///
     /// Effectful sub-expressions such as a postfix `k++` inside `xs[k++]` lower
-    /// their store into `self.current_statement_block` (see `update_expression`).
+    /// their store into the current statement sink (see `update_expression`).
     /// For a ternary operand that block is the *enclosing* statement block, so
     /// without redirection the increment is hoisted out of the branch and runs
     /// unconditionally on every evaluation — the es-toolkit `partial`/
@@ -2801,10 +2801,7 @@ impl ModuleBuilder<'_> {
         lower: impl FnOnce(&mut Self, &mut Body) -> Result<smelt_hir::ExprId, SmeltError>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let arm_block = body.push_block(span);
-        let previous_block = self.current_statement_block.replace(arm_block);
-        let arm_result = lower(self, body);
-        self.current_statement_block = previous_block;
-        let arm_expr = arm_result?;
+        let arm_expr = self.with_stmt_block(arm_block, |this| lower(this, body))?;
         if body.blocks[arm_block.0 as usize].stmts.is_empty() {
             return Ok(arm_expr);
         }
@@ -3453,7 +3450,7 @@ impl ModuleBuilder<'_> {
         type_hint: Option<smelt_hir::TypeId>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if !self.current_async {
+        if !self.fn_ctx.is_async {
             return Err(SmeltError::unsupported(
                 self.span(await_expr.span.start, await_expr.span.end),
                 "await expressions are only lowered inside async functions",

@@ -1131,7 +1131,7 @@ impl ModuleBuilder<'_> {
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if self.preserve_specialization_receiver
+        if self.fn_ctx.preserve_receiver
             && matches!(expression, Expression::ThisExpression(_))
         {
             return self.expression(expression, body);
@@ -2854,11 +2854,7 @@ impl ModuleBuilder<'_> {
                     ty: receiver_ty,
                     span: self.span(identifier.span.start, identifier.span.end),
                 });
-                if let Some(block) = self.current_statement_block {
-                    body.push_stmt_to_block(block, Stmt::Assign { target, value });
-                } else {
-                    body.push_stmt(Stmt::Assign { target, value });
-                }
+                self.push_stmt_to_sink(body, Stmt::Assign { target, value });
             }
             return Ok(Some(value));
         }
@@ -2967,11 +2963,7 @@ impl ModuleBuilder<'_> {
                 ty,
                 span: self.span(identifier.span.start, identifier.span.end),
             });
-            if let Some(block) = self.current_statement_block {
-                body.push_stmt_to_block(block, Stmt::Assign { target, value });
-            } else {
-                body.push_stmt(Stmt::Assign { target, value });
-            }
+            self.push_stmt_to_sink(body, Stmt::Assign { target, value });
         }
         Ok(Some(value))
     }

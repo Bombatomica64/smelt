@@ -638,8 +638,8 @@ impl ModuleBuilder<'_> {
     /// promise around a non-future value; unwrapping one `Future` layer keeps
     /// the returned expression at the value type it actually has.
     pub(in crate::lowering) fn return_statement_value_hint(&self) -> Option<smelt_hir::TypeId> {
-        let return_ty = self.current_return_ty?;
-        if self.current_async
+        let return_ty = self.fn_ctx.return_ty?;
+        if self.fn_ctx.is_async
             && let Some(inner) = self.future_inner_type(return_ty)
         {
             return Some(inner);
@@ -657,9 +657,22 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
-        let previous_statement_block = self.current_statement_block.replace(block);
-        let anchor = self.push_erasure_anchor(self.statement_span(statement));
-        let result = match statement {
+        let anchor = self.statement_span(statement);
+        self.with_erasure_anchor(anchor, |this| {
+            this.with_stmt_block(block, |this| this.statement_in_sink(statement, body, block))
+        })
+    }
+
+    /// [`Self::statement_in_block`] with the statement sink already pointing at
+    /// `block` and the erasure anchor at the statement. Every `?` below may
+    /// return early: the caller restores both on every exit path.
+    fn statement_in_sink(
+        &mut self,
+        statement: &Statement<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        match statement {
             Statement::EmptyStatement(_) => Ok(()),
             Statement::VariableDeclaration(decl) => self.variable_declaration(decl, body, block),
             Statement::FunctionDeclaration(function) => {
@@ -1223,10 +1236,7 @@ impl ModuleBuilder<'_> {
                 self.statement_span(statement),
                 format!("statement kind is not lowered yet: {statement:?}"),
             )),
-        };
-        self.restore_erasure_anchor(anchor);
-        self.current_statement_block = previous_statement_block;
-        result
+        }
     }
 
     /// Lower an expression in statement position: an expression statement, or
@@ -1913,8 +1923,20 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
-        let previous_statement_block = self.current_statement_block.replace(block);
-        let result = match statement {
+        self.with_stmt_block(block, |this| {
+            this.for_each_callback_statement_in_sink(statement, body, block)
+        })
+    }
+
+    /// [`Self::for_each_callback_statement`] with the statement sink already
+    /// pointing at `block`.
+    fn for_each_callback_statement_in_sink(
+        &mut self,
+        statement: &Statement<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        match statement {
             Statement::ExpressionStatement(expr_stmt) => {
                 if matches!(&expr_stmt.expression, Expression::AssignmentExpression(_)) {
                     self.for_each_callback_expression(&expr_stmt.expression, body, block)
@@ -1956,9 +1978,7 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             _ => self.statement_in_block(statement, body, block),
-        };
-        self.current_statement_block = previous_statement_block;
-        result
+        }
     }
 
     /// Lower a generator suspension point while preserving its concrete yield type.
@@ -1968,7 +1988,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<bool, SmeltError> {
-        let Some(generator) = self.current_generator_yields else {
+        let Some(generator) = self.fn_ctx.generator else {
             return Ok(false);
         };
         if yield_expr.delegate {
@@ -2018,7 +2038,7 @@ impl ModuleBuilder<'_> {
         yield_expr: &oxc::ast::ast::YieldExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let generator = self.current_generator_yields.ok_or_else(|| {
+        let generator = self.fn_ctx.generator.ok_or_else(|| {
             SmeltError::unsupported(
                 self.span(yield_expr.span.start, yield_expr.span.end),
                 "yield is only valid inside a generator",
@@ -2069,10 +2089,10 @@ impl ModuleBuilder<'_> {
         let value_ty = Self::expr_ty(body, value);
         let span = self.span(yield_expr.span.start, yield_expr.span.end);
         let outer_is_async = self
-            .current_generator_yields
+            .fn_ctx.generator
             .is_some_and(|generator| generator.is_async);
         let outer_yield_ty = self
-            .current_generator_yields
+            .fn_ctx.generator
             .map(|generator| generator.yield_ty)
             .ok_or_else(|| {
                 SmeltError::unsupported(span, "yield* is only valid inside a generator")

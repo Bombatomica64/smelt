@@ -2,6 +2,8 @@
 //! narrowing, param-pattern binding and inference, arrow closure bodies,
 //! throw analysis, and capture-name collection over expressions/statements.
 
+use crate::lowering::state::fn_ctx::BodyKind;
+use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::{
     Argument, ArrayExpressionElement, AssignmentTarget, BinOp, BinaryOperator, BindingPattern,
     Body, CallbackExpr, CallbackExprKind, CaptureMode, ChainElement, ClosureCapture, Expr,
@@ -1365,7 +1367,7 @@ impl ModuleBuilder<'_> {
     /// Lower a local arrow function through a real HIR closure body.
     ///
     /// Async arrows use the same body lowering as async function items: the
-    /// closure body is lowered with `current_async` enabled, receives the
+    /// closure body is lowered with `fn_ctx.is_async` enabled, receives the
     /// contextual return type for return-expression hints, and records async
     /// state metadata after await expressions have been collected.
     ///
@@ -1388,6 +1390,7 @@ impl ModuleBuilder<'_> {
         self.closure_body_expr_from_parts(
             &arrow.params,
             body_kind,
+            BodyKind::Arrow,
             arrow.r#async,
             span,
             param_tys,
@@ -1424,6 +1427,7 @@ impl ModuleBuilder<'_> {
         self.closure_body_expr_from_parts(
             &function.params,
             ClosureBodyKind::Statements(&function_body.statements),
+            BodyKind::Function,
             function.r#async,
             span,
             param_tys,
@@ -1485,6 +1489,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         params: &oxc::ast::ast::FormalParameters<'_>,
         body_kind: ClosureBodyKind<'_, '_>,
+        kind: BodyKind,
         is_async: bool,
         span: Span,
         param_tys: &[smelt_hir::TypeId],
@@ -1681,25 +1686,6 @@ impl ModuleBuilder<'_> {
             });
         }
 
-        let saved_async = self.current_async;
-        let saved_return_ty = self.current_return_ty;
-        let saved_narrowed_locals = self.scope.take_narrowings();
-        // Postfix-update deferral must not cross this closure boundary: if this
-        // closure is a variable-declaration initializer, an `x++` inside its body
-        // belongs here, not the outer declaration's pending deferral list (see
-        // the matching reset in `function_expression_value`).
-        let saved_deferred_updates = self.deferred_postfix_updates.take();
-        // A `BlockId` indexes the body that owns it, so the block the ENCLOSING
-        // statement is filling names nothing in this fresh closure body. Any
-        // assertion or deferred store synthesized while lowering the closure's
-        // own statements would be pushed at that stale index — which panicked
-        // (`index out of bounds` in `Body::push_stmt_to_block`) as soon as the
-        // outer block index was past this body's block count, and would have
-        // silently landed in the wrong block otherwise. Clearing it here makes
-        // the synthesized statement fall back to this body's root until the
-        // closure's own statement lowering sets it, exactly like the async flag
-        // and the return type above.
-        let saved_statement_block = self.current_statement_block.take();
         let infer_expression_return = is_expression_body
             && matches!(self.ctx.krate.types.get(return_ty), Some(Type::Unknown));
         // The same inference for a BLOCK-bodied callback.
@@ -1745,105 +1731,107 @@ impl ModuleBuilder<'_> {
         let infer_block_return = !is_expression_body
             && body_always_returns
             && matches!(self.ctx.krate.types.get(return_ty), Some(Type::Unknown));
-        self.current_async = is_async;
         // A return HINT of `Unknown` erases the returned value on the way out
         // (`return_statement_value_hint`), which would make the inference below
         // read back the very `Unknown` it is trying to replace. With no hint the
         // returns keep their own types and the join is the source's answer.
-        self.current_return_ty = if infer_block_return {
+        let ctx_return_ty = if infer_block_return {
             None
         } else {
             Some(return_ty)
         };
-        let mut actual_return_ty = return_ty;
-        // A binding declared inside a function body is not in scope outside it.
-        //
-        // The `saved_locals` bookkeeping above restores only the names THIS
-        // lowering bound (the parameters and the captures); every `const`/`let`
-        // the body's own statements declare — and every slot
-        // `predeclare_forward_referenced_locals` reserves for one — stayed bound
-        // in the enclosing scope after the closure was finished. A later SIBLING
-        // closure then saw them, and because a `LocalId` is an index into the
-        // body that owns it, a stale one silently named a DIFFERENT slot of the
-        // new body: `local_arrow_existing_body_local` can only check that the
-        // index exists. Two `test(() => { const add = .. })` closures in one
-        // `describe` therefore aliased their locals onto each other's slots
-        // (radash `curry.test.ts`, where the second test's `add` and `repeatX`
-        // shared one slot and the emitted callback adapter was handed the other
-        // binding's type).
-        //
-        // Snapshotting here — after the parameters and captures are bound, so
-        // the body still sees everything it legitimately captures — and
-        // restoring once the body is lowered drops exactly the bindings the body
-        // introduced, and nothing else.
-        let bindings_before_body = self.scope.snapshot_bindings();
-        let predeclare_result = match body_kind {
-            ClosureBodyKind::ArrowExpression(_) => Ok(()),
-            ClosureBodyKind::Statements(statements) => self
-                .predeclare_local_function_declarations(statements, &mut closure_body)
-                .and_then(|()| {
-                    self.predeclare_forward_referenced_locals(statements, &mut closure_body)
-                }),
-        };
-        let lowering_result = if let Err(error) = predeclare_result {
-            Err(error)
-        } else {
-            match body_kind {
-                ClosureBodyKind::ArrowExpression(arrow) => {
-                    match self.arrow_return_expression(arrow) {
-                        Ok(return_expression) => {
-                            // For an async expression-bodied arrow the closure
-                            // return type is `Promise<Inner>` (`Type::Future`),
-                            // but the body expression itself produces `Inner` —
-                            // the async wrapper adds the promise. Hint the body
-                            // at the awaited inner type (via
-                            // `return_statement_value_hint`, which unwraps one
-                            // `Future` layer for async bodies) so an array or
-                            // tuple literal body keeps its own value type instead
-                            // of being coerced to the future type.
-                            let hint = if infer_expression_return {
-                                None
-                            } else {
-                                self.return_statement_value_hint()
-                            };
-                            self.expression_with_hint(return_expression, &mut closure_body, hint)
-                                .map(|value| {
-                                    if infer_expression_return {
-                                        actual_return_ty = Self::expr_ty(&closure_body, value);
-                                    }
-                                    closure_body.push_stmt(Stmt::Return(Some(value)));
-                                })
+        // A closure body is a fresh body: no statement block or postfix-update
+        // deferral of the enclosing statement crosses into it (`FnCtx::nested`).
+        let ctx = self.nested_fn_ctx(kind, is_async, ctx_return_ty);
+        let narrowings = ScopeGroups::NARROWINGS;
+        let (lowering_result, actual_return_ty) =
+            self.with_nested_body(ctx, narrowings, |this, _| {
+                let mut actual_return_ty = return_ty;
+                // A binding declared inside a function body is not in scope outside it.
+                //
+                // The `saved_locals` bookkeeping above restores only the names THIS
+                // lowering bound (the parameters and the captures); every `const`/`let`
+                // the body's own statements declare — and every slot
+                // `predeclare_forward_referenced_locals` reserves for one — stayed bound
+                // in the enclosing scope after the closure was finished. A later SIBLING
+                // closure then saw them, and because a `LocalId` is an index into the
+                // body that owns it, a stale one silently named a DIFFERENT slot of the
+                // new body: `local_arrow_existing_body_local` can only check that the
+                // index exists. Two `test(() => { const add = .. })` closures in one
+                // `describe` therefore aliased their locals onto each other's slots
+                // (radash `curry.test.ts`, where the second test's `add` and `repeatX`
+                // shared one slot and the emitted callback adapter was handed the other
+                // binding's type).
+                //
+                // Snapshotting here — after the parameters and captures are bound, so
+                // the body still sees everything it legitimately captures — and
+                // restoring once the body is lowered drops exactly the bindings the body
+                // introduced, and nothing else.
+                let bindings_before_body = this.scope.snapshot_bindings();
+                let predeclare_result = match body_kind {
+                    ClosureBodyKind::ArrowExpression(_) => Ok(()),
+                    ClosureBodyKind::Statements(statements) => this
+                        .predeclare_local_function_declarations(statements, &mut closure_body)
+                        .and_then(|()| {
+                            this.predeclare_forward_referenced_locals(statements, &mut closure_body)
+                        }),
+                };
+                let lowering_result = if let Err(error) = predeclare_result {
+                    Err(error)
+                } else {
+                    match body_kind {
+                        ClosureBodyKind::ArrowExpression(arrow) => {
+                            match this.arrow_return_expression(arrow) {
+                                Ok(return_expression) => {
+                                    // For an async expression-bodied arrow the closure
+                                    // return type is `Promise<Inner>` (`Type::Future`),
+                                    // but the body expression itself produces `Inner` —
+                                    // the async wrapper adds the promise. Hint the body
+                                    // at the awaited inner type (via
+                                    // `return_statement_value_hint`, which unwraps one
+                                    // `Future` layer for async bodies) so an array or
+                                    // tuple literal body keeps its own value type instead
+                                    // of being coerced to the future type.
+                                    let hint = if infer_expression_return {
+                                        None
+                                    } else {
+                                        this.return_statement_value_hint()
+                                    };
+                                    this.expression_with_hint(return_expression, &mut closure_body, hint)
+                                        .map(|value| {
+                                            if infer_expression_return {
+                                                actual_return_ty = Self::expr_ty(&closure_body, value);
+                                            }
+                                            closure_body.push_stmt(Stmt::Return(Some(value)));
+                                        })
+                                }
+                                Err(error) => Err(error),
+                            }
                         }
-                        Err(error) => Err(error),
-                    }
-                }
-                ClosureBodyKind::Statements(statements) => {
-                    let mut result = Ok(());
-                    for statement in crate::lowering::hoisting::hoisted_statements(statements) {
-                        if let Err(error) = self.statement(statement, &mut closure_body) {
-                            result = Err(error);
-                            break;
+                        ClosureBodyKind::Statements(statements) => {
+                            let mut result = Ok(());
+                            for statement in crate::lowering::hoisting::hoisted_statements(statements) {
+                                if let Err(error) = this.statement(statement, &mut closure_body) {
+                                    result = Err(error);
+                                    break;
+                                }
+                            }
+                            result
                         }
                     }
-                    result
+                };
+                if infer_block_return
+                    && lowering_result.is_ok()
+                    && let Some(inferred) = this.inferred_block_return_ty(&closure_body)
+                {
+                    actual_return_ty = inferred;
                 }
-            }
-        };
-        if infer_block_return
-            && lowering_result.is_ok()
-            && let Some(inferred) = self.inferred_block_return_ty(&closure_body)
-        {
-            actual_return_ty = inferred;
-        }
-        if is_async {
-            closure_body.finish_async();
-        }
-        self.scope.restore_bindings(bindings_before_body);
-        self.current_async = saved_async;
-        self.current_return_ty = saved_return_ty;
-        self.scope.restore_narrowings(saved_narrowed_locals);
-        self.deferred_postfix_updates = saved_deferred_updates;
-        self.current_statement_block = saved_statement_block;
+                if is_async {
+                    closure_body.finish_async();
+                }
+                this.scope.restore_bindings(bindings_before_body);
+                (lowering_result, actual_return_ty)
+            });
         for (name, prior) in saved_locals.into_iter().rev() {
             if let Some(local) = prior {
                 self.scope.bind(name, local);
