@@ -1,0 +1,48 @@
+module examples/typescript/end-to-end/188_nested_function_parameter_defaults/input.ts (ModuleId(0))
+  body BodyId(8)
+  items
+    fn block_nested owner Module
+    fn body_level owner Module
+    fn hoisted_call owner Module
+    fn recursive owner Module
+  exprs
+    #0: Float = 3.0
+    #1: fn(Float) -> Float = @0(block_nested)
+    #2: Float = call #1(#0)
+    #3: None = @4(console_log)
+    #4: None = call #3(#2)
+    #5: Float = 4.0
+    #6: fn(Float) -> Float = @1(body_level)
+    #7: Float = call #6(#5)
+    #8: None = @5(console_log)
+    #9: None = call #8(#7)
+    #10: Float = 5.0
+    #11: fn(Float) -> Float = @2(hoisted_call)
+    #12: Float = call #11(#10)
+    #13: None = @6(console_log)
+    #14: None = call #13(#12)
+    #15: Float = 4.0
+    #16: fn(Float) -> Float = @3(recursive)
+    #17: Float = call #16(#15)
+    #18: None = @7(console_log)
+    #19: None = call #18(#17)
+  stmts
+    s0: #4
+    s1: #9
+    s2: #14
+    s3: #19
+
+interned types
+  t0 = Float
+  t1 = fn(Float) -> Float
+  t2 = Bool
+  t3 = Optional<Float>
+  t4 = fn(Optional<Float>, Optional<Float>) -> Float
+  t5 = fn(Float, Optional<Float>, Float) -> Float
+  t6 = String
+  t7 = Optional<String>
+  t8 = Optional<Bool>
+  t9 = fn(Float, Optional<String>, Optional<Bool>) -> Float
+  t10 = None
+  t11 = fn(Float, Optional<Float>) -> Float
+  t12 = fn(Float) -> Float

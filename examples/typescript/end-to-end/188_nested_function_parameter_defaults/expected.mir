@@ -1,0 +1,194 @@
+fn block_nested (FuncId(0)) -> Float
+  locals
+    %0 param n: Float
+    %1 user inner: fn(Optional<Float>, Optional<Float>) -> Float
+    %2 temp: Bool
+    %3 temp: fn(Optional<Float>, Optional<Float>) -> Float
+    %4 temp: Float
+  bb0:
+    %2 = copy %0 > 0.0
+    switch move %2 ? bb1 : bb2
+  bb1:
+    %3 = closure ClosureId(0) []
+    %1 = move %3
+    %4 = closure_call move %1(copy %0, none)
+    return move %4
+  bb2:
+    return 0.0
+
+fn body_level (FuncId(1)) -> Float
+  locals
+    %0 param n: Float
+    %1 user inner: fn(Float, Optional<Float>, Float) -> Float
+    %2 temp: fn(Float, Optional<Float>, Float) -> Float
+    %3 temp: Float
+    %4 temp: Float
+    %5 temp: Float
+    %6 temp: Float
+    %7 temp: Float
+    %8 temp: Float
+    %9 temp: Float
+  bb0:
+    %2 = closure ClosureId(1) []
+    %1 = move %2
+    %3 = closure_call copy %1(copy %0, none, none)
+    %4 = move %3 * 100.0
+    %5 = closure_call copy %1(copy %0, 1.0, none)
+    %6 = move %5 * 10.0
+    %7 = move %4 + move %6
+    %8 = closure_call move %1(copy %0, 1.0, 1.0)
+    %9 = move %7 + move %8
+    return move %9
+
+fn hoisted_call (FuncId(2)) -> Float
+  locals
+    %0 param n: Float
+    %1 user combine: fn(Float, Optional<String>, Optional<Bool>) -> Float
+    %2 user early: Float
+    %3 temp: fn(Float, Optional<String>, Optional<Bool>) -> Float
+    %4 temp: Float
+    %5 temp: Float
+    %6 temp: Float
+  bb0:
+    %3 = closure ClosureId(2) []
+    %1 = move %3
+    %4 = closure_call copy %1(copy %0, none, none)
+    %2 = move %4
+    %5 = closure_call move %1(copy %0, "abc", true)
+    %6 = move %2 + move %5
+    return move %6
+
+fn recursive (FuncId(3)) -> Float
+  locals
+    %0 param n: Float
+    %1 user count: fn(Float, Optional<Float>) -> Float
+    %2 temp: fn(Float, Optional<Float>) -> Float
+    %3 temp: Float
+  bb0:
+    %2 = closure ClosureId(3) [copy %1]
+    %1 = move %2
+    %3 = closure_call copy %1(copy %0, none)
+    return move %3
+
+fn main (FuncId(4)) -> None
+  locals
+    %0 temp: Float
+    %1 temp: None
+    %2 temp: Float
+    %3 temp: None
+    %4 temp: Float
+    %5 temp: None
+    %6 temp: Float
+    %7 temp: None
+  bb0:
+    %0 = call fn0(3.0) -> bb1
+  bb1:
+    %1 = call @console_log(move %0) -> bb2
+  bb2:
+    %2 = call fn1(4.0) -> bb3
+  bb3:
+    %3 = call @console_log(move %2) -> bb4
+  bb4:
+    %4 = call fn2(5.0) -> bb5
+  bb5:
+    %5 = call @console_log(move %4) -> bb6
+  bb6:
+    %6 = call fn3(4.0) -> bb7
+  bb7:
+    %7 = call @console_log(move %6) -> bb8
+  bb8:
+    return none
+
+closure ClosureId(0) -> Float
+  locals
+    %0 param a: Optional<Float>
+    %1 param b: Optional<Float>
+    %2 user a: Float
+    %3 user b: Float
+    %4 temp: Float
+    %5 temp: Float
+    %6 temp: Float
+  bb0:
+    %4 = copy %0 ?? 10.0
+    %2 = copy %4
+    %5 = copy %1 ?? 10.0
+    %3 = copy %5
+    %6 = copy %2 + copy %3
+    return copy %6
+
+closure ClosureId(1) -> Float
+  locals
+    %0 param a: Float
+    %1 param b: Optional<Float>
+    %2 param c: Float
+    %3 user b: Float
+    %4 temp: Float
+    %5 temp: Float
+    %6 temp: Float
+    %7 temp: Float
+  bb0:
+    %4 = copy %0 * 2.0
+    %5 = copy %1 ?? copy %4
+    %3 = copy %5
+    %6 = copy %0 + copy %3
+    %7 = copy %6 + copy %2
+    return copy %7
+
+closure ClosureId(2) -> Float
+  locals
+    %0 param a: Float
+    %1 param label: Optional<String>
+    %2 param flag: Optional<Bool>
+    %3 user label: String
+    %4 temp: String
+    %5 temp: Float
+    %6 temp: Float
+    %7 temp: Bool
+    %8 temp: Float
+    %9 temp: Float
+  bb0:
+    %4 = copy %1 ?? "x"
+    %3 = copy %4
+    %5 = len copy %3
+    %6 = copy %0 + copy %5
+    %7 = copy %2 == undefined
+    switch copy %7 ? bb1 : bb2
+  bb1:
+    %8 = 100.0
+    goto bb3
+  bb2:
+    %8 = 0.0
+    goto bb3
+  bb3:
+    %9 = copy %6 + copy %8
+    return copy %9
+
+closure ClosureId(3) -> Float
+  locals
+    %0 param k: Float
+    %1 param acc: Optional<Float>
+    %2 user count: fn(Float, Optional<Float>) -> Float
+    %3 user acc: Float
+    %4 temp: Float
+    %5 temp: Bool
+    %6 temp: Float
+    %7 temp: Float
+    %8 temp: Float
+    %9 temp: Float
+  bb0:
+    %4 = copy %1 ?? 1.0
+    %3 = copy %4
+    %5 = copy %0 <= 0.0
+    switch copy %5 ? bb1 : bb2
+  bb1:
+    %6 = copy %3
+    goto bb3
+  bb2:
+    %7 = copy %0 - 1.0
+    %8 = copy %3 * 2.0
+    %9 = closure_call copy %2(copy %7, copy %8)
+    %6 = copy %9
+    goto bb3
+  bb3:
+    return copy %6
+
