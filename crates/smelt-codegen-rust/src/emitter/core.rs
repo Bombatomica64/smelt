@@ -614,10 +614,17 @@ impl<'mir> FunctionEmitter<'mir> {
             || self
                 .type_text_with_impl_trait(decl.ty, false)?
                 .contains("dyn Fn");
+        // A callable compiler temp used to be seeded unconditionally. That
+        // allocated a fresh default closure (`Rc::new(..)`) at every entry of
+        // the function even when the temp is only assigned in one branch and
+        // read there: ~10 dead allocations per request on Hono's dispatch path
+        // (`blocker-logs/hono-crud-perf-round2.md`). A temp now gets a seed
+        // only on the same evidence any other local does: it is never
+        // assigned, it is read first, or the definite-assignment walk
+        // (`local_may_be_used_before_assignment`, consulted by every caller)
+        // finds a path that reads it unassigned.
         if is_callable
-            && (name.starts_with("_smelt_tmp_")
-                || self.local_assignment_count(local) == 0
-                || self.local_first_access_is_read(local))
+            && (self.local_assignment_count(local) == 0 || self.local_first_access_is_read(local))
         {
             return Ok(true);
         }

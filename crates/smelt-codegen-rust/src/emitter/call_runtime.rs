@@ -3331,8 +3331,8 @@ impl FunctionEmitter<'_> {
         field: Symbol,
     ) -> Result<String, EmitError> {
         Ok(match self.symbol_name(field)? {
-            "source" => format!("{receiver_text}.source.clone()"),
-            "flags" => format!("{receiver_text}.flags.clone()"),
+            "source" => format!("{receiver_text}.source.to_string()"),
+            "flags" => format!("{receiver_text}.flags.to_string()"),
             "global" => format!("{receiver_text}.has_flag('g')"),
             "ignoreCase" | "ignore_case" => format!("{receiver_text}.has_flag('i')"),
             "multiline" => format!("{receiver_text}.has_flag('m')"),

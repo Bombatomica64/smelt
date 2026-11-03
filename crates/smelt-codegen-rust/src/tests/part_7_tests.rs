@@ -5462,7 +5462,7 @@ export function cloneRe(obj: unknown): RegExp {
     );
 
     assert!(
-        source.contains("smelt_regexp_compile(reg_exp.source.clone().clone(), reg_exp.flags.clone().clone())?"),
+        source.contains("smelt_regexp_compile(reg_exp.source.to_string().clone(), reg_exp.flags.to_string().clone())?"),
         "{source}"
     );
     // The erased stringify coercion must not be applied to the concrete
@@ -5588,8 +5588,8 @@ console.log(m === null);
     );
     // The numbered-group / named-group / index / input shape is modeled with
     // concrete fields, not assembled as an untyped object during exec.
-    assert!(source.contains("groups: Vec<Option<String>>"));
-    assert!(source.contains("named: ::std::collections::HashMap<String, Option<String>>"));
+    assert!(source.contains("groups: ::std::rc::Rc<Vec<Option<String>>>"));
+    assert!(source.contains("named: ::std::rc::Rc<::std::collections::HashMap<String, Option<String>>>"));
     assert!(source.contains("fn from_captures(regex: &fancy_regex::Regex"));
 }
 
