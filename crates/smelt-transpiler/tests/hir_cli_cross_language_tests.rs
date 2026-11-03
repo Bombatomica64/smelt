@@ -5,9 +5,9 @@ mod common;
 use std::fs;
 
 use common::{
-    TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, ensure_node_agrees, example_dir,
-    example_is_selected, smelt, utf8_path, verify_end_to_end_example,
-    verify_python_end_to_end_example,
+    SharedDepsCrate, TempProject, TestResult, cargo_run_manifest, cargo_run_shared, ensure,
+    ensure_eq, ensure_node_agrees, example_dir, example_is_selected, smelt, smelt_shared,
+    utf8_path, verify_end_to_end_example, verify_python_end_to_end_example,
 };
 
 #[test]
@@ -1503,7 +1503,8 @@ fn build_runs_runtime_fixtures() -> TestResult {
         let project = TempProject::new()?;
         let project_path = project.path();
         fs::create_dir_all(project_path.join("src"))?;
-        let crate_name = name.replace('-', "_");
+        let shared = SharedDepsCrate::claim(name.replace('-', "_"))?;
+        let crate_name = shared.name();
         fs::write(
             project_path.join("Smelt.toml"),
             format!(
@@ -1526,8 +1527,8 @@ clone-strategy = "aggressive"
         )?;
         fs::write(project_path.join("src/main.ts"), &source)?;
         let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
-        smelt(&["--manifest-path", &manifest_arg, "build"])?;
-        let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+        smelt_shared(&["--manifest-path", &manifest_arg, "build"], &shared)?;
+        let actual_stdout = cargo_run_shared(&project_path.join("dist/Cargo.toml"), &shared)?;
         ensure_eq(&actual_stdout, &expected, format!("unexpected stdout for {name}"))?;
         // `expected.stdout` is documented as Node's output; check that it is.
         // A fixture that imports npm packages at run time pins them in its own
