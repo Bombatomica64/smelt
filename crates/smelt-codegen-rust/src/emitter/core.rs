@@ -587,7 +587,14 @@ impl<'mir> FunctionEmitter<'mir> {
         // this function is generic", so it assumes exactly that.
         // That assumption is this emitter's role (`OwnGenerics::Trial`, see
         // `FunctionEmitter::for_generic_trial`).
-        self.emit_body(&mut body)?;
+        //
+        // The rendered text is only inspected, never emitted, so everything
+        // the render mints into the shared context (accessors, hoisted helpers,
+        // erasure records) is rolled back when the checkpoint drops.
+        {
+            let _trial = self.context.checkpoint();
+            self.emit_body(&mut body)?;
+        }
         self.reset_body_emission_state();
         // A partial lift is governed by `classes::type_param_only_moved`, which
         // asks MIR whether each *lifted* parameter is ever inspected. The

@@ -6638,9 +6638,13 @@ fn emit_source_with_free_function_router(
     let console_inspect = emitter::emit_console_inspect_support(mir, &context)?;
     if !console_inspect.is_empty() {
         let marker = format!("\n\n{PRELUDE_END_MARKER}\n");
-        if let Some(position) = out.find(&marker) {
-            out.insert_str(position, &format!("\n\n{}", console_inspect.trim_end()));
-        }
+        // The marker is pushed unconditionally above; losing it would splice
+        // the formatter nowhere and leave every `SmeltInspect` use unresolved,
+        // so a missing marker is an emitter bug, not an optional step.
+        let position = out.find(&marker).ok_or_else(|| {
+            EmitError::new("prelude end marker missing when splicing the util.inspect runtime")
+        })?;
+        out.insert_str(position, &format!("\n\n{}", console_inspect.trim_end()));
     }
 
     if !has_main_function(mir)? {

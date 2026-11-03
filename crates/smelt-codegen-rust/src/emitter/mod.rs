@@ -325,6 +325,67 @@ pub(crate) struct EmitContext {
     pub(crate) backend_erasures: RefCell<Vec<smelt_hir::ErasureRecord>>,
 }
 
+/// The state of an [`EmitContext`]'s body-render outputs at one point, restored
+/// when the checkpoint is dropped.
+///
+/// A body render does not only produce text: it MINTS module-level items into
+/// the shared context as it goes — function-item value accessors (erased,
+/// erased-`SmeltErasedFunction` and typed), hoisted record conversion and
+/// adapter helpers — flags the `util.inspect` runtime as used, and records the
+/// backend's own erasure decisions. The generic body-cleanliness trial
+/// (`EmitContext::populate_generic_functions`) renders bodies whose text is
+/// thrown away; without a rollback everything those renders minted was still
+/// flushed into the crate (helpers no emitted code calls, ordinals shifted by
+/// discarded renders, erasure records for decisions the real emission never
+/// made). Holding a checkpoint across the trial makes a discarded render leave
+/// nothing behind.
+///
+/// The maps are cloned rather than journaled: trials run before any real
+/// emission, when they are empty or hold only what earlier trials rolled
+/// back, so the clones are of (near-)empty maps. `backend_erasures` is
+/// append-only and is truncated back to its length.
+pub(crate) struct ContextCheckpoint<'c> {
+    /// The context restored on drop.
+    context: &'c EmitContext,
+    /// See [`EmitContext::function_item_accessors`].
+    function_item_accessors: ::std::collections::BTreeMap<usize, String>,
+    /// See [`EmitContext::function_item_erased_fn_accessors`].
+    function_item_erased_fn_accessors: ::std::collections::BTreeMap<usize, String>,
+    /// See [`EmitContext::function_item_typed_accessors`].
+    function_item_typed_accessors:
+        ::std::collections::BTreeMap<(usize, String), (usize, String)>,
+    /// See [`EmitContext::record_conversion_helpers`].
+    record_conversion_helpers: ::std::collections::BTreeMap<String, (usize, String)>,
+    /// See [`EmitContext::record_adapter_helpers`].
+    record_adapter_helpers: ::std::collections::BTreeMap<(String, String), (usize, String)>,
+    /// See [`EmitContext::console_inspect_used`].
+    console_inspect_used: bool,
+    /// The number of backend erasures recorded at the checkpoint.
+    backend_erasures_len: usize,
+}
+
+impl Drop for ContextCheckpoint<'_> {
+    /// Restore every body-render output of the context to the checkpoint.
+    fn drop(&mut self) {
+        let context = self.context;
+        *context.function_item_accessors.borrow_mut() =
+            std::mem::take(&mut self.function_item_accessors);
+        *context.function_item_erased_fn_accessors.borrow_mut() =
+            std::mem::take(&mut self.function_item_erased_fn_accessors);
+        *context.function_item_typed_accessors.borrow_mut() =
+            std::mem::take(&mut self.function_item_typed_accessors);
+        *context.record_conversion_helpers.borrow_mut() =
+            std::mem::take(&mut self.record_conversion_helpers);
+        *context.record_adapter_helpers.borrow_mut() =
+            std::mem::take(&mut self.record_adapter_helpers);
+        context.console_inspect_used.set(self.console_inspect_used);
+        context
+            .backend_erasures
+            .borrow_mut()
+            .truncate(self.backend_erasures_len);
+    }
+}
+
 impl EmitContext {
     /// Builds crate-level name and signature indexes for Rust emission.
     pub(crate) fn new(mir: &Mir) -> Result<Self, EmitError> {
@@ -438,6 +499,24 @@ impl EmitContext {
             console_inspect_used: ::std::cell::Cell::new(false),
             backend_erasures: RefCell::new(Vec::new()),
         })
+    }
+
+    /// Capture everything a body render writes into this shared context, so a
+    /// TRIAL render can be rolled back (see [`ContextCheckpoint`]).
+    pub(crate) fn checkpoint(&self) -> ContextCheckpoint<'_> {
+        ContextCheckpoint {
+            context: self,
+            function_item_accessors: self.function_item_accessors.borrow().clone(),
+            function_item_erased_fn_accessors: self
+                .function_item_erased_fn_accessors
+                .borrow()
+                .clone(),
+            function_item_typed_accessors: self.function_item_typed_accessors.borrow().clone(),
+            record_conversion_helpers: self.record_conversion_helpers.borrow().clone(),
+            record_adapter_helpers: self.record_adapter_helpers.borrow().clone(),
+            console_inspect_used: self.console_inspect_used.get(),
+            backend_erasures_len: self.backend_erasures.borrow().len(),
+        }
     }
 
     /// Record that a `console.log` argument renders through `SmeltInspect`.
