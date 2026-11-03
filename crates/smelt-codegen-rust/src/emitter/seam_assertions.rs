@@ -149,7 +149,7 @@ impl FunctionEmitter<'_> {
     /// `static_call_monomorphization` for itself. The whole design rests on that
     /// recomputation being a pure function of `(function, args)`: if emitter
     /// state observed by the analysis — the crate-wide generic-emission
-    /// decision, a body-cleanliness trial's `suppress_type_params`, the emitted
+    /// decision, a body-cleanliness trial's `OwnGenerics`, the emitted
     /// signature tables — moved between the two, the arguments would pass
     /// through concretely while the return claimed the erased type, which is
     /// exactly the shipped `6 x E0308` in radash.

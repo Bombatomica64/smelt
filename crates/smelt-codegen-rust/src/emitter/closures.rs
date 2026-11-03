@@ -537,25 +537,11 @@ impl FunctionEmitter<'_> {
                 // way its own file's language does.
                 absent: closure.absent,
             };
-            let mut emitter = FunctionEmitter::new(self.mir, self.context, &function)?;
             // The closure is emitted inline inside the enclosing function, so
-            // the enclosing function's in-scope type parameters remain visible
-            // in the generated Rust. Propagate them so `T`-typed closure
-            // parameters keep their generic shape instead of erasing to
-            // `SmeltUnknown` (which would otherwise force the enclosing generic
-            // signature to erase as well). The enclosing set is already gated by
-            // that function's own erasure decision.
-            emitter.enclosing_type_params = self.current_function_type_params();
-            emitter.trial_generic_function.set(self.trial_generic_function.get());
-            self.inherit_base_initializer_receiver(&mut emitter, &closure.captures);
-            // A closure inside an inherited copy still spells the declaring
-            // base's parameters, which the receiving `impl` does not declare.
-            emitter
-                .inherited_type_args
-                .clone_from(&self.closure_inherited_type_args);
-            emitter
-                .closure_inherited_type_args
-                .clone_from(&self.closure_inherited_type_args);
+            // the enclosing function's in-scope type parameters (and an
+            // inherited copy's substitution, a base initializer's receiver, a
+            // generic trial) carry into its body: see `child_for_closure`.
+            let mut emitter = self.child_for_closure(&function, &closure.captures)?;
             for (index, param) in closure.params.iter().enumerate() {
                 emitter.names.insert(*param, format!("closure_arg_{index}"));
             }

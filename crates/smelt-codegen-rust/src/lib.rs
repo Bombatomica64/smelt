@@ -6486,8 +6486,8 @@ fn emit_source_with_free_function_router(
             )?) {
                 let substituted = classes::substituted_inherited_member(mir, function, class.name);
                 let copied_body = substituted.as_ref().unwrap_or(function);
-                let mut emitter = FunctionEmitter::new(mir, &context, copied_body)?;
-                emitter.mark_base_initializer_copy(class.name);
+                let mut emitter =
+                    FunctionEmitter::base_initializer_copy(mir, &context, copied_body, class.name)?;
                 emitter.emit_method(&mut out)?;
             }
         }
@@ -6501,16 +6501,17 @@ fn emit_source_with_free_function_router(
             {
                 let substituted = classes::substituted_inherited_member(mir, function, class.name);
                 let copied_body = substituted.as_ref().unwrap_or(function);
-                let mut emitter = FunctionEmitter::new(mir, &context, copied_body)?;
                 // A method whose declaring class is not this impl's class is an
                 // INHERITED copy: its polymorphic-`this` return type belongs to
                 // the impl, not to the class that declared it.
-                if !matches!(
+                let mut emitter = if matches!(
                     function.origin,
                     HirOrigin::ClassMethod { class: owner, .. } if owner == class.name
                 ) {
-                    emitter.mark_inherited_copy(class.name);
-                }
+                    FunctionEmitter::new(mir, &context, copied_body)?
+                } else {
+                    FunctionEmitter::inherited_copy(mir, &context, copied_body, class.name)?
+                };
                 emitter.emit_method(&mut out)?;
             }
         }

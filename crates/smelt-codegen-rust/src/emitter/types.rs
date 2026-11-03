@@ -113,7 +113,7 @@ impl FunctionEmitter<'_> {
         if self.rendering_inherited_bound.get() {
             return None;
         }
-        self.inherited_type_args.get(&name).copied()
+        self.role.inherited_type_args().get(&name).copied()
     }
 
     /// Run `render` on an inherited bound with the inherited map switched off;
@@ -1378,10 +1378,10 @@ impl FunctionEmitter<'_> {
     /// [`Self::current_function_type_params`] returns an empty set for a free
     /// function: text destined for a hoisted module-level item may not spell a
     /// type parameter, and a body-cleanliness trial that set
-    /// `suppress_type_params` has already forced the whole signature back to the
+    /// `OwnGenerics::Erased` has already forced the whole signature back to the
     /// erased shape.
     pub(super) fn callback_generic_params(&self) -> Result<Vec<(LocalId, String)>, EmitError> {
-        if self.hoisted_module_item.get() || *self.suppress_type_params.borrow() {
+        if self.hoisted_module_item.get() || self.role.own_generics_erased() {
             return Ok(Vec::new());
         }
         if !matches!(self.function.origin, HirOrigin::Body(_)) {
@@ -1504,18 +1504,24 @@ impl FunctionEmitter<'_> {
         // empty when the enclosing signature erased its generics, and holds the
         // in-scope `T`s otherwise. Honoring it keeps closure bodies rendering
         // `T` exactly when the enclosing signature declares it.
-        if !self.enclosing_type_params.is_empty() {
-            return self.enclosing_type_params.clone();
+        //
+        // An EMPTY enclosing set used to fall through to the origin rule below,
+        // which for a closure's synthetic `HirOrigin::Body` function (declaring
+        // no type parameters) answers the same empty set.
+        if let emit_role::EmitRole::Closure(scope) = &self.role {
+            return scope.enclosing_type_params.clone();
         }
         let class_name = match self.function.origin {
             // A base initializer copy renders in the impl it is emitted into,
             // whose flattened layout is what its field writes must agree with.
-            HirOrigin::ClassConstructor { .. } if let Some(owner) = self.base_initializer_owner => {
-                owner
+            HirOrigin::ClassConstructor { .. }
+                if let Some(receiver) = self.role.base_initializer() =>
+            {
+                receiver.owner
             }
             // An inherited copy renders in the receiving class's `impl`; the
-            // declaring base's parameters are mapped by `inherited_type_args`.
-            HirOrigin::ClassMethod { .. } if let Some(owner) = self.inherited_impl_owner => owner,
+            // declaring base's parameters are mapped by the role's substitution.
+            HirOrigin::ClassMethod { .. } if let Some(owner) = self.role.inherited_impl_owner() => owner,
             HirOrigin::ClassConstructor { class, .. }
             | HirOrigin::ClassMethod { class, .. }
             | HirOrigin::ClassStaticMethod { class, .. } => class,
@@ -1524,8 +1530,8 @@ impl FunctionEmitter<'_> {
                 // signature is generic-safe (see
                 // `classes::function_emits_rust_generics`) AND the body-cleanliness
                 // trial has not forced a fall back to erasure via
-                // `suppress_type_params`.
-                if *self.suppress_type_params.borrow() {
+                // `OwnGenerics::Erased`.
+                if self.role.own_generics_erased() {
                     return HashSet::new();
                 }
                 // Increment 5: this is the *subset* that lifts, not all-or-
