@@ -68,324 +68,321 @@ impl ModuleBuilder<'_> {
         qualify_private_name: bool,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let function_hint = self.contextual_function_type(type_hint);
-        let arrow_type_params = self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
-        let explicit_return_ty = match arrow
-            .return_type
-            .as_ref()
-            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-            .transpose()
-        {
-            Ok(value) => value,
-            Err(error) => {
-                self.pop_type_parameter_scope();
-                return Err(error);
+        let (arrow_type_params, predeclared, body, params, rest, required_params, return_ty) = self.with_type_parameter_scope(arrow.type_parameters.as_deref(), |this, arrow_type_params| {
+            let explicit_return_ty = match arrow
+                .return_type
+                .as_ref()
+                .map(|annotation| this.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()
+            {
+                Ok(value) => value,
+                Err(error) => {
+                    return Err(error);
+                }
+            };
+            let contextual_return_ty = function_hint.as_ref().map(|function| function.return_ty);
+            let declared_return_ty = if arrow.r#async {
+                explicit_return_ty.map_or_else(
+                    || {
+                        contextual_return_ty.filter(|ty| {
+                        matches!(this.ctx.krate.types.get(*ty), Some(Type::Future(_)))
+                        })
+                    },
+                    Some,
+                )
+            } else {
+                explicit_return_ty.or(contextual_return_ty)
+            };
+            if arrow.r#async
+                && explicit_return_ty.is_some()
+                && !matches!(
+                    explicit_return_ty.and_then(|ty| this.ctx.krate.types.get(ty)),
+                    Some(Type::Future(_))
+                )
+            {
+                return Err(SmeltError::unsupported(
+                    this.span(arrow.span.start, arrow.span.end),
+                    "async arrow function constants must declare a Promise<T> return type",
+                ));
             }
-        };
-        let contextual_return_ty = function_hint.as_ref().map(|function| function.return_ty);
-        let declared_return_ty = if arrow.r#async {
-            explicit_return_ty.map_or_else(
-                || {
-                    contextual_return_ty.filter(|ty| {
-                    matches!(self.ctx.krate.types.get(*ty), Some(Type::Future(_)))
-                    })
-                },
-                Some,
-            )
-        } else {
-            explicit_return_ty.or(contextual_return_ty)
-        };
-        if arrow.r#async
-            && explicit_return_ty.is_some()
-            && !matches!(
-                explicit_return_ty.and_then(|ty| self.ctx.krate.types.get(ty)),
-                Some(Type::Future(_))
-            )
-        {
-            self.pop_type_parameter_scope();
-            return Err(SmeltError::unsupported(
-                self.span(arrow.span.start, arrow.span.end),
-                "async arrow function constants must declare a Promise<T> return type",
-            ));
-        }
 
-        let ctx = self.nested_fn_ctx(BodyKind::Arrow, arrow.r#async, declared_return_ty);
-        let scope = ScopeGroups::BINDINGS
-            .with(ScopeGroups::CALLABLE_PROPS)
-            .with(ScopeGroups::NARROWINGS);
-        // Set once the body has predeclared its own item, so every error path
-        // below can take that reservation back.
-        let mut predeclared = None;
-        let lowered = self.with_nested_body(ctx, scope, |this, _| {
-            let arrow_body_span = arrow.body.span();
-            let mut body = Body::new(None, this.span(arrow_body_span.start, arrow_body_span.end));
-            let mut params = Vec::new();
-            let mut defaulted_params = Vec::new();
-            for (param_index, param) in arrow.params.items.iter().enumerate() {
-                let param_annotation_ty = match param
-                    .type_annotation
-                    .as_ref()
-                    .map(|annotation| this.ts_type_to_hir(&annotation.type_annotation))
-                    .transpose()
-                {
-                    Ok(value) => value,
-                    Err(error) => {
-                        return Err(error);
-                    }
-                };
-                let mut ty = param_annotation_ty
-                    .or_else(|| {
-                        function_hint
-                            .as_ref()
-                            .and_then(|function| function.params.get(params.len()).copied())
-                    })
-                    .unwrap_or_else(|| {
-                        let param_span = this.span(param.span.start, param.span.end);
-                        this.erase_at(ErasureReason::MissingAnnotation, param_span, "")
-                    });
-                if param.optional && !matches!(this.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
-                    ty = this.ctx.krate.types.intern(Type::Optional(ty));
-                }
-                // A default initializer (`size: number = 2`) gets the same ABI a
-                // function declaration's does: an `Optional<T>` parameter and a
-                // body prelude applying the default (see
-                // `apply_parameter_defaults`). Without it the default was dropped
-                // and an omitted argument arrived as the type's zero value.
-                // A CALLBACK-typed default (`toKey: (x: T) => string = x => ..`)
-                // is left to the callback-default machinery that call sites
-                // already use (`LocalCallbackDefault`), which inlines it where the
-                // argument is omitted.
-                let default_initializer = match &param.pattern {
-                    BindingPattern::BindingIdentifier(_)
-                        if !matches!(this.ctx.krate.types.get(ty), Some(Type::Function(_))) =>
+            let ctx = this.nested_fn_ctx(BodyKind::Arrow, arrow.r#async, declared_return_ty);
+            let scope = ScopeGroups::BINDINGS
+                .with(ScopeGroups::CALLABLE_PROPS)
+                .with(ScopeGroups::NARROWINGS);
+            // Set once the body has predeclared its own item, so every error path
+            // below can take that reservation back.
+            let mut predeclared = None;
+            let lowered = this.with_nested_body(ctx, scope, |this, _| {
+                let arrow_body_span = arrow.body.span();
+                let mut body = Body::new(None, this.span(arrow_body_span.start, arrow_body_span.end));
+                let mut params = Vec::new();
+                let mut defaulted_params = Vec::new();
+                for (param_index, param) in arrow.params.items.iter().enumerate() {
+                    let param_annotation_ty = match param
+                        .type_annotation
+                        .as_ref()
+                        .map(|annotation| this.ts_type_to_hir(&annotation.type_annotation))
+                        .transpose()
                     {
-                        param
-                        .initializer
-                        .as_deref()
-                        .filter(|initializer| !Self::initializer_is_type_zero_default(initializer))
+                        Ok(value) => value,
+                        Err(error) => {
+                            return Err(error);
+                        }
+                    };
+                    let mut ty = param_annotation_ty
+                        .or_else(|| {
+                            function_hint
+                                .as_ref()
+                                .and_then(|function| function.params.get(params.len()).copied())
+                        })
+                        .unwrap_or_else(|| {
+                            let param_span = this.span(param.span.start, param.span.end);
+                            this.erase_at(ErasureReason::MissingAnnotation, param_span, "")
+                        });
+                    if param.optional && !matches!(this.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
+                        ty = this.ctx.krate.types.intern(Type::Optional(ty));
                     }
-                    _ => None,
-                };
-                if default_initializer.is_some()
-                    && !matches!(this.ctx.krate.types.get(ty), Some(Type::Optional(_)))
-                {
-                    ty = this.ctx.krate.types.intern(Type::Optional(ty));
-                }
-                let (param_name, param_span) = match &param.pattern {
-                    BindingPattern::BindingIdentifier(binding) => (
-                        this.intern_source_name(binding.name.as_str()),
-                        this.span(binding.span.start, binding.span.end),
-                    ),
-                    _ => (
-                        this.synthetic_param_symbol(param_index),
-                        this.span(param.span.start, param.span.end),
-                    ),
-                };
-                let local = body.push_local(LocalDecl {
-                    name: Some(param_name),
-                    ty,
-                    mutable: false,
-                    span: param_span,
-                });
-                body.params.push(local);
-                params.push(Param {
-                    name: param_name,
-                    local,
-                    ty,
-                    span: param_span,
-                });
-                match &param.pattern {
-                    BindingPattern::BindingIdentifier(binding) => {
-                        this.scope.bind(binding.name.to_string(), local);
-                        if let Some(initializer) = default_initializer {
-                            defaulted_params.push((
-                                local,
+                    // A default initializer (`size: number = 2`) gets the same ABI a
+                    // function declaration's does: an `Optional<T>` parameter and a
+                    // body prelude applying the default (see
+                    // `apply_parameter_defaults`). Without it the default was dropped
+                    // and an omitted argument arrived as the type's zero value.
+                    // A CALLBACK-typed default (`toKey: (x: T) => string = x => ..`)
+                    // is left to the callback-default machinery that call sites
+                    // already use (`LocalCallbackDefault`), which inlines it where the
+                    // argument is omitted.
+                    let default_initializer = match &param.pattern {
+                        BindingPattern::BindingIdentifier(_)
+                            if !matches!(this.ctx.krate.types.get(ty), Some(Type::Function(_))) =>
+                        {
+                            param
+                            .initializer
+                            .as_deref()
+                            .filter(|initializer| !Self::initializer_is_type_zero_default(initializer))
+                        }
+                        _ => None,
+                    };
+                    if default_initializer.is_some()
+                        && !matches!(this.ctx.krate.types.get(ty), Some(Type::Optional(_)))
+                    {
+                        ty = this.ctx.krate.types.intern(Type::Optional(ty));
+                    }
+                    let (param_name, param_span) = match &param.pattern {
+                        BindingPattern::BindingIdentifier(binding) => (
+                            this.intern_source_name(binding.name.as_str()),
+                            this.span(binding.span.start, binding.span.end),
+                        ),
+                        _ => (
+                            this.synthetic_param_symbol(param_index),
+                            this.span(param.span.start, param.span.end),
+                        ),
+                    };
+                    let local = body.push_local(LocalDecl {
+                        name: Some(param_name),
+                        ty,
+                        mutable: false,
+                        span: param_span,
+                    });
+                    body.params.push(local);
+                    params.push(Param {
+                        name: param_name,
+                        local,
+                        ty,
+                        span: param_span,
+                    });
+                    match &param.pattern {
+                        BindingPattern::BindingIdentifier(binding) => {
+                            this.scope.bind(binding.name.to_string(), local);
+                            if let Some(initializer) = default_initializer {
+                                defaulted_params.push((
+                                    local,
+                                    ty,
+                                    initializer,
+                                    param_name,
+                                    binding.name.to_string(),
+                                    param_span,
+                                ));
+                            }
+                        }
+                        pattern => {
+                            let value = body.push_expr(Expr {
+                                kind: ExprKind::Local(local),
                                 ty,
-                                initializer,
-                                param_name,
-                                binding.name.to_string(),
-                                param_span,
-                            ));
+                                span: param_span,
+                            });
+                            let root = body.root;
+                            this.binding_declaration(
+                                pattern,
+                                Some(value),
+                                Some(ty),
+                                false,
+                                &mut body,
+                                root,
+                            )?;
                         }
                     }
-                    pattern => {
-                        let value = body.push_expr(Expr {
-                            kind: ExprKind::Local(local),
-                            ty,
-                            span: param_span,
-                        });
-                        let root = body.root;
-                        this.binding_declaration(
-                            pattern,
-                            Some(value),
-                            Some(ty),
-                            false,
-                            &mut body,
-                            root,
-                        )?;
-                    }
                 }
-            }
-            let rest = if let Some(rest) = &arrow.params.rest {
-                let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
-                    return Err(SmeltError::unsupported(
-                        this.span(rest.span.start, rest.span.end),
-                        "destructured rest arrow function parameters need rest binding lowering",
-                    ));
-                };
-                let Some(annotation) = &rest.type_annotation else {
-                    return Err(SmeltError::unsupported(
-                        this.span(rest.span.start, rest.span.end),
-                        "rest arrow function parameters must have explicit array type annotations",
-                    ));
-                };
-                let ty = match this.ts_type_to_hir(&annotation.type_annotation) {
-                    Ok(ty) => ty,
-                    Err(error) => {
-                    return Err(error);
-                    }
-                };
-                // A fixed-width tuple rest is fixed parameters plus a tuple binding
-                // of them (`lowering::tuple_rest`).
-                if let Some(elements) = this.fixed_tuple_rest_elements(ty) {
+                let rest = if let Some(rest) = &arrow.params.rest {
+                    let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
+                        return Err(SmeltError::unsupported(
+                            this.span(rest.span.start, rest.span.end),
+                            "destructured rest arrow function parameters need rest binding lowering",
+                        ));
+                    };
+                    let Some(annotation) = &rest.type_annotation else {
+                        return Err(SmeltError::unsupported(
+                            this.span(rest.span.start, rest.span.end),
+                            "rest arrow function parameters must have explicit array type annotations",
+                        ));
+                    };
+                    let ty = match this.ts_type_to_hir(&annotation.type_annotation) {
+                        Ok(ty) => ty,
+                        Err(error) => {
+                        return Err(error);
+                        }
+                    };
+                    // A fixed-width tuple rest is fixed parameters plus a tuple binding
+                    // of them (`lowering::tuple_rest`).
+                    if let Some(elements) = this.fixed_tuple_rest_elements(ty) {
+                        let span = this.span(binding.span.start, binding.span.end);
+                        for param in
+                            this.bind_tuple_rest_params(binding.name.as_str(), ty, &elements, span, &mut body)
+                        {
+                            params.push(Param {
+                                name: param.name,
+                                local: param.local,
+                                ty: param.ty,
+                                span,
+                            });
+                        }
+                        None
+                    } else {
+                    let Ok((ty, item_ty)) = this.rest_param_array_type(ty) else {
+                        return Err(SmeltError::unsupported(
+                            this.span(rest.span.start, rest.span.end),
+                            "rest arrow function parameter type must be an array type",
+                        ));
+                    };
+                    let param_name = this.intern_source_name(binding.name.as_str());
                     let span = this.span(binding.span.start, binding.span.end);
-                    for param in
-                        this.bind_tuple_rest_params(binding.name.as_str(), ty, &elements, span, &mut body)
-                    {
-                        params.push(Param {
-                            name: param.name,
-                            local: param.local,
-                            ty: param.ty,
-                            span,
-                        });
+                    let local = body.push_local(LocalDecl {
+                        name: Some(param_name),
+                        ty,
+                        mutable: false,
+                        span,
+                    });
+                    body.params.push(local);
+                    this.scope.bind(binding.name.to_string(), local);
+                    let index = params.len();
+                    params.push(Param {
+                        name: param_name,
+                        local,
+                        ty,
+                        span,
+                    });
+                    Some(RestParam { index, item_ty })
                     }
-                    None
                 } else {
-                let Ok((ty, item_ty)) = this.rest_param_array_type(ty) else {
-                    return Err(SmeltError::unsupported(
-                        this.span(rest.span.start, rest.span.end),
-                        "rest arrow function parameter type must be an array type",
-                    ));
+                    None
                 };
-                let param_name = this.intern_source_name(binding.name.as_str());
-                let span = this.span(binding.span.start, binding.span.end);
-                let local = body.push_local(LocalDecl {
-                    name: Some(param_name),
-                    ty,
-                    mutable: false,
-                    span,
-                });
-                body.params.push(local);
-                this.scope.bind(binding.name.to_string(), local);
-                let index = params.len();
-                params.push(Param {
-                    name: param_name,
-                    local,
-                    ty,
-                    span,
-                });
-                Some(RestParam { index, item_ty })
+
+                let required_params = Self::arrow_required_params(arrow);
+                // A this-recursive arrow calls its own item from its own body, so the
+                // item has to exist (with its callable signature) before that body is
+                // lowered — exactly as a function declaration is predeclared.
+                predeclared = this.predeclare_self_recursive_arrow_item(
+                    name_text,
+                    arrow,
+                    &params,
+                    rest,
+                    required_params,
+                    declared_return_ty,
+                    preserve_source_name,
+                    qualify_private_name,
+                );
+
+                let mut errors = Vec::new();
+                if let Err(error) = this.apply_parameter_defaults(defaulted_params, &mut body) {
+                    errors.push(error);
                 }
-            } else {
-                None
-            };
-
-            let required_params = Self::arrow_required_params(arrow);
-            // A this-recursive arrow calls its own item from its own body, so the
-            // item has to exist (with its callable signature) before that body is
-            // lowered — exactly as a function declaration is predeclared.
-            predeclared = this.predeclare_self_recursive_arrow_item(
-                name_text,
-                arrow,
-                &params,
-                rest,
-                required_params,
-                declared_return_ty,
-                preserve_source_name,
-                qualify_private_name,
-            );
-
-            let mut errors = Vec::new();
-            if let Err(error) = this.apply_parameter_defaults(defaulted_params, &mut body) {
-                errors.push(error);
-            }
-            let mut inferred_return_ty = None;
-            // Since oxc 0.147 an arrow's body is an `ArrowFunctionBody` enum rather
-            // than a `FunctionBody` plus a separate `expression` flag, so a concise
-            // body is the expression itself instead of a lone `ExpressionStatement`.
-            if let Some(body_expression) = arrow.get_expression() {
-                // An async expression-bodied arrow's declared return type is
-                // `Promise<Inner>`; the body expression produces `Inner` and
-                // the async wrapper adds the promise. Hint the body at the
-                // awaited inner type (unwrapping one `Future` layer for async
-                // bodies) so a literal array/tuple body keeps its own value
-                // type rather than being coerced to the future type.
-                let body_hint = this.return_statement_value_hint();
-                match this.expression_with_hint(body_expression, &mut body, body_hint) {
-                    Ok(value) => {
-                        inferred_return_ty = Some(Self::expr_ty(&body, value));
-                        body.push_stmt(Stmt::Return(Some(value)));
+                let mut inferred_return_ty = None;
+                // Since oxc 0.147 an arrow's body is an `ArrowFunctionBody` enum rather
+                // than a `FunctionBody` plus a separate `expression` flag, so a concise
+                // body is the expression itself instead of a lone `ExpressionStatement`.
+                if let Some(body_expression) = arrow.get_expression() {
+                    // An async expression-bodied arrow's declared return type is
+                    // `Promise<Inner>`; the body expression produces `Inner` and
+                    // the async wrapper adds the promise. Hint the body at the
+                    // awaited inner type (unwrapping one `Future` layer for async
+                    // bodies) so a literal array/tuple body keeps its own value
+                    // type rather than being coerced to the future type.
+                    let body_hint = this.return_statement_value_hint();
+                    match this.expression_with_hint(body_expression, &mut body, body_hint) {
+                        Ok(value) => {
+                            inferred_return_ty = Some(Self::expr_ty(&body, value));
+                            body.push_stmt(Stmt::Return(Some(value)));
+                        }
+                        Err(error) => errors.push(error),
                     }
-                    Err(error) => errors.push(error),
-                }
-            } else {
-                let statements = arrow
-                    .get_function_body()
-                    .map_or_else(|| [].as_slice(), |block| block.statements.as_slice());
-                if let Err(error) = this.predeclare_local_function_declarations(statements, &mut body) {
-                    errors.push(error);
-                }
-                if let Err(error) = this.predeclare_forward_referenced_locals(statements, &mut body) {
-                    errors.push(error);
-                }
-                for statement in crate::lowering::hoisting::hoisted_statements(statements) {
-                    if let Err(error) = this.statement(statement, &mut body) {
+                } else {
+                    let statements = arrow
+                        .get_function_body()
+                        .map_or_else(|| [].as_slice(), |block| block.statements.as_slice());
+                    if let Err(error) = this.predeclare_local_function_declarations(statements, &mut body) {
                         errors.push(error);
                     }
+                    if let Err(error) = this.predeclare_forward_referenced_locals(statements, &mut body) {
+                        errors.push(error);
+                    }
+                    for statement in crate::lowering::hoisting::hoisted_statements(statements) {
+                        if let Err(error) = this.statement(statement, &mut body) {
+                            errors.push(error);
+                        }
+                    }
+                    inferred_return_ty = this.last_return_type(&body);
                 }
-                inferred_return_ty = this.last_return_type(&body);
+                if arrow.r#async {
+                    body.finish_async();
+                }
+                // Any `fn.prop = value` write this body collected must have been rebuilt
+                // into a callable-interface struct by now; a leftover is a dropped write.
+                this.report_unconsumed_callable_props(&mut errors);
+                Ok((body, params, rest, required_params, inferred_return_ty, errors))
+            });
+            let lowered = lowered.and_then(|(body, params, rest, required_params, inferred, errors)| {
+                errors
+                    .into_iter()
+                    .next()
+                    .map_or(Ok((body, params, rest, required_params, inferred)), Err)
+            });
+            let (body, params, rest, required_params, inferred_return_ty) = match lowered {
+                Ok(lowered) => lowered,
+                Err(error) => {
+                    this.unregister_predeclared_arrow_item(name_text, predeclared);
+                    return Err(error);
+                }
+            };
+            let inferred_return_ty = inferred_return_ty.or_else(|| {
+                (arrow.r#async || !arrow.is_expression())
+                    .then(|| this.ctx.krate.types.intern(Type::None))
+            });
+            let return_ty = if arrow.r#async {
+                declared_return_ty.or_else(|| {
+                    inferred_return_ty.map(|inner| this.ctx.krate.types.intern(Type::Future(inner)))
+                })
+            } else {
+                this.arrow_const_return_type(declared_return_ty, inferred_return_ty)
             }
-            if arrow.r#async {
-                body.finish_async();
-            }
-            // Any `fn.prop = value` write this body collected must have been rebuilt
-            // into a callable-interface struct by now; a leftover is a dropped write.
-            this.report_unconsumed_callable_props(&mut errors);
-            Ok((body, params, rest, required_params, inferred_return_ty, errors))
-        });
-        let lowered = lowered.and_then(|(body, params, rest, required_params, inferred, errors)| {
-            errors
-                .into_iter()
-                .next()
-                .map_or(Ok((body, params, rest, required_params, inferred)), Err)
-        });
-        let (body, params, rest, required_params, inferred_return_ty) = match lowered {
-            Ok(lowered) => lowered,
-            Err(error) => {
-                self.pop_type_parameter_scope();
-                self.unregister_predeclared_arrow_item(name_text, predeclared);
-                return Err(error);
-            }
-        };
-        let inferred_return_ty = inferred_return_ty.or_else(|| {
-            (arrow.r#async || !arrow.is_expression())
-                .then(|| self.ctx.krate.types.intern(Type::None))
-        });
-        let return_ty = if arrow.r#async {
-            declared_return_ty.or_else(|| {
-                inferred_return_ty.map(|inner| self.ctx.krate.types.intern(Type::Future(inner)))
-            })
-        } else {
-            self.arrow_const_return_type(declared_return_ty, inferred_return_ty)
-        }
-            .ok_or_else(|| {
-                self.pop_type_parameter_scope();
-                self.unregister_predeclared_arrow_item(name_text, predeclared);
-                SmeltError::unsupported(
-                    self.span(arrow.span.start, arrow.span.end),
-                    "block-bodied arrow function constants must have an explicit return type",
-                )
-            })?;
-        self.pop_type_parameter_scope();
+                .ok_or_else(|| {
+                    this.unregister_predeclared_arrow_item(name_text, predeclared);
+                    SmeltError::unsupported(
+                        this.span(arrow.span.start, arrow.span.end),
+                        "block-bodied arrow function constants must have an explicit return type",
+                    )
+                })?;
+            Ok((arrow_type_params, predeclared, body, params, rest, required_params, return_ty))
+        })?;
 
         let body_id = self.ctx.krate.push_body(body);
         let name = self.arrow_item_symbol(name_text, preserve_source_name, qualify_private_name);

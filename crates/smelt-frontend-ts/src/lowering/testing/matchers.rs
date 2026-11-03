@@ -4255,9 +4255,13 @@ impl ModuleBuilder<'_> {
             }
             self.push_type_parameter_scope(function.type_parameters.as_deref())?;
             let result = (|| {
+                // The same ABI the declaration itself lowers to (see
+                // `local_function_declaration`), so a call lowered before the
+                // declaration statement already passes `Optional<T>` for a
+                // defaulted parameter.
                 let mut params = Vec::new();
                 for param in &function.params.items {
-                    params.push(self.function_parameter_type(param)?);
+                    params.push(self.function_parameter_abi(param)?.0);
                 }
                 let required_params = function
                     .params
@@ -4490,13 +4494,25 @@ impl ModuleBuilder<'_> {
             } else {
                 None
             };
-            let (value_result, deferred_updates) = self.with_deferred_updates(|this| {
+            // Postfix stores move after the binding only when no later part of
+            // the initializer can observe them; otherwise each one stores where
+            // JavaScript evaluates it (see `postfix_deferral`).
+            let mut lower_init = |this: &mut Self| {
                 declarator
                     .init
                     .as_ref()
                     .map(|init| this.expression_with_hint(init, body, annotated_ty))
                     .transpose()
-            });
+            };
+            let (value_result, deferred_updates) = if declarator
+                .init
+                .as_ref()
+                .is_none_or(crate::lowering::postfix_deferral::initializer_can_defer_postfix_updates)
+            {
+                self.with_deferred_updates(lower_init)
+            } else {
+                (lower_init(self), Vec::new())
+            };
             let value = value_result?;
             let annotated_ty = self.presence_widened_binding_type(declarator, annotated_ty, value, body);
             let value = value.map(|value| self.keyed_read_into_optional_slot(value, annotated_ty, body));
@@ -5106,6 +5122,7 @@ impl ModuleBuilder<'_> {
             let mut closure_params = Vec::new();
             let mut param_names = HashSet::new();
             let mut saved_locals = Vec::new();
+            let mut defaulted_params = Vec::new();
 
             // A nested `function` that reads its own `arguments` is variadic: the
             // object is the ACTUAL argument list, which a declared-arity signature
@@ -5121,14 +5138,19 @@ impl ModuleBuilder<'_> {
             // `required_params` is the field `length` is derived from, and it still
             // describes the source contract (the parameters before the first
             // optional one) even though the internal ABI is now a single list.
-            let source_required_params = arguments_forwarding.as_ref().map(|_| {
+            //
+            // The same count is what a caller may omit down to, so it is
+            // recorded for every nested declaration, not only the variadic one:
+            // without it a call that omits a defaulted or optional argument
+            // looked short of the declared arity and lost every argument.
+            let source_required_params = Some(
                 function
                     .params
                     .items
                     .iter()
                     .position(|param| param.optional || Self::formal_parameter_has_default(param))
-                    .unwrap_or(function.params.items.len())
-            });
+                    .unwrap_or(function.params.items.len()),
+            );
             if let Some(forwarding) = &arguments_forwarding {
                 closure_params.extend(forwarding.params.iter().cloned());
                 param_tys.extend(forwarding.param_tys.iter().copied());
@@ -5144,7 +5166,11 @@ impl ModuleBuilder<'_> {
                 .enumerate()
                 .take(if arguments_forwarding.is_some() { 0 } else { usize::MAX })
             {
-                let ty = this.function_parameter_type(param)?;
+                // A defaulted parameter takes the `Optional<T>` ABI and a body
+                // prelude applies its default, exactly like a top-level
+                // `function` (see `function_parameter_abi`). Dropping the
+                // default here left an omitted argument with nothing to fill it.
+                let (ty, default_initializer) = this.function_parameter_abi(param)?;
                 let (symbol, param_span, source_name) = match &param.pattern {
                     BindingPattern::BindingIdentifier(binding) => (
                         this.intern_source_name(binding.name.as_str()),
@@ -5173,6 +5199,16 @@ impl ModuleBuilder<'_> {
                 param_tys.push(ty);
                 if let Some(source_name) = source_name {
                     param_names.insert(source_name.clone());
+                    if let Some(initializer) = default_initializer {
+                        defaulted_params.push((
+                            local,
+                            ty,
+                            initializer,
+                            symbol,
+                            source_name.clone(),
+                            param_span,
+                        ));
+                    }
                     saved_locals
                         .push((source_name.clone(), this.scope.bind(source_name, local)));
                 }
@@ -5245,7 +5281,7 @@ impl ModuleBuilder<'_> {
             let provisional_fn_ty = this.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: param_tys.clone(),
                 rest: rest_index,
-                required_params: None,
+                required_params: source_required_params,
                 mutable_params: Vec::new(),
                 return_ty: provisional_return_ty,
                 is_async: function.r#async,
@@ -5325,8 +5361,15 @@ impl ModuleBuilder<'_> {
                 } else {
                     function.params.items.len()
                 });
-                let mut lowering_result = Ok(());
+                // Defaults run first, in callee scope, before any body
+                // statement; each rebinds its parameter name to the applied
+                // local, which the `saved_locals` restore below undoes.
+                let mut lowering_result =
+                    this.apply_parameter_defaults(defaulted_params, &mut closure_body);
                 for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
+                    if lowering_result.is_err() {
+                        break;
+                    }
                     if let Err(error) = this.statement(statement, &mut closure_body) {
                         lowering_result = Err(error);
                         break;

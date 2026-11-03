@@ -12,6 +12,7 @@ mod asserted_member_read;
 mod function_statics;
 mod hoisting;
 mod int32;
+mod postfix_deferral;
 mod presence_tested_locals;
 mod promise_resolution;
 mod specialization;

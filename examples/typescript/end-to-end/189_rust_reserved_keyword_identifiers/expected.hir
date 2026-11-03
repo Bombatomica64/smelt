@@ -1,0 +1,82 @@
+module examples/typescript/end-to-end/189_rust_reserved_keyword_identifiers/input.ts (ModuleId(0))
+  body BodyId(8)
+  items
+    fn gen owner Module
+    fn become owner Module
+    class Machine fields [Public gen: Float, Public type: String] constructor Some(ItemId(4)) methods [ItemId(5), ItemId(6)] implements []
+    interface Fields fields [Public gen: Float, Public dyn: String, Public priv: Bool] methods []
+    fn read_fields owner Module
+    fn shadowed owner Module
+  locals
+    %0 const machine: Machine
+  exprs
+    #0: Float = 4.0
+    #1: fn(Float) -> Float = @0(gen)
+    #2: Float = call #1(#0)
+    #3: Machine = new Machine(#2)
+    #4: Float = 1.0
+    #5: fn(Float) -> Float = @0(gen)
+    #6: Float = call #5(#4)
+    #7: None = @9(console_log)
+    #8: None = call #7(#6)
+    #9: Float = 2.0
+    #10: Float = 3.0
+    #11: fn(Float, Float) -> Float = @1(become)
+    #12: Float = call #11(#9, #10)
+    #13: None = @10(console_log)
+    #14: None = call #13(#12)
+    #15: Machine = %0
+    #16: fn(Float) -> Float = #15.match
+    #17: Machine = %0
+    #18: Float = 7.0
+    #19: Float = #17.match(#18)
+    #20: None = @11(console_log)
+    #21: None = call #20(#19)
+    #22: Machine = %0
+    #23: fn() -> String = #22.loop
+    #24: Machine = %0
+    #25: String = #24.loop()
+    #26: None = @12(console_log)
+    #27: None = call #26(#25)
+    #28: String = "gen"
+    #29: Float = 9.0
+    #30: String = "dyn"
+    #31: String = "d"
+    #32: String = "priv"
+    #33: Bool = true
+    #34: Fields = {#28: #29, #30: #31, #32: #33}
+    #35: fn(Fields) -> String = @2(read_fields)
+    #36: String = call #35(#34)
+    #37: None = @13(console_log)
+    #38: None = call #37(#36)
+    #39: fn() -> Float = @3(shadowed)
+    #40: Float = call #39()
+    #41: None = @14(console_log)
+    #42: None = call #41(#40)
+  stmts
+    s0: let %0: Machine = #3
+    s1: #8
+    s2: #14
+    s3: #21
+    s4: #27
+    s5: #38
+    s6: #42
+
+interned types
+  t0 = Unknown
+  t1 = String
+  t2 = Dict<String, Unknown>
+  t3 = Float
+  t4 = Machine
+  t5 = fn(Float) -> Float
+  t6 = fn(Float, Float) -> Float
+  t7 = Fields
+  t8 = fn(Fields) -> String
+  t9 = fn() -> Float
+  t10 = None
+  t11 = Bool
+  t12 = fn(Float) -> Float
+  t13 = fn(Float, Float) -> Float
+  t14 = fn() -> String
+  t15 = fn(Fields) -> String
+  t16 = fn() -> Float

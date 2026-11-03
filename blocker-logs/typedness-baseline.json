@@ -2,17 +2,17 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8525,
-      "generic": 127,
+      "concrete": 8747,
+      "generic": 133,
       "erased": 65
     },
     "reads": {
-      "concrete": 854,
-      "generic": 34,
+      "concrete": 865,
+      "generic": 36,
       "erased": 20
     },
     "calls": {
-      "concrete": 2206,
+      "concrete": 2262,
       "generic": 13,
       "erased": 2
     }
@@ -1446,6 +1446,57 @@
         "erased": 0
       }
     },
+    "examples/typescript/end-to-end/187_postfix_update_observed_in_initializer/input.ts": {
+      "values": {
+        "concrete": 98,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 4,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 20,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/188_nested_function_parameter_defaults/input.ts": {
+      "values": {
+        "concrete": 69,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 16,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/189_rust_reserved_keyword_identifiers/input.ts": {
+      "values": {
+        "concrete": 47,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 15,
+        "generic": 0,
+        "erased": 0
+      }
+    },
     "examples/typescript/end-to-end/18_class_fields/input.ts": {
       "values": {
         "concrete": 6,
@@ -1459,6 +1510,23 @@
       },
       "calls": {
         "concrete": 2,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/190_type_parameter_scope_ends_with_its_class/input.ts": {
+      "values": {
+        "concrete": 8,
+        "generic": 6,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 1,
+        "generic": 2,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 5,
         "generic": 0,
         "erased": 0
       }
