@@ -61,14 +61,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::CliResult;
 
-/// Output format for the `SmeltUnknown` report.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum UnknownReportFormat {
-    /// Human-readable Markdown.
-    Markdown,
-    /// Machine-readable JSON (also the checked-in baseline format).
-    Json,
-}
+/// Report output format; the `--format` value enum shared by every report.
+pub(crate) type UnknownReportFormat = crate::cli_parser::ReportFormat;
 
 /// Options controlling one `SmeltUnknown` report run.
 pub(crate) struct UnknownReportOptions<'a> {
@@ -410,25 +404,16 @@ fn scan_files(files: &[PathBuf]) -> CliResult<ScanResult> {
         let display = display_path(file, cwd.as_deref());
         // Track which shapes appeared in this file to count distinct files.
         let mut seen_here: std::collections::BTreeSet<ShapeKey> = std::collections::BTreeSet::new();
-        let mut in_prelude_helper = false;
-        // Authoritative prelude boundary: the 0-based index of the sentinel line,
-        // if the emitter wrote one. Every line at or before it is prelude.
-        let marker_line = text
-            .lines()
-            .position(|line| line.trim() == smelt_codegen_rust::PRELUDE_END_MARKER);
+        let mut boundary = PreludeBoundary::of(&text);
         for (index, line) in text.lines().enumerate() {
-            update_prelude_helper_state(line, &mut in_prelude_helper);
+            let site = boundary.advance(index, line);
             let count = count_value_erasures(line);
             if count == 0 {
                 continue;
             }
-            // Prefer the exact marker boundary; fall back to the per-line
-            // heuristic when the file predates the sentinel.
-            let before_marker = marker_line.is_some_and(|marker| index <= marker);
-            let category = if before_marker {
-                Category::RuntimePrelude
-            } else {
-                classify_line(line, in_prelude_helper && marker_line.is_none())
+            let category = match site {
+                LineSite::Prelude => Category::RuntimePrelude,
+                LineSite::Program { in_prelude_helper } => classify_line(line, in_prelude_helper),
             };
             let shape = normalize_line(line);
             let key = (category, shape.clone());
@@ -551,6 +536,59 @@ fn strip_annotation_spellings(line: &str) -> String {
             "-> Result<SmeltUnknown, Box<dyn std::error::Error>>",
             "-> Result<(), Box<dyn std::error::Error>>",
         )
+}
+
+/// How a scanned file says where its runtime prelude ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PreludeBoundary {
+    /// The emitter wrote [`smelt_codegen_rust::PRELUDE_END_MARKER`] at this
+    /// 0-based line: every line at or before it is prelude, every line after
+    /// it is program. Authoritative; no per-line heuristic runs.
+    Marker {
+        /// Index of the marker line.
+        line: usize,
+    },
+    /// No marker (a module file of a multi-file crate, or output that predates
+    /// the sentinel): the coarse `smelt_*` helper tracking of
+    /// [`update_prelude_helper_state`] decides line by line.
+    Heuristic {
+        /// Whether the scan is inside a prelude helper definition.
+        in_prelude_helper: bool,
+    },
+}
+
+/// Where one scanned line sits relative to the runtime prelude.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LineSite {
+    /// At or before the prelude marker: always runtime prelude.
+    Prelude,
+    /// Program text; `in_prelude_helper` is the heuristic's verdict in a
+    /// marker-less file and always `false` after a marker.
+    Program {
+        /// Whether the heuristic places the line inside a prelude helper.
+        in_prelude_helper: bool,
+    },
+}
+
+impl PreludeBoundary {
+    /// The boundary of a whole file's text.
+    fn of(text: &str) -> Self {
+        text.lines()
+            .position(|line| line.trim() == smelt_codegen_rust::PRELUDE_END_MARKER)
+            .map_or(Self::Heuristic { in_prelude_helper: false }, |line| Self::Marker { line })
+    }
+
+    /// Place line `index` (whose text is `line`), advancing the heuristic.
+    fn advance(&mut self, index: usize, line: &str) -> LineSite {
+        match self {
+            Self::Marker { line: marker } if index <= *marker => LineSite::Prelude,
+            Self::Marker { .. } => LineSite::Program { in_prelude_helper: false },
+            Self::Heuristic { in_prelude_helper } => {
+                update_prelude_helper_state(line, in_prelude_helper);
+                LineSite::Program { in_prelude_helper: *in_prelude_helper }
+            }
+        }
+    }
 }
 
 /// Update whether we are inside a `smelt_*` runtime prelude helper definition.

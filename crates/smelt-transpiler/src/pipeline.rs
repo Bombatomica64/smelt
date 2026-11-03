@@ -29,13 +29,16 @@ pub(crate) fn dump_python_ast(file: &str) -> Result<(), Box<dyn std::error::Erro
 pub(crate) fn print_hir(
     krate: &smelt_hir::Crate,
     modules: &[(String, smelt_hir::ModuleId)],
-    debug: bool,
+    mode: crate::cli_parser::HirMode,
 ) {
     let mut stdout = io::stdout().lock();
-    if debug {
-        let _ignored = writeln!(stdout, "{krate:#?}");
-    } else {
-        let _ignored = write!(stdout, "{}", format_compact(krate, modules));
+    match mode {
+        crate::cli_parser::HirMode::Debug => {
+            let _ignored = writeln!(stdout, "{krate:#?}");
+        }
+        crate::cli_parser::HirMode::Compact => {
+            let _ignored = write!(stdout, "{}", format_compact(krate, modules));
+        }
     }
 }
 
@@ -89,9 +92,14 @@ pub(crate) fn build_rust_crate(
 /// Builds a Rust crate from manifest configuration.
 ///
 /// Besides the crate, writes `<output>/smelt-erasure.json` (every erasure the
-/// frontends and the backend decided, resolved to source lines) and prints the
-/// erasures `settings` marks `warn`/`deny`; any `deny` fails the build after
-/// the output is written.
+/// frontends and the backend decided, resolved to source lines) and the
+/// typedness sidecar, and prints the erasures `settings` marks `warn`/`deny`;
+/// any `deny` fails the build after the output is written.
+///
+/// Every fallible analysis runs before the output directory is touched, so a
+/// failure leaves the previous output as it was; once the crate is emitted,
+/// only the sidecar writes themselves can fail, and the crate and both
+/// sidecars always describe the same build.
 pub(crate) fn build_rust_crate_with_erasure(
     config: &Config,
     manifest_path: &Path,
@@ -105,6 +113,11 @@ pub(crate) fn build_rust_crate_with_erasure(
     })?;
     let mir = lower_to_optimized_mir(&krate)?;
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    // Measured before emitting: a failure here must not leave a fresh crate
+    // beside the previous build's typedness sidecar.
+    let typedness = typedness_report::TypednessReport::from_programs(
+        typedness_report::programs_of(&smelt_codegen_rust::measure_typedness(&mir)?, manifest_dir),
+    );
     let output_dir = resolve_manifest_path(manifest_dir, config.output_target());
     let crate_name = config
         .output_crate_name()
@@ -124,9 +137,6 @@ pub(crate) fn build_rust_crate_with_erasure(
     })?;
     let erasures = erasure::resolve(&krate, &backend_erasures, manifest_dir, settings);
     erasure::write_sidecar(&output_dir, &erasures)?;
-    let typedness = typedness_report::TypednessReport::from_programs(
-        typedness_report::programs_of(&smelt_codegen_rust::measure_typedness(&mir)?, manifest_dir),
-    );
     typedness_report::write_report_if_changed(
         &output_dir.join(typedness_report::SIDECAR_FILE_NAME),
         &typedness,
