@@ -21,20 +21,26 @@ fn lower_valid(source: &str) -> Result<HirCtx, String> {
     Ok(ctx)
 }
 
+/// An id's index into its body's arena (`usize::MAX`, so a lookup misses,
+/// when it does not fit).
+fn index(id: u32) -> usize {
+    usize::try_from(id).unwrap_or(usize::MAX)
+}
+
 /// Whether some body assigns `name` (an update's store) in any of its blocks.
 fn some_body_assigns_local_named(ctx: &HirCtx, name: &str) -> bool {
     ctx.krate.bodies.iter().any(|body| {
         body.blocks.iter().flat_map(|block| &block.stmts).any(|stmt| {
-            let Some(Stmt::Assign { target, .. }) = body.stmts.get(stmt.0 as usize) else {
+            let Some(Stmt::Assign { target, .. }) = body.stmts.get(index(stmt.0)) else {
                 return false;
             };
             let Some(ExprKind::Local(local)) =
-                body.exprs.get(target.0 as usize).map(|expr| &expr.kind)
+                body.exprs.get(index(target.0)).map(|expr| &expr.kind)
             else {
                 return false;
             };
             body.locals
-                .get(local.0 as usize)
+                .get(index(local.0))
                 .and_then(|decl| decl.name)
                 .and_then(|symbol| ctx.krate.symbols.get(symbol))
                 == Some(name)
@@ -177,16 +183,16 @@ fn every_declaring_body_assigns(ctx: &HirCtx, name: &str) -> bool {
     for body in declaring {
         any = true;
         let assigns = body.blocks.iter().flat_map(|block| &block.stmts).any(|stmt| {
-            let Some(Stmt::Assign { target, .. }) = body.stmts.get(stmt.0 as usize) else {
+            let Some(Stmt::Assign { target, .. }) = body.stmts.get(index(stmt.0)) else {
                 return false;
             };
             let Some(ExprKind::Local(local)) =
-                body.exprs.get(target.0 as usize).map(|expr| &expr.kind)
+                body.exprs.get(index(target.0)).map(|expr| &expr.kind)
             else {
                 return false;
             };
             body.locals
-                .get(local.0 as usize)
+                .get(index(local.0))
                 .and_then(|decl| decl.name)
                 .and_then(|symbol| ctx.krate.symbols.get(symbol))
                 == Some(name)
