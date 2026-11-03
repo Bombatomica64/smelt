@@ -1023,6 +1023,238 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// `value.length` on a concrete union whose every arm has a length: each
+    /// list arm answers its own `len()`, a tuple arm its fixed arity, a string
+    /// arm its character count (the same count a `String` `.length` reads).
+    /// `None` keeps the erased read for any other arm.
+    pub(super) fn concrete_union_length_read_text(
+        &self,
+        base: LocalId,
+    ) -> Result<Option<String>, EmitError> {
+        let base_ty = self.local_decl(base)?.ty;
+        let Some(members) = self.concrete_union_members(base_ty) else {
+            return Ok(None);
+        };
+        let mut arms = Vec::with_capacity(members.len());
+        for (position, member) in members.iter().enumerate() {
+            let length = match self.mir.types.get(*member) {
+                Some(Type::List(_)) => "(smelt_union_arm.len() as f64)".to_owned(),
+                Some(Type::Tuple(items)) => format!("{}.0", items.len()),
+                Some(Type::String) => "(smelt_union_arm.chars().count() as f64)".to_owned(),
+                _ => return Ok(None),
+            };
+            arms.push(format!("{}::M{position}(smelt_union_arm) => {length}", union_name(base_ty)));
+        }
+        Ok(Some(format!(
+            "match &{} {{ {} }}",
+            self.local_value_text(base)?,
+            arms.join(", ")
+        )))
+    }
+
+    /// The static type and per-arm reads of `value[index]` on a concrete union.
+    ///
+    /// A union whose arms are tuples and lists (Hono's router answers
+    /// `[[T, ParamIndexMap][], ParamStash] | [[T, Params][]]`) is typed all the
+    /// way through HIR, yet every element read used to erase it
+    /// (`into_smelt_unknown`), index the erased array dynamically and narrow the
+    /// answer back with `from_smelt_unknown`. A hand port matches on the enum
+    /// and reads each arm at its own type, and so does this:
+    ///
+    /// * a tuple arm with a constant index reads that element, and reads
+    ///   `undefined` past its end (`result[1]` on the one-element arm);
+    /// * a list arm reads the element with the typed list read's semantics
+    ///   (an out-of-range index answers the element type's missing value);
+    /// * a dictionary arm reads the key as a typed dictionary read does.
+    ///
+    /// The read's type is the arms' common type, else the interned union of
+    /// their types (the HIR types `result[0]` as that union, so it exists),
+    /// made `Optional` when an arm reads `undefined`. `None` keeps the erased
+    /// path: another arm shape, a non-constant tuple index, a negative tuple
+    /// index, or a joined type that is not interned or not itself concrete.
+    pub(super) fn concrete_union_index_reads(
+        &self,
+        union_ty: TypeId,
+        index: &Operand,
+        negative: NegativeIndex,
+    ) -> Result<Option<(TypeId, Vec<UnionArmIndexRead>)>, EmitError> {
+        let Some(members) = self.concrete_union_members(union_ty) else {
+            return Ok(None);
+        };
+        let constant = match index {
+            Operand::Const(Constant::Int(value)) => usize::try_from(*value).ok(),
+            Operand::Const(Constant::Float(value))
+                if value.fract() == 0.0 && *value >= 0.0 && *value < 4_294_967_296.0 =>
+            {
+                Some(*value as usize)
+            }
+            _ => None,
+        };
+        let mut reads = Vec::with_capacity(members.len());
+        for member in members {
+            let read = match self.mir.types.get(*member) {
+                Some(Type::Tuple(items)) => {
+                    let Some(position) = constant else {
+                        return Ok(None);
+                    };
+                    match items.get(position) {
+                        Some(item) => UnionArmIndexRead::Element(
+                            *item,
+                            format!("smelt_union_arm.{position}.clone()"),
+                        ),
+                        None => UnionArmIndexRead::Absent,
+                    }
+                }
+                Some(Type::List(item)) => {
+                    let index_text = self.normalized_read_index_text(
+                        "smelt_union_arm.len()",
+                        index,
+                        negative,
+                    )?;
+                    let missing = self.element_missing_value_text(*item)?;
+                    UnionArmIndexRead::Element(
+                        *item,
+                        format!(
+                            "{}.get({index_text}).cloned().unwrap_or_else(|| {missing})",
+                            list_read_text("smelt_union_arm")
+                        ),
+                    )
+                }
+                Some(Type::Dict(key, value)) => UnionArmIndexRead::Element(
+                    *value,
+                    self.dict_index_read_text("smelt_union_arm", *key, *value, index)?,
+                ),
+                _ => return Ok(None),
+            };
+            reads.push(read);
+        }
+        let mut element_tys: Vec<TypeId> = Vec::new();
+        for read in &reads {
+            if let UnionArmIndexRead::Element(ty, _) = read
+                && !element_tys.contains(ty)
+            {
+                element_tys.push(*ty);
+            }
+        }
+        let joined = match element_tys.as_slice() {
+            [] => return Ok(None),
+            [single] => *single,
+            many => {
+                let Some(joined) = self.find_type_id(&Type::Union(many.to_vec())) else {
+                    return Ok(None);
+                };
+                if self.concrete_union_members(joined).is_none() {
+                    return Ok(None);
+                }
+                joined
+            }
+        };
+        let read_ty = if reads.iter().any(|read| matches!(read, UnionArmIndexRead::Absent)) {
+            if matches!(self.mir.types.get(joined), Some(Type::Optional(_))) {
+                joined
+            } else {
+                let Some(optional) = self.find_type_id(&Type::Optional(joined)) else {
+                    return Ok(None);
+                };
+                optional
+            }
+        } else {
+            joined
+        };
+        Ok(Some((read_ty, reads)))
+    }
+
+    /// Render `value[index]` on a concrete union through its arms (see
+    /// [`Self::concrete_union_index_reads`]), or `None` to keep the erased read.
+    pub(super) fn concrete_union_index_read_text(
+        &self,
+        base: LocalId,
+        index: &Operand,
+        negative: NegativeIndex,
+    ) -> Result<Option<String>, EmitError> {
+        let base_ty = self.local_decl(base)?.ty;
+        let Some((read_ty, reads)) = self.concrete_union_index_reads(base_ty, index, negative)? else {
+            return Ok(None);
+        };
+        let (optional, joined) = match self.mir.types.get(read_ty) {
+            Some(Type::Optional(inner))
+                if reads.iter().any(|read| matches!(read, UnionArmIndexRead::Absent)) =>
+            {
+                (true, *inner)
+            }
+            _ => (false, read_ty),
+        };
+        let joined_members = self.concrete_union_members(joined).map(<[TypeId]>::to_vec);
+        let base_enum = union_name(base_ty);
+        let mut arms = Vec::with_capacity(reads.len());
+        for (position, read) in reads.iter().enumerate() {
+            let value = match read {
+                UnionArmIndexRead::Absent => "None".to_owned(),
+                UnionArmIndexRead::Element(ty, text) => {
+                    let injected = match &joined_members {
+                        Some(members) if *ty != joined => {
+                            let Some(arm) = members.iter().position(|member| member == ty) else {
+                                return Ok(None);
+                            };
+                            format!("{}::M{arm}({text})", union_name(joined))
+                        }
+                        _ => text.clone(),
+                    };
+                    if optional { format!("Some({injected})") } else { injected }
+                }
+            };
+            arms.push(format!("{base_enum}::M{position}(smelt_union_arm) => {value}"));
+        }
+        Ok(Some(format!(
+            "match &{} {{ {} }}",
+            self.local_value_text(base)?,
+            arms.join(", ")
+        )))
+    }
+
+    /// `value?.[index]` (or an element read flowing into an optional slot) on
+    /// a concrete union, answering `Option<inner>`: each arm reads its element
+    /// as [`Self::concrete_union_index_reads`] does, an arm without the element
+    /// answers `None`, and an arm whose element is already `Option<inner>`
+    /// passes it through. `None` keeps the erased read.
+    pub(super) fn concrete_union_optional_index_text(
+        &self,
+        base_text: &str,
+        base_ty: TypeId,
+        index: &Operand,
+        inner: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        let Some((_, reads)) =
+            self.concrete_union_index_reads(base_ty, index, NegativeIndex::OutOfRange)?
+        else {
+            return Ok(None);
+        };
+        let inner_members = self.concrete_union_members(inner).map(<[TypeId]>::to_vec);
+        let mut arms = Vec::with_capacity(reads.len());
+        for (position, read) in reads.iter().enumerate() {
+            let value = match read {
+                UnionArmIndexRead::Absent => "None".to_owned(),
+                UnionArmIndexRead::Element(ty, text) if *ty == inner => format!("Some({text})"),
+                UnionArmIndexRead::Element(ty, text)
+                    if self.mir.types.get(*ty) == Some(&Type::Optional(inner)) =>
+                {
+                    text.clone()
+                }
+                UnionArmIndexRead::Element(ty, text) => {
+                    let Some(arm) = inner_members
+                        .as_ref()
+                        .and_then(|members| members.iter().position(|member| member == ty))
+                    else {
+                        return Ok(None);
+                    };
+                    format!("Some({}::M{arm}({text}))", union_name(inner))
+                }
+            };
+            arms.push(format!("{}::M{position}(smelt_union_arm) => {value}", union_name(base_ty)));
+        }
+        Ok(Some(format!("match &{base_text} {{ {} }}", arms.join(", "))))
+    }
+
     /// The static type and per-arm reads of `receiver.field` on a concrete
     /// union whose arms do NOT all declare the field at one type (the case
     /// [`Self::concrete_union_field_read_text`] declines).
@@ -1499,6 +1731,17 @@ pub(crate) fn emit_union_definitions(
         output.push_str("    }\n}\n\n");
     }
     Ok(output)
+}
+
+/// How one arm of a concrete union answers an element read `value[index]`;
+/// see [`FunctionEmitter::concrete_union_index_reads`].
+pub(super) enum UnionArmIndexRead {
+    /// The arm holds the element: its type and the read, spelled against the
+    /// arm binding `smelt_union_arm`.
+    Element(TypeId, String),
+    /// The arm has no element there (a tuple read past its end): JavaScript
+    /// reads `undefined`.
+    Absent,
 }
 
 /// How one arm of a concrete union answers a named property read; see

@@ -1491,6 +1491,7 @@ const RUNTIME_FIXTURES: &[&str] = &[
     "nullish_fallback_runs_only_when_selected",
     "erased_reference_view_reads_live_fields",
     "request_url_serialization",
+    "union_element_reads_per_arm",
 ];
 
 #[test]
