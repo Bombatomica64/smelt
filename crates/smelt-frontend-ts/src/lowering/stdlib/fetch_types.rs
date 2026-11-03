@@ -280,7 +280,7 @@ impl ModuleBuilder<'_> {
     /// Shared with the `node:http` classes, which are shadowed by the same
     /// rule: a program with its own `Server` keeps it.
     pub(in crate::lowering) fn user_class_shadows(&self, name: &str) -> bool {
-        self.classes.contains(name) || self.classes.is_pending(name)
+        self.classes.is_known(name)
     }
 
     /// Map a recognized rule and member spelling to its parameter operation.

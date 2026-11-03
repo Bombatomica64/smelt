@@ -883,7 +883,9 @@ struct ModuleBuilder<'ctx> {
     /// prepass that runs before statement lowering, so a fact discovered about
     /// the local *later* (such as "this const binds the ambient global object")
     /// has to be projected onto the exported spelling once lowering finishes;
-    /// this map is what makes that projection possible.
+    /// this map is what makes that projection possible. The projection
+    /// (`record_module_exports`) consumes the module's `SignaturesDeclared`
+    /// phase token, so it cannot run before the prepasses or run twice.
     export_renames: HashMap<String, String>,
     /// Object constants that act as namespace-like API surfaces.
     object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,

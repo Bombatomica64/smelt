@@ -137,12 +137,11 @@ impl ModuleBuilder<'_> {
             ));
         }
         if !builtin_target
-            && !self.classes.contains(class_text)
             // Module class names are collected before any class body is
             // lowered. A class currently under construction is therefore a
             // valid nominal target even though its final HIR item is inserted
             // only after all of its methods have been emitted.
-            && !self.classes.is_pending(class_text)
+            && !self.classes.is_known(class_text)
             && !self.imports.is_value(class_text)
         {
             // `x instanceof f` against a *function* value (the JS

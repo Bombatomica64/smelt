@@ -32,21 +32,13 @@ use smelt_hir::{ExprId, ItemId, LocalId, Span, Symbol, TypeId};
 
 use crate::lowering::LocalCallback;
 
-/// Collected static-member property writes onto a function-typed local.
-///
-/// Populated by `ModuleBuilder::try_collect_callable_local_prop` as it claims
-/// straight-line `fn.prop = value` writes, and consumed by the
-/// callable-interface coercion that synthesizes a
-/// [`smelt_hir::ExprKind::CallableObjectAssign`]. `props` keeps the writes in
-/// source order with last-write-wins de-duplication; `escaped` records whether
-/// the local has already been read for a purpose other than that consumption,
-/// which makes a later property write a documented (blocked) write-after-escape.
+/// What one function-typed local has collected so far: its `fn.prop = value`
+/// writes, the span of the first, and the callable interface it was declared
+/// at.
 #[derive(Debug, Clone, Default)]
-struct CallableLocalProps {
+struct CollectedProps {
     /// Property writes in source order (last write wins), as `(name, value)`.
     props: Vec<(Symbol, ExprId)>,
-    /// Set once the local escapes via a non-consuming, non-self-call read.
-    escaped: bool,
     /// Span of the first claimed write, used to point the
     /// collected-but-never-consumed diagnostic at the source the collection ate.
     first_write_span: Option<Span>,
@@ -58,6 +50,62 @@ struct CallableLocalProps {
     /// `return` from a function with an inferred return type) can still be
     /// constructed instead of dropping its properties.
     declared_interface: Option<TypeId>,
+}
+
+/// The collection state of static-member property writes onto a
+/// function-typed local.
+///
+/// Populated by `ModuleBuilder::try_collect_callable_local_prop` as it claims
+/// straight-line `fn.prop = value` writes, and consumed by the
+/// callable-interface coercion that synthesizes a
+/// [`smelt_hir::ExprKind::CallableObjectAssign`]. Consumption removes the
+/// local's entry, so "consumed" is the absence of one; a local that was never
+/// written or declared at a callable interface has none either.
+#[derive(Debug, Clone)]
+enum CallableLocalProps {
+    /// The local has only been written and passed to its own calls: further
+    /// writes are collected.
+    Collecting(CollectedProps),
+    /// The local was read for a purpose other than consumption, so a later
+    /// property write is a documented (blocked) write-after-escape. The writes
+    /// collected before the escape are still owed to a consumer.
+    Escaped(CollectedProps),
+}
+
+impl Default for CallableLocalProps {
+    fn default() -> Self {
+        Self::Collecting(CollectedProps::default())
+    }
+}
+
+impl CallableLocalProps {
+    /// The collected facts, whatever the state.
+    const fn collected(&self) -> &CollectedProps {
+        match self {
+            Self::Collecting(collected) | Self::Escaped(collected) => collected,
+        }
+    }
+
+    /// The collected facts, mutably, whatever the state.
+    const fn collected_mut(&mut self) -> &mut CollectedProps {
+        match self {
+            Self::Collecting(collected) | Self::Escaped(collected) => collected,
+        }
+    }
+
+    /// Move to [`Self::Escaped`], keeping what was collected.
+    fn escape(&mut self) {
+        if let Self::Collecting(collected) = self {
+            *self = Self::Escaped(std::mem::take(collected));
+        }
+    }
+
+    /// The collected facts, consuming the state.
+    fn into_collected(self) -> CollectedProps {
+        match self {
+            Self::Collecting(collected) | Self::Escaped(collected) => collected,
+        }
+    }
 }
 
 /// Source-name to local-id bindings saved while a nested body is lowered.
@@ -320,7 +368,12 @@ impl LocalScope {
         value: ExprId,
         span: Span,
     ) {
-        let entry = self.callable_props.0.entry(local).or_default();
+        let state = self.callable_props.0.entry(local).or_default();
+        debug_assert!(
+            matches!(state, CallableLocalProps::Collecting(_)),
+            "a property write onto an escaped callable local must be rejected by the caller"
+        );
+        let entry = state.collected_mut();
         entry.props.retain(|(name, _)| *name != prop);
         entry.props.push((prop, value));
         entry.first_write_span.get_or_insert(span);
@@ -343,6 +396,7 @@ impl LocalScope {
             .callable_props
             .0
             .values()
+            .map(CallableLocalProps::collected)
             .filter(|state| !state.props.is_empty())
             .filter_map(|state| {
                 state
@@ -363,7 +417,12 @@ impl LocalScope {
         local: LocalId,
         interface_ty: TypeId,
     ) {
-        self.callable_props.0.entry(local).or_default().declared_interface = Some(interface_ty);
+        self.callable_props
+            .0
+            .entry(local)
+            .or_default()
+            .collected_mut()
+            .declared_interface = Some(interface_ty);
     }
 
     /// Return the callable-interface type a local was declared at, if any.
@@ -374,7 +433,7 @@ impl LocalScope {
         self.callable_props
             .0
             .get(&local)
-            .and_then(|state| state.declared_interface)
+            .and_then(|state| state.collected().declared_interface)
     }
 
     /// Return whether a callable local has already escaped its collection.
@@ -382,13 +441,13 @@ impl LocalScope {
         self.callable_props
             .0
             .get(&local)
-            .is_some_and(|state| state.escaped)
+            .is_some_and(|state| matches!(state, CallableLocalProps::Escaped(_)))
     }
 
     /// Record that a callable local escaped through a non-consuming read.
     pub(in crate::lowering) fn mark_callable_local_escaped(&mut self, local: LocalId) {
         if let Some(state) = self.callable_props.0.get_mut(&local) {
-            state.escaped = true;
+            state.escape();
         }
     }
 
@@ -404,7 +463,7 @@ impl LocalScope {
         self.callable_props
             .0
             .remove(&local)
-            .map(|state| state.props)
+            .map(|state| state.into_collected().props)
     }
 
     /// Take the callable-local writes, leaving none for a nested body.

@@ -72,9 +72,7 @@ impl ModuleBuilder<'_> {
             (caught, test)
         };
         if let Some(name) = class_name
-            && (self.classes.contains(name)
-                || self.classes.is_pending(name)
-                || Self::instanceof_builtin_target(name))
+            && (self.classes.is_known(name) || Self::instanceof_builtin_target(name))
         {
             return Ok(Some(instance_of(self, name, body)));
         }

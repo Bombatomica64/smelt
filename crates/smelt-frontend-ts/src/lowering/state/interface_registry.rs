@@ -45,16 +45,27 @@ pub(in crate::lowering) struct LoweredInterface {
     pub(in crate::lowering) index_value_ty: Option<TypeId>,
 }
 
+/// What the module knows about one interface name.
+///
+/// `declared` is module-wide (the name is declared by this module, possibly
+/// after a class that implements it); `item` is the interface item visible
+/// under the name once lowered, imported or aliased.
+#[derive(Debug, Clone, Copy, Default)]
+struct InterfaceName {
+    /// Whether the current module declares the name.
+    declared: bool,
+    /// The interface item visible under the name.
+    item: Option<ItemId>,
+}
+
 /// Everything the lowering pass knows about the interfaces visible to a module.
 ///
 /// See the module docs for the registration invariant this owns.
 #[derive(Debug, Default)]
 pub(in crate::lowering) struct InterfaceRegistry {
-    /// Interface definitions by source-visible name.
-    by_name: HashMap<String, ItemId>,
-    /// Interface names declared in the current module, including declarations
-    /// that appear after a class which implements them.
-    pending_names: HashSet<String>,
+    /// Every interface name the module knows: whether it declares it and the
+    /// item it resolves to.
+    names: HashMap<String, InterfaceName>,
     /// Local interface symbols whose declarations have finished lowering.
     lowered_local: HashSet<Symbol>,
     /// Heritage clauses, kept for resolving fields after cyclic type imports
@@ -88,8 +99,16 @@ impl InterfaceRegistry {
         construct_signatures: HashMap<Symbol, Vec<FunctionType>>,
     ) -> Self {
         Self {
-            by_name: visible,
-            pending_names: HashSet::new(),
+            names: visible
+                .into_iter()
+                .map(|(name, item)| {
+                    let entry = InterfaceName {
+                        declared: false,
+                        item: Some(item),
+                    };
+                    (name, entry)
+                })
+                .collect(),
             lowered_local: HashSet::new(),
             extends,
             index_values,
@@ -100,7 +119,13 @@ impl InterfaceRegistry {
 
     /// Record the interface names the current module declares.
     pub(in crate::lowering) fn declare_module_scope(&mut self, declared: HashSet<String>) {
-        self.pending_names = declared;
+        for entry in self.names.values_mut() {
+            entry.declared = false;
+        }
+        for name in declared {
+            self.names.entry(name).or_default().declared = true;
+        }
+        self.names.retain(|_, entry| entry.declared || entry.item.is_some());
     }
 
     /// Register a freshly lowered local interface with all of its sidecars.
@@ -128,33 +153,35 @@ impl InterfaceRegistry {
         if let Some(index_value_ty) = index_value_ty {
             self.index_values.insert(name, index_value_ty);
         }
-        self.by_name.insert(name_text, item);
+        self.names.entry(name_text).or_default().item = Some(item);
         self.lowered_local.insert(name);
     }
 
     /// Return whether an interface is registered under `name`.
     pub(in crate::lowering) fn contains(&self, name: &str) -> bool {
-        self.by_name.contains_key(name)
+        self.item(name).is_some()
     }
 
     /// Return the HIR item registered for the interface named `name`.
     pub(in crate::lowering) fn item(&self, name: &str) -> Option<ItemId> {
-        self.by_name.get(name).copied()
+        self.names.get(name).and_then(|entry| entry.item)
     }
 
     /// Return whether `item` is registered under any interface name.
     pub(in crate::lowering) fn has_item(&self, item: ItemId) -> bool {
-        self.by_name.values().any(|registered| *registered == item)
+        self.names.values().any(|entry| entry.item == Some(item))
     }
 
     /// Iterate the registered `(name, item)` pairs.
     pub(in crate::lowering) fn entries(&self) -> impl Iterator<Item = (&String, ItemId)> {
-        self.by_name.iter().map(|(name, item)| (name, *item))
+        self.names
+            .iter()
+            .filter_map(|(name, entry)| entry.item.map(|item| (name, item)))
     }
 
     /// Register an import or export alias for an existing interface item.
     pub(in crate::lowering) fn register_alias(&mut self, name: String, item: ItemId) {
-        self.by_name.insert(name, item);
+        self.names.entry(name).or_default().item = Some(item);
     }
 
     /// Return whether an `implements` entry names an interface of this module.
@@ -165,7 +192,8 @@ impl InterfaceRegistry {
     /// interface with no local structural definition, is opaque to the local
     /// interface validator and answers false.
     pub(in crate::lowering) fn resolves_locally(&self, local_name: &str, parent: Symbol) -> bool {
-        self.pending_names.contains(local_name) || self.lowered_local.contains(&parent)
+        self.names.get(local_name).is_some_and(|entry| entry.declared)
+            || self.lowered_local.contains(&parent)
     }
 
     /// Return whether an interface symbol was lowered by the current module.

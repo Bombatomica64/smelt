@@ -811,9 +811,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         let is_error_builtin = Self::is_builtin_error_constructor(name);
-        let is_user_class = self.classes.contains(name)
-            || self.classes.is_pending(name)
-            || self.source_contains_class(name);
+        let is_user_class = self.classes.is_known(name) || self.source_contains_class(name);
         if !is_error_builtin && !is_user_class {
             return Ok(None);
         }
@@ -2745,8 +2743,7 @@ impl ModuleBuilder<'_> {
         // a class value took its no-constructor branch.
         if let Expression::Identifier(identifier) = &unary.argument
             && !self.scope.is_bound(identifier.name.as_str())
-            && (self.classes.contains(identifier.name.as_str())
-                || self.classes.is_pending(identifier.name.as_str()))
+            && self.classes.is_known(identifier.name.as_str())
         {
             let ty = self.ctx.krate.types.intern(Type::String);
             return Ok(body.push_expr(Expr {
