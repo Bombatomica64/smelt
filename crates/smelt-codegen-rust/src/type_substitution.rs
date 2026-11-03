@@ -52,13 +52,18 @@ use crate::generic_bindings::{CalleeTypeParamBindings, TypeParamBinding};
 use smelt_hir::{Symbol, TypeId};
 use std::collections::HashSet;
 
-/// Where the in-scope type-parameter set of a [`TypeSubstitution`] came from.
+/// The names spellable as Rust identifiers at one render position, together
+/// with where that set came from.
 ///
-/// Lowering never inspects this. It exists so a reader of a call site can tell a
-/// deliberate erasure from a lexical scope from a callee's emission scope, all
-/// three of which are a `HashSet<Symbol>` and none of which mean the same thing.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ScopeOrigin {
+/// Every provenance carries its own set (or, for the deliberate erasure, has
+/// none), so an empty scope is spelled [`Self::DeliberatelyErased`] or an
+/// explicitly empty set — never an absent one whose meaning a reader has to
+/// guess. Lowering only asks [`Self::spells`]; the variants exist so a reader
+/// of a construction site can tell a deliberate erasure from a lexical scope
+/// from a callee's emission scope, all of which used to be a bare
+/// `HashSet<Symbol>`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum TypeParamScope<'a> {
     /// Nothing is spellable: every type parameter erases to `SmeltUnknown`.
     ///
     /// This is the base a call-site substitution is built on: the callback
@@ -67,16 +72,28 @@ pub(crate) enum ScopeOrigin {
     /// never captures a same-named type parameter from the caller's scope.
     DeliberatelyErased,
     /// The type parameters declared by the Rust item currently being emitted.
-    Lexical,
+    Lexical(&'a HashSet<Symbol>),
     /// The type parameters the *callee* emits as real Rust generics.
     ///
     /// An emission scope, not a call-site binding: it says which names the
     /// callee's own signature spells, which is what a caller-vs-callee
     /// rendering comparison needs. `crate::generic_bindings` cannot express it
     /// and the two must not be conflated.
-    CalleeEmission,
+    CalleeEmission(&'a HashSet<Symbol>),
     /// A lexical scope narrowed to a subset at one render position.
-    LexicalSubset,
+    LexicalSubset(&'a HashSet<Symbol>),
+}
+
+impl TypeParamScope<'_> {
+    /// Whether `name` is spellable as a Rust identifier in this scope.
+    pub(crate) fn spells(&self, name: Symbol) -> bool {
+        match self {
+            Self::DeliberatelyErased => false,
+            Self::Lexical(names) | Self::CalleeEmission(names) | Self::LexicalSubset(names) => {
+                names.contains(&name)
+            }
+        }
+    }
 }
 
 /// How one type parameter lowers at one render position.
@@ -103,18 +120,15 @@ pub(crate) enum Resolved {
 /// `&HashSet<Symbol>` cost.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct TypeSubstitution<'a> {
-    /// Names spellable as Rust identifiers here. `None` is an empty scope.
-    in_scope: Option<&'a HashSet<Symbol>>,
-    /// Provenance of `in_scope`, for readers rather than for lowering.
+    /// Names spellable as Rust identifiers here, and their provenance.
+    scope: TypeParamScope<'a>,
+    /// Concrete instantiations collected at a call site, when the render is
+    /// of a callee's signature AT that call site. `None` means no call site is
+    /// involved, which is not an empty binding map: an attached map missing a
+    /// declared parameter is an error (see [`Self::resolve`]).
     ///
-    /// Never branched on: it exists so a reader of a construction site can see
-    /// *whose* scope is meant. The derived `Debug` reads it, so it is not dead.
-    origin: ScopeOrigin,
-    /// Concrete instantiations collected at a call site.
-    ///
-    /// `None` everywhere except the callback adapter renderers, which attach a
-    /// static call site's bindings through [`Self::with_bindings`]; see the
-    /// module docstring.
+    /// Attached only by the callback adapter renderers through
+    /// [`Self::with_bindings`]; see the module docstring.
     bindings: Option<&'a CalleeTypeParamBindings>,
 }
 
@@ -125,8 +139,7 @@ impl<'a> TypeSubstitution<'a> {
     /// in a comment at the call site *whose* scope the emptiness stands for.
     pub(crate) const fn erased() -> Self {
         Self {
-            in_scope: None,
-            origin: ScopeOrigin::DeliberatelyErased,
+            scope: TypeParamScope::DeliberatelyErased,
             bindings: None,
         }
     }
@@ -134,20 +147,18 @@ impl<'a> TypeSubstitution<'a> {
     /// The type parameters declared by the Rust item being emitted.
     pub(crate) const fn lexical(scope: &'a HashSet<Symbol>) -> Self {
         Self {
-            in_scope: Some(scope),
-            origin: ScopeOrigin::Lexical,
+            scope: TypeParamScope::Lexical(scope),
             bindings: None,
         }
     }
 
     /// The type parameters the callee emits as real Rust generics.
     ///
-    /// See [`ScopeOrigin::CalleeEmission`]: this is an emission scope, not a
+    /// See [`TypeParamScope::CalleeEmission`]: this is an emission scope, not a
     /// call-site binding.
     pub(crate) const fn callee_emission(scope: &'a HashSet<Symbol>) -> Self {
         Self {
-            in_scope: Some(scope),
-            origin: ScopeOrigin::CalleeEmission,
+            scope: TypeParamScope::CalleeEmission(scope),
             bindings: None,
         }
     }
@@ -155,8 +166,7 @@ impl<'a> TypeSubstitution<'a> {
     /// A lexical scope already narrowed to one render position's subset.
     pub(crate) const fn lexical_subset(scope: &'a HashSet<Symbol>) -> Self {
         Self {
-            in_scope: Some(scope),
-            origin: ScopeOrigin::LexicalSubset,
+            scope: TypeParamScope::LexicalSubset(scope),
             bindings: None,
         }
     }
@@ -206,18 +216,18 @@ impl<'a> TypeSubstitution<'a> {
         self.bindings
     }
 
-    /// Return where this environment's in-scope set came from.
+    /// Return this environment's spellable names and their provenance.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "provenance is documentation, not a lowering input")
     )]
-    pub(crate) const fn origin(&self) -> ScopeOrigin {
-        self.origin
+    pub(crate) const fn scope(&self) -> TypeParamScope<'a> {
+        self.scope
     }
 
     /// Return whether `name` is spellable as a Rust identifier here.
     pub(crate) fn spells(&self, name: Symbol) -> bool {
-        self.in_scope.is_some_and(|scope| scope.contains(&name))
+        self.scope.spells(name)
     }
 
     /// Decide how one type parameter lowers at this render position.
@@ -289,7 +299,7 @@ mod tests {
         let substitution = TypeSubstitution::erased();
         assert!(!substitution.spells(name));
         assert_eq!(substitution.resolve(name).unwrap(), Resolved::Erased);
-        assert_eq!(substitution.origin(), ScopeOrigin::DeliberatelyErased);
+        assert!(matches!(substitution.scope(), TypeParamScope::DeliberatelyErased));
     }
 
     #[test]

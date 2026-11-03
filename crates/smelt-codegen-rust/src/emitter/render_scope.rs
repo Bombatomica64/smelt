@@ -42,7 +42,7 @@
 //! actually has to be lowered.
 
 use super::FunctionEmitter;
-use crate::type_substitution::{ScopeOrigin, TypeSubstitution};
+use crate::type_substitution::TypeSubstitution;
 use smelt_hir::Symbol;
 use std::collections::HashSet;
 
@@ -50,15 +50,26 @@ use std::collections::HashSet;
 ///
 /// The owned companion of [`TypeSubstitution`]: same question, same answers,
 /// but carried by value so it can be built at a render position and threaded
-/// down the value-rendering recursion. `origin` is preserved so
+/// down the value-rendering recursion. The provenance is preserved so
 /// [`Self::substitution`] hands the type lowerer an environment whose
 /// provenance still reads correctly in a `Debug` dump.
 #[derive(Clone, Debug)]
 pub(crate) struct RenderScope {
-    /// Names spellable as Rust identifiers at this position.
-    in_scope: HashSet<Symbol>,
-    /// Provenance of `in_scope`, for readers rather than for lowering.
-    origin: ScopeOrigin,
+    /// Names spellable as Rust identifiers at this position, and their
+    /// provenance.
+    scope: OwnedTypeParamScope,
+}
+
+/// The owned form of [`crate::type_substitution::TypeParamScope`], restricted
+/// to the provenances a value-render position can have.
+#[derive(Clone, Debug)]
+enum OwnedTypeParamScope {
+    /// Nothing is spellable.
+    DeliberatelyErased,
+    /// The type parameters declared by the Rust item being emitted.
+    Lexical(HashSet<Symbol>),
+    /// A lexical scope narrowed to the names the other side of a seam spells.
+    LexicalSubset(HashSet<Symbol>),
 }
 
 impl RenderScope {
@@ -69,8 +80,7 @@ impl RenderScope {
     /// type parameters, and must erase every other one.
     pub(crate) const fn lexical(in_scope: HashSet<Symbol>) -> Self {
         Self {
-            in_scope,
-            origin: ScopeOrigin::Lexical,
+            scope: OwnedTypeParamScope::Lexical(in_scope),
         }
     }
 
@@ -90,8 +100,7 @@ impl RenderScope {
     )]
     pub(crate) fn erased() -> Self {
         Self {
-            in_scope: HashSet::new(),
-            origin: ScopeOrigin::DeliberatelyErased,
+            scope: OwnedTypeParamScope::DeliberatelyErased,
         }
     }
 
@@ -115,14 +124,14 @@ impl RenderScope {
     /// taking the callee's alone would spell a `T` the caller's item never
     /// declared.
     pub(crate) fn narrowed_to(&self, other: &HashSet<Symbol>) -> Self {
+        let narrowed = match &self.scope {
+            OwnedTypeParamScope::DeliberatelyErased => HashSet::new(),
+            OwnedTypeParamScope::Lexical(names) | OwnedTypeParamScope::LexicalSubset(names) => {
+                names.iter().filter(|name| other.contains(name)).copied().collect()
+            }
+        };
         Self {
-            in_scope: self
-                .in_scope
-                .iter()
-                .filter(|name| other.contains(name))
-                .copied()
-                .collect(),
-            origin: ScopeOrigin::LexicalSubset,
+            scope: OwnedTypeParamScope::LexicalSubset(narrowed),
         }
     }
 
@@ -142,11 +151,10 @@ impl RenderScope {
     /// a container annotation rendered for a value position is lowered under the
     /// very environment that position's entries were coerced in.
     pub(crate) fn substitution(&self) -> TypeSubstitution<'_> {
-        match self.origin {
-            ScopeOrigin::DeliberatelyErased => TypeSubstitution::erased(),
-            ScopeOrigin::Lexical => TypeSubstitution::lexical(&self.in_scope),
-            ScopeOrigin::CalleeEmission => TypeSubstitution::callee_emission(&self.in_scope),
-            ScopeOrigin::LexicalSubset => TypeSubstitution::lexical_subset(&self.in_scope),
+        match &self.scope {
+            OwnedTypeParamScope::DeliberatelyErased => TypeSubstitution::erased(),
+            OwnedTypeParamScope::Lexical(names) => TypeSubstitution::lexical(names),
+            OwnedTypeParamScope::LexicalSubset(names) => TypeSubstitution::lexical_subset(names),
         }
     }
 }
