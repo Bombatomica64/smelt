@@ -256,6 +256,11 @@ jobs:
     # See the note on `clippy`: never re-run just because a label was added.
     if: ${{ github.event_name == 'pull_request' && github.event.action != 'labeled' }}
     runs-on: ubuntu-latest
+    env:
+      # Line tables keep panic backtraces readable; full debuginfo for ~150
+      # test binaries plus the generated crates' builds filled the runner's
+      # disk (ENOSPC on the first run of this job). Also shrinks the cache.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -295,10 +300,27 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
           npm install --global typescript@5.9.3
 
+      # Same reclaim as runtime-tiers.yml: the preinstalled Android SDK, .NET
+      # and GHC images take ~20 GB the workspace test build needs.
+      - name: Free runner disk
+        if: ${{ steps.affected.outputs.mode != 'none' }}
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          df -h /
+
+      # Build and run are separate steps so the log says which one is slow,
+      # and `df` after each shows which one is eating the disk.
+      - name: Build affected tests
+        if: ${{ steps.affected.outputs.mode != 'none' }}
+        run: |
+          cargo test --no-run ${{ steps.affected.outputs.args }}
+          df -h / | tail -1
+
       - name: Test affected packages
         if: ${{ steps.affected.outputs.mode != 'none' }}
         run: |
           cargo test ${{ steps.affected.outputs.args }}
+          df -h / | tail -1
 
   coverage:
     # Main-only: the instrumented nightly build cannot use a cache (see below)
