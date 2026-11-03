@@ -49,7 +49,9 @@ Each passes a value that violates its declared type:
 - A `@ts-ignore` mock `{ waitUntil: 'waitUntil', ... }` as an
   `ExecutionContext` whose fields are methods (1 test).
 
-Supporting them means loosening strict types; awaiting a decision.
+Supporting them means loosening strict types. Decision: they stay
+unsupported. They are test-only type violations; production code that
+honors these declared types never reaches these states.
 
 ## Ratchets
 
