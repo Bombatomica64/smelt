@@ -3178,7 +3178,7 @@ impl FunctionEmitter<'_> {
             // every path that does not commit a body (see `helper_reservation`).
             let reservation = helper_reservation::reserve(
                 &self.context.record_conversion_helpers,
-                module_text.clone(),
+                module_text,
             );
             let module_scope = self.render_scope();
             let body = self.inline_record_conversion("smelt_value", target, &module_scope)?;

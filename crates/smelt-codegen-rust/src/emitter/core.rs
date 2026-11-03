@@ -1485,7 +1485,7 @@ impl<'mir> FunctionEmitter<'mir> {
             // Reserved before the body renders (the cycle calls it); released
             // unless a body is committed (see `helper_reservation`).
             let reservation =
-                helper_reservation::reserve(&self.context.record_adapter_helpers, module.clone());
+                helper_reservation::reserve(&self.context.record_adapter_helpers, module);
             let body = {
                 // The helper's body is a fresh module-level item: the
                 // expansions in progress at this call site are not its own.
