@@ -79,14 +79,26 @@ impl ModuleBuilder<'_> {
         self.ctx.krate.types.intern(Type::Unknown)
     }
 
-    /// Replace the anchor with `span`, returning the previous anchor so the
-    /// caller can restore it with [`Self::restore_erasure_anchor`].
-    pub(in crate::lowering) fn push_erasure_anchor(&mut self, span: Span) -> Span {
-        std::mem::replace(&mut self.erasure_anchor, span)
+    /// Run `lower` with the anchor moved to `span`, restoring the enclosing
+    /// anchor on every exit path of `lower` (an early `?` included), so an
+    /// inner node can never leave its span behind for an outer decision.
+    pub(in crate::lowering) fn with_erasure_anchor<R>(
+        &mut self,
+        span: Span,
+        lower: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let previous = std::mem::replace(&mut self.erasure_anchor, span);
+        let result = lower(self);
+        self.erasure_anchor = previous;
+        result
     }
 
-    /// Restore an anchor saved by [`Self::push_erasure_anchor`].
-    pub(in crate::lowering) fn restore_erasure_anchor(&mut self, previous: Span) {
-        self.erasure_anchor = previous;
+    /// Anchor erasures at a top-level statement of the module.
+    ///
+    /// Top-level statements are not nested in any other node, so there is no
+    /// enclosing anchor to restore: each statement simply replaces the
+    /// previous one's.
+    pub(in crate::lowering) fn anchor_top_level_statement(&mut self, span: Span) {
+        self.erasure_anchor = span;
     }
 }

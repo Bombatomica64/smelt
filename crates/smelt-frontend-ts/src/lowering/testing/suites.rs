@@ -1,6 +1,8 @@
 //! `ModuleBuilder` lowering methods (part 05): test-suite (`describe`/hooks)
 //! lowering and related HIR construction helpers split out of `lowering.rs`.
 
+use crate::lowering::state::fn_ctx::BodyKind;
+use crate::lowering::state::local_scope::ScopeGroups;
 use crate::SmeltError;
 use crate::lowering::support::sanitize_test_name;
 use crate::lowering::state::class_registry::{ClassNameSnapshot, ClassScopeSnapshot};
@@ -633,62 +635,53 @@ impl ModuleBuilder<'_> {
         after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
         table_bindings: &[(&str, TableBindingValue<'_>)],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        let saved_locals = self.scope.take_bindings();
-        let saved_date_value_locals = self.scope.take_date_values();
-        let saved_callable_local_props = self.scope.take_callable_prop_writes();
-        let saved_explicit_any_locals = self.scope.take_explicit_any();
-        // Flow-narrowing facts are keyed by NAME, so a fact recorded in one test
-        // body (e.g. `array1 = /c/.exec(...)` observing `Optional<SmeltMatch>`)
-        // must not leak into a sibling test that declares its own same-named
-        // binding — a stale optional narrowing would turn its indexed writes
-        // into non-assignable optional projections. Scope them per test case
-        // exactly like `self.locals`.
-        let saved_narrowed_locals = self.scope.take_narrowings();
-        let saved_async = self.current_async;
         let class_scope = self.test_case_class_scope();
-        self.current_async = arrow.r#async;
-        let mut body = Body::new(None, self.arrow_body_span(arrow));
-        let mut errors = Vec::new();
-        if let Err(error) =
-            self.synthesize_setup_constructor_functions(setup, arrow_block_statements(arrow))
-        {
-            errors.push(error);
-        }
-        self.lower_setup_with_table_bindings(setup, table_bindings, &mut body, &mut errors);
-        for hook in before_each {
-            for statement in arrow_block_statements(hook) {
-                if let Err(error) = self.test_case_statement(statement, &mut body) {
-                    errors.push(error);
-                }
-            }
-        }
-        if let Err(error) =
-            self.predeclare_local_function_declarations(arrow_block_statements(arrow), &mut body)
-        {
-            errors.push(error);
-        }
-        if let Err(error) = self.predeclare_forward_referenced_locals(arrow_block_statements(arrow), &mut body)
-        {
-            errors.push(error);
-        }
-        for statement in arrow_block_statements(arrow) {
-            if let Err(error) = self.test_case_statement(statement, &mut body) {
+        let ctx = self.nested_fn_ctx(BodyKind::Arrow, arrow.r#async, None);
+        let (mut body, errors) = self.with_nested_body(ctx, ScopeGroups::ALL, |this, _| {
+            // Flow-narrowing facts are keyed by NAME, so a fact recorded in one test
+            // body (e.g. `array1 = /c/.exec(...)` observing `Optional<SmeltMatch>`)
+            // must not leak into a sibling test that declares its own same-named
+            // binding — a stale optional narrowing would turn its indexed writes
+            // into non-assignable optional projections. Scope them per test case
+            // exactly like the bindings (`ScopeGroups::ALL` above).
+            let mut body = Body::new(None, this.arrow_body_span(arrow));
+            let mut errors = Vec::new();
+            if let Err(error) =
+                this.synthesize_setup_constructor_functions(setup, arrow_block_statements(arrow))
+            {
                 errors.push(error);
             }
-        }
-        for hook in after_each {
-            for statement in arrow_block_statements(hook) {
-                if let Err(error) = self.test_case_statement(statement, &mut body) {
+            this.lower_setup_with_table_bindings(setup, table_bindings, &mut body, &mut errors);
+            for hook in before_each {
+                for statement in arrow_block_statements(hook) {
+                    if let Err(error) = this.test_case_statement(statement, &mut body) {
+                        errors.push(error);
+                    }
+                }
+            }
+            if let Err(error) =
+                this.predeclare_local_function_declarations(arrow_block_statements(arrow), &mut body)
+            {
+                errors.push(error);
+            }
+            if let Err(error) = this.predeclare_forward_referenced_locals(arrow_block_statements(arrow), &mut body)
+            {
+                errors.push(error);
+            }
+            for statement in arrow_block_statements(arrow) {
+                if let Err(error) = this.test_case_statement(statement, &mut body) {
                     errors.push(error);
                 }
             }
-        }
-        self.scope.restore_bindings(saved_locals);
-        self.scope.restore_date_values(saved_date_value_locals);
-        self.scope.restore_callable_prop_writes(saved_callable_local_props);
-        self.scope.restore_explicit_any(saved_explicit_any_locals);
-        self.scope.restore_narrowings(saved_narrowed_locals);
-        self.current_async = saved_async;
+            for hook in after_each {
+                for statement in arrow_block_statements(hook) {
+                    if let Err(error) = this.test_case_statement(statement, &mut body) {
+                        errors.push(error);
+                    }
+                }
+            }
+            (body, errors)
+        });
         self.restore_test_case_class_scope(&class_scope);
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
@@ -748,74 +741,63 @@ impl ModuleBuilder<'_> {
             ));
         }
 
-        let saved_locals = self.scope.take_bindings();
-        let saved_date_value_locals = self.scope.take_date_values();
-        let saved_callable_local_props = self.scope.take_callable_prop_writes();
-        let saved_explicit_any_locals = self.scope.take_explicit_any();
-        // Flow-narrowing facts are keyed by NAME, so a fact recorded in one test
-        // body (e.g. `array1 = /c/.exec(...)` observing `Optional<SmeltMatch>`)
-        // must not leak into a sibling test that declares its own same-named
-        // binding — a stale optional narrowing would turn its indexed writes
-        // into non-assignable optional projections. Scope them per test case
-        // exactly like `self.locals`.
-        let saved_narrowed_locals = self.scope.take_narrowings();
-        let saved_async = self.current_async;
         let class_scope = self.test_case_class_scope();
-        self.current_async = function.r#async;
-        // A `function () { ... }` test callback (as opposed to an arrow) has its
-        // own `arguments` binding, so make the array-like `arguments` object
-        // available while lowering the body — matching the other function-body
-        // lowering paths. The callback takes no parameters here, so its arity is
-        // zero.
-        self.current_arguments_arities
-            .push(function.params.items.len());
-        let mut body = Body::new(
-            None,
-            self.span(function_body.span.start, function_body.span.end),
-        );
-        let mut errors = Vec::new();
-        if let Err(error) =
-            self.synthesize_setup_constructor_functions(setup, &function_body.statements)
-        {
-            errors.push(error);
-        }
-        self.lower_setup_with_table_bindings(setup, table_bindings, &mut body, &mut errors);
-        for hook in before_each {
-            for statement in arrow_block_statements(hook) {
-                if let Err(error) = self.test_case_statement(statement, &mut body) {
-                    errors.push(error);
-                }
-            }
-        }
-        if let Err(error) =
-            self.predeclare_local_function_declarations(&function_body.statements, &mut body)
-        {
-            errors.push(error);
-        }
-        if let Err(error) =
-            self.predeclare_forward_referenced_locals(&function_body.statements, &mut body)
-        {
-            errors.push(error);
-        }
-        for statement in &function_body.statements {
-            if let Err(error) = self.test_case_statement(statement, &mut body) {
+        let ctx = self.nested_fn_ctx(BodyKind::Function, function.r#async, None);
+        let (mut body, errors) = self.with_nested_body(ctx, ScopeGroups::ALL, |this, _| {
+            // Flow-narrowing facts are keyed by NAME, so a fact recorded in one test
+            // body (e.g. `array1 = /c/.exec(...)` observing `Optional<SmeltMatch>`)
+            // must not leak into a sibling test that declares its own same-named
+            // binding — a stale optional narrowing would turn its indexed writes
+            // into non-assignable optional projections. Scope them per test case
+            // exactly like the bindings (`ScopeGroups::ALL` above).
+            // A `function () { ... }` test callback (as opposed to an arrow) has its
+            // own `arguments` binding, so make the array-like `arguments` object
+            // available while lowering the body — matching the other function-body
+            // lowering paths. The callback takes no parameters here, so its arity is
+            // zero.
+            this.fn_ctx.arguments_arity = Some(function.params.items.len());
+            let mut body = Body::new(
+                None,
+                this.span(function_body.span.start, function_body.span.end),
+            );
+            let mut errors = Vec::new();
+            if let Err(error) =
+                this.synthesize_setup_constructor_functions(setup, &function_body.statements)
+            {
                 errors.push(error);
             }
-        }
-        for hook in after_each {
-            for statement in arrow_block_statements(hook) {
-                if let Err(error) = self.test_case_statement(statement, &mut body) {
+            this.lower_setup_with_table_bindings(setup, table_bindings, &mut body, &mut errors);
+            for hook in before_each {
+                for statement in arrow_block_statements(hook) {
+                    if let Err(error) = this.test_case_statement(statement, &mut body) {
+                        errors.push(error);
+                    }
+                }
+            }
+            if let Err(error) =
+                this.predeclare_local_function_declarations(&function_body.statements, &mut body)
+            {
+                errors.push(error);
+            }
+            if let Err(error) =
+                this.predeclare_forward_referenced_locals(&function_body.statements, &mut body)
+            {
+                errors.push(error);
+            }
+            for statement in &function_body.statements {
+                if let Err(error) = this.test_case_statement(statement, &mut body) {
                     errors.push(error);
                 }
             }
-        }
-        self.current_arguments_arities.pop();
-        self.scope.restore_bindings(saved_locals);
-        self.scope.restore_date_values(saved_date_value_locals);
-        self.scope.restore_callable_prop_writes(saved_callable_local_props);
-        self.scope.restore_explicit_any(saved_explicit_any_locals);
-        self.scope.restore_narrowings(saved_narrowed_locals);
-        self.current_async = saved_async;
+            for hook in after_each {
+                for statement in arrow_block_statements(hook) {
+                    if let Err(error) = this.test_case_statement(statement, &mut body) {
+                        errors.push(error);
+                    }
+                }
+            }
+            (body, errors)
+        });
         self.restore_test_case_class_scope(&class_scope);
         if let Some(error) = errors.into_iter().next() {
             return Err(error);

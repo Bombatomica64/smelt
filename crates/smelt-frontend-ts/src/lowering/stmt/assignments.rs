@@ -1602,14 +1602,14 @@ impl ModuleBuilder<'_> {
             }));
         }
         if let Some(Type::Tuple(items)) = self.ctx.krate.types.get(access_receiver_ty).cloned() {
-            let tuple_len = if self.allow_unknown_index_access {
+            let tuple_len = if self.allows_unknown_index_access() {
                 usize::MAX
             } else {
                 items.len()
             };
             let tuple_index = self.static_tuple_index(index, body, tuple_len, member.span)?;
             let Some(ty) = items.get(tuple_index).copied() else {
-                if self.allow_unknown_index_access {
+                if self.allows_unknown_index_access() {
                     let ty = self.erase_with(ErasureReason::DynamicOperator, "tuple index");
                     return Ok(body.push_expr(Expr {
                         kind: ExprKind::Index { receiver, index },
@@ -1640,7 +1640,7 @@ impl ModuleBuilder<'_> {
                 })
                 .max()
         {
-            let tuple_len = if self.allow_unknown_index_access {
+            let tuple_len = if self.allows_unknown_index_access() {
                 usize::MAX
             } else {
                 max_tuple_len
@@ -2317,24 +2317,15 @@ impl ModuleBuilder<'_> {
         });
         let temp_pat = body.push_pattern(Pattern::Binding(temp_local));
         let set = build_set(body);
-        if let Some(block) = self.current_statement_block {
-            body.push_stmt_to_block(
-                block,
-                Stmt::Let {
-                    pat: temp_pat,
-                    ty,
-                    value: Some(old),
-                },
-            );
-            body.push_stmt_to_block(block, Stmt::Expr(set));
-        } else {
-            body.push_stmt(Stmt::Let {
+        self.push_stmt_to_sink(
+            body,
+            Stmt::Let {
                 pat: temp_pat,
                 ty,
                 value: Some(old),
-            });
-            body.push_stmt(Stmt::Expr(set));
-        }
+            },
+        );
+        self.push_stmt_to_sink(body, Stmt::Expr(set));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Local(temp_local),
             ty,
@@ -3053,11 +3044,13 @@ impl ModuleBuilder<'_> {
         // the binding statement runs, so a lazy re-read of `target` still observes
         // the pre-increment value. This is the only case that may safely return the
         // bare `target` read.
-        if !update.prefix
-            && let Some(deferred_updates) = self.deferred_postfix_updates.as_mut()
-        {
-            deferred_updates.push(Stmt::Assign { target, value });
-            return Ok(target);
+        if !update.prefix {
+            match self.defer_postfix_update(Stmt::Assign { target, value }) {
+                Ok(()) => return Ok(target),
+                // Updates are immediate here: the same store is emitted below,
+                // after the old value is snapshotted.
+                Err(_immediate) => {}
+            }
         }
 
         // Otherwise the store must run inside the current statement block, *before*
@@ -3099,13 +3092,8 @@ impl ModuleBuilder<'_> {
             target,
             value: store_value,
         };
-        if let Some(block) = self.current_statement_block {
-            body.push_stmt_to_block(block, let_stmt);
-            body.push_stmt_to_block(block, assign_stmt);
-        } else {
-            body.push_stmt(let_stmt);
-            body.push_stmt(assign_stmt);
-        }
+        self.push_stmt_to_sink(body, let_stmt);
+        self.push_stmt_to_sink(body, assign_stmt);
         Ok(body.push_expr(Expr {
             kind: ExprKind::Local(temp_local),
             ty: result_ty,
@@ -3285,10 +3273,9 @@ impl ModuleBuilder<'_> {
             })
         });
         let then_block = body.push_block(span);
-        let previous_block = self.current_statement_block.replace(then_block);
-        let right = self.expression_with_hint(&assign.right, body, right_hint);
-        self.current_statement_block = previous_block;
-        let right = right?;
+        let right = self.with_stmt_block(then_block, |this| {
+            this.expression_with_hint(&assign.right, body, right_hint)
+        })?;
         let right_ty = Self::expr_ty(body, right);
         // The stored value is bound once: the right side may construct, and
         // writing it to both the target and the result temporary would build it
@@ -3393,11 +3380,8 @@ impl ModuleBuilder<'_> {
         target_block: Option<smelt_hir::BlockId>,
         stmt: Stmt,
     ) {
-        if let Some(block) = target_block.or(self.current_statement_block) {
-            body.push_stmt_to_block(block, stmt);
-        } else {
-            body.push_stmt(stmt);
-        }
+        let block = target_block.unwrap_or_else(|| self.stmt_sink_block(body));
+        body.push_stmt_to_block(block, stmt);
     }
 
     /// Lower an assignment used as an expression VALUE, store included.
@@ -3436,11 +3420,7 @@ impl ModuleBuilder<'_> {
         // neither re-evaluates the right-hand side nor needs a temporary of its
         // own here.
         let assign_stmt = Stmt::Assign { target, value };
-        if let Some(block) = self.current_statement_block {
-            body.push_stmt_to_block(block, assign_stmt);
-        } else {
-            body.push_stmt(assign_stmt);
-        }
+        self.push_stmt_to_sink(body, assign_stmt);
         Ok(value)
     }
 

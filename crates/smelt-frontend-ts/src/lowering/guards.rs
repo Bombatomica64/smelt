@@ -137,12 +137,11 @@ impl ModuleBuilder<'_> {
             ));
         }
         if !builtin_target
-            && !self.classes.contains(class_text)
             // Module class names are collected before any class body is
             // lowered. A class currently under construction is therefore a
             // valid nominal target even though its final HIR item is inserted
             // only after all of its methods have been emitted.
-            && !self.classes.is_pending(class_text)
+            && !self.classes.is_known(class_text)
             && !self.imports.is_value(class_text)
         {
             // `x instanceof f` against a *function* value (the JS
@@ -1131,7 +1130,7 @@ impl ModuleBuilder<'_> {
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if self.preserve_specialization_receiver
+        if self.fn_ctx.preserve_receiver
             && matches!(expression, Expression::ThisExpression(_))
         {
             return self.expression(expression, body);
@@ -2854,11 +2853,7 @@ impl ModuleBuilder<'_> {
                     ty: receiver_ty,
                     span: self.span(identifier.span.start, identifier.span.end),
                 });
-                if let Some(block) = self.current_statement_block {
-                    body.push_stmt_to_block(block, Stmt::Assign { target, value });
-                } else {
-                    body.push_stmt(Stmt::Assign { target, value });
-                }
+                self.push_stmt_to_sink(body, Stmt::Assign { target, value });
             }
             return Ok(Some(value));
         }
@@ -2967,11 +2962,7 @@ impl ModuleBuilder<'_> {
                 ty,
                 span: self.span(identifier.span.start, identifier.span.end),
             });
-            if let Some(block) = self.current_statement_block {
-                body.push_stmt_to_block(block, Stmt::Assign { target, value });
-            } else {
-                body.push_stmt(Stmt::Assign { target, value });
-            }
+            self.push_stmt_to_sink(body, Stmt::Assign { target, value });
         }
         Ok(Some(value))
     }

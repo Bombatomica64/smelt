@@ -6,6 +6,8 @@
 //! adds instance methods. This module materializes that shape once so ordinary
 //! class construction and `instanceof` lowering need no special use-site path.
 
+use crate::lowering::state::fn_ctx::BodyKind;
+use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::{
     AssignmentTarget, BinaryOperator, BindingPattern, Body, Class, Declaration, Expression, Field,
     Function, FunctionOwner, HashSet, Item, LocalDecl, MethodSig, ModuleBuilder, Param, ParamSig,
@@ -764,84 +766,81 @@ impl ModuleBuilder<'_> {
                 "constructor functions must have a body",
             ));
         };
-        let saved_locals = self.scope.take_bindings();
         let saved_class = self.current_class.replace(class_text.to_owned());
-        let saved_async = self.current_async;
-        let saved_return_ty = self.current_return_ty;
-        self.current_async = false;
-        self.current_return_ty = Some(class_ty);
-        let mut body = Body::new(None, span);
-        let this_symbol = self.ctx.krate.symbols.intern("this");
-        let this_local = body.push_local(LocalDecl {
-            name: Some(this_symbol),
-            ty: class_ty,
-            mutable: true,
-            span,
-        });
-        self.scope.bind("this".to_owned(), this_local);
+        let ctx = self.nested_fn_ctx(BodyKind::Method, false, Some(class_ty));
+        let scope = ScopeGroups::BINDINGS;
+        let (body, params, errors) = self.with_nested_body(ctx, scope, |this, _| {
+            let mut body = Body::new(None, span);
+            let this_symbol = this.ctx.krate.symbols.intern("this");
+            let this_local = body.push_local(LocalDecl {
+                name: Some(this_symbol),
+                ty: class_ty,
+                mutable: true,
+                span,
+            });
+            this.scope.bind("this".to_owned(), this_local);
 
-        let mut params = Vec::new();
-        let mut errors = Vec::new();
-        for (index, param) in function.params.items.iter().enumerate() {
-            let ty = match self.constructor_parameter_type(param) {
-                Ok(ty) => ty,
-                Err(error) => {
-                    errors.push(error);
-                    self.erase(ErasureReason::MissingAnnotation)
-                }
-            };
-            let (param_name, param_span, source_name) =
-                if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
-                    (
-                        self.intern_source_name(binding.name.as_str()),
-                        self.span(binding.span.start, binding.span.end),
-                        Some(binding.name.to_string()),
-                    )
-                } else {
-                    (
-                        self.intern_source_name(&format!("__param{index}")),
-                        self.span(param.span.start, param.span.end),
-                        None,
-                    )
+            let mut params = Vec::new();
+            let mut errors = Vec::new();
+            for (index, param) in function.params.items.iter().enumerate() {
+                let ty = match this.constructor_parameter_type(param) {
+                    Ok(ty) => ty,
+                    Err(error) => {
+                        errors.push(error);
+                        this.erase(ErasureReason::MissingAnnotation)
+                    }
                 };
-            let local = body.push_local(LocalDecl {
-                name: Some(param_name),
-                ty,
-                mutable: false,
-                span: param_span,
-            });
-            body.params.push(local);
-            if let Some(source_name) = source_name {
-                self.scope.bind(source_name, local);
+                let (param_name, param_span, source_name) =
+                    if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                        (
+                            this.intern_source_name(binding.name.as_str()),
+                            this.span(binding.span.start, binding.span.end),
+                            Some(binding.name.to_string()),
+                        )
+                    } else {
+                        (
+                            this.intern_source_name(&format!("__param{index}")),
+                            this.span(param.span.start, param.span.end),
+                            None,
+                        )
+                    };
+                let local = body.push_local(LocalDecl {
+                    name: Some(param_name),
+                    ty,
+                    mutable: false,
+                    span: param_span,
+                });
+                body.params.push(local);
+                if let Some(source_name) = source_name {
+                    this.scope.bind(source_name, local);
+                }
+                params.push(Param {
+                    name: param_name,
+                    local,
+                    ty,
+                    span: param_span,
+                });
             }
-            params.push(Param {
-                name: param_name,
-                local,
-                ty,
-                span: param_span,
-            });
-        }
 
-        if let Err(error) =
-            self.predeclare_forward_referenced_locals(&function_body.statements, &mut body)
-        {
-            errors.push(error);
-        }
-        if let Err(error) =
-            self.predeclare_local_function_declarations(&function_body.statements, &mut body)
-        {
-            errors.push(error);
-        }
-        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
-            if let Err(error) = self.statement(statement, &mut body) {
+            if let Err(error) =
+                this.predeclare_forward_referenced_locals(&function_body.statements, &mut body)
+            {
                 errors.push(error);
             }
-        }
+            if let Err(error) =
+                this.predeclare_local_function_declarations(&function_body.statements, &mut body)
+            {
+                errors.push(error);
+            }
+            for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
+                if let Err(error) = this.statement(statement, &mut body) {
+                    errors.push(error);
+                }
+            }
 
-        self.scope.restore_bindings(saved_locals);
+            (body, params, errors)
+        });
         self.current_class = saved_class;
-        self.current_async = saved_async;
-        self.current_return_ty = saved_return_ty;
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }
@@ -892,95 +891,92 @@ impl ModuleBuilder<'_> {
             .transpose()?
             .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
 
-        let saved_locals = self.scope.take_bindings();
         let saved_class = self.current_class.replace(class_text.to_owned());
-        let saved_async = self.current_async;
-        let saved_return_ty = self.current_return_ty;
-        self.current_async = false;
-        self.current_return_ty = Some(return_ty);
-        let mut body = Body::new(None, span);
-        let this_symbol = self.ctx.krate.symbols.intern("this");
-        let this_local = body.push_local(LocalDecl {
-            name: Some(this_symbol),
-            ty: class_ty,
-            mutable: true,
-            span,
-        });
-        self.scope.bind("this".to_owned(), this_local);
-        body.params.push(this_local);
-        let mut params = vec![Param {
-            name: this_symbol,
-            local: this_local,
-            ty: class_ty,
-            span,
-        }];
-        let mut param_sigs = Vec::new();
-        let mut errors = Vec::new();
-        for (index, param) in function.params.items.iter().enumerate() {
-            let ty = match self.function_parameter_type(param) {
-                Ok(ty) => ty,
-                Err(error) => {
-                    errors.push(error);
-                    self.erase(ErasureReason::MissingAnnotation)
-                }
-            };
-            let (param_name, param_span, source_name) =
-                if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
-                    (
-                        self.intern_source_name(binding.name.as_str()),
-                        self.span(binding.span.start, binding.span.end),
-                        Some(binding.name.to_string()),
-                    )
-                } else {
-                    (
-                        self.intern_source_name(&format!("__param{index}")),
-                        self.span(param.span.start, param.span.end),
-                        None,
-                    )
+        let ctx = self.nested_fn_ctx(BodyKind::Method, false, Some(return_ty));
+        let scope = ScopeGroups::BINDINGS;
+        let (body, params, param_sigs, errors) = self.with_nested_body(ctx, scope, |this, _| {
+            let mut body = Body::new(None, span);
+            let this_symbol = this.ctx.krate.symbols.intern("this");
+            let this_local = body.push_local(LocalDecl {
+                name: Some(this_symbol),
+                ty: class_ty,
+                mutable: true,
+                span,
+            });
+            this.scope.bind("this".to_owned(), this_local);
+            body.params.push(this_local);
+            let mut params = vec![Param {
+                name: this_symbol,
+                local: this_local,
+                ty: class_ty,
+                span,
+            }];
+            let mut param_sigs = Vec::new();
+            let mut errors = Vec::new();
+            for (index, param) in function.params.items.iter().enumerate() {
+                let ty = match this.function_parameter_type(param) {
+                    Ok(ty) => ty,
+                    Err(error) => {
+                        errors.push(error);
+                        this.erase(ErasureReason::MissingAnnotation)
+                    }
                 };
-            let local = body.push_local(LocalDecl {
-                name: Some(param_name),
-                ty,
-                mutable: false,
-                span: param_span,
-            });
-            body.params.push(local);
-            if let Some(source_name) = source_name {
-                self.scope.bind(source_name, local);
+                let (param_name, param_span, source_name) =
+                    if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                        (
+                            this.intern_source_name(binding.name.as_str()),
+                            this.span(binding.span.start, binding.span.end),
+                            Some(binding.name.to_string()),
+                        )
+                    } else {
+                        (
+                            this.intern_source_name(&format!("__param{index}")),
+                            this.span(param.span.start, param.span.end),
+                            None,
+                        )
+                    };
+                let local = body.push_local(LocalDecl {
+                    name: Some(param_name),
+                    ty,
+                    mutable: false,
+                    span: param_span,
+                });
+                body.params.push(local);
+                if let Some(source_name) = source_name {
+                    this.scope.bind(source_name, local);
+                }
+                params.push(Param {
+                    name: param_name,
+                    local,
+                    ty,
+                    span: param_span,
+                });
+                param_sigs.push(ParamSig {
+                    name: param_name,
+                    ty,
+                    span: param_span,
+                });
             }
-            params.push(Param {
-                name: param_name,
-                local,
-                ty,
-                span: param_span,
-            });
-            param_sigs.push(ParamSig {
-                name: param_name,
-                ty,
-                span: param_span,
-            });
-        }
 
-        if let Err(error) =
-            self.predeclare_forward_referenced_locals(&function_body.statements, &mut body)
-        {
-            errors.push(error);
-        }
-        if let Err(error) =
-            self.predeclare_local_function_declarations(&function_body.statements, &mut body)
-        {
-            errors.push(error);
-        }
-        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
-            if let Err(error) = self.statement(statement, &mut body) {
+            if let Err(error) =
+                this.predeclare_forward_referenced_locals(&function_body.statements, &mut body)
+            {
                 errors.push(error);
             }
-        }
+            if let Err(error) =
+                this.predeclare_local_function_declarations(&function_body.statements, &mut body)
+            {
+                errors.push(error);
+            }
+            for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
+                if let Err(error) = this.statement(statement, &mut body) {
+                    errors.push(error);
+                }
+            }
 
-        self.scope.restore_bindings(saved_locals);
+            (body, params, param_sigs, errors)
+        });
         self.current_class = saved_class;
-        self.current_async = saved_async;
-        self.current_return_ty = saved_return_ty;
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }

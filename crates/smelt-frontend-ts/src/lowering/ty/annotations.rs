@@ -32,15 +32,27 @@ impl ModuleBuilder<'_> {
                 .types
                 .intern(Type::FixedInt(smelt_hir::IntWidth::I32)));
         }
-        self.int32_type_depth += 1;
-        let anchor = self.push_erasure_anchor(self.span(ty.span().start, ty.span().end));
-        let records_before = self.ctx.krate.erasures.len();
-        let lowered = self
-            .ts_type_shape_to_hir(ty)
-            .map(|lowered| self.checker_evaluated_or(lowered, ty.span(), records_before));
-        self.restore_erasure_anchor(anchor);
-        self.int32_type_depth -= 1;
+        let anchor = self.span(ty.span().start, ty.span().end);
+        let lowered = self.with_nested_type_position(|this| {
+            this.with_erasure_anchor(anchor, |this| {
+                let records_before = this.ctx.krate.erasures.len();
+                this.ts_type_shape_to_hir(ty)
+                    .map(|lowered| this.checker_evaluated_or(lowered, ty.span(), records_before))
+            })
+        });
         Ok(self.int32_only_as_whole_type(lowered?, whole))
+    }
+
+    /// Run `lower` one type-annotation level deeper, restoring the depth on
+    /// every exit path of `lower`.
+    ///
+    /// Depth `0` is exactly the whole-type position of a slot, which is the
+    /// only position where Bun's `int32` is an int32 (see `lowering::int32`).
+    fn with_nested_type_position<R>(&mut self, lower: impl FnOnce(&mut Self) -> R) -> R {
+        self.int32_type_depth += 1;
+        let result = lower(self);
+        self.int32_type_depth -= 1;
+        result
     }
 
     /// `lowered`, or the TypeScript 7 checker's evaluation of the annotation
@@ -3117,7 +3129,7 @@ return_ty: function.return_ty,
             Type::String if self.ctx.krate.symbols.get(field) == Some("prototype") => {
                 Ok(self.erase(ErasureReason::ByName))
             }
-            Type::String if self.allow_unknown_index_access => {
+            Type::String if self.allows_unknown_index_access() => {
                 Ok(self.erase(ErasureReason::ByName))
             }
             // Any remaining property read on a string value is a bound stdlib
@@ -3552,7 +3564,7 @@ return_ty: function.return_ty,
         let receiver_ty = self.type_param_constraint_or_self(receiver_ty);
         match self.ctx.krate.types.get(receiver_ty).cloned() {
             Some(Type::Dict(_, value)) => value,
-            Some(Type::Unknown) if self.allow_unknown_index_access => {
+            Some(Type::Unknown) if self.allows_unknown_index_access() => {
                 self.unknown_type() // not a new erasure: receiver already erased
             }
             Some(Type::Class { name, .. }) => {

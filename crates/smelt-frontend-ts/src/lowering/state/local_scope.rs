@@ -32,21 +32,13 @@ use smelt_hir::{ExprId, ItemId, LocalId, Span, Symbol, TypeId};
 
 use crate::lowering::LocalCallback;
 
-/// Collected static-member property writes onto a function-typed local.
-///
-/// Populated by `ModuleBuilder::try_collect_callable_local_prop` as it claims
-/// straight-line `fn.prop = value` writes, and consumed by the
-/// callable-interface coercion that synthesizes a
-/// [`smelt_hir::ExprKind::CallableObjectAssign`]. `props` keeps the writes in
-/// source order with last-write-wins de-duplication; `escaped` records whether
-/// the local has already been read for a purpose other than that consumption,
-/// which makes a later property write a documented (blocked) write-after-escape.
+/// What one function-typed local has collected so far: its `fn.prop = value`
+/// writes, the span of the first, and the callable interface it was declared
+/// at.
 #[derive(Debug, Clone, Default)]
-struct CallableLocalProps {
+struct CollectedProps {
     /// Property writes in source order (last write wins), as `(name, value)`.
     props: Vec<(Symbol, ExprId)>,
-    /// Set once the local escapes via a non-consuming, non-self-call read.
-    escaped: bool,
     /// Span of the first claimed write, used to point the
     /// collected-but-never-consumed diagnostic at the source the collection ate.
     first_write_span: Option<Span>,
@@ -58,6 +50,62 @@ struct CallableLocalProps {
     /// `return` from a function with an inferred return type) can still be
     /// constructed instead of dropping its properties.
     declared_interface: Option<TypeId>,
+}
+
+/// The collection state of static-member property writes onto a
+/// function-typed local.
+///
+/// Populated by `ModuleBuilder::try_collect_callable_local_prop` as it claims
+/// straight-line `fn.prop = value` writes, and consumed by the
+/// callable-interface coercion that synthesizes a
+/// [`smelt_hir::ExprKind::CallableObjectAssign`]. Consumption removes the
+/// local's entry, so "consumed" is the absence of one; a local that was never
+/// written or declared at a callable interface has none either.
+#[derive(Debug, Clone)]
+enum CallableLocalProps {
+    /// The local has only been written and passed to its own calls: further
+    /// writes are collected.
+    Collecting(CollectedProps),
+    /// The local was read for a purpose other than consumption, so a later
+    /// property write is a documented (blocked) write-after-escape. The writes
+    /// collected before the escape are still owed to a consumer.
+    Escaped(CollectedProps),
+}
+
+impl Default for CallableLocalProps {
+    fn default() -> Self {
+        Self::Collecting(CollectedProps::default())
+    }
+}
+
+impl CallableLocalProps {
+    /// The collected facts, whatever the state.
+    const fn collected(&self) -> &CollectedProps {
+        match self {
+            Self::Collecting(collected) | Self::Escaped(collected) => collected,
+        }
+    }
+
+    /// The collected facts, mutably, whatever the state.
+    const fn collected_mut(&mut self) -> &mut CollectedProps {
+        match self {
+            Self::Collecting(collected) | Self::Escaped(collected) => collected,
+        }
+    }
+
+    /// Move to [`Self::Escaped`], keeping what was collected.
+    fn escape(&mut self) {
+        if let Self::Collecting(collected) = self {
+            *self = Self::Escaped(std::mem::take(collected));
+        }
+    }
+
+    /// The collected facts, consuming the state.
+    fn into_collected(self) -> CollectedProps {
+        match self {
+            Self::Collecting(collected) | Self::Escaped(collected) => collected,
+        }
+    }
 }
 
 /// Source-name to local-id bindings saved while a nested body is lowered.
@@ -91,6 +139,65 @@ pub(in crate::lowering) struct CallableLocalPropWrites(HashMap<LocalId, Callable
 #[derive(Debug, Default)]
 pub(in crate::lowering) struct Narrowings(Vec<HashMap<String, TypeId>>);
 
+/// Which [`LocalScope`] groups a nested body starts empty and gives back on
+/// exit; see [`LocalScope::enter_body`].
+///
+/// A small flag set: combine groups with [`ScopeGroups::with`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(in crate::lowering) struct ScopeGroups(u8);
+
+impl ScopeGroups {
+    /// The name-to-local bindings.
+    pub(in crate::lowering) const BINDINGS: Self = Self(1);
+    /// The `Date`-identity local facts.
+    pub(in crate::lowering) const DATE_VALUES: Self = Self(1 << 1);
+    /// The collected callable-local property writes.
+    pub(in crate::lowering) const CALLABLE_PROPS: Self = Self(1 << 2);
+    /// The explicit-`any` local facts.
+    pub(in crate::lowering) const EXPLICIT_ANY: Self = Self(1 << 3);
+    /// The flow-narrowing stack.
+    pub(in crate::lowering) const NARROWINGS: Self = Self(1 << 4);
+    /// Every group.
+    pub(in crate::lowering) const ALL: Self = Self(0b1_1111);
+
+    /// These groups together with `other`.
+    pub(in crate::lowering) const fn with(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// Whether every group of `other` is in this set.
+    const fn has(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+}
+
+/// The groups a nested body took out of the enclosing one, handed back by
+/// [`LocalScope::leave_body`].
+#[derive(Debug)]
+#[must_use = "a body scope frame must be given back with `LocalScope::leave_body`"]
+pub(in crate::lowering) struct BodyScopeFrame {
+    /// The enclosing bindings, when they were taken.
+    bindings: Option<LocalBindings>,
+    /// The enclosing `Date`-identity facts, when they were taken.
+    date_values: Option<DateValueLocals>,
+    /// The enclosing callable-local writes, when they were taken.
+    callable_props: Option<CallableLocalPropWrites>,
+    /// The enclosing explicit-`any` facts, when they were taken.
+    explicit_any: Option<ExplicitAnyLocals>,
+    /// The enclosing narrowing stack, when it was taken.
+    narrowings: Option<Narrowings>,
+}
+
+impl BodyScopeFrame {
+    /// The enclosing body's bindings, when this frame took them.
+    ///
+    /// Capture collection reads the enclosing bindings while the nested
+    /// body's are installed.
+    pub(in crate::lowering) const fn enclosing_bindings(&self) -> Option<&LocalBindings> {
+        self.bindings.as_ref()
+    }
+}
+
 /// Everything the lowering pass knows about the locals of the body in progress.
 ///
 /// See the module docs for the invariants this owns.
@@ -116,6 +223,41 @@ pub(in crate::lowering) struct LocalScope {
 }
 
 impl LocalScope {
+    /// Take `groups` out for a nested body, leaving them empty.
+    ///
+    /// The frame gives exactly those groups back through [`Self::leave_body`];
+    /// groups not named stay visible to the nested body.
+    pub(in crate::lowering) fn enter_body(&mut self, groups: ScopeGroups) -> BodyScopeFrame {
+        BodyScopeFrame {
+            bindings: groups.has(ScopeGroups::BINDINGS).then(|| self.take_bindings()),
+            date_values: groups.has(ScopeGroups::DATE_VALUES).then(|| self.take_date_values()),
+            callable_props: groups
+                .has(ScopeGroups::CALLABLE_PROPS)
+                .then(|| self.take_callable_prop_writes()),
+            explicit_any: groups.has(ScopeGroups::EXPLICIT_ANY).then(|| self.take_explicit_any()),
+            narrowings: groups.has(ScopeGroups::NARROWINGS).then(|| self.take_narrowings()),
+        }
+    }
+
+    /// Give back the groups [`Self::enter_body`] took.
+    pub(in crate::lowering) fn leave_body(&mut self, frame: BodyScopeFrame) {
+        if let Some(saved) = frame.bindings {
+            self.restore_bindings(saved);
+        }
+        if let Some(saved) = frame.date_values {
+            self.restore_date_values(saved);
+        }
+        if let Some(saved) = frame.callable_props {
+            self.restore_callable_prop_writes(saved);
+        }
+        if let Some(saved) = frame.explicit_any {
+            self.restore_explicit_any(saved);
+        }
+        if let Some(saved) = frame.narrowings {
+            self.restore_narrowings(saved);
+        }
+    }
+
     /// Bind a source name to a lowered local, returning the binding it replaced
     /// so a caller restoring a lexical scope can put the previous one back.
     pub(in crate::lowering) fn bind(&mut self, name: String, local: LocalId) -> Option<LocalId> {
@@ -226,7 +368,12 @@ impl LocalScope {
         value: ExprId,
         span: Span,
     ) {
-        let entry = self.callable_props.0.entry(local).or_default();
+        let state = self.callable_props.0.entry(local).or_default();
+        debug_assert!(
+            matches!(state, CallableLocalProps::Collecting(_)),
+            "a property write onto an escaped callable local must be rejected by the caller"
+        );
+        let entry = state.collected_mut();
         entry.props.retain(|(name, _)| *name != prop);
         entry.props.push((prop, value));
         entry.first_write_span.get_or_insert(span);
@@ -249,6 +396,7 @@ impl LocalScope {
             .callable_props
             .0
             .values()
+            .map(CallableLocalProps::collected)
             .filter(|state| !state.props.is_empty())
             .filter_map(|state| {
                 state
@@ -269,7 +417,12 @@ impl LocalScope {
         local: LocalId,
         interface_ty: TypeId,
     ) {
-        self.callable_props.0.entry(local).or_default().declared_interface = Some(interface_ty);
+        self.callable_props
+            .0
+            .entry(local)
+            .or_default()
+            .collected_mut()
+            .declared_interface = Some(interface_ty);
     }
 
     /// Return the callable-interface type a local was declared at, if any.
@@ -280,7 +433,7 @@ impl LocalScope {
         self.callable_props
             .0
             .get(&local)
-            .and_then(|state| state.declared_interface)
+            .and_then(|state| state.collected().declared_interface)
     }
 
     /// Return whether a callable local has already escaped its collection.
@@ -288,13 +441,13 @@ impl LocalScope {
         self.callable_props
             .0
             .get(&local)
-            .is_some_and(|state| state.escaped)
+            .is_some_and(|state| matches!(state, CallableLocalProps::Escaped(_)))
     }
 
     /// Record that a callable local escaped through a non-consuming read.
     pub(in crate::lowering) fn mark_callable_local_escaped(&mut self, local: LocalId) {
         if let Some(state) = self.callable_props.0.get_mut(&local) {
-            state.escaped = true;
+            state.escape();
         }
     }
 
@@ -310,7 +463,7 @@ impl LocalScope {
         self.callable_props
             .0
             .remove(&local)
-            .map(|state| state.props)
+            .map(|state| state.into_collected().props)
     }
 
     /// Take the callable-local writes, leaving none for a nested body.

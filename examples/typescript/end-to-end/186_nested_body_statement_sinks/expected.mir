@@ -1,0 +1,280 @@
+class K fields [Public v: Float] constructor Some(FuncId(5)) methods [FuncId(6)]
+class Counter fields [Public a: Float, Public b: Float] constructor Some(FuncId(7)) methods []
+class Scaled fields [] constructor Some(FuncId(9)) methods [FuncId(8)]
+class C fields [] constructor Some(FuncId(11)) methods [FuncId(10)]
+class Pair fields [Public v: Float] constructor Some(FuncId(12)) methods []
+
+fn method_default (FuncId(0)) -> Float
+  locals
+    %0 param n: Float
+    %1 temp: Bool
+    %2 temp: K
+    %3 temp: Float
+  bb0:
+    %1 = copy %0 > 0.0
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = call fn5(copy %0) -> bb3
+  bb2:
+    return 0.0
+  bb3:
+    %3 = call fn6(move %2, copy %0) -> bb4
+  bb4:
+    return move %3
+
+fn field_initializer (FuncId(1)) -> Float
+  locals
+    %0 param n: Float
+    %1 user counter: Counter
+    %2 temp: Bool
+    %3 temp: Counter
+    %4 temp: Float
+    %5 temp: Float
+  bb0:
+    %2 = copy %0 > 0.0
+    switch move %2 ? bb1 : bb2
+  bb1:
+    %3 = call fn7() -> bb3
+  bb2:
+    return 0.0
+  bb3:
+    %1 = move %3
+    %4 = copy %1.field8 * 10.0
+    %5 = move %4 + copy %1.field13
+    return move %5
+
+fn method_default_in_loop (FuncId(2)) -> Float
+  locals
+    %0 param n: Float
+    %1 user total: Float
+    %2 user r: Float
+    %3 temp: Bool
+    %4 temp: Scaled
+    %5 temp: Float
+    %6 temp: Float
+    %7 temp: Float
+  bb0:
+    %1 = 0.0
+    %2 = 0.0
+    goto bb1
+  bb1:
+    %3 = copy %2 < copy %0
+    switch move %3 ? bb2 : bb4
+  bb2:
+    %4 = call fn9() -> bb5
+  bb3:
+    %7 = move %2 + 1.0
+    %2 = move %7
+    goto bb1
+  bb4:
+    return move %1
+  bb5:
+    %5 = call fn8(move %4, copy %2) -> bb6
+  bb6:
+    %6 = move %1 + move %5
+    %1 = move %6
+    goto bb3
+
+fn class_expression_in_deferring_declaration (FuncId(3)) -> Float
+  locals
+    %0 param n: Float
+    %1 user i: Float
+    %2 user g: Float
+    %3 temp: Float
+    %4 temp: Float
+    %5 temp: C
+    %6 temp: Float
+    %7 temp: Float
+    %8 temp: Float
+  bb0:
+    %1 = copy %0
+    %2 = copy %1
+    %3 = move %1 + 1.0
+    %1 = move %3
+    %4 = move %2 * 1000.0
+    %5 = call fn11() -> bb1
+  bb1:
+    %6 = call fn10(move %5, copy %1) -> bb2
+  bb2:
+    %7 = move %4 + move %6
+    %8 = move %7 + move %1
+    return move %8
+
+fn constructor_default (FuncId(4)) -> Float
+  locals
+    %0 param n: Float
+    %1 temp: Bool
+    %2 temp: Pair
+  bb0:
+    %1 = copy %0 > 0.0
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = call fn12(copy %0) -> bb3
+  bb2:
+    return 0.0
+  bb3:
+    return copy %2.field7
+
+fn new (FuncId(5)) -> K
+  locals
+    %0 user this: K
+    %1 param a: Float
+    %2 user b: Float
+    %3 temp: Float
+  bb0:
+    %0 = struct6 {}
+    %2 = copy %1
+    %3 = move %2 + 1.0
+    %2 = move %3
+    %0.field7 = move %2
+    return move %0
+
+fn get (FuncId(6)) -> Float
+  locals
+    %0 param this: K
+    %1 param a: Float
+    %2 param x: Optional<Float>
+    %3 user __smelt_update_tmp: Float
+    %4 user x: Float
+    %5 temp: Float
+    %6 temp: Float
+    %7 temp: Float
+    %8 temp: Float
+  bb0:
+    %3 = copy %1
+    %5 = copy %1 + 1.0
+    %1 = move %5
+    %6 = copy %2 ?? move %3
+    %4 = move %6
+    %7 = copy %1 + move %4
+    %8 = move %7 + copy %0.field7
+    return move %8
+
+fn new (FuncId(7)) -> Counter
+  locals
+    %0 user this: Counter
+    %1 user __smelt_update_tmp: Float
+    %2 temp: Float
+  bb0:
+    %0 = struct15 {}
+    %0.field8 = 3.0
+    %1 = copy %0.field8
+    %2 = copy %0.field8 + 1.0
+    %0.field8 = move %2
+    %0.field13 = move %1
+    return move %0
+
+fn get (FuncId(8)) -> Float
+  locals
+    %0 param this: Scaled
+    %1 param a: Float
+    %2 param x: Optional<Float>
+    %3 user __smelt_update_tmp: Float
+    %4 user x: Float
+    %5 temp: Float
+    %6 temp: Float
+    %7 temp: Float
+    %8 temp: Float
+  bb0:
+    %3 = copy %1
+    %5 = copy %1 + 1.0
+    %1 = move %5
+    %6 = copy %2 ?? move %3
+    %4 = move %6
+    %7 = copy %1 * 10.0
+    %8 = move %7 + move %4
+    return move %8
+
+fn new (FuncId(9)) -> Scaled
+  locals
+    %0 user this: Scaled
+  bb0:
+    %0 = struct19 {}
+    return move %0
+
+fn m (FuncId(10)) -> Float
+  locals
+    %0 param this: C
+    %1 param a: Float
+    %2 param x: Optional<Float>
+    %3 user __smelt_update_tmp: Float
+    %4 user x: Float
+    %5 temp: Float
+    %6 temp: Float
+    %7 temp: Float
+    %8 temp: Float
+  bb0:
+    %3 = copy %1
+    %5 = copy %1 + 1.0
+    %1 = move %5
+    %6 = copy %2 ?? move %3
+    %4 = move %6
+    %7 = copy %1 * 10.0
+    %8 = move %7 + move %4
+    return move %8
+
+fn new (FuncId(11)) -> C
+  locals
+    %0 user this: C
+  bb0:
+    %0 = struct22 {}
+    return move %0
+
+fn new (FuncId(12)) -> Pair
+  locals
+    %0 user this: Pair
+    %1 param a: Float
+    %2 param x: Optional<Float>
+    %3 user __smelt_update_tmp: Float
+    %4 user x: Float
+    %5 temp: Float
+    %6 temp: Float
+    %7 temp: Float
+    %8 temp: Float
+  bb0:
+    %0 = struct24 {}
+    %3 = copy %1
+    %5 = copy %1 + 1.0
+    %1 = move %5
+    %6 = copy %2 ?? move %3
+    %4 = move %6
+    %7 = copy %1 * 10.0
+    %8 = move %7 + move %4
+    %0.field7 = move %8
+    return move %0
+
+fn main (FuncId(13)) -> None
+  locals
+    %0 temp: Float
+    %1 temp: None
+    %2 temp: Float
+    %3 temp: None
+    %4 temp: Float
+    %5 temp: None
+    %6 temp: Float
+    %7 temp: None
+    %8 temp: Float
+    %9 temp: None
+  bb0:
+    %0 = call fn0(3.0) -> bb1
+  bb1:
+    %1 = call @console_log(move %0) -> bb2
+  bb2:
+    %2 = call fn1(1.0) -> bb3
+  bb3:
+    %3 = call @console_log(move %2) -> bb4
+  bb4:
+    %4 = call fn2(3.0) -> bb5
+  bb5:
+    %5 = call @console_log(move %4) -> bb6
+  bb6:
+    %6 = call fn3(3.0) -> bb7
+  bb7:
+    %7 = call @console_log(move %6) -> bb8
+  bb8:
+    %8 = call fn4(2.0) -> bb9
+  bb9:
+    %9 = call @console_log(move %8) -> bb10
+  bb10:
+    return none
+

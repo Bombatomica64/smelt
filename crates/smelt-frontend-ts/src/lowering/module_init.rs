@@ -4,9 +4,14 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use super::support::{
-    const_literal_from_item, implemented_function_names, insert_visible_item,
+    const_literal_from_item, insert_visible_item,
     is_implemented_overload_signature, item_name, module_export_name,
 };
+use super::state::fn_ctx::FnCtx;
+use phases::{ModuleFacts, SignaturesDeclared};
+
+mod phases;
+use super::state::lowering_mode::UnknownIndexAccess;
 use super::state::class_registry::ClassRegistry;
 use super::state::interface_registry::InterfaceRegistry;
 use super::state::const_registry::ConstRegistry;
@@ -454,7 +459,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let interface_construct_signatures = ctx.interface_construct_signatures.clone();
         let callable_fields = ctx.callable_fields.clone();
         let callable_object_aliases = ctx.callable_object_aliases.clone();
-        let allow_unknown_index_access = Self::is_declaration_type_test_path(&path);
+        let unknown_index_access = UnknownIndexAccess::for_module(
+            Self::is_declaration_type_test_path(&path),
+        );
         Self {
             file_id,
             path,
@@ -477,20 +484,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ),
             types: TypeScope::new(type_alias_fields, callable_fields, callable_object_aliases),
             current_class: None,
-            current_async: false,
-            current_return_ty: None,
-            current_generator_yields: None,
-            current_arguments_arities: Vec::new(),
-            current_statement_block: None,
+            fn_ctx: FnCtx::default(),
             array_view_receivers: Vec::new(),
-            deferred_postfix_updates: None,
-            class_expression_binding_name: None,
             asymmetric_matchers_lowered: 0,
-            forward_referenced_locals: HashSet::new(),
             presence_widened_bindings: HashMap::new(),
             defining_local_functions: Vec::new(),
-            allow_unknown_index_access,
-            preserve_specialization_receiver: false,
+            unknown_index_access,
             object_namespaces,
             consts: ConstRegistry::new(
                 const_literals,
@@ -608,8 +607,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         //
         // Restored after the body so a nested non-async function still rejects
         // `await` in its own body.
-        let previous_async = self.current_async;
-        self.current_async = true;
+        let outer_fn_ctx = std::mem::replace(&mut self.fn_ctx, FnCtx::module());
 
         let mut module = Module::new(
             "main",
@@ -624,80 +622,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let mut before_each = Vec::new();
         let mut after_each = Vec::new();
         let mut top_level_test_setup = Vec::new();
-        for statement in &program.body {
-            if let Statement::ImportDeclaration(import) = statement {
-                self.erasure_anchor = self.span(statement.span().start, statement.span().end);
-                self.import_declaration(import, &mut module);
-            }
-        }
-        let test_module = self.is_test_tier_program(program);
-        if test_module {
-            self.mark_ambient_test_builtins(program);
-        }
-        self.classify_pending_host_imports(test_module);
-        let implemented_functions = implemented_function_names(program);
-        self.shadow_cross_module_overloads(&implemented_functions);
-        // Declared before any type reference is lowered (the alias predeclaration
-        // below is the first), so a module type that shares a global lib type's
-        // spelling shadows it everywhere in the module; see
-        // `ModuleBuilder::module_type_shadows_global`.
-        self.types
-            .declare_module_type_names(Self::program_type_declaration_names(program));
-        self.predeclare_type_alias_items(program);
-        self.collect_module_enums(program);
-        self.collect_module_globals(program);
-        // Every module binding a separately lowered body reads — a hoisted
-        // item, a replayed const initializer, or a module slot's own
-        // initializer function — has no module-body local to read through.
-        // Each one must resolve to a provably identical folded value or to a
-        // module slot; see `collect_item_context_reads`.
-        let item_reads = Self::collect_item_context_reads(program);
-        self.collect_mutable_globals(program, &item_reads, &mut module, &mut errors);
-        self.forget_lifted_const_collections();
-        self.collect_class_value_globals(program, &item_reads, &mut module);
-        // A module top-level `function Foo(){ this.a = … }` used with `new Foo()`,
-        // `x instanceof Foo`, or `Foo.prototype.m = …` is a JavaScript
-        // constructor function, not a plain function. Both name sets are handed
-        // to the registry in one call, before any function item is predeclared:
-        // it treats every constructor-function name as a pending class name so a
-        // `new Foo()` lowered before the synthesis still resolves nominally, and
-        // `predeclare_function_item` skips the names it reports.
-        self.classes.declare_module_scope(
-            Self::program_class_names(program),
-            Self::module_constructor_function_names(program),
-        );
-        self.interfaces
-            .declare_module_scope(Self::program_interface_names(program));
-        // Class TYPE parameters — and in particular their DEFAULTS — have to be
-        // readable before any signature is lowered: the forward-function-type
-        // and predeclaration passes below lower type references while no class
-        // item exists yet, and a reference that omits defaulted trailing
-        // arguments must still take them. Runs after the class name scope is
-        // declared so each declaration is recorded under the symbol a later
-        // reference resolves to.
-        self.collect_class_type_parameter_defaults(program);
-        self.collect_class_constructor_param_types(program);
-        self.collect_overload_signatures(program, &implemented_functions);
-        self.collect_forward_function_types(program, &implemented_functions);
-        self.predeclare_function_items(program, &implemented_functions, &mut errors);
-        // Type predicates carried by arrows, predicate-typed variables and class
-        // methods are recorded before any body is lowered, like the function
-        // declarations' own (`predeclare_function_item`), so a hoisted body
-        // calling one declared further down still narrows through it.
-        self.collect_type_predicate_signatures(program);
-        // `collect_module_globals` ran before any function item existed, so an
-        // unannotated `const x = makeX()` could not resolve its callee and was
-        // recorded `Unknown`. Now that every function signature is declared,
-        // those bindings are typed again from their initializers.
-        self.refine_unknown_module_global_types(program, &item_reads);
-        // Static properties on function declarations (`partial.placeholder = …`)
-        // are collected as a PREPASS, right after the function items they hang off
-        // are predeclared and before any body is lowered. A function's own body
-        // routinely reads its own static — es-toolkit `partial` passes
-        // `partial.placeholder` to its implementation — which is a forward
-        // reference to a statement that appears after the declaration, so
-        // collecting these in source order would leave that read unresolved.
-        self.collect_function_static_properties(program, &mut errors);
+        let imports = self.read_imports(program, &mut module);
+        let types = self.declare_module_types(program, imports);
+        let bindings = self.collect_module_bindings(program, &mut module, &mut errors, types);
+        let class_scope = self.declare_class_scope(program, bindings);
+        let (signatures, facts) = self.declare_signatures(program, &mut errors, class_scope);
+        let ModuleFacts {
+            test_module,
+            implemented_functions,
+        } = facts;
         let mut forward_arrow_consts = self.forward_arrow_const_names(program);
         forward_arrow_consts.extend(Self::object_namespace_arrow_const_names(program));
         // An arrow that reads a module binding with REFERENCE IDENTITY cannot be
@@ -735,14 +668,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // waits for that class instead of being hoisted above it: the queue is
         // drained once here and again after each class declaration below. See
         // `ForwardArrowQueue`.
-        let mut arrow_queue = ForwardArrowQueue {
-            pending: pending_arrows,
-            classes: self.module_class_source_texts(program),
-            lowered_classes: HashSet::new(),
+        let mut arrow_queue = ForwardArrowQueue::new(
+            pending_arrows,
+            self.module_class_source_texts(program),
             forward_arrow_consts,
-            lowered_arrows: HashSet::new(),
-            lifted_exported: HashSet::new(),
-        };
+            &signatures,
+        );
         self.drain_forward_arrow_queue(
             &mut arrow_queue,
             &mut module,
@@ -752,7 +683,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Statement::ImportDeclaration(_) = statement {
                 continue;
             }
-            self.erasure_anchor = self.span(statement.span().start, statement.span().end);
+            self.anchor_top_level_statement(self.span(statement.span().start, statement.span().end));
             // A queued arrow still waiting on a class is lowered no later than
             // its own source position, where every class above it is lowered.
             if let Some(start) = Self::variable_statement_start(statement) {
@@ -796,7 +727,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     Err(error) => errors.push(error),
                 }
                 if let Some(id) = &class.id {
-                    arrow_queue.lowered_classes.insert(id.name.to_string());
+                    arrow_queue.mark_class_lowered(id.name.as_str());
                 }
                 self.drain_forward_arrow_queue(
                     &mut arrow_queue,
@@ -936,7 +867,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         Err(error) => errors.push(error),
                     }
                     if let Some(id) = &class.id {
-                        arrow_queue.lowered_classes.insert(id.name.to_string());
+                        arrow_queue.mark_class_lowered(id.name.as_str());
                     }
                     self.drain_forward_arrow_queue(
                         &mut arrow_queue,
@@ -960,7 +891,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     }
                 } else if let Declaration::VariableDeclaration(variable) = decl {
                     // Already lowered by the forward-arrow queue above.
-                    if arrow_queue.lifted_exported.contains(&variable.span.start) {
+                    if arrow_queue.is_lifted_exported(variable.span.start) {
                         continue;
                     }
                     match self.const_item_declarations(variable) {
@@ -979,7 +910,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
 
         for statement in &program.body {
-            self.erasure_anchor = self.span(statement.span().start, statement.span().end);
+            self.anchor_top_level_statement(self.span(statement.span().start, statement.span().end));
             if matches!(
                 statement,
                 Statement::FunctionDeclaration(_)
@@ -1051,9 +982,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return Err(errors);
         }
 
-        self.record_module_exports(&module, &previous_export_aliases);
+        self.record_module_exports(&module, &previous_export_aliases, signatures);
 
-        self.current_async = previous_async;
+        self.fn_ctx = outer_fn_ctx;
         // The body needs the async runtime when it awaits, or when it starts
         // work the event loop must finish before the program exits: a floating
         // promise (`run();` on an async function, whose result nobody awaits)
@@ -1205,10 +1136,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Record item exports lowered from the current source path.
+    ///
+    /// Takes the [`SignaturesDeclared`] token by value: the export-rename
+    /// projection below reads every module item, so it runs once, after the
+    /// signature phase and the statement lowering that follows it.
     pub(super) fn record_module_exports(
         &mut self,
         module: &Module,
         previous_export_aliases: &HashMap<String, smelt_hir::ItemId>,
+        _lowered: SignaturesDeclared,
     ) {
         // Resolve the renames the export prepass could not: `export { Store as
         // StoreBase }` is visited before a non-exported `class Store {}` has
@@ -1343,7 +1279,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 names.insert(id.name.to_string());
             }
             // `const Foo = class { … }` declares a class named `Foo` (see
-            // `ModuleBuilder::class_expression_binding_name`), so the name is
+            // `ModuleBuilder::class_declaration_named`), so the name is
             // pending from the prepass exactly like a `class Foo {}`
             // declaration and a `new Foo()` lowered earlier in the module still
             // resolves nominally.
@@ -4952,44 +4888,41 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// bound to a placeholder.
     fn waiting_forward_arrows(&self, queue: &ForwardArrowQueue<'_, '_>) -> HashSet<usize> {
         let texts = queue
-            .pending
-            .iter()
-            .map(|(variable, _)| {
+            .queued()
+            .map(|(slot, variable)| {
                 let names = Self::arrow_const_declaration_names(variable);
-                (self.span_source_text(variable.span), names)
+                (slot, self.span_source_text(variable.span), names)
             })
             .collect::<Vec<_>>();
         let mut waiting = texts
             .iter()
-            .enumerate()
-            .filter(|(_, (text, names))| {
-                queue.classes.iter().any(|(class, class_text)| {
-                    !queue.lowered_classes.contains(class)
-                        && Self::mentions_identifier(text, class)
+            .filter(|(_, text, names)| {
+                queue.classes.iter().any(|class| {
+                    !class.lowered
+                        && Self::mentions_identifier(text, &class.name)
                         && !names
                             .iter()
-                            .any(|name| Self::mentions_identifier(class_text, name))
+                            .any(|name| Self::mentions_identifier(&class.text, name))
                 })
             })
-            .map(|(index, _)| index)
+            .map(|(slot, _, _)| *slot)
             .collect::<HashSet<_>>();
         loop {
-            let waiting_names = waiting
+            let waiting_names = texts
                 .iter()
-                .filter_map(|index| texts.get(*index))
-                .flat_map(|(_, names)| names.iter().cloned())
+                .filter(|(slot, _, _)| waiting.contains(slot))
+                .flat_map(|(_, _, names)| names.iter().cloned())
                 .collect::<Vec<_>>();
             let newly = texts
                 .iter()
-                .enumerate()
-                .filter(|(index, (text, names))| {
-                    !waiting.contains(index)
+                .filter(|(slot, text, names)| {
+                    !waiting.contains(slot)
                         && waiting_names.iter().any(|waiting_name| {
                             !names.contains(waiting_name)
                                 && Self::mentions_identifier(text, waiting_name)
                         })
                 })
-                .map(|(index, _)| index)
+                .map(|(slot, _, _)| *slot)
                 .collect::<Vec<_>>();
             if newly.is_empty() {
                 return waiting;
@@ -5008,26 +4941,25 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) {
         loop {
             let waiting = self.waiting_forward_arrows(queue);
-            let ready = (0..queue.pending.len())
-                .filter(|index| !waiting.contains(index))
+            let ready = queue
+                .queued()
+                .filter(|(slot, _)| !waiting.contains(slot))
                 .collect::<Vec<_>>();
-            let Some(&fallback) = ready.first() else {
+            let Some(&(fallback, _)) = ready.first() else {
                 return;
             };
-            let index = ready
+            let lowered_arrows = queue.lowered_arrow_names();
+            let slot = ready
                 .iter()
-                .copied()
-                .find(|index| {
-                    queue.pending.get(*index).is_some_and(|(variable, _)| {
-                        self.arrow_const_dependencies_are_lowered(
-                            variable,
-                            &queue.forward_arrow_consts,
-                            &queue.lowered_arrows,
-                        )
-                    })
+                .find(|(_, variable)| {
+                    self.arrow_const_dependencies_are_lowered(
+                        variable,
+                        &queue.forward_arrow_consts,
+                        &lowered_arrows,
+                    )
                 })
-                .unwrap_or(fallback);
-            self.lower_queued_forward_arrow(queue, index, module, errors);
+                .map_or(fallback, |(slot, _)| *slot);
+            self.lower_queued_forward_arrow(queue, slot, module, errors);
         }
     }
 
@@ -5041,31 +4973,29 @@ impl<'ctx> ModuleBuilder<'ctx> {
         module: &mut Module,
         errors: &mut Vec<SmeltError>,
     ) {
-        if let Some(index) = queue
-            .pending
-            .iter()
-            .position(|(variable, _)| variable.span.start == start)
-        {
-            self.lower_queued_forward_arrow(queue, index, module, errors);
+        let slot = queue
+            .queued()
+            .find(|(_, variable)| variable.span.start == start)
+            .map(|(slot, _)| slot);
+        if let Some(slot) = slot {
+            self.lower_queued_forward_arrow(queue, slot, module, errors);
         }
     }
 
-    /// Remove queue entry `index` and lower it: an exported statement through
+    /// Take queue slot `slot` and lower it: an exported statement through
     /// `const_item_declarations` (marking it lifted so the main loop skips it),
     /// a private one as a private callable item.
     fn lower_queued_forward_arrow(
         &mut self,
         queue: &mut ForwardArrowQueue<'_, '_>,
-        index: usize,
+        slot: usize,
         module: &mut Module,
         errors: &mut Vec<SmeltError>,
     ) {
-        if index >= queue.pending.len() {
+        let Some((variable, exported)) = queue.take(slot) else {
             return;
-        }
-        let (variable, exported) = queue.pending.remove(index);
+        };
         let lowered = if exported {
-            queue.lifted_exported.insert(variable.span.start);
             self.const_item_declarations(variable)
         } else {
             self.arrow_function_const_item_declarations(variable, &queue.forward_arrow_consts)
@@ -5074,7 +5004,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
             Ok(items) => module.items.extend(items),
             Err(error) => errors.push(error),
         }
-        queue.lowered_arrows.extend(Self::arrow_const_declaration_names(variable));
     }
 
     /// Check whether a private arrow constant can resolve arrow values it reads.
@@ -6177,18 +6106,131 @@ impl<'ctx> ModuleBuilder<'ctx> {
 /// their body names, and are lowered when those are, or at their own source
 /// position at the latest.
 struct ForwardArrowQueue<'a, 'src> {
-    /// Queued statements with whether each is exported.
-    pending: Vec<(&'a oxc::ast::ast::VariableDeclaration<'src>, bool)>,
-    /// `(name, source text)` of every class declaration in the module.
-    classes: Vec<(String, String)>,
-    /// Module classes whose declaration has been lowered so far.
-    lowered_classes: HashSet<String>,
+    /// Every forward-lifted arrow statement, in source order.
+    slots: Vec<ArrowSlot<'a, 'src>>,
+    /// Every class declaration in the module, and whether it is lowered yet.
+    classes: Vec<QueuedModuleClass>,
     /// Every forward-referenced arrow name (queued or not), for dependency
     /// ordering and for `arrow_function_const_item_declarations`.
     forward_arrow_consts: HashSet<String>,
-    /// Arrow names lowered by the queue so far.
-    lowered_arrows: HashSet<String>,
-    /// Start offsets of exported statements the queue lowered, which the main
-    /// loop then skips.
-    lifted_exported: HashSet<u32>,
+}
+
+/// One forward-lifted arrow statement and where it is in its lifecycle.
+struct ArrowSlot<'a, 'src> {
+    /// The `const` statement declaring the arrow(s).
+    variable: &'a oxc::ast::ast::VariableDeclaration<'src>,
+    /// Whether the statement is `export`ed.
+    exported: bool,
+    /// Whether it is still queued, and how it was lowered otherwise.
+    state: ArrowSlotState,
+}
+
+/// The lifecycle of one [`ArrowSlot`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ArrowSlotState {
+    /// Not lowered yet: waiting for the classes it names or for its turn.
+    Queued,
+    /// Lowered by the queue as a private callable item.
+    Lowered,
+    /// An exported statement lowered by the queue; the main loop skips it.
+    LiftedExported,
+}
+
+/// A module class declaration a queued arrow may wait for.
+struct QueuedModuleClass {
+    /// The class's source name.
+    name: String,
+    /// The class declaration's source text.
+    text: String,
+    /// Whether the declaration has been lowered.
+    lowered: bool,
+}
+
+impl<'a, 'src> ForwardArrowQueue<'a, 'src> {
+    /// Queue `pending` statements (in source order) against the module's
+    /// `(name, source text)` class declarations.
+    ///
+    /// Requires the signature phase: a queued arrow is lowered as soon as it
+    /// is ready, and its body calls predeclared functions.
+    fn new(
+        pending: Vec<(&'a oxc::ast::ast::VariableDeclaration<'src>, bool)>,
+        classes: Vec<(String, String)>,
+        forward_arrow_consts: HashSet<String>,
+        _signatures: &SignaturesDeclared,
+    ) -> Self {
+        Self {
+            slots: pending
+                .into_iter()
+                .map(|(variable, exported)| ArrowSlot {
+                    variable,
+                    exported,
+                    state: ArrowSlotState::Queued,
+                })
+                .collect(),
+            classes: classes
+                .into_iter()
+                .map(|(name, text)| QueuedModuleClass {
+                    name,
+                    text,
+                    lowered: false,
+                })
+                .collect(),
+            forward_arrow_consts,
+        }
+    }
+
+    /// The still-queued slots, in source order, with their statements.
+    fn queued(
+        &self,
+    ) -> impl Iterator<Item = (usize, &'a oxc::ast::ast::VariableDeclaration<'src>)> + '_ {
+        self.slots
+            .iter()
+            .enumerate()
+            .filter(|(_, slot)| slot.state == ArrowSlotState::Queued)
+            .map(|(index, slot)| (index, slot.variable))
+    }
+
+    /// Take a queued slot for lowering, recording how it is lowered; `None`
+    /// when the slot is out of range or no longer queued.
+    fn take(
+        &mut self,
+        slot: usize,
+    ) -> Option<(&'a oxc::ast::ast::VariableDeclaration<'src>, bool)> {
+        let entry = self.slots.get_mut(slot)?;
+        if entry.state != ArrowSlotState::Queued {
+            return None;
+        }
+        entry.state = if entry.exported {
+            ArrowSlotState::LiftedExported
+        } else {
+            ArrowSlotState::Lowered
+        };
+        Some((entry.variable, entry.exported))
+    }
+
+    /// Names declared by the statements the queue has lowered so far.
+    fn lowered_arrow_names(&self) -> HashSet<String> {
+        self.slots
+            .iter()
+            .filter(|slot| slot.state != ArrowSlotState::Queued)
+            .flat_map(|slot| ModuleBuilder::arrow_const_declaration_names(slot.variable))
+            .collect()
+    }
+
+    /// Whether the exported statement starting at `start` was lowered by the
+    /// queue, so the main loop must skip it.
+    fn is_lifted_exported(&self, start: u32) -> bool {
+        self.slots.iter().any(|slot| {
+            slot.state == ArrowSlotState::LiftedExported && slot.variable.span.start == start
+        })
+    }
+
+    /// Record that the module class `name` has been lowered.
+    fn mark_class_lowered(&mut self, name: &str) {
+        for class in &mut self.classes {
+            if class.name == name {
+                class.lowered = true;
+            }
+        }
+    }
 }

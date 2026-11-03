@@ -21,12 +21,19 @@
 //! 3. the name is *not* predeclared as a callable function item, which would
 //!    shadow the class binding.
 //!
-//! [`ClassRegistry::declare_module_scope`] is the only way to record (1), and it
-//! establishes (2) in the same statement, so no caller can do half of it. Fact
-//! (3) reads the same private set through
-//! [`ClassRegistry::is_constructor_function`] — the set is unreachable any other
-//! way, so the predeclaration skip and the synthesis dispatch cannot disagree
-//! about which names are constructor functions.
+//! Every class name has ONE entry ([`ClassName`]) holding both what the module
+//! declares it as and the item it currently resolves to, and its state is read
+//! as one [`ClassState`]. A constructor function is a *kind* of module
+//! declaration, so being one and being pending cannot come apart:
+//! [`ClassRegistry::declare_module_scope`] is the only way to record either.
+//! Fact (3) reads the same entry through
+//! [`ClassRegistry::is_constructor_function`], so the predeclaration skip and
+//! the synthesis dispatch cannot disagree about which names are constructor
+//! functions.
+//!
+//! The declaration half of an entry is module-wide; only the item half follows
+//! the lexical class scopes of test suites and test cases, so rolling a scope
+//! back can never forget that the module declares a name.
 
 use std::collections::{HashMap, HashSet};
 
@@ -36,13 +43,50 @@ use smelt_hir::{Field, ItemId, MethodSig, Symbol, TypeId};
 /// arguments applied to it.
 type BaseClass = (Symbol, Vec<TypeId>);
 
+/// How the module being lowered declares a class name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClassDeclaration {
+    /// A `class Foo {}` declaration (or `const Foo = class { … }`).
+    Class,
+    /// A top-level `function Foo(){}` used as a JavaScript constructor function.
+    ConstructorFunction,
+}
+
+/// What the module knows about one class name: how it declares it (module
+/// wide) and the class item the name resolves to in the current scope.
+#[derive(Debug, Clone, Copy, Default)]
+struct ClassName {
+    /// How the current module declares the name, if it does.
+    declared: Option<ClassDeclaration>,
+    /// The class item visible under the name, once lowered or imported.
+    item: Option<ItemId>,
+}
+
+impl ClassName {
+    /// Whether the entry carries no fact at all and can be dropped.
+    const fn is_empty(self) -> bool {
+        self.declared.is_none() && self.item.is_none()
+    }
+}
+
+/// The state of a class name, as one answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::lowering) enum ClassState {
+    /// Declared by this module as a class and not lowered yet.
+    Declared,
+    /// A module constructor function not synthesized into a class yet.
+    CtorFunction,
+    /// Resolves to a class item (lowered here, or visible from elsewhere).
+    Lowered(ItemId),
+}
+
 /// Everything the lowering pass knows about the classes visible to one module.
 ///
 /// See the module docs for the constructor-function invariant this owns.
 #[derive(Debug, Default)]
 pub(in crate::lowering) struct ClassRegistry {
-    /// Class definitions by source-visible name.
-    by_name: HashMap<String, ItemId>,
+    /// Every class name the module knows: its declaration and its item.
+    names: HashMap<String, ClassName>,
     /// Fields for each class, keyed by emitted class name.
     fields: HashMap<String, Vec<Field>>,
     /// Method signatures for classes that are visible before their item is
@@ -75,12 +119,6 @@ pub(in crate::lowering) struct ClassRegistry {
     /// This map preserves source lookup while giving each declaration a
     /// distinct emitted type identity.
     scoped_type_names: HashMap<String, Symbol>,
-    /// Class names declared later in the current module, including the
-    /// constructor-function names below.
-    pending_names: HashSet<String>,
-    /// Module top-level `function Foo(){}` declarations this module uses as
-    /// JavaScript constructor functions.
-    constructor_functions: HashSet<String>,
 }
 
 impl ClassRegistry {
@@ -96,7 +134,16 @@ impl ClassRegistry {
         index_values: HashMap<Symbol, TypeId>,
     ) -> Self {
         Self {
-            by_name: visible,
+            names: visible
+                .into_iter()
+                .map(|(name, item)| {
+                    let entry = ClassName {
+                        declared: None,
+                        item: Some(item),
+                    };
+                    (name, entry)
+                })
+                .collect(),
             index_values,
             ..Self::default()
         }
@@ -116,10 +163,35 @@ impl ClassRegistry {
         declared: HashSet<String>,
         constructor_functions: HashSet<String>,
     ) {
-        self.pending_names = declared;
-        self.pending_names
-            .extend(constructor_functions.iter().cloned());
-        self.constructor_functions = constructor_functions;
+        for entry in self.names.values_mut() {
+            entry.declared = None;
+        }
+        for (names, kind) in [
+            (declared, ClassDeclaration::Class),
+            (constructor_functions, ClassDeclaration::ConstructorFunction),
+        ] {
+            for name in names {
+                self.names.entry(name).or_default().declared = Some(kind);
+            }
+        }
+        self.names.retain(|_, entry| !entry.is_empty());
+    }
+
+    /// The state of the class name `name`, if the module knows it at all.
+    pub(in crate::lowering) fn state(&self, name: &str) -> Option<ClassState> {
+        let entry = self.names.get(name)?;
+        match (entry.item, entry.declared) {
+            (Some(item), _) => Some(ClassState::Lowered(item)),
+            (None, Some(ClassDeclaration::Class)) => Some(ClassState::Declared),
+            (None, Some(ClassDeclaration::ConstructorFunction)) => Some(ClassState::CtorFunction),
+            (None, None) => None,
+        }
+    }
+
+    /// Whether `name` names a class nominally: registered, or declared by
+    /// this module and still to be lowered.
+    pub(in crate::lowering) fn is_known(&self, name: &str) -> bool {
+        self.state(name).is_some()
     }
 
     /// Return whether `name` is a module top-level constructor function.
@@ -127,37 +199,42 @@ impl ClassRegistry {
     /// Both the synthesis dispatch and the function-item predeclaration skip
     /// read the set through this one method, so they cannot disagree.
     pub(in crate::lowering) fn is_constructor_function(&self, name: &str) -> bool {
-        self.constructor_functions.contains(name)
+        self.names
+            .get(name)
+            .is_some_and(|entry| entry.declared == Some(ClassDeclaration::ConstructorFunction))
     }
 
-    /// Return whether `name` is a class declared later in the current module.
+    /// Return whether `name` is a class the current module declares (lowered
+    /// yet or not).
     pub(in crate::lowering) fn is_pending(&self, name: &str) -> bool {
-        self.pending_names.contains(name)
+        self.names.get(name).is_some_and(|entry| entry.declared.is_some())
     }
 
     /// Return whether a class is registered under `name`.
     pub(in crate::lowering) fn contains(&self, name: &str) -> bool {
-        self.by_name.contains_key(name)
+        self.item(name).is_some()
     }
 
     /// Return the HIR item registered for the class named `name`.
     pub(in crate::lowering) fn item(&self, name: &str) -> Option<ItemId> {
-        self.by_name.get(name).copied()
+        self.names.get(name).and_then(|entry| entry.item)
     }
 
     /// Return whether `item` is registered under any class name.
     pub(in crate::lowering) fn has_item(&self, item: ItemId) -> bool {
-        self.by_name.values().any(|registered| *registered == item)
+        self.names.values().any(|entry| entry.item == Some(item))
     }
 
     /// Iterate the registered `(name, item)` pairs.
     pub(in crate::lowering) fn entries(&self) -> impl Iterator<Item = (&String, ItemId)> {
-        self.by_name.iter().map(|(name, item)| (name, *item))
+        self.names
+            .iter()
+            .filter_map(|(name, entry)| entry.item.map(|item| (name, item)))
     }
 
     /// Register (or re-alias) the class item reachable under `name`.
     pub(in crate::lowering) fn register(&mut self, name: String, item: ItemId) {
-        self.by_name.insert(name, item);
+        self.names.entry(name).or_default().item = Some(item);
     }
 
     /// Return the recorded fields of the class named `name`.
@@ -244,6 +321,11 @@ impl ClassRegistry {
         self.scoped_type_names.insert(name, symbol);
     }
 
+    /// The registered items by name.
+    fn items_by_name(&self) -> HashMap<String, ItemId> {
+        self.entries().map(|(name, item)| (name.clone(), item)).collect()
+    }
+
     /// Capture the whole class scope so a nested lexical scope can be undone.
     ///
     /// Used when entering a test `describe` callback: sibling suites may declare
@@ -251,7 +333,7 @@ impl ClassRegistry {
     /// wholesale on the way out via [`Self::restore_scope`].
     pub(in crate::lowering) fn snapshot_scope(&self) -> ClassScopeSnapshot {
         ClassScopeSnapshot {
-            by_name: self.by_name.clone(),
+            items: self.items_by_name(),
             fields: self.fields.clone(),
             methods: self.methods.clone(),
             bases: self.bases.clone(),
@@ -263,10 +345,17 @@ impl ClassRegistry {
 
     /// Restore a class scope captured by [`Self::snapshot_scope`].
     ///
-    /// The pending and constructor-function name sets are module-wide, so they
-    /// are deliberately not part of the snapshot.
+    /// Only the items are restored: how the module declares a name is
+    /// module-wide, so it is deliberately not part of the snapshot.
     pub(in crate::lowering) fn restore_scope(&mut self, scope: ClassScopeSnapshot) {
-        self.by_name = scope.by_name;
+        let mut items = scope.items;
+        for (name, entry) in &mut self.names {
+            entry.item = items.remove(name);
+        }
+        for (name, item) in items {
+            self.names.entry(name).or_default().item = Some(item);
+        }
+        self.names.retain(|_, entry| !entry.is_empty());
         self.fields = scope.fields;
         self.methods = scope.methods;
         self.bases = scope.bases;
@@ -283,7 +372,7 @@ impl ClassRegistry {
     /// must synthesize its own class rather than reuse a stale one.
     pub(in crate::lowering) fn snapshot_names(&self) -> ClassNameSnapshot {
         ClassNameSnapshot {
-            by_name: self.by_name.keys().cloned().collect(),
+            by_name: self.entries().map(|(name, _)| name.clone()).collect(),
             fields: self.fields.keys().cloned().collect(),
             methods: self.methods.keys().cloned().collect(),
         }
@@ -292,7 +381,12 @@ impl ClassRegistry {
     /// Drop registry entries added since [`Self::snapshot_names`], preserving
     /// module-level and imported classes.
     pub(in crate::lowering) fn retain_names(&mut self, scope: &ClassNameSnapshot) {
-        self.by_name.retain(|name, _| scope.by_name.contains(name));
+        for (name, entry) in &mut self.names {
+            if !scope.by_name.contains(name) {
+                entry.item = None;
+            }
+        }
+        self.names.retain(|_, entry| !entry.is_empty());
         self.fields.retain(|name, _| scope.fields.contains(name));
         self.methods.retain(|name, _| scope.methods.contains(name));
     }
@@ -302,7 +396,7 @@ impl ClassRegistry {
 #[derive(Debug)]
 pub(in crate::lowering) struct ClassScopeSnapshot {
     /// Class items visible before the suite body.
-    by_name: HashMap<String, ItemId>,
+    items: HashMap<String, ItemId>,
     /// Class fields visible before the suite body.
     fields: HashMap<String, Vec<Field>>,
     /// Class method signatures visible before the suite body.
@@ -330,7 +424,8 @@ pub(in crate::lowering) struct ClassNameSnapshot {
 
 #[cfg(test)]
 mod tests {
-    use super::ClassRegistry;
+    use super::{ClassRegistry, ClassState};
+    use smelt_hir::ItemId;
     use std::collections::HashSet;
 
     /// Build a name set from string literals.
@@ -378,5 +473,47 @@ mod tests {
         assert!(registry.scoped_type_name("Declared").is_none());
         assert!(registry.is_pending("Ctor"));
         assert!(registry.is_constructor_function("Ctor"));
+    }
+
+    /// A declared class name lowered inside a test case keeps its declaration
+    /// when the case's scope is rolled back: it reverts to `Declared` instead
+    /// of being forgotten, and a name the case introduced disappears.
+    #[test]
+    fn rolling_back_names_keeps_module_declarations() {
+        let mut registry = ClassRegistry::default();
+        registry.declare_module_scope(names(&["Declared"]), names(&["Ctor"]));
+        assert_eq!(registry.state("Declared"), Some(ClassState::Declared));
+        assert_eq!(registry.state("Ctor"), Some(ClassState::CtorFunction));
+        let before = registry.snapshot_names();
+        registry.register("Declared".to_owned(), ItemId(1));
+        registry.register("Ctor".to_owned(), ItemId(2));
+        registry.register("Local".to_owned(), ItemId(3));
+        assert_eq!(registry.state("Ctor"), Some(ClassState::Lowered(ItemId(2))));
+        assert!(registry.is_constructor_function("Ctor"));
+
+        registry.retain_names(&before);
+
+        assert_eq!(registry.state("Declared"), Some(ClassState::Declared));
+        assert_eq!(registry.state("Ctor"), Some(ClassState::CtorFunction));
+        assert_eq!(registry.state("Local"), None);
+        assert!(!registry.is_known("Local"));
+    }
+
+    /// Restoring a suite scope restores items only: an item registered inside
+    /// the suite is dropped, one visible before it comes back.
+    #[test]
+    fn restoring_a_scope_restores_items_only() {
+        let mut registry = ClassRegistry::new(
+            std::collections::HashMap::from([("Imported".to_owned(), ItemId(5))]),
+            std::collections::HashMap::new(),
+        );
+        registry.declare_module_scope(names(&["Declared"]), HashSet::new());
+        let scope = registry.snapshot_scope();
+        registry.register("Declared".to_owned(), ItemId(6));
+        registry.register("Imported".to_owned(), ItemId(7));
+        registry.restore_scope(scope);
+
+        assert_eq!(registry.state("Declared"), Some(ClassState::Declared));
+        assert_eq!(registry.item("Imported"), Some(ItemId(5)));
     }
 }
