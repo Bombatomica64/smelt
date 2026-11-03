@@ -119,7 +119,7 @@ use std::collections::HashMap;
 
 use smelt_hir::{Type, TypeId};
 
-use self::summary::{ArgumentEffect, CallSummaries, FunctionSummary};
+use self::summary::{ArgumentEffect, CallSummaries, ParamEffect, SummaryFacts};
 use crate::{
     Callee, ClosureId, FuncId, GlobalProjection, LocalId, LocalKind, Mir, MirClosure,
     MirFunction, Operand, Place,
@@ -579,7 +579,7 @@ fn summarize_function(
     mir: &Mir,
     summaries: &CallSummaries,
     function: &MirFunction,
-) -> FunctionSummary {
+) -> SummaryFacts {
     let body = FunctionBody::from_function(function);
     let mut walk = BodyWalk::new(mir, summaries, &body);
     walk.run();
@@ -826,7 +826,7 @@ impl<'a> BodyWalk<'a> {
             .enumerate()
             .map(|(index, _)| summary.argument_effect(index, args.len()))
             .collect::<Vec<_>>();
-        let returns_fresh = summary.returns_fresh_list;
+        let returns_fresh = summary.returns_fresh_list();
         for (arg, effect) in args.iter().zip(effects) {
             match effect {
                 ArgumentEffect::Escapes => {
@@ -1047,34 +1047,30 @@ impl<'a> BodyWalk<'a> {
     /// returns a fresh list when every `Return` operand's group was minted
     /// inside this body (no entry local reached it) and is published nowhere
     /// else.
-    fn summarize(mut self, function: &MirFunction) -> FunctionSummary {
-        let mut param_escapes = Vec::with_capacity(function.params.len());
-        let mut param_mutated = Vec::with_capacity(function.params.len());
-        for param in &function.params {
-            if !self.is_list(*param) {
-                // A non-list parameter cannot carry a list buffer, and a
-                // non-list argument never consults this entry. Reporting it as
-                // escaping keeps the summary conservative if it ever is.
-                param_escapes.push(true);
-                param_mutated.push(false);
-                continue;
-            }
-            let root = self.groups.find(param.0);
-            param_escapes.push(
-                self.groups.escaped_external.contains_key(&root)
-                    || self.groups.returned.get(&root).copied().unwrap_or(false),
-            );
-            param_mutated.push(self.groups.mutated.get(&root).copied().unwrap_or(false));
-        }
-
+    fn summarize(mut self, function: &MirFunction) -> SummaryFacts {
         let returns_fresh_list = self.returns_fresh_list(function);
-        FunctionSummary {
-            resolvable: true,
-            packs_rest: function.rest.is_some(),
-            param_escapes,
-            param_mutated,
+        SummaryFacts::new(
+            function,
+            |param| {
+                if !self.is_list(*param) {
+                    // A non-list parameter cannot carry a list buffer, and a
+                    // non-list argument never consults this entry. Reporting
+                    // it as escaping keeps the summary conservative if it ever
+                    // is.
+                    return ParamEffect {
+                        escapes: true,
+                        mutated: false,
+                    };
+                }
+                let root = self.groups.find(param.0);
+                ParamEffect {
+                    escapes: self.groups.escaped_external.contains_key(&root)
+                        || self.groups.returned.get(&root).copied().unwrap_or(false),
+                    mutated: self.groups.mutated.get(&root).copied().unwrap_or(false),
+                }
+            },
             returns_fresh_list,
-        }
+        )
     }
 
     /// Whether every `Return` in this body hands back a uniquely owned buffer.
