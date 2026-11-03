@@ -15,11 +15,11 @@ fn main() {
     let mut _smelt_tmp_25: usize;
     let mut _smelt_tmp_26: bool;
     let mut _smelt_tmp_27: f64;
-    let mut _smelt_tmp_28: ::std::rc::Rc<dyn Fn(f64, f64, i64, &SmeltList<f64>) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, f64, i64, &SmeltList<f64>) -> f64> = ::std::rc::Rc::new(move |arg0: f64, arg1: f64, arg2: i64, arg3: &SmeltList<f64>| -> f64 { 0.0 }); smelt_default_callback };
+    let mut _smelt_tmp_28: ::std::rc::Rc<dyn Fn(f64, f64, i64, &SmeltList<f64>) -> f64>;
     let mut _smelt_tmp_29: f64;
-    let mut _smelt_tmp_30: ::std::rc::Rc<dyn Fn(f64, i64, &SmeltList<f64>) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, i64, &SmeltList<f64>) -> f64> = ::std::rc::Rc::new(move |arg0: f64, arg1: i64, arg2: &SmeltList<f64>| -> f64 { 0.0 }); smelt_default_callback };
+    let mut _smelt_tmp_30: ::std::rc::Rc<dyn Fn(f64, i64, &SmeltList<f64>) -> f64>;
     let mut _smelt_tmp_31: SmeltList<f64>;
-    let mut _smelt_tmp_32: ::std::rc::Rc<dyn Fn(f64, f64, i64, &SmeltList<f64>) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, f64, i64, &SmeltList<f64>) -> f64> = ::std::rc::Rc::new(move |arg0: f64, arg1: f64, arg2: i64, arg3: &SmeltList<f64>| -> f64 { 0.0 }); smelt_default_callback };
+    let mut _smelt_tmp_32: ::std::rc::Rc<dyn Fn(f64, f64, i64, &SmeltList<f64>) -> f64>;
     let mut _smelt_tmp_33: f64;
     let _smelt_tmp_11: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
     let values: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_11);

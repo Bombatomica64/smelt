@@ -417,21 +417,30 @@ fn emit_inherent_impl(writer: &mut CodeWriter) {
         impl_writer.block(
             "pub fn entries_sorted(&self) -> Vec<(String, String)>",
             |fn_writer| {
-                fn_writer.line("let entries = self.entries.borrow().clone();");
-                fn_writer.line("let mut names: Vec<String> = entries.iter().map(|(name, _)| name.clone()).collect();");
-                fn_writer.line("names.sort();");
-                fn_writer.line("names.dedup();");
-                fn_writer.line("let mut combined = Vec::new();");
-                fn_writer.block("for name in names", |loop_writer| {
-                    loop_writer.line(
-                        "let values: Vec<String> = entries.iter().filter(|(entry_name, _)| *entry_name == name).map(|(_, value)| value.clone()).collect();",
-                    );
-                    loop_writer.block("if name == \"set-cookie\"", |arm_writer| {
-                        arm_writer.line("for value in values { combined.push((name.clone(), value)); }");
+                // Sort borrowed positions, not copies: a stable sort keeps each
+                // name's values in insertion order, and every output pair is
+                // copied once. (The copying version cloned the list, every
+                // name and every value before combining: ~6 allocations per
+                // header, twice per served response;
+                // `blocker-logs/hono-crud-perf-round2.md`.)
+                fn_writer.line("let entries = self.entries.borrow();");
+                fn_writer.line("let mut order: Vec<usize> = (0..entries.len()).collect();");
+                fn_writer.line("order.sort_by(|left, right| entries[*left].0.cmp(&entries[*right].0));");
+                fn_writer.line("let mut combined: Vec<(String, String)> = Vec::with_capacity(order.len());");
+                fn_writer.line("let mut start = 0;");
+                fn_writer.block("while start < order.len()", |loop_writer| {
+                    loop_writer.line("let name = &entries[order[start]].0;");
+                    loop_writer.line("let mut end = start + 1;");
+                    loop_writer.line("while end < order.len() && entries[order[end]].0 == *name { end += 1; }");
+                    loop_writer.block("if end - start == 1 || name == \"set-cookie\"", |arm_writer| {
+                        arm_writer.line("for position in &order[start..end] { combined.push((name.clone(), entries[*position].1.clone())); }");
                     });
                     loop_writer.block("else", |arm_writer| {
-                        arm_writer.line("combined.push((name.clone(), values.join(\", \")));");
+                        arm_writer.line("let mut joined = String::new();");
+                        arm_writer.line("for (count, position) in order[start..end].iter().enumerate() { if count > 0 { joined.push_str(\", \"); } joined.push_str(&entries[*position].1); }");
+                        arm_writer.line("combined.push((name.clone(), joined));");
                     });
+                    loop_writer.line("start = end;");
                 });
                 fn_writer.line("combined");
             },

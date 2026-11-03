@@ -282,6 +282,17 @@ pub enum ReleaseProfile {
     Optimized,
     /// Cargo's stock release profile.
     Default,
+    /// Fat (whole-program) LTO and one codegen unit.
+    ///
+    /// Thin LTO already inlines the prelude into its callers; fat LTO also
+    /// optimizes across the dependency crates (hyper, tokio, serde_json) as one
+    /// module. On the generated Hono server that was +3.4% requests/s on a
+    /// router-and-handler-bound route, for about 25% more release build time
+    /// (`blocker-logs/hono-crud-perf-round2.md`). That trade belongs to the
+    /// application: a long-running server pays the build once, a library or a
+    /// test corpus mostly pays it on every build. So it is opt-in, like the
+    /// allocator.
+    WholeProgram,
 }
 
 /// The global allocator a generated program installs.
@@ -2329,7 +2340,12 @@ fn emit_source_with_free_function_router(
         writer.line("fn smelt_for_in_object_keys(map: &SmeltObject) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); let shape = smelt_for_in_object_shape(map); for key in map.keys() { if key.starts_with(\"__smelt_proto:\") { continue; } if smelt_is_for_in_shape_key(shape, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in map.keys() { if let Some(inherited) = key.strip_prefix(\"__smelt_proto:\") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }");
         writer.blank_line();
         writer.line("/// Every key JavaScript `for...in` yields for a typed record, prototype chain included.");
-        writer.line("fn smelt_for_in_record_keys<V>(record: &SmeltRecord<String, V>) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for key in record.keys() { if key.starts_with(\"__smelt_proto:\") { continue; } if smelt_is_for_in_record_key(record, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in record.keys() { if let Some(inherited) = key.strip_prefix(\"__smelt_proto:\") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }");
+        // A record's own keys are already unique (its field store replaces on
+        // insert), so only an inherited `__smelt_proto:` key can repeat one;
+        // those are rare, so they are checked against the list instead of
+        // hashing every key of every record walked (this runs per response in
+        // Hono's `#newResponse`; `blocker-logs/hono-crud-perf-round2.md`).
+        writer.line("fn smelt_for_in_record_keys<V>(record: &SmeltRecord<String, V>) -> Vec<String> { let mut keys = Vec::new(); let mut has_inherited = false; for key in record.keys() { if key.starts_with(\"__smelt_proto:\") { has_inherited = true; continue; } if smelt_is_for_in_record_key(record, &key) { keys.push(key); } } if has_inherited { for key in record.keys() { if let Some(inherited) = key.strip_prefix(\"__smelt_proto:\") { if !keys.iter().any(|existing| existing == inherited) { keys.push(inherited.to_owned()); } } } } keys }");
         writer.blank_line();
         // Own-property enumeration over a `SmeltJsMap` backing.
         //

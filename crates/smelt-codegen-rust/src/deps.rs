@@ -93,6 +93,9 @@ pub(crate) fn cargo_toml(
         crate::ReleaseProfile::Optimized => {
             "\n[profile.release]\nlto = \"thin\"\ncodegen-units = 1\n"
         }
+        crate::ReleaseProfile::WholeProgram => {
+            "\n[profile.release]\nlto = \"fat\"\ncodegen-units = 1\n"
+        }
         crate::ReleaseProfile::Default => "",
     };
     format!(

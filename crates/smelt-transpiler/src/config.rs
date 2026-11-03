@@ -268,6 +268,9 @@ pub enum ReleaseProfile {
     Optimized,
     /// Cargo's stock release profile.
     Default,
+    /// Fat (whole-program) LTO and one codegen unit: more release build time
+    /// for more throughput. See `smelt_codegen_rust::ReleaseProfile::WholeProgram`.
+    WholeProgram,
 }
 
 /// Global allocator a generated program installs.
