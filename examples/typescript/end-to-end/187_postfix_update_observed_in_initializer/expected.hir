@@ -1,0 +1,90 @@
+module examples/typescript/end-to-end/187_postfix_update_observed_in_initializer/input.ts (ModuleId(0))
+  body BodyId(10)
+  items
+    class Echo fields [] constructor Some(ItemId(8)) methods [ItemId(7)] implements []
+    fn later_call_argument owner Module
+    fn later_read owner Module
+    fn two_updates owner Module
+    fn callee_reads_captured_variable owner Module
+    fn indexed_read owner Module
+    fn later_element_read owner Module
+    fn trailing_update_still_defers owner Module
+  locals
+    %0 let g: Float
+    %1 const __smelt_update_tmp: Float
+    %2 const top: Float
+  exprs
+    #0: Float = 5.0
+    #1: Float = %0
+    #2: Float = 1.0
+    #3: Float = Add #1, #2
+    #4: Float = %1
+    #5: Echo = new Echo()
+    #6: fn(Float) -> Float = #5.m
+    #7: Echo = new Echo()
+    #8: Float = %0
+    #9: Float = #7.m(#8)
+    #10: Float = Add #4, #9
+    #11: Float = 5.0
+    #12: fn(Float) -> Float = @0(later_call_argument)
+    #13: Float = call #12(#11)
+    #14: None = @10(console_log)
+    #15: None = call #14(#13)
+    #16: Float = 5.0
+    #17: fn(Float) -> Float = @1(later_read)
+    #18: Float = call #17(#16)
+    #19: None = @11(console_log)
+    #20: None = call #19(#18)
+    #21: Float = 5.0
+    #22: fn(Float) -> Float = @2(two_updates)
+    #23: Float = call #22(#21)
+    #24: None = @12(console_log)
+    #25: None = call #24(#23)
+    #26: Float = 5.0
+    #27: fn(Float) -> Float = @3(callee_reads_captured_variable)
+    #28: Float = call #27(#26)
+    #29: None = @13(console_log)
+    #30: None = call #29(#28)
+    #31: Float = 1.0
+    #32: fn(Float) -> Float = @4(indexed_read)
+    #33: Float = call #32(#31)
+    #34: None = @14(console_log)
+    #35: None = call #34(#33)
+    #36: Float = 5.0
+    #37: fn(Float) -> Float = @5(later_element_read)
+    #38: Float = call #37(#36)
+    #39: None = @15(console_log)
+    #40: None = call #39(#38)
+    #41: Float = 5.0
+    #42: fn(Float) -> Float = @6(trailing_update_still_defers)
+    #43: Float = call #42(#41)
+    #44: None = @16(console_log)
+    #45: None = call #44(#43)
+    #46: Float = %2
+    #47: Float = %0
+    #48: None = @17(console_log)
+    #49: None = call #48(#46, #47)
+  stmts
+    s0: let %0: Float = #0
+    s1: let %1: Float = #1
+    s2: #1 = #3
+    s3: let %2: Float = #10
+    s4: #15
+    s5: #20
+    s6: #25
+    s7: #30
+    s8: #35
+    s9: #40
+    s10: #45
+    s11: #49
+
+interned types
+  t0 = Float
+  t1 = Echo
+  t2 = Unknown
+  t3 = fn(Float) -> Unknown
+  t4 = fn(Float) -> Float
+  t5 = None
+  t6 = fn() -> Float
+  t7 = List<Float>
+  t8 = fn(Float) -> Float

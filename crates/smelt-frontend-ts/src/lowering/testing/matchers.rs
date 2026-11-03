@@ -4490,13 +4490,25 @@ impl ModuleBuilder<'_> {
             } else {
                 None
             };
-            let (value_result, deferred_updates) = self.with_deferred_updates(|this| {
+            // Postfix stores move after the binding only when no later part of
+            // the initializer can observe them; otherwise each one stores where
+            // JavaScript evaluates it (see `postfix_deferral`).
+            let mut lower_init = |this: &mut Self| {
                 declarator
                     .init
                     .as_ref()
                     .map(|init| this.expression_with_hint(init, body, annotated_ty))
                     .transpose()
-            });
+            };
+            let (value_result, deferred_updates) = if declarator
+                .init
+                .as_ref()
+                .is_none_or(crate::lowering::postfix_deferral::initializer_can_defer_postfix_updates)
+            {
+                self.with_deferred_updates(lower_init)
+            } else {
+                (lower_init(self), Vec::new())
+            };
             let value = value_result?;
             let annotated_ty = self.presence_widened_binding_type(declarator, annotated_ty, value, body);
             let value = value.map(|value| self.keyed_read_into_optional_slot(value, annotated_ty, body));

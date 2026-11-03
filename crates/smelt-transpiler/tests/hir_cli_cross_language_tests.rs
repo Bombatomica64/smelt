@@ -1221,6 +1221,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "184_nested_prime_race_headers_body",
     "185_break_continue_run_finally",
     "186_nested_body_statement_sinks",
+    "187_postfix_update_observed_in_initializer",
     "14_c_for_loop",
     "15_break_continue",
     "16_switch_break_no_fallthrough",
