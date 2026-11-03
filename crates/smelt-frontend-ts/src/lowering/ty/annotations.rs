@@ -3129,7 +3129,7 @@ return_ty: function.return_ty,
             Type::String if self.ctx.krate.symbols.get(field) == Some("prototype") => {
                 Ok(self.erase(ErasureReason::ByName))
             }
-            Type::String if self.allow_unknown_index_access => {
+            Type::String if self.allows_unknown_index_access() => {
                 Ok(self.erase(ErasureReason::ByName))
             }
             // Any remaining property read on a string value is a bound stdlib
@@ -3564,7 +3564,7 @@ return_ty: function.return_ty,
         let receiver_ty = self.type_param_constraint_or_self(receiver_ty);
         match self.ctx.krate.types.get(receiver_ty).cloned() {
             Some(Type::Dict(_, value)) => value,
-            Some(Type::Unknown) if self.allow_unknown_index_access => {
+            Some(Type::Unknown) if self.allows_unknown_index_access() => {
                 self.unknown_type() // not a new erasure: receiver already erased
             }
             Some(Type::Class { name, .. }) => {

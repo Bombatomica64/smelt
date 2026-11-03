@@ -1602,14 +1602,14 @@ impl ModuleBuilder<'_> {
             }));
         }
         if let Some(Type::Tuple(items)) = self.ctx.krate.types.get(access_receiver_ty).cloned() {
-            let tuple_len = if self.allow_unknown_index_access {
+            let tuple_len = if self.allows_unknown_index_access() {
                 usize::MAX
             } else {
                 items.len()
             };
             let tuple_index = self.static_tuple_index(index, body, tuple_len, member.span)?;
             let Some(ty) = items.get(tuple_index).copied() else {
-                if self.allow_unknown_index_access {
+                if self.allows_unknown_index_access() {
                     let ty = self.erase_with(ErasureReason::DynamicOperator, "tuple index");
                     return Ok(body.push_expr(Expr {
                         kind: ExprKind::Index { receiver, index },
@@ -1640,7 +1640,7 @@ impl ModuleBuilder<'_> {
                 })
                 .max()
         {
-            let tuple_len = if self.allow_unknown_index_access {
+            let tuple_len = if self.allows_unknown_index_access() {
                 usize::MAX
             } else {
                 max_tuple_len

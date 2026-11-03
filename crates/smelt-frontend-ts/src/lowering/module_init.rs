@@ -8,6 +8,7 @@ use super::support::{
     is_implemented_overload_signature, item_name, module_export_name,
 };
 use super::state::fn_ctx::FnCtx;
+use super::state::lowering_mode::UnknownIndexAccess;
 use super::state::class_registry::ClassRegistry;
 use super::state::interface_registry::InterfaceRegistry;
 use super::state::const_registry::ConstRegistry;
@@ -455,7 +456,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let interface_construct_signatures = ctx.interface_construct_signatures.clone();
         let callable_fields = ctx.callable_fields.clone();
         let callable_object_aliases = ctx.callable_object_aliases.clone();
-        let allow_unknown_index_access = Self::is_declaration_type_test_path(&path);
+        let unknown_index_access = UnknownIndexAccess::for_module(
+            Self::is_declaration_type_test_path(&path),
+        );
         Self {
             file_id,
             path,
@@ -480,12 +483,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
             current_class: None,
             fn_ctx: FnCtx::default(),
             array_view_receivers: Vec::new(),
-            class_expression_binding_name: None,
             asymmetric_matchers_lowered: 0,
-            forward_referenced_locals: HashSet::new(),
             presence_widened_bindings: HashMap::new(),
             defining_local_functions: Vec::new(),
-            allow_unknown_index_access,
+            unknown_index_access,
             object_namespaces,
             consts: ConstRegistry::new(
                 const_literals,
@@ -1337,7 +1338,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 names.insert(id.name.to_string());
             }
             // `const Foo = class { … }` declares a class named `Foo` (see
-            // `ModuleBuilder::class_expression_binding_name`), so the name is
+            // `ModuleBuilder::class_declaration_named`), so the name is
             // pending from the prepass exactly like a `class Foo {}`
             // declaration and a `new Foo()` lowered earlier in the module still
             // resolves nominally.

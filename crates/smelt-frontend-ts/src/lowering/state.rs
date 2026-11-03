@@ -14,4 +14,5 @@ pub(in crate::lowering) mod function_registry;
 pub(in crate::lowering) mod import_scope;
 pub(in crate::lowering) mod interface_registry;
 pub(in crate::lowering) mod local_scope;
+pub(in crate::lowering) mod lowering_mode;
 pub(in crate::lowering) mod type_scope;

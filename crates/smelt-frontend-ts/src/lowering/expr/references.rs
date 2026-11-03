@@ -394,7 +394,7 @@ impl ModuleBuilder<'_> {
                 let ty = self.erase_with(ErasureReason::ByName, "forward callable");
                 return self.module_global_expression(name, ty, start, end, body);
             }
-            if self.allow_unknown_index_access {
+            if self.allows_unknown_index_access() {
                 let ty = self.erase_with(ErasureReason::ByName, "unresolved global");
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::None),

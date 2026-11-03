@@ -208,10 +208,9 @@ impl<'builder> ModuleBuilder<'builder> {
         let Some(receiver_key) = receiver_key else {
             return self.call_expression_lowering(call, body);
         };
-        self.array_view_receivers.push(receiver_key);
-        let lowered = self.call_expression_lowering(call, body);
-        self.array_view_receivers.pop();
-        lowered
+        self.with_array_view_receiver(receiver_key, |this| {
+            this.call_expression_lowering(call, body)
+        })
     }
 
     /// Lower a call expression once its receiver view (if any) is registered.
@@ -4559,7 +4558,7 @@ impl<'builder> ModuleBuilder<'builder> {
         if self.has_ts_error_suppression_before(span.start) {
             return Ok(None);
         }
-        if self.allow_unknown_index_access {
+        if self.allows_unknown_index_access() {
             let mut loose_selected: Option<(
                 (usize, usize, usize, usize),
                 OverloadSignature,
@@ -6667,11 +6666,7 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(None);
         };
         if let Some(value) = root_call.arguments.first() {
-            let saved_allow_unknown_index_access = self.allow_unknown_index_access;
-            self.allow_unknown_index_access = true;
-            let result = self.argument(value, body);
-            self.allow_unknown_index_access = saved_allow_unknown_index_access;
-            let _ = result?;
+            self.with_type_test_argument_mode(|this| this.argument(value, body))?;
         }
         let ty = self.ctx.krate.types.intern(Type::None);
         Ok(Some(body.push_expr(Expr {
@@ -6733,7 +6728,7 @@ impl<'builder> ModuleBuilder<'builder> {
         let Expression::Identifier(callee) = &call.callee else {
             return None;
         };
-        if callee.name != "$typed" || !self.allow_unknown_index_access {
+        if callee.name != "$typed" || !self.allows_unknown_index_access() {
             return None;
         }
         let ty = self.erase_with(ErasureReason::TestHarness, "$typed");

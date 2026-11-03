@@ -1503,21 +1503,31 @@ impl ModuleBuilder<'_> {
         &mut self,
         class: &oxc::ast::ast::Class<'_>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
+        self.class_declaration_named(class, None)
+    }
+
+    /// [`Self::class_declaration`] for a class EXPRESSION that initializes a
+    /// binding: `const Foo = class { … }` declares a class named `Foo`.
+    ///
+    /// That is the name TypeScript infers, and it is what makes `new Foo()`,
+    /// `Foo` in type position, `x instanceof Foo` and `extends Foo` resolve
+    /// nominally. The name is passed to exactly this call, so a class
+    /// expression nested deeper inside the same initializer still takes its
+    /// synthetic anonymous name. A class DECLARATION always uses its own
+    /// identifier.
+    pub(in crate::lowering) fn class_declaration_named(
+        &mut self,
+        class: &oxc::ast::ast::Class<'_>,
+        binding_name: Option<&str>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
         // Named classes use their source identifier; anonymous class expressions
         // fall back to a synthetic name so the class still registers and can be
         // referenced as a value. The name is owned here and borrowed as
         // `class_text` for the rest of lowering.
         // A class EXPRESSION initializing a binding is named by that binding
-        // (`class_expression_binding_name`); the name is consumed here so a
-        // class expression nested deeper in the same initializer still falls
-        // back to its synthetic anonymous name. A class DECLARATION always uses
-        // its own identifier.
+        // (see `class_declaration_named`).
         let class_source_name = class.id.as_ref().map_or_else(
-            || {
-                self.class_expression_binding_name
-                    .take()
-                    .unwrap_or_else(|| Self::anonymous_class_name(class))
-            },
+            || binding_name.map_or_else(|| Self::anonymous_class_name(class), str::to_owned),
             |id| id.name.to_string(),
         );
         let scoped_or_host_name = self

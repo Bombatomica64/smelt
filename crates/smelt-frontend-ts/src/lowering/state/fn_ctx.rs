@@ -35,6 +35,8 @@
 //!   hands the collected stores back to its caller together with the closure's
 //!   result, so the caller cannot finish the declaration without seeing them.
 
+use std::collections::HashSet;
+
 use smelt_hir::{BlockId, Body, Stmt, StmtId, TypeId};
 
 use crate::lowering::state::local_scope::{BodyScopeFrame, ScopeGroups};
@@ -114,6 +116,17 @@ pub(in crate::lowering) struct FnCtx {
     /// Whether a lifted specialization callable keeps its concrete `this` type
     /// through `this as T` assertions.
     pub(in crate::lowering) preserve_receiver: bool,
+    /// Names whose local this body reserved ahead of their declaration
+    /// because a closure in an EARLIER statement already reads them.
+    ///
+    /// The declaration must assign INTO that reserved local instead of
+    /// pushing a second one, or the earlier capture would observe a slot
+    /// nothing ever writes; it takes its reservation with
+    /// [`ModuleBuilder::take_forward_local_reservation`]. Reservations name
+    /// locals of THIS body, so they live and die with its context: one left
+    /// behind by a declaration that failed to lower can no longer be taken by
+    /// a same-named declaration in a sibling body.
+    forward_referenced_locals: HashSet<String>,
 }
 
 impl FnCtx {
@@ -152,6 +165,7 @@ impl FnCtx {
             stmt_sink: StmtSink::Root,
             update_mode: UpdateMode::Immediate,
             preserve_receiver,
+            forward_referenced_locals: HashSet::new(),
         }
     }
 }
@@ -247,6 +261,22 @@ impl ModuleBuilder<'_> {
             UpdateMode::Immediate => Vec::new(),
         };
         (result, deferred)
+    }
+
+    /// Reserve the local of `name` for its later declaration in this body; see
+    /// `FnCtx::forward_referenced_locals`.
+    pub(in crate::lowering) fn reserve_forward_local(&mut self, name: String) {
+        self.fn_ctx.forward_referenced_locals.insert(name);
+    }
+
+    /// Take this body's reservation for `name`, returning whether there was one.
+    pub(in crate::lowering) fn take_forward_local_reservation(&mut self, name: &str) -> bool {
+        self.fn_ctx.forward_referenced_locals.remove(name)
+    }
+
+    /// Whether this body reserved `name` ahead of its declaration.
+    pub(in crate::lowering) fn is_forward_referenced_local(&self, name: &str) -> bool {
+        self.fn_ctx.forward_referenced_locals.contains(name)
     }
 
     /// Defer a postfix update's store when a variable initializer is being
