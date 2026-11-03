@@ -14,9 +14,13 @@
 //! * a later read of the same name (`i++ + i`, `i++ + f(i)`) would see the old
 //!   value -- and the deferred update's own bare read would see a value a
 //!   later store already changed;
-//! * any later call, construction, tagged template, `await`/`yield` or member
-//!   read (which may run a getter) can run code that reads the variable
-//!   through a closure;
+//! * any later call, construction, tagged template, `await`/`yield` or NAMED
+//!   member read (`o.p`, `o.#p`, `o["p"]`, which may run an accessor) can run
+//!   code that reads the variable through a closure. A computed read with a
+//!   dynamic key (`values[index]`) is an element access: accessors are
+//!   declared under static names, and the exotic objects that could intercept
+//!   an index (a `Proxy`, `Object.defineProperty` on an array) are outside
+//!   what Smelt models anywhere else, so it does not count;
 //! * a closure created later captures by value where it is created (see
 //!   `hoisting`), so one that mentions the name would capture the old value;
 //! * a member target (`o.p++`) is observed by any later member access, which
@@ -141,10 +145,17 @@ impl<'a> Visit<'a> for DeferralCheck {
         self.opaque_operation();
     }
 
-    /// See [`Self::visit_static_member_expression`].
+    /// A computed read with a literal string key names a property like a
+    /// static read does; a dynamic key is an element read (see the module
+    /// docs).
     fn visit_computed_member_expression(&mut self, member: &ComputedMemberExpression<'a>) {
         walk::walk_computed_member_expression(self, member);
-        self.opaque_operation();
+        if matches!(
+            member.expression.without_parentheses(),
+            Expression::StringLiteral(_) | Expression::TemplateLiteral(_)
+        ) {
+            self.opaque_operation();
+        }
     }
 
     /// See [`Self::visit_static_member_expression`].
@@ -201,6 +212,9 @@ mod tests {
         assert!(can_defer("i + i++"));
         assert!(can_defer("f(i) + i++"));
         assert!(can_defer("--i + j++"));
+        // An element read cannot run an accessor.
+        assert!(can_defer("arr[i++]"));
+        assert!(can_defer("arr[i++] * 2"));
     }
 
     /// A later read, call, construction or member read may observe the store.
@@ -211,7 +225,10 @@ mod tests {
         assert!(!can_defer("i++ + new C().m(i)"));
         assert!(!can_defer("i++ + g()"));
         assert!(!can_defer("f(i++)"));
-        assert!(!can_defer("arr[i++]"));
+        assert!(!can_defer("arr[i++] + arr[i]"));
+        // A named member read may run a getter that reads `i`.
+        assert!(!can_defer("i++ + o.p"));
+        assert!(!can_defer("i++ + o['p']"));
         assert!(!can_defer("[i++, () => i]"));
         assert!(!can_defer("o.p++ + q.p"));
     }
