@@ -110,6 +110,7 @@ impl<'mir> FunctionEmitter<'mir> {
             },
             hoisted_module_item: std::cell::Cell::new(false),
             rendering_inherited_bound: std::cell::Cell::new(false),
+            flow: flow_state::ControlFlowState::default(),
         }
     }
 
@@ -519,15 +520,15 @@ impl<'mir> FunctionEmitter<'mir> {
             ));
         }
         self.emit_mutable_local_preludes(out)?;
-        self.emit_block(self.entry_block()?, out)?;
+        let tail = self.emit_region_flow(self.entry_block()?, out)?;
         // `block_eventually_terminates` walks the MIR CFG, which can keep a
         // phantom fall-through edge that the structured emitter never renders
-        // (e.g. a `match` whose every arm returns). `last_emit_diverged`
+        // (e.g. a `match` whose every arm returns). The recorded `Flow`
         // reports whether the *rendered* tail already diverges, so consulting
         // it as well suppresses a trailing `return` that would otherwise be
         // dead `unreachable_code`.
         if !self.block_eventually_terminates(self.function.entry, &mut BlockIdSet::default())?
-            && !control_flow::last_emit_diverged()
+            && !tail.diverges()
             && !emitted_tail_returns(out)
         {
             self.emit_fallthrough_return(out)?;
@@ -547,6 +548,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let mut declared = self.declared_locals.borrow_mut();
         declared.clear();
         declared.extend(self.function.params.iter().copied());
+        self.flow.reset();
     }
 
     /// Return whether this generic free function's body keeps every type
@@ -638,7 +640,7 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn emit_fallthrough_return(&self, out: &mut String) -> Result<(), EmitError> {
         // A fallthrough return diverges (or, for `void`, needs no continuation),
         // so the structural tail is terminated either way.
-        control_flow::set_last_emit_diverged(true);
+        self.flow.record(flow_state::Flow::Diverges);
         let return_ty = self.body_return_ty();
         if self.function.can_throw {
             out.push_str(&format!(

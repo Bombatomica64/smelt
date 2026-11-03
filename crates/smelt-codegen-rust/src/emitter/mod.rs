@@ -116,6 +116,7 @@ mod control_flow_match;
 mod core;
 mod dict_entry_update;
 pub(crate) mod emit_role;
+mod flow_state;
 mod blob;
 mod fetch_types;
 mod url;
@@ -1313,6 +1314,9 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// declaring parameter's name (`C<T> extends B<T[]>`), so the map must not
     /// apply inside it (it would recurse forever).
     rendering_inherited_bound: std::cell::Cell<bool>,
+    /// Structured control-flow emission state (recursion depths, the flow of
+    /// the last emitted region tail, pending loop joins); see [`flow_state`].
+    flow: flow_state::ControlFlowState,
 }
 
 /// Wraps a list-valued expression so it reads as its backing `Vec`.

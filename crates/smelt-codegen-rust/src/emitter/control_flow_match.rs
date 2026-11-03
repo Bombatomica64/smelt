@@ -46,15 +46,15 @@ impl FunctionEmitter<'_> {
                 "        {} => {{\n",
                 self.match_label_text_for_scrutinee(&arm.label, scrutinee_ty)
             ));
-            self.emit_match_arm(self.block(arm.target)?, hoisted_join, out)?;
-            arms_diverge = arms_diverge && control_flow::last_emit_diverged();
+            let arm_flow = self.emit_match_arm(self.block(arm.target)?, hoisted_join, out)?;
+            arms_diverge = arms_diverge && arm_flow.diverges();
             out.push_str("        }\n");
             self.restore_declared_locals(match_declared.clone());
         }
         if let Some(default_block) = default {
             out.push_str("        _ => {\n");
-            self.emit_match_arm(self.block(default_block)?, hoisted_join, out)?;
-            arms_diverge = arms_diverge && control_flow::last_emit_diverged();
+            let arm_flow = self.emit_match_arm(self.block(default_block)?, hoisted_join, out)?;
+            arms_diverge = arms_diverge && arm_flow.diverges();
             out.push_str("        }\n");
             self.restore_declared_locals(match_declared);
         } else {
@@ -68,7 +68,7 @@ impl FunctionEmitter<'_> {
             // Control resumes at the shared join; its tail decides divergence.
             self.emit_block(self.block(join)?, out)?;
         } else {
-            control_flow::set_last_emit_diverged(arms_diverge);
+            self.flow.record(super::flow_state::Flow::from_diverges(arms_diverge));
         }
         Ok(())
     }
@@ -141,11 +141,12 @@ impl FunctionEmitter<'_> {
         block: &BasicBlock,
         hoisted_join: Option<smelt_mir::BlockId>,
         out: &mut String,
-    ) -> Result<(), EmitError> {
+    ) -> Result<super::flow_state::Flow, EmitError> {
         if hoisted_join.is_some() {
-            self.emit_block_as_match_arm(block, out)
+            self.emit_block_as_match_arm(block, out)?;
+            Ok(self.flow.last_flow())
         } else {
-            self.emit_block(block, out)
+            self.emit_region_flow(block, out)
         }
     }
 

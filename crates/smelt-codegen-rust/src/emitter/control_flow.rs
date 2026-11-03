@@ -1,39 +1,7 @@
 //! Control Flow emission helpers.
 
 use super::*;
-use std::cell::Cell;
-
-thread_local! {
-    /// Per-thread recursion depth for structurally recursive block emission.
-    static EMIT_BLOCK_DEPTH: Cell<usize> = const { Cell::new(0) };
-    /// Per-thread recursion depth for nested block-until emission.
-    static EMIT_UNTIL_DEPTH: Cell<usize> = const { Cell::new(0) };
-    /// Whether the most recently emitted terminator diverges (ends in a
-    /// `return`/`throw`/`unreachable`) rather than falling through.
-    ///
-    /// Because every structured emission ends by emitting its continuation
-    /// block last (a hoisted match join, the block after an `if`, or — when
-    /// all arms diverge — the final diverging arm itself), the last
-    /// [`FunctionEmitter::emit_terminator`] call always corresponds to the
-    /// structural tail of the rendered region. Recording whether that tail
-    /// diverges lets [`FunctionEmitter::emit_body`] suppress the conservative
-    /// fallthrough `return` after a body whose tail already diverges — the MIR
-    /// CFG can retain a phantom fall-through edge that the structured emitter
-    /// never renders, so `block_eventually_terminates` alone under-reports it
-    /// and a trailing `return` becomes `unreachable_code`.
-    static LAST_EMIT_DIVERGED: Cell<bool> = const { Cell::new(false) };
-    /// Pending loop-body JOIN stops, innermost last: `(function identity, join
-    /// block, continue target of the loop the join belongs to)`. A branch
-    /// walker that enters a pending join ends its arm there; the caller emits
-    /// the join once after the `if` (see
-    /// [`FunctionEmitter::emit_loop_branch_at_join`]).
-    static LOOP_JOIN_STOPS: RefCell<Vec<(usize, smelt_mir::BlockId, smelt_mir::BlockId)>> =
-        const { RefCell::new(Vec::new()) };
-    /// Set when a walker reached a pending join from a DIFFERENT loop context
-    /// (from inside a nested generated loop, or a forward join region), where
-    /// ending the arm would be wrong; the join-based attempt is then discarded.
-    static LOOP_JOIN_VIOLATION: Cell<bool> = const { Cell::new(false) };
-}
+use super::flow_state::Flow;
 
 /// Describes how the successor blocks of a terminator must be rendered.
 ///
@@ -47,7 +15,7 @@ thread_local! {
 /// top-level choice for their `Ok`/`Err` continuations. A `try`/`catch` in a loop
 /// body reaches the loop header from inside those match arms, so hardcoding
 /// `emit_block` there re-emitted the whole loop header and body inside the arm,
-/// recursively, until the [`EMIT_BLOCK_DEPTH`] cap replaced the tail with a
+/// recursively, until the block-depth cap (`ControlFlowState::enter_block`) replaced the tail with a
 /// default return. Threading this enum through instead is what turns those back
 /// edges into `continue`.
 pub(super) enum Continuation<'a> {
@@ -160,16 +128,6 @@ impl RegionExit {
     }
 }
 
-/// Records whether the most recently emitted terminator diverges.
-pub(super) fn set_last_emit_diverged(diverged: bool) {
-    LAST_EMIT_DIVERGED.with(|cell| cell.set(diverged));
-}
-
-/// Returns whether the most recently emitted terminator diverged.
-pub(super) fn last_emit_diverged() -> bool {
-    LAST_EMIT_DIVERGED.with(Cell::get)
-}
-
 impl FunctionEmitter<'_> {
     /// Emits a basic block's statements and terminator.
     ///
@@ -182,26 +140,30 @@ impl FunctionEmitter<'_> {
     /// stack grows on demand so a long body cannot overflow it instead.
     pub(super) fn emit_block(&self, block: &BasicBlock, out: &mut String) -> Result<(), EmitError> {
         let limit = self.function.blocks.len().saturating_mul(2).max(16);
-        let too_deep = EMIT_BLOCK_DEPTH.with(|depth| {
-            let current = depth.get();
-            if current > limit {
-                true
-            } else {
-                depth.set(current.saturating_add(1));
-                false
-            }
-        });
-        if too_deep {
+        let Some(_depth) = self.flow.enter_block(limit) else {
             out.push_str("    // Smelt could not structurally emit this recursive control-flow region yet.\n");
             out.push_str(&self.default_return_statement()?);
-            set_last_emit_diverged(true);
+            self.flow.record(Flow::Diverges);
             return Ok(());
-        }
-        let result = stacker::maybe_grow(256 * 1024, 4 * 1024 * 1024, || {
+        };
+        stacker::maybe_grow(256 * 1024, 4 * 1024 * 1024, || {
             self.emit_block_body(block, out)
-        });
-        EMIT_BLOCK_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
-        result
+        })
+    }
+
+    /// Emits `block` as a whole structured region and answers how its rendered
+    /// tail ends.
+    ///
+    /// The answer is the [`Flow`] the region's last emitted terminator recorded
+    /// (see `flow_state::ControlFlowState`); callers that need it take it from
+    /// here instead of reading the emitter's register after the fact.
+    pub(super) fn emit_region_flow(
+        &self,
+        block: &BasicBlock,
+        out: &mut String,
+    ) -> Result<Flow, EmitError> {
+        self.emit_block(block, out)?;
+        Ok(self.flow.last_flow())
     }
 
     /// Emits a basic block after recursion-depth accounting has been applied.
@@ -946,7 +908,7 @@ impl FunctionEmitter<'_> {
         // Default to "falls through"; the diverging arms below and any nested
         // emission set this to reflect the structural tail (the last terminator
         // emitted wins, which is always the region's continuation).
-        set_last_emit_diverged(false);
+        self.flow.record(Flow::FallsThrough);
         match terminator {
             Terminator::Goto(target) => {
                 if target.0 <= current.0 {
@@ -1123,19 +1085,19 @@ impl FunctionEmitter<'_> {
                         self.value_at_type(operand, body_return_ty)?
                     ));
                 }
-                set_last_emit_diverged(true);
+                self.flow.record(Flow::Diverges);
                 Ok(())
             }
             Terminator::Throw(operand) => {
                 // Shared with the closure-body emitter so the two throw paths
                 // cannot drift; see `emitter::throw`.
                 out.push_str(&self.throw_terminator_text(operand)?);
-                set_last_emit_diverged(true);
+                self.flow.record(Flow::Diverges);
                 Ok(())
             }
             Terminator::Unreachable => {
                 out.push_str("    unreachable!();\n");
-                set_last_emit_diverged(true);
+                self.flow.record(Flow::Diverges);
                 Ok(())
             }
         }
@@ -1240,12 +1202,12 @@ impl FunctionEmitter<'_> {
             } => {
                 if target == *continue_target {
                     out.push_str("    continue;\n");
-                    set_last_emit_diverged(true);
+                    self.flow.record(Flow::Diverges);
                     return Ok(());
                 }
                 if Some(target) == *break_target {
                     out.push_str("    break;\n");
-                    set_last_emit_diverged(true);
+                    self.flow.record(Flow::Diverges);
                     return Ok(());
                 }
                 // Each arm of the emitted `match` is its own path, so it gets its
@@ -1286,7 +1248,7 @@ impl FunctionEmitter<'_> {
                 // contributes nothing and, having no enclosing loop, must not
                 // render `continue` (E0268).
                 if target == *stop {
-                    set_last_emit_diverged(false);
+                    self.flow.record(Flow::FallsThrough);
                     return Ok(());
                 }
                 // Each arm of the emitted `match` is its own path and so gets its
@@ -1998,7 +1960,7 @@ impl FunctionEmitter<'_> {
                 // sibling below); a diverging terminator emitted inside it does
                 // not diverge the enclosing function, so clear the flag to keep
                 // `emit_body`'s trailing fallthrough return.
-                set_last_emit_diverged(false);
+                self.flow.record(Flow::FallsThrough);
                 return Ok(());
             }
             out.push_str(&format!("    break {branch_label};\n"));
@@ -2011,13 +1973,13 @@ impl FunctionEmitter<'_> {
             // `break {branch_label}` path exits the block and the else body
             // rejoins after it, so the reconstruction never diverges the
             // enclosing function even when a branch emitted inside it ended in a
-            // `return`/`throw` (which would leave `LAST_EMIT_DIVERGED` set). The
+            // `return`/`throw` (which would leave the recorded flow at `Flow::Diverges`). The
             // shared forward continuation (`then_target`) is not re-emitted here,
             // so the body genuinely falls off the block; clear the flag so
             // `emit_body` still appends its trailing fallthrough return instead of
             // leaving the labeled block's `()` value in tail position (E0308 in
             // es-toolkit `has`/`slice`/`updateWith`).
-            set_last_emit_diverged(false);
+            self.flow.record(Flow::FallsThrough);
             return Ok(());
         }
 
@@ -3090,16 +3052,7 @@ impl FunctionEmitter<'_> {
         out: &mut String,
     ) -> Result<(), EmitError> {
         let limit = self.function.blocks.len().saturating_mul(8).max(128);
-        let too_deep = EMIT_UNTIL_DEPTH.with(|depth| {
-            let current = depth.get();
-            if current > limit {
-                true
-            } else {
-                depth.set(current.saturating_add(1));
-                false
-            }
-        });
-        if too_deep {
+        let Some(_depth) = self.flow.enter_until(limit) else {
             out.push_str("    // Smelt could not structurally emit this nested loop edge yet.\n");
             // Surrendering with `break` is only legal inside the generated loop
             // this region belongs to; a forward join region has no enclosing
@@ -3109,11 +3062,8 @@ impl FunctionEmitter<'_> {
                 out.push_str("    break;\n");
             }
             return Ok(());
-        }
-        let result =
-            self.emit_block_until_goto_inner(block, stop, exit, out, &mut BlockIdSet::default());
-        EMIT_UNTIL_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
-        result
+        };
+        self.emit_block_until_goto_inner(block, stop, exit, out, &mut BlockIdSet::default())
     }
 
     /// Emits a block until a target while avoiding repeated unstructured cycles.
@@ -3484,14 +3434,7 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Identity of the MIR function this emitter renders, used to key the
-    /// thread-local join stops (block ids are only unique per function, and a
-    /// closure body is rendered by its own emitter on the same thread).
-    fn function_identity(&self) -> usize {
-        std::ptr::from_ref(self.function).addr()
-    }
-
-    /// Returns whether `block` is a pending loop-body join of this function,
+    /// Returns whether `block` is a pending loop-body join of this emitter,
     /// i.e. whether the current arm must END here instead of emitting it.
     ///
     /// `loop_context` is the continue target of the loop the walker is
@@ -3499,28 +3442,14 @@ impl FunctionEmitter<'_> {
     /// from any context other than the one it was registered in means control
     /// leaves a nested construct straight into the join; ending the arm there
     /// would be wrong, so the hit is recorded as a violation and the caller
-    /// discards its join-based attempt.
+    /// discards its join-based attempt. The stops are this emitter's own (see
+    /// `flow_state`), so a closure body's emitter never sees its parent's.
     fn loop_join_stop_hit(
         &self,
         block: smelt_mir::BlockId,
         loop_context: Option<smelt_mir::BlockId>,
     ) -> bool {
-        let identity = self.function_identity();
-        let registered = LOOP_JOIN_STOPS.with(|stops| {
-            stops
-                .borrow()
-                .iter()
-                .rev()
-                .find(|(function, join, _)| *function == identity && *join == block)
-                .map(|(_, _, context)| *context)
-        });
-        let Some(context) = registered else {
-            return false;
-        };
-        if loop_context != Some(context) {
-            LOOP_JOIN_VIOLATION.with(|violation| violation.set(true));
-        }
-        true
+        self.flow.loop_join_stop_hit(block, loop_context)
     }
 
     /// The JOIN of a two-way branch inside a loop body: the branch block's
@@ -3537,15 +3466,7 @@ impl FunctionEmitter<'_> {
         continue_target: smelt_mir::BlockId,
         break_target: Option<smelt_mir::BlockId>,
     ) -> Option<smelt_mir::BlockId> {
-        let identity = self.function_identity();
-        let pending = LOOP_JOIN_STOPS.with(|stops| {
-            stops
-                .borrow()
-                .iter()
-                .filter(|(function, _, _)| *function == identity)
-                .map(|(_, join, _)| *join)
-                .collect::<Vec<_>>()
-        });
+        let pending = self.flow.pending_joins();
         let is_exit = |block: smelt_mir::BlockId| {
             block == continue_target || Some(block) == break_target || pending.contains(&block)
         };
@@ -3656,9 +3577,7 @@ impl FunctionEmitter<'_> {
             return Ok(false);
         };
         let branch_declared = self.declared_locals_snapshot();
-        let identity = self.function_identity();
-        LOOP_JOIN_STOPS.with(|stops| stops.borrow_mut().push((identity, join, continue_target)));
-        let previous_violation = LOOP_JOIN_VIOLATION.with(|violation| violation.replace(false));
+        let join_scope = self.flow.push_loop_join_stop(join, continue_target);
         let mut arms = String::new();
         let emitted = (|| -> Result<(), EmitError> {
             arms.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
@@ -3683,10 +3602,7 @@ impl FunctionEmitter<'_> {
             arms.push_str("    }\n");
             Ok(())
         })();
-        LOOP_JOIN_STOPS.with(|stops| {
-            stops.borrow_mut().pop();
-        });
-        let violated = LOOP_JOIN_VIOLATION.with(|violation| violation.replace(previous_violation));
+        let violated = join_scope.finish();
         self.restore_declared_locals(branch_declared);
         emitted?;
         if violated {
