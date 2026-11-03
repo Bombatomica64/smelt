@@ -71,6 +71,17 @@ pub(crate) struct ManifestImport {
     pub(crate) type_only: bool,
 }
 
+/// DFS colour of a manifest source in [`ManifestGraphVisit::marks`].
+///
+/// A source with no entry has not been reached yet (white).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mark {
+    /// On the current DFS stack (grey): reaching it again is a back edge.
+    InProgress,
+    /// Emitted with all its reachable dependencies (black).
+    Done,
+}
+
 /// Mutable state while visiting the manifest import graph.
 struct ManifestGraphVisit<'a> {
     /// Manifest sources being ordered.
@@ -79,15 +90,8 @@ struct ManifestGraphVisit<'a> {
     index: &'a HashMap<PathBuf, usize>,
     /// Dependency-first output order.
     ordered: Vec<usize>,
-    /// Nodes currently on the DFS stack.
-    ///
-    /// Back edges are allowed because TypeScript and Python modules can form
-    /// import cycles. The manifest sorter still emits each source once in a
-    /// stable order; later lowering stages are responsible for reporting any
-    /// cycle shape whose runtime symbols cannot be resolved yet.
-    temporary: HashSet<usize>,
-    /// Nodes already visited.
-    permanent: HashSet<usize>,
+    /// DFS colour of every source reached so far.
+    marks: HashMap<usize, Mark>,
 }
 
 /// The manifest directory in the form `[sources] exclude` globs are matched
@@ -232,9 +236,12 @@ pub(crate) fn dependency_closure(
     packages: &[crate::package_sources::ResolvedPackage],
     sound: Option<SoundSettings>,
 ) -> Result<Vec<ManifestSource>, Box<dyn std::error::Error>> {
-    let mut collector =
-        DependencyCollector::new(excludes.to_vec(), manifest_dir.to_path_buf(), sound);
-    collector.packages = packages.to_vec();
+    let mut collector = DependencyCollector::new(
+        excludes.to_vec(),
+        manifest_dir.to_path_buf(),
+        packages.to_vec(),
+        sound,
+    );
     for root in roots {
         collector.collect_source(root)?;
     }
@@ -252,21 +259,28 @@ pub(crate) fn dependency_closure(
 /// `hono-base.ts`, which imports the VALUE `compose`, before it, so the call
 /// bound an unresolved, erased import. Types do not depend on this order:
 /// declarations are predeclared crate-wide before any module lowers.
-pub(crate) fn order_manifest_sources(sources: &[ManifestSource]) -> Result<Vec<usize>, String> {
+///
+/// Import cycles are legal in both TypeScript and Python, so ordering cannot
+/// fail: a value-import cycle is CUT at the back edge the DFS meets, and the
+/// module that closes the cycle lowers before the one that opened it. This is
+/// deliberate and matches ES module evaluation, which also starts the cycle's
+/// first-visited module last; lowering reports any cycle shape whose runtime
+/// symbols cannot be resolved in that order. Every source is emitted exactly
+/// once, in a stable order.
+pub(crate) fn order_manifest_sources(sources: &[ManifestSource]) -> Vec<usize> {
     let index = manifest_source_index(sources);
     let mut visit = ManifestGraphVisit {
         sources,
         index: &index,
         ordered: Vec::new(),
-        temporary: HashSet::new(),
-        permanent: HashSet::new(),
+        marks: HashMap::new(),
     };
 
     for idx in 0..sources.len() {
-        visit_manifest_source(idx, &mut visit)?;
+        visit_manifest_source(idx, &mut visit);
     }
 
-    Ok(visit.ordered)
+    visit.ordered
 }
 
 /// Builds lookup keys that import specifiers can resolve against.
@@ -321,8 +335,14 @@ struct DependencyCollector {
 }
 
 impl DependencyCollector {
-    /// Creates an empty collector that prunes `excludes` from the closure.
-    fn new(excludes: Vec<String>, manifest_dir: PathBuf, sound: Option<SoundSettings>) -> Self {
+    /// Creates an empty collector that prunes `excludes` from the closure and
+    /// resolves bare specifiers through `packages` first.
+    fn new(
+        excludes: Vec<String>,
+        manifest_dir: PathBuf,
+        packages: Vec<crate::package_sources::ResolvedPackage>,
+        sound: Option<SoundSettings>,
+    ) -> Self {
         let overlay = SoundOverlay::with_settings(sound);
         Self {
             sources: Vec::new(),
@@ -333,7 +353,7 @@ impl DependencyCollector {
             workspace_packages: HashMap::new(),
             excludes,
             manifest_dir,
-            packages: Vec::new(),
+            packages,
         }
     }
 
@@ -681,29 +701,27 @@ fn add_manifest_key(index: &mut HashMap<PathBuf, usize>, path: &Path, idx: usize
 }
 
 /// Visits a manifest source and all known local dependencies.
-fn visit_manifest_source(idx: usize, visit: &mut ManifestGraphVisit<'_>) -> Result<(), String> {
-    if visit.permanent.contains(&idx) {
-        return Ok(());
+///
+/// A dependency already [`Mark::InProgress`] is a back edge of an import cycle
+/// and is deliberately not followed (see [`order_manifest_sources`]).
+fn visit_manifest_source(idx: usize, visit: &mut ManifestGraphVisit<'_>) {
+    // `Done`: already emitted. `InProgress`: a back edge, cut here on purpose.
+    if let Some(Mark::Done | Mark::InProgress) = visit.marks.get(&idx) {
+        return;
     }
-    if !visit.temporary.insert(idx) {
-        return Ok(());
-    }
-
     let Some(source) = visit.sources.get(idx) else {
-        return Ok(());
+        return;
     };
+    visit.marks.insert(idx, Mark::InProgress);
     for dependency in &source.value_dependencies {
-        if let Some(dep) = visit.index.get(&normalize_path_key(dependency)).copied() {
-            if dep != idx {
-                visit_manifest_source(dep, visit)?;
-            }
+        if let Some(dep) = visit.index.get(&normalize_path_key(dependency)).copied()
+            && dep != idx
+        {
+            visit_manifest_source(dep, visit);
         }
     }
-
-    visit.temporary.remove(&idx);
-    visit.permanent.insert(idx);
+    visit.marks.insert(idx, Mark::Done);
     visit.ordered.push(idx);
-    Ok(())
 }
 
 /// TypeScript inputs a JavaScript output extension can have come from.
@@ -1158,6 +1176,39 @@ mod tests {
         );
     }
 
+    /// A value-import cycle is cut, not rejected: every module is emitted once
+    /// and the module that closes the cycle lowers first.
+    #[test]
+    fn value_import_cycles_are_cut_at_the_back_edge() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("smelt_manifest_cycle_{unique}"));
+        fs::create_dir_all(&root).expect("create cycle dir");
+        let a = root.join("a.ts");
+        let b = root.join("b.ts");
+        let c = root.join("c.ts");
+        fs::write(&a, "import { b } from './b';\nexport const a = 1;\nb;\n").expect("write a");
+        fs::write(&b, "import { c } from './c';\nexport const b = 2;\nc;\n").expect("write b");
+        fs::write(&c, "import { a } from './a';\nexport const c = 3;\na;\n").expect("write c");
+
+        let roots = vec![read_manifest_source(a.clone()).expect("read a")];
+        let sources =
+            dependency_closure(roots, &[], Path::new("."), &[], None).expect("collect closure");
+        let ordered = order_manifest_sources(&sources)
+            .into_iter()
+            .map(|index| normalize_path_key(&sources[index].path))
+            .collect::<Vec<_>>();
+        fs::remove_dir_all(&root).expect("remove cycle dir");
+
+        assert_eq!(
+            ordered,
+            vec![normalize_path_key(&c), normalize_path_key(&b), normalize_path_key(&a)],
+            "a -> b -> c -> a is cut at c -> a, so c lowers first and each module once"
+        );
+    }
+
     #[test]
     fn orders_relative_typescript_dependencies_before_importers() {
         let unique = SystemTime::now()
@@ -1186,7 +1237,7 @@ mod tests {
 
         let roots = vec![read_manifest_source(importer.clone()).expect("read importer")];
         let sources = dependency_closure(roots, &[], Path::new("."), &[], None).expect("collect closure");
-        let ordered = order_manifest_sources(&sources).expect("order sources");
+        let ordered = order_manifest_sources(&sources);
         let ordered_paths = ordered
             .into_iter()
             .map(|index| sources[index].path.clone())
