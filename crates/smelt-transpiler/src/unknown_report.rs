@@ -540,6 +540,7 @@ fn strip_annotation_spellings(line: &str) -> String {
 
 /// How a scanned file says where its runtime prelude ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(variant_size_differences, reason = "a two-word value copied once per scanned file")]
 enum PreludeBoundary {
     /// The emitter wrote [`smelt_codegen_rust::PRELUDE_END_MARKER`] at this
     /// 0-based line: every line at or before it is prelude, every line after

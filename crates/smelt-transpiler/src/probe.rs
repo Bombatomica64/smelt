@@ -745,28 +745,28 @@ mod tests {
     }
 
     /// Serialize a verdict alone, the way `ProbeResult` flattens it.
-    fn verdict_json(verdict: Verdict) -> String {
-        serde_json::to_string(&verdict).expect("verdict serializes")
+    fn verdict_json(verdict: &Verdict) -> String {
+        serde_json::to_string(verdict).expect("verdict serializes")
     }
 
     /// The verdict keeps the flat pre-enum JSON spelling consumers read.
     #[test]
     fn verdict_json_keeps_the_flat_shape() {
-        assert_eq!(verdict_json(Verdict::Transpiled { tests: None }), r#"{"transpiled":true}"#);
+        assert_eq!(verdict_json(&Verdict::Transpiled { tests: None }), r#"{"transpiled":true}"#);
         assert_eq!(
-            verdict_json(Verdict::Transpiled { tests: Some(TestOutcome { passed: 3, failed: 1 }) }),
+            verdict_json(&Verdict::Transpiled { tests: Some(TestOutcome { passed: 3, failed: 1 }) }),
             r#"{"transpiled":true,"tests":{"passed":3,"failed":1}}"#
         );
         assert_eq!(
-            verdict_json(Verdict::Aborted { at: AbortSite::File("src/a.ts".to_owned()) }),
+            verdict_json(&Verdict::Aborted { at: AbortSite::File("src/a.ts".to_owned()) }),
             r#"{"transpiled":false,"abort_file":"src/a.ts"}"#
         );
         assert_eq!(
-            verdict_json(Verdict::Aborted { at: AbortSite::FrontendPanic }),
+            verdict_json(&Verdict::Aborted { at: AbortSite::FrontendPanic }),
             r#"{"transpiled":false,"abort_file":"(frontend panic)"}"#
         );
         assert_eq!(
-            verdict_json(Verdict::Aborted { at: AbortSite::Unknown }),
+            verdict_json(&Verdict::Aborted { at: AbortSite::Unknown }),
             r#"{"transpiled":false}"#
         );
     }

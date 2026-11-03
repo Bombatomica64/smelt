@@ -407,13 +407,13 @@ mod tests {
 
     #[test]
     fn hir_flags_map_to_one_mode() {
-        let mode = |argv: &[&str]| match parse(argv) {
-            Command::Build { hir, .. } => hir.mode(),
-            other => panic!("{other:?}"),
+        // `None` when the command is not `build` at all.
+        let mode = |argv: &[&str]| {
+            if let Command::Build { hir, .. } = parse(argv) { Some(hir.mode()) } else { None }
         };
-        assert_eq!(mode(&["smelt", "build"]), None);
-        assert_eq!(mode(&["smelt", "build", "--hir"]), Some(HirMode::Compact));
-        assert_eq!(mode(&["smelt", "build", "--hir-debug"]), Some(HirMode::Debug));
+        assert_eq!(mode(&["smelt", "build"]), Some(None));
+        assert_eq!(mode(&["smelt", "build", "--hir"]), Some(Some(HirMode::Compact)));
+        assert_eq!(mode(&["smelt", "build", "--hir-debug"]), Some(Some(HirMode::Debug)));
         assert!(Args::try_parse_from(["smelt", "build", "--hir", "--hir-debug"]).is_err());
     }
 

@@ -1186,14 +1186,14 @@ mod tests {
             .as_nanos();
         let root = std::env::temp_dir().join(format!("smelt_manifest_cycle_{unique}"));
         fs::create_dir_all(&root).expect("create cycle dir");
-        let a = root.join("a.ts");
-        let b = root.join("b.ts");
-        let c = root.join("c.ts");
-        fs::write(&a, "import { b } from './b';\nexport const a = 1;\nb;\n").expect("write a");
-        fs::write(&b, "import { c } from './c';\nexport const b = 2;\nc;\n").expect("write b");
-        fs::write(&c, "import { a } from './a';\nexport const c = 3;\na;\n").expect("write c");
+        let first = root.join("a.ts");
+        let second = root.join("b.ts");
+        let third = root.join("c.ts");
+        fs::write(&first, "import { b } from './b';\nexport const a = 1;\nb;\n").expect("write a");
+        fs::write(&second, "import { c } from './c';\nexport const b = 2;\nc;\n").expect("write b");
+        fs::write(&third, "import { a } from './a';\nexport const c = 3;\na;\n").expect("write c");
 
-        let roots = vec![read_manifest_source(a.clone()).expect("read a")];
+        let roots = vec![read_manifest_source(first.clone()).expect("read a")];
         let sources =
             dependency_closure(roots, &[], Path::new("."), &[], None).expect("collect closure");
         let ordered = order_manifest_sources(&sources)
@@ -1204,7 +1204,7 @@ mod tests {
 
         assert_eq!(
             ordered,
-            vec![normalize_path_key(&c), normalize_path_key(&b), normalize_path_key(&a)],
+            vec![normalize_path_key(&third), normalize_path_key(&second), normalize_path_key(&first)],
             "a -> b -> c -> a is cut at c -> a, so c lowers first and each module once"
         );
     }
