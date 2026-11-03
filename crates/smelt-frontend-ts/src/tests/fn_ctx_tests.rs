@@ -161,3 +161,62 @@ console.log(outer(1));
     );
     Ok(())
 }
+
+/// Whether every body that declares a local named `name` also assigns it.
+///
+/// A store lowered into the wrong body indexes that body's expressions with
+/// another body's ids, so it never reads back as an assignment of `name` in the
+/// body that owns the local.
+fn every_declaring_body_assigns(ctx: &HirCtx, name: &str) -> bool {
+    let declaring = ctx.krate.bodies.iter().filter(|body| {
+        body.locals.iter().any(|decl| {
+            decl.name.and_then(|symbol| ctx.krate.symbols.get(symbol)) == Some(name)
+        })
+    });
+    let mut any = false;
+    for body in declaring {
+        any = true;
+        let assigns = body.blocks.iter().flat_map(|block| &block.stmts).any(|stmt| {
+            let Some(Stmt::Assign { target, .. }) = body.stmts.get(stmt.0 as usize) else {
+                return false;
+            };
+            let Some(ExprKind::Local(local)) =
+                body.exprs.get(target.0 as usize).map(|expr| &expr.kind)
+            else {
+                return false;
+            };
+            body.locals
+                .get(local.0 as usize)
+                .and_then(|decl| decl.name)
+                .and_then(|symbol| ctx.krate.symbols.get(symbol))
+                == Some(name)
+        });
+        if !assigns {
+            return false;
+        }
+    }
+    any
+}
+
+#[test]
+fn closures_in_a_deferring_initializer_keep_their_own_updates() -> Result<(), String> {
+    // `const v = i++ + …` defers `i++`'s store past the declaration. The
+    // arrow's and the function expression's own `a++` / `b++` must store
+    // inside their own bodies, not join that deferral list (which would flush
+    // them into the enclosing body). Node prints `26 1`.
+    let ctx = lower_valid(ts!(r"
+function outer(): string {
+  let i = 0;
+  const v =
+    i++ +
+    ((a: number): number => { return a++ + a; })(5) +
+    (function (b: number): number { return b++ + b; })(7);
+  return `${v} ${i}`;
+}
+console.log(outer());
+"))?;
+    ensure!(every_declaring_body_assigns(&ctx, "a"), "`a++` left the arrow body");
+    ensure!(every_declaring_body_assigns(&ctx, "b"), "`b++` left the function body");
+    ensure!(every_declaring_body_assigns(&ctx, "i"));
+    Ok(())
+}
