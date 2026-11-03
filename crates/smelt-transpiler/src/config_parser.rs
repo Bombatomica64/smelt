@@ -49,7 +49,7 @@ mod tests {
     fn parse_packages(declaration: &str) -> ConfigResult<Config> {
         let source = format!(
             "[project]\nname = \"p\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"src/main.ts\"]\n\n\
-             [packages.utility]\n{declaration}\n\n[output]\ntarget = \"./dist\"\n"
+             [packages.utility]\n{declaration}\n\n[output]\ntarget = \"./dist\"\n\n[runtime]\nclone-strategy = \"aggressive\"\n"
         );
         toml::from_str(&source).map_err(Into::into)
     }

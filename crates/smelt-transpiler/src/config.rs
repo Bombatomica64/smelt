@@ -238,9 +238,10 @@ pub enum PackageLocation {
 /// `node_modules`. This section names the sources instead: a local directory
 /// (`path`) or a repository pinned to a revision (`git` + `rev`), the way a
 /// Cargo dependency is pinned. Exactly one of `path` and `git` is given.
-///
-/// This is the TOML (and JSON schema) spelling; it is converted into
-/// [`PackageSource`] as the manifest is parsed.
+//
+// This is the TOML (and JSON schema) spelling; it is converted into
+// `PackageSource` as the manifest is parsed. (A plain comment, so the
+// generated schema description stays what `smelt-schema.json` has.)
 #[derive(Clone, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(rename = "PackageSource")]
