@@ -242,7 +242,7 @@ impl LoweringCtx<'_> {
         match operand {
             Operand::Const(_) => Ok(true),
             Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
-                Ok(matches!(self.mir_local(*local)?.kind, crate::LocalKind::Temp))
+                Ok(matches!(self.mir_local(*local)?.kind, LocalKind::Temp))
             }
             Operand::Copy(_) | Operand::Move(_) => Ok(false),
         }

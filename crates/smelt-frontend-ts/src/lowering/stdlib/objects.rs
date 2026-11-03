@@ -204,7 +204,7 @@ impl ModuleBuilder<'_> {
         let ty = self.ctx.krate.types.intern(Type::Float);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::BinOp {
-                op: smelt_hir::BinOp::IMul,
+                op: BinOp::IMul,
                 lhs,
                 rhs,
             },
@@ -1599,7 +1599,7 @@ return_ty,
                 for pair in &mut pairs {
                     combined.push(body.push_expr(Expr {
                         kind: ExprKind::BinOp {
-                            op: smelt_hir::BinOp::Or,
+                            op: BinOp::Or,
                             lhs: pair[0],
                             rhs: pair[1],
                         },

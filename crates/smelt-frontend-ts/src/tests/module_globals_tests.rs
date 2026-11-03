@@ -339,7 +339,7 @@ export function reset(): void {
         .items
         .iter()
         .filter_map(|item| match item {
-            smelt_hir::Item::MutableGlobal(global) => Some(&global.init),
+            Item::MutableGlobal(global) => Some(&global.init),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -961,7 +961,7 @@ console.log(job.label, report());
         .items
         .iter()
         .find_map(|item| match item {
-            smelt_hir::Item::MutableGlobal(global) => Some(global.ty),
+            Item::MutableGlobal(global) => Some(global.ty),
             _ => None,
         })
         .ok_or("expected `size` to become a module slot")?;

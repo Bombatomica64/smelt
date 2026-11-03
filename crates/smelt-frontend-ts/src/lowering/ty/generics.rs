@@ -237,7 +237,7 @@ impl ModuleBuilder<'_> {
                     let annotation = param.type_annotation.as_ref()?;
                     let ty = self.ts_type_to_hir(&annotation.type_annotation).ok()?;
                     Some(if param.optional {
-                        self.ctx.krate.types.intern(smelt_hir::Type::Optional(ty))
+                        self.ctx.krate.types.intern(Type::Optional(ty))
                     } else {
                         ty
                     })

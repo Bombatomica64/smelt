@@ -957,7 +957,7 @@ export function curry(
         .items
         .iter()
         .find_map(|item| match item {
-            smelt_hir::Item::Interface(interface) if interface.name == *name => Some(interface),
+            Item::Interface(interface) if interface.name == *name => Some(interface),
             _ => None,
         })
         .ok_or_else(|| "expected a synthesized interface item".to_owned())?;
@@ -1001,7 +1001,7 @@ export function second(): ((value: number) => number) & { tag: string } {
         .items
         .iter()
         .filter(|item| {
-            matches!(item, smelt_hir::Item::Interface(interface)
+            matches!(item, Item::Interface(interface)
                 if ctx.krate.symbols.get(interface.name)
                     .is_some_and(|name| name.starts_with("SmeltCallableObject")))
         })
@@ -1028,7 +1028,7 @@ export function apply(func: Plain, value: number): number {
         .krate
         .items
         .iter()
-        .filter(|item| matches!(item, smelt_hir::Item::Interface(_)))
+        .filter(|item| matches!(item, Item::Interface(_)))
         .count();
     ensure_eq!(synthesized, 0usize);
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());

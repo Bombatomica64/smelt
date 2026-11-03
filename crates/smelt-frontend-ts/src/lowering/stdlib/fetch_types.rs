@@ -383,7 +383,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn receiver_class_hint(
         &self,
         object: &Expression<'_>,
-        body: &smelt_hir::Body,
+        body: &Body,
     ) -> Option<smelt_stdlib::StdlibClass> {
         let Expression::Identifier(identifier) = object else {
             return None;

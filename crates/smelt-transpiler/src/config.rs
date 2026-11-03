@@ -241,7 +241,7 @@ pub struct Build {
     /// applies (its `sound.json` `when` field); it does not substitute them
     /// into the program text.
     #[serde(default)]
-    define: std::collections::BTreeMap<String, String>,
+    define: BTreeMap<String, String>,
 }
 
 /// Generated-Rust configuration from the [rust] section.

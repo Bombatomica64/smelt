@@ -1165,7 +1165,7 @@ impl ModuleBuilder<'_> {
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.erase_with(ErasureReason::TestHarness, "rejects payload");
 
-        let did_throw = body.push_local(smelt_hir::LocalDecl {
+        let did_throw = body.push_local(LocalDecl {
             name: Some(self.intern_source_name("did_throw")),
             ty: bool_ty,
             mutable: true,
@@ -1194,7 +1194,7 @@ impl ModuleBuilder<'_> {
         });
         body.push_stmt_to_block(try_block, Stmt::Expr(awaited));
 
-        let caught = body.push_local(smelt_hir::LocalDecl {
+        let caught = body.push_local(LocalDecl {
             name: Some(self.intern_source_name("error")),
             ty: unknown_ty,
             mutable: false,
@@ -1299,7 +1299,7 @@ impl ModuleBuilder<'_> {
         };
 
         let did_throw_name = self.intern_source_name("did_throw");
-        let did_throw = body.push_local(smelt_hir::LocalDecl {
+        let did_throw = body.push_local(LocalDecl {
             name: Some(did_throw_name),
             ty: bool_ty,
             mutable: true,
@@ -1325,7 +1325,7 @@ impl ModuleBuilder<'_> {
         });
         body.push_stmt_to_block(try_block, Stmt::Expr(awaited));
 
-        let catch_message = body.push_local(smelt_hir::LocalDecl {
+        let catch_message = body.push_local(LocalDecl {
             name: Some(self.intern_source_name("error")),
             ty: string_ty,
             mutable: false,
@@ -1863,7 +1863,7 @@ impl ModuleBuilder<'_> {
             flags.contains('g') || flags.contains('y')
         }
         /// A constructed regex is eligible only with no flags argument at all.
-        fn is_flagless_construction(arguments: &[oxc::ast::ast::Argument<'_>]) -> bool {
+        fn is_flagless_construction(arguments: &[Argument<'_>]) -> bool {
             arguments.len() == 1
         }
         match receiver {
