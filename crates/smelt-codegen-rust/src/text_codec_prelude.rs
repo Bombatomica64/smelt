@@ -42,6 +42,11 @@
 //! That adapter is a DYNAMIC BOUNDARY adapter only — the internal
 //! representation stays concrete.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use crate::rust::CodeWriter;
 
 /// Emit the concrete byte view, which is the typed-array family's `Uint8` face.
@@ -61,7 +66,7 @@ use crate::rust::CodeWriter;
 /// `needs_data_view` gates the `DataView` half of the family, which is
 /// pay-for-use on its own: most programs that hold a typed array never mention
 /// one.
-pub fn emit_byte_array(
+pub(crate) fn emit_byte_array(
     writer: &mut CodeWriter,
     needs_unknown: bool,
     needs_data_view: bool,
@@ -74,7 +79,7 @@ pub fn emit_byte_array(
 /// Emit the `SmeltTextEncoder` runtime type.
 ///
 /// `needs_unknown` gates the erasure adapters, as it does for the byte view.
-pub fn emit_encoder(writer: &mut CodeWriter, needs_unknown: bool) {
+pub(crate) fn emit_encoder(writer: &mut CodeWriter, needs_unknown: bool) {
     writer.line("/// A WHATWG `TextEncoder`: a UTF-8 encoder with a JS reference identity.");
     writer.line("#[derive(Clone)]");
     writer.block("pub struct SmeltTextEncoder", |struct_writer| {
@@ -125,7 +130,7 @@ pub fn emit_encoder(writer: &mut CodeWriter, needs_unknown: bool) {
 /// Emit the `SmeltTextDecoder` runtime type.
 ///
 /// `needs_unknown` gates the erasure adapters, as it does for the byte view.
-pub fn emit_decoder(writer: &mut CodeWriter, needs_unknown: bool) {
+pub(crate) fn emit_decoder(writer: &mut CodeWriter, needs_unknown: bool) {
     writer.line("/// A WHATWG `TextDecoder`: a UTF-8 decoder with a JS reference identity.");
     writer.line("#[derive(Clone)]");
     writer.block("pub struct SmeltTextDecoder", |struct_writer| {

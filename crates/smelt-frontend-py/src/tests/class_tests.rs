@@ -1435,7 +1435,7 @@ LIMIT = 10
         module_body
             .stmts
             .iter()
-            .any(|stmt| matches!(stmt, smelt_hir::Stmt::Let { .. })),
+            .any(|stmt| matches!(stmt, Stmt::Let { .. })),
         "a value assignment must still lower as a binding, not be skipped as an alias",
     )?;
     Ok(())

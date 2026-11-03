@@ -340,7 +340,7 @@ impl FunctionEmitter<'_> {
     /// path binds them by cell name instead.
     fn capture_aliases(
         &self,
-        closure: &smelt_mir::MirClosure,
+        closure: &MirClosure,
         closure_param_names: &HashSet<String>,
     ) -> Result<HashMap<LocalId, String>, EmitError> {
         // Every captured local's name is spoken for before any alias is chosen:
@@ -576,11 +576,11 @@ impl FunctionEmitter<'_> {
                     let capture_name = if self.is_weak_emitter_capture(id, capture) {
                         // Registered as a listener on the emitter it captures:
                         // read through a weak handle (see `emitter::weak_receiver`).
-                        super::weak_receiver::emitter_access_text(&alias_name)
+                        weak_receiver::emitter_access_text(&alias_name)
                     } else if self.is_weak_receiver_capture(id, capture) {
                         // Stored on the instance it captures: read through a
                         // weak capture (see `emitter::weak_receiver`).
-                        super::weak_receiver::capture_access_text(&alias_name)
+                        weak_receiver::capture_access_text(&alias_name)
                     } else if alias_name.starts_with("(*smelt_capture_") {
                         // The source binding is itself captured from an
                         // enclosing shared closure and already renders as
@@ -1096,18 +1096,18 @@ impl FunctionEmitter<'_> {
                     if self.is_weak_emitter_capture(id, capture) {
                         shared_replacements.push((
                             name.clone(),
-                            super::weak_receiver::emitter_access_text(&name),
+                            weak_receiver::emitter_access_text(&name),
                         ));
-                        return super::weak_receiver::emitter_prelude_text(&name, &source_name);
+                        return weak_receiver::emitter_prelude_text(&name, &source_name);
                     }
                     if self.is_weak_receiver_capture(id, capture) {
                         shared_replacements.push((
                             name.clone(),
-                            super::weak_receiver::capture_access_text(&name),
+                            weak_receiver::capture_access_text(&name),
                         ));
                         let shared = self.closure_capture_needs_shared_access(closure, capture)
                             || self.local_uses_shared_capture_storage(capture.source_local);
-                        return super::weak_receiver::capture_prelude_text(&name, &source_name, shared);
+                        return weak_receiver::capture_prelude_text(&name, &source_name, shared);
                     }
                     if self.closure_capture_needs_shared_access(closure, capture)
                         || self.local_uses_shared_capture_storage(capture.source_local)

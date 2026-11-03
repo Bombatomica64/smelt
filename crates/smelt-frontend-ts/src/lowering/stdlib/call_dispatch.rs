@@ -2030,7 +2030,7 @@ impl<'builder> ModuleBuilder<'builder> {
             self.ctx
                 .krate
                 .types
-                .intern(Type::Function(smelt_hir::FunctionType {
+                .intern(Type::Function(FunctionType {
                     params: Vec::new(),
                     rest: None,
                     required_params: None,

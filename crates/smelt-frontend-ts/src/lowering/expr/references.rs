@@ -1079,10 +1079,10 @@ impl ModuleBuilder<'_> {
     /// `const crypto = …` keeps its own meaning.
     fn builtin_namespace_receiver_name(
         &self,
-        receiver: &oxc::ast::ast::Expression<'_>,
+        receiver: &Expression<'_>,
     ) -> Option<String> {
         match receiver {
-            oxc::ast::ast::Expression::Identifier(identifier) => {
+            Expression::Identifier(identifier) => {
                 let name = identifier.name.as_str();
                 if self.scope.lookup(name).is_some()
                     || self.imports.is_imported_binding(name)
@@ -1092,9 +1092,9 @@ impl ModuleBuilder<'_> {
                 }
                 smelt_stdlib::global_namespace(name).map(|namespace| namespace.name.to_owned())
             }
-            oxc::ast::ast::Expression::StaticMemberExpression(member) => {
+            Expression::StaticMemberExpression(member) => {
                 let object = match &member.object {
-                    oxc::ast::ast::Expression::Identifier(identifier) => identifier.name.as_str(),
+                    Expression::Identifier(identifier) => identifier.name.as_str(),
                     _ => return None,
                 };
                 if !self.imports.is_global_object_alias(object) && object != "globalThis" {

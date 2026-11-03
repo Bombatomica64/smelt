@@ -826,7 +826,7 @@ impl FunctionEmitter<'_> {
     /// The registry is the shared one (`smelt_stdlib::host_object_marker`), so
     /// the frontend's serializability rule and this one cannot disagree about
     /// which classes have no own enumerable properties.
-    pub(super) fn is_host_object_class(&self, name: smelt_hir::Symbol) -> bool {
+    pub(super) fn is_host_object_class(&self, name: Symbol) -> bool {
         self.symbol_name(name)
             .is_ok_and(|class_name| smelt_stdlib::host_object_marker(class_name).is_some())
     }
@@ -2382,7 +2382,7 @@ impl FunctionEmitter<'_> {
     ///
     /// `0` for a non-generic class and for a name that is not a generated class
     /// at all, so callers can ask without checking first.
-    pub(super) fn class_type_param_count(&self, name: smelt_hir::Symbol) -> usize {
+    pub(super) fn class_type_param_count(&self, name: Symbol) -> usize {
         // The parameters the emitted struct DECLARES: a position
         // `generic_elision` dropped is spelled nowhere, so it must not be
         // spelled here either (`Context_1::<SmeltUnknown, ..>::default()` for a

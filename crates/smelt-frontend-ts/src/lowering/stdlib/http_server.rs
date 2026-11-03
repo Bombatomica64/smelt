@@ -335,7 +335,7 @@ impl ModuleBuilder<'_> {
         if let Some(callback) = callback {
             args.push(host.unwrap_or_else(|| {
                 body.push_expr(Expr {
-                    kind: ExprKind::Literal(smelt_hir::Literal::String(
+                    kind: ExprKind::Literal(Literal::String(
                         "127.0.0.1".to_owned(),
                     )),
                     ty: self.ctx.krate.types.intern(Type::String),

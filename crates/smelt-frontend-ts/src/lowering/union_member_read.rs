@@ -75,6 +75,10 @@ impl ArmRead {
 }
 
 /// The runtime test that selects one arm of the union.
+#[expect(
+    variant_size_differences,
+    reason = "the whole enum is 8 bytes; boxing the `Symbol` would add a heap allocation to save 7"
+)]
 enum ArmGuard {
     /// A `typeof`-style tag test; the emitter renders it as a `matches!` over
     /// the arms of that JavaScript kind.

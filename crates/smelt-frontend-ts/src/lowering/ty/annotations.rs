@@ -986,9 +986,9 @@ return_ty: function.return_ty,
     fn declared_type_name_exists(&mut self, name_text: &str) -> bool {
         let symbol = self.intern_type_name(name_text);
         self.ctx.krate.items.iter().any(|item| match item {
-            smelt_hir::Item::Class(class) => class.name == symbol,
-            smelt_hir::Item::Interface(interface) => interface.name == symbol,
-            smelt_hir::Item::TypeAlias(alias) => alias.name == symbol,
+            Item::Class(class) => class.name == symbol,
+            Item::Interface(interface) => interface.name == symbol,
+            Item::TypeAlias(alias) => alias.name == symbol,
             _ => false,
         })
     }
@@ -3647,7 +3647,7 @@ return_ty: function.return_ty,
             let Some(expr) = body.exprs.get(usize::try_from(value.0).unwrap_or(usize::MAX)) else {
                 return false;
             };
-            if !matches!(expr.kind, smelt_hir::ExprKind::Local(local) if local == receiver) {
+            if !matches!(expr.kind, ExprKind::Local(local) if local == receiver) {
                 return false;
             }
         }
@@ -3715,7 +3715,7 @@ return_ty: function.return_ty,
                 name: field,
                 ty: inner,
                 optional: true,
-                visibility: smelt_hir::Visibility::Public,
+                visibility: Visibility::Public,
                 span: self.span(0, 0),
             });
         }

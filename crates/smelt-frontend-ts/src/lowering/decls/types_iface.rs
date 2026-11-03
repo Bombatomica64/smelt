@@ -95,8 +95,8 @@ impl ModuleBuilder<'_> {
             && literal.members.iter().all(|member| {
                 matches!(
                     member,
-                    oxc::ast::ast::TSSignature::TSPropertySignature(_)
-                        | oxc::ast::ast::TSSignature::TSMethodSignature(_)
+                    TSSignature::TSPropertySignature(_)
+                        | TSSignature::TSMethodSignature(_)
                 )
             })
         {
@@ -3182,7 +3182,7 @@ struct AssignedNames {
 impl<'a> oxc::ast_visit::Visit<'a> for AssignedNames {
     /// Records the identifier an assignment writes.
     fn visit_assignment_expression(&mut self, assign: &oxc::ast::ast::AssignmentExpression<'a>) {
-        if let oxc::ast::ast::AssignmentTarget::AssignmentTargetIdentifier(target) = &assign.left {
+        if let AssignmentTarget::AssignmentTargetIdentifier(target) = &assign.left {
             let name = target.name.to_string();
             if !self.names.contains(&name) {
                 self.names.push(name);

@@ -1627,7 +1627,7 @@ pub(crate) fn emit_union_definitions(
         // environment; the "known gap" recorded on `FunctionEmitter::rust_type`
         // stays open.
         let member_scope: ::std::collections::HashSet<Symbol> = params.iter().copied().collect();
-        let member_substitution = crate::type_substitution::TypeSubstitution::callee_emission(&member_scope);
+        let member_substitution = TypeSubstitution::callee_emission(&member_scope);
         output.push_str("#[derive(Clone)]\n");
         output.push_str(&format!("pub enum {name}{declaration_generics} {{\n"));
         for (member_index, member) in members.iter().enumerate() {
@@ -1747,6 +1747,10 @@ pub(super) enum UnionArmIndexRead {
 /// How one arm of a concrete union answers a named property read; see
 /// [`FunctionEmitter::concrete_union_member_reads`].
 #[derive(Clone, Copy)]
+#[expect(
+    variant_size_differences,
+    reason = "a 24-byte `Copy` value; boxing `Host` would cost `Copy` and an allocation to save ~16 bytes"
+)]
 pub(super) enum UnionArmRead {
     /// A record arm's declared field, of this type.
     Field(TypeId),

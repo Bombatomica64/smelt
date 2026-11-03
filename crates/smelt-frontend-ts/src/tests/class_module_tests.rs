@@ -1697,14 +1697,14 @@ export class Holder {
   }
 }
 ");
-    crate::lowering::predeclare_type_declarations_with_path(
+    predeclare_type_declarations_with_path(
         declaring,
         FileId(0),
         "/src/slot.ts",
         &mut ctx,
     )
     .map_err(|errors| format!("predeclaration failed: {errors:?}"))?;
-    crate::lowering::predeclare_type_declarations_with_path(
+    predeclare_type_declarations_with_path(
         consuming,
         FileId(1),
         "/src/holder.ts",

@@ -843,7 +843,7 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         let number_to_string = crate::number_format_prelude::NUMBER_TO_STRING_FN;
-        let union_enum_name = crate::emitter::union::union_name(union_ty);
+        let union_enum_name = union::union_name(union_ty);
         let mut arms = Vec::with_capacity(members.len());
         for (index, member) in members.iter().enumerate() {
             let conversion = match self.mir.types.get(*member) {

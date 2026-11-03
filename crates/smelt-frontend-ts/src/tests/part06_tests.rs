@@ -1151,13 +1151,13 @@ fn lowers_fetch_to_an_async_response() -> Result<(), String> {
             .then_some(expr.ty)
         })
         .ok_or_else(|| "no fetch op lowered".to_owned())?;
-    let Some(smelt_hir::Type::Future(inner)) = ctx.krate.types.get(fetch_ty) else {
+    let Some(Type::Future(inner)) = ctx.krate.types.get(fetch_ty) else {
         return Err("fetch must answer a future".to_owned());
     };
     ensure!(
         matches!(
             ctx.krate.types.get(*inner),
-            Some(smelt_hir::Type::Class { .. })
+            Some(Type::Class { .. })
         ),
         "fetch must resolve to the concrete `Response` class",
     );

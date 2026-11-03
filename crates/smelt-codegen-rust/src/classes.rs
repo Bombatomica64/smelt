@@ -735,7 +735,7 @@ fn callback_only_params_are_pinned_at_every_call_site(
 
     for caller in &mir.functions {
         for block in &caller.blocks {
-            let Some(smelt_mir::Terminator::Call {
+            let Some(Terminator::Call {
                 callee: smelt_mir::Callee::Static(target),
                 args,
                 ..
@@ -808,7 +808,7 @@ fn called_with_erased_type_param_argument(mir: &Mir, function: &MirFunction) -> 
 
     for caller in &mir.functions {
         for block in &caller.blocks {
-            let Some(smelt_mir::Terminator::Call {
+            let Some(Terminator::Call {
                 callee: smelt_mir::Callee::Static(target),
                 args,
                 ..
@@ -866,10 +866,10 @@ fn called_with_erased_type_param_argument(mir: &Mir, function: &MirFunction) -> 
 /// and therefore classifies a JS symbol literal (`Type::Unknown`) as erased.
 /// Widening this arm would demote functions that are generic today, so it stays
 /// frozen until the increment that rewrites this predicate's caller.
-fn operand_type_is_erased(mir: &Mir, caller: &MirFunction, operand: &smelt_mir::Operand) -> bool {
+fn operand_type_is_erased(mir: &Mir, caller: &MirFunction, operand: &Operand) -> bool {
     // Literal constants (numbers, strings, booleans) are concrete and pin
     // the type parameter, so they never force erasure.
-    if matches!(operand, smelt_mir::Operand::Const(_)) {
+    if matches!(operand, Operand::Const(_)) {
         return false;
     }
     match generic_bindings::operand_type(mir, caller, operand) {

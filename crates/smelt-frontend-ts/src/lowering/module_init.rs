@@ -120,7 +120,7 @@ impl MutatedNameCollector {
     /// unwrapping the type-level wrappers that never change the value.
     fn record_write_through_base(
         &mut self,
-        object: &oxc::ast::ast::Expression<'_>,
+        object: &Expression<'_>,
         direct: bool,
     ) {
         match object {
@@ -1099,7 +1099,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ///
     /// A module body has no early `return` to skip it — `return` at module
     /// scope is not legal TypeScript — so appending once at the end is enough.
-    fn append_module_exit_drain(&mut self, body: &mut Body, span: smelt_hir::Span) {
+    fn append_module_exit_drain(&mut self, body: &mut Body, span: Span) {
         let none_ty = self.ctx.krate.types.intern(Type::None);
         let future_ty = self.ctx.krate.types.intern(Type::Future(none_ty));
         let sleep = body.push_expr(Expr {
@@ -2269,7 +2269,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let init_item = self
             .ctx
             .krate
-            .push_item(Item::Function(smelt_hir::Function {
+            .push_item(Item::Function(Function {
                 name: init_name,
                 span,
                 type_params: Vec::new(),
@@ -2280,7 +2280,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 is_async: false,
                 is_test: false,
                 body: Some(body_id),
-                owner: smelt_hir::FunctionOwner::Module,
+                owner: FunctionOwner::Module,
             }));
         if let Some(Item::MutableGlobal(global)) = self
             .ctx

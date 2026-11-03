@@ -37,6 +37,11 @@
 //! larger amount of code. `url` is already a dependency of these types, so the
 //! urlencoded half is delegated rather than hand-written.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use crate::rust::CodeWriter;
 
 /// Emit the `SmeltFormData` runtime type and its parsers.
@@ -44,7 +49,7 @@ use crate::rust::CodeWriter;
 /// `needs_unknown` gates the erasure adapters, exactly as the other fetch
 /// types' preludes do: a program that never crosses the dynamic boundary does
 /// not emit the `SmeltUnknown` carrier, so the impls must not be emitted.
-pub fn emit(writer: &mut CodeWriter, needs_unknown: bool) {
+pub(crate) fn emit(writer: &mut CodeWriter, needs_unknown: bool) {
     emit_value_enum(writer);
     emit_struct(writer);
     emit_inherent_impl(writer);
