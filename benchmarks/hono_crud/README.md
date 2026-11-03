@@ -11,7 +11,7 @@ benchmark and acceptance criteria come first). `bench.sh` is the harness;
 | `node-original` | Node 24 | `examples/typescript/hono_crud` as shipped (`npm run build && npm start`) | `node:sqlite` file `todos.db` | `@hono/node-server` |
 | `node-staging` | Node 24 | staging variant (below), compiled by `tsc` | in-memory array | `serve.ts` shim over `node:http` |
 | `rust-staging` | generated crate, `cargo build --release` | the same staging variant, transpiled by `smelt build` | in-memory array | the same `serve.ts` shim, lowered onto Smelt's hyper-backed `node:http` |
-| `rust-shipped` | generated crate, `cargo build --release` | `examples/typescript/hono_crud` as shipped, transpiled by `smelt build` (Hono from the `[packages.hono]` pin in its `Smelt.toml`, which since perf round 1 also sets `[rust] allocator = "mimalloc"`; see `blocker-logs/hono-crud-perf-round1.md`) | `node:sqlite` file `todos.db` (rusqlite, bundled SQLite) | `@hono/node-server` `serve()`, modeled natively over the same `node:http` server |
+| `rust-shipped` | generated crate, `cargo build --release` | `examples/typescript/hono_crud` as shipped, transpiled by `smelt build` (Hono from the `[packages.hono]` pin in its `Smelt.toml`, which since perf round 1 also sets `[rust] allocator = "mimalloc"` and since round 2 `release-profile = "whole-program"`; see `blocker-logs/hono-crud-perf-round1.md` and `-round2.md`) | `node:sqlite` file `todos.db` (rusqlite, bundled SQLite) | `@hono/node-server` `serve()`, modeled natively over the same `node:http` server |
 
 `node-staging` vs `rust-staging` is one apples-to-apples pair: identical
 TypeScript source on both sides. `node-original` vs `rust-shipped` is the other:
@@ -49,6 +49,14 @@ out). Hono itself is the source pinned in `.github/compat/libraries.json`
   non-2xx/4xx-as-expected counts (a scenario whose status mix differs from the
   expected status is reported as broken, not as a number), and peak RSS
   (`VmHWM`) plus resident RSS after the run (`VmRSS`) from `/proc/<pid>/status`.
+
+On a shared host whose load swings, compare variants with the paired runner
+`results/perf-round2/ab.sh` (both servers warm, alternating short runs, one
+ratio per pair) and with `perf stat` instructions per request
+(`results/perf-round2/pstat.sh`), and keep the load-generator cores off the
+server core's SMT sibling (`LOADGEN_CPUS`). Build the measured binary with
+`cargo build --release`: corgi does not apply the generated crate's own
+`[profile.release]`. See `blocker-logs/hono-crud-perf-round2.md` §0.
 
 ## Acceptance criteria for optimisation work
 

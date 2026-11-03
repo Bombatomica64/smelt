@@ -1,0 +1,6 @@
+load 2.95 3.44 3.74 node-original-r1
+load 2.79 3.34 3.68 rust-shipped-r1
+load 4.32 3.97 3.89 node-original-r2
+load 3.54 3.82 3.84 rust-shipped-r2
+load 4.77 4.03 3.91 node-original-r3
+load 3.22 3.77 3.83 rust-shipped-r3
