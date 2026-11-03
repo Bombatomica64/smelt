@@ -255,12 +255,18 @@ impl ModuleBindings {
     pub(crate) fn collect(body: &[Stmt]) -> Self {
         let mut walker = ScopeWalker {
             snapshots: HashMap::new(),
-            classes: Some(HashMap::new()),
+            kind: ScopeKind::Module {
+                classes: HashMap::new(),
+            },
         };
         walker.block(body, &mut Flow::default());
+        let classes = match walker.kind {
+            ScopeKind::Module { classes } => classes,
+            ScopeKind::Class => HashMap::new(),
+        };
         Self {
             module: walker.snapshots,
-            classes: walker.classes.unwrap_or_default(),
+            classes,
         }
     }
 
@@ -416,9 +422,24 @@ fn qualify_member(module: &str, member: &str) -> String {
     }
 }
 
-/// Upper bound on loop-body passes; each pass can only add targets, so the
-/// flow reaches a fixpoint long before this for any real loop body.
-const MAX_LOOP_PASSES: usize = 8;
+/// Sanity bound on loop-body passes, checked in debug builds only.
+///
+/// It is NOT a cut-off: [`ScopeWalker::loop_body`] always runs to its fixpoint
+/// (see there for why that terminates). Real loop bodies settle in two or
+/// three passes, so reaching this means a non-monotone change to [`Flow`].
+const LOOP_PASS_SANITY_BOUND: usize = 1024;
+
+/// Which scope a [`ScopeWalker`] walks, and what that scope collects.
+enum ScopeKind {
+    /// Module scope: snapshots at each class statement, plus each class body's
+    /// own method snapshots keyed by the class statement's start.
+    Module {
+        /// Per-class method snapshots.
+        classes: HashMap<TextSize, HashMap<TextSize, Flow>>,
+    },
+    /// A class body: snapshots at each method definition.
+    Class,
+}
 
 /// Statement walker for one scope's reaching-definitions pass.
 ///
@@ -428,8 +449,8 @@ struct ScopeWalker {
     /// Flow at the start of each class statement (module scope) or method
     /// definition (class scope).
     snapshots: HashMap<TextSize, Flow>,
-    /// Per-class snapshots, collected only by the module-scope walker.
-    classes: Option<HashMap<TextSize, HashMap<TextSize, Flow>>>,
+    /// The scope being walked.
+    kind: ScopeKind,
 }
 
 impl ScopeWalker {
@@ -451,7 +472,7 @@ impl ScopeWalker {
     fn stmt(&mut self, stmt: &Stmt, flow: &mut Flow) {
         match stmt {
             Stmt::FunctionDef(function) => {
-                if self.classes.is_none() {
+                if matches!(self.kind, ScopeKind::Class) {
                     self.snapshots.insert(function.range.start(), flow.clone());
                 }
                 // Decorators and defaults run in this scope; the body (and a
@@ -464,11 +485,11 @@ impl ScopeWalker {
                 flow.bind(function.name.as_str(), Target::Denotes(Denotation::Local));
             }
             Stmt::ClassDef(class) => {
-                if let Some(classes) = &mut self.classes {
+                if let ScopeKind::Module { classes } = &mut self.kind {
                     self.snapshots.insert(class.range.start(), flow.clone());
                     let mut body = Self {
                         snapshots: HashMap::new(),
-                        classes: None,
+                        kind: ScopeKind::Class,
                     };
                     body.block(&class.body, &mut Flow::default());
                     classes.insert(class.range.start(), body.snapshots);
@@ -607,15 +628,28 @@ impl ScopeWalker {
 
     /// Run a loop body zero or more times: join every iteration's result into
     /// `flow` until nothing changes.
+    ///
+    /// This always reaches the fixpoint; there is no pass cap that could stop
+    /// it early and leave the snapshots taken inside the body describing a
+    /// flow that is not the loop's final one (the old 8-pass cap would have
+    /// done that silently). It terminates because `flow` only grows -- `join`
+    /// is a union -- and every target it can hold is drawn from finitely many
+    /// sources (this scope's binding statements, `Unbound`, and its star
+    /// imports), so each non-final pass adds at least one of finitely many
+    /// (name, target) pairs.
     fn loop_body(&mut self, flow: &mut Flow, mut iterate: impl FnMut(&mut Self, &mut Flow)) {
-        for _ in 0..MAX_LOOP_PASSES {
+        for pass in 1.. {
             let mut iteration = flow.clone();
             iterate(self, &mut iteration);
             let before = flow.clone();
             flow.join(&iteration);
             if *flow == before {
-                break;
+                return;
             }
+            debug_assert!(
+                pass < LOOP_PASS_SANITY_BOUND,
+                "name-resolution loop flow did not converge in {LOOP_PASS_SANITY_BOUND} passes"
+            );
         }
     }
 
@@ -674,11 +708,29 @@ struct ExprWalker<'flow> {
 }
 
 impl<'flow> ExprWalker<'flow> {
-    /// Start a walk that updates `flow`.
+    /// Start a walk that updates `flow`, outside any comprehension.
     fn new(flow: &'flow mut Flow) -> Self {
         Self {
             flow,
             in_comprehension: false,
+        }
+    }
+
+    /// A walk over a sub-expression that updates `flow` (usually a copy of
+    /// this walk's path) in the same context as this walk.
+    fn child<'sub>(&self, flow: &'sub mut Flow) -> ExprWalker<'sub> {
+        ExprWalker {
+            flow,
+            in_comprehension: self.in_comprehension,
+        }
+    }
+
+    /// A walk over a comprehension's clauses, which bind their targets in the
+    /// comprehension's own scope.
+    const fn comprehension(flow: &'flow mut Flow) -> Self {
+        Self {
+            flow,
+            in_comprehension: true,
         }
     }
 }
@@ -717,13 +769,7 @@ impl<'ast> Visitor<'ast> for ExprWalker<'_> {
             }
             Expr::ListComp(_) | Expr::SetComp(_) | Expr::DictComp(_) | Expr::Generator(_) => {
                 let mut branch = self.flow.clone();
-                visitor::walk_expr(
-                    &mut ExprWalker {
-                        flow: &mut branch,
-                        in_comprehension: true,
-                    },
-                    expr,
-                );
+                visitor::walk_expr(&mut ExprWalker::comprehension(&mut branch), expr);
                 self.flow.join(&branch);
             }
             Expr::BoolOp(bool_op) => {
@@ -735,27 +781,15 @@ impl<'ast> Visitor<'ast> for ExprWalker<'_> {
                 // decide the result.
                 let mut reached = self.flow.clone();
                 for value in values {
-                    ExprWalker {
-                        flow: &mut reached,
-                        in_comprehension: self.in_comprehension,
-                    }
-                    .visit_expr(value);
+                    self.child(&mut reached).visit_expr(value);
                     self.flow.join(&reached);
                 }
             }
             Expr::If(ternary) => {
                 self.visit_expr(&ternary.test);
                 let mut body = self.flow.clone();
-                ExprWalker {
-                    flow: &mut body,
-                    in_comprehension: self.in_comprehension,
-                }
-                .visit_expr(&ternary.body);
-                ExprWalker {
-                    flow: self.flow,
-                    in_comprehension: self.in_comprehension,
-                }
-                .visit_expr(&ternary.orelse);
+                self.child(&mut body).visit_expr(&ternary.body);
+                self.visit_expr(&ternary.orelse);
                 self.flow.join(&body);
             }
             _ => visitor::walk_expr(self, expr),
