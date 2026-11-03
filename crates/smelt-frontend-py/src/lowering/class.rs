@@ -36,7 +36,36 @@ struct ClassBases {
 
 impl ModuleBuilder<'_> {
     /// Lower a Python class definition into the current HIR module.
+    ///
+    /// The class's entry in `class_fields` is rolled back when lowering it
+    /// fails, so a class that errors half-way through its body does not leave
+    /// the fields it had collected so far for later field lookups to find.
+    /// (Fields another class's materialized descriptors merged into a
+    /// *different* class are that class's business and are kept.)
     fn class_def(
+        &mut self,
+        class: &StmtClassDef,
+        module: &ModModule,
+        hir_module: &mut Module,
+    ) -> Result<(), SmeltError> {
+        let name = class.name.as_str();
+        let before = self.class_fields.get(name).cloned();
+        let result = self.lower_class_def(class, module, hir_module);
+        if result.is_err() {
+            match before {
+                Some(fields) => {
+                    self.class_fields.insert(name.to_owned(), fields);
+                }
+                None => {
+                    self.class_fields.remove(name);
+                }
+            }
+        }
+        result
+    }
+
+    /// The body of [`Self::class_def`].
+    fn lower_class_def(
         &mut self,
         class: &StmtClassDef,
         module: &ModModule,
