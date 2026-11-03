@@ -256,6 +256,11 @@
           "description": "Cargo's stock release profile.",
           "type": "string",
           "const": "default"
+        },
+        {
+          "description": "Fat (whole-program) LTO and one codegen unit: more release build time\nfor more throughput. See `smelt_codegen_rust::ReleaseProfile::WholeProgram`.",
+          "type": "string",
+          "const": "whole-program"
         }
       ]
     },
