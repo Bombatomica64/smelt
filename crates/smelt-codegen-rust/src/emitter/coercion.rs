@@ -1170,6 +1170,9 @@ impl FunctionEmitter<'_> {
         if let Some(slot) = self.callable_object_call_slot_text(value_text, source, target, scope)? {
             return Ok(slot);
         }
+        if let Some(adapter) = self.future_item_adapter_text(value_text, source, target, scope)? {
+            return Ok(adapter);
+        }
         if let Some(adapter) =
             self.rendered_function_shape_adapter_text(value_text, source, target, scope)?
         {

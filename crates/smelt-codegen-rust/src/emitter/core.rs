@@ -3777,6 +3777,81 @@ impl<'mir> FunctionEmitter<'mir> {
     /// rather than MIR operands. JavaScript permits object callback fields to
     /// omit arguments supplied by their consumer, so map-extracted callbacks
     /// require the same wrapper semantics as ordinary callback operands.
+    /// Adapt a function value whose promise item differs from the target's.
+    ///
+    /// `rendered_function_shape_adapter_text` declines every future-returning
+    /// pair. A value of `(c, next) => Promise<Response | undefined>` stored in
+    /// a slot typed `(c, next) => Promise<unknown>` (Hono's handler stored in a
+    /// router result) has the SAME parameters and differs only in what its
+    /// promise settles with. The adapter forwards the arguments unchanged,
+    /// awaits the wrapped call lazily (an adapter promise, like `.then`), and
+    /// converts the settled value; a rejection propagates through the `?`.
+    /// `None` when the parameters render differently, when either side does
+    /// not return a future, or when a side can throw synchronously.
+    pub(super) fn future_item_adapter_text(
+        &self,
+        value_text: &str,
+        source: TypeId,
+        target: TypeId,
+        scope: &RenderScope,
+    ) -> Result<Option<String>, EmitError> {
+        let (Some(Type::Function(source_function)), Some(Type::Function(target_function))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+        else {
+            return Ok(None);
+        };
+        if source == target
+            || source_function.may_throw
+            || target_function.may_throw
+            || source_function.params.len() != target_function.params.len()
+        {
+            return Ok(None);
+        }
+        let future_item = |function: &smelt_hir::FunctionType| match self.mir.types.get(function.return_ty) {
+            Some(Type::Future(item)) => Some(*item),
+            _ if function.is_async => Some(function.return_ty),
+            _ => None,
+        };
+        let (Some(source_item), Some(target_item)) =
+            (future_item(source_function), future_item(target_function))
+        else {
+            return Ok(None);
+        };
+        if source_item == target_item {
+            return Ok(None);
+        }
+        let mut params = Vec::with_capacity(target_function.params.len());
+        for (index, (source_param, target_param)) in source_function
+            .params
+            .iter()
+            .zip(&target_function.params)
+            .enumerate()
+        {
+            let source_text = self.type_text_with_impl_trait(*source_param, false)?;
+            let target_text = self.type_text_with_impl_trait(*target_param, false)?;
+            if source_text != target_text {
+                return Ok(None);
+            }
+            params.push((format!("arg{index}"), target_text));
+        }
+        let target_item_text = self.type_text_with_impl_trait(target_item, false)?;
+        let converted = self.value_at_type_text("smelt_value", source_item, target_item, scope)?;
+        let declared = params
+            .iter()
+            .map(|(name, ty)| format!("{name}: {ty}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let forwarded = params
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let target_text = self.type_text_with_impl_trait(target, false)?;
+        Ok(Some(format!(
+            "{{ let _smelt_adapted_callback = {value_text}.clone(); let smelt_adapted: {target_text} = ::std::rc::Rc::new(move |{declared}| -> SmeltFuture<{target_item_text}> {{ let smelt_future = (_smelt_adapted_callback)({forwarded}); SmeltFuture::from_future(Box::pin(async move {{ let smelt_value = smelt_future.await?; Ok::<{target_item_text}, Box<dyn std::error::Error>>({converted}) }})) }}); smelt_adapted }}"
+        )))
+    }
+
     pub(super) fn rendered_function_shape_adapter_text(
         &self,
         value_text: &str,

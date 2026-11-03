@@ -181,10 +181,45 @@ impl FunctionEmitter<'_> {
         let Some(abis) = self.record_slot_param_abis(&declared, &rendered) else {
             return Ok(None);
         };
-        if abis
+        let caller_scope = self.current_function_type_params();
+        let substitution = TypeSubstitution::lexical(&caller_scope).with_bindings(&bindings);
+        // The declaration can also ERASE where the instantiation is typed: a
+        // slot whose declared type mentions the record's parameter inside a
+        // union (`match(..): Result<T>`, with `Result<T>` a union of tuples
+        // holding `T`) renders `SmeltUnknown` in the generic struct, while the
+        // instantiation's union (`Result<[H, RouterRoute]>`) is a generated
+        // enum. Erasure does not commute with substitution, so the value has
+        // to be converted at each such position: an erased declared return
+        // takes the callback's typed result erased, and an erased declared
+        // parameter is narrowed into the callback's typed one. Any other
+        // rendering difference declines, as before.
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let erased_at_declaration = |declared_ty: TypeId, rendered_ty: TypeId| -> Result<Option<bool>, EmitError> {
+            let declared_text = self.rust_type(declared_ty, false, &substitution)?.into_string();
+            let rendered_text = self.type_text_with_impl_trait(rendered_ty, false)?;
+            Ok(if declared_text == rendered_text {
+                Some(false)
+            } else if declared_text == "SmeltUnknown" {
+                Some(true)
+            } else {
+                None
+            })
+        };
+        let reference_axis_moves = abis
             .iter()
-            .all(|abi| abi.declared_is_reference == abi.rendered_is_reference)
-        {
+            .any(|abi| abi.declared_is_reference != abi.rendered_is_reference);
+        let mut erased_params = Vec::with_capacity(abis.len());
+        for (declared_param, rendered_param) in declared.params.iter().zip(&rendered.params) {
+            match erased_at_declaration(*declared_param, *rendered_param)? {
+                Some(erased) => erased_params.push(erased),
+                None if reference_axis_moves => erased_params.push(false),
+                None => return Ok(None),
+            }
+        }
+        let erased_return = !declared.may_throw
+            && !rendered.may_throw
+            && erased_at_declaration(declared.return_ty, rendered.return_ty)? == Some(true);
+        if !reference_axis_moves && !erased_return && !erased_params.iter().any(|erased| *erased) {
             return Ok(None);
         }
         // The slot's own Rust type: the DECLARED type rendered at the record's
@@ -197,8 +232,6 @@ impl FunctionEmitter<'_> {
         // type parameter the enclosing item DOES declare keeps spelling it;
         // `TypeSubstitution::resolve` lets the lexical scope win over a binding
         // for exactly that reason.
-        let caller_scope = self.current_function_type_params();
-        let substitution = TypeSubstitution::lexical(&caller_scope).with_bindings(&bindings);
         let slot_text = self
             .rust_type(declared_ty, false, &substitution)?
             .into_string();
@@ -209,23 +242,41 @@ impl FunctionEmitter<'_> {
             .iter()
             .enumerate()
             .map(|(index, abi)| {
-                match (abi.declared_is_reference, abi.rendered_is_reference) {
-                    // The slot hands the body a borrow, the wrapped callable
-                    // wants the value: copy it out, per call, only where the
-                    // two genuinely disagree.
+                if erased_params.get(index).copied().unwrap_or(false) {
+                    let owned = if abi.declared_is_reference {
+                        format!("arg{index}.clone()")
+                    } else {
+                        format!("arg{index}")
+                    };
+                    let narrowed = self.value_at_type_text(
+                        &owned,
+                        unknown_ty,
+                        rendered.params[index],
+                        &self.render_scope(),
+                    )?;
+                    return Ok(if abi.rendered_is_reference {
+                        format!("&({narrowed})")
+                    } else {
+                        narrowed
+                    });
+                }
+                Ok(match (abi.declared_is_reference, abi.rendered_is_reference) {
                     (true, false) => format!("arg{index}.clone()"),
-                    // The slot hands the body an owned value and the wrapped
-                    // callable takes a borrow of it; Rust extends the borrow to
-                    // the end of the statement, so naming it is enough.
                     (false, true) => format!("&arg{index}"),
                     _ => format!("arg{index}"),
-                }
+                })
             })
-            .collect::<Vec<_>>()
+            .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
+        let call = format!("(smelt_slot_callback)({forwarded})");
+        let body = if erased_return {
+            self.value_at_type_text(&call, rendered.return_ty, unknown_ty, &self.render_scope())?
+        } else {
+            call
+        };
         Ok(Some(format!(
             "{{ let smelt_slot_callback = {value_text}; let smelt_slot_adapted: {slot_text} = \
-             ::std::rc::Rc::new(move |{param_decls}| (smelt_slot_callback)({forwarded})); \
+             ::std::rc::Rc::new(move |{param_decls}| {body}); \
              smelt_slot_adapted }}"
         )))
     }

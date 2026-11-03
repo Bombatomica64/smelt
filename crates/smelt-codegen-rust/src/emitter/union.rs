@@ -178,9 +178,8 @@ impl FunctionEmitter<'_> {
     /// Determine whether a union member can be stored without runtime erasure.
     fn union_member_is_concrete(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Unknown | Type::Never | Type::TypeParam { .. } | Type::Union(_)) | None => {
-                false
-            }
+            Some(Type::Unknown | Type::Never | Type::TypeParam { .. }) | None => false,
+            Some(Type::Union(_)) => self.concrete_union_members(ty).is_some(),
             Some(Type::Class { .. }) => !self.is_erased_class_type(ty),
             Some(Type::List(item) | Type::Set(item) | Type::Future(item)) => {
                 self.union_member_is_concrete(*item)
@@ -195,8 +194,8 @@ impl FunctionEmitter<'_> {
                 function
                     .params
                     .iter()
-                    .all(|param| self.union_member_is_concrete(*param))
-                    && self.union_member_is_concrete(function.return_ty)
+                    .all(|param| self.function_slot_is_storable(*param))
+                    && self.function_slot_is_storable(function.return_ty)
             }
             Some(Type::Generator {
                 yield_ty,
@@ -221,6 +220,60 @@ impl FunctionEmitter<'_> {
             // out of tagged unions preserves missing-property/default semantics;
             // the concrete-union feature targets distinct value-bearing arms.
             Some(Type::None | Type::Optional(_)) => false,
+        }
+    }
+
+    /// Whether a function arm's parameter or return type can be stored.
+    ///
+    /// A function arm is stored as `Rc<dyn Fn(..) -> R>` whatever its
+    /// signature says: an `unknown` (`SmeltUnknown`), optional (`Option<T>`)
+    /// or erased-union slot is an ordinary Rust type inside that signature,
+    /// not a dynamic member of the union itself. Only a type parameter is not,
+    /// because the generated enum would have to declare it. Rejecting the
+    /// whole union for such a signature erased Hono's
+    /// `Handler | MiddlewareHandler` (which return `Response | Promise<..>`,
+    /// lowered as `unknown`) and every router result that holds one.
+    fn function_slot_is_storable(&self, ty: TypeId) -> bool {
+        !self.type_mentions_type_param(ty)
+    }
+
+    /// Whether a MIR type mentions a type parameter anywhere in its structure.
+    fn type_mentions_type_param(&self, ty: TypeId) -> bool {
+        let Some(found) = self.mir.types.get(ty) else {
+            return true;
+        };
+        match found {
+            Type::TypeParam { .. } => true,
+            Type::Bool
+            | Type::Int
+            | Type::Float
+            | Type::FixedInt(_)
+            | Type::BigInt
+            | Type::String
+            | Type::Unknown
+            | Type::Never
+            | Type::None => false,
+            Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item) => {
+                self.type_mentions_type_param(*item)
+            }
+            Type::Dict(key, value) | Type::JsMap(key, value) => {
+                self.type_mentions_type_param(*key) || self.type_mentions_type_param(*value)
+            }
+            Type::Tuple(items) | Type::Union(items) | Type::Class { args: items, .. } => {
+                items.iter().any(|item| self.type_mentions_type_param(*item))
+            }
+            Type::Function(function) => {
+                function.params.iter().any(|param| self.type_mentions_type_param(*param))
+                    || self.type_mentions_type_param(function.return_ty)
+            }
+            Type::Generator { yield_ty, return_ty, next_ty, .. } => {
+                self.type_mentions_type_param(*yield_ty)
+                    || self.type_mentions_type_param(*return_ty)
+                    || self.type_mentions_type_param(*next_ty)
+            }
+            Type::GeneratorResult { yield_ty, return_ty } => {
+                self.type_mentions_type_param(*yield_ty) || self.type_mentions_type_param(*return_ty)
+            }
         }
     }
 
@@ -266,6 +319,58 @@ impl FunctionEmitter<'_> {
         };
         if let Some(index) = members.iter().position(|member| *member == source) {
             return Ok(Some(format!("{}::M{index}({value_text})", union_name(target))));
+        }
+        // A function value whose type is a different MIR spelling of one
+        // function arm (`Context<E, ..>` against `Context<any, ..>`, both
+        // `Context_1` in Rust) is that arm: when exactly one function arm
+        // renders to the value's own Rust type, the value is stored there
+        // unchanged. Two arms rendering alike would be ambiguous, so that
+        // declines like any other non-member.
+        if matches!(self.mir.types.get(source), Some(Type::Function(_))) {
+            let source_text = self.type_text_with_impl_trait(source, false)?;
+            let mut same_rendering = Vec::new();
+            for (index, member) in members.iter().enumerate() {
+                if matches!(self.mir.types.get(*member), Some(Type::Function(_)))
+                    && self.type_text_with_impl_trait(*member, false)? == source_text
+                {
+                    same_rendering.push(index);
+                }
+            }
+            if let [index] = same_rendering.as_slice() {
+                return Ok(Some(format!("{}::M{index}({value_text})", union_name(target))));
+            }
+            // Otherwise the value fits the one function arm with its arity and
+            // its kind of return (a promise or not): Hono's `MiddlewareHandler`
+            // arm returns `Promise<void | Response>` and its `Handler` arm a
+            // plain response, so an `async (c, next) => ..` value is the
+            // former. TypeScript accepts the narrower return; the value is
+            // adapted to the arm's signature by the ordinary function coercion.
+            if same_rendering.is_empty()
+                && let Some(Type::Function(source_function)) = self.mir.types.get(source)
+            {
+                let returns_future = |function: &smelt_hir::FunctionType| {
+                    function.is_async
+                        || matches!(self.mir.types.get(function.return_ty), Some(Type::Future(_)))
+                };
+                let candidates: Vec<usize> = members
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, member)| {
+                        matches!(
+                            self.mir.types.get(**member),
+                            Some(Type::Function(function))
+                                if function.params.len() == source_function.params.len()
+                                    && returns_future(function) == returns_future(source_function)
+                        )
+                    })
+                    .map(|(index, _)| index)
+                    .collect();
+                if let [index] = candidates.as_slice() {
+                    let adapted =
+                        self.value_at_type_text(value_text, source, members[*index], scope)?;
+                    return Ok(Some(format!("{}::M{index}({adapted})", union_name(target))));
+                }
+            }
         }
         // Structural injection: the source is not an exact member but shares a
         // single member's collection shape (for example an empty
