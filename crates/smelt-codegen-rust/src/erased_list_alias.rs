@@ -51,6 +51,11 @@
 //! `SmeltList<T>` converts through `IntoSmeltUnknown`
 //! (`erased_generic_list_argument_judges_each_side_at_its_own_scope`).
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are called from the emitter shards, outside this private module"
+)]
+
 use smelt_hir::Type;
 use smelt_mir::Mir;
 

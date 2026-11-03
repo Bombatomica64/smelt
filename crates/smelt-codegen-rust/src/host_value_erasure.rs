@@ -38,6 +38,11 @@
 //! question a type has to answer is what a record that did NOT come from an
 //! erasure should mean, which is [`Recovery`].
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible recovery types and helpers are used by the emitter, outside this private module"
+)]
+
 use crate::rust::CodeWriter;
 
 /// What a recovery answers for a record with no retained origin.
