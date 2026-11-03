@@ -1226,6 +1226,11 @@ pub(crate) struct FunctionEmitter<'mir> {
     declared_locals: RefCell<HashSet<LocalId>>,
     /// Locals that must be declared before structured block emission.
     predeclared_locals: HashSet<LocalId>,
+    /// Predeclared shared-capture locals whose `Rc<RefCell<T>>` cell is
+    /// declared uninitialized and created at the local's single assignment
+    /// (see `capture_cell_created_at_assignment`), instead of being seeded
+    /// with `T`'s default at function entry.
+    deferred_capture_cells: RefCell<HashSet<LocalId>>,
     /// Locals whose emitted Rust type is `&'static str` rather than `String`.
     ///
     /// A `typeof` produces one of seven fixed spellings, so its destination
