@@ -126,8 +126,7 @@ async fn response_facts (FuncId(3)) -> None
     %3 = response_new body="hi" status=201.0 status_text="Made"
     %0 = move %3
     %1 = undefined
-    %4 = copy %0?.field14
-    %2 = move %4
+    %2 = copy %0?.field14
     %5 = copy %0?.field15
     %6 = copy %0?.field16
     %7 = move %1?.field14

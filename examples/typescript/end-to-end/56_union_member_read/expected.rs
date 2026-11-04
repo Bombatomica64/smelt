@@ -4116,8 +4116,7 @@ fn main() {
     let _smelt_tmp_1: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x-a".to_owned(), "from-init".to_owned()]; smelt_list_items }));
     let _smelt_tmp_2: SmeltList<SmeltList<String>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_1.clone()]; smelt_list_items }));
     let _smelt_tmp_3: SmeltHeaders = SmeltHeaders::from_pairs(_smelt_tmp_2.to_vec().into_iter().filter_map(|smelt_pair| { let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }).collect::<Vec<(String, String)>>());
-    let _smelt_tmp_4: InitLike = InitLike { headers: Some(_smelt_tmp_3), status: None::<f64> };
-    let init: InitLike = _smelt_tmp_4;
+    let init: InitLike = InitLike { headers: Some(_smelt_tmp_3), status: None::<f64> };
     let _smelt_tmp_5: String = header_of(SmeltUnion7::M0(init), "x-a".to_owned());
     let _ = { println!("{}", _smelt_tmp_5); };
     _smelt_tmp_7 = SmeltRecord::from([("x-a".to_owned(), "from-response".to_owned())]);
@@ -4170,7 +4169,6 @@ pub(crate) fn header_of(arg: SmeltUnion7, name: String) -> String {
     let _smelt_tmp_5: SmeltResponse;
     let _smelt_tmp_6: SmeltHeaders;
     let _smelt_tmp_7: InitLike;
-    let _smelt_tmp_8: Option<SmeltHeaders>;
     let _smelt_tmp_9: bool;
     let _smelt_tmp_10: SmeltHeaders;
     let _smelt_tmp_11: Option<String>;
@@ -4185,8 +4183,7 @@ pub(crate) fn header_of(arg: SmeltUnion7, name: String) -> String {
     _smelt_tmp_7 = match arg.clone() { SmeltUnion7::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_4 = _smelt_tmp_7.headers.clone();
     }
-    _smelt_tmp_8 = _smelt_tmp_4;
-    headers = _smelt_tmp_8;
+    headers = _smelt_tmp_4;
     _smelt_tmp_9 = headers.clone().is_none();
     if _smelt_tmp_9 {
     return "none".to_owned();
@@ -4206,7 +4203,6 @@ pub(crate) fn status_header_of(arg: SmeltUnion3) -> String {
     let _smelt_tmp_6: SmeltResponse;
     let _smelt_tmp_7: SmeltHeaders;
     let _smelt_tmp_8: InitLike;
-    let _smelt_tmp_9: Option<SmeltHeaders>;
     let _smelt_tmp_10: bool;
     let _smelt_tmp_11: SmeltHeaders;
     let _smelt_tmp_12: Option<String>;
@@ -4223,8 +4219,7 @@ pub(crate) fn status_header_of(arg: SmeltUnion3) -> String {
     _smelt_tmp_8 = match _smelt_tmp_3 { SmeltUnion7::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_5 = _smelt_tmp_8.headers.clone();
     }
-    _smelt_tmp_9 = _smelt_tmp_5;
-    headers = _smelt_tmp_9;
+    headers = _smelt_tmp_5;
     _smelt_tmp_10 = !(headers.clone().is_none());
     if _smelt_tmp_10 {
     _smelt_tmp_11 = headers.clone().expect("optional value was absent after narrowing");

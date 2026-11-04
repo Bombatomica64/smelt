@@ -30,8 +30,7 @@ fn main (FuncId(1)) -> None
   bb3:
     %5 = call @console_log(move %4) -> bb4
   bb4:
-    %6 = {"a": 1.0}
-    %0 = move %6
+    %0 = {"a": 1.0}
     %7 = dict_get copy %0, "a", _
     %8 = call @console_log(move %7) -> bb5
   bb5:

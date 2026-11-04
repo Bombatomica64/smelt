@@ -387,8 +387,7 @@ smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10, L 1
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let _smelt_tmp_1: (String, f64) = ("age".to_owned(), 42.0);
-    let pair: (String, f64) = _smelt_tmp_1;
+    let pair: (String, f64) = ("age".to_owned(), 42.0);
     let _ = { println!("{}", SmeltInspect::smelt_console_text(&pair)); };
     return;
 }

@@ -4293,8 +4293,7 @@ smelt_local.block_on(&smelt_runtime, async move {
 impl Boom {
     fn new(status: Option<f64>, options: Option<BoomOptions>) -> Self {
     let mut this: Self = Boom { res: None::<SmeltResponse>, status: 0.0, message: String::new() };
-    let _smelt_tmp_4: f64 = status.clone().unwrap_or(500.0);
-    let status_1: f64 = _smelt_tmp_4;
+    let status_1: f64 = status.clone().unwrap_or(500.0);
     let _smelt_tmp_5: Option<String> = options.clone().as_ref().and_then(|_smelt_value| _smelt_value.message.clone());
     let _smelt_tmp_6: String = _smelt_tmp_5.clone().unwrap_or("".to_owned());
     this.message = _smelt_tmp_6;
@@ -4309,7 +4308,6 @@ impl Boom {
     let _smelt_tmp_4: Option<SmeltBody>;
     let _smelt_tmp_5: SmeltResponse;
     let _smelt_tmp_6: SmeltHeaders;
-    let _smelt_tmp_7: SmeltResponse;
     let _smelt_tmp_8: SmeltResponse;
     let _smelt_tmp_2: bool = !(self.res.clone().is_none());
     if _smelt_tmp_2 {
@@ -4317,8 +4315,7 @@ impl Boom {
     _smelt_tmp_4 = { let smelt_body = _smelt_tmp_3.body(); if smelt_body.is_empty() { None } else { Some(smelt_body) } };
     _smelt_tmp_5 = self.res.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_6 = _smelt_tmp_5.headers();
-    _smelt_tmp_7 = SmeltResponse::from_parts(self.status, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_6.entries_sorted()), match _smelt_tmp_4 { Some(smelt_init_body) => smelt_init_body, None => SmeltBody::empty() });
-    new_response = _smelt_tmp_7;
+    new_response = SmeltResponse::from_parts(self.status, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_6.entries_sorted()), match _smelt_tmp_4 { Some(smelt_init_body) => smelt_init_body, None => SmeltBody::empty() });
     return new_response;
     } else {
     _smelt_tmp_8 = SmeltResponse::from_parts(self.status, String::new(), SmeltHeaders::new(), SmeltBody::from_text(&self.message.clone()));

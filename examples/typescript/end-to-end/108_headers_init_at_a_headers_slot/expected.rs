@@ -435,8 +435,7 @@ fn main() {
     let _smelt_tmp_7: ::std::collections::HashMap<String, String>;
     let _smelt_tmp_1: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x-token".to_owned(), "from-headers".to_owned()]; smelt_list_items }));
     let _smelt_tmp_2: SmeltList<SmeltList<String>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_1.clone()]; smelt_list_items }));
-    let _smelt_tmp_3: SmeltHeaders = SmeltHeaders::from_pairs(_smelt_tmp_2.to_vec().into_iter().filter_map(|smelt_pair| { let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }).collect::<Vec<(String, String)>>());
-    let preset: SmeltHeaders = _smelt_tmp_3;
+    let preset: SmeltHeaders = SmeltHeaders::from_pairs(_smelt_tmp_2.to_vec().into_iter().filter_map(|smelt_pair| { let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }).collect::<Vec<(String, String)>>());
     let _smelt_tmp_4: SmeltResponse = make(Some(preset), None::<::std::collections::HashMap<String, String>>);
     let _smelt_tmp_5: String = show(_smelt_tmp_4);
     let _ = { println!("{}", _smelt_tmp_5); };

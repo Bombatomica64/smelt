@@ -4622,9 +4622,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_48: bool;
     let _smelt_tmp_49: bool;
     let _smelt_tmp_67: SmeltTypedArray;
-    let _smelt_tmp_86: SmeltRegExp;
-    let _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["public".to_owned(), "sub/".to_owned(), "../file.html".to_owned()]; smelt_list_items }));
-    let segments: SmeltList<String> = Into::<SmeltList<_>>::into(_smelt_tmp_2);
+    let segments: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["public".to_owned(), "sub/".to_owned(), "../file.html".to_owned()]; smelt_list_items }));
     let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["/home/app".to_owned(), "static//main.html".to_owned()]; smelt_list_items }));
     let _smelt_tmp_4: String = smelt_path_join(&_smelt_tmp_3.borrow());
     let _ = { println!("{}", _smelt_tmp_4); };
@@ -4708,8 +4706,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_83: String = try_flags("gg".to_owned());
     let _smelt_tmp_84: String = try_flags("q".to_owned());
     let _ = { println!("{} {} {}", _smelt_tmp_82, _smelt_tmp_83, _smelt_tmp_84); };
-    _smelt_tmp_86 = SmeltRegExp::new("x+".to_owned(), "g".to_owned());
-    literal = _smelt_tmp_86;
+    literal = SmeltRegExp::new("x+".to_owned(), "g".to_owned());
     let _ = { println!("{} {}", literal.source.to_string().clone(), literal.flags.to_string().clone()); };
     return Ok(());
 }

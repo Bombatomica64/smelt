@@ -140,8 +140,7 @@ fn main() {
     let mut _smelt_tmp_5: usize;
     let mut _smelt_tmp_6: bool;
     let mut _smelt_tmp_7: f64;
-    let _smelt_tmp_3: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
-    let xs: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_3);
+    let xs: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
     let mut sum: f64 = 0.0;
     let mut _smelt_tmp_4: usize = 0;
     loop {

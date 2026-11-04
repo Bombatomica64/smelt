@@ -8,8 +8,7 @@ expression: emitted
 // ... shared generated runtime prelude omitted from selective snapshot ...
 
 fn lookup() -> Option<f64> {
-    let _smelt_tmp_1: SmeltJsMap<String, f64> = SmeltJsMap::from([("a".to_owned(), 1.0)]);
-    let values: SmeltJsMap<String, f64> = _smelt_tmp_1;
+    let values: SmeltJsMap<String, f64> = SmeltJsMap::from([("a".to_owned(), 1.0)]);
     let _smelt_tmp_2: Option<f64> = values.get(&"a".to_owned());
     return _smelt_tmp_2;
 }

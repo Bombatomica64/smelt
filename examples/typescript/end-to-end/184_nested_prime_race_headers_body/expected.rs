@@ -4317,8 +4317,7 @@ pub(crate) async fn with_deadline(ms: f64) -> Result<String, Box<dyn std::error:
     _smelt_tmp_2.clone()
     }
 });
-    let _smelt_tmp_4: SmeltFuture<String> = { let smelt_promise_callback = (_smelt_tmp_3).clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_value = _smelt_tmp_2.await?; let smelt_callback_value = ({ let _ = smelt_value; (smelt_promise_callback)() }); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) })) };
-    let deadline: SmeltFuture<String> = _smelt_tmp_4;
+    let deadline: SmeltFuture<String> = { let smelt_promise_callback = (_smelt_tmp_3).clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_value = _smelt_tmp_2.await?; let smelt_callback_value = ({ let _ = smelt_value; (smelt_promise_callback)() }); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) })) };
     let _smelt_tmp_5 = SmeltFuture::from_future(Box::pin(dispatch_outer()));
     let _smelt_tmp_6: SmeltFuture<String> = SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>({ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, Box<dyn std::error::Error>>>>>> = Vec::new(); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_5))); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(deadline))); smelt_promise_race(smelt_racers).await? }) }));
     _smelt_tmp_7 = _smelt_tmp_6.await?;
@@ -4335,20 +4334,15 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_7: String;
     let _smelt_tmp_10: String;
     let _smelt_tmp_12: SmeltRecord<String, String>;
-    let _smelt_tmp_13: SmeltHeaders;
     let _smelt_tmp_14: SmeltList<(String, String)>;
     let mut _smelt_tmp_15: usize;
     let mut _smelt_tmp_16: usize;
     let mut _smelt_tmp_17: bool;
-    let mut _smelt_tmp_18: String;
-    let mut _smelt_tmp_19: String;
     let mut _smelt_tmp_20: String;
     let mut _smelt_tmp_21: String;
     let mut _smelt_tmp_22: String;
-    let mut _smelt_tmp_24: SmeltResponse;
     let mut _smelt_tmp_25: Option<SmeltBody>;
     let mut _smelt_tmp_26: f64;
-    let mut _smelt_tmp_27: SmeltResponse;
     let mut _smelt_tmp_28: f64;
     let mut _smelt_tmp_30: String;
     let _smelt_tmp_6 = SmeltFuture::from_future(Box::pin(with_deadline(1000.0)));
@@ -4358,8 +4352,7 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_10 = _smelt_tmp_9.await?;
     let _ = { println!("{}", _smelt_tmp_10); };
     _smelt_tmp_12 = SmeltRecord::from([("X-One".to_owned(), "1".to_owned()), ("x-two".to_owned(), "2".to_owned())]);
-    _smelt_tmp_13 = SmeltHeaders::from_pairs(_smelt_tmp_12.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>());
-    headers = _smelt_tmp_13;
+    headers = SmeltHeaders::from_pairs(_smelt_tmp_12.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>());
     _smelt_tmp_14 = Into::<SmeltList<_>>::into(SmeltList::new(headers.entries_sorted()));
     _smelt_tmp_15 = 0;
     loop {
@@ -4367,22 +4360,18 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_17 = _smelt_tmp_15 < _smelt_tmp_16;
     if !(_smelt_tmp_17) { break; }
     __smelt_for_item = _smelt_tmp_14.borrow().get(_smelt_tmp_15).cloned().unwrap_or_else(|| (String::new(), String::new()));
-    _smelt_tmp_18 = __smelt_for_item.clone().0.clone();
-    name = _smelt_tmp_18;
-    _smelt_tmp_19 = __smelt_for_item.1.clone();
-    value = _smelt_tmp_19;
+    name = __smelt_for_item.clone().0.clone();
+    value = __smelt_for_item.1.clone();
     _smelt_tmp_20 = "".to_owned() + &name;
     _smelt_tmp_21 = _smelt_tmp_20 + &"=".to_owned();
     _smelt_tmp_22 = _smelt_tmp_21 + &value;
     let _ = { println!("{}", _smelt_tmp_22); };
     _smelt_tmp_15 = _smelt_tmp_15 + 1;
     }
-    _smelt_tmp_24 = SmeltResponse::from_parts(504.0, String::new(), SmeltHeaders::new(), SmeltBody::from_text(&"payload text".to_owned()));
-    original = _smelt_tmp_24;
+    original = SmeltResponse::from_parts(504.0, String::new(), SmeltHeaders::new(), SmeltBody::from_text(&"payload text".to_owned()));
     _smelt_tmp_25 = { let smelt_body = original.clone().body(); if smelt_body.is_empty() { None } else { Some(smelt_body) } };
     _smelt_tmp_26 = original.status();
-    _smelt_tmp_27 = SmeltResponse::from_parts(_smelt_tmp_26, String::new(), SmeltHeaders::new(), match _smelt_tmp_25 { Some(smelt_init_body) => smelt_init_body, None => SmeltBody::empty() });
-    copy = _smelt_tmp_27;
+    copy = SmeltResponse::from_parts(_smelt_tmp_26, String::new(), SmeltHeaders::new(), match _smelt_tmp_25 { Some(smelt_init_body) => smelt_init_body, None => SmeltBody::empty() });
     _smelt_tmp_28 = copy.clone().status();
     let mut _smelt_tmp_29: SmeltFuture<String> = { let smelt_response = copy.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
     _smelt_tmp_30 = _smelt_tmp_29.await?;

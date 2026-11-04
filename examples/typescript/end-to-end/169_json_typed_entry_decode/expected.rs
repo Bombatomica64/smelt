@@ -4998,8 +4998,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_42: ();
     let _smelt_tmp_5: String = "{\"id\":42,\"priority\":\"high\",\"shapes\":[{\"kind\":\"circle\",\"radius\":2},{\"kind\":\"square\",\"side\":3}],".to_owned() + &"\"totals\":{\"net\":10,\"tax\":2},\"range\":[1,5],".to_owned();
     let _smelt_tmp_6: String = _smelt_tmp_5 + &"\"tree\":{\"label\":\"root\",\"children\":[{\"label\":\"a\",\"children\":[]},{\"label\":\"b\",\"children\":[{\"label\":\"c\",\"children\":[]}]}]},".to_owned();
-    let _smelt_tmp_7: String = _smelt_tmp_6 + &"\"ignored\":\"undeclared properties are dropped\"}".to_owned();
-    let text: String = _smelt_tmp_7;
+    let text: String = _smelt_tmp_6 + &"\"ignored\":\"undeclared properties are dropped\"}".to_owned();
     let _smelt_tmp_8: Order = load_order(text.clone())?;
     order = _smelt_tmp_8;
     _smelt_tmp_9 = order.note.clone().is_none();
@@ -5121,18 +5120,13 @@ pub(crate) fn double(value: f64) -> f64 {
 pub(crate) async fn read_bodies() -> Result<(), Box<dyn std::error::Error>> {
     let request: SmeltRequest;
     let from_request: Square;
-    let _smelt_tmp_7: SmeltRequest;
-    let _smelt_tmp_9: Square;
     let _smelt_tmp_3: SmeltResponse = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::new(), SmeltBody::from_text(&"{\"kind\":\"circle\",\"radius\":1}".to_owned()));
     let _smelt_tmp_4: SmeltFuture<Circle> = { let smelt_body_owner = _smelt_tmp_3.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_text = smelt_body_owner.take_text()?; smelt_json_decode_0(&smelt_text) })) };
-    let _smelt_tmp_5: Circle = _smelt_tmp_4.await?;
-    let from_response: Circle = _smelt_tmp_5;
+    let from_response: Circle = _smelt_tmp_4.await?;
     let _ = { println!("{} {}", from_response.kind.clone(), smelt_console_number(from_response.radius)); };
-    _smelt_tmp_7 = SmeltRequest::from_parts_with_init(&"http://example.test/".to_owned(), "POST".to_owned(), SmeltHeaders::new(), SmeltBody::from_text(&"{\"kind\":\"square\",\"side\":4}".to_owned()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
-    request = _smelt_tmp_7;
+    request = SmeltRequest::from_parts_with_init(&"http://example.test/".to_owned(), "POST".to_owned(), SmeltHeaders::new(), SmeltBody::from_text(&"{\"kind\":\"square\",\"side\":4}".to_owned()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     let _smelt_tmp_8: SmeltFuture<Square> = { let smelt_body_owner = request.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_text = smelt_body_owner.take_text()?; smelt_json_decode_1(&smelt_text) })) };
-    _smelt_tmp_9 = _smelt_tmp_8.await?;
-    from_request = _smelt_tmp_9;
+    from_request = _smelt_tmp_8.await?;
     let _smelt_tmp_10: f64 = area(SmeltUnion2::M1(from_request));
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_10)); };
     return Ok(());

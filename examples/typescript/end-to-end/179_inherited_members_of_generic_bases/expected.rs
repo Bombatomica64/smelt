@@ -4071,8 +4071,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Base<T>
     let mut _smelt_tmp_3: SmeltList<T> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
     let _smelt_tmp_4: f64 = { let smelt_push_item = value.clone(); _smelt_tmp_3.borrow_mut().push(smelt_push_item); _smelt_tmp_3.len() as f64 };
     self.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_3);
-    let _smelt_tmp_5: Box1<T> = Box1 { value: value.clone(), _smelt_phantom: ::std::marker::PhantomData };
-    let wrapped: Box1<T> = _smelt_tmp_5;
+    let wrapped: Box1<T> = Box1 { value: value.clone(), _smelt_phantom: ::std::marker::PhantomData };
     let _smelt_tmp_6: bool = self.check(wrapped);
     let mut _smelt_tmp_7: f64 = 0.0;
     if _smelt_tmp_6 {
@@ -4134,8 +4133,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Middle<
     let mut _smelt_tmp_3: SmeltList<SmeltList<T>> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
     let _smelt_tmp_4: f64 = { let smelt_push_item = value.clone(); _smelt_tmp_3.borrow_mut().push(smelt_push_item); _smelt_tmp_3.len() as f64 };
     self.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_3);
-    let _smelt_tmp_5: Box1<SmeltList<T>> = Box1 { value: value.clone(), _smelt_phantom: ::std::marker::PhantomData };
-    let wrapped: Box1<SmeltList<T>> = _smelt_tmp_5;
+    let wrapped: Box1<SmeltList<T>> = Box1 { value: value.clone(), _smelt_phantom: ::std::marker::PhantomData };
     let _smelt_tmp_6: bool = self.check(wrapped);
     let mut _smelt_tmp_7: f64 = 0.0;
     if _smelt_tmp_6 {
@@ -4207,8 +4205,7 @@ impl Leaf {
     let mut _smelt_tmp_3: SmeltList<SmeltList<String>> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
     let _smelt_tmp_4: f64 = { let smelt_push_item = value.clone(); _smelt_tmp_3.borrow_mut().push(smelt_push_item); _smelt_tmp_3.len() as f64 };
     self.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_3);
-    let _smelt_tmp_5: Box1<SmeltList<String>> = Box1 { value: value.clone(), _smelt_phantom: ::std::marker::PhantomData };
-    let wrapped: Box1<SmeltList<String>> = _smelt_tmp_5;
+    let wrapped: Box1<SmeltList<String>> = Box1 { value: value.clone(), _smelt_phantom: ::std::marker::PhantomData };
     let _smelt_tmp_6: bool = self.check(wrapped);
     let mut _smelt_tmp_7: f64 = 0.0;
     if _smelt_tmp_6 {
@@ -4274,8 +4271,7 @@ impl Nums {
     let mut _smelt_tmp_3: SmeltList<f64> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
     let _smelt_tmp_4: f64 = { let smelt_push_item = value; _smelt_tmp_3.borrow_mut().push(smelt_push_item); _smelt_tmp_3.len() as f64 };
     self.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_3);
-    let _smelt_tmp_5: Box1<f64> = Box1 { value: value, _smelt_phantom: ::std::marker::PhantomData };
-    let wrapped: Box1<f64> = _smelt_tmp_5;
+    let wrapped: Box1<f64> = Box1 { value: value, _smelt_phantom: ::std::marker::PhantomData };
     let _smelt_tmp_6: bool = self.check(wrapped);
     let mut _smelt_tmp_7: f64 = 0.0;
     if _smelt_tmp_6 {
@@ -4318,8 +4314,7 @@ impl Nums {
 
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Parser<T> {
     fn run(&self, input: String) -> Result<T, Box<dyn std::error::Error>> {
-    let _smelt_tmp_3: ParseResult<T> = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().parse.clone()); (smelt_callable)(input.clone()) };
-    let result: ParseResult<T> = _smelt_tmp_3;
+    let result: ParseResult<T> = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().parse.clone()); (smelt_callable)(input.clone()) };
     return Ok(result.value.clone());
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -4347,8 +4342,7 @@ impl YearParser {
     return this;
     }
     fn run(&self, input: String) -> Result<f64, Box<dyn std::error::Error>> {
-    let _smelt_tmp_3: ParseResult<f64> = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().parse.clone()); (smelt_callable)(input.clone()) };
-    let result: ParseResult<f64> = _smelt_tmp_3;
+    let result: ParseResult<f64> = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().parse.clone()); (smelt_callable)(input.clone()) };
     return Ok(result.value);
     }
     fn parse(&self, input: String) -> ParseResult<f64> {

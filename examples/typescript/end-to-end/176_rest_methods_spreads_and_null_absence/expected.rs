@@ -3978,7 +3978,6 @@ fn main() {
     let __smelt_spread_2: SmeltList<String>;
     let __smelt_spread_3: SmeltList<String>;
     let mut pending: Option<String>;
-    let _smelt_tmp_11: SmeltList<f64>;
     let _smelt_tmp_12: SmeltList<SmeltUnion3>;
     let _smelt_tmp_14: SmeltList<SmeltUnion3>;
     let _smelt_tmp_16: SmeltList<f64>;
@@ -3987,8 +3986,6 @@ fn main() {
     let _smelt_tmp_24: SmeltList<String>;
     let _smelt_tmp_26: SmeltList<String>;
     let _smelt_tmp_27: String;
-    let _smelt_tmp_29: (String,);
-    let _smelt_tmp_30: SmeltList<String>;
     let _smelt_tmp_31: ::std::rc::Rc<dyn Fn(String, Option<String>) -> String>;
     let _smelt_tmp_32: String;
     let _smelt_tmp_33: ::std::rc::Rc<dyn Fn(String, Option<String>) -> String>;
@@ -4008,8 +4005,7 @@ fn main() {
     let _smelt_tmp_54: String;
     let _smelt_tmp_10: Bag = Bag::new();
     bag = _smelt_tmp_10;
-    _smelt_tmp_11 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![4.0, 5.0]; smelt_list_items }));
-    extra = Into::<SmeltList<_>>::into(_smelt_tmp_11);
+    extra = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![4.0, 5.0]; smelt_list_items }));
     _smelt_tmp_12 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnion3> = vec![]; smelt_list_items }));
     let _smelt_tmp_13: f64 = bag.count(_smelt_tmp_12);
     _smelt_tmp_14 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnion3> = vec![SmeltUnion3::M0(1.0), SmeltUnion3::M1("a".to_owned()), SmeltUnion3::M2(true)]; smelt_list_items }));
@@ -4027,10 +4023,8 @@ fn main() {
     _smelt_tmp_26 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x".to_owned(), "y".to_owned()]; smelt_list_items }));
     _smelt_tmp_27 = _smelt_tmp_26.borrow().join(&"/".to_owned());
     let _ = { println!("{} {} {}", _smelt_tmp_23, _smelt_tmp_25, _smelt_tmp_27); };
-    _smelt_tmp_29 = ("a".to_owned(),);
-    one = _smelt_tmp_29;
-    _smelt_tmp_30 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["b".to_owned()]; smelt_list_items }));
-    named = Into::<SmeltList<_>>::into(_smelt_tmp_30);
+    one = ("a".to_owned(),);
+    named = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["b".to_owned()]; smelt_list_items }));
     label = bag.__smelt_get_label().clone();
     __smelt_spread = one.clone();
     __smelt_spread_1 = one;

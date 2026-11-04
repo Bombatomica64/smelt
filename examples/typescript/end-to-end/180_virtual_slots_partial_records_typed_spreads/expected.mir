@@ -44,8 +44,7 @@ fn merge (FuncId(2)) -> Options
     %6 temp: Optional<Float>
     %7 temp: Options
   bb0:
-    %3 = {"origin": "*", "maxAge": 5.0}
-    %1 = move %3
+    %1 = {"origin": "*", "maxAge": 5.0}
     %2 = copy %0
     %4 = copy %2.field4 ?? copy %1.field4
     %5 = copy %2.field5 ?? copy %1.field5
@@ -193,8 +192,7 @@ fn run (FuncId(15)) -> T throws
     %5 temp: T
     %6 temp: T
   bb0:
-    %3 = closure_call copy %0.field35(copy %1)
-    %2 = move %3
+    %2 = closure_call copy %0.field35(copy %1)
     %4 = closure_call copy %0.field34(copy %2.field2)
     switch move %4 ? bb1 : bb2
   bb1:
@@ -410,8 +408,7 @@ fn main (FuncId(26)) -> None throws
   bb23:
     %33 = call fn0(1.0, 2.0) -> bb24
   bb24:
-    %34 = closure_call copy %33.field18()
-    %2 = move %34
+    %2 = closure_call copy %33.field18()
     %35 = closure_call copy %2.field18()
     %36 = call @console_log(copy %2.field14, copy %2.field15, copy %35.field14) -> bb25
   bb25:
@@ -426,8 +423,7 @@ fn main (FuncId(26)) -> None throws
     %42 = string_join move %41, ","
     %43 = call @console_log(move %38, move %42) -> bb29
   bb29:
-    %44 = {"origin": "*", "maxAge": 5.0}
-    %3 = move %44
+    %3 = {"origin": "*", "maxAge": 5.0}
     %45 = {"credentials": true}
     %46 = call fn2(move %45) -> bb30
   bb30:
@@ -442,8 +438,7 @@ fn main (FuncId(26)) -> None throws
   bb33:
     %6 = move %3
     %7 = "b"
-    %51 = {"origin": move %7, "credentials": copy %6.field5, "maxAge": copy %6.field6}
-    %8 = move %51
+    %8 = {"origin": move %7, "credentials": copy %6.field5, "maxAge": copy %6.field6}
     %52 = call @console_log(copy %8.field4, copy %8.field6, copy %8.field5) -> bb34
   bb34:
     return none

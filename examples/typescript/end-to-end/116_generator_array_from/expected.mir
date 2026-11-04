@@ -11,8 +11,7 @@ fn range (FuncId(0)) -> Generator<Float, None, None>
     %8 temp: None
     %9 temp: Float
   bb0:
-    %5 = copy %2 ?? 1.0
-    %3 = move %5
+    %3 = copy %2 ?? 1.0
     %4 = copy %0
     goto bb1
   bb1:
@@ -45,8 +44,7 @@ fn labels (FuncId(1)) -> Generator<String, None, None>
     %2 = copy %1 < copy %0
     switch move %2 ? bb2 : bb4
   bb2:
-    %3 = "item-" + copy %1
-    %4 = move %3
+    %4 = "item-" + copy %1
     %5 = yield move %4
     goto bb3
   bb3:
@@ -82,29 +80,25 @@ fn main (FuncId(2)) -> None
   bb0:
     %4 = call fn0(1.0, 5.0) -> bb1
   bb1:
-    %5 = unknown_cast move %4 as t9
-    %0 = move %5
+    %0 = unknown_cast move %4 as t9
     %6 = len copy %0
     %7 = call @console_log(move %6, copy %0[0.0], copy %0[4.0]) -> bb2
   bb2:
     %8 = call fn0(0.0, 10.0, 5.0) -> bb3
   bb3:
-    %9 = unknown_cast move %8 as t9
-    %1 = move %9
+    %1 = unknown_cast move %8 as t9
     %10 = string_join move %1, ","
     %11 = call @console_log(move %10) -> bb4
   bb4:
     %12 = call fn1(3.0) -> bb5
   bb5:
-    %13 = unknown_cast move %12 as t11
-    %2 = move %13
+    %2 = unknown_cast move %12 as t11
     %14 = string_join move %2, " "
     %15 = call @console_log(move %14) -> bb6
   bb6:
     %16 = call fn0(2.0, 3.0) -> bb7
   bb7:
-    %17 = unknown_cast move %16 as t9
-    %3 = move %17
+    %3 = unknown_cast move %16 as t9
     %18 = len copy %3
     %19 = copy %3[0.0] + copy %3[1.0]
     %20 = call @console_log(move %18, move %19) -> bb8

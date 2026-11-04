@@ -21,7 +21,7 @@ fn main (FuncId(0)) -> None
     %18 temp: Bool
     %19 temp: List<Float>
     %20 temp: Bool
-    %21 temp: usize
+    %21 temp: Float
     %22 temp: Bool
     %23 temp: String
     %24 temp: Float
@@ -47,7 +47,7 @@ fn main (FuncId(0)) -> None
     %44 temp: List<String>
     %45 temp: List<List<String>>
     %46 temp: Bool
-    %47 temp: usize
+    %47 temp: Float
     %48 temp: Bool
     %49 temp: Bool
     %50 temp: Float
@@ -66,8 +66,7 @@ fn main (FuncId(0)) -> None
     %63 temp: Float
     %64 temp: Float
   bb0:
-    %17 = []
-    %0 = move %17
+    %0 = []
     %1 = 0
     %2 = 3
     goto bb1
@@ -75,8 +74,7 @@ fn main (FuncId(0)) -> None
     %18 = copy %1 < copy %2
     switch move %18 ? bb2 : bb4
   bb2:
-    %19 = [10.0, 20.0]
-    %3 = move %19
+    %3 = [10.0, 20.0]
     %20 = copy %1 != 1
     switch move %20 ? bb5 : bb6
   bb3:
@@ -88,8 +86,7 @@ fn main (FuncId(0)) -> None
     %30 = call @console_log(move %29) -> bb11
   bb5:
     %4 = 0
-    %21 = len copy %3
-    %5 = move %21
+    %5 = len copy %3
     goto bb7
   bb6:
     %62 = primitive_cast_float copy %1
@@ -150,12 +147,10 @@ fn main (FuncId(0)) -> None
   bb21:
     %41 = call @console_log(move %9) -> bb22
   bb22:
-    %42 = []
-    %11 = move %42
+    %11 = []
     %43 = ["a", "*"]
     %44 = ["b"]
-    %45 = [move %43, move %44]
-    %12 = move %45
+    %12 = [move %43, move %44]
     %13 = 0
     goto bb23
   bb23:
@@ -163,8 +158,7 @@ fn main (FuncId(0)) -> None
     switch move %46 ? bb24 : bb26
   bb24:
     %14 = 0
-    %47 = len copy %12
-    %15 = move %47
+    %15 = len copy %12
     goto bb27
   bb25:
     %59 = move %13 + 1

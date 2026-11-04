@@ -518,8 +518,10 @@ export function groupBy<T, K extends PropertyKey>(
         // straight through to the join that mutates the entry.
         assert!(!output.contains("dict_contains_key"), "{output}");
         assert!(!output.contains(" = !"), "{output}");
+        // `key` is defined by the call directly: `LetTempElision` removed the
+        // `%9 = closure_call ..; %5 = move %9` temporary this used to pin.
         assert!(
-            output.contains("%5 = move %9\n    goto bb6\n"),
+            output.contains("%5 = closure_call copy %1(copy %4, move %16)\n    goto bb6\n"),
             "the guard block ends in a goto at the join: {output}"
         );
         assert!(

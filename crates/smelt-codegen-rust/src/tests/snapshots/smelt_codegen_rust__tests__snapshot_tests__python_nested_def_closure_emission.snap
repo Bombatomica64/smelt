@@ -21,10 +21,8 @@ fn make_adder(base: i64) -> ::std::rc::Rc<dyn Fn(i64) -> i64> {
 fn main() {
     let adder: ::std::rc::Rc<dyn Fn(i64) -> i64>;
     let result: i64;
-    let _smelt_tmp_3: i64;
     let _smelt_tmp_2 = make_adder(5).clone();
     adder = _smelt_tmp_2.clone();
-    _smelt_tmp_3 = (adder)(6);
-    result = _smelt_tmp_3;
+    result = (adder)(6);
     return;
 }

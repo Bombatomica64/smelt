@@ -4,8 +4,7 @@ fn main (FuncId(0)) -> None
     %1 temp: Dict<String, Float>
     %2 temp: None
   bb0:
-    %1 = {"ada": 10.0, "grace": 20.0}
-    %0 = move %1
+    %0 = {"ada": 10.0, "grace": 20.0}
     %2 = call @console_log(copy %0.field1) -> bb1
   bb1:
     return none

@@ -536,7 +536,6 @@ impl SmeltRequest {
 // @smelt:prelude-end — generated program below
 fn main() {
     let full: SmeltRequest;
-    let _smelt_tmp_5: SmeltRequest;
     let _smelt_tmp_8: String;
     let _smelt_tmp_9: String;
     let _smelt_tmp_10: String;
@@ -551,12 +550,10 @@ fn main() {
     let _smelt_tmp_28: SmeltRequest;
     let _smelt_tmp_31: SmeltRequest;
     let _smelt_tmp_34: SmeltRequest;
-    let _smelt_tmp_2: SmeltRequest = SmeltRequest::from_parts_with_init(&"https://a.test/one".to_owned(), "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty(), SmeltRequestInit::default());
-    let plain: SmeltRequest = _smelt_tmp_2;
+    let plain: SmeltRequest = SmeltRequest::from_parts_with_init(&"https://a.test/one".to_owned(), "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty(), SmeltRequestInit::default());
     let _smelt_tmp_3: String = describe(plain);
     let _ = { println!("{}", _smelt_tmp_3); };
-    _smelt_tmp_5 = SmeltRequest::from_parts_with_init(&"https://a.test/two".to_owned(), "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty(), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init.cache = "no-store".to_owned(); smelt_request_init.credentials = "include".to_owned(); smelt_request_init.integrity = "sha256-abc".to_owned(); smelt_request_init.keepalive = true; smelt_request_init.mode = "same-origin".to_owned(); smelt_request_init.redirect = "manual".to_owned(); smelt_request_init.referrer = SmeltRequestInit::serialize_referrer(&"https://c.test".to_owned()); smelt_request_init.referrer_policy = "no-referrer".to_owned(); smelt_request_init });
-    full = _smelt_tmp_5;
+    full = SmeltRequest::from_parts_with_init(&"https://a.test/two".to_owned(), "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty(), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init.cache = "no-store".to_owned(); smelt_request_init.credentials = "include".to_owned(); smelt_request_init.integrity = "sha256-abc".to_owned(); smelt_request_init.keepalive = true; smelt_request_init.mode = "same-origin".to_owned(); smelt_request_init.redirect = "manual".to_owned(); smelt_request_init.referrer = SmeltRequestInit::serialize_referrer(&"https://c.test".to_owned()); smelt_request_init.referrer_policy = "no-referrer".to_owned(); smelt_request_init });
     let _smelt_tmp_6: String = describe(full.clone());
     let _ = { println!("{}", _smelt_tmp_6); };
     _smelt_tmp_8 = full.clone().cache();

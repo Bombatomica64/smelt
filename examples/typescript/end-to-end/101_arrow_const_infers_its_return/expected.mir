@@ -12,8 +12,7 @@ async fn boxed (FuncId(0)) -> String
     %3 = closure ClosureId(0) []
     %1 = move %3
     %4 = async_then(copy %0, move %1)
-    %5 = await move %4
-    %2 = move %5
+    %2 = await move %4
     return copy %2.field5
 
 fn direct (FuncId(1)) -> String

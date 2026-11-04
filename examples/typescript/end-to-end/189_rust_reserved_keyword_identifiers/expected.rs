@@ -3660,10 +3660,8 @@ pub(crate) fn gen_(n: f64) -> f64 {
 }
 
 pub(crate) fn become_(abstract_: f64, final_: f64) -> f64 {
-    let _smelt_tmp_4: f64 = abstract_ * 10.0;
-    let box_: f64 = _smelt_tmp_4;
-    let _smelt_tmp_5: f64 = box_ + final_;
-    let mut virtual_: f64 = _smelt_tmp_5;
+    let box_: f64 = abstract_ * 10.0;
+    let mut virtual_: f64 = box_ + final_;
     let _smelt_tmp_6: f64 = virtual_ + 1.0;
     virtual_ = _smelt_tmp_6;
     return virtual_;

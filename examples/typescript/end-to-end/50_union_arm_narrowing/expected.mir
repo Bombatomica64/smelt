@@ -145,14 +145,12 @@ fn main (FuncId(4)) -> None
   bb12:
     %18 = call @console_log(move %17) -> bb13
   bb13:
-    %19 = form_data_new
-    %1 = move %19
+    %1 = form_data_new
     %20 = ["hi"]
     %21 = blob_from_parts move %20, "text/plain", "note.txt", none
     %22 = form_data_append copy %1, "doc", move %21
     %23 = form_data_append copy %1, "text", "plain"
-    %24 = form_data_get copy %1, "doc"
-    %2 = move %24
+    %2 = form_data_get copy %1, "doc"
     %25 = instanceof copy %2, class15
     switch move %25 ? bb14 : bb15
   bb14:
@@ -171,8 +169,7 @@ fn main (FuncId(4)) -> None
   bb16:
     goto bb17
   bb17:
-    %37 = form_data_get copy %1, "text"
-    %3 = move %37
+    %3 = form_data_get copy %1, "text"
     %38 = instanceof move %3, class15
     switch move %38 ? bb19 : bb20
   bb18:
@@ -184,8 +181,7 @@ fn main (FuncId(4)) -> None
   bb21:
     goto bb22
   bb22:
-    %41 = form_data_get copy %1, "absent"
-    %4 = move %41
+    %4 = form_data_get copy %1, "absent"
     %42 = instanceof move %4, class15
     switch move %42 ? bb24 : bb25
   bb23:

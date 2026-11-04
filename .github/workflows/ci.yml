@@ -571,8 +571,8 @@ jobs:
 
       # Blocking typedness ratchet over the end-to-end examples: each
       # `input.ts` is lowered in-process (no Rust build) and may never become
-      # less typed than its record in the baseline (erased count up or typed
-      # share down for values, reads or calls). See `## Typedness ratchet`.
+      # less typed than its record in the baseline (an erased count up for values,
+      # reads or calls; the typed share is reported, not judged). See `## Typedness ratchet`.
       - name: Typedness examples ratchet (blocking)
         if: ${{ always() }}
         run: |

@@ -257,7 +257,7 @@ pub enum Command {
         `smelt-typedness.json` sidecars (or directories holding one), `Smelt.toml` \
         manifests (lowered in-process) or `.ts`/`.py` files (each lowered \
         in-process as one program). With `--baseline`, a program whose erased \
-        count rose or whose typed share fell for any kind is reported; \
+        count rose for any kind is reported (the typed share is shown, not judged); \
         `--fail-on-regression` makes that exit nonzero. Design adapted from Bun's \
         `--aot` typedness tests (oven-sh/bun#45631)."
     )]

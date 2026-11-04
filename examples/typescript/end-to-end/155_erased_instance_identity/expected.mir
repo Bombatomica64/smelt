@@ -54,8 +54,7 @@ async fn run (FuncId(2)) -> None
   bb3:
     goto bb8
   bb4:
-    %10 = unknown_cast move %1 as t1
-    %2 = move %10
+    %2 = unknown_cast move %1 as t1
     %2.field6 = "from-catch"
     %11 = call fn3(copy %2, "x-one") -> bb6
   bb5:
@@ -71,8 +70,7 @@ async fn run (FuncId(2)) -> None
   bb9:
     %23 = call fn5(1.0, 2.0) -> bb15
   bb10:
-    %17 = unknown_cast move %3 as t1
-    %4 = move %17
+    %4 = unknown_cast move %3 as t1
     %18 = call fn3(copy %4, "x-two") -> bb13
   bb11:
     %16 = await move %15 -> bb12 unwind bb10

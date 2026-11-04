@@ -66,8 +66,7 @@ fn header_of (FuncId(0)) -> String
     goto bb11
   bb11:
     %18 = move %14
-    %19 = headers_new move %18
-    %2 = move %19
+    %2 = headers_new move %18
     %20 = headers_get move %2, copy %1
     %21 = move %20 ?? "none"
     return move %21
@@ -167,8 +166,7 @@ fn main (FuncId(2)) -> None
     %12 temp: None
   bb0:
     %1 = {"x-kind": "record"}
-    %2 = {"headers": move %1, "status": 201.0}
-    %0 = move %2
+    %0 = {"headers": move %1, "status": 201.0}
     %3 = call fn0(copy %0, "x-kind") -> bb1
   bb1:
     %4 = call @console_log(move %3) -> bb2

@@ -25,8 +25,7 @@ fn write (FuncId(0)) -> None
     %8 = copy %0.field5 == none
     switch move %8 ? bb3 : bb4
   bb3:
-    %9 = headers_new
-    %4 = move %9
+    %4 = headers_new
     %0.field5 = copy %4
     %3 = move %4
     goto bb5
@@ -202,8 +201,7 @@ fn main (FuncId(6)) -> None
     %23 = copy %1 == none
     switch move %23 ? bb11 : bb12
   bb11:
-    %24 = headers_new
-    %3 = move %24
+    %3 = headers_new
     %1 = copy %3
     %2 = move %3
     goto bb13
@@ -224,8 +222,7 @@ fn main (FuncId(6)) -> None
     %32 = copy %1 == none
     switch move %32 ? bb15 : bb16
   bb15:
-    %33 = headers_new
-    %6 = move %33
+    %6 = headers_new
     %1 = copy %6
     %5 = move %6
     goto bb17
@@ -256,8 +253,7 @@ fn main (FuncId(6)) -> None
     %39 = call @console_log(move %11, move %8) -> bb22
   bb22:
     %40 = {"x-from": "response"}
-    %41 = response_new body="body" headers=move %40
-    %12 = move %41
+    %12 = response_new body="body" headers=move %40
     %42 = response_headers move %12
     %43 = call fn4(copy %0, move %42) -> bb23
   bb23:

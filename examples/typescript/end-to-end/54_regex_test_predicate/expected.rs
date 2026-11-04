@@ -3519,16 +3519,13 @@ fn main() {
     let _smelt_tmp_16: bool;
     let _smelt_tmp_18: SmeltRegExp;
     let _smelt_tmp_19: bool;
-    let _smelt_tmp_21: SmeltRegExp;
     let _smelt_tmp_22: bool;
     let _smelt_tmp_23: bool;
     let _smelt_tmp_24: bool;
     let _smelt_tmp_26: bool;
-    let _smelt_tmp_28: SmeltRegExp;
     let _smelt_tmp_29: bool;
     let _smelt_tmp_30: bool;
     let _smelt_tmp_31: bool;
-    let _smelt_tmp_33: SmeltRegExp;
     let _smelt_tmp_34: bool;
     let _smelt_tmp_35: bool;
     let _smelt_tmp_36: bool;
@@ -3537,7 +3534,6 @@ fn main() {
     let mut _smelt_tmp_40: bool;
     let mut _smelt_tmp_41: f64;
     let mut _smelt_tmp_42: usize;
-    let mut _smelt_tmp_44: SmeltList<String>;
     let mut _smelt_tmp_45: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> bool>;
     let mut _smelt_tmp_46: SmeltList<String>;
     let mut _smelt_tmp_47: String;
@@ -3560,22 +3556,19 @@ fn main() {
     _smelt_tmp_18 = SmeltRegExp::new("^a+$".to_owned(), "i".to_owned());
     _smelt_tmp_19 = _smelt_tmp_18.test(&"AAA".to_owned());
     let _ = { println!("{}", _smelt_tmp_19); };
-    _smelt_tmp_21 = SmeltRegExp::new("a".to_owned(), "g".to_owned());
-    global_re = _smelt_tmp_21;
+    global_re = SmeltRegExp::new("a".to_owned(), "g".to_owned());
     _smelt_tmp_22 = global_re.clone().test(&"aa".to_owned());
     _smelt_tmp_23 = global_re.clone().test(&"aa".to_owned());
     _smelt_tmp_24 = global_re.clone().test(&"aa".to_owned());
     let _ = { println!("{} {} {}", _smelt_tmp_22, _smelt_tmp_23, _smelt_tmp_24); };
     _smelt_tmp_26 = global_re.test(&"aa".to_owned());
     let _ = { println!("{}", _smelt_tmp_26); };
-    _smelt_tmp_28 = SmeltRegExp::new("a".to_owned(), "y".to_owned());
-    sticky = _smelt_tmp_28;
+    sticky = SmeltRegExp::new("a".to_owned(), "y".to_owned());
     _smelt_tmp_29 = sticky.clone().test(&"aa".to_owned());
     _smelt_tmp_30 = sticky.clone().test(&"aa".to_owned());
     _smelt_tmp_31 = sticky.test(&"aa".to_owned());
     let _ = { println!("{} {} {}", _smelt_tmp_29, _smelt_tmp_30, _smelt_tmp_31); };
-    _smelt_tmp_33 = SmeltRegExp::new("a".to_owned(), "g".to_owned());
-    built = _smelt_tmp_33;
+    built = SmeltRegExp::new("a".to_owned(), "g".to_owned());
     _smelt_tmp_34 = built.clone().test(&"aa".to_owned());
     _smelt_tmp_35 = built.clone().test(&"aa".to_owned());
     _smelt_tmp_36 = built.test(&"aa".to_owned());
@@ -3600,8 +3593,7 @@ fn main() {
     }
     }
     let _ = { println!("{}", smelt_console_number(matched)); };
-    _smelt_tmp_44 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["alpha".to_owned(), "beta".to_owned(), "gamma".to_owned(), "delta".to_owned()]; smelt_list_items }));
-    words = Into::<SmeltList<_>>::into(_smelt_tmp_44);
+    words = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["alpha".to_owned(), "beta".to_owned(), "gamma".to_owned(), "delta".to_owned()]; smelt_list_items }));
     _smelt_tmp_45 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
     let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"^[ad]".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1

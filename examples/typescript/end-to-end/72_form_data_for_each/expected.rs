@@ -4433,8 +4433,6 @@ fn main() {
     let mut parent_1: SmeltJsMap<String, f64>;
     let mut _smelt_tmp_31: usize;
     let mut _smelt_tmp_32: bool;
-    let mut _smelt_tmp_33: SmeltUnion7;
-    let mut _smelt_tmp_34: String;
     let mut _smelt_tmp_35: String;
     let mut _smelt_tmp_36: String;
     let mut _smelt_tmp_37: String;
@@ -4446,7 +4444,6 @@ fn main() {
     let mut _smelt_tmp_43: String;
     let mut _smelt_tmp_44: f64;
     let mut _smelt_tmp_45: String;
-    let mut _smelt_tmp_47: SmeltList<String>;
     let mut _smelt_tmp_48: SmeltList<SmeltUnion7>;
     let mut _smelt_tmp_49: usize;
     let mut _smelt_tmp_50: usize;
@@ -4458,18 +4455,12 @@ fn main() {
     let mut _smelt_tmp_57: usize;
     let mut _smelt_tmp_58: usize;
     let mut _smelt_tmp_59: bool;
-    let mut _smelt_tmp_60: SmeltUnion7;
-    let mut _smelt_tmp_61: String;
     let mut _smelt_tmp_62: bool;
     let mut _smelt_tmp_63: f64;
-    let mut _smelt_tmp_65: SmeltJsMap<String, f64>;
-    let mut _smelt_tmp_66: SmeltList<String>;
     let mut _smelt_tmp_67: SmeltList<(String, f64)>;
     let mut _smelt_tmp_68: usize;
     let mut _smelt_tmp_69: usize;
     let mut _smelt_tmp_70: bool;
-    let mut _smelt_tmp_71: f64;
-    let mut _smelt_tmp_72: String;
     let mut _smelt_tmp_73: String;
     let mut _smelt_tmp_74: String;
     let mut _smelt_tmp_75: String;
@@ -4479,16 +4470,12 @@ fn main() {
     let mut _smelt_tmp_80: usize;
     let mut _smelt_tmp_81: usize;
     let mut _smelt_tmp_82: bool;
-    let mut _smelt_tmp_83: f64;
-    let mut _smelt_tmp_84: String;
     let mut _smelt_tmp_85: f64;
-    let _smelt_tmp_24: SmeltFormData = SmeltFormData::new();
-    let form: SmeltFormData = _smelt_tmp_24;
+    let form: SmeltFormData = SmeltFormData::new();
     let _smelt_tmp_25: () = form.clone().append(&"a".to_owned(), SmeltFormDataValue::Text(("1".to_owned()).clone()));
     let _smelt_tmp_26: () = form.clone().append(&"b[]".to_owned(), SmeltFormDataValue::Text(("2".to_owned()).clone()));
     let _smelt_tmp_27: () = form.clone().append(&"b[]".to_owned(), SmeltFormDataValue::Text(("3".to_owned()).clone()));
-    let _smelt_tmp_28: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    let mut seen: SmeltList<String> = Into::<SmeltList<_>>::into(_smelt_tmp_28);
+    let mut seen: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
     let _smelt_tmp_29: SmeltList<(String, SmeltUnion7)> = Into::<SmeltList<_>>::into(SmeltList::new(form.clone().entries_in_order().into_iter().map(|(smelt_name, smelt_entry)| (smelt_name, match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion7::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion7::M1(smelt_file) })).collect::<Vec<_>>()));
     let mut _smelt_tmp_30: usize = 0;
     loop {
@@ -4496,10 +4483,8 @@ fn main() {
     _smelt_tmp_32 = _smelt_tmp_30 < _smelt_tmp_31;
     if !(_smelt_tmp_32) { break; }
     __for_each_entry = _smelt_tmp_29.borrow().get(_smelt_tmp_30).cloned().unwrap_or_else(|| (String::new(), SmeltUnion7::M0(String::new())));
-    _smelt_tmp_33 = __for_each_entry.clone().1.clone();
-    value = _smelt_tmp_33;
-    _smelt_tmp_34 = __for_each_entry.0.clone();
-    key = _smelt_tmp_34;
+    value = __for_each_entry.clone().1.clone();
+    key = __for_each_entry.0.clone();
     _smelt_tmp_35 = "".to_owned() + &key.clone();
     _smelt_tmp_36 = _smelt_tmp_35 + &"=".to_owned();
     _smelt_tmp_37 = match value.clone().into_smelt_unknown() {   SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
@@ -4514,8 +4499,7 @@ fn main() {
     }
     _smelt_tmp_45 = seen.borrow().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_45); };
-    _smelt_tmp_47 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    values = Into::<SmeltList<_>>::into(_smelt_tmp_47);
+    values = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
     _smelt_tmp_48 = Into::<SmeltList<_>>::into(SmeltList::new(form.clone().values().into_iter().map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion7::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion7::M1(smelt_file) }).collect::<Vec<_>>()));
     _smelt_tmp_49 = 0;
     loop {
@@ -4538,10 +4522,8 @@ fn main() {
     _smelt_tmp_59 = _smelt_tmp_57 < _smelt_tmp_58;
     if !(_smelt_tmp_59) { break; }
     __for_each_entry_1 = _smelt_tmp_56.borrow().get(_smelt_tmp_57).cloned().unwrap_or_else(|| (String::new(), SmeltUnion7::M0(String::new())));
-    _smelt_tmp_60 = __for_each_entry_1.clone().1.clone();
-    value_2 = _smelt_tmp_60;
-    _smelt_tmp_61 = __for_each_entry_1.0.clone();
-    key_1 = _smelt_tmp_61;
+    value_2 = __for_each_entry_1.clone().1.clone();
+    key_1 = __for_each_entry_1.0.clone();
     parent = form.clone();
     _smelt_tmp_62 = form.clone().has(&key_1);
     if _smelt_tmp_62 {
@@ -4555,10 +4537,8 @@ fn main() {
     }
     }
     let _ = { println!("{}", smelt_console_number(present)); };
-    _smelt_tmp_65 = SmeltJsMap::from([("x".to_owned(), 1.0), ("y".to_owned(), 2.0)]);
-    map = _smelt_tmp_65;
-    _smelt_tmp_66 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    pairs = Into::<SmeltList<_>>::into(_smelt_tmp_66);
+    map = SmeltJsMap::from([("x".to_owned(), 1.0), ("y".to_owned(), 2.0)]);
+    pairs = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
     _smelt_tmp_67 = Into::<SmeltList<_>>::into(map.clone().iter().filter(|(key, _)| !key.starts_with("__smelt_symbol") && !key.starts_with("__smelt_proto:") && !key.starts_with("__smelt_method:") && key != "__smelt_class").collect::<Vec<_>>());
     _smelt_tmp_68 = 0;
     loop {
@@ -4566,10 +4546,8 @@ fn main() {
     _smelt_tmp_70 = _smelt_tmp_68 < _smelt_tmp_69;
     if !(_smelt_tmp_70) { break; }
     __for_each_entry_2 = _smelt_tmp_67.borrow().get(_smelt_tmp_68).cloned().unwrap_or_else(|| (String::new(), 0.0));
-    _smelt_tmp_71 = __for_each_entry_2.clone().1.clone();
-    value_3 = _smelt_tmp_71;
-    _smelt_tmp_72 = __for_each_entry_2.0.clone();
-    key_2 = _smelt_tmp_72;
+    value_3 = __for_each_entry_2.clone().1.clone();
+    key_2 = __for_each_entry_2.0.clone();
     _smelt_tmp_73 = "".to_owned() + &key_2;
     _smelt_tmp_74 = _smelt_tmp_73 + &":".to_owned();
     _smelt_tmp_75 = _smelt_tmp_74 + &smelt_number_to_string(value_3);
@@ -4587,10 +4565,8 @@ fn main() {
     _smelt_tmp_82 = _smelt_tmp_80 < _smelt_tmp_81;
     if !(_smelt_tmp_82) { break; }
     __for_each_entry_3 = _smelt_tmp_79.borrow().get(_smelt_tmp_80).cloned().unwrap_or_else(|| (String::new(), 0.0));
-    _smelt_tmp_83 = __for_each_entry_3.clone().1.clone();
-    value_4 = _smelt_tmp_83;
-    _smelt_tmp_84 = __for_each_entry_3.0.clone();
-    key_3 = _smelt_tmp_84;
+    value_4 = __for_each_entry_3.clone().1.clone();
+    key_3 = __for_each_entry_3.0.clone();
     parent_1 = map.clone();
     _smelt_tmp_85 = map.len() as f64;
     map_size = _smelt_tmp_85;

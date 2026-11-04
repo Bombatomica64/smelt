@@ -3564,15 +3564,11 @@ impl SmeltFromUnknown for SmeltMatch {
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let _smelt_tmp_4: Config = Config { label: None::<String>, count: None::<f64> };
-    let empty: Config = _smelt_tmp_4;
-    let _smelt_tmp_5: Config = Config { label: Some("x".to_owned()), count: None::<f64> };
-    let partial: Config = _smelt_tmp_5;
-    let _smelt_tmp_6: Config = Config { label: None::<String>, count: Some(41.0) };
-    let counted: Config = _smelt_tmp_6;
+    let empty: Config = Config { label: None::<String>, count: None::<f64> };
+    let partial: Config = Config { label: Some("x".to_owned()), count: None::<f64> };
+    let counted: Config = Config { label: None::<String>, count: Some(41.0) };
     let _smelt_tmp_7: Config = Config { label: None::<String>, count: Some(7.0) };
-    let _smelt_tmp_8: Outer = Outer { inner: Some(_smelt_tmp_7) };
-    let nested: Outer = _smelt_tmp_8;
+    let nested: Outer = Outer { inner: Some(_smelt_tmp_7) };
     let _smelt_tmp_9: String = label_of(empty.clone());
     let _ = { println!("{}", _smelt_tmp_9); };
     let _smelt_tmp_11: f64 = count_plus_one(empty);

@@ -21,10 +21,8 @@ fn segments (FuncId(0)) -> List<String>
     %16 temp: String
     %17 temp: Float
   bb0:
-    %7 = string_split copy %0, "/", _
-    %1 = move %7
-    %8 = []
-    %2 = move %8
+    %1 = string_split copy %0, "/", _
+    %2 = []
     %3 = 0.0
     %9 = 0
     goto bb1
@@ -34,8 +32,7 @@ fn segments (FuncId(0)) -> List<String>
     switch move %11 ? bb2 : bb4
   bb2:
     %4 = copy %1[copy %9]
-    %12 = move %3 + 1.0
-    %5 = move %12
+    %5 = move %3 + 1.0
     %3 = copy %5
     %6 = copy %1[copy %5]
     %13 = move %6 == undefined
@@ -104,8 +101,7 @@ fn buckets (FuncId(3)) -> String
     %21 temp: Float
     %22 temp: String
   bb0:
-    %7 = []
-    %0 = move %7
+    %0 = []
     %8 = (1.0, "a")
     %9 = (1.0, "b")
     %10 = (0.0, "c")
@@ -118,10 +114,8 @@ fn buckets (FuncId(3)) -> String
     switch move %14 ? bb2 : bb4
   bb2:
     %1 = copy %11[copy %12]
-    %15 = tuple_index copy %1, 0
-    %2 = move %15
-    %16 = tuple_index move %1, 1
-    %3 = move %16
+    %2 = tuple_index copy %1, 0
+    %3 = tuple_index move %1, 1
     %4 = undefined
     %17 = copy %0?.[copy %2]
     %18 = move %17 != none
@@ -134,8 +128,7 @@ fn buckets (FuncId(3)) -> String
     %22 = json_stringify move %0
     return move %22
   bb5:
-    %20 = []
-    %5 = move %20
+    %5 = []
     %0[copy %2] = copy %5
     %4 = move %5
     goto bb7
@@ -239,8 +232,7 @@ fn main (FuncId(7)) -> None
     %48 temp: None
   bb0:
     %2 = {"Content-Type": "text/plain"}
-    %3 = request_new input="https://x/" method="POST" headers=move %2 body="a"
-    %1 = move %3
+    %1 = request_new input="https://x/" method="POST" headers=move %2 body="a"
     %4 = closure ClosureId(0) []
     %5 = closure_call move %4(copy %1)
     %6 = closure ClosureId(1) []

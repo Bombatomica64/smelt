@@ -144,8 +144,7 @@ fn get (FuncId(6)) -> Float
     %3 = copy %1
     %5 = copy %1 + 1.0
     %1 = move %5
-    %6 = copy %2 ?? move %3
-    %4 = move %6
+    %4 = copy %2 ?? move %3
     %7 = copy %1 + move %4
     %8 = move %7 + copy %0.field7
     return move %8
@@ -179,8 +178,7 @@ fn get (FuncId(8)) -> Float
     %3 = copy %1
     %5 = copy %1 + 1.0
     %1 = move %5
-    %6 = copy %2 ?? move %3
-    %4 = move %6
+    %4 = copy %2 ?? move %3
     %7 = copy %1 * 10.0
     %8 = move %7 + move %4
     return move %8
@@ -207,8 +205,7 @@ fn m (FuncId(10)) -> Float
     %3 = copy %1
     %5 = copy %1 + 1.0
     %1 = move %5
-    %6 = copy %2 ?? move %3
-    %4 = move %6
+    %4 = copy %2 ?? move %3
     %7 = copy %1 * 10.0
     %8 = move %7 + move %4
     return move %8
@@ -236,8 +233,7 @@ fn new (FuncId(12)) -> Pair
     %3 = copy %1
     %5 = copy %1 + 1.0
     %1 = move %5
-    %6 = copy %2 ?? move %3
-    %4 = move %6
+    %4 = copy %2 ?? move %3
     %7 = copy %1 * 10.0
     %8 = move %7 + move %4
     %0.field7 = move %8

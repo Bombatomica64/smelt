@@ -20,8 +20,7 @@ fn first_header (FuncId(1)) -> String
     %3 temp: Optional<String>
     %4 temp: String
   bb0:
-    %2 = headers_new copy %0.field8
-    %1 = move %2
+    %1 = headers_new copy %0.field8
     %3 = headers_get move %1, "a"
     %4 = move %3 ?? "none"
     return move %4
@@ -96,8 +95,7 @@ fn main (FuncId(2)) -> None
     %15 = call @console_log(move %14) -> bb6
   bb6:
     %16 = ("content-type", "text/html")
-    %17 = [move %16]
-    %0 = move %17
+    %0 = [move %16]
     %18 = call fn0(move %0) -> bb7
   bb7:
     %19 = call @console_log(move %18) -> bb8
@@ -122,10 +120,8 @@ fn main (FuncId(2)) -> None
   bb14:
     %32 = ["x-shared", "original"]
     %33 = [move %32]
-    %34 = headers_new move %33
-    %1 = move %34
-    %35 = headers_new copy %1
-    %2 = move %35
+    %1 = headers_new move %33
+    %2 = headers_new copy %1
     %36 = headers_set copy %2, "x-shared", "changed"
     %37 = headers_get move %1, "x-shared"
     %38 = move %37 ?? "null"
@@ -137,8 +133,7 @@ fn main (FuncId(2)) -> None
   bb16:
     %43 = ("content-type", "text/plain")
     %44 = ("content-type", "text/css")
-    %45 = [move %43, move %44]
-    %3 = move %45
+    %3 = [move %43, move %44]
     %46 = call fn0(move %3) -> bb17
   bb17:
     %47 = call @console_log(move %46) -> bb18

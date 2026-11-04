@@ -3739,8 +3739,6 @@ fn main() {
     let _smelt_tmp_8: String;
     let _smelt_tmp_9: ::std::rc::Rc<dyn Fn(String, SmeltUnion2) -> String>;
     let _smelt_tmp_10: String;
-    let _smelt_tmp_12: SmeltList<String>;
-    let _smelt_tmp_13: SmeltList<String>;
     let _smelt_tmp_6: Ctx = Ctx::new();
     ctx = _smelt_tmp_6;
     respond = ctx.__smelt_get_respond().clone();
@@ -3749,10 +3747,8 @@ fn main() {
     _smelt_tmp_9 = respond.__smelt_call.clone();
     _smelt_tmp_10 = (_smelt_tmp_9)("b".to_owned(), SmeltUnion2::M0("gone".to_owned()));
     let _ = { println!("{} {}", _smelt_tmp_8, _smelt_tmp_10); };
-    _smelt_tmp_12 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["c".to_owned()]; smelt_list_items }));
-    one = Into::<SmeltList<_>>::into(_smelt_tmp_12);
-    _smelt_tmp_13 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["d".to_owned(), "e".to_owned()]; smelt_list_items }));
-    two = Into::<SmeltList<_>>::into(_smelt_tmp_13);
+    one = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["c".to_owned()]; smelt_list_items }));
+    two = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["d".to_owned(), "e".to_owned()]; smelt_list_items }));
     __smelt_spread = Into::<SmeltList<_>>::into(one);
     __smelt_spread_1 = Into::<SmeltList<_>>::into(two);
     let _smelt_tmp_14: String = ctx.direct(__smelt_spread.borrow().get({ let smelt_normalized = 0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()), __smelt_spread.borrow().get({ let smelt_normalized = 1 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned());

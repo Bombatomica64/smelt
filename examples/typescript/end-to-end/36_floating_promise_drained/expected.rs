@@ -3777,10 +3777,8 @@ pub(crate) async fn greet(name: String) -> Result<String, Box<dyn std::error::Er
 
 pub(crate) async fn later() -> Result<(), Box<dyn std::error::Error>> {
     let message: String;
-    let _smelt_tmp_2: String;
     let _smelt_tmp_1 = SmeltFuture::from_future(Box::pin(greet("queued".to_owned())));
-    _smelt_tmp_2 = _smelt_tmp_1.await?;
-    message = _smelt_tmp_2;
+    message = _smelt_tmp_1.await?;
     let _ = { println!("{}", message); };
     return Ok(());
 }

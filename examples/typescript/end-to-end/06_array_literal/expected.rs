@@ -463,8 +463,7 @@ impl<T: SmeltInspect> SmeltInspect for SmeltList<T> {
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let _smelt_tmp_1: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
-    let values: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_1);
+    let values: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
     let _ = { println!("{}", SmeltInspect::smelt_console_text(&values)); };
     return;
 }

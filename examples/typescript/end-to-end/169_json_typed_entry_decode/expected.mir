@@ -90,15 +90,12 @@ async fn read_bodies (FuncId(4)) -> None
   bb0:
     %3 = response_new body="{"kind":"circle","radius":1}"
     %4 = response_json move %3
-    %5 = await move %4
-    %0 = move %5
+    %0 = await move %4
     %6 = call @console_log(copy %0.field15, copy %0.field16) -> bb1
   bb1:
-    %7 = request_new input="http://example.test/" method="POST" body="{"kind":"square","side":4}"
-    %1 = move %7
+    %1 = request_new input="http://example.test/" method="POST" body="{"kind":"square","side":4}"
     %8 = request_json move %1
-    %9 = await move %8
-    %2 = move %9
+    %2 = await move %8
     %10 = call fn0(move %2) -> bb2
   bb2:
     %11 = call @console_log(move %10) -> bb3
@@ -153,8 +150,7 @@ async fn main (FuncId(5)) -> None throws
   bb0:
     %5 = "{"id":42,"priority":"high","shapes":[{"kind":"circle","radius":2},{"kind":"square","side":3}]," + ""totals":{"net":10,"tax":2},"range":[1,5],"
     %6 = move %5 + ""tree":{"label":"root","children":[{"label":"a","children":[]},{"label":"b","children":[{"label":"c","children":[]}]}]},"
-    %7 = move %6 + ""ignored":"undeclared properties are dropped"}"
-    %0 = move %7
+    %0 = move %6 + ""ignored":"undeclared properties are dropped"}"
     %8 = call fn2(copy %0) -> bb1
   bb1:
     %1 = move %8

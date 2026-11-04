@@ -79,8 +79,7 @@ c"
     %19 = regex_test move %18 "AAA"
     %20 = call @console_log(move %19) -> bb7
   bb7:
-    %21 = external_new0("a", "g")
-    %0 = move %21
+    %0 = external_new0("a", "g")
     %22 = regex_test copy %0 "aa"
     %23 = regex_test copy %0 "aa"
     %24 = regex_test copy %0 "aa"
@@ -89,15 +88,13 @@ c"
     %26 = regex_test move %0 "aa"
     %27 = call @console_log(move %26) -> bb9
   bb9:
-    %28 = external_new0("a", "y")
-    %1 = move %28
+    %1 = external_new0("a", "y")
     %29 = regex_test copy %1 "aa"
     %30 = regex_test copy %1 "aa"
     %31 = regex_test move %1 "aa"
     %32 = call @console_log(move %29, move %30, move %31) -> bb10
   bb10:
-    %33 = external_new0("a", "g")
-    %2 = move %33
+    %2 = external_new0("a", "g")
     %34 = regex_test copy %2 "aa"
     %35 = regex_test copy %2 "aa"
     %36 = regex_test move %2 "aa"
@@ -126,8 +123,7 @@ c"
   bb17:
     goto bb14
   bb18:
-    %44 = ["alpha", "beta", "gamma", "delta"]
-    %5 = move %44
+    %5 = ["alpha", "beta", "gamma", "delta"]
     %45 = closure ClosureId(0) []
     %46 = list_filter copy %5, move %45
     %47 = string_join move %46, ","

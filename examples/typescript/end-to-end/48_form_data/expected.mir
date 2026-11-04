@@ -158,8 +158,7 @@ async fn main (FuncId(1)) -> None throws
     %130 temp: Future<None>
     %131 temp: None
   bb0:
-    %18 = form_data_new
-    %0 = move %18
+    %0 = form_data_new
     %19 = form_data_append copy %0, "a", "1"
     %20 = form_data_append copy %0, "a", "2"
     %21 = form_data_append copy %0, "b", "x"
@@ -192,10 +191,8 @@ async fn main (FuncId(1)) -> None throws
     switch move %41 ? bb6 : bb8
   bb6:
     %1 = copy %38[copy %39]
-    %42 = tuple_index copy %1, 0
-    %2 = move %42
-    %43 = tuple_index move %1, 1
-    %3 = move %43
+    %2 = tuple_index copy %1, 0
+    %3 = tuple_index move %1, 1
     %44 = call @console_log(move %2, move %3) -> bb9
   bb7:
     %39 = copy %39 + 1
@@ -214,8 +211,7 @@ async fn main (FuncId(1)) -> None throws
     %52 = move %51 ?? "absent"
     %53 = call @console_log(move %52) -> bb11
   bb11:
-    %54 = form_data_new
-    %4 = move %54
+    %4 = form_data_new
     %55 = ["hello"]
     %56 = blob_from_parts move %55, "text/plain", none, none
     %57 = form_data_append copy %4, "plain", move %56
@@ -241,11 +237,9 @@ async fn main (FuncId(1)) -> None throws
     goto bb12
   bb15:
     %81 = {"content-type": "application/x-www-form-urlencoded"}
-    %82 = response_new body="a=1&b=hello+world&a=2" headers=move %81
-    %6 = move %82
+    %6 = response_new body="a=1&b=hello+world&a=2" headers=move %81
     %83 = response_form_data copy %6
-    %84 = await move %83
-    %7 = move %84
+    %7 = await move %83
     %85 = form_data_entries move %7
     %86 = 0
     goto bb21
@@ -275,10 +269,8 @@ async fn main (FuncId(1)) -> None throws
     switch move %88 ? bb22 : bb24
   bb22:
     %8 = copy %85[copy %86]
-    %89 = tuple_index copy %8, 0
-    %9 = move %89
-    %90 = tuple_index move %8, 1
-    %10 = move %90
+    %9 = tuple_index copy %8, 0
+    %10 = tuple_index move %8, 1
     %91 = call @console_log(move %9, move %10) -> bb25
   bb23:
     %86 = copy %86 + 1
@@ -295,16 +287,13 @@ async fn main (FuncId(1)) -> None throws
     %96 = "--" + copy %11
     %97 = move %96 + "--"
     %98 = [move %94, "Content-Disposition: form-data; name="title"", "", "hello", move %95, "Content-Disposition: form-data; name="doc"; filename="a.txt"", "Content-Type: text/plain", "", "file body", move %97, ""]
-    %99 = string_join move %98, "
+    %12 = string_join move %98, "
 "
-    %12 = move %99
     %100 = "multipart/form-data; boundary=" + move %11
     %101 = {"content-type": move %100}
-    %102 = request_new input="https://forms.test/upload" method="POST" headers=move %101 body=move %12
-    %13 = move %102
+    %13 = request_new input="https://forms.test/upload" method="POST" headers=move %101 body=move %12
     %103 = request_form_data move %13
-    %104 = await move %103
-    %14 = move %104
+    %14 = await move %103
     %105 = form_data_entries move %14
     %106 = 0
     goto bb27
@@ -314,10 +303,8 @@ async fn main (FuncId(1)) -> None throws
     switch move %108 ? bb28 : bb30
   bb28:
     %15 = copy %105[copy %106]
-    %109 = tuple_index copy %15, 0
-    %16 = move %109
-    %110 = tuple_index move %15, 1
-    %17 = move %110
+    %16 = tuple_index copy %15, 0
+    %17 = tuple_index move %15, 1
     %111 = unknown_is String copy %17
     switch move %111 ? bb31 : bb32
   bb29:

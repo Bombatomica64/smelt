@@ -11,8 +11,7 @@ fn main (FuncId(0)) -> None
   bb0:
     %0 = true
     %1 = false
-    %3 = -3.0
-    %2 = move %3
+    %2 = -3.0
     %4 = !move %1
     switch move %4 ? bb1 : bb2
   bb1:

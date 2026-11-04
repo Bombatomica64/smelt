@@ -3565,11 +3565,9 @@ fn main() {
     let _smelt_tmp_12: String;
     let _smelt_tmp_13: f64;
     let _smelt_tmp_15: f64;
-    let _smelt_tmp_4: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x".to_owned(), "y".to_owned()]; smelt_list_items }));
-    let words: SmeltList<String> = Into::<SmeltList<_>>::into(_smelt_tmp_4);
+    let words: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x".to_owned(), "y".to_owned()]; smelt_list_items }));
     let port: f64 = 8080.0;
-    let _smelt_tmp_5: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]; smelt_list_items }));
-    let tags: SmeltList<String> = Into::<SmeltList<_>>::into(_smelt_tmp_5);
+    let tags: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]; smelt_list_items }));
     let _smelt_tmp_6: Store = Store::new();
     let _smelt_tmp_7: f64 = _smelt_tmp_6.get("abcd".to_owned());
     got = _smelt_tmp_7;

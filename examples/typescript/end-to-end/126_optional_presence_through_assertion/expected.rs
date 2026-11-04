@@ -3723,21 +3723,16 @@ fn main() {
     let _smelt_tmp_14: String;
     let _smelt_tmp_17: String;
     let _smelt_tmp_19: HandlerSet;
-    let _smelt_tmp_20: SmeltRecord<String, HandlerSet>;
     let _smelt_tmp_21: Option<HandlerSet>;
     let _smelt_tmp_22: Option<HandlerSet>;
-    let _smelt_tmp_23: Option<HandlerSet>;
     let _smelt_tmp_24: bool;
     let mut _smelt_tmp_25: String;
     let _smelt_tmp_26: HandlerSet;
     let _smelt_tmp_28: Option<HandlerSet>;
     let _smelt_tmp_29: Option<HandlerSet>;
-    let _smelt_tmp_30: Option<HandlerSet>;
     let _smelt_tmp_31: bool;
     let mut _smelt_tmp_32: String;
     let _smelt_tmp_33: HandlerSet;
-    let _smelt_tmp_35: HandlerSet;
-    let _smelt_tmp_36: HandlerParamsSet;
     let _smelt_tmp_37: SmeltRecord<String, String>;
     let mut _smelt_tmp_38: SmeltRecord<String, String>;
     let _smelt_tmp_39: SmeltRecord<String, String>;
@@ -3756,12 +3751,10 @@ fn main() {
     _smelt_tmp_17 = _smelt_tmp_16.borrow().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_17); };
     _smelt_tmp_19 = HandlerSet { handler: "first".to_owned(), score: 1.0 };
-    _smelt_tmp_20 = SmeltRecord::from([("a".to_owned(), _smelt_tmp_19)]);
-    entries = _smelt_tmp_20;
+    entries = SmeltRecord::from([("a".to_owned(), _smelt_tmp_19)]);
     _smelt_tmp_21 = entries.clone().get(&"missing".to_owned());
     _smelt_tmp_22 = entries.clone().get(&"a".to_owned());
-    _smelt_tmp_23 = _smelt_tmp_21.clone().or(_smelt_tmp_22);
-    picked = _smelt_tmp_23;
+    picked = _smelt_tmp_21.clone().or(_smelt_tmp_22);
     _smelt_tmp_24 = !(picked.clone().is_none());
     let mut _smelt_tmp_25: String = String::new();
     if _smelt_tmp_24 {
@@ -3773,8 +3766,7 @@ fn main() {
     let _ = { println!("{}", _smelt_tmp_25); };
     _smelt_tmp_28 = entries.clone().get(&"missing".to_owned());
     _smelt_tmp_29 = entries.get(&"other".to_owned());
-    _smelt_tmp_30 = _smelt_tmp_28.clone().or(_smelt_tmp_29);
-    absent = _smelt_tmp_30;
+    absent = _smelt_tmp_28.clone().or(_smelt_tmp_29);
     _smelt_tmp_31 = !(absent.clone().is_none());
     let mut _smelt_tmp_32: String = String::new();
     if _smelt_tmp_31 {
@@ -3784,10 +3776,8 @@ fn main() {
     _smelt_tmp_32 = "none".to_owned();
     }
     let _ = { println!("{}", _smelt_tmp_32); };
-    _smelt_tmp_35 = HandlerSet { handler: "h".to_owned(), score: 1.0 };
-    base = _smelt_tmp_35;
-    _smelt_tmp_36 = { let smelt_struct_value = base.clone(); HandlerParamsSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerParamsSetInner { handler: smelt_struct_value.handler.clone(), score: smelt_struct_value.score.clone(), params: SmeltRecord::new() }))) };
-    full = _smelt_tmp_36;
+    base = HandlerSet { handler: "h".to_owned(), score: 1.0 };
+    full = { let smelt_struct_value = base.clone(); HandlerParamsSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerParamsSetInner { handler: smelt_struct_value.handler.clone(), score: smelt_struct_value.score.clone(), params: SmeltRecord::new() }))) };
     _smelt_tmp_37 = SmeltRecord::from([]);
     full.0.borrow_mut().params = _smelt_tmp_37;
     _smelt_tmp_38 = full.0.borrow().params.clone();
@@ -3822,7 +3812,6 @@ impl Table {
     let mut _smelt_tmp_10: Option<HandlerSet>;
     let mut _smelt_tmp_11: Option<HandlerSet>;
     let mut _smelt_tmp_12: Option<HandlerSet>;
-    let mut _smelt_tmp_13: Option<HandlerParamsSet>;
     let mut _smelt_tmp_14: bool;
     let mut _smelt_tmp_15: HandlerParamsSet;
     let mut _smelt_tmp_16: String;
@@ -3830,8 +3819,7 @@ impl Table {
     let mut _smelt_tmp_18: String;
     let mut _smelt_tmp_19: f64;
     let mut _smelt_tmp_20: usize;
-    let _smelt_tmp_6: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    let mut found: SmeltList<String> = Into::<SmeltList<_>>::into(_smelt_tmp_6);
+    let mut found: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
     let mut i: usize = 0;
     loop {
     _smelt_tmp_7 = self.0.borrow().methods.clone().len();
@@ -3842,8 +3830,7 @@ impl Table {
     _smelt_tmp_10 = m.clone().get(&method.clone());
     _smelt_tmp_11 = m.get(&"ALL".to_owned());
     _smelt_tmp_12 = _smelt_tmp_10.clone().or(_smelt_tmp_11);
-    _smelt_tmp_13 = _smelt_tmp_12.map(|value| { let smelt_struct_value = value.clone(); HandlerParamsSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerParamsSetInner { handler: smelt_struct_value.handler.clone(), score: smelt_struct_value.score.clone(), params: SmeltRecord::new() }))) });
-    set = _smelt_tmp_13;
+    set = _smelt_tmp_12.map(|value| { let smelt_struct_value = value.clone(); HandlerParamsSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerParamsSetInner { handler: smelt_struct_value.handler.clone(), score: smelt_struct_value.score.clone(), params: SmeltRecord::new() }))) });
     _smelt_tmp_14 = !(set.clone().is_none());
     if _smelt_tmp_14 {
     _smelt_tmp_15 = set.clone().expect("optional value was absent after narrowing");

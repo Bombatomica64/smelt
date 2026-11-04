@@ -3888,18 +3888,14 @@ pub(crate) async fn entry() -> Result<(), Box<dyn std::error::Error>> {
     let present: Option<f64>;
     let absent: Option<f64>;
     let greet: ::std::rc::Rc<dyn Fn(String) -> String>;
-    let _smelt_tmp_5: Reply;
     let _smelt_tmp_8: f64;
     let _smelt_tmp_10: f64;
-    let _smelt_tmp_13: Option<f64>;
-    let _smelt_tmp_15: Option<f64>;
     let _smelt_tmp_16: bool;
     let _smelt_tmp_18: ::std::rc::Rc<dyn Fn(String, Option<String>) -> String>;
     let _smelt_tmp_19: ::std::rc::Rc<dyn Fn(String) -> String>;
     let _smelt_tmp_20: String;
     let _smelt_tmp_4 = later();
-    _smelt_tmp_5 = _smelt_tmp_4.await?;
-    reply = _smelt_tmp_5;
+    reply = _smelt_tmp_4.await?;
     let _ = { println!("{}", reply.body.clone()); };
     let _smelt_tmp_7 = counted(true);
     _smelt_tmp_8 = _smelt_tmp_7.await?;
@@ -3907,11 +3903,9 @@ pub(crate) async fn entry() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_10 = _smelt_tmp_9.await?;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_8), smelt_console_number(_smelt_tmp_10)); };
     let _smelt_tmp_12 = maybe(true);
-    _smelt_tmp_13 = _smelt_tmp_12.await?;
-    present = _smelt_tmp_13;
+    present = _smelt_tmp_12.await?;
     let _smelt_tmp_14 = maybe(false);
-    _smelt_tmp_15 = _smelt_tmp_14.await?;
-    absent = _smelt_tmp_15;
+    absent = _smelt_tmp_14.await?;
     _smelt_tmp_16 = absent.is_none();
     let _ = { println!("{} {}", match &present { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_16); };
     _smelt_tmp_18 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: Option<String>| {

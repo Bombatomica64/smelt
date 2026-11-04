@@ -67,23 +67,19 @@ async fn run (FuncId(2)) -> String
     %4 = call fn0(true) -> bb1
   bb1:
     %5 = move %4
-    %6 = await move %5
-    %0 = move %6
+    %0 = await move %5
     %7 = call fn0(false) -> bb2
   bb2:
     %8 = move %7
-    %9 = await move %8
-    %1 = move %9
+    %1 = await move %8
     %10 = call fn1(true) -> bb3
   bb3:
     %11 = move %10
-    %12 = await move %11
-    %2 = move %12
+    %2 = await move %11
     %13 = call fn1(false) -> bb4
   bb4:
     %14 = move %13
-    %15 = await move %14
-    %3 = move %15
+    %3 = await move %14
     %16 = copy %0.field5 + copy %1.field5
     %17 = "" + move %16
     %18 = move %17 + "/"

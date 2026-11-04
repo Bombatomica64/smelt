@@ -77,8 +77,7 @@ fn new (FuncId(6)) -> Tagged
     %3 temp: String
   bb0:
     %0 = struct4 {}
-    %3 = copy %1 ?? "none"
-    %2 = move %3
+    %2 = copy %1 ?? "none"
     %0.field15 = move %2
     return move %0
 
