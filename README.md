@@ -140,7 +140,7 @@ Fork the repo and submit a pr :)
 | Crate | Functions | Lines | Branches |
 | --- | ---: | ---: | ---: |
 | `smelt-asyncio` | 100.00% | 81.82% | 0.00% |
-| `smelt-codegen-rust` | 90.43% | 85.42% | 68.35% |
+| `smelt-codegen-rust` | 90.43% | 85.42% | 68.37% |
 | `smelt-frontend-py` | 83.13% | 76.88% | 69.40% |
 | `smelt-frontend-ts` | 86.53% | 79.53% | 68.38% |
 | `smelt-hir` | 83.75% | 58.08% | 69.21% |
@@ -155,6 +155,7 @@ Fork the repo and submit a pr :)
 | `smelt-ts-model` | 87.50% | 88.89% | 50.00% |
 | `smelt-ts-types` | 90.00% | 93.05% | 86.11% |
 <!-- COVERAGE:END -->
+
 
 
 
