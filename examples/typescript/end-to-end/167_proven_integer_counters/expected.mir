@@ -37,15 +37,14 @@ fn last_index_down (FuncId(1)) -> Float
     %0 param xs: List<String>
     %1 user i: i64
     %2 temp: i64
-    %3 temp: i64
+    %3 temp: Float
     %4 temp: Bool
     %5 temp: Bool
     %6 temp: i64
     %7 temp: Float
   bb0:
     %2 = len copy %0
-    %3 = move %2 - 1
-    %1 = move %3
+    %1 = move %2 - 1
     goto bb1
   bb1:
     %4 = copy %1 >= 0
@@ -414,7 +413,7 @@ fn main (FuncId(11)) -> None
     %61 temp: Float
     %62 temp: None
     %63 temp: Bool
-    %64 temp: i64
+    %64 temp: Float
     %65 temp: Float
     %66 temp: None
     %67 temp: i64
@@ -544,8 +543,7 @@ fn main (FuncId(11)) -> None
     %63 = copy %2 < 2
     switch move %63 ? bb38 : bb40
   bb38:
-    %64 = copy %2 - 1
-    %3 = move %64
+    %3 = copy %2 - 1
     %74 = primitive_cast_float copy %3
     %75 = primitive_cast_float copy %2
     %65 = move %74 * move %75

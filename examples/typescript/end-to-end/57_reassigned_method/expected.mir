@@ -25,12 +25,10 @@ fn route (FuncId(1)) -> String throws
     %9 temp: String
     %10 temp: String
   bb0:
-    %4 = closure_call copy %0.field3(copy %1)
-    %2 = move %4
+    %2 = closure_call copy %0.field3(copy %1)
     %5 = closure ClosureId(0) []
     %0.field3 = move %5
-    %6 = closure_call copy %0.field3(copy %1)
-    %3 = move %6
+    %3 = closure_call copy %0.field3(copy %1)
     %7 = call fn0(copy %0, copy %1) -> bb1
   bb1:
     %8 = copy %0.field2 + move %7

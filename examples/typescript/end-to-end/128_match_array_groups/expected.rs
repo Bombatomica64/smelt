@@ -3520,8 +3520,7 @@ fn main() {
     let _smelt_tmp_12: SmeltRegExp;
     let _smelt_tmp_14: SmeltRegExp;
     let _smelt_tmp_16: SmeltRegExp;
-    let _smelt_tmp_1: SmeltRegExp = SmeltRegExp::new("^\\/a(?:\\/b()|\\/c())$".to_owned(), "".to_owned());
-    let routes: SmeltRegExp = _smelt_tmp_1;
+    let routes: SmeltRegExp = SmeltRegExp::new("^\\/a(?:\\/b()|\\/c())$".to_owned(), "".to_owned());
     let _smelt_tmp_2: String = pick("/a/b".to_owned());
     let _smelt_tmp_3: String = pick("/a/c".to_owned());
     let _smelt_tmp_4: String = pick("/x".to_owned());
@@ -3553,7 +3552,6 @@ pub(crate) fn pick(path: String) -> String {
     let index: f64;
     let _smelt_tmp_6: SmeltMatch;
     let _smelt_tmp_7: SmeltList<Option<String>>;
-    let _smelt_tmp_8: f64;
     let _smelt_tmp_9: String;
     let _smelt_tmp_10: String;
     let _smelt_tmp_11: SmeltMatch;
@@ -3566,16 +3564,14 @@ pub(crate) fn pick(path: String) -> String {
     let mut _smelt_tmp_18: String;
     let _smelt_tmp_19: String;
     let _smelt_tmp_3: SmeltRegExp = SmeltRegExp::new("^\\/a(?:\\/b()|\\/c())$".to_owned(), "".to_owned());
-    let _smelt_tmp_4: Option<SmeltMatch> = _smelt_tmp_3.match_string(&path.clone());
-    let m: Option<SmeltMatch> = _smelt_tmp_4;
+    let m: Option<SmeltMatch> = _smelt_tmp_3.match_string(&path.clone());
     let _smelt_tmp_5: bool = !(m.clone().is_some());
     if _smelt_tmp_5 {
     return "none".to_owned();
     } else {
     _smelt_tmp_6 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_7 = Into::<SmeltList<_>>::into((_smelt_tmp_6).to_array_view());
-    _smelt_tmp_8 = { let smelt_needle = Some("".to_owned()); let smelt_predicate = |item: &Option<String>| *item == smelt_needle; let smelt_list = &_smelt_tmp_7.borrow(); let smelt_len = smelt_list.len() as i64; let smelt_raw = 1.0 as i64; let smelt_start = if smelt_raw < 0 { (smelt_len + smelt_raw).max(0) } else { smelt_raw } as usize; smelt_list.iter().enumerate().skip(smelt_start).find(|(_, item)| smelt_predicate(*item)).map_or(-1.0, |(idx, _)| idx as f64) };
-    index = _smelt_tmp_8;
+    index = { let smelt_needle = Some("".to_owned()); let smelt_predicate = |item: &Option<String>| *item == smelt_needle; let smelt_list = &_smelt_tmp_7.borrow(); let smelt_len = smelt_list.len() as i64; let smelt_raw = 1.0 as i64; let smelt_start = if smelt_raw < 0 { (smelt_len + smelt_raw).max(0) } else { smelt_raw } as usize; smelt_list.iter().enumerate().skip(smelt_start).find(|(_, item)| smelt_predicate(*item)).map_or(-1.0, |(idx, _)| idx as f64) };
     _smelt_tmp_9 = "".to_owned() + &smelt_number_to_string(index);
     _smelt_tmp_10 = _smelt_tmp_9 + &":".to_owned();
     _smelt_tmp_11 = m.clone().expect("optional value was absent after narrowing");
@@ -3598,7 +3594,6 @@ pub(crate) fn describe(text: String) -> () {
     let mut second: Option<String>;
     let _smelt_tmp_10: SmeltMatch;
     let _smelt_tmp_11: SmeltList<Option<String>>;
-    let _smelt_tmp_12: SmeltList<Option<String>>;
     let _smelt_tmp_13: f64;
     let _smelt_tmp_14: SmeltMatch;
     let _smelt_tmp_15: SmeltList<Option<String>>;
@@ -3617,8 +3612,6 @@ pub(crate) fn describe(text: String) -> () {
     let mut _smelt_tmp_29: String;
     let mut _smelt_tmp_30: String;
     let mut _smelt_tmp_32: SmeltMatch;
-    let mut _smelt_tmp_33: Option<String>;
-    let mut _smelt_tmp_34: Option<String>;
     let mut _smelt_tmp_35: SmeltMatch;
     let mut _smelt_tmp_36: SmeltList<Option<String>>;
     let mut _smelt_tmp_37: SmeltList<Option<String>>;
@@ -3628,8 +3621,7 @@ pub(crate) fn describe(text: String) -> () {
     let mut _smelt_tmp_41: SmeltMatch;
     let mut _smelt_tmp_42: bool;
     let _smelt_tmp_6: SmeltRegExp = SmeltRegExp::new("(\\d+)-(\\d+)?".to_owned(), "".to_owned());
-    let _smelt_tmp_7: Option<SmeltMatch> = _smelt_tmp_6.match_string(&text.clone());
-    let m: Option<SmeltMatch> = _smelt_tmp_7;
+    let m: Option<SmeltMatch> = _smelt_tmp_6.match_string(&text.clone());
     let _smelt_tmp_8: bool = !(m.clone().is_some());
     if _smelt_tmp_8 {
     let _ = { println!("{}", "no match".to_owned()); };
@@ -3637,8 +3629,7 @@ pub(crate) fn describe(text: String) -> () {
     }
     _smelt_tmp_10 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_11 = Into::<SmeltList<_>>::into((_smelt_tmp_10).to_array_view());
-    _smelt_tmp_12 = Into::<SmeltList<_>>::into(_smelt_tmp_11.borrow().iter().skip({ let smelt_len = _smelt_tmp_11.len() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take(_smelt_tmp_11.len().saturating_sub({ let smelt_len = _smelt_tmp_11.len() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).cloned().collect::<Vec<_>>());
-    rest = Into::<SmeltList<_>>::into(_smelt_tmp_12);
+    rest = Into::<SmeltList<_>>::into(_smelt_tmp_11.borrow().iter().skip({ let smelt_len = _smelt_tmp_11.len() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take(_smelt_tmp_11.len().saturating_sub({ let smelt_len = _smelt_tmp_11.len() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).cloned().collect::<Vec<_>>());
     _smelt_tmp_13 = rest.len() as f64;
     _smelt_tmp_14 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_15 = Into::<SmeltList<_>>::into((_smelt_tmp_14).to_array_view());
@@ -3690,10 +3681,8 @@ pub(crate) fn describe(text: String) -> () {
     }
     }
     _smelt_tmp_32 = m.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_33 = _smelt_tmp_32.clone().group_owned(1.0 as usize);
-    first = _smelt_tmp_33;
-    _smelt_tmp_34 = _smelt_tmp_32.group_owned(2.0 as usize);
-    second = _smelt_tmp_34;
+    first = _smelt_tmp_32.clone().group_owned(1.0 as usize);
+    second = _smelt_tmp_32.group_owned(2.0 as usize);
     _smelt_tmp_35 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_36 = Into::<SmeltList<_>>::into((_smelt_tmp_35).to_array_view());
     _smelt_tmp_37 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Option<String>> = vec![]; smelt_list_items }));
@@ -3718,7 +3707,6 @@ pub(crate) fn digits(text: String) -> String {
     let _smelt_tmp_13: SmeltList<String>;
     let _smelt_tmp_14: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> String>;
     let _smelt_tmp_15: SmeltList<String>;
-    let _smelt_tmp_16: String;
     let _smelt_tmp_17: bool;
     let _smelt_tmp_18: bool;
     let mut _smelt_tmp_19: Option<f64>;
@@ -3731,8 +3719,7 @@ pub(crate) fn digits(text: String) -> String {
     let _smelt_tmp_26: String;
     let _smelt_tmp_27: String;
     let _smelt_tmp_4: SmeltRegExp = SmeltRegExp::new("\\d".to_owned(), "g".to_owned());
-    let _smelt_tmp_5: Option<SmeltList<String>> = _smelt_tmp_4.match_all_strings(&text.clone()).map(SmeltList::from);
-    let all: Option<SmeltList<String>> = _smelt_tmp_5;
+    let all: Option<SmeltList<String>> = _smelt_tmp_4.match_all_strings(&text.clone()).map(SmeltList::from);
     let _smelt_tmp_6: bool = !(all.clone().is_none());
     let mut _smelt_tmp_7: String = String::new();
     if _smelt_tmp_6 {
@@ -3757,8 +3744,7 @@ pub(crate) fn digits(text: String) -> String {
     let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &">".to_owned();
     _smelt_tmp_4.clone()
     }); let smelt_array = _smelt_tmp_13; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
-    _smelt_tmp_16 = _smelt_tmp_15.borrow().join(&"".to_owned());
-    tagged = _smelt_tmp_16;
+    tagged = _smelt_tmp_15.borrow().join(&"".to_owned());
     _smelt_tmp_17 = all.clone().is_none();
     _smelt_tmp_18 = !(_smelt_tmp_17);
     let mut _smelt_tmp_19: Option<f64> = None::<f64>;
@@ -3782,8 +3768,7 @@ pub(crate) fn first_two(text: String, pattern: SmeltRegExp) -> String {
     let _smelt_tmp_3: Option<SmeltMatch> = pattern.clone().match_string(&text.clone());
     let _smelt_tmp_4: Option<SmeltList<Option<String>>> = _smelt_tmp_3.map(|value| (value).to_array_view());
     let _smelt_tmp_5: SmeltList<Option<String>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Option<String>> = vec![]; smelt_list_items }));
-    let _smelt_tmp_6: SmeltList<Option<String>> = Into::<SmeltList<_>>::into(_smelt_tmp_4.clone().unwrap_or(_smelt_tmp_5));
-    let groups: SmeltList<Option<String>> = Into::<SmeltList<_>>::into(_smelt_tmp_6);
+    let groups: SmeltList<Option<String>> = Into::<SmeltList<_>>::into(_smelt_tmp_4.clone().unwrap_or(_smelt_tmp_5));
     let _smelt_tmp_7: SmeltList<Option<String>> = Into::<SmeltList<_>>::into(groups.borrow().iter().skip({ let smelt_len = groups.len() as i64; let smelt_index = 0.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = groups.len() as i64; let smelt_index = 2.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = groups.len() as i64; let smelt_index = 0.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).cloned().collect::<Vec<_>>());
     let _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: Option<String>, closure_arg_1: i64, closure_arg_2: &SmeltList<Option<String>>| {
     let mut _smelt_tmp_4: Option<String>;

@@ -7,8 +7,7 @@ fn header_of (FuncId(0)) -> String
     %4 temp: Optional<String>
     %5 temp: String
   bb0:
-    %3 = headers_new copy %0
-    %2 = move %3
+    %2 = headers_new copy %0
     %4 = headers_get move %2, copy %1
     %5 = move %4 ?? "none"
     return move %5
@@ -37,8 +36,7 @@ fn main (FuncId(1)) -> None
     %19 temp: String
     %20 temp: None
   bb0:
-    %2 = {"json": "application/json", "text": "text/plain"}
-    %0 = move %2
+    %0 = {"json": "application/json", "text": "text/plain"}
     %1 = copy %0.field10
     %3 = {"Content-Type": move %1}
     %4 = call fn0(move %3, "content-type") -> bb1

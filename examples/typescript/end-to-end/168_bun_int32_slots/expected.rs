@@ -333,8 +333,7 @@ pub(crate) fn mix(a: i32, b: i32) -> i32 {
     let _smelt_tmp_16: i32;
     let _smelt_tmp_3: f64 = a as f64;
     let _smelt_tmp_4: f64 = b as f64;
-    let _smelt_tmp_5: f64 = _smelt_tmp_3 + _smelt_tmp_4;
-    let sum: f64 = _smelt_tmp_5;
+    let sum: f64 = _smelt_tmp_3 + _smelt_tmp_4;
     let _smelt_tmp_6: f64 = a as f64;
     let _smelt_tmp_7: f64 = b as f64;
     let _smelt_tmp_8: f64 = _smelt_tmp_6 * _smelt_tmp_7;
@@ -353,20 +352,15 @@ pub(crate) fn bits(n: f64) -> i32 {
     let _smelt_tmp_6: f64 = ({ let smelt_bit_lhs = { let smelt_bit_v = (n as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (255.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs & smelt_bit_rhs) as f64 });
     let _smelt_tmp_7: f64 = _smelt_tmp_6 * 3.0;
     let _smelt_tmp_8: f64 = _smelt_tmp_7 + 1.0;
-    let _smelt_tmp_9: i32 = _smelt_tmp_8 as i32;
-    let masked: i32 = _smelt_tmp_9;
+    let masked: i32 = _smelt_tmp_8 as i32;
     let _smelt_tmp_10: f64 = ((({ let smelt_int32_v = (n as f64).trunc(); if smelt_int32_v.is_finite() { smelt_int32_v.rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }).wrapping_shr({ let smelt_uint32_v = (2.0 as f64).trunc(); if smelt_uint32_v.is_finite() { smelt_uint32_v.rem_euclid(4294967296.0) as u32 } else { 0_u32 } } & 31)) as f64);
-    let _smelt_tmp_11: i32 = _smelt_tmp_10 as i32;
-    let shifted: i32 = _smelt_tmp_11;
+    let shifted: i32 = _smelt_tmp_10 as i32;
     let _smelt_tmp_12: f64 = ((({ let smelt_int32_v = (1.0 as f64).trunc(); if smelt_int32_v.is_finite() { smelt_int32_v.rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }).wrapping_shl({ let smelt_uint32_v = (31.0 as f64).trunc(); if smelt_uint32_v.is_finite() { smelt_uint32_v.rem_euclid(4294967296.0) as u32 } else { 0_u32 } } & 31)) as f64);
-    let _smelt_tmp_13: i32 = _smelt_tmp_12 as i32;
-    let left: i32 = _smelt_tmp_13;
+    let left: i32 = _smelt_tmp_12 as i32;
     let _smelt_tmp_14: f64 = f64::from({ let smelt_uint32_v = (n as f64).trunc(); if smelt_uint32_v.is_finite() { smelt_uint32_v.rem_euclid(4294967296.0) as u32 } else { 0_u32 } }.leading_zeros());
-    let _smelt_tmp_15: i32 = _smelt_tmp_14 as i32;
-    let zeros: i32 = _smelt_tmp_15;
+    let zeros: i32 = _smelt_tmp_14 as i32;
     let _smelt_tmp_16: f64 = ({ let smelt_bit_lhs = { let smelt_bit_v = (n as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (-1.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs ^ smelt_bit_rhs) as f64 });
-    let _smelt_tmp_17: i32 = _smelt_tmp_16 as i32;
-    let flipped: i32 = _smelt_tmp_17;
+    let flipped: i32 = _smelt_tmp_16 as i32;
     let _smelt_tmp_18: f64 = masked as f64;
     let _smelt_tmp_19: f64 = shifted as f64;
     let _smelt_tmp_20: f64 = ({ let smelt_bit_lhs = { let smelt_bit_v = (_smelt_tmp_18 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (_smelt_tmp_19 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs ^ smelt_bit_rhs) as f64 });
@@ -396,10 +390,8 @@ pub(crate) fn count(text: String, needle: String) -> i32 {
     let mut _smelt_tmp_17: i32;
     let mut _smelt_tmp_18: f64;
     let mut _smelt_tmp_19: i32;
-    let _smelt_tmp_4: i32 = 0.0 as i32;
-    let mut hits: i32 = _smelt_tmp_4;
-    let _smelt_tmp_5: i32 = 0.0 as i32;
-    let mut i: i32 = _smelt_tmp_5;
+    let mut hits: i32 = 0.0 as i32;
+    let mut i: i32 = 0.0 as i32;
     loop {
     _smelt_tmp_6 = i as f64;
     _smelt_tmp_7 = text.chars().count() as f64;

@@ -181,8 +181,7 @@ pub(crate) fn defer(body: &dyn Fn(::std::rc::Rc<dyn Fn(::std::rc::Rc<dyn Fn() ->
     let mut _smelt_tmp_7: usize;
     let mut _smelt_tmp_8: bool;
     let mut _smelt_tmp_9: ();
-    let _smelt_tmp_3: SmeltList<::std::rc::Rc<dyn Fn() -> ()>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<::std::rc::Rc<dyn Fn() -> ()>> = vec![]; smelt_list_items }));
-    let smelt_capture_cleanups: ::std::rc::Rc<::std::cell::RefCell<SmeltList<::std::rc::Rc<dyn Fn() -> ()>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(Into::<SmeltList<_>>::into(_smelt_tmp_3)));
+    let smelt_capture_cleanups: ::std::rc::Rc<::std::cell::RefCell<SmeltList<::std::rc::Rc<dyn Fn() -> ()>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<::std::rc::Rc<dyn Fn() -> ()>> = vec![]; smelt_list_items }))));
     let _smelt_tmp_4 = ::std::rc::Rc::new({
     let smelt_capture_cleanups = smelt_capture_cleanups.clone();
     move |closure_arg_0: ::std::rc::Rc<dyn Fn() -> ()>| {

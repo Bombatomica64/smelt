@@ -52,10 +52,8 @@ async fn run (FuncId(2)) -> None
     %8 = await move %7
     %9 = call @console_log(move %8) -> bb4
   bb4:
-    %10 = {"tag": "first", "kind": "k"}
-    %0 = move %10
-    %11 = {"tag": "third", "note": "n"}
-    %1 = move %11
+    %0 = {"tag": "first", "kind": "k"}
+    %1 = {"tag": "third", "note": "n"}
     %12 = call fn1(move %0, "second") -> bb5
   bb5:
     %13 = call @console_log(move %12) -> bb6

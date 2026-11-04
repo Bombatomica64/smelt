@@ -4196,8 +4196,7 @@ fn main() {
     let _smelt_tmp_7: SmeltRecord<String, String>;
     let _smelt_tmp_8: SmeltResponse;
     let _smelt_tmp_1: SmeltRecord<String, String> = SmeltRecord::from([("x-kind".to_owned(), "record".to_owned())]);
-    let _smelt_tmp_2: InitLike<f64> = InitLike { headers: Some(SmeltUnion6::M1(_smelt_tmp_1)), status: Some(201.0), _smelt_phantom: ::std::marker::PhantomData };
-    let record_init: InitLike<f64> = _smelt_tmp_2;
+    let record_init: InitLike<f64> = InitLike { headers: Some(SmeltUnion6::M1(_smelt_tmp_1)), status: Some(201.0), _smelt_phantom: ::std::marker::PhantomData };
     let _smelt_tmp_3: String = header_of(SmeltUnion16::M2(record_init.clone()), "x-kind".to_owned());
     let _ = { println!("{}", _smelt_tmp_3); };
     let _smelt_tmp_5: f64 = status_of(SmeltUnion16::M2(record_init));
@@ -4239,7 +4238,6 @@ pub(crate) fn header_of(arg: SmeltUnion16, name: String) -> String {
     let _smelt_tmp_16: SmeltHeaders;
     let _smelt_tmp_17: InitLike<f64>;
     let _smelt_tmp_18: Option<SmeltUnion6>;
-    let _smelt_tmp_19: SmeltHeaders;
     let _smelt_tmp_20: Option<String>;
     let _smelt_tmp_21: String;
     let _smelt_tmp_3: bool = matches!(arg.clone(), SmeltUnion16::M1(_) | SmeltUnion16::M2(_));
@@ -4270,8 +4268,7 @@ pub(crate) fn header_of(arg: SmeltUnion16, name: String) -> String {
     _smelt_tmp_14 = _smelt_tmp_17.headers.clone();
     }
     _smelt_tmp_18 = _smelt_tmp_14;
-    _smelt_tmp_19 = match _smelt_tmp_18 { Some(smelt_headers_init) => match smelt_headers_init { SmeltUnion6::M0(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<(String, String)>>()), SmeltUnion6::M1(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltUnion6::M2(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.entries_sorted()) }, None => SmeltHeaders::new() };
-    copied = _smelt_tmp_19;
+    copied = match _smelt_tmp_18 { Some(smelt_headers_init) => match smelt_headers_init { SmeltUnion6::M0(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<(String, String)>>()), SmeltUnion6::M1(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltUnion6::M2(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.entries_sorted()) }, None => SmeltHeaders::new() };
     _smelt_tmp_20 = copied.get(&name.clone());
     _smelt_tmp_21 = _smelt_tmp_20.clone().unwrap_or("none".to_owned());
     return _smelt_tmp_21;
@@ -4293,8 +4290,7 @@ pub(crate) fn header_of(arg: SmeltUnion16, name: String) -> String {
     _smelt_tmp_14 = _smelt_tmp_17.headers.clone();
     }
     _smelt_tmp_18 = _smelt_tmp_14;
-    _smelt_tmp_19 = match _smelt_tmp_18 { Some(smelt_headers_init) => match smelt_headers_init { SmeltUnion6::M0(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<(String, String)>>()), SmeltUnion6::M1(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltUnion6::M2(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.entries_sorted()) }, None => SmeltHeaders::new() };
-    copied = _smelt_tmp_19;
+    copied = match _smelt_tmp_18 { Some(smelt_headers_init) => match smelt_headers_init { SmeltUnion6::M0(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<(String, String)>>()), SmeltUnion6::M1(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltUnion6::M2(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.entries_sorted()) }, None => SmeltHeaders::new() };
     _smelt_tmp_20 = copied.get(&name.clone());
     _smelt_tmp_21 = _smelt_tmp_20.clone().unwrap_or("none".to_owned());
     return _smelt_tmp_21;

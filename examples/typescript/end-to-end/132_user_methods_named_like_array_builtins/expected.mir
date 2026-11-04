@@ -518,8 +518,7 @@ fn main (FuncId(28)) -> None
     %66 = string_join copy %65.field6, "|"
     %67 = call @console_log(move %64, move %66) -> bb42
   bb42:
-    %68 = [1.0, 2.0, 3.0]
-    %2 = move %68
+    %2 = [1.0, 2.0, 3.0]
     %69 = closure ClosureId(6) []
     %70 = list_reduce copy %2, 0.0, move %69
     %71 = closure ClosureId(7) []

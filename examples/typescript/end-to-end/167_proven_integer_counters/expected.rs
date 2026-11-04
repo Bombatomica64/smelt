@@ -3578,7 +3578,6 @@ fn main() {
     let mut _smelt_tmp_60: f64;
     let mut _smelt_tmp_61: f64;
     let mut _smelt_tmp_63: bool;
-    let mut _smelt_tmp_64: i64;
     let mut _smelt_tmp_65: f64;
     let mut _smelt_tmp_67: i64;
     let mut _smelt_tmp_68: f64;
@@ -3667,8 +3666,7 @@ fn main() {
     loop {
     _smelt_tmp_63 = j < 2;
     if !(_smelt_tmp_63) { break; }
-    _smelt_tmp_64 = j - 1;
-    m = _smelt_tmp_64;
+    m = j - 1;
     _smelt_tmp_74 = m as f64;
     _smelt_tmp_75 = j as f64;
     _smelt_tmp_65 = _smelt_tmp_74 * _smelt_tmp_75;
@@ -3718,8 +3716,7 @@ pub(crate) fn last_index_down(xs: SmeltList<String>) -> f64 {
     let mut _smelt_tmp_6: i64;
     let mut _smelt_tmp_7: f64;
     let _smelt_tmp_2: i64 = xs.len() as i64;
-    let _smelt_tmp_3: i64 = _smelt_tmp_2 - 1;
-    let mut i: i64 = _smelt_tmp_3;
+    let mut i: i64 = _smelt_tmp_2 - 1;
     loop {
     _smelt_tmp_4 = i >= 0;
     if !(_smelt_tmp_4) { break; }

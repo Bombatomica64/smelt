@@ -125,8 +125,7 @@ impl<T: Clone + ::std::cmp::Eq + ::std::hash::Hash> PartialEq for SmeltPrimSet<T
 
 // @smelt:prelude-end — generated program below
 fn contains() -> bool {
-    let _smelt_tmp_1: SmeltPrimSet<String> = SmeltPrimSet::from(["a".to_owned(), "b".to_owned()]);
-    let values: SmeltPrimSet<String> = _smelt_tmp_1;
+    let values: SmeltPrimSet<String> = SmeltPrimSet::from(["a".to_owned(), "b".to_owned()]);
     let _smelt_tmp_2: bool = values.contains(&"b".to_owned());
     return _smelt_tmp_2;
 }

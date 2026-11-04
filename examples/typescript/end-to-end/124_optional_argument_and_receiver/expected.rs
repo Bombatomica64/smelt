@@ -3519,7 +3519,6 @@ impl SmeltFromUnknown for SmeltMatch {
 fn main() {
     let words: SmeltList<Option<String>>;
     let mut w: Option<String>;
-    let _smelt_tmp_12: SmeltList<Option<String>>;
     let mut _smelt_tmp_13: usize;
     let mut _smelt_tmp_14: usize;
     let mut _smelt_tmp_15: bool;
@@ -3547,7 +3546,6 @@ fn main() {
     let mut _smelt_tmp_37: bool;
     let mut _smelt_tmp_38: bool;
     let mut _smelt_tmp_39: Option<bool>;
-    let mut _smelt_tmp_40: String;
     let mut _smelt_tmp_41: String;
     let mut _smelt_tmp_42: String;
     let mut _smelt_tmp_43: bool;
@@ -3582,8 +3580,7 @@ fn main() {
     let _smelt_tmp_9: String = merge_path__module_main(Some("/".to_owned()), Some("book".to_owned()));
     let _smelt_tmp_10: String = merge_path__module_main(Some("/".to_owned()), Some("/book".to_owned()));
     let _ = { println!("{} {} {}", _smelt_tmp_8, _smelt_tmp_9, _smelt_tmp_10); };
-    _smelt_tmp_12 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Option<String>> = vec![Some("/xy".to_owned()), None::<String>]; smelt_list_items }));
-    words = Into::<SmeltList<_>>::into(_smelt_tmp_12);
+    words = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Option<String>> = vec![Some("/xy".to_owned()), None::<String>]; smelt_list_items }));
     _smelt_tmp_13 = 0;
     loop {
     _smelt_tmp_14 = words.len();
@@ -3627,8 +3624,7 @@ fn main() {
     _smelt_tmp_37 = w.clone().is_none();
     _smelt_tmp_38 = !(_smelt_tmp_37);
     if _smelt_tmp_38 {
-    _smelt_tmp_40 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_41 = _smelt_tmp_40;
+    _smelt_tmp_41 = w.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_42 = "/".to_owned();
     _smelt_tmp_43 = _smelt_tmp_41.starts_with(&_smelt_tmp_42);
     _smelt_tmp_39 = Some(_smelt_tmp_43);
@@ -3670,8 +3666,7 @@ fn main() {
     _smelt_tmp_37 = w.clone().is_none();
     _smelt_tmp_38 = !(_smelt_tmp_37);
     if _smelt_tmp_38 {
-    _smelt_tmp_40 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_41 = _smelt_tmp_40;
+    _smelt_tmp_41 = w.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_42 = "/".to_owned();
     _smelt_tmp_43 = _smelt_tmp_41.starts_with(&_smelt_tmp_42);
     _smelt_tmp_39 = Some(_smelt_tmp_43);

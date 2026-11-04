@@ -66,8 +66,7 @@ fn main (FuncId(3)) -> None
     %31 temp: String
     %32 temp: None
   bb0:
-    %3 = ["a", "abc", "ab", "abcd"]
-    %0 = move %3
+    %0 = ["a", "abc", "ab", "abcd"]
     %4 = closure ClosureId(0) []
     %5 = list_filter copy %0, move %4
     %6 = string_join move %5, ","
@@ -94,8 +93,7 @@ fn main (FuncId(3)) -> None
     %23 = call @console_log(move %22) -> bb5
   bb5:
     %24 = closure ClosureId(5) []
-    %25 = list_map copy %0, move %24
-    %1 = move %25
+    %1 = list_map copy %0, move %24
     %26 = string_join move %1, ","
     %27 = call @console_log(move %26) -> bb6
   bb6:

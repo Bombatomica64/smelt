@@ -3766,15 +3766,11 @@ fn main() {
     let mut _smelt_tmp_39: usize;
     let mut _smelt_tmp_40: usize;
     let mut _smelt_tmp_41: bool;
-    let mut _smelt_tmp_42: String;
-    let mut _smelt_tmp_43: String;
     let _smelt_tmp_5: SmeltRecord<String, String> = SmeltRecord::from([("Content-Type".to_owned(), "text/plain".to_owned())]);
-    let _smelt_tmp_6: SmeltHeaders = SmeltHeaders::from_pairs(_smelt_tmp_5.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>());
-    let request: SmeltHeaders = _smelt_tmp_6;
+    let request: SmeltHeaders = SmeltHeaders::from_pairs(_smelt_tmp_5.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>());
     let _smelt_tmp_7: () = request.clone().append(&"Accept".to_owned(), &"text/html".to_owned());
     let _smelt_tmp_8: () = request.clone().append(&"accept".to_owned(), &"application/json".to_owned());
-    let _smelt_tmp_9: SmeltHeaders = SmeltHeaders::from_pairs(request.clone().entries_sorted());
-    let response: SmeltHeaders = _smelt_tmp_9;
+    let response: SmeltHeaders = SmeltHeaders::from_pairs(request.clone().entries_sorted());
     let _smelt_tmp_10: () = response.clone().set(&"X-Trace".to_owned(), &"first".to_owned());
     let _smelt_tmp_11: () = response.clone().set(&"x-trace".to_owned(), &"second".to_owned());
     let _smelt_tmp_12: () = response.clone().append(&"Set-Cookie".to_owned(), &"a=1".to_owned());
@@ -3810,10 +3806,8 @@ fn main() {
     _smelt_tmp_41 = _smelt_tmp_39 < _smelt_tmp_40;
     if !(_smelt_tmp_41) { break; }
     __smelt_for_item = _smelt_tmp_38.borrow().get(_smelt_tmp_39).cloned().unwrap_or_else(|| (String::new(), String::new()));
-    _smelt_tmp_42 = __smelt_for_item.clone().0.clone();
-    name = _smelt_tmp_42;
-    _smelt_tmp_43 = __smelt_for_item.1.clone();
-    value = _smelt_tmp_43;
+    name = __smelt_for_item.clone().0.clone();
+    value = __smelt_for_item.1.clone();
     let _ = { println!("{} {}", name, value); };
     _smelt_tmp_39 = _smelt_tmp_39 + 1;
     }

@@ -4322,7 +4322,6 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_12: bool;
     let _smelt_tmp_14: String;
     let _smelt_tmp_15: bool;
-    let _smelt_tmp_17: SmeltList<String>;
     let _smelt_tmp_18: f64;
     let _smelt_tmp_20: f64;
     let _smelt_tmp_21: f64;
@@ -4331,7 +4330,6 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_25: f64;
     let _smelt_tmp_27: bool;
     let _smelt_tmp_29: SmeltTextEncoder;
-    let _smelt_tmp_30: SmeltTypedArray;
     let _smelt_tmp_32: SmeltArrayBuffer;
     let _smelt_tmp_33: f64;
     let _smelt_tmp_36: SmeltArrayBuffer;
@@ -4343,12 +4341,10 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_48: SmeltArrayBuffer;
     let _smelt_tmp_49: f64;
     let _smelt_tmp_51: SmeltTextEncoder;
-    let _smelt_tmp_52: SmeltTypedArray;
     let _smelt_tmp_54: SmeltArrayBuffer;
     let _smelt_tmp_55: f64;
     let _smelt_tmp_58: ();
-    let _smelt_tmp_4: String = uuid::Uuid::new_v4().to_string();
-    let id: String = _smelt_tmp_4;
+    let id: String = uuid::Uuid::new_v4().to_string();
     let _smelt_tmp_5: f64 = id.chars().count() as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_5)); };
     let _ = { println!("{} {} {} {}", id.chars().nth({ let smelt_normalized = 8.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default(), id.chars().nth({ let smelt_normalized = 13.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default(), id.chars().nth({ let smelt_normalized = 18.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default(), id.chars().nth({ let smelt_normalized = 23.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default()); };
@@ -4361,8 +4357,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_14 = id.clone().to_lowercase();
     _smelt_tmp_15 = _smelt_tmp_14 == id.clone();
     let _ = { println!("{}", _smelt_tmp_15); };
-    _smelt_tmp_17 = Into::<SmeltList<_>>::into({ let smelt_haystack = id.clone(); let smelt_separator = "-".to_owned(); if smelt_separator.is_empty() { if smelt_haystack.is_empty() { Vec::new() } else { smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() } } else { smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() } });
-    groups = Into::<SmeltList<_>>::into(_smelt_tmp_17);
+    groups = Into::<SmeltList<_>>::into({ let smelt_haystack = id.clone(); let smelt_separator = "-".to_owned(); if smelt_separator.is_empty() { if smelt_haystack.is_empty() { Vec::new() } else { smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() } } else { smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() } });
     _smelt_tmp_18 = groups.len() as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_18)); };
     _smelt_tmp_20 = groups.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).chars().count() as f64;
@@ -4375,8 +4370,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_27 = fancy_regex::Regex::new(&"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$".to_owned()).expect("regex compile failed").is_match(&id).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_27); };
     _smelt_tmp_29 = SmeltTextEncoder::new();
-    _smelt_tmp_30 = _smelt_tmp_29.encode(&"abc".to_owned());
-    message = _smelt_tmp_30;
+    message = _smelt_tmp_29.encode(&"abc".to_owned());
     let _smelt_tmp_31: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = ("SHA-1".to_owned()).clone(); let smelt_data = (message.clone()).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
     _smelt_tmp_32 = _smelt_tmp_31.await?;
     _smelt_tmp_33 = _smelt_tmp_32.byte_length();
@@ -4398,8 +4392,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_49 = _smelt_tmp_48.byte_length();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_49)); };
     _smelt_tmp_51 = SmeltTextEncoder::new();
-    _smelt_tmp_52 = _smelt_tmp_51.encode(&"".to_owned());
-    empty = _smelt_tmp_52;
+    empty = _smelt_tmp_51.encode(&"".to_owned());
     let _smelt_tmp_53: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = ("SHA-256".to_owned()).clone(); let smelt_data = (empty).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
     _smelt_tmp_54 = _smelt_tmp_53.await?;
     _smelt_tmp_55 = _smelt_tmp_54.byte_length();

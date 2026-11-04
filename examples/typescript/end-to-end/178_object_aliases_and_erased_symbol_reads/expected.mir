@@ -150,8 +150,7 @@ fn main (FuncId(7)) -> None
     %15 = call fn4(move %14, "ctx") -> bb7
   bb7:
     %1 = move %15
-    %16 = []
-    %2 = move %16
+    %2 = []
     %17 = call fn2(copy %1) -> bb8
   bb8:
     %18 = call fn3(move %1) -> bb9

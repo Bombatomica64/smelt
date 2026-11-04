@@ -3763,11 +3763,9 @@ smelt_local.block_on(&smelt_runtime, async move {
     let last: String;
     let mut nested: String;
     let mut final_: String;
-    let _smelt_tmp_10: String;
     let _smelt_tmp_12: f64;
     let _smelt_tmp_13: f64;
     let _smelt_tmp_14: f64;
-    let _smelt_tmp_20: String;
     let _smelt_tmp_21: f64;
     let _smelt_tmp_25: String;
     let _smelt_tmp_28: String;
@@ -3793,8 +3791,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     }
     let _ = { println!("{}", outcome.clone()); };
     let _smelt_tmp_9 = SmeltFuture::from_future(Box::pin(work(false)));
-    _smelt_tmp_10 = _smelt_tmp_9.await?;
-    after = _smelt_tmp_10;
+    after = _smelt_tmp_9.await?;
     let _ = { println!("{}", after.clone()); };
     _smelt_tmp_12 = after.chars().count() as f64;
     _smelt_tmp_13 = outcome.chars().count() as f64;
@@ -3821,8 +3818,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     }
     let _ = { println!("{}", thrown.clone()); };
     let _smelt_tmp_19 = SmeltFuture::from_future(Box::pin(work(false)));
-    _smelt_tmp_20 = _smelt_tmp_19.await?;
-    last = _smelt_tmp_20;
+    last = _smelt_tmp_19.await?;
     _smelt_tmp_21 = thrown.chars().count() as f64;
     let _ = { println!("{} {}", last, smelt_console_number(_smelt_tmp_21)); };
     nested = "not run".to_owned();

@@ -4835,23 +4835,19 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_15: (String, SmeltRecord<String, String>);
     let _smelt_tmp_16: SmeltList<String>;
     let _smelt_tmp_18: (String, SmeltRecord<String, String>);
-    let _smelt_tmp_19: SmeltList<(String, SmeltRecord<String, String>)>;
     let _smelt_tmp_20: SmeltRecord<String, String>;
     let _smelt_tmp_21: bool;
     let _smelt_tmp_22: SmeltRecord<String, String>;
     let _smelt_tmp_23: bool;
-    let _smelt_tmp_25: SmeltList<String>;
     let _smelt_tmp_26: bool;
     let _smelt_tmp_27: bool;
     let _smelt_tmp_29: SmeltList<String>;
     let _smelt_tmp_31: SmeltList<String>;
-    let _smelt_tmp_34: SmeltList<SmeltUnion8>;
     let _smelt_tmp_36: f64;
     let _smelt_tmp_37: String;
     let _smelt_tmp_39: SmeltRegExp;
     let _smelt_tmp_42: ();
     let _smelt_tmp_43: SmeltList<f64>;
-    let _smelt_tmp_44: SmeltTypedArray;
     let _smelt_tmp_45: SmeltList<f64>;
     let _smelt_tmp_46: String;
     let _smelt_tmp_47: SmeltList<f64>;
@@ -4862,8 +4858,6 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_53: String;
     let _smelt_tmp_55: SmeltList<String>;
     let _smelt_tmp_56: SmeltList<String>;
-    let _smelt_tmp_57: SmeltList<SmeltList<String>>;
-    let _smelt_tmp_58: Option<SmeltList<String>>;
     let _smelt_tmp_59: bool;
     let mut _smelt_tmp_60: String;
     let _smelt_tmp_61: SmeltList<String>;
@@ -4882,15 +4876,13 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_16 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["id".to_owned()]; smelt_list_items }));
     let _smelt_tmp_17: SmeltRecord<String, String> = make_record(_smelt_tmp_16);
     _smelt_tmp_18 = ("y".to_owned(), _smelt_tmp_17);
-    _smelt_tmp_19 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, SmeltRecord<String, String>)> = vec![_smelt_tmp_15.clone(), _smelt_tmp_18.clone()]; smelt_list_items }));
-    pairs = Into::<SmeltList<_>>::into(_smelt_tmp_19);
+    pairs = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, SmeltRecord<String, String>)> = vec![_smelt_tmp_15.clone(), _smelt_tmp_18.clone()]; smelt_list_items }));
     _smelt_tmp_20 = pairs.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), SmeltRecord::new())).1.clone();
     _smelt_tmp_21 = (_smelt_tmp_20.get(&"id".to_owned())).is_none();
     _smelt_tmp_22 = pairs.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), SmeltRecord::new())).1.clone();
     _smelt_tmp_23 = (_smelt_tmp_22.get(&"id".to_owned())).is_none();
     let _ = { println!("{} {}", _smelt_tmp_21, _smelt_tmp_23); };
-    _smelt_tmp_25 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["q".to_owned()]; smelt_list_items }));
-    xs = Into::<SmeltList<_>>::into(_smelt_tmp_25);
+    xs = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["q".to_owned()]; smelt_list_items }));
     _smelt_tmp_26 = (xs.borrow().get({ let smelt_normalized = 3.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned()).is_none();
     _smelt_tmp_27 = (xs.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned()).is_none();
     let _ = { println!("{} {}", _smelt_tmp_26, _smelt_tmp_27); };
@@ -4899,8 +4891,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_31 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["/a".to_owned()]; smelt_list_items }));
     let _smelt_tmp_32: bool = starts_with_slash(_smelt_tmp_31);
     let _ = { println!("{} {}", _smelt_tmp_30, _smelt_tmp_32); };
-    _smelt_tmp_34 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnion8> = vec![SmeltUnion8::M0("a".to_owned())]; smelt_list_items }));
-    entries = Into::<SmeltList<_>>::into(_smelt_tmp_34);
+    entries = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnion8> = vec![SmeltUnion8::M0("a".to_owned())]; smelt_list_items }));
     let _smelt_tmp_35: f64 = collect(&mut entries, SmeltUnion8::M0("b".to_owned()));
     _smelt_tmp_36 = entries.len() as f64;
     _smelt_tmp_37 = match &entries.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltUnion8::M0(String::new())) { SmeltUnion8::M0(_) => "string", SmeltUnion8::M1(_) => "object" }.to_owned();
@@ -4910,8 +4901,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_41 = SmeltFuture::from_future(Box::pin(run()));
     _smelt_tmp_42 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_41.await; })); () };
     _smelt_tmp_43 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 171.0, 255.0]; smelt_list_items }));
-    _smelt_tmp_44 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_43.to_vec());
-    digest_bytes = _smelt_tmp_44;
+    digest_bytes = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_43.to_vec());
     _smelt_tmp_45 = Into::<SmeltList<_>>::into(SmeltList::new(digest_bytes.clone().to_elements()));
     _smelt_tmp_46 = _smelt_tmp_45.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&"-".to_owned());
     _smelt_tmp_47 = Into::<SmeltList<_>>::into(SmeltList::new(digest_bytes.to_elements()));
@@ -4930,10 +4920,8 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _ = { println!("{}", _smelt_tmp_53); };
     _smelt_tmp_55 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "b".to_owned()]; smelt_list_items }));
     _smelt_tmp_56 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["c".to_owned()]; smelt_list_items }));
-    _smelt_tmp_57 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_55.clone(), _smelt_tmp_56.clone()]; smelt_list_items }));
-    queue = Into::<SmeltList<_>>::into(_smelt_tmp_57);
-    _smelt_tmp_58 = if queue.is_empty() { None } else { Some(queue.borrow_mut().remove(0)) };
-    head = _smelt_tmp_58;
+    queue = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_55.clone(), _smelt_tmp_56.clone()]; smelt_list_items }));
+    head = if queue.is_empty() { None } else { Some(queue.borrow_mut().remove(0)) };
     _smelt_tmp_59 = !(head.clone().is_none());
     let mut _smelt_tmp_60: String = String::new();
     if _smelt_tmp_59 {
@@ -4962,8 +4950,7 @@ pub(crate) fn make_record(keys: SmeltList<String>) -> SmeltRecord<String, String
     let mut _smelt_tmp_5: usize;
     let mut _smelt_tmp_6: bool;
     let mut _smelt_tmp_7: String;
-    let _smelt_tmp_3: SmeltRecord<String, String> = SmeltRecord::from([]);
-    let mut rec: SmeltRecord<String, String> = _smelt_tmp_3;
+    let mut rec: SmeltRecord<String, String> = SmeltRecord::from([]);
     let mut _smelt_tmp_4: usize = 0;
     loop {
     _smelt_tmp_5 = keys.len();
@@ -4989,7 +4976,6 @@ pub(crate) async fn digest_length(data: SmeltUnion31) -> Result<f64, Box<dyn std
     let _smelt_tmp_5: String;
     let _smelt_tmp_6: SmeltTypedArray;
     let _smelt_tmp_7: SmeltUnion41;
-    let _smelt_tmp_9: SmeltArrayBuffer;
     let _smelt_tmp_10: SmeltTypedArray;
     let mut source: SmeltUnion41 = SmeltUnion41::M0(SmeltTypedArray::new());
     let _smelt_tmp_3: bool = matches!(data.clone(), SmeltUnion31::M0(_));
@@ -5003,8 +4989,7 @@ pub(crate) async fn digest_length(data: SmeltUnion31) -> Result<f64, Box<dyn std
     source = _smelt_tmp_7;
     }
     let _smelt_tmp_8: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = ("SHA-256".to_owned()).clone(); let smelt_data = match &(source) { SmeltUnion41::M0(value) => value.to_bytes(), SmeltUnion41::M1(value) => value.to_bytes(), SmeltUnion41::M2(value) => value.to_bytes(), SmeltUnion41::M3(value) => value.to_bytes(), SmeltUnion41::M4(value) => value.to_bytes(), SmeltUnion41::M5(value) => value.to_bytes(), SmeltUnion41::M6(value) => value.to_bytes(), SmeltUnion41::M7(value) => value.to_bytes(), SmeltUnion41::M8(value) => value.to_bytes(), SmeltUnion41::M9(value) => value.to_bytes(), SmeltUnion41::M10(value) => value.to_bytes(), SmeltUnion41::M11(value) => value.to_bytes(), SmeltUnion41::M12(value) => value.to_bytes() }; SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
-    _smelt_tmp_9 = _smelt_tmp_8.await?;
-    buffer = _smelt_tmp_9;
+    buffer = _smelt_tmp_8.await?;
     _smelt_tmp_10 = SmeltTypedArray::over_buffer(SmeltTypedArrayKind::Uint8, &buffer, 0, None);
     return Ok(_smelt_tmp_10.get(0.0).unwrap_or(0.0));
 }

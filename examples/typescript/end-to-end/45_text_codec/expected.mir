@@ -34,10 +34,8 @@ fn main (FuncId(0)) -> None
     %31 temp: String
     %32 temp: None
   bb0:
-    %4 = text_encoder_new
-    %0 = move %4
-    %5 = text_encoder_encode copy %0 "héllo"
-    %1 = move %5
+    %0 = text_encoder_new
+    %1 = text_encoder_encode copy %0 "héllo"
     %6 = byte_array_length copy %1
     %7 = call @console_log(move %6) -> bb1
   bb1:
@@ -47,8 +45,7 @@ fn main (FuncId(0)) -> None
     %10 = text_encoder_encoding move %0
     %11 = call @console_log(move %10) -> bb3
   bb3:
-    %12 = text_decoder_new "UTF8"
-    %2 = move %12
+    %2 = text_decoder_new "UTF8"
     %13 = text_decoder_decode copy %2 move %1
     %14 = call @console_log(move %13) -> bb4
   bb4:
@@ -67,8 +64,7 @@ fn main (FuncId(0)) -> None
     %25 = call @console_log(move %24) -> bb7
   bb7:
     %26 = text_encoder_new
-    %27 = text_encoder_encode move %26 "😀"
-    %3 = move %27
+    %3 = text_encoder_encode move %26 "😀"
     %28 = byte_array_length copy %3
     %29 = call @console_log(move %28) -> bb8
   bb8:

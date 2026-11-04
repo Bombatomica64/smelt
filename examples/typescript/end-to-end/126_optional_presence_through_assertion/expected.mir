@@ -44,8 +44,7 @@ fn lookup (FuncId(1)) -> List<String>
     %19 temp: Float
     %20 temp: usize
   bb0:
-    %6 = []
-    %2 = move %6
+    %2 = []
     %3 = 0
     goto bb1
   bb1:
@@ -58,8 +57,7 @@ fn lookup (FuncId(1)) -> List<String>
     %10 = copy %4?.[copy %1]
     %11 = move %4?.["ALL"]
     %12 = move %10 ?? move %11
-    %13 = move %12
-    %5 = move %13
+    %5 = move %12
     %14 = copy %5 != none
     switch move %14 ? bb5 : bb6
   bb3:
@@ -157,12 +155,10 @@ fn main (FuncId(3)) -> None
     %18 = call @console_log(move %17) -> bb10
   bb10:
     %19 = {"handler": "first", "score": 1.0}
-    %20 = {"a": move %19}
-    %1 = move %20
+    %1 = {"a": move %19}
     %21 = copy %1?.["missing"]
     %22 = copy %1?.["a"]
-    %23 = move %21 ?? move %22
-    %2 = move %23
+    %2 = move %21 ?? move %22
     %24 = copy %2 != none
     switch move %24 ? bb11 : bb12
   bb11:
@@ -177,8 +173,7 @@ fn main (FuncId(3)) -> None
   bb14:
     %28 = copy %1?.["missing"]
     %29 = move %1?.["other"]
-    %30 = move %28 ?? move %29
-    %3 = move %30
+    %3 = move %28 ?? move %29
     %31 = copy %3 != none
     switch move %31 ? bb15 : bb16
   bb15:
@@ -191,10 +186,8 @@ fn main (FuncId(3)) -> None
   bb17:
     %34 = call @console_log(move %32) -> bb18
   bb18:
-    %35 = {"handler": "h", "score": 1.0}
-    %4 = move %35
-    %36 = move %4
-    %5 = move %36
+    %4 = {"handler": "h", "score": 1.0}
+    %5 = move %4
     %37 = {}
     %5.field5 = move %37
     %38 = copy %5.field5

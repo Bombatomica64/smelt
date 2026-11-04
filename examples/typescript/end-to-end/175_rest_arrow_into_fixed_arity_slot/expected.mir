@@ -99,10 +99,8 @@ fn main (FuncId(4)) -> None
     %10 = closure_call move %9("b", "gone")
     %11 = call @console_log(move %8, move %10) -> bb2
   bb2:
-    %12 = ["c"]
-    %2 = move %12
-    %13 = ["d", "e"]
-    %3 = move %13
+    %2 = ["c"]
+    %3 = ["d", "e"]
     %4 = move %2
     %5 = move %3
     %14 = call fn1(copy %0, copy %4[0], copy %4[1]) -> bb3

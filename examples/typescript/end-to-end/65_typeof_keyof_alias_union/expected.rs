@@ -3803,8 +3803,7 @@ fn main() {
     let _smelt_tmp_14: SmeltList<SmeltList<String>>;
     let _smelt_tmp_15: SmeltHeaders;
     let _smelt_tmp_18: SmeltRecord<String, String>;
-    let _smelt_tmp_2: SmeltRecord<String, String> = SmeltRecord::from([("json".to_owned(), "application/json".to_owned()), ("text".to_owned(), "text/plain".to_owned())]);
-    let mimes: SmeltRecord<String, String> = _smelt_tmp_2;
+    let mimes: SmeltRecord<String, String> = SmeltRecord::from([("json".to_owned(), "application/json".to_owned()), ("text".to_owned(), "text/plain".to_owned())]);
     let declared: String = mimes.get(&"json".to_owned()).expect("missing field").clone();
     let _smelt_tmp_3: SmeltRecord<String, String> = SmeltRecord::from([("Content-Type".to_owned(), declared)]);
     let _smelt_tmp_4: String = header_of(SmeltUnion8::M1(_smelt_tmp_3), "content-type".to_owned());
@@ -3835,8 +3834,7 @@ fn main() {
 use super::*;
 
 pub(crate) fn header_of(init: SmeltUnion8, name: String) -> String {
-    let _smelt_tmp_3: SmeltHeaders = match init.clone() { SmeltUnion8::M0(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<(String, String)>>()), SmeltUnion8::M1(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltUnion8::M2(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.entries_sorted()) };
-    let copied: SmeltHeaders = _smelt_tmp_3;
+    let copied: SmeltHeaders = match init.clone() { SmeltUnion8::M0(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<(String, String)>>()), SmeltUnion8::M1(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltUnion8::M2(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.entries_sorted()) };
     let _smelt_tmp_4: Option<String> = copied.get(&name.clone());
     let _smelt_tmp_5: String = _smelt_tmp_4.clone().unwrap_or("none".to_owned());
     return _smelt_tmp_5;

@@ -4049,8 +4049,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_139: ::num_bigint::BigInt;
     let _smelt_tmp_140: ::num_bigint::BigInt;
     let _smelt_tmp_141: bool;
-    let _smelt_tmp_143: SmeltJsMap<::num_bigint::BigInt, String>;
-    let _smelt_tmp_144: SmeltJsSet<::num_bigint::BigInt>;
     let _smelt_tmp_145: Option<String>;
     let _smelt_tmp_146: ::num_bigint::BigInt;
     let _smelt_tmp_147: bool;
@@ -4059,7 +4057,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_151: ::num_bigint::BigInt;
     let mut _smelt_tmp_152: SmeltList<::num_bigint::BigInt>;
     let _smelt_tmp_153: ::std::rc::Rc<dyn Fn(::num_bigint::BigInt, ::num_bigint::BigInt) -> f64>;
-    let _smelt_tmp_154: SmeltList<::num_bigint::BigInt>;
     let _smelt_tmp_155: ::std::rc::Rc<dyn Fn(::num_bigint::BigInt, ::num_bigint::BigInt, i64, &SmeltList<::num_bigint::BigInt>) -> ::num_bigint::BigInt>;
     let _smelt_tmp_156: ::num_bigint::BigInt;
     let _smelt_tmp_158: bool;
@@ -4217,10 +4214,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     step = _smelt_tmp_140;
     _smelt_tmp_141 = &step > &two_64;
     let _ = { println!("{} {}n {}", "update:".to_owned(), step, _smelt_tmp_141); };
-    _smelt_tmp_143 = SmeltJsMap::from([(two_64.clone(), "2^64".to_owned()), (huge.clone(), "huge".to_owned())]);
-    keyed = _smelt_tmp_143;
-    _smelt_tmp_144 = SmeltJsSet::from([::num_bigint::BigInt::from(1_i64), ::num_bigint::BigInt::from(2_i64), ::num_bigint::BigInt::from(1_i64), two_64.clone(), two_64.clone()]);
-    unique = _smelt_tmp_144;
+    keyed = SmeltJsMap::from([(two_64.clone(), "2^64".to_owned()), (huge.clone(), "huge".to_owned())]);
+    unique = SmeltJsSet::from([::num_bigint::BigInt::from(1_i64), ::num_bigint::BigInt::from(2_i64), ::num_bigint::BigInt::from(1_i64), two_64.clone(), two_64.clone()]);
     _smelt_tmp_145 = keyed.get(&two_64);
     _smelt_tmp_146 = &huge + &::num_bigint::BigInt::from(1_i64);
     _smelt_tmp_147 = keyed.contains_key(&_smelt_tmp_146);
@@ -4229,7 +4224,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = { println!("{} {} {} {} {}", "collections:".to_owned(), match &_smelt_tmp_145 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_147, smelt_console_number(_smelt_tmp_148), _smelt_tmp_149); };
     _smelt_tmp_151 = -&::num_bigint::BigInt::from(1_i64);
     _smelt_tmp_152 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<::num_bigint::BigInt> = vec![huge.clone(), _smelt_tmp_151.clone(), two_53.clone(), ::num_bigint::BigInt::from(0_i64)]; smelt_list_items }));
-    _smelt_tmp_154 = Into::<SmeltList<_>>::into({ let mut smelt_comparator = ::std::rc::Rc::new(|closure_arg_0: ::num_bigint::BigInt, closure_arg_1: ::num_bigint::BigInt| {
+    ordered = Into::<SmeltList<_>>::into({ let mut smelt_comparator = ::std::rc::Rc::new(|closure_arg_0: ::num_bigint::BigInt, closure_arg_1: ::num_bigint::BigInt| {
     let mut _smelt_tmp_3: f64;
     let _smelt_tmp_4: f64;
     let _smelt_tmp_5: bool;
@@ -4249,7 +4244,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     _smelt_tmp_3
     }); _smelt_tmp_152.borrow_mut().sort_by(|left, right| { let ordering = (smelt_comparator)(left.clone(), right.clone()); if ordering < 0.0 { std::cmp::Ordering::Less } else if ordering > 0.0 { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Equal } }); _smelt_tmp_152.clone() });
-    ordered = Into::<SmeltList<_>>::into(_smelt_tmp_154);
     _smelt_tmp_156 = ordered.borrow().iter().enumerate().fold(::num_bigint::BigInt::from(0_i64), |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &ordered; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: ::num_bigint::BigInt, closure_arg_1: ::num_bigint::BigInt, _arg0: i64, _arg1: &SmeltList<::num_bigint::BigInt>| {
     let _smelt_tmp_2: ::num_bigint::BigInt = &closure_arg_0 + &closure_arg_1;
     _smelt_tmp_2.clone()

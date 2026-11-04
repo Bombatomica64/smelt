@@ -4005,8 +4005,6 @@ let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
     let consumed: f64;
     let accept: Option<Accept>;
-    let _smelt_tmp_7: f64;
-    let _smelt_tmp_8: Option<Accept>;
     let _smelt_tmp_9: Option<String>;
     let _smelt_tmp_11: Option<Accept>;
     let _smelt_tmp_12: bool;
@@ -4019,10 +4017,8 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_4: String = with_defaults(None::<SmeltRecord<String, String>>);
     let _ = { println!("{} {}", _smelt_tmp_3, _smelt_tmp_4); };
     let _smelt_tmp_6: (f64, Option<Accept>) = next_accept("json".to_owned());
-    _smelt_tmp_7 = _smelt_tmp_6.clone().0.clone();
-    consumed = _smelt_tmp_7;
-    _smelt_tmp_8 = _smelt_tmp_6.1.clone();
-    accept = _smelt_tmp_8;
+    consumed = _smelt_tmp_6.clone().0.clone();
+    accept = _smelt_tmp_6.1.clone();
     _smelt_tmp_9 = accept.as_ref().map(|_smelt_value| _smelt_value.0.borrow().type_.clone());
     let _smelt_tmp_10: (f64, Option<Accept>) = next_accept("".to_owned());
     _smelt_tmp_11 = _smelt_tmp_10.1.clone();
@@ -4060,8 +4056,7 @@ pub(crate) fn with_defaults(opt: Option<SmeltRecord<String, String>>) -> String 
     let _smelt_tmp_2: SmeltRecord<String, String> = SmeltRecord::from([]);
     let _smelt_tmp_3: SmeltRecord<String, String> = SmeltRecord::from([("path".to_owned(), "/".to_owned())]);
     let _smelt_tmp_4: SmeltRecord<String, String> = SmeltRecord::from([("domain".to_owned(), "example.com".to_owned())]);
-    let _smelt_tmp_5: SmeltRecord<String, String> = { _smelt_tmp_2.extend(_smelt_tmp_3.iter().map(|(key, value)| (key.clone(), value.clone()))); _smelt_tmp_2.extend(match IntoSmeltUnknown::into_smelt_unknown(opt.clone().clone()) { SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter().map(|(key, value)| (key, match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }))), _ => SmeltRecord::new() }.iter().map(|(key, value)| (key.clone(), value.clone()))); _smelt_tmp_2.extend(_smelt_tmp_4.iter().map(|(key, value)| (key.clone(), value.clone()))); _smelt_tmp_2.clone() };
-    let merged: SmeltRecord<String, String> = _smelt_tmp_5;
+    let merged: SmeltRecord<String, String> = { _smelt_tmp_2.extend(_smelt_tmp_3.iter().map(|(key, value)| (key.clone(), value.clone()))); _smelt_tmp_2.extend(match IntoSmeltUnknown::into_smelt_unknown(opt.clone().clone()) { SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter().map(|(key, value)| (key, match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }))), _ => SmeltRecord::new() }.iter().map(|(key, value)| (key.clone(), value.clone()))); _smelt_tmp_2.extend(_smelt_tmp_4.iter().map(|(key, value)| (key.clone(), value.clone()))); _smelt_tmp_2.clone() };
     let _smelt_tmp_6: String = merged.get(&"path".to_owned()).expect("missing field").clone() + &" ".to_owned();
     let _smelt_tmp_7: String = _smelt_tmp_6 + &merged.get(&"domain".to_owned()).expect("missing field").clone();
     return _smelt_tmp_7;
@@ -4071,8 +4066,7 @@ pub(crate) fn next_accept(header: String) -> (f64, Option<Accept>) {
     let _smelt_tmp_4: (f64, Option<Accept>);
     let _smelt_tmp_5: f64;
     let _smelt_tmp_6: (f64, Accept);
-    let _smelt_tmp_2: Accept = Accept(::std::rc::Rc::new(::std::cell::RefCell::new(AcceptInner { type_: "".to_owned(), q: 1.0 })));
-    let mut accept: Accept = _smelt_tmp_2;
+    let mut accept: Accept = Accept(::std::rc::Rc::new(::std::cell::RefCell::new(AcceptInner { type_: "".to_owned(), q: 1.0 })));
     let _smelt_tmp_3: bool = header.clone() == "".to_owned();
     if _smelt_tmp_3 {
     _smelt_tmp_4 = (0.0, None::<Accept>);

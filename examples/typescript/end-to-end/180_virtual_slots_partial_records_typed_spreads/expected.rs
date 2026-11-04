@@ -4318,15 +4318,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let __smelt_spread_value: String;
     let copy: Options;
     let _smelt_tmp_18: f64;
-    let _smelt_tmp_34: Pair<f64>;
     let _smelt_tmp_35: Pair<f64>;
     let _smelt_tmp_37: ::std::rc::Rc<dyn Fn(&SmeltList<String>) -> String>;
     let _smelt_tmp_40: ::std::rc::Rc<dyn Fn(&SmeltList<String>) -> String>;
     let _smelt_tmp_42: String;
-    let _smelt_tmp_44: Options;
     let _smelt_tmp_45: PartialOptions;
     let _smelt_tmp_48: PartialOptions;
-    let _smelt_tmp_51: Options;
     let _smelt_tmp_9: Shape = Shape::new();
     let _smelt_tmp_10: String = _smelt_tmp_9.describe();
     let _smelt_tmp_11: Square = Square::new();
@@ -4354,8 +4351,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_31: f64 = parser.run("1950".to_owned())?;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_30), smelt_console_number(_smelt_tmp_31)); };
     let _smelt_tmp_33: Pair<f64> = make_pair(1.0, 2.0);
-    _smelt_tmp_34 = (_smelt_tmp_33.swap.clone())();
-    swapped = _smelt_tmp_34;
+    swapped = (_smelt_tmp_33.swap.clone())();
     _smelt_tmp_35 = (swapped.swap.clone())();
     let _ = { println!("{} {} {}", smelt_console_number(swapped.left), smelt_console_number(swapped.right), smelt_console_number(_smelt_tmp_35.left)); };
     _smelt_tmp_37 = ::std::rc::Rc::new(|closure_arg_0: &SmeltList<String>| {
@@ -4371,8 +4367,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_41: SmeltList<String> = _smelt_tmp_39.map(&*_smelt_tmp_40);
     _smelt_tmp_42 = _smelt_tmp_41.borrow().join(&",".to_owned());
     let _ = { println!("{} {}", _smelt_tmp_38, _smelt_tmp_42); };
-    _smelt_tmp_44 = Options { origin: "*".to_owned(), credentials: None::<bool>, max_age: Some(5.0) };
-    defaults = _smelt_tmp_44;
+    defaults = Options { origin: "*".to_owned(), credentials: None::<bool>, max_age: Some(5.0) };
     _smelt_tmp_45 = PartialOptions { origin: None::<String>, credentials: Some(true), max_age: None::<f64> };
     let _smelt_tmp_46: Options = merge(_smelt_tmp_45);
     merged = _smelt_tmp_46;
@@ -4383,8 +4378,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = { println!("{} {} {}", replaced.origin.clone(), match &replaced.credentials.clone() { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &replaced.max_age.clone() { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
     __smelt_spread = defaults;
     __smelt_spread_value = "b".to_owned();
-    _smelt_tmp_51 = Options { origin: __smelt_spread_value, credentials: __smelt_spread.credentials.clone(), max_age: __smelt_spread.max_age.clone() };
-    copy = _smelt_tmp_51;
+    copy = Options { origin: __smelt_spread_value, credentials: __smelt_spread.credentials.clone(), max_age: __smelt_spread.max_age.clone() };
     let _ = { println!("{} {} {}", copy.origin.clone(), match &copy.max_age.clone() { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &copy.credentials.clone() { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
     return Ok(());
 }
@@ -4614,8 +4608,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Parser<
     fn run(&self, input: String) -> Result<T, Box<dyn std::error::Error>> {
     let mut _smelt_tmp_5: T;
     let _smelt_tmp_6: T;
-    let _smelt_tmp_3: Parsed<T> = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().parse.clone()); (smelt_callable)(input.clone()) };
-    let result: Parsed<T> = _smelt_tmp_3;
+    let result: Parsed<T> = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().parse.clone()); (smelt_callable)(input.clone()) };
     let _smelt_tmp_4: bool = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().validate.clone()); (smelt_callable)(&result.value) };
     let mut _smelt_tmp_5: T = Default::default();
     if _smelt_tmp_4 {
@@ -4657,8 +4650,7 @@ impl YearParser {
     fn run(&self, input: String) -> Result<f64, Box<dyn std::error::Error>> {
     let mut _smelt_tmp_5: f64;
     let _smelt_tmp_6: f64;
-    let _smelt_tmp_3: Parsed<f64> = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().parse.clone()); (smelt_callable)(input.clone()) };
-    let result: Parsed<f64> = _smelt_tmp_3;
+    let result: Parsed<f64> = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().parse.clone()); (smelt_callable)(input.clone()) };
     let _smelt_tmp_4: bool = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().validate.clone()); (smelt_callable)(result.value) };
     let mut _smelt_tmp_5: f64 = 0.0;
     if _smelt_tmp_4 {
@@ -4717,8 +4709,7 @@ impl StrictYear {
     fn run(&self, input: String) -> Result<f64, Box<dyn std::error::Error>> {
     let mut _smelt_tmp_5: f64;
     let _smelt_tmp_6: f64;
-    let _smelt_tmp_3: Parsed<f64> = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().parse.clone()); (smelt_callable)(input.clone()) };
-    let result: Parsed<f64> = _smelt_tmp_3;
+    let result: Parsed<f64> = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().parse.clone()); (smelt_callable)(input.clone()) };
     let _smelt_tmp_4: bool = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().validate.clone()); (smelt_callable)(result.value) };
     let mut _smelt_tmp_5: f64 = 0.0;
     if _smelt_tmp_4 {
@@ -4806,8 +4797,7 @@ pub(crate) fn apply(fn_: &dyn Fn(&SmeltList<String>) -> String) -> String {
 }
 
 pub(crate) fn merge(options: PartialOptions) -> Options {
-    let _smelt_tmp_3: Options = Options { origin: "*".to_owned(), credentials: None::<bool>, max_age: Some(5.0) };
-    let __smelt_spread: Options = _smelt_tmp_3;
+    let __smelt_spread: Options = Options { origin: "*".to_owned(), credentials: None::<bool>, max_age: Some(5.0) };
     let __smelt_spread_1: PartialOptions = options.clone();
     let _smelt_tmp_4: String = __smelt_spread_1.origin.clone().unwrap_or(__smelt_spread.origin.clone());
     let _smelt_tmp_5: Option<bool> = __smelt_spread_1.credentials.clone().or(__smelt_spread.credentials.clone());

@@ -94,8 +94,7 @@ fn main (FuncId(4)) -> None
   bb0:
     %12 = ("GET", "/a", 1.0)
     %13 = ("POST", "/b", 2.0)
-    %14 = [move %12, move %13]
-    %0 = move %14
+    %0 = [move %12, move %13]
     %1 = 0
     goto bb1
   bb1:
@@ -110,8 +109,7 @@ fn main (FuncId(4)) -> None
     %1 = move %19
     goto bb1
   bb4:
-    %20 = ("/c", 7.0)
-    %3 = move %20
+    %3 = ("/c", 7.0)
     %4 = move %3
     %21 = call fn0("DELETE", copy %4[0], copy %4[1]) -> bb7
   bb5:
@@ -146,8 +144,7 @@ fn main (FuncId(4)) -> None
     %34 = call @console_log(move %33) -> bb16
   bb16:
     %35 = ("PATCH", "/maybe", 4.0)
-    %36 = [move %35]
-    %10 = move %36
+    %10 = [move %35]
     %11 = copy %10[0.0]
     %37 = call fn0(copy %11[0], copy %11[1], copy %11[2]) -> bb17
   bb17:

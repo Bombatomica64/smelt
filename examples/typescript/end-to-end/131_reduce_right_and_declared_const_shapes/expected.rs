@@ -3619,10 +3619,8 @@ fn main() {
     let _smelt_tmp_6: (String, f64) = ("tag".to_owned(), 2.0);
     let _smelt_tmp_7: SmeltList<(String, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, f64)> = vec![_smelt_tmp_6.clone()]; smelt_list_items }));
     let _smelt_tmp_8: (f64, SmeltList<(String, f64)>) = (1.0, _smelt_tmp_7);
-    let _smelt_tmp_9: SmeltRecord<String, (f64, SmeltList<(String, f64)>)> = SmeltRecord::from([("/users/:id/posts/:post".to_owned(), _smelt_tmp_5), ("/tags/:tag".to_owned(), _smelt_tmp_8)]);
-    let paths: SmeltRecord<String, (f64, SmeltList<(String, f64)>)> = _smelt_tmp_9;
-    let _smelt_tmp_10: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![3.0, 1.0, 2.0]; smelt_list_items }));
-    let replacement: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_10);
+    let paths: SmeltRecord<String, (f64, SmeltList<(String, f64)>)> = SmeltRecord::from([("/users/:id/posts/:post".to_owned(), _smelt_tmp_5), ("/tags/:tag".to_owned(), _smelt_tmp_8)]);
+    let replacement: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![3.0, 1.0, 2.0]; smelt_list_items }));
     let _smelt_tmp_11: SmeltRecord<String, f64> = param_index_map("/users/:id/posts/:post".to_owned());
     _smelt_tmp_12 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_11.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::Number(value as f64))).collect())) }).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_12); };
@@ -3669,10 +3667,8 @@ pub(crate) fn param_index_map(path: String) -> SmeltRecord<String, f64> {
     let _smelt_tmp_8: SmeltList<(String, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, f64)> = vec![_smelt_tmp_7.clone()]; smelt_list_items }));
     let _smelt_tmp_9: (f64, SmeltList<(String, f64)>) = (1.0, _smelt_tmp_8);
     let _smelt_tmp_10: SmeltRecord<String, (f64, SmeltList<(String, f64)>)> = SmeltRecord::from([("/users/:id/posts/:post".to_owned(), _smelt_tmp_6), ("/tags/:tag".to_owned(), _smelt_tmp_9)]);
-    let _smelt_tmp_11: Option<(f64, SmeltList<(String, f64)>)> = _smelt_tmp_10.get(&path.clone());
-    let path_data: Option<(f64, SmeltList<(String, f64)>)> = _smelt_tmp_11;
-    let _smelt_tmp_12: SmeltRecord<String, f64> = SmeltRecord::from([]);
-    let seed: SmeltRecord<String, f64> = _smelt_tmp_12;
+    let path_data: Option<(f64, SmeltList<(String, f64)>)> = _smelt_tmp_10.get(&path.clone());
+    let seed: SmeltRecord<String, f64> = SmeltRecord::from([]);
     let _smelt_tmp_13: (f64, SmeltList<(String, f64)>) = path_data.clone().expect("optional value was absent after narrowing");
     let _smelt_tmp_14: SmeltList<(String, f64)> = Into::<SmeltList<_>>::into(_smelt_tmp_13.1.clone());
     let _smelt_tmp_16: SmeltRecord<String, f64> = _smelt_tmp_14.borrow().iter().enumerate().rev().fold(seed, |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &_smelt_tmp_14; { let smelt_callback = ::std::rc::Rc::new({

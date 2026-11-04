@@ -4372,8 +4372,7 @@ pub(crate) async fn response_facts() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_3: SmeltResponse = SmeltResponse::from_parts(201.0, "Made".to_owned(), SmeltHeaders::new(), SmeltBody::from_text(&"hi".to_owned()));
     let maybe: Option<SmeltResponse> = Some(_smelt_tmp_3);
     let missing: Option<SmeltResponse> = None::<SmeltResponse>;
-    let _smelt_tmp_4: Option<f64> = maybe.clone().as_ref().map(|_smelt_value| _smelt_value.status());
-    let status: Option<f64> = _smelt_tmp_4;
+    let status: Option<f64> = maybe.clone().as_ref().map(|_smelt_value| _smelt_value.status());
     let _smelt_tmp_5: Option<bool> = maybe.clone().as_ref().map(|_smelt_value| _smelt_value.ok());
     let _smelt_tmp_6: Option<String> = maybe.clone().as_ref().map(|_smelt_value| _smelt_value.status_text());
     let _smelt_tmp_7: Option<f64> = missing.as_ref().map(|_smelt_value| _smelt_value.status());

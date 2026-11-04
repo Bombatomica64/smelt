@@ -96,8 +96,7 @@ fn normalize (FuncId(2)) -> String
   bb0:
     %1 = primitive_cast_string copy %0
     %0 = move %1
-    %2 = unknown_cast copy %0 as t3
-    %3 = move %2
+    %3 = unknown_cast copy %0 as t3
     %4 = "http"
     %5 = string_starts_with move %3, move %4
     switch move %5 ? bb1 : bb2

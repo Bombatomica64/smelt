@@ -76,13 +76,10 @@ fn main (FuncId(2)) -> None
     %28 temp: String
     %29 temp: None
   bb0:
-    %4 = {"plain": 1.0, "camelCase": "a", "snake_case": "b", "aVeryLongCamelName": 41.0}
-    %0 = move %4
-    %5 = {"camelCase": "only"}
-    %1 = move %5
+    %0 = {"plain": 1.0, "camelCase": "a", "snake_case": "b", "aVeryLongCamelName": 41.0}
+    %1 = {"camelCase": "only"}
     %6 = {"camelCase": "deep", "plain": 2.0}
-    %7 = {"innerShape": move %6}
-    %2 = move %7
+    %2 = {"innerShape": move %6}
     %8 = call fn1(copy %0.field6) -> bb1
   bb1:
     %9 = call @console_log(move %8) -> bb2

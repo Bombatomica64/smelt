@@ -60,8 +60,7 @@ async fn main (FuncId(0)) -> None throws
     %57 temp: Future<None>
     %58 temp: None
   bb0:
-    %4 = crypto_random_uuid
-    %0 = move %4
+    %0 = crypto_random_uuid
     %5 = len copy %0
     %6 = call @console_log(move %5) -> bb1
   bb1:
@@ -80,8 +79,7 @@ async fn main (FuncId(0)) -> None throws
     %15 = move %14 == copy %0
     %16 = call @console_log(move %15) -> bb6
   bb6:
-    %17 = string_split copy %0, "-", _
-    %1 = move %17
+    %1 = string_split copy %0, "-", _
     %18 = len copy %1
     %19 = call @console_log(move %18) -> bb7
   bb7:
@@ -98,8 +96,7 @@ async fn main (FuncId(0)) -> None throws
     %28 = call @console_log(move %27) -> bb10
   bb10:
     %29 = text_encoder_new
-    %30 = text_encoder_encode move %29 "abc"
-    %2 = move %30
+    %2 = text_encoder_encode move %29 "abc"
     %31 = crypto_digest "SHA-1", copy %2
     %32 = await move %31
     %33 = byte_array_byte_length move %32
@@ -126,8 +123,7 @@ async fn main (FuncId(0)) -> None throws
     %50 = call @console_log(move %49) -> bb15
   bb15:
     %51 = text_encoder_new
-    %52 = text_encoder_encode move %51 ""
-    %3 = move %52
+    %3 = text_encoder_encode move %51 ""
     %53 = crypto_digest "SHA-256", move %3
     %54 = await move %53
     %55 = byte_array_byte_length move %54

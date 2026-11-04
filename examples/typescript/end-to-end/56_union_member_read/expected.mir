@@ -28,8 +28,7 @@ fn header_of (FuncId(0)) -> String
     %4 = copy %7.field9
     goto bb3
   bb3:
-    %8 = move %4
-    %2 = move %8
+    %2 = move %4
     %9 = copy %2 == undefined
     switch move %9 ? bb4 : bb5
   bb4:
@@ -75,8 +74,7 @@ fn status_header_of (FuncId(1)) -> String
     %5 = copy %8.field9
     goto bb5
   bb5:
-    %9 = move %5
-    %1 = move %9
+    %1 = move %5
     %10 = copy %1 != undefined
     switch move %10 ? bb6 : bb7
   bb6:
@@ -169,8 +167,7 @@ fn main (FuncId(3)) -> None
     %1 = ["x-a", "from-init"]
     %2 = [move %1]
     %3 = headers_new move %2
-    %4 = {"headers": move %3}
-    %0 = move %4
+    %0 = {"headers": move %3}
     %5 = call fn0(move %0, "x-a") -> bb1
   bb1:
     %6 = call @console_log(move %5) -> bb2

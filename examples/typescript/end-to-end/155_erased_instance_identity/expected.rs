@@ -4015,10 +4015,8 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let p: Point;
     let q: Point;
     let alias: Point;
-    let _smelt_tmp_10: Context;
     let _smelt_tmp_12: String;
     let _smelt_tmp_13: bool;
-    let _smelt_tmp_17: Context;
     let _smelt_tmp_19: String;
     let _smelt_tmp_20: bool;
     let _smelt_tmp_21: bool;
@@ -4033,8 +4031,7 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         Ok(Err(__smelt_error)) => {
             let err = smelt_thrown_value(&*__smelt_error);
-    _smelt_tmp_10 = __smelt_from_unknown_record_0((err).into_smelt_unknown());
-    back = _smelt_tmp_10;
+    back = __smelt_from_unknown_record_0((err).into_smelt_unknown());
     back.0.borrow_mut().res = "from-catch".to_owned();
     let _ = back.header("x-one".to_owned());
     _smelt_tmp_12 = c.0.borrow().headers.clone().borrow().join(&",".to_owned());
@@ -4044,8 +4041,7 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let err = smelt_panic_error_value(&*__smelt_panic);
-    _smelt_tmp_10 = __smelt_from_unknown_record_0((err).into_smelt_unknown());
-    back = _smelt_tmp_10;
+    back = __smelt_from_unknown_record_0((err).into_smelt_unknown());
     back.0.borrow_mut().res = "from-catch".to_owned();
     let _ = back.header("x-one".to_owned());
     _smelt_tmp_12 = c.0.borrow().headers.clone().borrow().join(&",".to_owned());
@@ -4062,8 +4058,7 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         Err(__smelt_error) => {
             let err_1 = smelt_thrown_value(&*__smelt_error);
-    _smelt_tmp_17 = __smelt_from_unknown_record_0((err_1).into_smelt_unknown());
-    back_1 = _smelt_tmp_17;
+    back_1 = __smelt_from_unknown_record_0((err_1).into_smelt_unknown());
     let _ = back_1.header("x-two".to_owned());
     _smelt_tmp_19 = c.0.borrow().headers.clone().borrow().join(&",".to_owned());
     _smelt_tmp_20 = (::std::rc::Rc::as_ptr(&(back_1.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(c.clone()).0) as *const () as usize);
@@ -4075,8 +4070,7 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let err_1 = smelt_panic_error_value(&*__smelt_panic);
-    _smelt_tmp_17 = __smelt_from_unknown_record_0((err_1).into_smelt_unknown());
-    back_1 = _smelt_tmp_17;
+    back_1 = __smelt_from_unknown_record_0((err_1).into_smelt_unknown());
     let _ = back_1.header("x-two".to_owned());
     _smelt_tmp_19 = c.0.borrow().headers.clone().borrow().join(&",".to_owned());
     _smelt_tmp_20 = (::std::rc::Rc::as_ptr(&(back_1.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(c.clone()).0) as *const () as usize);

@@ -151,9 +151,7 @@ fn main() {
     let mut row_count: usize;
     let mut p: String;
     let mut _smelt_tmp_18: bool;
-    let mut _smelt_tmp_19: SmeltList<f64>;
     let mut _smelt_tmp_20: bool;
-    let mut _smelt_tmp_21: usize;
     let mut _smelt_tmp_22: bool;
     let mut _smelt_tmp_23: String;
     let mut _smelt_tmp_24: f64;
@@ -170,12 +168,9 @@ fn main() {
     let mut _smelt_tmp_36: f64;
     let mut _smelt_tmp_37: usize;
     let mut _smelt_tmp_38: usize;
-    let mut _smelt_tmp_42: SmeltList<String>;
     let mut _smelt_tmp_43: SmeltList<String>;
     let mut _smelt_tmp_44: SmeltList<String>;
-    let mut _smelt_tmp_45: SmeltList<SmeltList<String>>;
     let mut _smelt_tmp_46: bool;
-    let mut _smelt_tmp_47: usize;
     let mut _smelt_tmp_48: bool;
     let mut _smelt_tmp_49: bool;
     let mut _smelt_tmp_50: f64;
@@ -192,20 +187,17 @@ fn main() {
     let mut _smelt_tmp_62: f64;
     let mut _smelt_tmp_63: f64;
     let mut _smelt_tmp_64: f64;
-    let _smelt_tmp_17: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    let mut out: SmeltList<String> = Into::<SmeltList<_>>::into(_smelt_tmp_17);
+    let mut out: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
     let mut i: usize = 0;
     let len: usize = 3;
     loop {
     _smelt_tmp_18 = i < len;
     if !(_smelt_tmp_18) { break; }
-    _smelt_tmp_19 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![10.0, 20.0]; smelt_list_items }));
-    row = Into::<SmeltList<_>>::into(_smelt_tmp_19);
+    row = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![10.0, 20.0]; smelt_list_items }));
     _smelt_tmp_20 = i != 1;
     if _smelt_tmp_20 {
     i_1 = 0;
-    _smelt_tmp_21 = row.len();
-    len_1 = _smelt_tmp_21;
+    len_1 = row.len();
     while i_1 < len_1 {
     _smelt_tmp_23 = "".to_owned() + &smelt_number_to_string(row.borrow().get(i_1).cloned().unwrap_or_else(|| 0.0));
     _smelt_tmp_24 = { let smelt_push_item = _smelt_tmp_23; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
@@ -261,19 +253,16 @@ fn main() {
     x_1 = "inner".to_owned();
     let _ = { println!("{}", x_1); };
     let _ = { println!("{}", x); };
-    _smelt_tmp_42 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    seen = Into::<SmeltList<_>>::into(_smelt_tmp_42);
+    seen = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
     _smelt_tmp_43 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "*".to_owned()]; smelt_list_items }));
     _smelt_tmp_44 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["b".to_owned()]; smelt_list_items }));
-    _smelt_tmp_45 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_43.clone(), _smelt_tmp_44.clone()]; smelt_list_items }));
-    rows = Into::<SmeltList<_>>::into(_smelt_tmp_45);
+    rows = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_43.clone(), _smelt_tmp_44.clone()]; smelt_list_items }));
     r = 0;
     loop {
     _smelt_tmp_46 = r < 2;
     if !(_smelt_tmp_46) { break; }
     j_1 = 0;
-    _smelt_tmp_47 = rows.len();
-    row_count = _smelt_tmp_47;
+    row_count = rows.len();
     while j_1 < row_count {
     _smelt_tmp_49 = r == 1;
     if _smelt_tmp_49 {

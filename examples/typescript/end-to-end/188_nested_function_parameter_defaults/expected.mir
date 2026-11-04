@@ -52,8 +52,7 @@ fn hoisted_call (FuncId(2)) -> Float
   bb0:
     %3 = closure ClosureId(2) []
     %1 = move %3
-    %4 = closure_call copy %1(copy %0, none, none)
-    %2 = move %4
+    %2 = closure_call copy %1(copy %0, none, none)
     %5 = closure_call move %1(copy %0, "abc", true)
     %6 = move %2 + move %5
     return move %6

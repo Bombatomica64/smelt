@@ -3574,13 +3574,11 @@ fn main() {
     let _smelt_tmp_21: SmeltList<String>;
     let _smelt_tmp_22: String;
     let _smelt_tmp_24: ::std::rc::Rc<dyn Fn(String) -> f64>;
-    let _smelt_tmp_25: SmeltList<f64>;
     let _smelt_tmp_26: String;
     let _smelt_tmp_29: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> bool>;
     let _smelt_tmp_30: SmeltList<String>;
     let _smelt_tmp_31: String;
-    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "abc".to_owned(), "ab".to_owned(), "abcd".to_owned()]; smelt_list_items }));
-    let words: SmeltList<String> = Into::<SmeltList<_>>::into(_smelt_tmp_3);
+    let words: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "abc".to_owned(), "ab".to_owned(), "abcd".to_owned()]; smelt_list_items }));
     let _smelt_tmp_4 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
     let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
     _smelt_tmp_3
@@ -3631,10 +3629,9 @@ fn main() {
     _smelt_tmp_24 = ::std::rc::Rc::new(|closure_arg_0: String| {
     (closure_arg_0.chars().count() as i64) as f64
     });
-    _smelt_tmp_25 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String| {
+    lengths = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String| {
     (closure_arg_0.chars().count() as i64) as f64
     }); words.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone()) }).collect::<Vec<_>>() });
-    lengths = Into::<SmeltList<_>>::into(_smelt_tmp_25);
     _smelt_tmp_26 = lengths.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_26); };
     let _smelt_tmp_28: Checker = Checker::new();

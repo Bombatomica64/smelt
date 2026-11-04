@@ -412,7 +412,6 @@ fn main() {
     let filled: String;
     let response: SmeltResponse;
     let _smelt_tmp_23: bool;
-    let _smelt_tmp_24: SmeltHeaders;
     let _smelt_tmp_25: ();
     let _smelt_tmp_26: Option<String>;
     let _smelt_tmp_27: String;
@@ -420,13 +419,11 @@ fn main() {
     let _smelt_tmp_29: Option<String>;
     let _smelt_tmp_30: String;
     let _smelt_tmp_32: bool;
-    let _smelt_tmp_33: SmeltHeaders;
     let _smelt_tmp_34: Option<String>;
     let _smelt_tmp_35: String;
     let _smelt_tmp_37: bool;
     let _smelt_tmp_38: bool;
     let _smelt_tmp_40: ::std::collections::HashMap<String, String>;
-    let _smelt_tmp_41: SmeltResponse;
     let _smelt_tmp_42: SmeltHeaders;
     let _smelt_tmp_13: Bag = Bag::new();
     bag = _smelt_tmp_13;
@@ -443,8 +440,7 @@ fn main() {
     __smelt_logical_2 = SmeltHeaders::new();
     _smelt_tmp_23 = maybe.clone().is_none();
     if _smelt_tmp_23 {
-    _smelt_tmp_24 = SmeltHeaders::new();
-    __smelt_logical_value_3 = _smelt_tmp_24;
+    __smelt_logical_value_3 = SmeltHeaders::new();
     maybe = Some(__smelt_logical_value_3.clone());
     __smelt_logical_2 = __smelt_logical_value_3;
     } else {
@@ -461,8 +457,7 @@ fn main() {
     __smelt_logical_5 = SmeltHeaders::new();
     _smelt_tmp_32 = maybe.clone().is_none();
     if _smelt_tmp_32 {
-    _smelt_tmp_33 = SmeltHeaders::new();
-    __smelt_logical_value_6 = _smelt_tmp_33;
+    __smelt_logical_value_6 = SmeltHeaders::new();
     maybe = Some(__smelt_logical_value_6.clone());
     __smelt_logical_5 = __smelt_logical_value_6;
     } else {
@@ -486,8 +481,7 @@ fn main() {
     filled = __smelt_logical_9;
     let _ = { println!("{} {}", filled, text); };
     _smelt_tmp_40 = ::std::collections::HashMap::from([("x-from".to_owned(), "response".to_owned())]);
-    _smelt_tmp_41 = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_40.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"body".to_owned()));
-    response = _smelt_tmp_41;
+    response = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_40.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"body".to_owned()));
     _smelt_tmp_42 = response.headers();
     let _ = bag.adopt(_smelt_tmp_42);
     let _ = bag.write("x-added".to_owned(), "4".to_owned());
@@ -508,7 +502,6 @@ impl Bag {
     let headers: Option<SmeltHeaders>;
     let mut _smelt_tmp_7: Option<SmeltHeaders>;
     let _smelt_tmp_8: bool;
-    let _smelt_tmp_9: SmeltHeaders;
     let _smelt_tmp_10: SmeltHeaders;
     let _smelt_tmp_11: ();
     let _smelt_tmp_6: bool = !(self.0.borrow().current.clone().is_none());
@@ -522,8 +515,7 @@ impl Bag {
     __smelt_logical_3 = SmeltHeaders::new();
     _smelt_tmp_8 = self.0.borrow().prepared.clone().is_none();
     if _smelt_tmp_8 {
-    _smelt_tmp_9 = SmeltHeaders::new();
-    __smelt_logical_value_4 = _smelt_tmp_9;
+    __smelt_logical_value_4 = SmeltHeaders::new();
     self.0.borrow_mut().prepared = Some(__smelt_logical_value_4.clone());
     __smelt_logical_3 = __smelt_logical_value_4;
     } else {

@@ -11,8 +11,7 @@ fn defer (FuncId(0)) -> None
     %8 temp: Bool
     %9 temp: None
   bb0:
-    %3 = []
-    %1 = move %3
+    %1 = []
     %4 = closure ClosureId(0) [copy %1]
     %5 = closure_call copy %0(move %4)
     %6 = 0

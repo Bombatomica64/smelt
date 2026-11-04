@@ -4817,8 +4817,6 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_5: SmeltList<f64>;
     let _smelt_tmp_6: SmeltTypedArray;
     let _smelt_tmp_8: String;
-    let _smelt_tmp_10: Keyed;
-    let _smelt_tmp_11: Noted;
     let _smelt_tmp_2 = SmeltFuture::from_future(Box::pin(body_text(SmeltUnion5::M0("hello".to_owned()))));
     _smelt_tmp_3 = _smelt_tmp_2.await?;
     let _ = { println!("{}", _smelt_tmp_3); };
@@ -4827,10 +4825,8 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_7 = SmeltFuture::from_future(Box::pin(body_text(SmeltUnion5::M1(_smelt_tmp_6))));
     _smelt_tmp_8 = _smelt_tmp_7.await?;
     let _ = { println!("{}", _smelt_tmp_8); };
-    _smelt_tmp_10 = Keyed { tag: "first".to_owned(), kind: "k".to_owned() };
-    counted = _smelt_tmp_10;
-    _smelt_tmp_11 = Noted { tag: "third".to_owned(), note: "n".to_owned() };
-    noted = _smelt_tmp_11;
+    counted = Keyed { tag: "first".to_owned(), kind: "k".to_owned() };
+    noted = Noted { tag: "third".to_owned(), note: "n".to_owned() };
     let _smelt_tmp_12: String = retag(SmeltUnion2::M0(counted), "second".to_owned());
     let _ = { println!("{}", _smelt_tmp_12); };
     let _smelt_tmp_14: String = retag(SmeltUnion2::M1(noted), "fourth".to_owned());

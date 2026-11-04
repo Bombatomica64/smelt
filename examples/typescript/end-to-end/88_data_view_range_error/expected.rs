@@ -4135,11 +4135,8 @@ fn smelt_typed_array_write_origin(record: &SmeltObject, offset: usize, encoded: 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let windowed: SmeltDataView;
     let _smelt_tmp_27: f64;
-    let _smelt_tmp_31: SmeltDataView;
-    let _smelt_tmp_3: SmeltArrayBuffer = SmeltArrayBuffer::new(((4.0) as f64).max(0.0) as usize);
-    let buffer: SmeltArrayBuffer = _smelt_tmp_3;
-    let _smelt_tmp_4: SmeltDataView = SmeltDataView::over_buffer(&buffer.clone(), 0, None);
-    let view: SmeltDataView = _smelt_tmp_4;
+    let buffer: SmeltArrayBuffer = SmeltArrayBuffer::new(((4.0) as f64).max(0.0) as usize);
+    let view: SmeltDataView = SmeltDataView::over_buffer(&buffer.clone(), 0, None);
     let _ = smelt_data_view_set_throwing(&view.clone(), SmeltTypedArrayKind::Int16, (2.0) as f64, 258.0, false)?;
     let _smelt_tmp_6: f64 = smelt_data_view_get_throwing(&view.clone(), SmeltTypedArrayKind::Int16, (2.0) as f64, false)?;
     let _smelt_tmp_7: f64 = smelt_data_view_get_throwing(&view.clone(), SmeltTypedArrayKind::Uint8, (2.0) as f64, false)?;
@@ -4166,8 +4163,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_28: String = read_at(view.clone(), _smelt_tmp_27);
     let _smelt_tmp_29: String = read_at(view, f64::INFINITY);
     let _ = { println!("{} {}", _smelt_tmp_28, _smelt_tmp_29); };
-    _smelt_tmp_31 = SmeltDataView::over_buffer(&buffer, ((2.0) as f64).max(0.0) as usize, Some((((2.0)) as f64).max(0.0) as usize));
-    windowed = _smelt_tmp_31;
+    windowed = SmeltDataView::over_buffer(&buffer, ((2.0) as f64).max(0.0) as usize, Some((((2.0)) as f64).max(0.0) as usize));
     let _smelt_tmp_32: String = read_byte(windowed.clone(), 1.0);
     let _smelt_tmp_33: String = read_byte(windowed.clone(), 2.0);
     let _ = { println!("{} {}", _smelt_tmp_32, _smelt_tmp_33); };

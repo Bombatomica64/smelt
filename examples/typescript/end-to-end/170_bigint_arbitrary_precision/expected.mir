@@ -442,10 +442,8 @@ fn main (FuncId(4)) -> None throws
     %141 = copy %4 > copy %1
     %142 = call @console_log("update:", move %4, move %141) -> bb64
   bb64:
-    %143 = {copy %1: "2^64", copy %2: "huge"}
-    %5 = move %143
-    %144 = set{1n, 2n, 1n, copy %1, copy %1}
-    %6 = move %144
+    %5 = {copy %1: "2^64", copy %2: "huge"}
+    %6 = set{1n, 2n, 1n, copy %1, copy %1}
     %145 = dict_get copy %5, copy %1, _
     %146 = copy %2 + 1n
     %147 = dict_contains_key move %5, move %146, own
@@ -456,8 +454,7 @@ fn main (FuncId(4)) -> None throws
     %151 = -1n
     %152 = [copy %2, move %151, move %0, 0n]
     %153 = closure ClosureId(0) []
-    %154 = list_sort move %152 <comparator>
-    %7 = move %154
+    %7 = list_sort move %152 <comparator>
     %155 = closure ClosureId(1) []
     %156 = list_reduce copy %7, 0n, move %155
     %157 = call @console_log("sorted:", move %7, move %156) -> bb66

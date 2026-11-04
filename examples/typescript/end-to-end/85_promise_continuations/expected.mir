@@ -49,28 +49,24 @@ async fn run (FuncId(1)) -> String throws
   bb1:
     %5 = closure ClosureId(0) []
     %6 = async_catch(move %4, move %5)
-    %7 = await move %6
-    %0 = move %7
+    %0 = await move %6
     %8 = call fn0("kept") -> bb2
   bb2:
     %9 = closure ClosureId(1) []
     %10 = async_catch(move %8, move %9)
-    %11 = await move %10
-    %1 = move %11
+    %1 = await move %10
     %12 = call fn0("mapped") -> bb3
   bb3:
     %13 = closure ClosureId(2) []
     %14 = async_then(move %12, move %13)
-    %15 = await move %14
-    %2 = move %15
+    %2 = await move %14
     %16 = call fn0("bad") -> bb4
   bb4:
     %17 = closure ClosureId(3) []
     %18 = async_catch(move %16, move %17)
     %19 = closure ClosureId(4) []
     %20 = async_then(move %18, move %19)
-    %21 = await move %20
-    %3 = move %21
+    %3 = await move %20
     %22 = [move %0, move %1, move %2, move %3]
     %23 = string_join move %22, " | "
     return move %23

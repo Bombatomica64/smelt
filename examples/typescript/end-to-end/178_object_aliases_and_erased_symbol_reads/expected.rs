@@ -3609,7 +3609,6 @@ fn main() {
     let _smelt_tmp_12: (String, String);
     let _smelt_tmp_13: (String, String);
     let _smelt_tmp_14: SmeltList<(String, String)>;
-    let _smelt_tmp_16: SmeltList<(String, String)>;
     let match_: SmeltUnknown = SmeltUnknown::Symbol("Symbol()@663".to_owned().into());
     let _smelt_tmp_3: String = configure(None::<Options>);
     _smelt_tmp_4 = Options { label: Some("custom".to_owned()), limit: None::<f64>, tags: None::<SmeltList<String>> };
@@ -3625,8 +3624,7 @@ fn main() {
     _smelt_tmp_14 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String)> = vec![_smelt_tmp_12.clone(), _smelt_tmp_13.clone()]; smelt_list_items }));
     let _smelt_tmp_15: Request = Request::new(_smelt_tmp_14, Some("ctx".to_owned()));
     req = _smelt_tmp_15;
-    _smelt_tmp_16 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String)> = vec![]; smelt_list_items }));
-    no_routes = Into::<SmeltList<_>>::into(_smelt_tmp_16);
+    no_routes = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String)> = vec![]; smelt_list_items }));
     let _smelt_tmp_17: String = paths(req.clone());
     let _smelt_tmp_18: String = context_of(req);
     let _smelt_tmp_19: Request = Request::new(no_routes, None::<String>);

@@ -70,14 +70,12 @@ fn main (FuncId(0)) -> None
     %67 temp: None
   bb0:
     %9 = string_chars "hello"
-    %10 = list_to_set move %9
-    %0 = move %10
+    %0 = list_to_set move %9
     %11 = set_values copy %0
     %12 = string_join move %11, "|"
     %13 = call @console_log(move %12) -> bb1
   bb1:
-    %14 = []
-    %1 = move %14
+    %1 = []
     %15 = set_values copy %0
     %16 = 0
     goto bb2
@@ -96,8 +94,7 @@ fn main (FuncId(0)) -> None
     %20 = string_join move %1, "|"
     %21 = call @console_log(move %20) -> bb6
   bb6:
-    %22 = []
-    %3 = move %22
+    %3 = []
     %23 = set_values copy %0
     %24 = 0
     goto bb7
@@ -132,8 +129,7 @@ fn main (FuncId(0)) -> None
     %41 = string_join move %40, "|"
     %42 = call @console_log(move %41) -> bb14
   bb14:
-    %43 = set{"c", "a", "b"}
-    %5 = move %43
+    %5 = set{"c", "a", "b"}
     %44 = set_delete copy %5, "a"
     %45 = set_add copy %5, "z"
     %46 = set_add copy %5, "c"
@@ -144,14 +140,12 @@ fn main (FuncId(0)) -> None
     %50 = len move %5
     %51 = call @console_log(move %50) -> bb16
   bb16:
-    %52 = set{30.0, 10.0, 20.0, 10.0}
-    %6 = move %52
+    %6 = set{30.0, 10.0, 20.0, 10.0}
     %53 = set_values move %6
     %54 = string_join move %53, "|"
     %55 = call @console_log(move %54) -> bb17
   bb17:
-    %56 = set{true, false, true}
-    %7 = move %56
+    %7 = set{true, false, true}
     %57 = set_values move %7
     %58 = closure ClosureId(0) []
     %59 = list_map move %57, move %58

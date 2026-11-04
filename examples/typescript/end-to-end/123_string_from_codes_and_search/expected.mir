@@ -32,8 +32,7 @@ fn main (FuncId(0)) -> None
     %29 temp: Float
     %30 temp: None
   bb0:
-    %4 = [72.0, 101.0, 108.0, 108.0, 111.0]
-    %0 = move %4
+    %0 = [72.0, 101.0, 108.0, 108.0, 111.0]
     %1 = ""
     %2 = 0
     goto bb1
@@ -68,8 +67,7 @@ fn main (FuncId(0)) -> None
     %21 = len move %20
     %22 = call @console_log(move %21) -> bb8
   bb8:
-    %23 = external_new0("[\&<>'"]", "")
-    %3 = move %23
+    %3 = external_new0("[\&<>'"]", "")
     %24 = string_search "I <b>", move %3
     %25 = string_search "ab", "b"
     %26 = external_new0("<", "")

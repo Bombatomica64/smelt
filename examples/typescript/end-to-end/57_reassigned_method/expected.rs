@@ -3685,15 +3685,13 @@ impl Router {
     let _smelt_tmp_8: String;
     let _smelt_tmp_9: String;
     let _smelt_tmp_10: String;
-    let _smelt_tmp_4: String = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().pick.clone()); (smelt_callable)(path.clone()) };
-    let before: String = _smelt_tmp_4;
+    let before: String = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().pick.clone()); (smelt_callable)(path.clone()) };
     let _smelt_tmp_5 = ::std::rc::Rc::new(|closure_arg_0: String| {
     let _smelt_tmp_1: String = "fast:".to_owned() + &closure_arg_0.clone();
     _smelt_tmp_1.clone()
     });
     self.0.borrow_mut().pick = _smelt_tmp_5.clone();
-    let _smelt_tmp_6: String = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().pick.clone()); (smelt_callable)(path.clone()) };
-    let after: String = _smelt_tmp_6;
+    let after: String = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().pick.clone()); (smelt_callable)(path.clone()) };
     let _smelt_tmp_7: String = self.describe(path.clone());
     _smelt_tmp_8 = self.0.borrow().log.clone().clone() + &_smelt_tmp_7;
     self.0.borrow_mut().log = _smelt_tmp_8;

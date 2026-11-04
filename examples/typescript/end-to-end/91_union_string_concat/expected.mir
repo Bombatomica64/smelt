@@ -42,24 +42,21 @@ async fn main (FuncId(1)) -> None throws
     %28 temp: Future<None>
     %29 temp: None
   bb0:
-    %5 = ["head"]
-    %0 = move %5
+    %0 = ["head"]
     %6 = copy %0[0.0] + "-tail"
     %0[0.0] = move %6
     %7 = copy %0[0.0] + "!"
     %0[0.0] = move %7
     %8 = call @console_log(copy %0[0.0]) -> bb1
   bb1:
-    %9 = copy %0[0.0] + " and more"
-    %1 = move %9
+    %1 = copy %0[0.0] + " and more"
     %10 = call @console_log(move %1) -> bb2
   bb2:
     %11 = "prefix:" + copy %0[0.0]
     %12 = call @console_log(move %11) -> bb3
   bb3:
     %13 = async_resolve(0.0, "second")
-    %14 = ["first", move %13]
-    %2 = move %14
+    %2 = ["first", move %13]
     %15 = "tagged:" + copy %2[1.0]
     %16 = call @console_log(move %15) -> bb4
   bb4:

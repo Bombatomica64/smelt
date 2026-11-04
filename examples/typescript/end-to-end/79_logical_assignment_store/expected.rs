@@ -3567,13 +3567,11 @@ fn main() {
     let __smelt_logical_value_30: f64;
     let mut truthy: f64;
     let __smelt_logical_value_32: f64;
-    let _smelt_tmp_39: SmeltRecord<String, f64>;
     let _smelt_tmp_40: String;
     let _smelt_tmp_41: String;
     let _smelt_tmp_42: String;
     let _smelt_tmp_43: String;
     let _smelt_tmp_44: String;
-    let _smelt_tmp_46: SmeltRecord<String, f64>;
     let _smelt_tmp_47: String;
     let _smelt_tmp_48: String;
     let _smelt_tmp_49: String;
@@ -3590,7 +3588,6 @@ fn main() {
     let _smelt_tmp_61: String;
     let _smelt_tmp_62: String;
     let _smelt_tmp_63: String;
-    let _smelt_tmp_65: SmeltRecord<String, f64>;
     let _smelt_tmp_66: bool;
     let _smelt_tmp_67: bool;
     let _smelt_tmp_68: String;
@@ -3598,7 +3595,6 @@ fn main() {
     let _smelt_tmp_70: String;
     let _smelt_tmp_71: String;
     let _smelt_tmp_72: String;
-    let _smelt_tmp_74: SmeltRecord<String, Leaf>;
     let _smelt_tmp_75: Option<Leaf>;
     let _smelt_tmp_76: bool;
     let _smelt_tmp_77: bool;
@@ -3619,7 +3615,6 @@ fn main() {
     let _smelt_tmp_95: SmeltList<String>;
     let _smelt_tmp_96: String;
     let _smelt_tmp_97: String;
-    let _smelt_tmp_99: SmeltRecord<String, f64>;
     let _smelt_tmp_100: Option<f64>;
     let _smelt_tmp_101: bool;
     let _smelt_tmp_102: SmeltList<String>;
@@ -3628,14 +3623,12 @@ fn main() {
     let _smelt_tmp_105: String;
     let _smelt_tmp_106: String;
     let _smelt_tmp_107: String;
-    let _smelt_tmp_109: SmeltRecord<String, f64>;
     let _smelt_tmp_110: Option<f64>;
     let _smelt_tmp_111: bool;
     let _smelt_tmp_112: SmeltList<String>;
     let _smelt_tmp_113: f64;
     let _smelt_tmp_114: String;
     let _smelt_tmp_115: String;
-    let _smelt_tmp_117: SmeltRecord<String, f64>;
     let _smelt_tmp_118: Option<f64>;
     let _smelt_tmp_119: bool;
     let _smelt_tmp_120: String;
@@ -3643,7 +3636,6 @@ fn main() {
     let _smelt_tmp_123: bool;
     let _smelt_tmp_124: String;
     let _smelt_tmp_125: String;
-    let _smelt_tmp_127: SmeltRecord<String, Option<f64>>;
     let _smelt_tmp_128: bool;
     let _smelt_tmp_129: String;
     let _smelt_tmp_130: String;
@@ -3660,8 +3652,7 @@ fn main() {
     let _smelt_tmp_36: String = smelt_number_to_string(local);
     let _smelt_tmp_37: String = _smelt_tmp_35 + &_smelt_tmp_36;
     let _ = { println!("{}", _smelt_tmp_37); };
-    _smelt_tmp_39 = SmeltRecord::from([("field".to_owned(), 0.0)]);
-    holder = _smelt_tmp_39;
+    holder = SmeltRecord::from([("field".to_owned(), 0.0)]);
     holder.insert("field".to_owned(), 5.0);
     field_value = 5.0;
     _smelt_tmp_40 = smelt_number_to_string(field_value);
@@ -3670,8 +3661,7 @@ fn main() {
     _smelt_tmp_43 = smelt_number_to_string(holder.get(&"field".to_owned()).expect("missing field"));
     _smelt_tmp_44 = _smelt_tmp_42 + &_smelt_tmp_43;
     let _ = { println!("{}", _smelt_tmp_44); };
-    _smelt_tmp_46 = SmeltRecord::from([]);
-    numbers = _smelt_tmp_46;
+    numbers = SmeltRecord::from([]);
     numbers.insert("a".to_owned(), 5.0);
     element_value = 5.0;
     _smelt_tmp_47 = smelt_number_to_string(element_value);
@@ -3702,8 +3692,7 @@ fn main() {
     _smelt_tmp_62 = smelt_number_to_string(falsy_local);
     _smelt_tmp_63 = _smelt_tmp_61 + &_smelt_tmp_62;
     let _ = { println!("{}", _smelt_tmp_63); };
-    _smelt_tmp_65 = SmeltRecord::from([("field".to_owned(), 0.0)]);
-    falsy_holder = _smelt_tmp_65;
+    falsy_holder = SmeltRecord::from([("field".to_owned(), 0.0)]);
     __smelt_logical_11 = 0.0;
     _smelt_tmp_66 = falsy_holder.get(&"field".to_owned()).expect("missing field") != 0.0;
     _smelt_tmp_67 = !(_smelt_tmp_66);
@@ -3721,8 +3710,7 @@ fn main() {
     _smelt_tmp_71 = smelt_number_to_string(falsy_holder.get(&"field".to_owned()).expect("missing field"));
     _smelt_tmp_72 = _smelt_tmp_70 + &_smelt_tmp_71;
     let _ = { println!("{}", _smelt_tmp_72); };
-    _smelt_tmp_74 = SmeltRecord::from([]);
-    leaves = _smelt_tmp_74;
+    leaves = SmeltRecord::from([]);
     __smelt_logical_15 = None::<Leaf>;
     _smelt_tmp_75 = leaves.clone().get(&"a".to_owned());
     _smelt_tmp_76 = !(_smelt_tmp_75.is_none());
@@ -3765,8 +3753,7 @@ fn main() {
     _smelt_tmp_96 = _smelt_tmp_95.borrow().join(&",".to_owned());
     _smelt_tmp_97 = _smelt_tmp_94 + &_smelt_tmp_96;
     let _ = { println!("{}", _smelt_tmp_97); };
-    _smelt_tmp_99 = SmeltRecord::from([]);
-    nullish = _smelt_tmp_99;
+    nullish = SmeltRecord::from([]);
     _smelt_tmp_100 = nullish.clone().get(&"a".to_owned());
     _smelt_tmp_101 = _smelt_tmp_100.is_none();
     if _smelt_tmp_101 {
@@ -3780,8 +3767,7 @@ fn main() {
     _smelt_tmp_106 = smelt_number_to_string(nullish.get(&"a".to_owned().clone()).unwrap_or(0.0));
     _smelt_tmp_107 = _smelt_tmp_105 + &_smelt_tmp_106;
     let _ = { println!("{}", _smelt_tmp_107); };
-    _smelt_tmp_109 = SmeltRecord::from([]);
-    conjunction = _smelt_tmp_109;
+    conjunction = SmeltRecord::from([]);
     _smelt_tmp_110 = conjunction.clone().get(&"a".to_owned());
     _smelt_tmp_111 = _smelt_tmp_110.clone().is_some_and(|value| value != 0.0 && !value.is_nan());
     if _smelt_tmp_111 {
@@ -3793,8 +3779,7 @@ fn main() {
     _smelt_tmp_114 = smelt_number_to_string(_smelt_tmp_113);
     _smelt_tmp_115 = "and absent: ".to_owned() + &_smelt_tmp_114;
     let _ = { println!("{}", _smelt_tmp_115); };
-    _smelt_tmp_117 = SmeltRecord::from([("a".to_owned(), 3.0)]);
-    present = _smelt_tmp_117;
+    present = SmeltRecord::from([("a".to_owned(), 3.0)]);
     _smelt_tmp_118 = present.clone().get(&"a".to_owned());
     _smelt_tmp_119 = _smelt_tmp_118.clone().is_some_and(|value| value != 0.0 && !value.is_nan());
     if _smelt_tmp_119 {
@@ -3813,8 +3798,7 @@ fn main() {
     _smelt_tmp_124 = absent_local.map_or_else(|| "undefined".to_owned(), |value| smelt_number_to_string(value));
     _smelt_tmp_125 = "nullish local: ".to_owned() + &_smelt_tmp_124;
     let _ = { println!("{}", _smelt_tmp_125); };
-    _smelt_tmp_127 = SmeltRecord::from([]);
-    optional = _smelt_tmp_127;
+    optional = SmeltRecord::from([]);
     _smelt_tmp_128 = optional.get(&"field".to_owned()).flatten().clone().is_none();
     if _smelt_tmp_128 {
     __smelt_logical_value_30 = 4.0;

@@ -4697,8 +4697,7 @@ let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_3: ();
     let _smelt_tmp_5: ();
-    let _smelt_tmp_1: SmeltRecord<String, String> = SmeltRecord::from([("name".to_owned(), "HMAC".to_owned()), ("hash".to_owned(), "SHA-256".to_owned())]);
-    let algorithm: SmeltRecord<String, String> = _smelt_tmp_1;
+    let algorithm: SmeltRecord<String, String> = SmeltRecord::from([("name".to_owned(), "HMAC".to_owned()), ("hash".to_owned(), "SHA-256".to_owned())]);
     let _smelt_tmp_2 = SmeltFuture::from_future(Box::pin(run()));
     _smelt_tmp_3 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_2.await; })); () };
     let _smelt_tmp_4: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
@@ -4729,8 +4728,6 @@ use super::*;
 pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let tag: String;
     let key: SmeltCryptoKey;
-    let _smelt_tmp_3: String;
-    let _smelt_tmp_6: SmeltCryptoKey;
     let _smelt_tmp_8: bool;
     let _smelt_tmp_10: bool;
     let _smelt_tmp_12: SmeltList<f64>;
@@ -4751,12 +4748,10 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_34: ::std::rc::Rc<dyn Fn() -> SmeltFuture<()>>;
     let _smelt_tmp_36: String;
     let _smelt_tmp_2 = SmeltFuture::from_future(Box::pin(sign__module_main("macha".to_owned(), SmeltUnion7::M0("secret lucky charm".to_owned()))));
-    _smelt_tmp_3 = _smelt_tmp_2.await?;
-    tag = _smelt_tmp_3;
+    tag = _smelt_tmp_2.await?;
     let _ = { println!("{}", tag); };
     let _smelt_tmp_5 = SmeltFuture::from_future(Box::pin(get_key__module_main(SmeltUnion7::M0("secret lucky charm".to_owned()))));
-    _smelt_tmp_6 = _smelt_tmp_5.await?;
-    key = _smelt_tmp_6;
+    key = _smelt_tmp_5.await?;
     let _smelt_tmp_7 = SmeltFuture::from_future(Box::pin(verify__module_main("macha".to_owned(), "macha".to_owned(), key.clone())));
     _smelt_tmp_8 = _smelt_tmp_7.await?;
     let _smelt_tmp_9 = SmeltFuture::from_future(Box::pin(verify__module_main("macha".to_owned(), "other".to_owned(), key)));
@@ -4896,22 +4891,18 @@ pub(crate) async fn get_key__module_main(secret: SmeltUnion7) -> Result<SmeltCry
 pub(crate) async fn sign__module_main(value: String, secret: SmeltUnion7) -> Result<String, Box<dyn std::error::Error>> {
     let key: SmeltCryptoKey;
     let tag: SmeltArrayBuffer;
-    let _smelt_tmp_5: SmeltCryptoKey;
     let _smelt_tmp_6: SmeltRecord<String, String>;
     let _smelt_tmp_7: SmeltTextEncoder;
     let _smelt_tmp_8: SmeltTypedArray;
-    let _smelt_tmp_10: SmeltArrayBuffer;
     let _smelt_tmp_11: SmeltTypedArray;
     let _smelt_tmp_12: String;
     let _smelt_tmp_4 = SmeltFuture::from_future(Box::pin(get_key__module_main(secret.clone())));
-    _smelt_tmp_5 = _smelt_tmp_4.await?;
-    key = _smelt_tmp_5;
+    key = _smelt_tmp_4.await?;
     _smelt_tmp_6 = SmeltRecord::from([("name".to_owned(), "HMAC".to_owned()), ("hash".to_owned(), "SHA-256".to_owned())]);
     _smelt_tmp_7 = SmeltTextEncoder::new();
     _smelt_tmp_8 = _smelt_tmp_7.encode(&value.clone());
     let _smelt_tmp_9: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = (_smelt_tmp_6.get(&"name".to_owned()).expect("missing field").clone()).clone(); let smelt_key = (key).clone(); let smelt_data = (_smelt_tmp_8).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_sign(&smelt_algorithm, &smelt_key, &smelt_data) })) };
-    _smelt_tmp_10 = _smelt_tmp_9.await?;
-    tag = _smelt_tmp_10;
+    tag = _smelt_tmp_9.await?;
     _smelt_tmp_11 = SmeltTypedArray::over_buffer(SmeltTypedArrayKind::Uint8, &tag, 0, None);
     _smelt_tmp_12 = { let smelt_units: Vec<u16> = SmeltList::from(_smelt_tmp_11.to_elements()).borrow().iter().map(|smelt_code| { let smelt_code = *smelt_code; if smelt_code.is_finite() { smelt_code.trunc().rem_euclid(65536.0) as u16 } else { 0 } }).collect(); String::from_utf16_lossy(&smelt_units) };
     let _smelt_tmp_13: String = smelt_btoa_throwing(_smelt_tmp_12.as_str())?;
@@ -4923,8 +4914,7 @@ pub(crate) async fn verify__module_main(value: String, claimed: String, key: Sme
     let _smelt_tmp_5: SmeltTextEncoder = SmeltTextEncoder::new();
     let _smelt_tmp_6: SmeltTypedArray = _smelt_tmp_5.encode(&claimed.clone());
     let _smelt_tmp_7: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = (_smelt_tmp_4.get(&"name".to_owned()).expect("missing field").clone()).clone(); let smelt_key = (key.clone()).clone(); let smelt_data = (_smelt_tmp_6).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_sign(&smelt_algorithm, &smelt_key, &smelt_data) })) };
-    let _smelt_tmp_8: SmeltArrayBuffer = _smelt_tmp_7.await?;
-    let tag: SmeltArrayBuffer = _smelt_tmp_8;
+    let tag: SmeltArrayBuffer = _smelt_tmp_7.await?;
     let _smelt_tmp_9: SmeltRecord<String, String> = SmeltRecord::from([("name".to_owned(), "HMAC".to_owned()), ("hash".to_owned(), "SHA-256".to_owned())]);
     let _smelt_tmp_10: SmeltTypedArray = SmeltTypedArray::over_buffer(SmeltTypedArrayKind::Uint8, &tag, 0, None);
     let _smelt_tmp_11: SmeltTextEncoder = SmeltTextEncoder::new();

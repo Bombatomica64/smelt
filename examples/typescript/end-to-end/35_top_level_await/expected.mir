@@ -54,15 +54,13 @@ async fn main (FuncId(2)) -> None throws
   bb0:
     %2 = call fn0("ada") -> bb1
   bb1:
-    %3 = await move %2
-    %0 = move %3
+    %0 = await move %2
     %4 = call @console_log(move %0) -> bb2
   bb2:
     %5 = [1.0, 2.0, 3.0]
     %6 = call fn1(move %5) -> bb3
   bb3:
-    %7 = await move %6
-    %1 = move %7
+    %1 = await move %6
     %8 = call @console_log(move %1) -> bb4
   bb4:
     %9 = call fn0("grace") -> bb5

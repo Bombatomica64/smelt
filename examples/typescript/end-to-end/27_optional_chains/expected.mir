@@ -42,15 +42,11 @@ fn main (FuncId(2)) -> None
   bb1:
     %0 = move %7
     %1 = none
-    %8 = copy %0?.field1
-    %2 = move %8
-    %9 = move %1?.field1
-    %3 = move %9
+    %2 = copy %0?.field1
+    %3 = move %1?.field1
     %10 = copy %0?.field2
-    %11 = move %10?.[0.0]
-    %4 = move %11
-    %12 = move %0?.method3()
-    %5 = move %12
+    %4 = move %10?.[0.0]
+    %5 = move %0?.method3()
     %13 = call @console_log(move %2) -> bb2
   bb2:
     %14 = call @console_log(move %3) -> bb3

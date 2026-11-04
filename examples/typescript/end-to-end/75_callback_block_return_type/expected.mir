@@ -137,16 +137,14 @@ fn main (FuncId(5)) -> None
   bb10:
     %32 = ["a", "b"]
     %33 = closure ClosureId(6) []
-    %34 = list_map move %32, move %33
-    %5 = move %34
+    %5 = list_map move %32, move %33
     %35 = list_unshift copy %5 ["start"]
     %36 = string_join move %5, "|"
     %37 = call @console_log(move %36) -> bb11
   bb11:
     %38 = [1.0, 2.0]
     %39 = closure ClosureId(7) []
-    %40 = list_map move %38, move %39
-    %6 = move %40
+    %6 = list_map move %38, move %39
     %41 = closure ClosureId(8) []
     %42 = list_reduce move %6, 0.0, move %41
     %43 = call @console_log(move %42) -> bb12

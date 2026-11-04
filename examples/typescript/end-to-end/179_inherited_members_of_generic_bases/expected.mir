@@ -23,8 +23,7 @@ fn push (FuncId(0)) -> Float
     %3 = copy %0.field9
     %4 = list_push copy %3, copy %1
     %0.field9 = move %3
-    %5 = {"value": copy %1}
-    %2 = move %5
+    %2 = {"value": copy %1}
     %6 = call fn1(copy %0, move %2) -> bb1
   bb1:
     switch move %6 ? bb2 : bb3
@@ -119,8 +118,7 @@ fn run (FuncId(8)) -> T throws
     %2 user result: ParseResult<T>
     %3 temp: ParseResult<T>
   bb0:
-    %3 = closure_call copy %0.field25(copy %1)
-    %2 = move %3
+    %2 = closure_call copy %0.field25(copy %1)
     return copy %2.field2
 
 fn new (FuncId(9)) -> Parser<T>

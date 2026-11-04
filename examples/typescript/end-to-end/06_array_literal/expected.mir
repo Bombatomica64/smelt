@@ -4,8 +4,7 @@ fn main (FuncId(0)) -> None
     %1 temp: List<Float>
     %2 temp: None
   bb0:
-    %1 = [1.0, 2.0, 3.0]
-    %0 = move %1
+    %0 = [1.0, 2.0, 3.0]
     %2 = call @console_log(move %0) -> bb1
   bb1:
     return none

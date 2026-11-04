@@ -70,10 +70,8 @@ async fn run (FuncId(0)) -> None throws
     %67 temp: None
   bb0:
     %9 = {"x-tag": "t"}
-    %10 = request_new input="https://a.test/one" method="POST" headers=move %9 body="payload"
-    %0 = move %10
-    %11 = request_new input=copy %0
-    %1 = move %11
+    %0 = request_new input="https://a.test/one" method="POST" headers=move %9 body="payload"
+    %1 = request_new input=copy %0
     %12 = request_url copy %1
     %13 = request_method copy %1
     %14 = request_headers copy %1
@@ -95,8 +93,7 @@ async fn run (FuncId(0)) -> None throws
   bb4:
     %27 = {"x-tag": "u"}
     %28 = request_new input="https://a.test/two" method="PUT" headers=move %27
-    %29 = request_new input=move %28 method="DELETE"
-    %2 = move %29
+    %2 = request_new input=move %28 method="DELETE"
     %30 = request_url copy %2
     %31 = request_method copy %2
     %32 = request_headers move %2
@@ -105,12 +102,10 @@ async fn run (FuncId(0)) -> None throws
     %35 = call @console_log(move %30, move %31, move %34) -> bb5
   bb5:
     %36 = {"a": "1"}
-    %37 = request_new input="https://a.test/three" method="PATCH" headers=move %36
-    %3 = move %37
+    %3 = request_new input="https://a.test/three" method="PATCH" headers=move %36
     %38 = request_method copy %3
     %39 = request_headers copy %3
-    %40 = request_new input=copy %3 method=move %38 headers=move %39 body=copy %3
-    %4 = move %40
+    %4 = request_new input=copy %3 method=move %38 headers=move %39 body=copy %3
     %41 = request_url copy %4
     %42 = request_method copy %4
     %43 = request_headers move %4
@@ -118,10 +113,8 @@ async fn run (FuncId(0)) -> None throws
     %45 = move %44 ?? "null"
     %46 = call @console_log(move %41, move %42, move %45) -> bb6
   bb6:
-    %47 = request_new input="https://a.test/four" method="HEAD"
-    %5 = move %47
-    %48 = request_new input=copy %5
-    %6 = move %48
+    %5 = request_new input="https://a.test/four" method="HEAD"
+    %6 = request_new input=copy %5
     %49 = request_method copy %6
     %50 = request_body_used copy %6
     %51 = request_body_used move %5
@@ -132,8 +125,7 @@ async fn run (FuncId(0)) -> None throws
     %55 = call @console_log(move %54) -> bb8
   bb8:
     %56 = request_new input="https://a.test/five" method="POST" body="from source"
-    %57 = request_new input=move %56 body="from init"
-    %7 = move %57
+    %7 = request_new input=move %56 body="from init"
     %58 = request_url copy %7
     %59 = request_text move %7
     %60 = await move %59
@@ -142,8 +134,7 @@ async fn run (FuncId(0)) -> None throws
     %62 = call @url_new("https://a.test/six?q=1") -> bb10
   bb10:
     %63 = url_Get(Href) move %62
-    %64 = request_new input=move %63 method="PUT"
-    %8 = move %64
+    %8 = request_new input=move %63 method="PUT"
     %65 = request_url copy %8
     %66 = request_method move %8
     %67 = call @console_log(move %65, move %66) -> bb11

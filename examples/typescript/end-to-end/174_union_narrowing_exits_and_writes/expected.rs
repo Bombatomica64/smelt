@@ -4236,8 +4236,7 @@ pub(crate) fn normalize(mut input: SmeltUnion10) -> String {
     let _smelt_tmp_10: String;
     let _smelt_tmp_1: String = match &input { SmeltUnion10::M0(smelt_union_arm) => smelt_number_to_string(*smelt_union_arm), SmeltUnion10::M1(smelt_union_arm) => smelt_union_arm.clone(), SmeltUnion10::M2(smelt_union_arm) => smelt_union_arm.href() };
     input = SmeltUnion10::M1(_smelt_tmp_1);
-    let _smelt_tmp_2: String = match input.clone() { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    let _smelt_tmp_3: String = _smelt_tmp_2;
+    let _smelt_tmp_3: String = match input.clone() { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     let _smelt_tmp_4: String = "http".to_owned();
     let _smelt_tmp_5: bool = _smelt_tmp_3.starts_with(&_smelt_tmp_4);
     let mut _smelt_tmp_6: String = String::new();

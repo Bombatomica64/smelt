@@ -3629,7 +3629,6 @@ fn main() {
     let counts: SmeltRecord<String, f64>;
     let ratios: SmeltList<f64>;
     let _smelt_tmp_6: SmeltRecord<String, f64>;
-    let _smelt_tmp_9: SmeltRecord<String, f64>;
     let _smelt_tmp_10: String;
     let _smelt_tmp_12: String;
     let _smelt_tmp_14: f64;
@@ -3639,7 +3638,6 @@ fn main() {
     let _smelt_tmp_20: String;
     let _smelt_tmp_22: f64;
     let _smelt_tmp_23: String;
-    let _smelt_tmp_25: SmeltList<f64>;
     let _smelt_tmp_26: String;
     let _smelt_tmp_28: String;
     let _smelt_tmp_30: String;
@@ -3651,8 +3649,7 @@ fn main() {
     _smelt_tmp_6 = SmeltRecord::from([("a".to_owned(), 1.0), ("b".to_owned(), 2.5)]);
     let _smelt_tmp_7: String = encode(SmeltUnion3::M2(_smelt_tmp_6));
     let _ = { println!("{}", _smelt_tmp_7); };
-    _smelt_tmp_9 = SmeltRecord::from([("hits".to_owned(), 3.0), ("ratio".to_owned(), 0.5)]);
-    counts = _smelt_tmp_9;
+    counts = SmeltRecord::from([("hits".to_owned(), 3.0), ("ratio".to_owned(), 0.5)]);
     _smelt_tmp_10 = serde_json::to_string(&{ let smelt_record = counts.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::Number(value as f64))).collect())) }).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_10); };
     _smelt_tmp_12 = serde_json::to_string(&SmeltUnknown::Number(4.0 as f64)).expect("JSON serialization failed");
@@ -3668,8 +3665,7 @@ fn main() {
     _smelt_tmp_22 = 1.0 / 3.0;
     _smelt_tmp_23 = serde_json::to_string(&SmeltUnknown::Number(_smelt_tmp_22 as f64)).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_23); };
-    _smelt_tmp_25 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.5, 1000000000000000000000.0]; smelt_list_items }));
-    ratios = Into::<SmeltList<_>>::into(_smelt_tmp_25);
+    ratios = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.5, 1000000000000000000000.0]; smelt_list_items }));
     _smelt_tmp_26 = serde_json::to_string(&{ let smelt_l = ratios; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::Number(value as f64)).collect::<Vec<_>>())) }).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_26); };
     _smelt_tmp_28 = serde_json::to_string(&SmeltUnknown::String("seven".into())).expect("JSON serialization failed");

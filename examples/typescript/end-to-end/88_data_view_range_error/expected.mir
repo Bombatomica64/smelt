@@ -233,10 +233,8 @@ fn main (FuncId(7)) -> None throws
     %37 temp: String
     %38 temp: None
   bb0:
-    %3 = typed_array_new ArrayBuffer 4.0
-    %0 = move %3
-    %4 = typed_array_new DataView copy %0
-    %1 = move %4
+    %0 = typed_array_new ArrayBuffer 4.0
+    %1 = typed_array_new DataView copy %0
     %5 = call @data_view_setInt16(copy %1, 2.0, 258.0) -> bb1
   bb1:
     %6 = call @data_view_getInt16(copy %1, 2.0) -> bb2
@@ -288,8 +286,7 @@ fn main (FuncId(7)) -> None throws
   bb24:
     %30 = call @console_log(move %28, move %29) -> bb25
   bb25:
-    %31 = typed_array_new DataView move %0 2.0 2.0
-    %2 = move %31
+    %2 = typed_array_new DataView move %0 2.0 2.0
     %32 = call fn3(copy %2, 1.0) -> bb26
   bb26:
     %33 = call fn3(copy %2, 2.0) -> bb27

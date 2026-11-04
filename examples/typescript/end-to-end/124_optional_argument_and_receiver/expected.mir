@@ -148,8 +148,7 @@ fn main (FuncId(1)) -> None
   bb4:
     %11 = call @console_log(move %8, move %9, move %10) -> bb5
   bb5:
-    %12 = ["/xy", undefined]
-    %1 = move %12
+    %1 = ["/xy", undefined]
     %13 = 0
     goto bb6
   bb6:
@@ -216,8 +215,7 @@ fn main (FuncId(1)) -> None
     %38 = !move %37
     switch move %38 ? bb22 : bb23
   bb22:
-    %40 = move %2
-    %41 = move %40
+    %41 = move %2
     %42 = "/"
     %43 = string_starts_with move %41, move %42
     %39 = move %43

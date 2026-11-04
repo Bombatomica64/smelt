@@ -9,8 +9,7 @@ fn make_record (FuncId(0)) -> Dict<String, String>
     %6 temp: Bool
     %7 temp: String
   bb0:
-    %3 = {}
-    %1 = move %3
+    %1 = {}
     %4 = 0
     goto bb1
   bb1:
@@ -67,8 +66,7 @@ async fn digest_length (FuncId(2)) -> Float
     goto bb3
   bb3:
     %8 = crypto_digest "SHA-256", move %1
-    %9 = await move %8
-    %2 = move %9
+    %2 = await move %8
     %10 = typed_array_new Uint8Array move %2
     return copy %10[0.0]
 
@@ -239,16 +237,14 @@ async fn main (FuncId(6)) -> None throws
     %17 = call fn0(move %16) -> bb4
   bb4:
     %18 = ("y", move %17)
-    %19 = [move %15, move %18]
-    %1 = move %19
+    %1 = [move %15, move %18]
     %20 = tuple_index copy %1[0.0], 1
     %21 = copy %20["id"] == undefined
     %22 = tuple_index copy %1[1.0], 1
     %23 = copy %22["id"] == none
     %24 = call @console_log(move %21, move %23) -> bb5
   bb5:
-    %25 = ["q"]
-    %2 = move %25
+    %2 = ["q"]
     %26 = copy %2[3.0] == undefined
     %27 = copy %2[0.0] == undefined
     %28 = call @console_log(move %26, move %27) -> bb6
@@ -261,8 +257,7 @@ async fn main (FuncId(6)) -> None throws
   bb8:
     %33 = call @console_log(move %30, move %32) -> bb9
   bb9:
-    %34 = ["a"]
-    %3 = move %34
+    %3 = ["a"]
     %35 = call fn3(copy %3, "b") -> bb10
   bb10:
     %36 = len copy %3
@@ -276,8 +271,7 @@ async fn main (FuncId(6)) -> None throws
   bb13:
     %42 = async_spawn_local(move %41)
     %43 = [1.0, 171.0, 255.0]
-    %44 = typed_array_new Uint8Array move %43
-    %4 = move %44
+    %4 = typed_array_new Uint8Array move %43
     %45 = byte_array_elements copy %4
     %46 = string_join move %45, "-"
     %47 = byte_array_elements move %4
@@ -292,10 +286,8 @@ async fn main (FuncId(6)) -> None throws
   bb15:
     %55 = ["a", "b"]
     %56 = ["c"]
-    %57 = [move %55, move %56]
-    %5 = move %57
-    %58 = list_shift move %5
-    %6 = move %58
+    %5 = [move %55, move %56]
+    %6 = list_shift move %5
     %59 = copy %6 != none
     switch move %59 ? bb16 : bb17
   bb16:

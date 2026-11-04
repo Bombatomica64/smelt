@@ -10,8 +10,7 @@ fn main (FuncId(0)) -> None
     %0 = true
     %1 = false
     %3 = !move %1
-    %4 = move %0 && move %3
-    %2 = move %4
+    %2 = move %0 && move %3
     %5 = call @console_log(move %2) -> bb1
   bb1:
     return none

@@ -3811,11 +3811,9 @@ pub(crate) fn outer(n: f64) -> f64 {
 
 pub(crate) async fn twice(n: f64) -> Result<f64, Box<dyn std::error::Error>> {
     let r: f64;
-    let _smelt_tmp_3: f64;
     let _smelt_tmp_4: f64;
     let _smelt_tmp_2 = SmeltFuture::from_future(Box::pin(later(n)));
-    _smelt_tmp_3 = _smelt_tmp_2.await?;
-    r = _smelt_tmp_3;
+    r = _smelt_tmp_2.await?;
     _smelt_tmp_4 = r * 2.0;
     return Ok(_smelt_tmp_4);
 }

@@ -467,15 +467,13 @@ fn main() {
     let mut _smelt_tmp_19: SmeltList<f64>;
     let mut _smelt_tmp_20: String;
     let mut _smelt_tmp_21: f64;
-    let mut _smelt_tmp_23: SmeltRegExp;
     let mut _smelt_tmp_24: f64;
     let mut _smelt_tmp_25: f64;
     let mut _smelt_tmp_26: SmeltRegExp;
     let mut _smelt_tmp_27: f64;
     let mut _smelt_tmp_28: SmeltRegExp;
     let mut _smelt_tmp_29: f64;
-    let _smelt_tmp_4: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![72.0, 101.0, 108.0, 108.0, 111.0]; smelt_list_items }));
-    let codes: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_4);
+    let codes: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![72.0, 101.0, 108.0, 108.0, 111.0]; smelt_list_items }));
     let mut text: String = "".to_owned();
     let mut i: usize = 0;
     loop {
@@ -501,8 +499,7 @@ fn main() {
     _smelt_tmp_20 = { let smelt_units: Vec<u16> = _smelt_tmp_19.borrow().iter().map(|smelt_code| { let smelt_code = *smelt_code; if smelt_code.is_finite() { smelt_code.trunc().rem_euclid(65536.0) as u16 } else { 0 } }).collect(); String::from_utf16_lossy(&smelt_units) };
     _smelt_tmp_21 = _smelt_tmp_20.chars().count() as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_21)); };
-    _smelt_tmp_23 = SmeltRegExp::new("[\\&<>'\"]".to_owned(), "".to_owned());
-    escape_re = _smelt_tmp_23;
+    escape_re = SmeltRegExp::new("[\\&<>'\"]".to_owned(), "".to_owned());
     _smelt_tmp_24 = { let smelt_haystack = "I <b>".to_owned(); let smelt_regex = escape_re; match smelt_regex.compiled().find(&smelt_haystack) { Ok(Some(smelt_found)) => smelt_haystack[..smelt_found.start()].encode_utf16().count() as f64, _ => -1.0 } };
     _smelt_tmp_25 = { let smelt_haystack = "ab".to_owned(); let smelt_regex = SmeltRegExp::new("b".to_owned(), String::new()); match smelt_regex.compiled().find(&smelt_haystack) { Ok(Some(smelt_found)) => smelt_haystack[..smelt_found.start()].encode_utf16().count() as f64, _ => -1.0 } };
     _smelt_tmp_26 = SmeltRegExp::new("<".to_owned(), "".to_owned());

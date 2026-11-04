@@ -3758,8 +3758,7 @@ fn main() {
     _smelt_tmp_8.clone()
     });
     let forward = _smelt_tmp_8.clone();
-    let _smelt_tmp_9: (String, f64) = ("z".to_owned(), 2.0);
-    let values: (String, f64) = _smelt_tmp_9;
+    let values: (String, f64) = ("z".to_owned(), 2.0);
     let _smelt_tmp_10: String = pair("a".to_owned(), None::<f64>);
     let _smelt_tmp_11: String = pair("b".to_owned(), Some(3.0));
     _smelt_tmp_12 = (triple)("x".to_owned(), 1.0, true);
@@ -3789,8 +3788,7 @@ impl Box_ {
     return this;
     }
     fn put(&self, args__0: String, args__1: f64) -> String {
-    let _smelt_tmp_4: (String, f64) = (args__0.clone(), args__1);
-    let args: (String, f64) = _smelt_tmp_4;
+    let args: (String, f64) = (args__0.clone(), args__1);
     let _smelt_tmp_5: String = args.clone().0.clone();
     let _smelt_tmp_6: f64 = args.1.clone();
     let _smelt_tmp_7: String = _smelt_tmp_5.repeat(_smelt_tmp_6 as usize);
@@ -3860,8 +3858,7 @@ impl Ctx {
 use super::*;
 
 pub(crate) fn pair(args__0: String, args__1: Option<f64>) -> String {
-    let _smelt_tmp_3: (String, Option<f64>) = (args__0.clone(), args__1.clone());
-    let args: (String, Option<f64>) = _smelt_tmp_3;
+    let args: (String, Option<f64>) = (args__0.clone(), args__1.clone());
     let _smelt_tmp_4: String = args.clone().0.clone();
     let _smelt_tmp_5: String = "".to_owned() + &_smelt_tmp_4;
     let _smelt_tmp_6: String = _smelt_tmp_5 + &":".to_owned();

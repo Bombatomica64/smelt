@@ -64,8 +64,7 @@ async fn entry (FuncId(4)) -> None
   bb0:
     %4 = call fn1() -> bb1
   bb1:
-    %5 = await move %4
-    %0 = move %5
+    %0 = await move %4
     %6 = call @console_log(copy %0.field9) -> bb2
   bb2:
     %7 = call fn2(true) -> bb3
@@ -78,12 +77,10 @@ async fn entry (FuncId(4)) -> None
   bb5:
     %12 = call fn3(true) -> bb6
   bb6:
-    %13 = await move %12
-    %1 = move %13
+    %1 = await move %12
     %14 = call fn3(false) -> bb7
   bb7:
-    %15 = await move %14
-    %2 = move %15
+    %2 = await move %14
     %16 = move %2 == undefined
     %17 = call @console_log(move %1, move %16) -> bb8
   bb8:

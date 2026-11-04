@@ -162,17 +162,14 @@ fn main() {
     let mut _smelt_tmp_15: usize;
     let mut _smelt_tmp_16: bool;
     let mut _smelt_tmp_19: usize;
-    let mut _smelt_tmp_20: (String, f64);
     let mut _smelt_tmp_23: ::std::rc::Rc<dyn Fn(String, String, f64) -> String>;
     let mut _smelt_tmp_24: String;
     let mut _smelt_tmp_32: f64;
     let mut _smelt_tmp_33: String;
     let mut _smelt_tmp_35: (String, String, f64);
-    let mut _smelt_tmp_36: SmeltList<(String, String, f64)>;
     let _smelt_tmp_12: (String, String, f64) = ("GET".to_owned(), "/a".to_owned(), 1.0);
     let _smelt_tmp_13: (String, String, f64) = ("POST".to_owned(), "/b".to_owned(), 2.0);
-    let _smelt_tmp_14: SmeltList<(String, String, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String, f64)> = vec![_smelt_tmp_12.clone(), _smelt_tmp_13.clone()]; smelt_list_items }));
-    let routes: SmeltList<(String, String, f64)> = Into::<SmeltList<_>>::into(_smelt_tmp_14);
+    let routes: SmeltList<(String, String, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String, f64)> = vec![_smelt_tmp_12.clone(), _smelt_tmp_13.clone()]; smelt_list_items }));
     let mut i: usize = 0;
     loop {
     _smelt_tmp_15 = routes.len();
@@ -184,8 +181,7 @@ fn main() {
     _smelt_tmp_19 = i + 1;
     i = _smelt_tmp_19;
     }
-    _smelt_tmp_20 = ("/c".to_owned(), 7.0);
-    tail = _smelt_tmp_20;
+    tail = ("/c".to_owned(), 7.0);
     __smelt_spread_1 = tail;
     let _smelt_tmp_21: String = record("DELETE".to_owned(), __smelt_spread_1.0.clone(), __smelt_spread_1.1);
     let _ = { println!("{}", _smelt_tmp_21); };
@@ -211,8 +207,7 @@ fn main() {
     _smelt_tmp_33 = "evaluations: ".to_owned() + &smelt_number_to_string(_smelt_tmp_32);
     let _ = { println!("{}", _smelt_tmp_33); };
     _smelt_tmp_35 = ("PATCH".to_owned(), "/maybe".to_owned(), 4.0);
-    _smelt_tmp_36 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String, f64)> = vec![_smelt_tmp_35.clone()]; smelt_list_items }));
-    one_route = Into::<SmeltList<_>>::into(_smelt_tmp_36);
+    one_route = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String, f64)> = vec![_smelt_tmp_35.clone()]; smelt_list_items }));
     __smelt_spread_5 = one_route.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new(), 0.0));
     let _smelt_tmp_37: String = record(__smelt_spread_5.0.clone(), __smelt_spread_5.1.clone(), __smelt_spread_5.2);
     let _ = { println!("{}", _smelt_tmp_37); };

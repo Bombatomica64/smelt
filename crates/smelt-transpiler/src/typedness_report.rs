@@ -24,14 +24,24 @@
 //!
 //! # The ratchet
 //!
-//! A program is *no less typed* than its baseline record (Bun's
-//! `isNoLessTyped`) when, for every kind, its erased count did not rise and its
-//! typed share `(concrete + generic) / total` did not fall. The corpus total is
+//! A program is *no less typed* than its baseline record when, for every kind
+//! (values, reads, calls), its erased count did not rise. The corpus total is
 //! judged the same way. A program with no baseline record is not judged; a
 //! program the baseline measured that is now refused is a regression. With
 //! `--update-baseline`, the baseline is rewritten taking each program's new
-//! record only when it is no less typed, so a regression can never be
-//! snapshotted silently.
+//! record only when it is no less typed, so a record whose erased count rose
+//! can never be snapshotted silently.
+//!
+//! The typed share `(concrete + generic) / total` is still reported, but it no
+//! longer judges. Old requirement (Bun's `isNoLessTyped`): erased may not rise
+//! *and* the typed share may not fall. New requirement: erased may not rise.
+//! Why: the counts are per MIR entry, so an optimization that removes redundant
+//! concrete temporaries (e.g. `%t = rv; %x = move %t` becoming `%x = rv`)
+//! lowers the share while the program's types are unchanged or better. The
+//! north-star quantity is how many values, reads and calls end up erased in the
+//! generated Rust; removing typed values that the emitted crate no longer
+//! contains is not a typing regression, and judging the share would block it.
+//! A value that loses its type moves to erased and is still caught.
 
 use std::{
     collections::BTreeMap,
@@ -242,29 +252,16 @@ fn kinds(counts: &TypednessCounts) -> [(&'static str, KindCounts); 3] {
     ]
 }
 
-/// Why `now` is less typed than `then`, one line per kind that got worse;
-/// empty when `now` is no less typed (Bun's `isNoLessTyped`).
+/// Why `now` is less typed than `then`, one line per kind whose erased count
+/// rose; empty when `now` is no less typed. The typed share is deliberately
+/// not judged (see the module docs, "The ratchet"): a share fall with erased
+/// counts flat only means typed entries were removed.
 pub(crate) fn worsening(now: &TypednessCounts, then: &TypednessCounts) -> Vec<String> {
     kinds(now)
         .into_iter()
         .zip(kinds(then))
-        .filter_map(|((kind, now), (_, then))| {
-            let mut reasons = Vec::new();
-            if now.erased > then.erased {
-                reasons.push(format!("erased {} -> {}", then.erased, now.erased));
-            }
-            // typed(now)/total(now) >= typed(then)/total(then), cross-multiplied.
-            let share_now = u128::from(now.typed() as u64) * u128::from(then.total() as u64);
-            let share_then = u128::from(then.typed() as u64) * u128::from(now.total() as u64);
-            if share_now < share_then {
-                reasons.push(format!(
-                    "typed share {} -> {}",
-                    share(then),
-                    share(now)
-                ));
-            }
-            (!reasons.is_empty()).then(|| format!("{kind}: {}", reasons.join(", ")))
-        })
+        .filter(|((_, now), (_, then))| now.erased > then.erased)
+        .map(|((kind, now), (_, then))| format!("{kind}: erased {} -> {}", then.erased, now.erased))
         .collect()
 }
 
@@ -401,25 +398,50 @@ mod tests {
         counts
     }
 
-    /// More typed or equal passes; more erased or a lower share fails.
+    /// Equal or fewer erased passes; any erased rise fails, per kind.
     #[test]
-    fn no_less_typed_follows_bun() {
+    fn erased_rise_is_less_typed() {
         assert_eq!(worsening(&counts(5, 1, 2), &counts(5, 1, 2)), Vec::<String>::new());
         assert_eq!(worsening(&counts(7, 1, 1), &counts(5, 1, 2)), Vec::<String>::new());
-        // More values overall but the same erased count and a higher share.
+        // More values overall, same erased count.
         assert_eq!(worsening(&counts(10, 0, 2), &counts(5, 0, 2)), Vec::<String>::new());
-        // Erased rose.
-        assert_eq!(worsening(&counts(9, 0, 3), &counts(5, 0, 2)).len(), 3);
-        // Erased flat but the share fell (typed values disappeared).
-        let fell = worsening(&counts(1, 0, 2), &counts(5, 0, 2));
-        assert_eq!(fell.len(), 3);
-        assert!(fell[0].contains("typed share"), "{fell:?}");
+        // Erased rose, even though the share rose too.
+        let rose = worsening(&counts(90, 0, 3), &counts(5, 0, 2));
+        assert_eq!(rose.len(), 3);
+        assert_eq!(rose[0], "values: erased 2 -> 3");
+        // Only one kind's erased count rose: only that kind is reported.
+        let mut one = counts(5, 0, 2);
+        one.reads = KindCounts::new(5, 0, 3);
+        assert_eq!(worsening(&one, &counts(5, 0, 2)), vec!["reads: erased 2 -> 3".to_owned()]);
+    }
+
+    /// A typed-share fall with erased counts not rising is not less typed:
+    /// removing redundant concrete temporaries (let-temp elision) must pass.
+    /// Under the old rule (share may not fall) this case failed.
+    #[test]
+    fn share_fall_without_erased_rise_passes() {
+        // 5 typed of 7 -> 1 typed of 3: share 71% -> 33%, erased flat.
+        assert_eq!(worsening(&counts(1, 0, 2), &counts(5, 0, 2)), Vec::<String>::new());
+        // Share fell and erased fell.
+        assert_eq!(worsening(&counts(1, 0, 1), &counts(5, 0, 2)), Vec::<String>::new());
+        // The update takes such a record.
+        let baseline = TypednessReport::from_programs(BTreeMap::from([(
+            "p.ts".to_owned(),
+            Some(counts(5, 0, 2)),
+        )]));
+        let report = TypednessReport::from_programs(BTreeMap::from([(
+            "p.ts".to_owned(),
+            Some(counts(1, 0, 2)),
+        )]));
+        assert!(compare(&report, &baseline).is_empty());
+        assert_eq!(updated_baseline(&report, Some(&baseline)).programs["p.ts"], Some(counts(1, 0, 2)));
     }
 
     /// A generic value counts as typed, exactly like a concrete one.
     #[test]
     fn generic_counts_as_typed() {
-        assert_eq!(worsening(&counts(4, 2, 1), &counts(6, 0, 1)), Vec::<String>::new());
+        assert_eq!(share(KindCounts::new(4, 2, 1)), share(KindCounts::new(6, 0, 1)));
+        assert_eq!(share(KindCounts::new(4, 2, 1)), "85.7%");
     }
 
     /// Programs are judged individually; new programs are not judged; a refused

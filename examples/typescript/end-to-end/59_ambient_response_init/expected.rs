@@ -4280,7 +4280,6 @@ fn main() {
     let _smelt_tmp_13: SmeltHeaders;
     let _smelt_tmp_14: Option<String>;
     let _smelt_tmp_15: String;
-    let _smelt_tmp_17: SmeltResponse;
     let _smelt_tmp_18: f64;
     let _smelt_tmp_20: SmeltHeaders;
     let _smelt_tmp_21: Option<String>;
@@ -4288,14 +4287,12 @@ fn main() {
     let _smelt_tmp_24: SmeltRecord<String, String>;
     let _smelt_tmp_25: globalThis_ResponseInit;
     let _smelt_tmp_28: (String, String);
-    let _smelt_tmp_29: SmeltList<(String, String)>;
     let _smelt_tmp_30: globalThis_ResponseInit;
     let _smelt_tmp_33: SmeltList<String>;
     let _smelt_tmp_34: SmeltList<SmeltList<String>>;
     let _smelt_tmp_35: SmeltHeaders;
     let _smelt_tmp_36: globalThis_ResponseInit;
     let _smelt_tmp_39: SmeltRecord<String, String>;
-    let _smelt_tmp_40: SmeltRequest;
     let _smelt_tmp_41: String;
     let _smelt_tmp_43: SmeltHeaders;
     let _smelt_tmp_44: Option<String>;
@@ -4307,8 +4304,7 @@ fn main() {
     let create_response_instance = _smelt_tmp_5.clone();
     let _smelt_tmp_6: SmeltRecord<String, String> = SmeltRecord::from([("x-a".to_owned(), "1".to_owned())]);
     let _smelt_tmp_7: globalThis_ResponseInit = globalThis_ResponseInit { status: Some(201.0), status_text: Some("Created".to_owned()), headers: Some(SmeltUnion9::M1(_smelt_tmp_6)) };
-    let _smelt_tmp_8: SmeltResponse = (create_response_instance)(Some("hi".to_owned()), Some(_smelt_tmp_7));
-    let with_init: SmeltResponse = _smelt_tmp_8;
+    let with_init: SmeltResponse = (create_response_instance)(Some("hi".to_owned()), Some(_smelt_tmp_7));
     let _smelt_tmp_9: f64 = with_init.clone().status();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_9)); };
     _smelt_tmp_11 = with_init.clone().status_text();
@@ -4317,8 +4313,7 @@ fn main() {
     _smelt_tmp_14 = _smelt_tmp_13.get(&"x-a".to_owned());
     _smelt_tmp_15 = _smelt_tmp_14.clone().unwrap_or("none".to_owned());
     let _ = { println!("{}", _smelt_tmp_15); };
-    _smelt_tmp_17 = (create_response_instance)(None, None);
-    bare = _smelt_tmp_17;
+    bare = (create_response_instance)(None, None);
     _smelt_tmp_18 = bare.clone().status();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_18)); };
     _smelt_tmp_20 = bare.headers();
@@ -4330,8 +4325,7 @@ fn main() {
     let _smelt_tmp_26: String = status_of(_smelt_tmp_25);
     let _ = { println!("{}", _smelt_tmp_26); };
     _smelt_tmp_28 = ("content-type".to_owned(), "text/html".to_owned());
-    _smelt_tmp_29 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String)> = vec![_smelt_tmp_28.clone()]; smelt_list_items }));
-    pairs = Into::<SmeltList<_>>::into(_smelt_tmp_29);
+    pairs = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String)> = vec![_smelt_tmp_28.clone()]; smelt_list_items }));
     _smelt_tmp_30 = globalThis_ResponseInit { status: Some(203.0), status_text: None::<String>, headers: Some(SmeltUnion9::M0(pairs)) };
     let _smelt_tmp_31: String = status_of(_smelt_tmp_30);
     let _ = { println!("{}", _smelt_tmp_31); };
@@ -4342,8 +4336,7 @@ fn main() {
     let _smelt_tmp_37: String = status_of(_smelt_tmp_36);
     let _ = { println!("{}", _smelt_tmp_37); };
     _smelt_tmp_39 = SmeltRecord::from([("x-b".to_owned(), "2".to_owned())]);
-    _smelt_tmp_40 = SmeltRequest::from_parts_with_init(&"http://example.test/x".to_owned(), "POST".to_owned(), SmeltHeaders::from_pairs(_smelt_tmp_39.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"payload".to_owned()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
-    request = _smelt_tmp_40;
+    request = SmeltRequest::from_parts_with_init(&"http://example.test/x".to_owned(), "POST".to_owned(), SmeltHeaders::from_pairs(_smelt_tmp_39.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"payload".to_owned()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     _smelt_tmp_41 = request.clone().method();
     let _ = { println!("{}", _smelt_tmp_41); };
     _smelt_tmp_43 = request.headers();
@@ -4361,8 +4354,7 @@ fn main() {
 use super::*;
 
 pub(crate) fn status_of(init: globalThis_ResponseInit) -> String {
-    let _smelt_tmp_2: SmeltResponse = SmeltResponse::from_parts(init.status.clone().unwrap_or_else(|| 200.0), init.status_text.clone().unwrap_or_else(|| String::new()), match init.headers.clone() { Some(smelt_init_headers) => match smelt_init_headers { SmeltUnion9::M0(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<(String, String)>>()), SmeltUnion9::M1(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltUnion9::M2(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.entries_sorted()) }, None => SmeltHeaders::new() }, SmeltBody::from_text(&"body".to_owned()));
-    let response: SmeltResponse = _smelt_tmp_2;
+    let response: SmeltResponse = SmeltResponse::from_parts(init.status.clone().unwrap_or_else(|| 200.0), init.status_text.clone().unwrap_or_else(|| String::new()), match init.headers.clone() { Some(smelt_init_headers) => match smelt_init_headers { SmeltUnion9::M0(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<(String, String)>>()), SmeltUnion9::M1(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltUnion9::M2(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.entries_sorted()) }, None => SmeltHeaders::new() }, SmeltBody::from_text(&"body".to_owned()));
     let _smelt_tmp_3: f64 = response.clone().status();
     let _smelt_tmp_4: String = "".to_owned() + &smelt_number_to_string(_smelt_tmp_3);
     let _smelt_tmp_5: String = _smelt_tmp_4 + &" ".to_owned();

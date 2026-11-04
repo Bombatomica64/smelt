@@ -72,8 +72,7 @@ async fn with_deadline (FuncId(6)) -> String
     %2 = call fn8(copy %0) -> bb1
   bb1:
     %3 = closure ClosureId(0) [copy %0]
-    %4 = async_then(move %2, move %3)
-    %1 = move %4
+    %1 = async_then(move %2, move %3)
     %5 = call fn5() -> bb2
   bb2:
     %6 = async_race(move %5, move %1)
@@ -126,8 +125,7 @@ async fn run (FuncId(7)) -> None
     %11 = call @console_log(move %10) -> bb4
   bb4:
     %12 = {"X-One": "1", "x-two": "2"}
-    %13 = headers_new move %12
-    %0 = move %13
+    %0 = headers_new move %12
     %14 = headers_entries move %0
     %15 = 0
     goto bb5
@@ -137,10 +135,8 @@ async fn run (FuncId(7)) -> None
     switch move %17 ? bb6 : bb8
   bb6:
     %1 = copy %14[copy %15]
-    %18 = tuple_index copy %1, 0
-    %2 = move %18
-    %19 = tuple_index move %1, 1
-    %3 = move %19
+    %2 = tuple_index copy %1, 0
+    %3 = tuple_index move %1, 1
     %20 = "" + move %2
     %21 = move %20 + "="
     %22 = move %21 + move %3
@@ -149,12 +145,10 @@ async fn run (FuncId(7)) -> None
     %15 = copy %15 + 1
     goto bb5
   bb8:
-    %24 = response_new body="payload text" status=504.0
-    %4 = move %24
+    %4 = response_new body="payload text" status=504.0
     %25 = response_body copy %4
     %26 = response_status move %4
-    %27 = response_new body=move %25 status=move %26
-    %5 = move %27
+    %5 = response_new body=move %25 status=move %26
     %28 = response_status copy %5
     %29 = response_text move %5
     %30 = await move %29
