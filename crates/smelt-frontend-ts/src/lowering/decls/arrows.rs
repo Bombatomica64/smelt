@@ -389,9 +389,14 @@ impl ModuleBuilder<'_> {
         let function_item = Item::Function(Function {
             name,
             span: self.span(arrow.span.start, arrow.span.end),
-            // Generic arrow functions are deferred; a lifted arrow item declares
-            // no free-function type params in this increment.
-            type_params: Vec::new(),
+            // A lifted `const f = <T>(..) => ..` is the same item a hand port
+            // writes for `function f<T>(..)`, so it declares its own type
+            // parameters exactly like a function declaration. Codegen's
+            // crate-wide generic decision then emits them as Rust generics
+            // where that is sound and erases them where it is not, and calls
+            // instantiate them through `callee_own_type_params`. Leaving them
+            // off the item left every mention of `T` in its signature free.
+            type_params: arrow_type_params,
             params,
             rest: rest.map(|rest| rest.index),
             required_params: Some(required_params),
@@ -412,12 +417,6 @@ impl ModuleBuilder<'_> {
         } else {
             self.ctx.krate.push_item(function_item)
         };
-        // The arrow's own generics are not materialized on the item (see the
-        // comment above); record them so a call can instantiate them instead
-        // of leaking the raw parameters into its caller.
-        if !arrow_type_params.is_empty() {
-            self.ctx.erased_item_type_params.insert(item, arrow_type_params);
-        }
         self.items.insert(name_text.to_owned(), item);
         if let Some(rest) = rest {
             self.functions.set_rest(name_text.to_owned(), rest);

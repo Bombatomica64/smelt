@@ -548,10 +548,10 @@ impl ModuleBuilder<'_> {
 
     /// The type parameters a callable item declares.
     ///
-    /// A free function carries them on `Function::type_params`. Methods and
-    /// lifted arrows keep them only in `HirCtx::erased_item_type_params`
-    /// (their emitted definitions render them as `SmeltUnknown`). Anything
-    /// else declares none.
+    /// A free function or lifted arrow const carries them on
+    /// `Function::type_params`. Methods keep them only in
+    /// `HirCtx::erased_item_type_params` (their emitted definitions render
+    /// them as `SmeltUnknown`). Anything else declares none.
     pub(in crate::lowering) fn callee_own_type_params(
         &self,
         item: smelt_hir::ItemId,
