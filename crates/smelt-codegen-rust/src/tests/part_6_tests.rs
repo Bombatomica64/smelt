@@ -1600,12 +1600,16 @@ export function keepInvalid(): string {
 ",
     );
 
+    // Old requirement: the setter's result was re-normalized inline
+    // (`timestamp_ms == i64::MIN as f64 { f64::NAN }`) into a fresh erased
+    // record. New (bounded-generics increment 4, `Date` is the shared
+    // `SmeltDate` handle): the setter stores its result into the SAME date
+    // through `set_time`, whose `TimeClip` folds the `i64::MIN` sentinel and
+    // every non-finite value to `NaN`, so an Invalid Date stays invalid.
     assert!(source.contains("timestamp_ms.is_finite()"), "{source}");
     assert!(source.contains("else { i64::MIN }"), "{source}");
-    assert!(
-        source.contains("timestamp_ms == i64::MIN as f64 { f64::NAN }"),
-        "{source}"
-    );
+    assert!(source.contains(".set_time(smelt_time_ms)"), "{source}");
+    assert!(source.contains("time_ms != i64::MIN as f64"), "{source}");
     assert!(source.contains(".to_iso_string()"), "{source}");
 }
 
