@@ -9,10 +9,12 @@
     { "name": "neverthrow",     "repo": "supermacro/neverthrow",           "ref": "5ef3a018bda74fb960e44b68fc3672635ee8037d", "lang": "ts", "roots": ["src", "tests"] },
     { "name": "immer",          "repo": "immerjs/immer",                   "ref": "a3be9df762c1dbe9959a011ddbab0ce838cbc468", "lang": "ts", "roots": ["src", "__tests__"] },
     { "name": "rxjs",           "repo": "ReactiveX/rxjs",                  "ref": "c15b37f81ba5f5abea8c872b0189a70b150df4cb", "lang": "ts", "roots": ["packages/rxjs/src", "packages/rxjs/spec"] },
+    { "name": "date-fns",       "repo": "date-fns/date-fns",               "ref": "cd53d2538cfa318404eff7ade6449b49bf34562e", "lang": "ts", "roots": ["pkgs/core/src"] },
     { "name": "returns",        "repo": "dry-python/returns",              "ref": "04e820c714615192baf815bcbe15eccbbd15541e", "lang": "py", "roots": ["returns", "tests"] },
     { "name": "result",         "repo": "rustedpy/result",                 "ref": "0b855e1e38a08d6f0a4b0138b10c127c01e54ab4", "lang": "py", "roots": ["src", "tests"] },
     { "name": "more-itertools", "repo": "more-itertools/more-itertools",   "ref": "5d946b3590bfe92f1465c1b9b9830dd434745c84", "lang": "py", "roots": ["more_itertools", "tests"] },
     { "name": "funcy",          "repo": "Suor/funcy",                      "ref": "9eb04473e31b6b60bd459e4dda24f6b1db5a3773", "lang": "py", "roots": ["funcy", "tests"] },
-    { "name": "toolz",          "repo": "pytoolz/toolz",                   "ref": "568c2b8393973cd172a466546c9d95779c452438", "lang": "py", "roots": ["toolz"] }
+    { "name": "toolz",          "repo": "pytoolz/toolz",                   "ref": "568c2b8393973cd172a466546c9d95779c452438", "lang": "py", "roots": ["toolz"] },
+    { "name": "cachetools",     "repo": "tkem/cachetools",                 "ref": "340c474a11bdbdce46c9c6ff19ec9c693d038a4d", "lang": "py", "roots": ["src", "tests"] }
   ]
 }
