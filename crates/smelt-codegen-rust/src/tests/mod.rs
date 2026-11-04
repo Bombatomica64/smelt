@@ -113,3 +113,4 @@ mod local_write_index_tests;
 mod trial_rollback_tests;
 mod union_element_read_tests;
 mod union_type_param_scope_tests;
+mod generic_call_site_tests;
