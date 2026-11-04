@@ -1170,6 +1170,13 @@ fn emit_runtime_prelude(
     // reach it, so it leads the prelude rather than sitting behind a gate that
     // would have to name all of them.
     number_format_prelude::emit(&mut writer);
+    if mir
+        .functions
+        .iter()
+        .any(|function| function.absent == smelt_mir::AbsentSpelling::None)
+    {
+        number_format_prelude::emit_python(&mut writer);
+    }
     // Its inverse, `StringToNumber`, for the same reason: `Number(s)`, `+s`,
     // relational and arithmetic coercion and every erased-to-number conversion
     // of a string reach it.

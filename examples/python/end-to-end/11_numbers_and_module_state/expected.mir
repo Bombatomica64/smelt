@@ -1,0 +1,166 @@
+class Counter fields [Public value: Int] constructor Some(FuncId(1)) methods [FuncId(0)]
+
+fn tick (FuncId(0)) -> Int
+  locals
+    %0 param self: Counter
+    %1 temp: Int
+  bb0:
+    %1 = copy %0.field2 + 2
+    %0.field2 = move %1
+    return copy %0.field2
+
+fn __init__ (FuncId(1)) -> None
+  locals
+    %0 user self: Counter
+    %1 param start: Int
+    %2 temp: None
+  bb0:
+    %0 = struct0 {}
+    %2 = call @console_log("made counter") -> bb1
+  bb1:
+    %0.field2 = copy %1
+    return move %0
+
+fn smelt_global_init$counter$4 (FuncId(2)) -> Counter
+  locals
+    %0 temp: Counter
+  bb0:
+    %0 = call fn1(10) -> bb1
+  bb1:
+    return move %0
+
+fn bump (FuncId(3)) -> Int
+  locals
+    %0 temp: Counter
+    %1 temp: Int
+  bb0:
+    %0 = global_get #0
+    %1 = call fn0(move %0) -> bb1
+  bb1:
+    return move %1
+
+fn run (FuncId(4)) -> None
+  locals
+    %0 user x: Float
+    %1 user big: Int
+    %2 user n: Int
+    %3 temp: None
+    %4 temp: Float
+    %5 temp: None
+    %6 temp: Float
+    %7 temp: None
+    %8 temp: None
+    %9 temp: None
+    %10 temp: Float
+    %11 temp: None
+    %12 temp: None
+    %13 temp: String
+    %14 temp: String
+    %15 temp: None
+    %16 temp: String
+    %17 temp: String
+    %18 temp: String
+    %19 temp: String
+    %20 temp: String
+    %21 temp: String
+    %22 temp: String
+    %23 temp: String
+    %24 temp: None
+    %25 temp: Float
+    %26 temp: Float
+    %27 temp: Float
+    %28 temp: None
+    %29 temp: Float
+    %30 temp: Float
+    %31 temp: None
+    %32 temp: Int
+    %33 temp: None
+    %34 temp: Counter
+    %35 temp: Int
+    %36 temp: Counter
+    %37 temp: Int
+    %38 temp: None
+    %39 temp: Int
+    %40 temp: None
+    %41 temp: Counter
+    %42 temp: None
+  bb0:
+    %0 = 12.0
+    %3 = call @console_log(copy %0) -> bb1
+  bb1:
+    %4 = 3.0 * 4.0
+    %5 = call @console_log(move %4) -> bb2
+  bb2:
+    %6 = 0.1 + 0.2
+    %7 = call @console_log(move %6) -> bb3
+  bb3:
+    %8 = call @console_log(10000000000000000.0) -> bb4
+  bb4:
+    %9 = call @console_log(0.00001) -> bb5
+  bb5:
+    %10 = -0.0
+    %11 = call @console_log(move %10) -> bb6
+  bb6:
+    %1 = 9007199254740993
+    %12 = call @console_log(copy %1) -> bb7
+  bb7:
+    %13 = primitive_cast_string copy %0
+    %14 = "v " + move %13
+    %15 = call @console_log(move %14) -> bb8
+  bb8:
+    %16 = primitive_cast_string move %0
+    %17 = "f " + move %16
+    %18 = move %17 + " "
+    %19 = primitive_cast_string move %1
+    %20 = move %18 + move %19
+    %21 = move %20 + " "
+    %22 = primitive_cast_string true
+    %23 = move %21 + move %22
+    %24 = call @console_log(move %23) -> bb9
+  bb9:
+    %25 = primitive_cast_float 7
+    %26 = primitive_cast_float 2
+    %27 = move %25 / move %26
+    %28 = call @console_log(move %27) -> bb10
+  bb10:
+    %2 = 3
+    %29 = primitive_cast_float copy %2
+    %30 = move %29 + 0.5
+    %31 = call @console_log(move %30) -> bb11
+  bb11:
+    %32 = move %2 * 2
+    %33 = call @console_log(move %32) -> bb12
+  bb12:
+    %34 = global_get #0
+    %35 = call fn0(move %34) -> bb13
+  bb13:
+    %36 = global_get #0
+    %37 = call fn0(move %36) -> bb14
+  bb14:
+    %38 = call @console_log(move %37) -> bb15
+  bb15:
+    %39 = call fn3() -> bb16
+  bb16:
+    %40 = call @console_log(move %39) -> bb17
+  bb17:
+    %41 = global_get #0
+    %42 = call @console_log(copy %41.field2) -> bb18
+  bb18:
+    return none
+
+fn main (FuncId(5)) -> None
+  locals
+    %0 temp: None
+    %1 temp: None
+    %2 temp: None
+    %3 temp: None
+  bb0:
+    %0 = call @console_log("before") -> bb1
+  bb1:
+    %1 = global_get #0
+    %2 = call @console_log("after") -> bb2
+  bb2:
+    %3 = call fn4() -> bb3
+  bb3:
+    return none
+

@@ -240,14 +240,20 @@ NULL_FILE = NullFile()
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
+    // Requirement change (2026-11-04): this used to require an `Item::Const`
+    // whose construction every use site inlined, which rebuilt the object per
+    // read (Python runs a module assignment once; mutations through the name
+    // were lost). The binding is now a module global initialized once by a
+    // synthesized initializer, still exported through the module namespace.
     ensure(
         module.items.iter().any(|item_id| {
             matches!(
                 item(&ctx, *item_id),
-                Ok(Item::Const(const_item)) if symbol(&ctx, const_item.name) == Ok("NULL_FILE")
+                Ok(Item::MutableGlobal(global)) if symbol(&ctx, global.name) == Ok("NULL_FILE")
+                    && matches!(global.init, smelt_hir::MutableGlobalInit::Initializer(_))
             )
         }),
-        "expected constructed NULL_FILE constant item",
+        "expected constructed NULL_FILE module global",
     )?;
     ensure(
         ctx.module_namespaces

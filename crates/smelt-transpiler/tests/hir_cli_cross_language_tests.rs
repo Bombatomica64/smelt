@@ -45,8 +45,10 @@ clone-strategy = "aggressive"
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
     smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
+    // Requirement change (2026-11-04): `result` is a Python `float` printed
+    // by the Python entry, so CPython prints `5.0`, not JavaScript's `5`.
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
-    ensure_eq(&actual_stdout, &"5\n".to_owned(), "unexpected stdout")?;
+    ensure_eq(&actual_stdout, &"5.0\n".to_owned(), "unexpected stdout")?;
 
     Ok(())
 }
@@ -101,8 +103,10 @@ clone-strategy = "aggressive"
         dependency_module.contains("fn main_1()"),
         "dependency module body should be renamed away from main",
     )?;
+    // Requirement change (2026-11-04): `result` is a Python `float` printed
+    // by the Python entry, so CPython prints `10.0`, not JavaScript's `10`.
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
-    ensure_eq(&actual_stdout, &"10\n".to_owned(), "unexpected stdout")?;
+    ensure_eq(&actual_stdout, &"10.0\n".to_owned(), "unexpected stdout")?;
 
     Ok(())
 }
@@ -1389,6 +1393,7 @@ fn python_end_to_end_examples_match_expected_outputs() -> TestResult {
         "08_match",
         "09_break_continue_finally",
         "10_protocol",
+        "11_numbers_and_module_state",
     ] {
         verify_python_end_to_end_example(name)?;
     }

@@ -128,6 +128,42 @@ pub(crate) fn emit(writer: &mut CodeWriter) {
     writer.blank_line();
 }
 
+/// Python's `repr(float)` (which `str(float)` and `print` use).
+///
+/// The shortest round-trip digits, like JavaScript, but spelled Python's way:
+/// a whole float keeps its `.0` (`12.0`, where JavaScript prints `12`),
+/// exponential notation applies below `1e-4` and from `1e16` with a signed,
+/// two-digit exponent (`1e+16`, `1.5e-07`), and the special values are `inf`,
+/// `-inf` and `nan`. Rust's `Debug` for `f64` already picks the same digits
+/// and the same thresholds, so only the exponent and the special values are
+/// respelled.
+pub const PY_FLOAT_REPR_FN: &str = "smelt_py_float_repr";
+
+/// Emit [`PY_FLOAT_REPR_FN`].
+///
+/// Emitted only for a crate with Python code (a function whose absent value
+/// is spelled `None`), so TypeScript programs do not carry it.
+pub fn emit_python(writer: &mut CodeWriter) {
+    writer.line("/// Python's `repr(float)`: `12.0`, `1e+16`, `1.5e-07`, `inf`, `nan`.");
+    writer.block(
+        format!("fn {PY_FLOAT_REPR_FN}<N: ::std::borrow::Borrow<f64>>(value: N) -> String"),
+        |fn_writer| {
+            fn_writer.line("let value = *value.borrow();");
+            fn_writer.line("if value.is_nan() { return \"nan\".to_owned(); }");
+            fn_writer.line(
+                "if value.is_infinite() { return if value > 0.0 { \"inf\" } else { \"-inf\" }.to_owned(); }",
+            );
+            fn_writer.line("let text = format!(\"{value:?}\");");
+            fn_writer.block("match text.split_once('e')", |match_writer| {
+                match_writer.line(
+                    "Some((mantissa, exponent)) => { let (sign, digits) = exponent.strip_prefix('-').map_or((\"+\", exponent), |digits| (\"-\", digits)); format!(\"{mantissa}e{sign}{digits:0>2}\") }",
+                );
+                match_writer.line("None => text,");
+            });
+        },
+    );
+    writer.blank_line();
+}
 
 #[cfg(test)]
 mod tests {
