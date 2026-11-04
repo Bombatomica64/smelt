@@ -1,6 +1,8 @@
 //! Named function-declaration lowering: signatures, overloads, assertion and
 //! type-predicate returns, and function bodies.
 
+use crate::lowering::js_text::js_str_text;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 use crate::lowering::state::fn_ctx::BodyKind;
@@ -64,10 +66,10 @@ pub(in crate::lowering) enum ClassFieldInit<'a> {
 /// target is always a static identifier or a string-literal key, so those are
 /// the only two spellings that can match. A private name is deliberately
 /// excluded -- `this.#m = ...` targets a private slot, not a method member.
-fn property_key_plain_name<'a>(key: &'a PropertyKey<'a>) -> Option<&'a str> {
+fn property_key_plain_name<'a>(key: &'a PropertyKey<'a>) -> Option<Cow<'a, str>> {
     match key {
-        PropertyKey::StaticIdentifier(ident) => Some(ident.name.as_str()),
-        PropertyKey::StringLiteral(lit) => Some(lit.value.as_str()),
+        PropertyKey::StaticIdentifier(ident) => Some(Cow::Borrowed(ident.name.as_str())),
+        PropertyKey::StringLiteral(lit) => Some(js_str_text(lit.value)),
         _ => None,
     }
 }
@@ -113,7 +115,7 @@ impl<'a> oxc::ast_visit::Visit<'a> for ThisMethodAssignmentCollector<'_> {
     /// Records the member name when an assignment writes through `this`.
     fn visit_assignment_expression(&mut self, assign: &oxc::ast::ast::AssignmentExpression<'a>) {
         if let Some(name) = assignment_target_this_member_name(&assign.left) {
-            self.names.insert(name.to_owned());
+            self.names.insert(name.into_owned());
         }
         oxc::ast_visit::walk::walk_assignment_expression(self, assign);
     }
@@ -126,17 +128,17 @@ impl<'a> oxc::ast_visit::Visit<'a> for ThisMethodAssignmentCollector<'_> {
 /// dynamically computed target yields nothing.
 fn assignment_target_this_member_name<'a>(
     target: &'a oxc::ast::ast::AssignmentTarget<'a>,
-) -> Option<&'a str> {
+) -> Option<Cow<'a, str>> {
     use oxc::ast::ast::AssignmentTarget;
     let (object, property) = match target {
         AssignmentTarget::StaticMemberExpression(member) if !member.optional => {
-            (&member.object, member.property.name.as_str())
+            (&member.object, Cow::Borrowed(member.property.name.as_str()))
         }
         AssignmentTarget::ComputedMemberExpression(member) if !member.optional => {
             let Expression::StringLiteral(key) = &member.expression else {
                 return None;
             };
-            (&member.object, key.value.as_str())
+            (&member.object, js_str_text(key.value))
         }
         _ => return None,
     };
@@ -1663,7 +1665,7 @@ impl ModuleBuilder<'_> {
                             && method.kind == MethodDefinitionKind::Method
                             && method.value.body.is_some()
                             && property_key_plain_name(&method.key)
-                                .is_some_and(|name| assigned_methods.contains(name)) =>
+                                .is_some_and(|name| assigned_methods.contains(name.as_ref())) =>
                     {
                         let name = this.property_key_symbol(&method.key)?;
                         let ty = this.method_signature_function_type(method)?;
@@ -1975,7 +1977,7 @@ impl ModuleBuilder<'_> {
                             && method.kind == MethodDefinitionKind::Method
                             && method.value.body.is_some()
                             && property_key_plain_name(&method.key)
-                                .is_some_and(|name| assigned_methods.contains(name))
+                                .is_some_and(|name| assigned_methods.contains(name.as_ref()))
                         {
                             continue;
                         }
@@ -2582,13 +2584,17 @@ impl ModuleBuilder<'_> {
                 && method.kind == MethodDefinitionKind::Method
             {
                 let name = match &method.key {
-                    PropertyKey::StaticIdentifier(identifier) => Some(identifier.name.as_str()),
-                    PropertyKey::PrivateIdentifier(identifier) => Some(identifier.name.as_str()),
-                    PropertyKey::StringLiteral(literal) => Some(literal.value.as_str()),
+                    PropertyKey::StaticIdentifier(identifier) => {
+                        Some(Cow::Borrowed(identifier.name.as_str()))
+                    }
+                    PropertyKey::PrivateIdentifier(identifier) => {
+                        Some(Cow::Borrowed(identifier.name.as_str()))
+                    }
+                    PropertyKey::StringLiteral(literal) => Some(js_str_text(literal.value)),
                     _ => None,
                 };
                 if let Some(name) = name {
-                    names.insert(self.intern_source_name(name));
+                    names.insert(self.intern_source_name(&name));
                 }
             }
             if include_abstract_methods {
@@ -3434,7 +3440,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<Option<(Literal, smelt_hir::TypeId)>, SmeltError> {
         let pair = match expr {
             Expression::StringLiteral(literal) => (
-                Literal::String(literal.value.to_string()),
+                Literal::String(js_str_text(literal.value).into_owned()),
                 self.ctx.krate.types.intern(Type::String),
             ),
             Expression::BooleanLiteral(literal) => (

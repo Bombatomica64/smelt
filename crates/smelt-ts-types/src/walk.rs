@@ -72,7 +72,7 @@ impl EvolvingArrays {
         {
             return;
         }
-        let (Some(symbol), Some(key)) = (declaration.symbol(), span_key(text, declaration.name())) else {
+        let (Some(symbol), Some(key)) = (node.symbol(), span_key(text, declaration.name())) else {
             return;
         };
         self.declarations.insert(symbol, key);

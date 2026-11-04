@@ -3,6 +3,7 @@
 
 use super::{ModuleBuilder, ambient_globals, stdlib_dispatch, unknown_kind_from_typeof};
 use crate::SmeltError;
+use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::{Argument, BindingPattern, Expression, Statement, TSType, TSTypeName};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{BinaryOperator, UnaryOperator};
@@ -465,7 +466,7 @@ impl ModuleBuilder<'_> {
         let Expression::StringLiteral(kind_lit) = &binary.right else {
             return Ok(None);
         };
-        if kind_lit.value.as_str() == "undefined"
+        if kind_lit.value == "undefined"
             && let Expression::Identifier(identifier) = &unary.argument
             && identifier.name == "crypto"
         {
@@ -488,9 +489,7 @@ impl ModuleBuilder<'_> {
         // 'undefined' && globalThis.Buffer.isBuffer(x)`) then short-circuits to a
         // constant `false`, which is the correct result in a non-Node runtime,
         // instead of resolving `globalThis.Buffer` to a bogus empty object.
-        if kind_lit.value.as_str() == "undefined"
-            && self.typeof_operand_is_absent_global(&unary.argument)
-        {
+        if kind_lit.value == "undefined" && self.typeof_operand_is_absent_global(&unary.argument) {
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             let result = !matches!(
                 binary.operator,
@@ -508,7 +507,7 @@ impl ModuleBuilder<'_> {
         // probe so `isBlob`/`isFile` observe the override at runtime. Handles the
         // bare identifier spelling (`typeof Blob`) and the global-alias member
         // spelling (`typeof globalThis.Blob`).
-        if kind_lit.value.as_str() == "undefined"
+        if kind_lit.value == "undefined"
             && let Some(name) = self.typeof_operand_written_host_global(&unary.argument)
         {
             let name = name.to_owned();
@@ -528,7 +527,7 @@ impl ModuleBuilder<'_> {
         // `cloneDeepWith` clone paths fold to a constant: `=== 'undefined'` is
         // `false`, `!== 'undefined'` is `true`. Without this, the bare `Blob`
         // identifier would fail to resolve as a value.
-        if kind_lit.value.as_str() == "undefined"
+        if kind_lit.value == "undefined"
             && let Expression::Identifier(identifier) = &unary.argument
             && Self::is_known_defined_global_constructor(identifier.name.as_str())
         {
@@ -543,7 +542,7 @@ impl ModuleBuilder<'_> {
                 span: self.span(binary.span.start, binary.span.end),
             })));
         }
-        if kind_lit.value.as_str() == "undefined" {
+        if kind_lit.value == "undefined" {
             let value = self.expression(&unary.argument, body)?;
             let value_ty = Self::expr_ty(body, value);
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
@@ -594,21 +593,18 @@ impl ModuleBuilder<'_> {
                 span: self.span(binary.span.start, binary.span.end),
             })));
         }
-        let Some(kind) = unknown_kind_from_typeof(kind_lit.value.as_str()) else {
+        let expected = js_str_text(kind_lit.value);
+        let Some(kind) = unknown_kind_from_typeof(&expected) else {
             return Err(SmeltError::unsupported(
                 self.span(kind_lit.span.start, kind_lit.span.end),
-                format!(
-                    "typeof narrowing kind `{}` is not supported yet",
-                    kind_lit.value
-                ),
+                format!("typeof narrowing kind `{expected}` is not supported yet"),
             ));
         };
-        let expected = kind_lit.value.as_str();
         let value = self.expression(&unary.argument, body)?;
         let value_ty = Self::expr_ty(body, value);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(value_ty).cloned()
-            && self.static_typeof_match(inner, expected) == Some(true)
+            && self.static_typeof_match(inner, &expected) == Some(true)
         {
             let absent = body.push_expr(Expr {
                 kind: ExprKind::UnknownIs {
@@ -632,7 +628,7 @@ impl ModuleBuilder<'_> {
             }
             return Ok(Some(present));
         }
-        if let Some(matches_kind) = self.static_typeof_match(value_ty, expected) {
+        if let Some(matches_kind) = self.static_typeof_match(value_ty, &expected) {
             let result = if matches!(
                 binary.operator,
                 BinaryOperator::StrictInequality | BinaryOperator::Inequality
@@ -689,7 +685,7 @@ impl ModuleBuilder<'_> {
         let operand_is_global_alias = self.is_ambient_global_alias(operand_name);
         let value = ambient_globals::global_typeof_probe_value(
             operand_is_global_alias,
-            kind_lit.value.as_str(),
+            &js_str_text(kind_lit.value),
             is_equality,
         )?;
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
@@ -848,9 +844,7 @@ impl ModuleBuilder<'_> {
         let Expression::StringLiteral(kind_lit) = &binary.right else {
             return None;
         };
-        if kind_lit.value.as_str() != "undefined"
-            || !self.typeof_operand_is_absent_global(&unary.argument)
-        {
+        if kind_lit.value != "undefined" || !self.typeof_operand_is_absent_global(&unary.argument) {
             return None;
         }
         // The operand is absent, so `typeof X === "undefined"` is `true` and
@@ -1269,7 +1263,7 @@ impl ModuleBuilder<'_> {
             Argument::StringLiteral(lit) => {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(lit.value.to_string())),
+                    kind: ExprKind::Literal(Literal::String(js_str_text(lit.value).into_owned())),
                     ty,
                     span: self.span(lit.span.start, lit.span.end),
                 }))

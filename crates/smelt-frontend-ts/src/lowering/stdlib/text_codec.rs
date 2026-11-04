@@ -41,6 +41,7 @@
 //! is gone.
 
 use crate::SmeltError;
+use crate::lowering::js_text::js_str_text;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::Expression;
 use smelt_hir::{Body, Expr, ExprKind, TextDecoderOp, TextEncoderOp, Type};
@@ -116,7 +117,7 @@ impl ModuleBuilder<'_> {
                     argument
                         .as_expression()
                         .and_then(|expression| match expression {
-                            Expression::StringLiteral(literal) => Some(literal.value.as_str()),
+                            Expression::StringLiteral(literal) => Some(js_str_text(literal.value)),
                             _ => None,
                         });
                 match literal {

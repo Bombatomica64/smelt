@@ -1,5 +1,6 @@
 //! TypeScript AST lowering methods for `ModuleBuilder`.
 
+use crate::lowering::js_text::js_str_text;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
@@ -2287,7 +2288,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ty: self.ctx.krate.types.intern(Type::Float),
             }),
             Expression::StringLiteral(literal) => Some(ConstLiteral {
-                literal: Literal::String(literal.value.to_string()),
+                literal: Literal::String(js_str_text(literal.value).into_owned()),
                 ty: self.ctx.krate.types.intern(Type::String),
             }),
             Expression::BooleanLiteral(literal) => Some(ConstLiteral {
@@ -2975,7 +2976,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     let ty = self.ctx.krate.types.intern(Type::String);
                     items.push(ConstCollectionItem {
                         value: ConstCollectionValue::Expr(ExprKind::Literal(Literal::String(
-                            literal.value.to_string(),
+                            js_str_text(literal.value).into_owned(),
                         ))),
                         ty,
                     });
@@ -3121,7 +3122,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         match expression {
             Expression::StringLiteral(literal) => ConstCollectionItem {
                 value: ConstCollectionValue::Expr(ExprKind::Literal(Literal::String(
-                    literal.value.to_string(),
+                    js_str_text(literal.value).into_owned(),
                 ))),
                 ty: self.ctx.krate.types.intern(Type::String),
             },
@@ -3523,7 +3524,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let Some(specifiers) = &import.specifiers else {
                 continue;
             };
-            let source = import.source.value.as_str();
+            let source_text = js_str_text(import.source.value);
+            let source = source_text.as_ref();
             for specifier in specifiers {
                 let (imported, local) = match specifier {
                     ImportDeclarationSpecifier::ImportSpecifier(data) => (
@@ -3836,7 +3838,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
         export: &oxc::ast::ast::ExportFromDeclaration<'_>,
         module: &mut Module,
     ) {
-        let source_text = export.source.value.as_str();
+        let source_value = js_str_text(export.source.value);
+        let source_text = source_value.as_ref();
         let span = self.span(export.span.start, export.span.end);
         for specifier in &export.specifiers {
             let imported = module_export_name(&specifier.local);
@@ -3873,7 +3876,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
         export: &oxc::ast::ast::ExportAllDeclaration<'_>,
         module: &mut Module,
     ) {
-        let source = export.source.value.as_str();
+        let source_text = js_str_text(export.source.value);
+        let source = source_text.as_ref();
         let span = self.span(export.span.start, export.span.end);
         let name = self.intern_source_name("*");
         let alias = export
@@ -3981,7 +3985,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
         import: &oxc::ast::ast::ImportDeclaration<'_>,
         module: &mut Module,
     ) {
-        let source = import.source.value.as_str();
+        let source_text = js_str_text(import.source.value);
+        let source = source_text.as_ref();
         let span = self.span(import.span.start, import.span.end);
         let Some(specifiers) = &import.specifiers else {
             return;
@@ -4228,7 +4233,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         program.body.iter().any(|statement| {
             matches!(statement, Statement::ImportDeclaration(import)
-                if test_support::is_vitest_compatible_module(import.source.value.as_str()))
+                if test_support::is_vitest_compatible_module(&js_str_text(import.source.value)))
         })
     }
 
@@ -5417,7 +5422,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let value_expr = value_element.as_expression()?;
             let (value, value_ty) = self.object_const_entry_value(value_expr).ok()?;
             entries.push(ObjectConstEntry {
-                key: key_lit.value.to_string(),
+                key: js_str_text(key_lit.value).into_owned(),
                 value,
                 value_ty,
             });
@@ -5479,7 +5484,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             let key_text = match &object_property.key {
                 PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
-                PropertyKey::StringLiteral(lit) => lit.value.to_string(),
+                PropertyKey::StringLiteral(lit) => js_str_text(lit.value).into_owned(),
                 _ => {
                     return Err(SmeltError::unsupported(
                         self.span(
@@ -5664,7 +5669,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             let key = match &object_property.key {
                 PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
-                PropertyKey::StringLiteral(lit) => lit.value.to_string(),
+                PropertyKey::StringLiteral(lit) => js_str_text(lit.value).into_owned(),
                 _ => {
                     return Err(SmeltError::unsupported(
                         self.span(
@@ -5882,7 +5887,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     let ty = self.ctx.krate.types.intern(Type::String);
                     items.push(ObjectConstEntryValue {
                         value: ObjectConstValue::Literal(Literal::String(
-                            literal.value.to_string(),
+                            js_str_text(literal.value).into_owned(),
                         )),
                         ty,
                     });

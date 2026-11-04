@@ -20,6 +20,7 @@
 //! contributes no literal constraint: the decoder then checks the primitive
 //! kind only, never rejecting more than TypeScript would.
 
+use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::{Expression, TSLiteral, TSType, TSTypeName, UnaryOperator};
 use std::collections::HashSet;
 
@@ -111,7 +112,7 @@ impl ModuleBuilder<'_> {
             },
             TSType::TSLiteralType(literal) => {
                 let value = match &literal.literal {
-                    TSLiteral::StringLiteral(value) => Some(Literal::String(value.value.to_string())),
+                    TSLiteral::StringLiteral(value) => Some(Literal::String(js_str_text(value.value).into_owned())),
                     TSLiteral::NumericLiteral(value) => Some(Literal::Float(value.value)),
                     TSLiteral::BooleanLiteral(value) => Some(Literal::Bool(value.value)),
                     TSLiteral::UnaryExpression(unary)

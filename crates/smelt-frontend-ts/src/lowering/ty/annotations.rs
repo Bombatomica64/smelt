@@ -1,5 +1,6 @@
 //! TypeScript type lowering, structural type inspection, and HIR type resolution.
 
+use crate::lowering::js_text::js_str_text;
 use std::collections::{HashMap, HashSet};
 
 use crate::lowering::ModuleBuilder;
@@ -1170,7 +1171,7 @@ return_ty: function.return_ty,
         match ty {
             TSType::TSLiteralType(literal) => match &literal.literal {
                 oxc::ast::ast::TSLiteral::StringLiteral(value) => {
-                    Some(vec![value.value.to_string()])
+                    Some(vec![js_str_text(value.value).into_owned()])
                 }
                 _ => None,
             },

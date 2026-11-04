@@ -373,10 +373,10 @@ impl ModuleBuilder<'_> {
 
         for part in fstring.value.iter() {
             match part {
-                ruff_python_ast::FStringPart::Literal(literal) => {
+                ruff_python_ast::FStringPartRef::Literal(literal) => {
                     segments.push(Segment::Literal(literal.as_str().to_owned()));
                 }
-                ruff_python_ast::FStringPart::FString(inner) => {
+                ruff_python_ast::FStringPartRef::FString(inner) => {
                     for element in &inner.elements {
                         match element {
                             ruff_python_ast::InterpolatedStringElement::Literal(literal) => {
@@ -707,7 +707,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(c.range);
-        if c.ops.len() != 1 || c.comparators.len() != 1 {
+        if c.ops.len() != 1 || c.comparators().len() != 1 {
             return Err(SmeltError::unsupported(
                 span,
                 "chained comparisons (e.g. a < b < c) are not supported",
@@ -730,8 +730,8 @@ impl ModuleBuilder<'_> {
             CmpOp::Is => BinOp::Eq,
             CmpOp::IsNot => BinOp::NotEq,
         };
-        let lhs = self.expression(&c.left, body)?;
-        let [rhs_expr] = c.comparators.as_ref() else {
+        let lhs = self.expression(c.first_operand(), body)?;
+        let [rhs_expr] = c.comparators() else {
             return Err(SmeltError::unsupported(
                 span,
                 "chained comparisons (e.g. a < b < c) are not supported",
@@ -759,8 +759,8 @@ impl ModuleBuilder<'_> {
         op: CmpOp,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(c.range);
-        let needle = self.expression(&c.left, body)?;
-        let [haystack_expr] = c.comparators.as_ref() else {
+        let needle = self.expression(c.first_operand(), body)?;
+        let [haystack_expr] = c.comparators() else {
             return Err(SmeltError::unsupported(
                 span,
                 "containment requires a single comparison target",

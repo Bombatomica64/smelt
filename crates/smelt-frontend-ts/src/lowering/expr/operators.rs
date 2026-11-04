@@ -7,6 +7,7 @@
 //! feed construction. The helpers classify receiver and argument types and
 //! emit the concrete HIR construction and projection kinds.
 
+use crate::lowering::js_text::js_str_text;
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
 use crate::RestParam;
@@ -19,6 +20,7 @@ use crate::lowering::{
     Statement, Stmt, Type, UnaryOp, UnaryOperator,
 };
 use oxc::span::GetSpan;
+use std::borrow::Cow;
 
 /// One lowered element of a spread-containing array literal.
 ///
@@ -249,8 +251,10 @@ impl ModuleBuilder<'_> {
                 ));
             };
             let key_text = match &property.key {
-                PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str(),
-                PropertyKey::StringLiteral(literal) => literal.value.as_str(),
+                PropertyKey::StaticIdentifier(identifier) => {
+                    Cow::Borrowed(identifier.name.as_str())
+                }
+                PropertyKey::StringLiteral(literal) => js_str_text(literal.value),
                 _ => continue,
             };
             if key_text == "length" {
@@ -1138,7 +1142,7 @@ impl ModuleBuilder<'_> {
             ArrayExpressionElement::StringLiteral(lit) => {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(lit.value.to_string())),
+                    kind: ExprKind::Literal(Literal::String(js_str_text(lit.value).into_owned())),
                     ty,
                     span: self.span(lit.span.start, lit.span.end),
                 }))
@@ -2663,7 +2667,7 @@ impl ModuleBuilder<'_> {
         let Expression::StringLiteral(key_lit) = &binary.left else {
             return None;
         };
-        let presence = smelt_stdlib::global_member_presence(key_lit.value.as_str());
+        let presence = smelt_stdlib::global_member_presence(&js_str_text(key_lit.value));
         let value = match presence {
             smelt_stdlib::GlobalPresence::Present => true,
             smelt_stdlib::GlobalPresence::Absent => false,
@@ -4003,11 +4007,11 @@ impl ModuleBuilder<'_> {
             return self.unambiguous_property_hint(*value_ty);
         }
         let field_name = match &property.key {
-            PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str(),
-            PropertyKey::StringLiteral(literal) => literal.value.as_str(),
+            PropertyKey::StaticIdentifier(identifier) => Cow::Borrowed(identifier.name.as_str()),
+            PropertyKey::StringLiteral(literal) => js_str_text(literal.value),
             _ => return None,
         };
-        let field = self.intern_source_name(field_name);
+        let field = self.intern_source_name(&field_name);
         let field_ty = self.class_field_type(hint, field).ok()?;
         // A nested object literal gets the field's type as its own hint, class
         // and optional-class fields included. This used to be refused, which
@@ -4561,7 +4565,7 @@ impl ModuleBuilder<'_> {
 
         let key_text = match &object_property.key {
             PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
-            PropertyKey::StringLiteral(lit) => lit.value.to_string(),
+            PropertyKey::StringLiteral(lit) => js_str_text(lit.value).into_owned(),
             PropertyKey::NumericLiteral(lit) => lit.raw.as_ref().map_or_else(
                 || {
                     if lit.value.fract() == 0.0_f64 {

@@ -20,6 +20,7 @@
 //! reads (`buf.length`, `buf.byteLength`) a concrete backing through the erased
 //! object member path instead of a fabricated constant.
 
+use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{Body, ErasureReason, Expr, ExprKind, Literal, Type};
@@ -144,7 +145,7 @@ impl ModuleBuilder<'_> {
             return false;
         };
         matches!(
-            literal.value.to_ascii_lowercase().as_str(),
+            js_str_text(literal.value).to_ascii_lowercase().as_str(),
             "utf8" | "utf-8" | "latin1" | "binary" | "ascii" | "hex" | "base64" | "base64url"
         )
     }
