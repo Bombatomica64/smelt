@@ -707,6 +707,10 @@ fn run_finalization_passes(mir: &mut Mir) {
     // fallible builtin call is in the type table (the backend coerces through
     // it).
     intern_fallible_builtin_return_types(mir);
+    // Requires: every body lowered. Establishes: `unknown` is interned when a
+    // body reads a member through a type parameter's bound (the erased
+    // fallback converts from it).
+    intern_bound_dispatch_carrier_type(mir);
     // Requires: every body lowered. Establishes: each generic record
     // instantiation the program uses is interned.
     passes::generic_records::intern_generic_record_instantiations(mir);
@@ -778,6 +782,34 @@ fn throwing_state(mir: &Mir) -> Vec<u64> {
         state.extend(closure.captures.iter().map(|capture| u64::from(capture.ty.0)));
     }
     state
+}
+
+/// Interns `unknown` when any body reads a member through a type parameter's
+/// class or interface bound (`Rvalue::BoundMethod` / `Rvalue::BoundField`).
+///
+/// Wherever such a parameter does not become a real Rust generic, codegen
+/// renders the access — and any field write through the same parameter — as a
+/// dynamic member lookup on the erased carrier and converts its result from
+/// `unknown`. Before these reads were typed through the bound they were
+/// themselves `unknown`-typed, so the type was always interned; a program whose
+/// only `unknown` they were must still find it.
+fn intern_bound_dispatch_carrier_type(mir: &mut Mir) {
+    let reads_through_bound = |blocks: &[crate::BasicBlock]| {
+        blocks.iter().flat_map(|block| &block.statements).any(|statement| {
+            matches!(
+                statement,
+                crate::Statement::Assign {
+                    value: crate::Rvalue::BoundMethod { .. } | crate::Rvalue::BoundField { .. },
+                    ..
+                }
+            )
+        })
+    };
+    if mir.functions.iter().any(|function| reads_through_bound(&function.blocks))
+        || mir.closures.iter().any(|closure| reads_through_bound(&closure.blocks))
+    {
+        mir.types.intern(Type::Unknown);
+    }
 }
 
 /// Interns the return type of every fallible builtin the program calls.

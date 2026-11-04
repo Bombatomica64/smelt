@@ -1077,7 +1077,11 @@ impl<'builder> ModuleBuilder<'builder> {
                     .any(|param| self.overload_constraint_contains_unresolved_type_param(*param));
                 let hint_at = |builder: &mut Self, index: usize, arg: &Argument<'_>| {
                     let implementation_hint = params.get(index).copied();
-                    let _ = builder;
+                    if let Some(bound) = implementation_hint.and_then(|hint| {
+                        builder.object_literal_bound_hint(hint, &callee_type_params, arg)
+                    }) {
+                        return Some(bound);
+                    }
                     if matches!(arg, Argument::RegExpLiteral(_)) {
                         selected_overload
                             .as_ref()
@@ -1277,6 +1281,65 @@ impl<'builder> ModuleBuilder<'builder> {
             self.span(call.span.start, call.span.end),
             "call expression is not lowered yet",
         ))
+    }
+
+    /// The contextual type of an object-literal argument passed where the
+    /// callee declares a bare interface-bounded type parameter
+    /// (`longest<L extends HasLen>(a: L, ..)` called as `longest({ len: 1 }, ..)`).
+    ///
+    /// TypeScript infers `L` as the literal's own object type, which has
+    /// exactly the interface's shape when the literal names no property the
+    /// interface does not declare. Typing the literal as the interface is then
+    /// the same value, and it binds `L` to a type that implements the bound's
+    /// generated trait (bounded-generics plan), where the untyped literal would
+    /// lower to a string-keyed record that implements nothing. A literal with
+    /// an extra property, a spread or a computed key keeps its own type: there
+    /// `L` really is wider than the interface.
+    pub(in crate::lowering) fn object_literal_bound_hint(
+        &self,
+        hint: smelt_hir::TypeId,
+        callee_type_params: &[TypeParamDef],
+        arg: &Argument<'_>,
+    ) -> Option<smelt_hir::TypeId> {
+        let Argument::ObjectExpression(object) = arg else {
+            return None;
+        };
+        let Some(Type::TypeParam { name }) = self.ctx.krate.types.get(hint) else {
+            return None;
+        };
+        let constraint = callee_type_params
+            .iter()
+            .find(|param| param.name == *name)?
+            .constraint?;
+        let Some(Type::Class { name: bound, args }) = self.ctx.krate.types.get(constraint) else {
+            return None;
+        };
+        if !args.is_empty() {
+            return None;
+        }
+        let interface = self.find_interface(*bound)?;
+        if !interface.type_params.is_empty() {
+            return None;
+        }
+        let named = |symbol: smelt_hir::Symbol, key: &str| {
+            self.ctx.krate.symbols.get(symbol) == Some(key)
+                || self.ctx.krate.names.get(symbol) == Some(key)
+        };
+        let declares = |key: &str| {
+            interface.fields.iter().any(|field| named(field.name, key))
+                || interface.methods.iter().any(|method| named(method.name, key))
+        };
+        object
+            .properties
+            .iter()
+            .all(|property| match property {
+                oxc::ast::ast::ObjectPropertyKind::ObjectProperty(property) => {
+                    !property.computed
+                        && property.key.static_name().is_some_and(|key| declares(&key))
+                }
+                oxc::ast::ast::ObjectPropertyKind::SpreadProperty(_) => false,
+            })
+            .then_some(constraint)
     }
 
     /// Lower a member call `object.property(args)` once the builtin, static and

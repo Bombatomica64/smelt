@@ -245,6 +245,7 @@ impl FunctionEmitter<'_> {
             self.mir,
             function,
             &self.context.owned_callback_params,
+            &self.context.bound_traits,
         )
         .unwrap_or_default();
         let bound = generated

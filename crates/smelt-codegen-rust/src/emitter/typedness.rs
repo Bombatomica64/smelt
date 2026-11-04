@@ -272,6 +272,27 @@ fn measure_body(
                 counts.reads.add(emitter.typedness_of(ty));
             }
         }
+        // A member access through a type parameter's bound is a property read
+        // (`BoundField`) or a call (`BoundMethod`). It is as typed as both its
+        // result and its receiver: through the bound's trait the receiver is a
+        // generic, and where the parameter erased it is the dynamic carrier.
+        for statement in &block.statements {
+            if let Statement::Assign { dest, value } = statement
+                && let Rvalue::BoundField { receiver, .. } | Rvalue::BoundMethod { receiver, .. } =
+                    value
+            {
+                let result =
+                    local_ty(*dest).map_or(Typedness::Erased, |ty| emitter.typedness_of(ty));
+                let through = operand_local(receiver)
+                    .and_then(local_ty)
+                    .map_or(Typedness::Concrete, |ty| emitter.typedness_of(ty));
+                if matches!(value, Rvalue::BoundField { .. }) {
+                    counts.reads.add(result.max(through));
+                } else {
+                    counts.calls.add(result.max(through));
+                }
+            }
+        }
         for statement in &block.statements {
             if let Statement::Assign {
                 dest,

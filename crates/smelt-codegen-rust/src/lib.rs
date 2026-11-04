@@ -105,6 +105,7 @@ mod typed_array_prelude;
 mod url_prelude;
 pub(crate) mod base_init;
 pub(crate) mod class_proto;
+pub(crate) mod bound_traits;
 pub(crate) mod classes;
 pub(crate) mod classify;
 pub(crate) mod lazy_view;
@@ -719,6 +720,7 @@ fn emit_source_with_free_function_router(
     krate.emit_mutable_globals()?;
     krate.emit_free_functions(&mut route_free_function)?;
     krate.emit_class_impls()?;
+    krate.emit_bound_traits()?;
     krate.flush_hoisted_items();
     krate.splice_console_inspect()?;
     krate.emit_main_fallback()?;
@@ -950,6 +952,17 @@ impl<'a> CrateBuilder<'a> {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Emit the generated traits of class- and interface-bounded type
+    /// parameters (`trait AnimalLike` for `A extends Animal`).
+    ///
+    /// Must run after [`Self::emit_class_impls`]: each trait impl delegates to
+    /// the inherent methods, virtual slots, or stored fields those impls define.
+    fn emit_bound_traits(&mut self) -> Result<(), EmitError> {
+        let (mir, context, out) = (self.mir, self.context, &mut self.out);
+        out.push_str(&emitter::bound_dispatch::emit_bound_traits(mir, context)?);
         Ok(())
     }
 

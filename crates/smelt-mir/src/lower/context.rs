@@ -61,6 +61,48 @@ pub(super) struct LoweringCtx<'hir> {
     pub(super) loop_bool_ty: TypeId,
     /// See [`LoweringShared::thrown_ty`].
     pub(super) thrown_ty: Option<(TypeId, Symbol)>,
+    /// The class or interface bounding each type parameter in scope, by
+    /// parameter name: the enclosing class's and the function's own, inherited
+    /// by every closure lowered inside the body.
+    ///
+    /// A member read or method call on a receiver typed by one of these
+    /// parameters lowers to `Rvalue::BoundField` / `Rvalue::BoundMethod`, which
+    /// name the bound so codegen can dispatch through its generated trait. Only
+    /// a declared, non-generic class or interface is recorded (see
+    /// [`record_type_param_bounds`]).
+    pub(super) type_param_bounds: HashMap<Symbol, Symbol>,
+}
+
+/// Record the class/interface bound of every type parameter in `params` that
+/// has one, into `bounds` (see [`LoweringCtx::type_param_bounds`]).
+///
+/// Only a bound naming a declared, non-generic class or interface item counts,
+/// the same rule the TypeScript frontend applies before it types a member
+/// through the bound; a builtin bound such as `Date` names no item and keeps
+/// the erased member read.
+fn record_type_param_bounds(
+    krate: &smelt_hir::Crate,
+    params: &[smelt_hir::TypeParamDef],
+    bounds: &mut HashMap<Symbol, Symbol>,
+) {
+    for param in params {
+        if let Some(constraint) = param.constraint
+            && let Some(smelt_hir::Type::Class { name, args }) = krate.types.get(constraint)
+            && args.is_empty()
+            && krate.items.iter().any(|item| match item {
+                smelt_hir::Item::Class(class) => class.name == *name && class.type_params.is_empty(),
+                smelt_hir::Item::Interface(interface) => {
+                    interface.name == *name && interface.type_params.is_empty()
+                }
+                smelt_hir::Item::Function(_)
+                | smelt_hir::Item::TypeAlias(_)
+                | smelt_hir::Item::Const(_)
+                | smelt_hir::Item::MutableGlobal(_) => false,
+            })
+        {
+            bounds.insert(param.name, *name);
+        }
+    }
 }
 
 /// Crate-wide inputs shared by every body lowered in one `lower_hir` run.
@@ -205,8 +247,33 @@ impl<'hir> LoweringCtx<'hir> {
                 .clone_from(&hir_function.type_params);
         }
         let locals = build_locals(&mut function, body)?;
+        let mut type_param_bounds = HashMap::new();
+        let owning_class = match owner {
+            smelt_hir::FunctionOwner::Module => None,
+            smelt_hir::FunctionOwner::Constructor { class }
+            | smelt_hir::FunctionOwner::ClassMethod { class, .. }
+            | smelt_hir::FunctionOwner::ClassStaticMethod { class, .. } => Some(class),
+        };
+        if let Some(class) = owning_class
+            && let Some(class_item) = shared.krate.items.iter().find_map(|item| match item {
+                smelt_hir::Item::Class(candidate) if candidate.name == class => Some(candidate),
+                smelt_hir::Item::Class(_)
+                | smelt_hir::Item::Function(_)
+                | smelt_hir::Item::Interface(_)
+                | smelt_hir::Item::TypeAlias(_)
+                | smelt_hir::Item::Const(_)
+                | smelt_hir::Item::MutableGlobal(_) => None,
+            })
+        {
+            record_type_param_bounds(shared.krate, &class_item.type_params, &mut type_param_bounds);
+        }
+        if let Some(hir_function) = function_item_for_body(shared.krate, body_id) {
+            record_type_param_bounds(shared.krate, &hir_function.type_params, &mut type_param_bounds);
+        }
 
-        Ok(Self::from_parts(shared, body, function, locals))
+        let mut ctx = Self::from_parts(shared, body, function, locals);
+        ctx.type_param_bounds = type_param_bounds;
+        Ok(ctx)
     }
 
     /// Creates a lowering context for a nested closure body.
@@ -258,6 +325,7 @@ impl<'hir> LoweringCtx<'hir> {
             loop_index_ty: shared.loop_index_ty,
             loop_bool_ty: shared.loop_bool_ty,
             thrown_ty: shared.thrown_ty,
+            type_param_bounds: HashMap::new(),
         }
     }
 

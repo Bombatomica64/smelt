@@ -487,6 +487,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.mir,
                 self.function,
                 &self.context.owned_callback_params,
+                &self.context.bound_traits,
             )?;
             parts.extend(self.callback_generic_bounds_text()?);
             if parts.is_empty() {
@@ -639,6 +640,7 @@ impl<'mir> FunctionEmitter<'mir> {
             self.mir,
             self.function,
             &self.context.owned_callback_params,
+            &self.context.bound_traits,
         );
         if liftable.len() < self.function.type_params.len() {
             return Ok(!liftable.is_empty());
@@ -6414,12 +6416,15 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
                     .iter()
                     .any(|(_, case)| operand_uses_local(case, local))
         }
-        Rvalue::OptionalField { receiver, .. } => operand_uses_local(receiver, local),
+        Rvalue::OptionalField { receiver, .. } | Rvalue::BoundField { receiver, .. } => {
+            operand_uses_local(receiver, local)
+        }
         Rvalue::OptionalIndex { receiver, index } => {
             operand_uses_local(receiver, local) || operand_uses_local(index, local)
         }
         Rvalue::OptionalMethod { receiver, args, .. }
-        | Rvalue::UnionMethod { receiver, args, .. } => {
+        | Rvalue::UnionMethod { receiver, args, .. }
+        | Rvalue::BoundMethod { receiver, args, .. } => {
             operand_uses_local(receiver, local)
                 || args
                     .iter()
