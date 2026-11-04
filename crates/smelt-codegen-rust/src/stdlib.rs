@@ -350,6 +350,15 @@ pub(crate) fn needs_url_search_params_runtime(mir: &Mir) -> bool {
 ///
 /// Same pay-for-use rule as [`needs_url_search_params_runtime`]: an operation,
 /// a construction, or a mention of the type in the type table.
+/// Returns true when generated Rust needs the `SmeltDate` runtime: some value
+/// in the program is typed `Date` (see `date_prelude`).
+pub(crate) fn needs_date_runtime(mir: &Mir) -> bool {
+    mir.types
+        .all()
+        .iter()
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::Date))
+}
+
 pub(crate) fn needs_url_runtime(mir: &Mir) -> bool {
     needs_url_throwing_runtime(mir)
         || any_rvalue_needs(mir, |rvalue| matches!(rvalue, Rvalue::UrlOp { .. }))

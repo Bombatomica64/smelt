@@ -820,8 +820,18 @@ fn bounded_type_param_liftable(
     let Some(bound) = crate::bound_traits::constraint_bound(mir, type_param.constraint) else {
         return false;
     };
-    let Some(planned) = bounds.trait_for(bound) else {
+    // `D extends Date` goes through the prelude's `DateLike`, which only
+    // `SmeltDate` implements; a class or interface bound needs its planned trait.
+    let date_bound = crate::bound_traits::constraint_is_date(mir, type_param.constraint);
+    let planned = bounds.trait_for(bound);
+    if planned.is_none() && !date_bound {
         return false;
+    }
+    let implemented_by = |ty: TypeId| match planned {
+        Some(trait_plan) => trait_plan.implemented_by(mir, ty),
+        None => {
+            matches!(mir.types.get(ty), Some(Type::Class { name, args }) if *name == bound && args.is_empty())
+        }
     };
     let name = type_param.name;
     let is_bare = |ty: TypeId| {
@@ -891,7 +901,7 @@ fn bounded_type_param_liftable(
                 else {
                     return false;
                 };
-                if planned.implemented_by(mir, arg_ty) {
+                if implemented_by(arg_ty) {
                     continue;
                 }
                 let Some(Type::TypeParam { name: arg_param }) = mir.types.get(arg_ty) else {
@@ -922,8 +932,10 @@ struct BoundUse<'plan> {
     name: Symbol,
     /// Its class or interface bound.
     bound: Symbol,
-    /// The bound's planned trait.
-    planned: &'plan crate::bound_traits::BoundTrait,
+    /// The bound's planned trait; `None` for `Date`, whose `DateLike` carries
+    /// no bound members (the frontend dispatches a `D extends Date` receiver
+    /// as a `Date`).
+    planned: Option<&'plan crate::bound_traits::BoundTrait>,
 }
 
 /// Whether one body (and every closure it creates) touches values of the type
@@ -1003,7 +1015,8 @@ fn body_uses_bound_only_through_trait(
             };
             if let Some((receiver, bound, member)) = through_bound
                 && operand_is_param(receiver)
-                && (bound != bound_use.bound || bound_use.planned.member(member).is_none())
+                && (bound != bound_use.bound
+                    || bound_use.planned.is_none_or(|planned| planned.member(member).is_none()))
             {
                 return false;
             }
@@ -1749,10 +1762,14 @@ pub(crate) fn function_impl_generics_list(
             // A lifted bounded parameter also carries its bound's generated
             // trait (`A: AnimalLike + ..`); `liftable_type_params` only lifts a
             // constrained parameter whose bound has one.
-            let bound_trait = crate::bound_traits::constraint_bound(mir, param.constraint)
-                .and_then(|bound| bounds.trait_for(bound))
-                .map(|planned| format!("{} + ", planned.trait_name))
-                .unwrap_or_default();
+            let bound_trait = if crate::bound_traits::constraint_is_date(mir, param.constraint) {
+                "DateLike + ".to_owned()
+            } else {
+                crate::bound_traits::constraint_bound(mir, param.constraint)
+                    .and_then(|bound| bounds.trait_for(bound))
+                    .map(|planned| format!("{} + ", planned.trait_name))
+                    .unwrap_or_default()
+            };
             mir.symbols
                 .get(param.name)
                 .map(|name| {

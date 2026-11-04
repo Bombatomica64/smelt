@@ -334,6 +334,40 @@ impl FunctionEmitter<'_> {
             let elements = format!("SmeltList::from({operand_text}.to_elements())");
             return self.primitive_cast_list_text(op, &elements, operand_ty);
         }
+        // A concrete `Date` (`SmeltDate`) converts through its time value:
+        // `+d` / `d.getTime()` is the number, `String(d)` the date string, and
+        // a date object is always truthy.
+        if let Some(handle) = self.date_handle_text(&operand_text, operand_ty) {
+            match (op, dest_type) {
+                (
+                    smelt_hir::PrimitiveCastOp::ToFloat | smelt_hir::PrimitiveCastOp::ToJsNumber,
+                    Type::Float,
+                ) => return Ok(format!("{handle}.get_time()")),
+                (smelt_hir::PrimitiveCastOp::ToInt, Type::Int) => {
+                    return Ok(format!("{handle}.get_time() as i64"));
+                }
+                (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool) => return Ok("true".to_owned()),
+                (smelt_hir::PrimitiveCastOp::ToString, Type::String) => {
+                    return self.date_to_string_text(operand);
+                }
+                _ => {}
+            }
+        }
+        // `Number(d)` over a possibly-absent date: `undefined` is `NaN`.
+        if let Type::Optional(inner) = operand_type
+            && let Some(handle) = self.date_handle_text("smelt_date", *inner)
+            && matches!(
+                (op, dest_type),
+                (
+                    smelt_hir::PrimitiveCastOp::ToFloat | smelt_hir::PrimitiveCastOp::ToJsNumber,
+                    Type::Float
+                )
+            )
+        {
+            return Ok(format!(
+                "({operand_text}).as_ref().map_or(f64::NAN, |smelt_date| {handle}.get_time())"
+            ));
+        }
         // A bigint converts without ever being rounded through anything but its
         // own nearest `f64` (`Number(2n ** 64n)`), and prints without its `n`
         // (`String(10n)` is `"10"`).
@@ -1673,6 +1707,8 @@ impl FunctionEmitter<'_> {
                     // than a field of the value.
                     Some(smelt_stdlib::StdlibClass::DataView) => Some("SmeltDataView"),
                     Some(smelt_stdlib::StdlibClass::CryptoKey) => Some("SmeltCryptoKey"),
+                    // A `Date` is a shared, mutable time value (`date_prelude`).
+                    Some(smelt_stdlib::StdlibClass::Date) => Some("SmeltDate"),
                     _ => None,
                 } {
                     return Ok(RustType::raw(codec_type));
