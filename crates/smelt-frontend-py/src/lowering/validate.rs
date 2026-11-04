@@ -225,14 +225,6 @@ fn dotted_module_name_from_path(path: &str) -> Option<String> {
     ))
 }
 
-/// Return the base class name for plain and parameterized base expressions.
-fn base_class_name(expr: &Expr) -> Option<&str> {
-    match expr {
-        Expr::Subscript(sub) => expr_simple_name(&sub.value),
-        _ => expr_simple_name(expr),
-    }
-}
-
 /// Return an item's source name when available.
 fn item_name<'a>(krate: &'a smelt_hir::Crate, hir_item: &Item) -> Option<&'a str> {
     let symbol = match hir_item {

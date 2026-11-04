@@ -142,3 +142,83 @@ class-model or typing rule that the existing functional-style probes
 - No CI gate or baseline was added. The fixture is only in
   `.github/compat/libraries.json`, so the daily `Library Probes` run will
   track it.
+
+## Class-model pass (branch `py/cachetools-class-model`, 2026-11-04)
+
+The same per-file `dump-hir` census, re-run after each family. The total
+stays at **81 sites in 20 files** (42 library, 39 tests). 12 sites are
+cleared, and lifting them exposes 12 sites that were hidden behind them.
+
+| family | before | after | change |
+| --- | ---: | ---: | --- |
+| 3. dotted base classes (`collections.abc.MutableMapping`, `unittest.TestCase`) | 8 | 0 | general rule: a dotted base resolves through the module's import bindings, as `from m import Name` does |
+| 4. nested classes in a class body | 4 | 0 | general rule: hoisted to a module-level type named by `__qualname__` (`LFUCache._Link`, Rust `LFUCache__Link`) |
+| hidden blockers now exposed | – | 12 | listed below |
+
+Exposed by family 3 (the class body or base now gets checked):
+
+- `Cache`: `__marker = object()` is a class-level assignment that is not a
+  literal.
+- Test classes on `unittest.TestCase`: `unknown class field 'subTest'` /
+  `'cache'`. `TestCase` is recorded as a base, but it is not modeled, so its
+  methods are unknown. Also more family-1 sites (`CacheKeysTest.test_hashkey`,
+  `NoneMethodTest.cache`, `NoneWrapperTest.func`), plus a nested class inside
+  a test *function* body and an attribute-held class call (family 6).
+
+Exposed by family 4 (the hoisted class bodies are now lowered):
+
+- 3 family-1 sites: `LFUCache._Link.__init__(count)`,
+  `TTLCache._Link.__init__(key)` and `_TimedCache._Timer.__init__(timer)`.
+- `TLRUCache._Item` is decorated with `@functools.total_ordering`.
+- Not reported yet: once their `__init__` is typed, `_Link` will still need
+  `__slots__` as its field list, because `next`/`prev` are only assigned
+  from outside the class.
+
+Census now (81 sites): unannotated signatures 50 (21 return, 19 method
+parameter, 9 parameter, 1 method return), multiple inheritance 16, class
+decorators 4 (3 `@cachedmethod`, 1 `@functools.total_ordering`),
+attribute-held class calls 3, unknown `TestCase` members 2, and one each of:
+`collections` unresolved, nested class in a function, descriptor
+metaprogramming, `typing.Protocol`, `Callable[..., T]`, and a non-literal
+class attribute.
+
+### Families left for a decision
+
+- **Family 2 (multiple inheritance, 16 sites) is blocked on two other
+  families.** Every mixin (`CacheTestMixin`, `DecoratorTestMixin`,
+  `MethodDecoratorTestMixin`) derives from `SimplifiedTestCaseProtocol`, a
+  `typing.Protocol` that declares the `assert*` methods the mixin calls on
+  `self`. In Rust that is a trait with a supertrait bound, which is
+  structural subtyping (family 9). Every concrete class also pairs the mixin
+  with `unittest.TestCase`, which is not modeled. Lifting the
+  multiple-inheritance check alone would only turn these 16 sites into
+  `unknown class field 'assertEqual'`.
+- **Families 7 and 10 (`collections.namedtuple`, `Callable[..., Any]`)
+  are not reference gaps.** `namedtuple(...)` in its functional form is not
+  supported at all, whatever its spelling, and its fields are untyped.
+  `Callable[..., Any]` is the gradual callable. Both need a decision on
+  what the Python frontend does with source `Any` and untyped fields. Today
+  it has no erasure path, and `Any` lowers as a nominal class. The other
+  option is to take the types from the PEP 561 stub (`__init__.pyi`
+  declares `class _CacheInfo(NamedTuple)` with typed fields).
+- **Family 1 (unannotated signatures, 50 sites) is a redesign.** Resolving
+  with `ty` across the manifest project would type imports through the
+  package stubs. Taking the module's own signatures from its sibling `.pyi`
+  would cover about 14 of the 35 library sites (the public `__init__`s,
+  `cached`, `cachedmethod`, `*_cache`, `*key`). Those stub signatures use
+  `Callable[..., _KT]`, TypeVars and `@overload`, so they meet the
+  `Callable[..., T]` question too. The remaining private helpers
+  (`_locked(func, cache, key, lock)` and similar) need call-site-driven
+  generic specialization, plus a struct for closures that carry attributes
+  (`wrapper.cache_info = ...`).
+
+### Known limit of the nested-class rule
+
+A hoisted class's Rust name sanitizes `.` to `_`, so a nested `A.B` and a
+module-level class literally named `A_B` would collide. This is the same
+scheme the TypeScript frontend uses for namespace members.
+
+Separately, the end-to-end check for nested classes found a pre-existing bug
+that is not tied to nesting: a module-level instance (`c = Counter()` at
+module scope) is rebuilt at each use in the generated Rust, so mutations
+through it are lost. It reproduces without nested classes.
