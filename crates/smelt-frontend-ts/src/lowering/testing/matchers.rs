@@ -1,6 +1,7 @@
 //! `ModuleBuilder` lowering methods (part 06): assertion/expectation lowering
 //! and related HIR construction helpers split out of `lowering.rs`.
 
+use crate::lowering::js_text::{js_str_text, static_name_text};
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::{LocalCallback, LocalCallbackDefault, ModuleBuilder, RestParam, TestMatcher};
 use crate::SmeltError;
@@ -2889,7 +2890,7 @@ impl ModuleBuilder<'_> {
         match (left, &binary.right, right, &binary.left) {
             (Some(name), Expression::StringLiteral(kind), _, _)
             | (_, _, Some(name), Expression::StringLiteral(kind)) => {
-                Some((name, kind.value.to_string(), matches_kind))
+                Some((name, js_str_text(kind.value).into_owned(), matches_kind))
             }
             _ => None,
         }
@@ -2901,7 +2902,7 @@ impl ModuleBuilder<'_> {
     /// `typeof` kind strings for per-arm narrowing.
     pub(in crate::lowering) fn string_literal_value(expression: &Expression<'_>) -> Option<String> {
         match expression {
-            Expression::StringLiteral(literal) => Some(literal.value.to_string()),
+            Expression::StringLiteral(literal) => Some(js_str_text(literal.value).into_owned()),
             _ => None,
         }
     }
@@ -3462,9 +3463,9 @@ impl ModuleBuilder<'_> {
         let ty = self
             .narrowed_type(name)
             .unwrap_or_else(|| Self::local_ty(body, local));
-        let field_name = field.value.as_str();
+        let field_name = js_str_text(field.value);
         let retained = self
-            .filtered_union_members(ty, |member| self.type_has_known_field(member, field_name))?;
+            .filtered_union_members(ty, |member| self.type_has_known_field(member, &field_name))?;
         let narrowed = self.intern_filtered_union(retained)?;
         Some((name.to_owned(), narrowed))
     }
@@ -4388,7 +4389,7 @@ impl ModuleBuilder<'_> {
                 && let Expression::ImportExpression(import_expr) = &await_expr.argument
                 && let Expression::StringLiteral(source) = &import_expr.source
             {
-                self.dynamic_import_destructure_aliases(object, source.value.as_str())?;
+                self.dynamic_import_destructure_aliases(object, &js_str_text(source.value))?;
                 continue;
             }
             // `const g = globalThis;` records a local global-object alias so that
@@ -4680,7 +4681,7 @@ impl ModuleBuilder<'_> {
                     "dynamic import destructuring requires static keys and identifier bindings",
                 ));
             };
-            self.alias_imported_item(source, imported.as_ref(), local.name.as_str());
+            self.alias_imported_item(source, &static_name_text(imported), local.name.as_str());
             self.imports.mark_value(local.name.as_str().to_owned());
         }
         Ok(())
@@ -6005,7 +6006,7 @@ impl ModuleBuilder<'_> {
                 identifier.span.end,
             ),
             PropertyKey::StringLiteral(literal) => (
-                literal.value.to_string(),
+                js_str_text(literal.value).into_owned(),
                 literal.span.start,
                 literal.span.end,
             ),

@@ -5,6 +5,7 @@
 //! optional chains, and the lowering of assignment/update targets.
 
 use crate::SmeltError;
+use crate::lowering::js_text::js_str_text;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::{AssignmentTarget, ChainElement, Expression, SimpleAssignmentTarget};
 use oxc::span::GetSpan;
@@ -302,9 +303,9 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         if let Expression::StringLiteral(key) = &member.expression {
-            let name = key.value.as_str();
-            if smelt_stdlib::is_javascript_global_builtin(name) {
-                return self.identifier_expression(name, member.span.start, member.span.end, body);
+            let name = js_str_text(key.value);
+            if smelt_stdlib::is_javascript_global_builtin(&name) {
+                return self.identifier_expression(&name, member.span.start, member.span.end, body);
             }
         }
         let receiver =

@@ -2,6 +2,7 @@
 //! arrow/function callback recognizers, factory predicates, and opaque
 //! (local/member) callback values, plus building callbacks from param lists.
 
+use crate::lowering::js_text::js_str_text;
 use crate::lowering::{
     Argument, BinOp, BindingPattern, Body, CallbackCallArg, CallbackExpr, CallbackExprKind,
     CaptureMode, ClosureCapture, Expr, ExprKind, Expression, FunctionType, HashMap, Item,
@@ -712,9 +713,9 @@ impl ModuleBuilder<'_> {
             .unwrap_or_else(|| self.erase_with(ErasureReason::MissingAnnotation, "iteratee element"));
         let params = HashMap::default();
         let value = self.callback_expression(value_expression, &params, body)?;
-        let field = self.intern_source_name(path.value.as_str());
+        let field = self.intern_source_name(&js_str_text(path.value));
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let field_ty = self.erase_with(ErasureReason::ByName, path.value.as_str());
+        let field_ty = self.erase_with(ErasureReason::ByName, &js_str_text(path.value));
         Ok(Some(CallbackExpr {
             kind: CallbackExprKind::Binary {
                 op: BinOp::JsStrictEq,
@@ -750,7 +751,7 @@ impl ModuleBuilder<'_> {
         if Self::is_identifier_callee(&call.callee, "has")
             && let [Argument::StringLiteral(field)] = call.arguments.as_slice()
         {
-            let field = self.intern_source_name(field.value.as_str());
+            let field = self.intern_source_name(&js_str_text(field.value));
             return Ok(Some(CallbackExpr {
                 kind: CallbackExprKind::HasField {
                     receiver: Box::new(CallbackExpr {
@@ -817,9 +818,9 @@ impl ModuleBuilder<'_> {
                         kind: CallbackExprKind::Param(0),
                         ty: item_ty,
                     }),
-                    field: self.intern_source_name(field.value.as_str()),
+                    field: self.intern_source_name(&js_str_text(field.value)),
                 },
-                ty: self.erase_with(ErasureReason::ByName, field.value.as_str()),
+                ty: self.erase_with(ErasureReason::ByName, &js_str_text(field.value)),
             }));
         }
         if Self::is_identifier_callee(&call.callee, "emitEvent") && call.arguments.len() == 1 {

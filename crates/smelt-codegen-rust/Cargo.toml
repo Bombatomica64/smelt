@@ -44,7 +44,7 @@ serde = { workspace = true }
 stacker = "0.1.25"
 
 [dev-dependencies]
-insta = "1.48"
+insta = "1.49"
 smelt-frontend-py = { path = "../smelt-frontend-py" }
 smelt-frontend-ts = { path = "../smelt-frontend-ts" }
 smelt-specialize = { path = "../smelt-specialize" }

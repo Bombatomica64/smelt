@@ -39,6 +39,22 @@ fn convert(diagnostic: P<Diagnostic>) -> TsDiagnostic {
             Category::Suggestion => TsDiagnosticCategory::Suggestion,
             Category::Message => TsDiagnosticCategory::Message,
         },
-        message: tsrs_compiler::diagnosticwriter::flatten_diagnostic_message(diagnostic, "\n"),
+        message: flattened_message(diagnostic),
     }
+}
+
+/// The diagnostic's message with its chained details, one per line and
+/// indented by depth, exactly as `tsc` flattens a message chain.
+///
+/// tsrs writes the flattened message as bytes; the text it writes comes from
+/// Rust strings, so the lossy conversion never replaces anything in practice
+/// and only avoids a panic path.
+fn flattened_message(diagnostic: P<Diagnostic>) -> String {
+    let mut output = Vec::new();
+    tsrs_compiler::diagnosticwriter::write_flattened_diagnostic_message(
+        &mut output,
+        diagnostic,
+        "\n",
+    );
+    String::from_utf8_lossy(&output).into_owned()
 }

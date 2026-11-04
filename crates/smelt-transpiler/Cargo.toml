@@ -42,10 +42,10 @@ name = "smelt"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4.6.1", features = ["derive"] }
+clap = { version = "4.6.7", features = ["derive"] }
 hex = { workspace = true }
 oxc_resolver = "11.24.3"
-schemars = "1.2.1"
+schemars = "1.2.3"
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["preserve_order"] }
 sha2 = { workspace = true }
