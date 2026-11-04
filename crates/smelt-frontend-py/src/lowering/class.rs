@@ -261,10 +261,12 @@ impl ModuleBuilder<'_> {
                 // A modeled standard-library base is recorded under its own
                 // name whatever its spelling; any other base keeps the bare
                 // name it is spelled with.
-                let base_name =
-                    denoted.map(StdlibName::name).or_else(|| base_class_name(base_expr));
+                let base_name = match denoted {
+                    Some(name) => Some(name.name().to_owned()),
+                    None => self.base_class_name(base_expr, scope),
+                };
                 match base_name {
-                    Some(name) => Some(self.intern_name(name)),
+                    Some(name) => Some(self.intern_name(&name)),
                     None => {
                         return Err(SmeltError::unsupported(
                             span,
@@ -278,6 +280,32 @@ impl ModuleBuilder<'_> {
             _ => return Err(SmeltError::no_multiple_inheritance(span, class_name_str)),
         };
         Ok(bases)
+    }
+
+    /// The class name a non-modeled base class expression refers to.
+    ///
+    /// A subscripted base (`Base[int]`) names its subscripted value. A bare
+    /// name is the class name itself. A dotted base (`pkg.mod.Base`,
+    /// `unittest.TestCase`) is resolved through the module's bindings, the
+    /// way the class statement evaluates it: when every reaching binding
+    /// agrees that the chain denotes the imported definition `q`, the base is
+    /// the definition `q` names, recorded under its own name (the last
+    /// segment of `q`) exactly as `from pkg.mod import Base` records it. The
+    /// spelling's own prefix is never trusted: a chain whose head is not an
+    /// import (a local value, or a name bound differently on different
+    /// paths) has no single qualified meaning and yields `None`.
+    fn base_class_name(&self, base_expr: &Expr, scope: EvalScope) -> Option<String> {
+        let base_expr = ruff_python_ast::helpers::map_subscript(base_expr);
+        match base_expr {
+            Expr::Name(name) => Some(name.id.as_str().to_owned()),
+            Expr::Attribute(_) => {
+                let resolution = self.bindings.resolve(base_expr, scope)?;
+                let qualified = resolution.qualified_name()?;
+                let (_, name) = qualified.rsplit_once('.')?;
+                Some(name.to_owned())
+            }
+            _ => None,
+        }
     }
 
     /// Resolve a definition-time expression evaluated in `scope` to the
