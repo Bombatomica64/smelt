@@ -361,7 +361,9 @@ fn referenced_locals(blocks: &[BasicBlock]) -> std::collections::HashSet<smelt_m
                 if let Callee::Indirect(callee) = callee {
                     operand(callee, &mut out);
                 }
-                args.iter().for_each(|arg| operand(arg, &mut out));
+                for arg in args {
+                    operand(arg, &mut out);
+                }
                 out.extend(unwind.and_then(|handler| handler.exception_local));
             }
             Some(Terminator::Await { future, dest, unwind, .. }) => {
