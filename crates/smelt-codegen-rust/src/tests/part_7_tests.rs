@@ -1253,24 +1253,27 @@ export function pick(
 
     // The requirement: an omitted field reads its default (or stays absent)
     // instead of panicking. The bag's value type used to be the erasing union
-    // `Optional<Bool> | Optional<Float>` and read through `.unwrap_or(..)` on
-    // the erased record; it is now the flat `Optional<Bool | Float>`, so each
-    // read is a typed `Option` lookup that collapses the missing key and the
-    // absent value into one `None` before the default applies.
+    // `Optional<Bool> | Optional<Float>`, then the flat (still lossy)
+    // `Dict<String, Optional<Bool | Float>>` read through keyed `Option`
+    // lookups. The fields have different types, so the literal is now a
+    // synthesized struct (`decls::anonymous_record`): each field keeps its own
+    // `Option<bool>` / `Option<f64>` and a missing field is that field's
+    // `None`, which the default replaces. Same requirement, typed per field.
+    let body = emitted_function_body(&source, "fn pick(");
     assert!(
-        source.contains(".get(&\"leading\".to_owned()).flatten()"),
-        "{source}"
+        body.contains(".leading.clone().unwrap_or(false)"),
+        "{body}"
     );
     assert!(
-        source.contains(".get(&\"trailing\".to_owned()).flatten()"),
-        "{source}"
+        body.contains(".trailing.clone().unwrap_or(true)"),
+        "{body}"
     );
     assert!(
-        source.contains(".get(&\"maxWait\".to_owned()).flatten()"),
-        "{source}"
+        body.contains("let max_wait: Option<f64> = __param0.max_wait.clone();"),
+        "{body}"
     );
-    assert!(source.contains("map_or_else(|| "), "{source}");
-    assert!(!source.contains("expect(\"missing field\")"), "{source}");
+    assert!(!body.contains("expect(\"missing field\")"), "{body}");
+    assert!(!body.contains("Optional<Bool | Float>") && !body.contains("SmeltUnion"), "{body}");
 }
 
 #[test]

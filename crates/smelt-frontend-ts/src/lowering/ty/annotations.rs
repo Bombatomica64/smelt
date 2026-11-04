@@ -867,7 +867,8 @@ return_ty: function.return_ty,
                 member_tys.push(self.ts_type_to_hir(&index.type_annotation.type_annotation)?);
             }
         }
-        for field in self.type_literal_fields(literal)? {
+        let fields = self.type_literal_fields(literal)?;
+        for field in &fields {
             member_tys.push(if field.optional {
                 self.ctx.krate.types.intern(Type::Optional(field.ty))
             } else {
@@ -893,6 +894,11 @@ return_ty: function.return_ty,
                     value_tys.push(arm);
                 }
             }
+        }
+        // Fields of different types have no common `Dict` value type: the
+        // merged union would retype every field (see `decls::anonymous_record`).
+        if let Some(record_ty) = self.anonymous_record_literal_type(literal, &fields) {
+            return Ok(record_ty);
         }
         let value_ty = match value_tys.as_slice() {
             [] => self.ctx.krate.types.intern(Type::None),

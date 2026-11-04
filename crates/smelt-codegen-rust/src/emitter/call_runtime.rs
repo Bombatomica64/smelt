@@ -407,9 +407,16 @@ impl FunctionEmitter<'_> {
             // data` with `data: object | null | undefined` is `undefined` when
             // `data` is, exactly as in JavaScript. Asserting presence instead
             // (the arm below) panicked as soon as a caller passed `undefined`
-            // as `None` (remeda `prop(undefined, 'a')`).
+            // as `None` (remeda `prop(undefined, 'a')`). A type parameter the
+            // function carries erased renders as that same carrier, so
+            // `defaultValue as TDefault` with `defaultValue?: TDefault` is
+            // `undefined` too (radash `get(null, 'a')`), not a panic.
             Rvalue::Use(operand)
-                if matches!(self.mir.types.get(dest_ty), Some(Type::Unknown))
+                if (matches!(self.mir.types.get(dest_ty), Some(Type::Unknown))
+                    || matches!(self.mir.types.get(dest_ty), Some(Type::TypeParam { .. }))
+                        && self
+                            .type_text_with_impl_trait(dest_ty, false)
+                            .is_ok_and(|text| text == "SmeltUnknown"))
                     && matches!(
                         self.mir.types.get(self.operand_ty(operand)?),
                         Some(Type::Optional(inner)) if *inner == dest_ty

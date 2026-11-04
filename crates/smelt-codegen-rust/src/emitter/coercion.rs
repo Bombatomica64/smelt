@@ -128,6 +128,17 @@ impl FunctionEmitter<'_> {
         {
             return self.value_at_type_text(&operand_text, source_ty, target, scope);
         }
+        // A tuple at a LIST type (`[] as []` or `[a, b] as [A, B]` passed to a
+        // `T[]` parameter, which TypeScript accepts) collects its elements into
+        // a list. The text entry point owns that rule; the operand ladder below
+        // has none and passed the tuple through unchanged (`()` where a
+        // `SmeltList` was expected, E0308).
+        if matches!(
+            (self.mir.types.get(source_ty), self.mir.types.get(target)),
+            (Some(Type::Tuple(_)), Some(Type::List(_)))
+        ) {
+            return self.value_at_type_text(&operand_text, source_ty, target, scope);
+        }
         let target_is_erased = matches!(
             self.mir.types.get(target),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -3093,7 +3104,17 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(source_ty),
             Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner)
         );
-        if target_is_primitive
+        // The same holds for a FUNCTION target that is the optional's own inner
+        // type: a narrowed `Option<Rc<dyn Fn ..>>` unwraps to its function. The
+        // erased path below matched it as a `SmeltUnknown`, which an
+        // `Option<Rc<dyn Fn>>` is not (E0308), so it never compiled. Other
+        // inner types keep the erased extraction and its handling of an absent
+        // value (e.g. `Array.from(null)` reaching an iterable extraction).
+        let target_is_source_inner = matches!(
+            self.mir.types.get(source_ty),
+            Some(Type::Optional(inner)) if *inner == target
+        ) && matches!(self.mir.types.get(target), Some(Type::Function(_)));
+        if (target_is_primitive || target_is_source_inner)
             && matches!(self.mir.types.get(source_ty), Some(Type::Optional(_)))
             && !source_inner_is_erased
         {
