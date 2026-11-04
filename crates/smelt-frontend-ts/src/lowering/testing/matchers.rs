@@ -4453,6 +4453,16 @@ impl ModuleBuilder<'_> {
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?;
+            // An unannotated `= []` takes the type TypeScript evolves it to
+            // through later pushes, as if that were its annotation.
+            let annotated_ty = match (&declarator.id, &declarator.init) {
+                (BindingPattern::BindingIdentifier(binding), Some(Expression::ArrayExpression(array)))
+                    if annotated_ty.is_none() && array.elements.is_empty() =>
+                {
+                    self.checker_evolved_array_type(binding.span.start, binding.span.end)
+                }
+                _ => annotated_ty,
+            };
             // Both shapes assign into a local reserved before this statement
             // list was lowered: an initializer that mentions its own binding,
             // and a binding a closure in an earlier statement already reads.

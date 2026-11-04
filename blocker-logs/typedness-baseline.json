@@ -2,18 +2,18 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8747,
-      "generic": 133,
+      "concrete": 8821,
+      "generic": 146,
       "erased": 65
     },
     "reads": {
-      "concrete": 865,
-      "generic": 36,
+      "concrete": 871,
+      "generic": 39,
       "erased": 20
     },
     "calls": {
-      "concrete": 2262,
-      "generic": 13,
+      "concrete": 2273,
+      "generic": 14,
       "erased": 2
     }
   },
@@ -1528,6 +1528,23 @@
       "calls": {
         "concrete": 5,
         "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/191_checker_typed_array_literals_and_generic_calls/input.ts": {
+      "values": {
+        "concrete": 74,
+        "generic": 13,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 6,
+        "generic": 3,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 11,
+        "generic": 1,
         "erased": 0
       }
     },

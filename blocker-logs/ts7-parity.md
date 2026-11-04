@@ -57,10 +57,14 @@ Caveats:
 1. **Uninstantiated generics at call sites** (mismatch). es-toolkit has
    `List<TypeParam(T)> ← number[]` 290× and `← string[]` 51×. HIR keeps the
    callee's `T` on the call result where TS7 instantiated it. Inference
-   results belong in HIR (the hand-port bar: `chunk::<f64>`).
+   results belong in HIR (the hand-port bar: `chunk::<f64>`). **Round 9:**
+   424 → 21 on es-toolkit (array literals under a generic hint take their
+   elements' types); see `ts7-parity-phase2-round9-generic-calls-element-types.md`.
 2. **Erased element types** (mismatch `List<Unknown> ← T[]`). es-toolkit has
    83 + 73 + 58; remeda has 139 + 23 + 20. Array literals and spreads whose
-   element type TS7 knows exactly.
+   element type TS7 knows exactly. **Round 9:** evolving `= []` arrays and
+   heterogeneous literals take the checker's type; the rest is mostly matcher
+   expected values hinted by an erased actual, and narrowing (family 7).
 3. **Primitives erased after narrowing** (smelt-erased `Unknown ← number`/`string`).
    es-toolkit has 106 + 74, remeda 61 + 43, hono 66 + 25. For example
    `value.size` after an `instanceof Map` guard (`examples/105`), and `e.name`

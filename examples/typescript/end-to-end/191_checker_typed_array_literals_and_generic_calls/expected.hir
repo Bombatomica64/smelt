@@ -1,0 +1,191 @@
+module examples/typescript/end-to-end/191_checker_typed_array_literals_and_generic_calls/input.ts (ModuleId(0))
+  body BodyId(5)
+  items
+    fn chunk<T> owner Module
+    fn swap<A, B> owner Module
+    fn keep<T> owner Module
+  locals
+    %0 const numbers: List<List<Float>>
+    %1 const words: List<List<String>>
+    %2 const label: String
+    %3 const count: Float
+    %4 const mixed: List<Float | String | Bool>
+    %5 const bumped: List<Float | String>
+    %6 const nested: List<Float | List<Float | List<Float | List<Float>>>>
+  exprs
+    #0: Float = 1.0
+    #1: Float = 2.0
+    #2: Float = 3.0
+    #3: Float = 4.0
+    #4: Float = 5.0
+    #5: List<Float> = [#0, #1, #2, #3, #4]
+    #6: Float = 2.0
+    #7: fn(List<T>, Float) -> List<List<T>> = @0(chunk)
+    #8: List<List<Float>> = call #7(#5, #6)
+    #9: List<List<Float>> = %0
+    #10: Float = len #9
+    #11: List<List<Float>> = %0
+    #12: Float = 2.0
+    #13: List<Float> = #11[#12]
+    #14: Float = 0.0
+    #15: Float = #13[#14]
+    #16: Float = 1.0
+    #17: Float = Add #15, #16
+    #18: None = @3(console_log)
+    #19: None = call #18(#10, #17)
+    #20: String = "a"
+    #21: String = "b"
+    #22: String = "c"
+    #23: List<String> = [#20, #21, #22]
+    #24: Float = 2.0
+    #25: fn(List<T>, Float) -> List<List<T>> = @0(chunk)
+    #26: List<List<String>> = call #25(#23, #24)
+    #27: List<List<String>> = %1
+    #28: Float = 0.0
+    #29: List<String> = #27[#28]
+    #30: String = "+"
+    #31: String = string_join #29, #30
+    #32: List<List<String>> = %1
+    #33: Float = 1.0
+    #34: List<String> = #32[#33]
+    #35: String = "+"
+    #36: String = string_join #34, #35
+    #37: None = @4(console_log)
+    #38: None = call #37(#31, #36)
+    #39: Float = 7.0
+    #40: String = "seven"
+    #41: (Float, String) = (#39, #40)
+    #42: fn((A, B)) -> (B, A) = @1(swap)
+    #43: (String, Float) = call #42(#41)
+    #44: Float = 0.0
+    #45: String = tuple_index #43, 0
+    #46: Float = 1.0
+    #47: Float = tuple_index #43, 1
+    #48: String = %2
+    #49: String = string_upper #48
+    #50: Float = %3
+    #51: Float = 1.0
+    #52: Float = Add #50, #51
+    #53: None = @5(console_log)
+    #54: None = call #53(#49, #52)
+    #55: Float = 5.0
+    #56: Float = 12.0
+    #57: Float = 8.0
+    #58: Float = 20.0
+    #59: List<Float> = [#55, #56, #57, #58]
+    #60: fn(Float) -> Bool = closure BodyId(3) captures 0 -> Bool
+    #61: fn(List<T>, fn(T) -> Bool) -> List<T> = @2(keep)
+    #62: List<Float> = call #61(#59, #60)
+    #63: String = ","
+    #64: String = string_join #62, #63
+    #65: None = @6(console_log)
+    #66: None = call #65(#64)
+    #67: Float = 1.0
+    #68: String = "two"
+    #69: Bool = true
+    #70: List<Float | String | Bool> = [#67, #68, #69]
+    #71: List<Float | String | Bool> = %4
+    #72: Float = len #71
+    #73: List<Float | String | Bool> = %4
+    #74: String = "two"
+    #75: Bool = list_contains #73, #74
+    #76: List<Float | String | Bool> = %4
+    #77: Float = 2.0
+    #78: Bool = list_contains #76, #77
+    #79: List<Float | String | Bool> = %4
+    #80: Bool = true
+    #81: Float = list_find #79, #80
+    #82: List<Float | String | Bool> = %4
+    #83: String = "|"
+    #84: String = string_join #82, #83
+    #85: None = @7(console_log)
+    #86: None = call #85(#72, #75, #78, #81, #84)
+    #87: Float = 1.0
+    #88: String = "a"
+    #89: Float = 3.0
+    #90: List<Float | String> = [#87, #88, #89]
+    #91: fn(Float | String, Int, List<Float | String>) -> Float | String = closure BodyId(4) captures 0 -> Float | String
+    #92: List<Float | String> = list_map #90, #91
+    #93: List<Float | String> = %5
+    #94: String = ","
+    #95: String = string_join #93, #94
+    #96: None = @8(console_log)
+    #97: None = call #96(#95)
+    #98: Float = 1.0
+    #99: Float = 2.0
+    #100: Float = 3.0
+    #101: Float = 4.0
+    #102: List<Float> = [#101]
+    #103: List<Float | List<Float>> = [#100, #102]
+    #104: List<Float | List<Float | List<Float>>> = [#99, #103]
+    #105: List<Float | List<Float | List<Float | List<Float>>>> = [#98, #104]
+    #106: List<Float | List<Float | List<Float | List<Float>>>> = %6
+    #107: List<Float | List<Float | List<Float>>> = list_flat #106, _
+    #108: String = json_stringify #107
+    #109: List<Float | List<Float | List<Float | List<Float>>>> = %6
+    #110: Float = 2.0
+    #111: List<Float | List<Float>> = list_flat #109, #110
+    #112: String = json_stringify #111
+    #113: List<Float | List<Float | List<Float | List<Float>>>> = %6
+    #114: Float = inf
+    #115: List<Float | List<Float> | List<Float | List<Float>> | List<Float | List<Float | List<Float>>>> = list_flat #113, #114
+    #116: Float = len #115
+    #117: None = @9(console_log)
+    #118: None = call #117(#108, #112, #116)
+  stmts
+    s0: let %0: List<List<Float>> = #8
+    s1: #19
+    s2: let %1: List<List<String>> = #26
+    s3: #38
+    s4: let %2: String = #45
+    s5: let %3: Float = #47
+    s6: #54
+    s7: #66
+    s8: let %4: List<Float | String | Bool> = #70
+    s9: #86
+    s10: let %5: List<Float | String> = #92
+    s11: #97
+    s12: let %6: List<Float | List<Float | List<Float | List<Float>>>> = #105
+    s13: #118
+
+interned types
+  t0 = Unknown
+  t1 = Float
+  t2 = String
+  t3 = Bool
+  t4 = Float | String | Bool
+  t5 = List<Float | String | Bool>
+  t6 = Float | String
+  t7 = List<Float | String>
+  t8 = Int
+  t9 = fn(Float | String, Int, List<Float | String>) -> Float | String
+  t10 = List<Float>
+  t11 = Float | List<Float>
+  t12 = List<Float | List<Float>>
+  t13 = Float | List<Float | List<Float>>
+  t14 = List<Float | List<Float | List<Float>>>
+  t15 = Float | List<Float | List<Float | List<Float>>>
+  t16 = List<Float | List<Float | List<Float | List<Float>>>>
+  t17 = T
+  t18 = List<T>
+  t19 = List<List<T>>
+  t20 = fn(List<T>, Float) -> List<List<T>>
+  t21 = A
+  t22 = B
+  t23 = (A, B)
+  t24 = (B, A)
+  t25 = fn((A, B)) -> (B, A)
+  t26 = fn(T) -> Bool
+  t27 = fn(List<T>, fn(T) -> Bool) -> List<T>
+  t28 = List<List<Float>>
+  t29 = fn(List<T>, Float) -> List<List<T>>
+  t30 = List<String>
+  t31 = List<List<String>>
+  t32 = None
+  t33 = (Float, String)
+  t34 = (String, Float)
+  t35 = fn((A, B)) -> (B, A)
+  t36 = fn(Float) -> Bool
+  t37 = fn(List<T>, fn(T) -> Bool) -> List<T>
+  t38 = Float | List<Float> | List<Float | List<Float>> | List<Float | List<Float | List<Float>>>
+  t39 = List<Float | List<Float> | List<Float | List<Float>> | List<Float | List<Float | List<Float>>>>

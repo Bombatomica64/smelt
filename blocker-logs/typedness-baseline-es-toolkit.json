@@ -2,19 +2,19 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 13412,
-      "generic": 229,
-      "erased": 10108
+      "concrete": 14144,
+      "generic": 236,
+      "erased": 9380
     },
     "reads": {
-      "concrete": 305,
-      "generic": 30,
-      "erased": 1111
+      "concrete": 323,
+      "generic": 33,
+      "erased": 1090
     },
     "calls": {
-      "concrete": 1967,
-      "generic": 34,
-      "erased": 1451
+      "concrete": 2098,
+      "generic": 35,
+      "erased": 1319
     }
   },
   "programs": {
@@ -156,9 +156,9 @@
     },
     "src/array/at.spec.ts": {
       "values": {
-        "concrete": 30,
+        "concrete": 48,
         "generic": 0,
-        "erased": 21
+        "erased": 3
       },
       "reads": {
         "concrete": 1,
@@ -166,9 +166,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 1,
+        "concrete": 7,
         "generic": 0,
-        "erased": 6
+        "erased": 0
       }
     },
     "src/array/at.ts": {
@@ -224,9 +224,9 @@
     },
     "src/array/chunk.spec.ts": {
       "values": {
-        "concrete": 40,
+        "concrete": 64,
         "generic": 0,
-        "erased": 68
+        "erased": 44
       },
       "reads": {
         "concrete": 0,
@@ -234,9 +234,9 @@
         "erased": 9
       },
       "calls": {
-        "concrete": 4,
+        "concrete": 11,
         "generic": 0,
-        "erased": 14
+        "erased": 7
       }
     },
     "src/array/chunk.ts": {
@@ -258,9 +258,9 @@
     },
     "src/array/combinations.spec.ts": {
       "values": {
-        "concrete": 25,
+        "concrete": 70,
         "generic": 0,
-        "erased": 52
+        "erased": 7
       },
       "reads": {
         "concrete": 0,
@@ -268,9 +268,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 3,
+        "concrete": 13,
         "generic": 0,
-        "erased": 12
+        "erased": 2
       }
     },
     "src/array/combinations.ts": {
@@ -292,7 +292,7 @@
     },
     "src/array/compact.spec.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 10,
         "generic": 0,
         "erased": 9
       },
@@ -360,9 +360,9 @@
     },
     "src/array/difference.spec.ts": {
       "values": {
-        "concrete": 3,
+        "concrete": 14,
         "generic": 0,
-        "erased": 12
+        "erased": 1
       },
       "reads": {
         "concrete": 0,
@@ -370,9 +370,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 3,
         "generic": 0,
-        "erased": 3
+        "erased": 0
       }
     },
     "src/array/difference.ts": {
@@ -394,9 +394,9 @@
     },
     "src/array/differenceBy.spec.ts": {
       "values": {
-        "concrete": 24,
+        "concrete": 29,
         "generic": 0,
-        "erased": 9
+        "erased": 4
       },
       "reads": {
         "concrete": 1,
@@ -404,9 +404,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 1,
+        "concrete": 2,
         "generic": 0,
-        "erased": 2
+        "erased": 1
       }
     },
     "src/array/differenceBy.ts": {
@@ -428,9 +428,9 @@
     },
     "src/array/differenceWith.spec.ts": {
       "values": {
-        "concrete": 45,
+        "concrete": 57,
         "generic": 0,
-        "erased": 14
+        "erased": 0
       },
       "reads": {
         "concrete": 4,
@@ -438,9 +438,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 2,
+        "concrete": 4,
         "generic": 0,
-        "erased": 2
+        "erased": 0
       }
     },
     "src/array/differenceWith.ts": {
@@ -462,9 +462,9 @@
     },
     "src/array/drop.spec.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 25,
         "generic": 0,
-        "erased": 18
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -472,9 +472,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 6,
         "generic": 0,
-        "erased": 6
+        "erased": 0
       }
     },
     "src/array/drop.ts": {
@@ -496,9 +496,9 @@
     },
     "src/array/dropRight.spec.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 25,
         "generic": 0,
-        "erased": 18
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -506,9 +506,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 6,
         "generic": 0,
-        "erased": 6
+        "erased": 0
       }
     },
     "src/array/dropRight.ts": {
@@ -530,9 +530,9 @@
     },
     "src/array/dropRightWhile.spec.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 17,
         "generic": 0,
-        "erased": 21
+        "erased": 11
       },
       "reads": {
         "concrete": 0,
@@ -540,9 +540,9 @@
         "erased": 1
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 2,
         "generic": 0,
-        "erased": 3
+        "erased": 1
       }
     },
     "src/array/dropRightWhile.ts": {
@@ -564,9 +564,9 @@
     },
     "src/array/dropWhile.spec.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 17,
         "generic": 0,
-        "erased": 21
+        "erased": 11
       },
       "reads": {
         "concrete": 0,
@@ -574,9 +574,9 @@
         "erased": 1
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 2,
         "generic": 0,
-        "erased": 3
+        "erased": 1
       }
     },
     "src/array/dropWhile.ts": {
@@ -598,9 +598,9 @@
     },
     "src/array/fill.spec.ts": {
       "values": {
-        "concrete": 19,
+        "concrete": 27,
         "generic": 0,
-        "erased": 28
+        "erased": 21
       },
       "reads": {
         "concrete": 0,
@@ -734,9 +734,9 @@
     },
     "src/array/flatMapDeep.spec.ts": {
       "values": {
-        "concrete": 23,
+        "concrete": 43,
         "generic": 0,
-        "erased": 43
+        "erased": 23
       },
       "reads": {
         "concrete": 1,
@@ -768,9 +768,9 @@
     },
     "src/array/flatten.spec.ts": {
       "values": {
-        "concrete": 42,
+        "concrete": 90,
         "generic": 0,
-        "erased": 64
+        "erased": 13
       },
       "reads": {
         "concrete": 0,
@@ -802,9 +802,9 @@
     },
     "src/array/flattenDeep.spec.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 13,
         "generic": 0,
-        "erased": 16
+        "erased": 11
       },
       "reads": {
         "concrete": 0,
@@ -938,9 +938,9 @@
     },
     "src/array/head.spec.ts": {
       "values": {
-        "concrete": 4,
+        "concrete": 7,
         "generic": 0,
-        "erased": 11
+        "erased": 8
       },
       "reads": {
         "concrete": 0,
@@ -989,9 +989,9 @@
     },
     "src/array/initial.spec.ts": {
       "values": {
-        "concrete": 27,
+        "concrete": 32,
         "generic": 0,
-        "erased": 23
+        "erased": 20
       },
       "reads": {
         "concrete": 0,
@@ -1023,9 +1023,9 @@
     },
     "src/array/intersection.spec.ts": {
       "values": {
-        "concrete": 4,
+        "concrete": 19,
         "generic": 0,
-        "erased": 16
+        "erased": 1
       },
       "reads": {
         "concrete": 0,
@@ -1033,9 +1033,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 4,
         "generic": 0,
-        "erased": 4
+        "erased": 0
       }
     },
     "src/array/intersection.ts": {
@@ -1057,19 +1057,19 @@
     },
     "src/array/intersectionBy.spec.ts": {
       "values": {
-        "concrete": 29,
+        "concrete": 42,
         "generic": 0,
-        "erased": 15
+        "erased": 2
       },
       "reads": {
-        "concrete": 1,
+        "concrete": 2,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       },
       "calls": {
-        "concrete": 1,
+        "concrete": 4,
         "generic": 0,
-        "erased": 3
+        "erased": 0
       }
     },
     "src/array/intersectionBy.ts": {
@@ -1091,19 +1091,19 @@
     },
     "src/array/intersectionWith.spec.ts": {
       "values": {
-        "concrete": 31,
+        "concrete": 43,
         "generic": 0,
-        "erased": 14
+        "erased": 0
       },
       "reads": {
-        "concrete": 2,
+        "concrete": 4,
         "generic": 0,
-        "erased": 2
+        "erased": 0
       },
       "calls": {
-        "concrete": 1,
+        "concrete": 3,
         "generic": 0,
-        "erased": 2
+        "erased": 0
       }
     },
     "src/array/intersectionWith.ts": {
@@ -1125,9 +1125,9 @@
     },
     "src/array/isSubset.spec.ts": {
       "values": {
-        "concrete": 10,
+        "concrete": 12,
         "generic": 0,
-        "erased": 2
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -1227,9 +1227,9 @@
     },
     "src/array/last.spec.ts": {
       "values": {
-        "concrete": 18,
+        "concrete": 21,
         "generic": 0,
-        "erased": 20
+        "erased": 17
       },
       "reads": {
         "concrete": 0,
@@ -1329,9 +1329,9 @@
     },
     "src/array/maxBy.spec.ts": {
       "values": {
-        "concrete": 37,
+        "concrete": 46,
         "generic": 0,
-        "erased": 61
+        "erased": 52
       },
       "reads": {
         "concrete": 4,
@@ -1363,9 +1363,9 @@
     },
     "src/array/minBy.spec.ts": {
       "values": {
-        "concrete": 37,
+        "concrete": 46,
         "generic": 0,
-        "erased": 61
+        "erased": 52
       },
       "reads": {
         "concrete": 4,
@@ -1397,9 +1397,9 @@
     },
     "src/array/orderBy.spec.ts": {
       "values": {
-        "concrete": 14,
+        "concrete": 20,
         "generic": 0,
-        "erased": 135
+        "erased": 129
       },
       "reads": {
         "concrete": 0,
@@ -1431,9 +1431,9 @@
     },
     "src/array/partition.spec.ts": {
       "values": {
-        "concrete": 60,
+        "concrete": 69,
         "generic": 0,
-        "erased": 39
+        "erased": 35
       },
       "reads": {
         "concrete": 3,
@@ -1567,9 +1567,9 @@
     },
     "src/array/remove.spec.ts": {
       "values": {
-        "concrete": 44,
+        "concrete": 50,
         "generic": 0,
-        "erased": 6
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -1577,26 +1577,26 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 4,
+        "concrete": 5,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       }
     },
     "src/array/remove.ts": {
       "values": {
         "concrete": 18,
-        "generic": 0,
-        "erased": 7
+        "generic": 7,
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
-        "generic": 0,
-        "erased": 3
+        "generic": 3,
+        "erased": 0
       },
       "calls": {
         "concrete": 0,
-        "generic": 0,
-        "erased": 1
+        "generic": 1,
+        "erased": 0
       }
     },
     "src/array/sample.spec.ts": {
@@ -1635,9 +1635,9 @@
     },
     "src/array/sampleSize.spec.ts": {
       "values": {
-        "concrete": 19,
+        "concrete": 25,
         "generic": 0,
-        "erased": 14
+        "erased": 8
       },
       "reads": {
         "concrete": 0,
@@ -1645,9 +1645,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 3,
+        "concrete": 5,
         "generic": 0,
-        "erased": 2
+        "erased": 0
       }
     },
     "src/array/sampleSize.ts": {
@@ -1703,9 +1703,9 @@
     },
     "src/array/sortBy.spec.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 11,
         "generic": 0,
-        "erased": 115
+        "erased": 111
       },
       "reads": {
         "concrete": 0,
@@ -1737,9 +1737,9 @@
     },
     "src/array/tail.spec.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 15,
         "generic": 0,
-        "erased": 4
+        "erased": 1
       },
       "reads": {
         "concrete": 0,
@@ -1771,9 +1771,9 @@
     },
     "src/array/take.spec.ts": {
       "values": {
-        "concrete": 31,
+        "concrete": 50,
         "generic": 0,
-        "erased": 26
+        "erased": 8
       },
       "reads": {
         "concrete": 0,
@@ -1781,9 +1781,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 5,
+        "concrete": 10,
         "generic": 0,
-        "erased": 7
+        "erased": 2
       }
     },
     "src/array/take.ts": {
@@ -1805,9 +1805,9 @@
     },
     "src/array/takeRight.spec.ts": {
       "values": {
-        "concrete": 22,
+        "concrete": 59,
         "generic": 0,
-        "erased": 49
+        "erased": 13
       },
       "reads": {
         "concrete": 0,
@@ -1815,9 +1815,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 11,
         "generic": 0,
-        "erased": 14
+        "erased": 3
       }
     },
     "src/array/takeRight.ts": {
@@ -1839,9 +1839,9 @@
     },
     "src/array/takeRightWhile.spec.ts": {
       "values": {
-        "concrete": 34,
+        "concrete": 54,
         "generic": 0,
-        "erased": 30
+        "erased": 10
       },
       "reads": {
         "concrete": 1,
@@ -1849,9 +1849,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 2,
+        "concrete": 6,
         "generic": 0,
-        "erased": 6
+        "erased": 2
       }
     },
     "src/array/takeRightWhile.ts": {
@@ -1907,9 +1907,9 @@
     },
     "src/array/toFilled.spec.ts": {
       "values": {
-        "concrete": 29,
+        "concrete": 35,
         "generic": 0,
-        "erased": 10
+        "erased": 4
       },
       "reads": {
         "concrete": 0,
@@ -1941,9 +1941,9 @@
     },
     "src/array/union.spec.ts": {
       "values": {
-        "concrete": 1,
+        "concrete": 5,
         "generic": 0,
-        "erased": 4
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -1951,9 +1951,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 1,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       }
     },
     "src/array/union.ts": {
@@ -1975,19 +1975,19 @@
     },
     "src/array/unionBy.spec.ts": {
       "values": {
-        "concrete": 10,
+        "concrete": 20,
         "generic": 0,
-        "erased": 10
+        "erased": 0
       },
       "reads": {
-        "concrete": 0,
+        "concrete": 1,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 2,
         "generic": 0,
-        "erased": 2
+        "erased": 0
       }
     },
     "src/array/unionBy.ts": {
@@ -2009,19 +2009,19 @@
     },
     "src/array/unionWith.spec.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 15,
         "generic": 0,
-        "erased": 7
+        "erased": 0
       },
       "reads": {
-        "concrete": 0,
+        "concrete": 2,
         "generic": 0,
-        "erased": 2
+        "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 1,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       }
     },
     "src/array/unionWith.ts": {
@@ -2043,9 +2043,9 @@
     },
     "src/array/uniq.spec.ts": {
       "values": {
-        "concrete": 28,
+        "concrete": 43,
         "generic": 0,
-        "erased": 25
+        "erased": 10
       },
       "reads": {
         "concrete": 0,
@@ -2053,9 +2053,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 3,
+        "concrete": 8,
         "generic": 0,
-        "erased": 8
+        "erased": 3
       }
     },
     "src/array/uniq.ts": {
@@ -2077,9 +2077,9 @@
     },
     "src/array/uniqBy.spec.ts": {
       "values": {
-        "concrete": 40,
+        "concrete": 46,
         "generic": 0,
-        "erased": 21
+        "erased": 15
       },
       "reads": {
         "concrete": 3,
@@ -2087,9 +2087,9 @@
         "erased": 1
       },
       "calls": {
-        "concrete": 2,
+        "concrete": 4,
         "generic": 0,
-        "erased": 3
+        "erased": 1
       }
     },
     "src/array/uniqBy.ts": {
@@ -2111,19 +2111,19 @@
     },
     "src/array/uniqWith.spec.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 21,
         "generic": 0,
-        "erased": 12
+        "erased": 0
       },
       "reads": {
-        "concrete": 0,
+        "concrete": 2,
         "generic": 0,
-        "erased": 2
+        "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 2,
         "generic": 0,
-        "erased": 2
+        "erased": 0
       }
     },
     "src/array/uniqWith.ts": {
@@ -2145,9 +2145,9 @@
     },
     "src/array/unzip.spec.ts": {
       "values": {
-        "concrete": 5,
+        "concrete": 17,
         "generic": 0,
-        "erased": 43
+        "erased": 31
       },
       "reads": {
         "concrete": 0,
@@ -2213,9 +2213,9 @@
     },
     "src/array/windowed.spec.ts": {
       "values": {
-        "concrete": 41,
+        "concrete": 89,
         "generic": 0,
-        "erased": 51
+        "erased": 3
       },
       "reads": {
         "concrete": 0,
@@ -2223,9 +2223,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 6,
+        "concrete": 19,
         "generic": 0,
-        "erased": 14
+        "erased": 1
       }
     },
     "src/array/windowed.ts": {
@@ -2247,9 +2247,9 @@
     },
     "src/array/without.spec.ts": {
       "values": {
-        "concrete": 13,
+        "concrete": 34,
         "generic": 0,
-        "erased": 40
+        "erased": 19
       },
       "reads": {
         "concrete": 0,
@@ -2257,9 +2257,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 7,
         "generic": 0,
-        "erased": 10
+        "erased": 3
       }
     },
     "src/array/without.ts": {
@@ -2281,9 +2281,9 @@
     },
     "src/array/xor.spec.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 28,
         "generic": 0,
-        "erased": 24
+        "erased": 2
       },
       "reads": {
         "concrete": 0,
@@ -2291,9 +2291,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 6,
         "generic": 0,
-        "erased": 6
+        "erased": 0
       }
     },
     "src/array/xor.ts": {
@@ -2315,9 +2315,9 @@
     },
     "src/array/xorBy.spec.ts": {
       "values": {
-        "concrete": 18,
+        "concrete": 40,
         "generic": 0,
-        "erased": 24
+        "erased": 2
       },
       "reads": {
         "concrete": 1,
@@ -2325,9 +2325,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 6,
         "generic": 0,
-        "erased": 6
+        "erased": 0
       }
     },
     "src/array/xorBy.ts": {
@@ -2349,9 +2349,9 @@
     },
     "src/array/xorWith.spec.ts": {
       "values": {
-        "concrete": 22,
+        "concrete": 44,
         "generic": 0,
-        "erased": 24
+        "erased": 2
       },
       "reads": {
         "concrete": 2,
@@ -2359,9 +2359,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 6,
         "generic": 0,
-        "erased": 6
+        "erased": 0
       }
     },
     "src/array/xorWith.ts": {
@@ -2417,9 +2417,9 @@
     },
     "src/array/zipObject.spec.ts": {
       "values": {
-        "concrete": 3,
+        "concrete": 15,
         "generic": 0,
-        "erased": 12
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -2427,9 +2427,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 3,
         "generic": 0,
-        "erased": 3
+        "erased": 0
       }
     },
     "src/array/zipObject.ts": {
@@ -2451,9 +2451,9 @@
     },
     "src/array/zipWith.spec.ts": {
       "values": {
-        "concrete": 48,
+        "concrete": 53,
         "generic": 0,
-        "erased": 10
+        "erased": 5
       },
       "reads": {
         "concrete": 0,
@@ -7755,7 +7755,7 @@
     },
     "src/compat/string/template.ts": {
       "values": {
-        "concrete": 164,
+        "concrete": 167,
         "generic": 0,
         "erased": 38
       },
@@ -8860,7 +8860,7 @@
     },
     "src/function/flow.spec.ts": {
       "values": {
-        "concrete": 52,
+        "concrete": 53,
         "generic": 4,
         "erased": 104
       },
@@ -8894,7 +8894,7 @@
     },
     "src/function/flowRight.spec.ts": {
       "values": {
-        "concrete": 37,
+        "concrete": 38,
         "generic": 4,
         "erased": 74
       },
@@ -9489,14 +9489,14 @@
     },
     "src/math/meanBy.spec.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 15,
         "generic": 0,
-        "erased": 3
+        "erased": 0
       },
       "reads": {
-        "concrete": 1,
+        "concrete": 2,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       },
       "calls": {
         "concrete": 2,
@@ -9557,14 +9557,14 @@
     },
     "src/math/medianBy.spec.ts": {
       "values": {
-        "concrete": 32,
+        "concrete": 44,
         "generic": 0,
-        "erased": 12
+        "erased": 0
       },
       "reads": {
-        "concrete": 1,
+        "concrete": 5,
         "generic": 0,
-        "erased": 4
+        "erased": 0
       },
       "calls": {
         "concrete": 5,
@@ -9829,14 +9829,14 @@
     },
     "src/math/sumBy.spec.ts": {
       "values": {
-        "concrete": 43,
+        "concrete": 49,
         "generic": 0,
-        "erased": 6
+        "erased": 0
       },
       "reads": {
-        "concrete": 4,
+        "concrete": 6,
         "generic": 0,
-        "erased": 2
+        "erased": 0
       },
       "calls": {
         "concrete": 6,
@@ -9931,14 +9931,14 @@
     },
     "src/object/cloneDeepWith.spec.ts": {
       "values": {
-        "concrete": 73,
+        "concrete": 76,
         "generic": 0,
-        "erased": 99
+        "erased": 98
       },
       "reads": {
-        "concrete": 0,
+        "concrete": 3,
         "generic": 0,
-        "erased": 22
+        "erased": 19
       },
       "calls": {
         "concrete": 6,
@@ -10220,9 +10220,9 @@
     },
     "src/object/omit.spec.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 20,
         "generic": 0,
-        "erased": 21
+        "erased": 18
       },
       "reads": {
         "concrete": 0,
@@ -10288,9 +10288,9 @@
     },
     "src/object/pick.spec.ts": {
       "values": {
-        "concrete": 21,
+        "concrete": 25,
         "generic": 0,
-        "erased": 16
+        "erased": 12
       },
       "reads": {
         "concrete": 0,
@@ -10577,9 +10577,9 @@
     },
     "src/predicate/isBoolean.spec.ts": {
       "values": {
-        "concrete": 19,
+        "concrete": 27,
         "generic": 0,
-        "erased": 8
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -10781,9 +10781,9 @@
     },
     "src/predicate/isEqualWith.spec.ts": {
       "values": {
-        "concrete": 787,
+        "concrete": 804,
         "generic": 0,
-        "erased": 745
+        "erased": 728
       },
       "reads": {
         "concrete": 5,
@@ -10985,9 +10985,9 @@
     },
     "src/predicate/isLength.spec.ts": {
       "values": {
-        "concrete": 21,
+        "concrete": 26,
         "generic": 0,
-        "erased": 9
+        "erased": 4
       },
       "reads": {
         "concrete": 0,
@@ -11393,9 +11393,9 @@
     },
     "src/predicate/isString.spec.ts": {
       "values": {
-        "concrete": 15,
+        "concrete": 23,
         "generic": 0,
-        "erased": 8
+        "erased": 0
       },
       "reads": {
         "concrete": 0,

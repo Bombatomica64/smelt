@@ -178,9 +178,12 @@ impl FunctionEmitter<'_> {
     /// Determine whether a union member can be stored without runtime erasure.
     fn union_member_is_concrete(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Unknown | Type::Never | Type::TypeParam { .. } | Type::Union(_)) | None => {
-                false
-            }
+            Some(Type::Unknown | Type::Never | Type::TypeParam { .. }) | None => false,
+            // A union nested under a container arm (`number | (number |
+            // number[])[]`, the element type of `[1, [2, [3]]]`) is stored as
+            // its own generated enum when that union is concrete too. A bare
+            // union directly in a union is flattened away by normalization.
+            Some(Type::Union(_)) => self.concrete_union_members(ty).is_some(),
             Some(Type::Class { .. }) => !self.is_erased_class_type(ty),
             Some(Type::List(item) | Type::Set(item) | Type::Future(item)) => {
                 self.union_member_is_concrete(*item)

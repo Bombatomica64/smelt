@@ -1,0 +1,237 @@
+fn chunk (FuncId(0)) -> List<List<T>>
+  locals
+    %0 param arr: List<T>
+    %1 param size: Float
+    %2 user out: List<List<T>>
+    %3 user i: Float
+    %4 temp: List<List<T>>
+    %5 temp: Float
+    %6 temp: Bool
+    %7 temp: Float
+    %8 temp: List<T>
+    %9 temp: Float
+    %10 temp: Float
+  bb0:
+    %4 = []
+    %2 = move %4
+    %3 = 0.0
+    goto bb1
+  bb1:
+    %5 = len copy %0
+    %6 = copy %3 < move %5
+    switch move %6 ? bb2 : bb4
+  bb2:
+    %7 = copy %3 + copy %1
+    %8 = list_slice copy %0, copy %3, move %7
+    %9 = list_push copy %2, move %8
+    goto bb3
+  bb3:
+    %10 = move %3 + copy %1
+    %3 = move %10
+    goto bb1
+  bb4:
+    return move %2
+
+fn swap (FuncId(1)) -> (B, A)
+  locals
+    %0 param pair: (A, B)
+    %1 temp: B
+    %2 temp: A
+    %3 temp: (B, A)
+  bb0:
+    %1 = tuple_index copy %0, 1
+    %2 = tuple_index copy %0, 0
+    %3 = (move %1, move %2)
+    return move %3
+
+fn keep (FuncId(2)) -> List<T>
+  locals
+    %0 param items: List<T>
+    %1 param pred: fn(T) -> Bool
+    %2 user kept: List<T>
+    %3 user item: T
+    %4 temp: List<T>
+    %5 temp: usize
+    %6 temp: usize
+    %7 temp: Bool
+    %8 temp: Bool
+    %9 temp: Float
+  bb0:
+    %4 = []
+    %2 = move %4
+    %5 = 0
+    goto bb1
+  bb1:
+    %6 = len copy %0
+    %7 = copy %5 < move %6
+    switch move %7 ? bb2 : bb4
+  bb2:
+    %3 = copy %0[copy %5]
+    %8 = closure_call copy %1(copy %3)
+    switch move %8 ? bb5 : bb6
+  bb3:
+    %5 = copy %5 + 1
+    goto bb1
+  bb4:
+    return move %2
+  bb5:
+    %9 = list_push copy %2, move %3
+    goto bb6
+  bb6:
+    goto bb3
+
+fn main (FuncId(3)) -> None
+  locals
+    %0 user numbers: List<List<Float>>
+    %1 user words: List<List<String>>
+    %2 user label: String
+    %3 user count: Float
+    %4 user mixed: List<Float | String | Bool>
+    %5 user bumped: List<Float | String>
+    %6 user nested: List<Float | List<Float | List<Float | List<Float>>>>
+    %7 temp: List<Float>
+    %8 temp: List<List<Float>>
+    %9 temp: Float
+    %10 temp: List<Float>
+    %11 temp: Float
+    %12 temp: None
+    %13 temp: List<String>
+    %14 temp: List<List<String>>
+    %15 temp: String
+    %16 temp: String
+    %17 temp: None
+    %18 temp: (Float, String)
+    %19 temp: (String, Float)
+    %20 temp: String
+    %21 temp: Float
+    %22 temp: String
+    %23 temp: Float
+    %24 temp: None
+    %25 temp: List<Float>
+    %26 temp: fn(Float) -> Bool
+    %27 temp: List<Float>
+    %28 temp: String
+    %29 temp: None
+    %30 temp: List<Float | String | Bool>
+    %31 temp: Float
+    %32 temp: Bool
+    %33 temp: Bool
+    %34 temp: Float
+    %35 temp: String
+    %36 temp: None
+    %37 temp: List<Float | String>
+    %38 temp: fn(Float | String, Int, List<Float | String>) -> Float | String
+    %39 temp: List<Float | String>
+    %40 temp: String
+    %41 temp: None
+    %42 temp: List<Float>
+    %43 temp: List<Float | List<Float>>
+    %44 temp: List<Float | List<Float | List<Float>>>
+    %45 temp: List<Float | List<Float | List<Float | List<Float>>>>
+    %46 temp: List<Float | List<Float | List<Float>>>
+    %47 temp: String
+    %48 temp: List<Float | List<Float>>
+    %49 temp: String
+    %50 temp: List<Float | List<Float> | List<Float | List<Float>> | List<Float | List<Float | List<Float>>>>
+    %51 temp: Float
+    %52 temp: None
+  bb0:
+    %7 = [1.0, 2.0, 3.0, 4.0, 5.0]
+    %8 = call fn0(move %7, 2.0) -> bb1
+  bb1:
+    %0 = move %8
+    %9 = len copy %0
+    %10 = copy %0[2.0]
+    %11 = copy %10[0.0] + 1.0
+    %12 = call @console_log(move %9, move %11) -> bb2
+  bb2:
+    %13 = ["a", "b", "c"]
+    %14 = call fn0(move %13, 2.0) -> bb3
+  bb3:
+    %1 = move %14
+    %15 = string_join copy %1[0.0], "+"
+    %16 = string_join copy %1[1.0], "+"
+    %17 = call @console_log(move %15, move %16) -> bb4
+  bb4:
+    %18 = (7.0, "seven")
+    %19 = call fn1(move %18) -> bb5
+  bb5:
+    %20 = tuple_index copy %19, 0
+    %2 = move %20
+    %21 = tuple_index move %19, 1
+    %3 = move %21
+    %22 = string_upper move %2
+    %23 = move %3 + 1.0
+    %24 = call @console_log(move %22, move %23) -> bb6
+  bb6:
+    %25 = [5.0, 12.0, 8.0, 20.0]
+    %26 = closure ClosureId(0) []
+    %27 = call fn2(move %25, move %26) -> bb7
+  bb7:
+    %28 = string_join move %27, ","
+    %29 = call @console_log(move %28) -> bb8
+  bb8:
+    %30 = [1.0, "two", true]
+    %4 = move %30
+    %31 = len copy %4
+    %32 = list_contains copy %4, "two"
+    %33 = list_contains copy %4, 2.0
+    %34 = list_find copy %4, true
+    %35 = string_join move %4, "|"
+    %36 = call @console_log(move %31, move %32, move %33, move %34, move %35) -> bb9
+  bb9:
+    %37 = [1.0, "a", 3.0]
+    %38 = closure ClosureId(1) []
+    %39 = list_map move %37, move %38
+    %5 = move %39
+    %40 = string_join move %5, ","
+    %41 = call @console_log(move %40) -> bb10
+  bb10:
+    %42 = [4.0]
+    %43 = [3.0, move %42]
+    %44 = [2.0, move %43]
+    %45 = [1.0, move %44]
+    %6 = move %45
+    %46 = list_flat copy %6, _
+    %47 = json_stringify move %46
+    %48 = list_flat copy %6, 2.0
+    %49 = json_stringify move %48
+    %50 = list_flat move %6, inf
+    %51 = len move %50
+    %52 = call @console_log(move %47, move %49, move %51) -> bb11
+  bb11:
+    return none
+
+closure ClosureId(0) -> Bool
+  locals
+    %0 param __callback_param_0: Float
+    %1 temp: Bool
+  bb0:
+    %1 = copy %0 > 9.0
+    return copy %1
+
+closure ClosureId(1) -> Float | String
+  locals
+    %0 param v: Float | String
+    %1 temp: Bool
+    %2 temp: Float | String
+    %3 temp: Float
+    %4 temp: Float
+    %5 temp: String
+    %6 temp: String
+  bb0:
+    %1 = unknown_is Number copy %0
+    switch copy %1 ? bb1 : bb2
+  bb1:
+    %3 = unknown_cast copy %0 as t1
+    %4 = copy %3 + 1.0
+    %2 = copy %4
+    goto bb3
+  bb2:
+    %5 = unknown_cast copy %0 as t2
+    %6 = copy %5 + "!"
+    %2 = copy %6
+    goto bb3
+  bb3:
+    return copy %2
+

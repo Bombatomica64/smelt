@@ -18,7 +18,8 @@
 
 use std::collections::HashMap;
 
-use tsrs_ast::{self as ast, Kind, Node, SourceFile};
+use smelt_ts_model::TsTypeKind;
+use tsrs_ast::{self as ast, Kind, Node, SourceFile, Symbol};
 use tsrs_core::P;
 
 use crate::{FileTypes, SpanKey};
@@ -31,18 +32,94 @@ pub(crate) struct CollectedTypes {
     pub(crate) values: FileTypes,
     /// `getTypeFromTypeNode` of every type annotation node.
     pub(crate) type_nodes: FileTypes,
+    /// The evolved type of each evolving-array variable, keyed by its
+    /// declaration name; see [`EvolvingArrays`].
+    pub(crate) evolved_arrays: FileTypes,
+}
+
+/// Variables declared `const x = []` (no annotation), whose type TypeScript
+/// grows with every `x.push(..)` and `x[i] = ..` ("evolving arrays").
+///
+/// TypeScript reports `any[]` at the declaration and at every mutation
+/// receiver. Only a later plain read (`return x`) shows the type the pushes
+/// built (`T[]`). A Rust port declares the local once with its final type, so
+/// the facts carry, per declaration name, the evolved type of its LAST read in
+/// source order whose element is neither `any` nor `never`. Flow typing only
+/// grows an evolving array along the program, so the last read holds every
+/// element type an earlier one does.
+#[derive(Default)]
+struct EvolvingArrays {
+    /// Declared symbol → span of its declaration name.
+    declarations: HashMap<P<Symbol>, SpanKey>,
+    /// The declared names, to skip the symbol lookup for every other identifier.
+    names: std::collections::HashSet<&'static str>,
+}
+
+impl EvolvingArrays {
+    /// Records `node` when it declares an evolving array.
+    fn declare(&mut self, text: &str, node: P<Node>) {
+        if node.kind() != Kind::VariableDeclaration {
+            return;
+        }
+        let declaration = node.as_variable_declaration();
+        let Some(initializer) = declaration.initializer() else {
+            return;
+        };
+        if declaration.type_().is_some()
+            || initializer.kind() != Kind::ArrayLiteralExpression
+            || !initializer.elements().is_empty()
+            || declaration.name().kind() != Kind::Identifier
+        {
+            return;
+        }
+        let (Some(symbol), Some(key)) = (declaration.symbol(), span_key(text, declaration.name())) else {
+            return;
+        };
+        self.declarations.insert(symbol, key);
+        self.names.insert(declaration.name().text());
+    }
+
+    /// The declaration-name span of the evolving array `node` reads, when it
+    /// is a read of one (and not the declaration name itself).
+    fn read_of(&self, converter: &mut Converter<'_>, text: &str, node: P<Node>) -> Option<SpanKey> {
+        if node.kind() != Kind::Identifier || !self.names.contains(node.text()) {
+            return None;
+        }
+        let symbol = converter.checker().get_symbol_at_location_exported(node)?;
+        let declaration = *self.declarations.get(&symbol)?;
+        (span_key(text, node) != Some(declaration)).then_some(declaration)
+    }
+}
+
+/// Whether `id` is an array type whose element TypeScript has resolved: not
+/// the `any[]` of an evolving array still being built, nor the `never[]` of
+/// one nothing was ever pushed to.
+fn is_evolved_array(converter: &Converter<'_>, id: crate::TsTypeId) -> bool {
+    let Some(TsTypeKind::Array { element, .. }) = converter.kind_of_converted(id) else {
+        return false;
+    };
+    !matches!(converter.kind_of_converted(*element), None | Some(TsTypeKind::Any | TsTypeKind::Never))
 }
 
 /// Collects the type of every value-position node and type node in `file`.
 pub(crate) fn collect_file_types(converter: &mut Converter<'_>, file: P<SourceFile>) -> CollectedTypes {
-    let mut collected = CollectedTypes { values: HashMap::new(), type_nodes: HashMap::new() };
+    let mut collected =
+        CollectedTypes { values: HashMap::new(), type_nodes: HashMap::new(), evolved_arrays: HashMap::new() };
+    let mut evolving = EvolvingArrays::default();
     let text = file.text();
     let mut work: Vec<P<Node>> = vec![file.as_node()];
     while let Some(node) = work.pop() {
+        evolving.declare(text, node);
         if let Some(key) = span_key(text, node) {
             if is_value_position(node) && !collected.values.contains_key(&key) {
                 let ty = converter.checker().get_type_at_location(node);
-                collected.values.insert(key, converter.convert(ty));
+                let id = converter.convert(ty);
+                collected.values.insert(key, id);
+                if is_evolved_array(converter, id)
+                    && let Some(declaration) = evolving.read_of(converter, text, node)
+                {
+                    collected.evolved_arrays.insert(declaration, id);
+                }
             } else if is_annotation_type_node(node) && !collected.type_nodes.contains_key(&key) {
                 let ty = converter.checker().get_type_from_type_node_exported(node);
                 collected.type_nodes.insert(key, converter.convert(ty));
