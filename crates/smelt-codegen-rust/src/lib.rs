@@ -106,6 +106,7 @@ mod url_prelude;
 pub(crate) mod base_init;
 pub(crate) mod class_proto;
 pub(crate) mod bound_traits;
+mod date_prelude;
 pub(crate) mod classes;
 pub(crate) mod classify;
 pub(crate) mod lazy_view;
@@ -1086,6 +1087,7 @@ fn emit_runtime_prelude(
     let needs_headers = stdlib::needs_headers_runtime(mir);
     let needs_url_search_params = stdlib::needs_url_search_params_runtime(mir);
     let needs_url = stdlib::needs_url_runtime(mir);
+    let needs_date = stdlib::needs_date_runtime(mir);
     let needs_crypto_random_values = stdlib::needs_crypto_random_values_runtime(mir);
     let needs_crypto_digest = stdlib::needs_crypto_digest_runtime(mir);
     let needs_crypto_key = stdlib::needs_crypto_key_runtime(mir);
@@ -1116,6 +1118,7 @@ fn emit_runtime_prelude(
         || needs_headers
         || needs_url_search_params
         || needs_url
+        || needs_date
         || needs_form_data
         || needs_byte_array
         || stdlib::needs_sqlite_runtime(mir);
@@ -1367,6 +1370,7 @@ fn emit_runtime_prelude(
     // declares (E0425), which is how a program whose only container was a
     // primitive-keyed `Set` (`SmeltPrimSet::new`) failed to compile.
     let mints_object_ids = needs_regex
+        || needs_date
         || needs_node_hash
         || needs_headers
         || needs_url_search_params
@@ -6463,6 +6467,9 @@ fn emit_runtime_prelude(
     // After the params list it holds as its live `searchParams`.
     if needs_url {
         url_prelude::emit(&mut writer, needs_unknown);
+    }
+    if needs_date {
+        date_prelude::emit(&mut writer, needs_unknown);
     }
     // After `SmeltBlob` in the dependency sense (a form entry holds one) and
     // beside the params list in the semantic one: both parse the urlencoded

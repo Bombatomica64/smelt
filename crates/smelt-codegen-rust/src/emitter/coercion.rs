@@ -3357,7 +3357,11 @@ impl FunctionEmitter<'_> {
         }
         match self.mir.types.get(target) {
             Some(Type::Unknown) => Ok(text.to_owned()),
-            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "Date" => {
+            // An erased `Date` keeps the marker record; the concrete `SmeltDate`
+            // recovers through its own adapter (the runtime-class arm below).
+            Some(Type::Class { name, .. })
+                if self.symbol_name(*name)? == "Date" && self.is_erased_class_type(target) =>
+            {
                 Ok(text.to_owned())
             }
             Some(Type::List(_)) if text.contains(".concat(") => Ok(text.to_owned()),

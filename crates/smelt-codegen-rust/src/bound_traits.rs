@@ -581,8 +581,8 @@ fn implement_member(mir: &Mir, name: Symbol, is_class: bool, member: &BoundMembe
 
 /// The bound recorded on a type parameter declaration, for
 /// `classes::liftable_type_params`: the symbol of a non-generic `Type::Class`
-/// constraint that names a declared class or interface. A builtin bound such
-/// as `Date` names neither and answers `None`.
+/// constraint that names a declared class or interface, or the builtin `Date`
+/// (see [`constraint_is_date`]). Any other builtin bound answers `None`.
 pub(crate) fn constraint_bound(mir: &Mir, constraint: Option<TypeId>) -> Option<Symbol> {
     match mir.types.get(constraint?) {
         Some(Type::Class { name, args })
@@ -592,8 +592,38 @@ pub(crate) fn constraint_bound(mir: &Mir, constraint: Option<TypeId>) -> Option<
         {
             Some(*name)
         }
+        _ if constraint_is_date(mir, constraint) => match mir.types.get(constraint?) {
+            Some(Type::Class { name, .. }) => Some(*name),
+            _ => None,
+        },
         _ => None,
     }
+}
+
+/// Whether `constraint` is the builtin `Date` class, the bound a `D extends
+/// Date` parameter lifts through the prelude's `DateLike` trait with
+/// (`date_prelude`) rather than through a planned trait.
+pub(crate) fn constraint_is_date(mir: &Mir, constraint: Option<TypeId>) -> bool {
+    matches!(constraint.and_then(|ty| mir.types.get(ty)), Some(Type::Class { name, args })
+        if args.is_empty()
+            && find_class(mir, *name).is_none()
+            && mir.symbols.get(*name).and_then(smelt_stdlib::typescript_stdlib_class)
+                == Some(smelt_stdlib::StdlibClass::Date))
+}
+
+/// Whether type parameter `name`, as seen from `function`, is bounded by
+/// `Date`: declared so by `function`, or — for a closure, which declares no
+/// parameters of its own — by the free function that does declare it.
+pub(crate) fn type_param_is_date_bounded(mir: &Mir, function: &MirFunction, name: Symbol) -> bool {
+    let declared = |params: &[smelt_hir::TypeParamDef]| {
+        params.iter().find(|param| param.name == name).map(|param| constraint_is_date(mir, param.constraint))
+    };
+    declared(&function.type_params).unwrap_or_else(|| {
+        mir.functions
+            .iter()
+            .filter_map(|candidate| declared(&candidate.type_params))
+            .any(|is_date| is_date)
+    })
 }
 
 /// Map from type-parameter name to bound for a declaration list.

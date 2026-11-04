@@ -2452,7 +2452,7 @@ impl FunctionEmitter<'_> {
                 values,
             } => {
                 let text = self.date_set_part_text(*part, timestamp_ms, values)?;
-                self.date_timestamp_result_preserving_receiver_text(&text, dest_ty, timestamp_ms)
+                self.date_setter_result_text(&text, dest_ty, timestamp_ms)
             }
             Rvalue::UrlField { field, url } => self.url_field_text(*field, url),
             Rvalue::FileReadText { path } => self.file_read_text(path),
