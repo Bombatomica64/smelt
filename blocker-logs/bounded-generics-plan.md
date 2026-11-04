@@ -39,7 +39,12 @@ impl AnimalLike for Dog { .. }          // every subclass
 fn loud<A: AnimalLike + Clone + 'static>(a: A) -> A { .. a.speak() .. a.legs() .. }
 ```
 
-## Increments (one PR each, each keeps CI and the baselines green)
+## Increments (each keeps CI and the baselines green)
+
+Increments 1-3 must land together as **one vertical slice** (one PR, several
+commits). Typing a member through the bound in the frontend while MIR still
+only resolves methods on `Type::Class` receivers would turn programs that
+build today (erased) into MIR errors. Increments 4 and 5 are separate PRs.
 
 1. **Frontend: type members of a constrained type parameter through its
    bound.** A field read, method call or getter on a receiver of type `T`,
