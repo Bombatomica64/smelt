@@ -5773,6 +5773,20 @@ fn emit_runtime_prelude(
             );
         });
         writer.blank_line();
+        // The mirror of `IntoSmeltUnknown for ()`: Rust `()` is the collapsed
+        // JavaScript nullish type (`null` and `undefined` both lower to
+        // `Type::None`), so any erased value un-erases to it. Needed when a
+        // generic is instantiated at an all-nullish element type
+        // (`uniq([null, undefined])` binds `T = ()`).
+        writer.block("impl SmeltFromUnknown for ()", |impl_writer| {
+            impl_writer.block(
+                "fn smelt_from_unknown(_value: SmeltUnknown) -> Self",
+                |fn_writer| {
+                    fn_writer.line("");
+                },
+            );
+        });
+        writer.blank_line();
         // Un-erasing a `SmeltUnknown` back into statically typed collections is the
         // mirror of the `IntoSmeltUnknown` impls above: a returned generic value
         // (e.g. `identity<T>(x): T` inferred at `SmeltRecord<String, String>`) is

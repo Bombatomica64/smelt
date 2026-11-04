@@ -96,39 +96,8 @@ impl ModuleBuilder<'_> {
     /// converts a list of concrete closures into erased ones. The literal then
     /// keeps the hint, as before this rule (the `g1_nest_vec_*` cases of the
     /// codegen shape grid).
-    ///
-    /// Nor is a bare nullish element (`Type::None`, Rust `()`), at any depth
-    /// outside an `Optional`. `None` is the type of BOTH `null` and
-    /// `undefined`, and `()` holds neither apart, so binding a callee's `T` to
-    /// it loses which one each element was: `uniq([null, undefined, null,
-    /// undefined])` would answer one `()` where JavaScript answers
-    /// `[null, undefined]`. `()` also implements none of the erased-boundary
-    /// traits a generic `T` is bounded by (E0277 on `SmeltFromUnknown`). The
-    /// literal keeps the hint, and with it the erased `T` that does keep
-    /// `SmeltUnknown::Null` and `SmeltUnknown::Undefined` apart; an `Optional`
-    /// element (`number | null`) still fills the slot, since its absence is a
-    /// value the concrete `Option` represents.
     fn fills_open_slot(&self, ty: TypeId) -> bool {
-        self.type_is_closed(ty, 0) && !self.mentions_function(ty, 0) && !self.mentions_bare_none(ty, 0)
-    }
-
-    /// Whether `ty` is, or contains outside an `Optional`, the nullish
-    /// `Type::None` (see [`Self::fills_open_slot`]).
-    fn mentions_bare_none(&self, ty: TypeId, depth: usize) -> bool {
-        if depth > MAX_DEPTH {
-            return true;
-        }
-        let next = depth.saturating_add(1);
-        match self.ctx.krate.types.get(ty) {
-            Some(Type::None) | None => true,
-            Some(Type::List(item) | Type::Set(item) | Type::Future(item)) => self.mentions_bare_none(*item, next),
-            Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
-                self.mentions_bare_none(*key, next) || self.mentions_bare_none(*value, next)
-            }
-            Some(Type::Tuple(items)) => items.iter().any(|item| self.mentions_bare_none(*item, next)),
-            Some(Type::Class { args, .. }) => args.iter().any(|arg| self.mentions_bare_none(*arg, next)),
-            Some(_) => false,
-        }
+        self.type_is_closed(ty, 0) && !self.mentions_function(ty, 0)
     }
 
     /// Whether `ty` mentions a function type at any depth.
