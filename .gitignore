@@ -44,6 +44,7 @@ blocker-logs/*.md
 # First scoping probes of the date-fns and cachetools corpora
 !blocker-logs/probe-date-fns.md
 !blocker-logs/probe-cachetools.md
+!blocker-logs/bounded-generics-plan.md
 # smelt-unknown-report.md documents the SmeltUnknown metric methodology + baseline
 !blocker-logs/smelt-unknown-report.md
 !blocker-logs/hono-round34-brief.md
