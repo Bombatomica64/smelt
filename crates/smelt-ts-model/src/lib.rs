@@ -66,18 +66,42 @@ pub struct TsTypeFacts {
     by_span: HashMap<String, FileTypes>,
     /// Per input path, the evaluated type of each type annotation node.
     type_nodes: HashMap<String, FileTypes>,
+    /// Per input path, the final type of each evolving-array variable
+    /// (`const xs = []` grown by pushes), keyed by its declaration name.
+    evolved_arrays: HashMap<String, FileTypes>,
 }
 
 impl TsTypeFacts {
     /// Assembles facts from their parts (the checker bridge's constructor).
     #[must_use]
-    pub const fn new(
+    pub fn new(
         types: TsTypeTable,
         diagnostics: Vec<TsDiagnostic>,
         by_span: HashMap<String, FileTypes>,
         type_nodes: HashMap<String, FileTypes>,
     ) -> Self {
-        Self { types, diagnostics, by_span, type_nodes }
+        Self { types, diagnostics, by_span, type_nodes, evolved_arrays: HashMap::new() }
+    }
+
+    /// Adds the evolved types of evolving-array variables (see
+    /// [`Self::evolved_array_type_id_at`]).
+    #[must_use]
+    pub fn with_evolved_arrays(mut self, evolved_arrays: HashMap<String, FileTypes>) -> Self {
+        self.evolved_arrays = evolved_arrays;
+        self
+    }
+
+    /// The type TypeScript evolved for the variable whose declaration name
+    /// spans `start..end` in `path`, when it is declared `= []` without an
+    /// annotation and grown afterwards (`xs.push(v)`).
+    ///
+    /// TypeScript reports `any[]` at the declaration itself and only shows the
+    /// evolved type (`T[]`) at later reads; this is that type at the last read
+    /// in source order. `None` when nothing was pushed (`never[]`), the element
+    /// stays `any`, or the variable is never read.
+    #[must_use]
+    pub fn evolved_array_type_id_at(&self, path: &str, start: u32, end: u32) -> Option<TsTypeId> {
+        self.evolved_arrays.get(path)?.get(&(start, end)).copied()
     }
 
     /// The type TypeScript evaluates the type annotation spanning

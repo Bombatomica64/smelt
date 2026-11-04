@@ -101,6 +101,7 @@ fn analyze_on_checker_thread(inputs: &[SourceInput]) -> Result<TsTypeFacts, TsTy
     let mut converter = Converter::new(&mut checker);
     let mut by_span = HashMap::new();
     let mut type_nodes = HashMap::new();
+    let mut evolved_arrays = HashMap::new();
     for input in inputs {
         let program_path = input.program_path();
         let file = program
@@ -109,10 +110,11 @@ fn analyze_on_checker_thread(inputs: &[SourceInput]) -> Result<TsTypeFacts, TsTy
         let collected = walk::collect_file_types(&mut converter, file);
         by_span.insert(input.path.clone(), collected.values);
         type_nodes.insert(input.path.clone(), collected.type_nodes);
+        evolved_arrays.insert(input.path.clone(), collected.evolved_arrays);
     }
     let types = converter.finish();
     drop(checker);
-    Ok(TsTypeFacts::new(types, diagnostics, by_span, type_nodes))
+    Ok(TsTypeFacts::new(types, diagnostics, by_span, type_nodes).with_evolved_arrays(evolved_arrays))
 }
 
 /// Best-effort text of a thread panic payload.

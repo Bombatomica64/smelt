@@ -86,6 +86,11 @@ impl<'checker> Converter<'checker> {
         self.checker
     }
 
+    /// The kind of an already converted type, while conversion is still running.
+    pub(crate) fn kind_of_converted(&self, id: TsTypeId) -> Option<&TsTypeKind> {
+        self.table.get(id).map(|ty| &ty.kind)
+    }
+
     /// Finishes conversion and returns the table.
     ///
     /// Every [`Self::convert`] fills the slot it reserves before returning, so

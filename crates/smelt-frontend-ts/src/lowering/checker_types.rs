@@ -90,6 +90,21 @@ impl ModuleBuilder<'_> {
         self.respell_and_lower(facts, id, start, end)
     }
 
+    /// The type TypeScript evolved for an unannotated `= []` variable whose
+    /// declaration name spans `start..end`, lowered as if the source had
+    /// written it as the annotation.
+    ///
+    /// `const removed = []; .. removed.push(v); return removed;` is `T[]` in
+    /// TypeScript. A hand port declares `let mut removed: Vec<T>`. Without
+    /// the checker the empty literal has no element evidence and erases. See
+    /// `TsTypeFacts::evolved_array_type_id_at` for which type is taken. The
+    /// re-spelling declines like an annotation does, keeping the erasure.
+    pub(in crate::lowering) fn checker_evolved_array_type(&mut self, start: u32, end: u32) -> Option<TypeId> {
+        let facts = self.ts_facts?;
+        let id = facts.evolved_array_type_id_at(&self.path, start, end)?;
+        self.respell_and_lower(facts, id, start, end)
+    }
+
     /// Re-spells checker type `id` in this scope and lowers it; `None` for a
     /// type that is dynamic or unevaluated at the top or cannot be spelled.
     fn respell_and_lower(&mut self, facts: &TsTypeFacts, id: TsTypeId, start: u32, end: u32) -> Option<TypeId> {

@@ -2,15 +2,15 @@
 
 Inputs: es-toolkit/Smelt.toml
 
-**Parity: 86.6%** (24555 of 28346 statically typed expressions agree)
+**Parity: 88.9%** (25188 of 28340 statically typed expressions agree)
 
 | verdict | count |
 | --- | ---: |
-| agree | 24555 |
-| smelt-erased | 1227 |
-| wider | 160 |
-| mismatch | 2404 |
-| ts-dynamic | 5232 |
+| agree | 25188 |
+| smelt-erased | 1190 |
+| wider | 151 |
+| mismatch | 1811 |
+| ts-dynamic | 5233 |
 | ts-deferred | 209 |
 | no-checker-node | 2055 |
 
@@ -18,13 +18,13 @@ Inputs: es-toolkit/Smelt.toml
 
 | count | shape | first example |
 | ---: | --- | --- |
-| 106 | `Unknown ← number` | es-toolkit/src/array/combinations.ts:70:5 `number` |
+| 99 | `Unknown ← number` | es-toolkit/src/array/combinations.ts:70:5 `number` |
 | 84 | `Unknown ← Object{1 props}` | es-toolkit/src/compat/_internal/isIterateeCall.ts:12:84 `{ length: number; }` |
-| 74 | `Unknown ← string` | es-toolkit/src/array/flatMap.spec.ts:41:5 `string` (erasure: by-name) |
+| 69 | `Unknown ← string` | es-toolkit/src/array/flatMap.spec.ts:41:5 `string` (erasure: by-name) |
 | 57 | `Unknown ← Array<number>` | es-toolkit/src/array/flatMapAsync.spec.ts:9:49 `number[]` |
 | 43 | `Unknown ← Named(Error)` | es-toolkit/src/object/cloneDeepWith.ts:210:20 `Error` |
-| 38 | `Unknown ← Object{0 props}` | es-toolkit/src/array/reduceAsync.spec.ts:183:20 `Record<string, number>` |
 | 38 | `Unknown ← string \| symbol` | es-toolkit/src/compat/_internal/toKey.ts:10:12 `string \| symbol` |
+| 36 | `Unknown ← Object{0 props}` | es-toolkit/src/array/reduceAsync.spec.ts:183:20 `Record<string, number>` |
 | 33 | `Unknown ← Object{1 props} & Object{1 props}` | es-toolkit/src/object/merge.spec.ts:39:18 `{ characters: { name: string; }[]; } & { characters: { age: number; }[]; }` |
 | 30 | `Unknown ← Array<number \| Array<…>>` | es-toolkit/src/array/filterAsync.spec.ts:15:45 `(number \| number[])[]` |
 | 30 | `Unknown ← Named(File)` | es-toolkit/src/object/cloneDeepWith.ts:192:29 `File` |
@@ -33,7 +33,7 @@ Inputs: es-toolkit/Smelt.toml
 | 29 | `Unknown ← void` | es-toolkit/src/promise/delay.ts:47:7 `void` |
 | 28 | `Unknown ← Named(AbortController)` | es-toolkit/src/function/debounce.spec.ts:127:20 `AbortController` |
 | 28 | `Unknown ← Object{3 props}` | es-toolkit/src/object/cloneDeepWith.spec.ts:31:20 `{ a: number; b: { c: number; }; d: { e: { f: number; }; }; }` |
-| 25 | `Unknown ← Function` | es-toolkit/src/compat/array/pullAt.ts:91:7 `{ (start: number, deleteCount?: number \| undefined): any[]; (start: number, dele` |
+| 23 | `Unknown ← Function` | es-toolkit/src/compat/array/pullAt.ts:91:7 `{ (start: number, deleteCount?: number \| undefined): any[]; (start: number, dele` |
 | 20 | `Unknown ← Object{2 props}` | es-toolkit/src/function/flow.spec.ts:63:28 `{ multiplier: number; multiply: (x: number, y: number) => number; }` (erasure: by-name) |
 | 20 | `Unknown ← undefined \| string` | es-toolkit/src/object/cloneDeepWith.ts:215:20 `string \| undefined` |
 | 19 | `Unknown ← Array<string>` | es-toolkit/src/array/reduceAsync.spec.ts:78:20 `string[]` |
@@ -57,14 +57,14 @@ Inputs: es-toolkit/Smelt.toml
 | 15 | `Optional<TypeParam(T)> ← TypeParam` | es-toolkit/src/compat/array/indexOf.ts:34:24 `T` |
 | 10 | `Optional<Class(TemplateOptions)> ← Named(TemplateOptions)` | es-toolkit/src/compat/string/template.ts:133:7 `TemplateOptions` |
 | 10 | `Optional<Optional<String>> ← string` | es-toolkit/src/compat/string/template.ts:147:12 `string` |
-| 8 | `Float \| String ← number` | es-toolkit/src/array/reduceAsync.spec.ts:179:23 `number` |
 | 7 | `Optional<Float> ← number` | es-toolkit/src/array/filterAsync.ts:42:39 `number` |
 | 6 | `List<Unknown> \| Dict ← Object{0 props}` | es-toolkit/src/compat/array/map.ts:139:46 `Record<any, any>` |
 | 6 | `Optional<None \| Unknown \| TypeParam(T) \| None> ← null` | es-toolkit/src/util/attemptAsync.spec.ts:13:19 `null` |
 | 4 | `Class(PropertyKey) \| (String, Unknown) ← Object{0 props}` | es-toolkit/src/compat/array/dropRightWhile.ts:92:51 `Partial<T>` |
+| 4 | `Float \| String ← number` | es-toolkit/src/array/reduceAsync.spec.ts:179:23 `number` |
 | 4 | `Float \| Unknown ← number` | es-toolkit/src/compat/array/forEach.ts:156:69 `number` |
-| 4 | `String \| Class(RegExp) ← string` | es-toolkit/src/compat/string/truncate.ts:93:18 `string` |
 | 3 | `Dict \| List<TypeParam(T)> ← Object{0 props}` | es-toolkit/src/compat/array/every.ts:136:30 `Record<any, any>` |
+| 3 | `Optional<Class(TruncateOptions)> ← Object{3 props}` | es-toolkit/src/compat/string/truncate.ts:54:26 `TruncateOptions` |
 | 3 | `String \| Dict \| List<TypeParam(T)> ← Object{0 props}` | es-toolkit/src/compat/array/forEach.ts:156:46 `Record<any, any>` |
 | 3 | `String \| Function ← string` | es-toolkit/src/compat/array/invokeMap.ts:70:31 `string` |
 | 3 | `String \| List<Unknown> \| Dict ← string` | es-toolkit/src/compat/array/includes.ts:63:21 `string` |
@@ -74,8 +74,6 @@ Inputs: es-toolkit/Smelt.toml
 | 2 | `Float \| Class(Blob) ← Named(Blob)` | es-toolkit/src/predicate/isBlob.spec.ts:37:12 `Blob` |
 | 2 | `Float \| Class(FileSmeltClassExprF675S450) ← Named(File)` | es-toolkit/src/predicate/isFile.spec.ts:44:12 `File` |
 | 2 | `List<TypeParam(T)> \| Dict ← Object{0 props}` | es-toolkit/src/compat/array/groupBy.ts:89:74 `Record<any, T>` |
-| 2 | `Optional<Class(MemoizeCache)> \| Optional<Function> ← undefined \| Function` | es-toolkit/src/function/memoize.ts:80:54 `((args: Parameters<F>[0]) => unknown) \| undefined` |
-| 2 | `Optional<Class(TruncateOptions)> ← Object{3 props}` | es-toolkit/src/compat/string/truncate.ts:55:30 `TruncateOptions` |
 | 2 | `Optional<Function> ← Function` | es-toolkit/src/compat/predicate/isEqualWith.ts:57:18 `IsEqualCustomizer` |
 | 2 | `Optional<List<List<TypeParam(T)>>> ← Array<Array<TypeParam>>` | es-toolkit/src/compat/array/unzip.ts:22:28 `T[][]` |
 | 2 | `Optional<None \| Unknown \| None \| Future<…>> ← null \| Named(Promise)` | es-toolkit/src/util/attempt.spec.ts:25:19 `Promise<never> \| null` |
@@ -83,20 +81,18 @@ Inputs: es-toolkit/Smelt.toml
 | 2 | `Optional<TypeParam(T) \| List<TypeParam(T)>> ← Array<TypeParam>` | es-toolkit/src/compat/object/transform.ts:134:47 `readonly T[]` |
 | 2 | `Optional<TypeParam(T)> ← TypeParam & null \| TypeParam & Object{0 props}` | es-toolkit/src/compat/math/max.ts:22:47 `T & ({} \| null)` |
 | 2 | `Optional<TypeParam(T)> ← TypeParam & object` | es-toolkit/src/compat/object/findKey.ts:26:25 `T & object` |
+| 2 | `TypeParam(T) \| None \| List<TypeParam(T)> ← TypeParam` | es-toolkit/src/compat/array/shuffle.ts:52:20 `T` |
+| 2 | `Unknown \| Dict ← Named(Map)` | es-toolkit/src/compat/object/toPairs.ts:61:25 `Map<any, any>` |
 
 ## Mismatch families (HIR ← TypeScript)
 
 | count | shape | first example |
 | ---: | --- | --- |
-| 290 | `List<TypeParam(T)> ← Array<number>` | es-toolkit/src/array/chunk.spec.ts:11:24 `number[]` |
-| 83 | `List<Unknown> ← Array<TypeParam>` | es-toolkit/src/array/remove.ts:41:10 `T[]` |
-| 73 | `List<Unknown> ← Array<number \| Array<…>>` | es-toolkit/src/array/flatten.spec.ts:5:21 `(number \| (number \| (number \| number[])[])[])[]` (erasure: dynamic-operator) |
-| 58 | `List<Unknown> ← Array<number>` | es-toolkit/src/array/flatMapAsync.spec.ts:12:28 `number[]` |
+| 79 | `List<Unknown> ← Array<TypeParam>` | es-toolkit/src/compat/array/chunk.ts:34:23 `T[]` |
 | 53 | `String ← Named(Error)` | es-toolkit/src/array/chunk.ts:26:11 `Error` (erasure: untyped-builtin) |
 | 52 | `Optional<List<TypeParam(T)>> ← Named(ArrayLike)` | es-toolkit/src/compat/array/chunk.ts:34:31 `ArrayLike<T>` |
-| 51 | `List<TypeParam(T)> ← Array<string>` | es-toolkit/src/array/at.spec.ts:6:12 `string[]` |
-| 48 | `List<TypeParam(T)> ← Named(ArrayLike)` | es-toolkit/src/compat/_internal/toArray.ts:2:24 `ArrayLike<T>` |
-| 47 | `List<List<TypeParam(T)>> ← Array<Array<number>>` | es-toolkit/src/array/chunk.spec.ts:11:18 `number[][]` |
+| 51 | `List<Unknown> ← Array<number>` | es-toolkit/src/array/flatMapAsync.spec.ts:12:28 `number[]` |
+| 49 | `List<TypeParam(T)> ← Named(ArrayLike)` | es-toolkit/src/compat/_internal/toArray.ts:2:24 `ArrayLike<T>` |
 | 46 | `Optional<List<TypeParam(T)>> ← undefined \| null \| Named(ArrayLike)` | es-toolkit/src/compat/array/chunk.ts:30:34 `ArrayLike<T> \| null \| undefined` |
 | 45 | `List<Class(PropertyKey)> ← Array<string \| number \| symbol>` | es-toolkit/src/compat/object/get.ts:519:7 `readonly PropertyKey[]` |
 | 39 | `Class(PropertyKey) ← string \| number \| symbol` | es-toolkit/src/_internal/isUnsafeProperty.ts:12:10 `PropertyKey` |
@@ -104,20 +100,24 @@ Inputs: es-toolkit/Smelt.toml
 | 31 | `Class(PropertyKey) \| List<Class(PropertyKey)> ← string \| number \| symbol \| Array<… \| … \| …>` | es-toolkit/src/compat/object/get.ts:460:18 `readonly PropertyKey[] \| PropertyKey` |
 | 27 | `Dict \| List<TypeParam(T)> ← Named(ArrayLike) \| Object{0 props}` | es-toolkit/src/compat/array/every.ts:103:31 `ArrayLike<T> \| Record<any, any>` |
 | 26 | `List<Unknown> ← void` | es-toolkit/src/function/throttle.spec.ts:10:5 `void` |
-| 25 | `List<TypeParam(T)> ← Array<Object{1 props}>` | es-toolkit/src/array/intersectionBy.spec.ts:7:12 `{ foo: number; }[]` |
 | 23 | `List<Unknown> ← Named(IArguments)` | es-toolkit/src/function/ary.spec.ts:8:23 `IArguments` |
 | 23 | `TypeParam(T) ← Object{0 props}` | es-toolkit/src/compat/object/omit.ts:87:18 `Partial<T>` |
 | 21 | `String ← string \| number \| symbol` | es-toolkit/src/compat/array/dropRightWhile.ts:90:59 `string \| number \| symbol` |
 | 19 | `List<TypeParam(T) \| String> ← Array<string \| number>` | es-toolkit/src/array/fill.spec.ts:15:12 `(string \| number)[]` |
 | 18 | `Future<Unknown> ← Named(Promise)` | es-toolkit/src/array/reduceAsync.spec.ts:14:26 `Promise<number>` (erasure: unfilled-generic) |
 | 18 | `List<Unknown> ← Array<string \| symbol>` | es-toolkit/src/compat/util/toPath.ts:24:12 `(string \| symbol)[]` |
-| 17 | `Float ← undefined \| number` | es-toolkit/src/compat/array/findLast.ts:137:5 `number \| undefined` |
-| 17 | `List<Unknown> ← Array<string>` | es-toolkit/src/array/unzip.spec.ts:13:7 `string[]` |
+| 16 | `Float ← undefined \| number` | es-toolkit/src/compat/array/findLast.ts:137:5 `number \| undefined` |
 | 16 | `List<Unknown> ← Named(ArrayLike)` | es-toolkit/src/compat/predicate/isArrayLike.ts:42:68 `ArrayLike<unknown>` |
 | 16 | `String ← Named(AbortController)` | es-toolkit/src/function/debounce.spec.ts:126:24 `AbortController` (erasure: untyped-builtin) |
 | 15 | `List<Class(FlatArray)> ← Array<number>` | es-toolkit/src/array/flatMap.spec.ts:11:12 `number[]` |
-| 15 | `List<TypeParam(U)> ← Array<number>` | es-toolkit/src/array/differenceBy.spec.ts:6:42 `number[]` |
 | 14 | `Class(PropertyKey) \| List<Class(PropertyKey)> ← Array<string \| number \| symbol>` | es-toolkit/src/compat/object/get.ts:493:25 `readonly PropertyKey[]` |
+| 14 | `List<Unknown> ← Array<string>` | es-toolkit/src/array/unzip.spec.ts:13:7 `string[]` |
+| 14 | `Optional<Class(PropertyKey)> ← undefined \| string \| number \| symbol` | es-toolkit/src/object/cloneDeepWith.ts:85:45 `PropertyKey \| undefined` |
+| 12 | `List<List<Unknown>> ← Array<Array<TypeParam>>` | es-toolkit/src/compat/array/chunk.ts:34:10 `T[][]` (erasure: unfilled-generic) |
+| 12 | `List<Unknown> ← string` | es-toolkit/src/compat/array/invokeMap.ts:75:30 `string` |
+| 11 | `List<None \| List<TypeParam(T)> \| Function> ← Array<undefined \| null \| Named(ArrayLike) \| Function>` | es-toolkit/src/compat/array/unionWith.ts:98:26 `(ArrayLike<T> \| ((a: T, b: T) => boolean) \| null \| undefined)[]` |
+| 11 | `String ← Named(AbortSignal)` | es-toolkit/src/function/debounce.spec.ts:128:56 `AbortSignal` |
+| 11 | `String ← Named(TypeError)` | es-toolkit/src/compat/function/negate.ts:33:11 `TypeError` (erasure: untyped-builtin) |
 
 ## Files (lowest parity first)
 
@@ -142,17 +142,17 @@ Inputs: es-toolkit/Smelt.toml
 | es-toolkit/src/compat/array/flatMapDeep.ts | 50.0% | 2 | 0 | 0 | 2 | 1 |
 | es-toolkit/src/compat/array/without.ts | 50.0% | 4 | 0 | 0 | 4 | 0 |
 | es-toolkit/src/compat/math/sum.ts | 50.0% | 1 | 0 | 0 | 1 | 0 |
-| es-toolkit/src/function/memoize.ts | 50.0% | 10 | 2 | 2 | 6 | 9 |
+| es-toolkit/src/function/memoize.ts | 50.0% | 10 | 2 | 0 | 8 | 9 |
 | es-toolkit/src/string/words.ts | 50.0% | 3 | 0 | 0 | 3 | 0 |
 | es-toolkit/src/util/attempt.ts | 50.0% | 2 | 0 | 2 | 0 | 1 |
 | es-toolkit/src/util/attemptAsync.ts | 50.0% | 2 | 0 | 2 | 0 | 1 |
-| es-toolkit/src/array/flatten.spec.ts | 50.7% | 77 | 0 | 0 | 75 | 23 |
 | es-toolkit/src/compat/array/shuffle.ts | 52.6% | 10 | 0 | 3 | 6 | 0 |
 | es-toolkit/src/compat/array/uniqBy.ts | 53.8% | 7 | 0 | 0 | 6 | 0 |
 | es-toolkit/src/compat/array/castArray.ts | 54.5% | 6 | 1 | 0 | 4 | 0 |
 | es-toolkit/src/compat/array/map.ts | 54.8% | 23 | 1 | 2 | 16 | 5 |
-| es-toolkit/src/compat/array/keyBy.ts | 55.0% | 11 | 5 | 0 | 4 | 5 |
 | es-toolkit/src/compat/array/takeRightWhile.ts | 55.6% | 10 | 0 | 0 | 8 | 0 |
+| es-toolkit/src/compat/math/maxBy.ts | 55.6% | 5 | 0 | 0 | 4 | 0 |
+| es-toolkit/src/compat/math/meanBy.ts | 55.6% | 5 | 0 | 0 | 4 | 0 |
 
 ## TypeScript checker errors
 

@@ -85,6 +85,17 @@ impl FunctionEmitter<'_> {
                     "{{ match {item_text} {{ Some(smelt_needle) => {list_text}.iter().any(|item| {compare}), None => false }} }}"
                 ));
             }
+            // A needle that is one member of a union element type
+            // (`(number | string)[]` searched for `"x"`) is injected into the
+            // union and compared with SameValueZero, as `indexOf` does. A
+            // constant `false` here answered every such `includes` wrongly.
+            if self.union_has_member(item_ty, needle_ty) {
+                let item_text =
+                    self.value_at_type_text(&self.operand_text(item)?, needle_ty, item_ty, &self.render_scope())?;
+                return Ok(format!(
+                    "{{ let smelt_needle = {item_text}; {list_text}.iter().any(|item| item.same_js_key(&smelt_needle)) }}"
+                ));
+            }
             return Ok("false".to_owned());
         }
         let item_text = self.operand_text(item)?;
@@ -99,6 +110,11 @@ impl FunctionEmitter<'_> {
             ));
         }
         Ok(format!("{list_text}.contains(&{item_text})"))
+    }
+
+    /// Whether `union` is a union type with `member` among its members.
+    fn union_has_member(&self, union: TypeId, member: TypeId) -> bool {
+        matches!(self.mir.types.get(union), Some(Type::Union(members)) if members.contains(&member))
     }
 
     /// Resolve a containment receiver to `Vec`-backed Rust text plus its element
@@ -900,6 +916,9 @@ impl FunctionEmitter<'_> {
                 list_read_text(&self.operand_text(list)?)
             ));
         }
+        if matches!(self.mir.types.get(*nested_ty), Some(Type::Union(_))) {
+            return self.union_list_flat_text(list, *nested_ty, depth, dest_ty);
+        }
         let Some(Type::List(item_ty)) = self.mir.types.get(*nested_ty) else {
             return Ok("Default::default()".to_owned());
         };
@@ -919,6 +938,36 @@ impl FunctionEmitter<'_> {
         Ok(format!(
             "{}.iter().flat_map(|items| items.borrow().clone().into_iter()).collect::<Vec<_>>()",
             list_read_text(&self.operand_text(list)?)
+        ))
+    }
+
+    /// `flat` over a list whose element type is a union with array arms
+    /// (`(number | number[])[]`).
+    ///
+    /// The frontend typed the result element as TypeScript's `FlatArray` of
+    /// the union (`lowering::union_flat`), so the arms nest to a depth only the
+    /// runtime values decide. The flattening itself is the one an erased list
+    /// takes (`smelt_flat_values`, JavaScript's `FlattenIntoArray`): each
+    /// element is erased to its tagged value at the input boundary and each
+    /// flattened value is checked back into the typed result element at the
+    /// output boundary, so the value stays typed on both sides.
+    fn union_list_flat_text(
+        &self,
+        list: &Operand,
+        item_ty: TypeId,
+        depth: Option<&Operand>,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let Some(Type::List(dest_item_ty)) = self.mir.types.get(dest_ty) else {
+            return Err(EmitError::new("array flat destination must be a list"));
+        };
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let erased_item = self.erase_value_text("item.clone()", item_ty)?;
+        let typed_value = self.value_at_type_text("value", unknown_ty, *dest_item_ty, &self.render_scope())?;
+        let depth_text = self.flat_depth_text(depth)?;
+        Ok(format!(
+            "{{ {SMELT_FLAT_VALUES_FN} let smelt_flat_depth = (({depth_text}) as f64).max(0.0).floor() as i64; let smelt_flat_input = {list_text}.iter().map(|item| {erased_item}).collect::<Vec<_>>(); smelt_flat_values(smelt_flat_input, smelt_flat_depth).into_iter().map(|value| {typed_value}).collect::<Vec<_>>() }}",
+            list_text = list_read_text(&self.operand_text(list)?),
         ))
     }
 

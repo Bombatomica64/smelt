@@ -14,6 +14,12 @@ use crate::lowering::{
 use smelt_hir::ErasureReason;
 use super::super::support::{arrow_block_statements, statement_terminates};
 use oxc::span::GetSpan;
+use oxc::ast::ast::UnaryOperator;
+
+/// Fallback-eligible error for a compact callback guard that `typeof`-tests a
+/// union-typed parameter; see `reject_callback_union_typeof_guard`.
+pub(super) const CALLBACK_UNION_TYPEOF_GUARD: &str =
+    "callback typeof guard on a union parameter needs closure-body lowering";
 
 /// The body form of a callback lowered through a real HIR closure body.
 ///
@@ -120,6 +126,11 @@ impl ModuleBuilder<'_> {
                     if !rest.is_empty() {
                         return Err(fallback_error);
                     }
+                    self.reject_callback_union_typeof_guard(
+                        params,
+                        &if_stmt.test,
+                        self.span(if_stmt.span.start, if_stmt.span.end),
+                    )?;
                     let cond = self.callback_truthy_expression(&if_stmt.test, params, body)?;
                     let mut then_params =
                         self.callback_params_with_guard_narrowing(params, &if_stmt.test);
@@ -165,6 +176,11 @@ impl ModuleBuilder<'_> {
                         ty,
                     });
                 }
+                self.reject_callback_union_typeof_guard(
+                    params,
+                    &if_stmt.test,
+                    self.span(if_stmt.span.start, if_stmt.span.end),
+                )?;
                 let cond = self.callback_truthy_expression(&if_stmt.test, params, body)?;
                 let then_expr =
                     match self.callback_terminating_statement(&if_stmt.consequent, params, body) {
@@ -478,6 +494,56 @@ impl ModuleBuilder<'_> {
         let mut narrowed = params.clone();
         self.apply_callback_guard_narrowing(&mut narrowed, expression);
         narrowed
+    }
+
+    /// Refuse a compact callback guard that `typeof`-tests a union-typed
+    /// parameter, so the callback is retried through full closure-body
+    /// lowering (see `should_fallback_to_closure_body_for_callback`).
+    ///
+    /// The compact callback IR narrows only by changing a parameter's
+    /// recorded type, and it has no node that projects one arm out of a union
+    /// value. `xs.map((v) => typeof v === "number" ? v + 1 : v + "!")` over a
+    /// `(number | string)[]` therefore read `v` at its union type in both arms
+    /// and lowered `v + 1` as string concatenation (`"11"`). Full closure-body
+    /// lowering applies the guard with the ordinary narrowing rules, which
+    /// project the arm (`UnknownCast`) in each branch, as it already does for
+    /// a function declaration with the same body.
+    pub(in crate::lowering) fn reject_callback_union_typeof_guard(
+        &self,
+        params: &HashMap<&str, CallbackExpr>,
+        test: &Expression<'_>,
+        span: Span,
+    ) -> Result<(), SmeltError> {
+        if self.callback_guard_tests_union_typeof(params, test) {
+            return Err(SmeltError::unsupported(span, CALLBACK_UNION_TYPEOF_GUARD));
+        }
+        Ok(())
+    }
+
+    /// Whether `test` contains a `typeof` comparison on a parameter whose
+    /// type is a union (directly or inside an optional).
+    fn callback_guard_tests_union_typeof(&self, params: &HashMap<&str, CallbackExpr>, test: &Expression<'_>) -> bool {
+        match test {
+            Expression::LogicalExpression(logical) => {
+                self.callback_guard_tests_union_typeof(params, &logical.left)
+                    || self.callback_guard_tests_union_typeof(params, &logical.right)
+            }
+            Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::LogicalNot => {
+                self.callback_guard_tests_union_typeof(params, &unary.argument)
+            }
+            Expression::ParenthesizedExpression(inner) => {
+                self.callback_guard_tests_union_typeof(params, &inner.expression)
+            }
+            _ => Self::typeof_comparison(test).is_some_and(|(name, _, _)| {
+                params.get(name.as_str()).is_some_and(|param| {
+                    let ty = match self.ctx.krate.types.get(param.ty) {
+                        Some(Type::Optional(inner)) => *inner,
+                        _ => param.ty,
+                    };
+                    matches!(self.ctx.krate.types.get(ty), Some(Type::Union(_)))
+                })
+            }),
+        }
     }
 
     /// Apply simple `value !== undefined` callback type facts to a parameter map.

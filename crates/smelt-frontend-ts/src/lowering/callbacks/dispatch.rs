@@ -918,6 +918,9 @@ impl ModuleBuilder<'_> {
     /// Return whether compact callback lowering should retry as a normal closure.
     pub(in crate::lowering) fn should_fallback_to_closure_body_for_callback(error: &SmeltError) -> bool {
         error.message == "callback expression kind is not supported yet"
+            // A `typeof` guard on a union-typed parameter: the compact IR
+            // cannot project the narrowed arm (`reject_callback_union_typeof_guard`).
+            || error.message == super::body_lowering::CALLBACK_UNION_TYPEOF_GUARD
             // `({ ...a, b })`: the compact IR has no ordered record merge.
             || error.message == "callback object spread needs closure-body lowering"
             || error.message == "callback member assignment needs closure-body lowering"
@@ -2115,6 +2118,11 @@ impl ModuleBuilder<'_> {
                 })
             }
             Expression::ConditionalExpression(conditional) => {
+                self.reject_callback_union_typeof_guard(
+                    params,
+                    &conditional.test,
+                    self.span(conditional.span.start, conditional.span.end),
+                )?;
                 let cond = self.callback_truthy_expression(&conditional.test, params, body)?;
                 let then_params =
                     self.callback_params_with_guard_narrowing(params, &conditional.test);

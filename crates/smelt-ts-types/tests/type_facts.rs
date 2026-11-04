@@ -310,3 +310,44 @@ export const pair: Pair = ['a', 1]
     assert!(matches!(pair.kind, TsTypeKind::Tuple { .. }), "alias evaluates to its tuple");
     Ok(())
 }
+
+#[test]
+fn evolving_array_carries_its_evolved_type_at_the_declaration() -> Result<(), String> {
+    let source = r"
+export function remove<T>(arr: T[], pred: (v: T) => boolean): T[] {
+  const removed = [];
+  for (const v of arr) if (pred(v)) removed.push(v);
+  return removed;
+}
+export function mixed() {
+  const out = [];
+  out.push(1);
+  out.push('a');
+  return out;
+}
+export function untouched(): number {
+  const none = [];
+  return none.length;
+}
+";
+    let facts = facts(source)?;
+    // TypeScript itself reports the evolving `any[]` at the declaration and at
+    // a mutation receiver; only a later read shows the evolved type.
+    assert_eq!(type_of(&facts, source, "removed", 0)?.display, "any[]", "declaration reads as the evolving any[]");
+    assert_eq!(type_of(&facts, source, "removed", 2)?.display, "T[]", "the final read is evolved");
+    let evolved = |needle: &str| -> Result<Option<String>, String> {
+        let (start, end) = span_of(source, needle, 0)?;
+        Ok(facts
+            .evolved_array_type_id_at(FILE, start, end)
+            .and_then(|id| facts.types.get(id))
+            .map(|ty| ty.display.clone()))
+    };
+    assert_eq!(evolved("removed")?.as_deref(), Some("T[]"), "pushes of T evolve to T[]");
+    assert_eq!(
+        evolved("out")?.as_deref(),
+        Some("(string | number)[]"),
+        "pushes of different types evolve to the union"
+    );
+    assert_eq!(evolved("none")?, None, "an array nothing is pushed to stays never[] and records nothing");
+    Ok(())
+}

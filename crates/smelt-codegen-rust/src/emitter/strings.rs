@@ -1360,9 +1360,17 @@ impl FunctionEmitter<'_> {
                 "{fn_name}(*item)",
                 fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
             ),
-            Some(Type::Unknown) => format!(
-                "match item {{ SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), {smelt_bigint_arm}SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}",
-                smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),")
+            // A union element (`(number | string)[]`) stringifies each value at
+            // its runtime arm: erase it to the tagged value and take the same
+            // `String(item)` arms an `unknown` element does.
+            Some(Type::Unknown | Type::Union(_)) => format!(
+                "match {item} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), {smelt_bigint_arm}SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}",
+                smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),"),
+                item = if matches!(self.mir.types.get(*item_ty), Some(Type::Union(_))) {
+                    format!("({})", self.erase_value_text("item.clone()", *item_ty)?)
+                } else {
+                    "item".to_owned()
+                },
             ),
             Some(Type::Optional(inner)) => match self.mir.types.get(*inner) {
                 Some(Type::Bool) => {

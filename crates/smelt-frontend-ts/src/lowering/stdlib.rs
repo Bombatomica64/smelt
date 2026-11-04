@@ -3387,6 +3387,12 @@ impl ModuleBuilder<'_> {
                     Some(Type::TypeParam { .. }) => {
                         self.erase_with(ErasureReason::TypeLevel, "FlatArray")
                     }
+                    // A union element with array arms (`number | number[]`)
+                    // flattens arm by arm; see `lowering::union_flat`.
+                    Some(Type::Union(_)) => match self.union_flat_item_type(element_ty, call.arguments.first()) {
+                        Some(item_ty) => item_ty,
+                        None => return Ok(None),
+                    },
                     _ => return Ok(None),
                 };
                 let ty = self.ctx.krate.types.intern(Type::List(flat_item_ty));

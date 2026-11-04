@@ -3149,9 +3149,20 @@ impl ModuleBuilder<'_> {
             !matches!(self.ctx.krate.types.get(*hint), Some(Type::Function(_)))
         });
         let ty = if let Some(hint) = array_compatible_hint {
-            hint
+            // A hint that still mentions a type parameter (a generic callee's
+            // `T[]`) takes its open positions from the elements; see
+            // `lowering::open_array_hint`.
+            self.fill_open_array_hint(hint, &items, body)
         } else if !items.is_empty() {
-            let item_ty = self.array_literal_item_type(&items, body);
+            // Elements with no common type take the union TypeScript proved,
+            // except when they mix `null` and `undefined` (see
+            // `array_literal_mixes_nullish_spellings`).
+            let item_ty = if Self::array_literal_mixes_nullish_spellings(&items, body) {
+                None
+            } else {
+                self.checker_mixed_array_item_type(array.span, &items, body)
+            };
+            let item_ty = item_ty.unwrap_or_else(|| self.array_literal_item_type(&items, body));
             self.ctx.krate.types.intern(Type::List(item_ty))
         } else {
             let item_ty = self.erase_with(ErasureReason::MissingAnnotation, "empty array literal");
