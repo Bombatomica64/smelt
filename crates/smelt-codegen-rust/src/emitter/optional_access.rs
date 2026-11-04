@@ -411,6 +411,15 @@ impl FunctionEmitter<'_> {
                     ));
                 }
                 let fallback_ty = self.operand_ty(fallback)?;
+                // `value ?? null` / `value ?? undefined`: a nullish fallback
+                // replaces an absent value with an absent value, so the result
+                // is the optional itself. Unwrapping it with the fallback
+                // rendered at the INNER type invented a present default
+                // (`Some(value.unwrap_or(0.0))`), or dropped the value entirely
+                // for an inner type with no default (a function).
+                if matches!(self.mir.types.get(fallback_ty), Some(Type::None)) {
+                    return self.value_at_type(optional, dest_ty);
+                }
                 if self.has_dynamic_shape(fallback_ty)
                 {
                     let optional_text = self.operand_text(optional)?;

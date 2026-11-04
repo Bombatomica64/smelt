@@ -1,6 +1,7 @@
 //! Declaration lowering: functions, arrow-const decls, type aliases,
 //! interfaces, enums, and the constructor-function idiom.
 
+mod anonymous_record;
 mod arrows;
 mod call_signature;
 mod callable_object;

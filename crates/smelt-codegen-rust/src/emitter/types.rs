@@ -404,6 +404,23 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Function(_)) => {
                 Ok("true".to_owned())
             }
+            // Every object is truthy, collections included: `!obj` on a
+            // `Record<K, V>` (rendered as a map) is `false`, never `true`.
+            // These operands used to reach the `(_, Type::Bool, _)` default
+            // below and read as `false`, so `if (!obj) return {}` returned
+            // early for every map. Same rule as `value_truthy_text`.
+            (
+                smelt_hir::PrimitiveCastOp::ToBool,
+                Type::Bool,
+                Type::List(_)
+                | Type::Tuple(_)
+                | Type::Dict(_, _)
+                | Type::JsMap(_, _)
+                | Type::Set(_)
+                | Type::Future(_)
+                | Type::Generator { .. }
+                | Type::GeneratorResult { .. },
+            ) => Ok("true".to_owned()),
             (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Bool) => {
                 Ok(format!("if {operand_text} {{ 1_i64 }} else {{ 0_i64 }}"))
             }

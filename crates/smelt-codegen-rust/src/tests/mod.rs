@@ -88,6 +88,7 @@ mod snapshot_tests_part_2;
 mod fetch_types_tests;
 mod host_override_tests;
 mod thrown_tests;
+mod optional_and_truthiness_tests;
 mod runtime_manifest_tests;
 mod nullish_and_identity_tests;
 mod tail_r3_tests;

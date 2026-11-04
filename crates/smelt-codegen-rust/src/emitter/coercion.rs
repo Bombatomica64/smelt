@@ -128,6 +128,17 @@ impl FunctionEmitter<'_> {
         {
             return self.value_at_type_text(&operand_text, source_ty, target, scope);
         }
+        // A tuple at a LIST type (`[] as []` or `[a, b] as [A, B]` passed to a
+        // `T[]` parameter, which TypeScript accepts) collects its elements into
+        // a list. The text entry point owns that rule; the operand ladder below
+        // has none and passed the tuple through unchanged (`()` where a
+        // `SmeltList` was expected, E0308).
+        if matches!(
+            (self.mir.types.get(source_ty), self.mir.types.get(target)),
+            (Some(Type::Tuple(_)), Some(Type::List(_)))
+        ) {
+            return self.value_at_type_text(&operand_text, source_ty, target, scope);
+        }
         let target_is_erased = matches!(
             self.mir.types.get(target),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -3067,7 +3078,21 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(source_ty),
             Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner)
         );
-        if target_is_primitive
+        // The same holds for any target that IS the concrete inner type: a
+        // narrowed `Option<Rc<dyn Fn ..>>` unwraps to its function, it is not
+        // an erased value whose tag selects one. An inner that renders erased
+        // (`SmeltUnknown`, a type parameter carried as one, an erased union)
+        // keeps the extraction below, which maps an absent value to
+        // `SmeltUnknown::Undefined` (`defaultValue as TDefault`) instead of
+        // treating it as impossible.
+        let target_is_source_inner = matches!(
+            self.mir.types.get(source_ty),
+            Some(Type::Optional(inner)) if *inner == target
+        ) && !matches!(
+            self.mir.types.get(target),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) && !self.is_erased_class_type(target);
+        if (target_is_primitive || target_is_source_inner)
             && matches!(self.mir.types.get(source_ty), Some(Type::Optional(_)))
             && !source_inner_is_erased
         {
