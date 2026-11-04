@@ -1730,12 +1730,6 @@ const EXPECTED_FIXTURE_FAILURES: &[ExpectedFailure] = &[
                 `cb?:` parameter called at both arities",
     },
     ExpectedFailure {
-        name: "variadic_type_param_callback",
-        errors: 0,
-        cause: "rejected during emission: \"type table does not contain literal operand type \
-                Unknown\" for a variadic callback over `T`",
-    },
-    ExpectedFailure {
         name: "callback_sunk_into_erased_parameter",
         errors: 1,
         cause: "a borrowed callback also passed to an `unknown` parameter loses its lifetime \
