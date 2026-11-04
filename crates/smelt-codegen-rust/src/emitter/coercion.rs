@@ -3078,20 +3078,16 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(source_ty),
             Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner)
         );
-        // The same holds for any target that IS the concrete inner type: a
-        // narrowed `Option<Rc<dyn Fn ..>>` unwraps to its function, it is not
-        // an erased value whose tag selects one. An inner that renders erased
-        // (`SmeltUnknown`, a type parameter carried as one, an erased union)
-        // keeps the extraction below, which maps an absent value to
-        // `SmeltUnknown::Undefined` (`defaultValue as TDefault`) instead of
-        // treating it as impossible.
+        // The same holds for a FUNCTION target that is the optional's own inner
+        // type: a narrowed `Option<Rc<dyn Fn ..>>` unwraps to its function. The
+        // erased path below matched it as a `SmeltUnknown`, which an
+        // `Option<Rc<dyn Fn>>` is not (E0308), so it never compiled. Other
+        // inner types keep the erased extraction and its handling of an absent
+        // value (e.g. `Array.from(null)` reaching an iterable extraction).
         let target_is_source_inner = matches!(
             self.mir.types.get(source_ty),
             Some(Type::Optional(inner)) if *inner == target
-        ) && !matches!(
-            self.mir.types.get(target),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) && !self.is_erased_class_type(target);
+        ) && matches!(self.mir.types.get(target), Some(Type::Function(_)));
         if (target_is_primitive || target_is_source_inner)
             && matches!(self.mir.types.get(source_ty), Some(Type::Optional(_)))
             && !source_inner_is_erased

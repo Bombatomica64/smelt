@@ -258,3 +258,4 @@ mod promise_resolution_tests;
 mod erasure_tests;
 mod fn_ctx_tests;
 mod anonymous_record_tests;
+mod open_array_hint_tests;
