@@ -74,3 +74,34 @@ fn demoted_call_site_erases_its_bare_type_param_argument() {
         "the init value erases with it: {call}"
     );
 }
+
+/// An overloaded generic whose implementation returns `T | undefined` while
+/// the selected overload returns `T` (`maxBy` on a provably non-empty list):
+/// the call takes the implementation's absence-carrying return INSTANTIATED at
+/// the call site's `T`, so a call the backend monomorphizes at `T = f64` keeps
+/// an `Option<f64>` result instead of erasing it to `Option<SmeltUnknown>` on
+/// the spot (es-toolkit `maxBy([1, 3, 2, NaN], x => x)`).
+#[test]
+fn overload_absence_return_is_instantiated_at_the_call() {
+    let source = source_for(
+        r"
+export function maxBy<T>(items: readonly [T, ...T[]], getValue: (element: T, index: number) => number): T;
+export function maxBy<T>(items: readonly T[], getValue: (element: T, index: number) => number): T | undefined;
+export function maxBy<T>(items: readonly T[], getValue: (element: T, index: number) => number): T | undefined {
+  let best: T | undefined = undefined;
+  let bestValue = -Infinity;
+  for (let i = 0; i < items.length; i++) {
+    const value = getValue(items[i], i);
+    if (value > bestValue) { bestValue = value; best = items[i]; }
+  }
+  return best;
+}
+export function top(): number | undefined { return maxBy([1, 3, 2, Number.NaN], x => x); }
+",
+    );
+    let top = emitted_function_body(&source, "fn top(");
+    assert!(
+        !top.contains("SmeltUnknown"),
+        "the call result stays Option<f64>: {top}"
+    );
+}

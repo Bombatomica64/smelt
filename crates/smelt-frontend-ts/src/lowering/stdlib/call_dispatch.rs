@@ -4378,7 +4378,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// interface, a non-function return) still wins, so this never costs
     /// precision that the declaration actually supplied.
     fn representable_overload_return_ty(
-        &self,
+        &mut self,
         implementation_return_ty: smelt_hir::TypeId,
         overload_return_ty: smelt_hir::TypeId,
     ) -> smelt_hir::TypeId {
@@ -4396,6 +4396,20 @@ impl<'builder> ModuleBuilder<'builder> {
         // The presence information wins, exactly as it already does below for a
         // callee that lowers to the fully-erased function shape.
         if self.lowered_return_admits_absence(implementation_return_ty, overload_return_ty) {
+            // The lowered return is the implementation's own GENERIC return
+            // (`T | undefined` for remeda/es-toolkit `maxBy<T>`), so it is
+            // instantiated at the call site's evidence, which the selected
+            // overload's instantiated return carries (`T = number`): matching
+            // the two binds the implementation's parameters. Returning it
+            // unsubstituted typed the call `Optional<T>`, which erased the
+            // result the backend had just monomorphized (`Option<f64>` read
+            // back as `Option<SmeltUnknown>`).
+            let mut bindings = HashMap::new();
+            if self.bind_return_through_absence(implementation_return_ty, overload_return_ty, &mut bindings)
+                && !bindings.is_empty()
+            {
+                return self.substitute_type_params(implementation_return_ty, &bindings);
+            }
             return implementation_return_ty;
         }
         let (
@@ -4414,6 +4428,33 @@ impl<'builder> ModuleBuilder<'builder> {
             return implementation_return_ty;
         }
         overload_return_ty
+    }
+
+    /// Bind the implementation's return type parameters from the overload's
+    /// instantiated return, looking through the absence the implementation
+    /// adds (`T | undefined` against `number` binds `T = number`) and through
+    /// the wrappers `lowered_return_admits_absence` walks.
+    fn bind_return_through_absence(
+        &mut self,
+        lowered: smelt_hir::TypeId,
+        declared: smelt_hir::TypeId,
+        bindings: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) -> bool {
+        match (
+            self.ctx.krate.types.get(lowered).cloned(),
+            self.ctx.krate.types.get(declared).cloned(),
+        ) {
+            (Some(Type::Future(lowered_inner)), Some(Type::Future(declared_inner)))
+            | (Some(Type::List(lowered_inner)), Some(Type::List(declared_inner))) => {
+                self.bind_return_through_absence(lowered_inner, declared_inner, bindings)
+            }
+            (Some(Type::Optional(lowered_inner)), Some(declared_kind))
+                if !matches!(declared_kind, Type::Optional(_)) =>
+            {
+                self.infer_overload_type(lowered_inner, declared, bindings)
+            }
+            _ => self.infer_overload_type(lowered, declared, bindings),
+        }
     }
 
     /// Whether the lowered return type can be absent where the declared
