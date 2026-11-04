@@ -651,8 +651,12 @@ clone-strategy = "aggressive"
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
     smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
+    // Requirement change (2026-11-04): this expected `5`, JavaScript's
+    // number text. The `print` is in the Python entry and `result` is a
+    // Python `float`, so CPython prints `5.0` (`str(5.0)`); Python bodies now
+    // format numbers the Python way.
     let actual_stdout = common::cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
-    ensure_eq(&actual_stdout, &"5\n".to_owned(), "unexpected stdout")?;
+    ensure_eq(&actual_stdout, &"5.0\n".to_owned(), "unexpected stdout")?;
 
     Ok(())
 }
