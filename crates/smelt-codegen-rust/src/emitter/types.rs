@@ -839,7 +839,7 @@ impl FunctionEmitter<'_> {
     /// The registry is the shared one (`smelt_stdlib::host_object_marker`), so
     /// the frontend's serializability rule and this one cannot disagree about
     /// which classes have no own enumerable properties.
-    pub(super) fn is_host_object_class(&self, name: smelt_hir::Symbol) -> bool {
+    pub(super) fn is_host_object_class(&self, name: Symbol) -> bool {
         self.symbol_name(name)
             .is_ok_and(|class_name| smelt_stdlib::host_object_marker(class_name).is_some())
     }
@@ -887,6 +887,12 @@ impl FunctionEmitter<'_> {
                 // it through the union's own arms, so reporting the erased
                 // fallback here would make callers re-coerce an already concrete
                 // value. The text and the type are decided by the same rule.
+                if smelt_stdlib::typescript_field_rule(self.symbol_source_name(*field)?)
+                    == Some(smelt_stdlib::FieldRule::TsLength)
+                    && self.concrete_union_length_read_text(*base)?.is_some()
+                {
+                    return self.type_id(Type::Float);
+                }
                 if let Some(field_ty) = self.concrete_union_field_ty(base_ty, *field) {
                     return Ok(field_ty);
                 }
@@ -1033,8 +1039,16 @@ impl FunctionEmitter<'_> {
                     }),
                 }
             }
-            Place::Index { base, index, .. } => {
+            Place::Index { base, index, negative } => {
                 let base_ty = self.local_decl(*base)?.ty;
+                // Decided by the same rule that renders the read
+                // (`place::place_text`), so callers coerce from the arm-typed
+                // value rather than re-narrowing an erased one.
+                if let Some((read_ty, _)) =
+                    self.concrete_union_index_reads(base_ty, index, *negative)?
+                {
+                    return Ok(read_ty);
+                }
                 // An indexed read on a typed-array view decodes ONE element at
                 // the view's own width and renders as an `f64` (see
                 // `typed_array::typed_array_index_read_text`), so its value type
@@ -2387,7 +2401,7 @@ impl FunctionEmitter<'_> {
     ///
     /// `0` for a non-generic class and for a name that is not a generated class
     /// at all, so callers can ask without checking first.
-    pub(super) fn class_type_param_count(&self, name: smelt_hir::Symbol) -> usize {
+    pub(super) fn class_type_param_count(&self, name: Symbol) -> usize {
         // The parameters the emitted struct DECLARES: a position
         // `generic_elision` dropped is spelled nowhere, so it must not be
         // spelled here either (`Context_1::<SmeltUnknown, ..>::default()` for a

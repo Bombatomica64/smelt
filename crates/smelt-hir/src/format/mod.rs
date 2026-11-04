@@ -33,7 +33,7 @@ fn push_fmt(out: &mut String, args: std::fmt::Arguments<'_>) {
 /// exactly the one arm that has to change.
 #[must_use]
 pub fn type_display(krate: &Crate, ty: TypeId) -> String {
-    types::type_ref(krate, ty)
+    type_ref(krate, ty)
 }
 
 /// Formats the HIR of the given modules in a compact, human-readable form.

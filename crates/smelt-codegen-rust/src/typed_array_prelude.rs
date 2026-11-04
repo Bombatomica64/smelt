@@ -33,6 +33,11 @@
 //! `new Uint8Array(..)` is still the erased host record
 //! (`byte_buffer_prelude`), and both faces answer through the same registry.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use crate::rust::CodeWriter;
 
 /// The `SmeltTypedArrayKind` variant expression for a source constructor name.
@@ -42,7 +47,7 @@ use crate::rust::CodeWriter;
 /// from the shared host-object registry, so the emitter kind selection and the
 /// emitted enum cannot name different variants for the same class.
 #[must_use]
-pub fn kind_expression(class_name: &str) -> Option<String> {
+pub(crate) fn kind_expression(class_name: &str) -> Option<String> {
     Some(element_kind_expression(smelt_stdlib::typed_array_element(
         class_name,
     )?))
@@ -54,7 +59,7 @@ pub fn kind_expression(class_name: &str) -> Option<String> {
 /// what a `DataView` accessor's name carries — so a `getInt16` call and a
 /// `new Int16Array(..)` reach the same variant without either site spelling it.
 #[must_use]
-pub fn element_kind_expression(element: smelt_stdlib::TypedArrayElement) -> String {
+pub(crate) fn element_kind_expression(element: smelt_stdlib::TypedArrayElement) -> String {
     format!("SmeltTypedArrayKind::{}", element.element_name())
 }
 
@@ -62,7 +67,7 @@ pub fn element_kind_expression(element: smelt_stdlib::TypedArrayElement) -> Stri
 ///
 /// Order matters: the kind table is referenced by both types, and the view
 /// names the buffer.
-pub fn emit(writer: &mut CodeWriter, needs_unknown: bool, needs_data_view: bool, needs_bigint: bool) {
+pub(crate) fn emit(writer: &mut CodeWriter, needs_unknown: bool, needs_data_view: bool, needs_bigint: bool) {
     emit_kind(writer);
     emit_array_buffer(writer, needs_unknown);
     emit_typed_array(writer, needs_unknown);

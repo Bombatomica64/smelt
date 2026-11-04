@@ -1741,7 +1741,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// class has no slot to bind.
     pub(super) fn bind_own_virtual_slots_text(
         &self,
-        class: &smelt_mir::MirClass,
+        class: &MirClass,
         instance_ty: TypeId,
         instance: &str,
     ) -> Result<Option<String>, EmitError> {

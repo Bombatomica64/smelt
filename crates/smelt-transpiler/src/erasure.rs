@@ -91,7 +91,7 @@ pub struct ErasureConfig {
 
 /// One `[[erasure.scope]]` entry.
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
-pub struct ErasureScopeConfig {
+pub(crate) struct ErasureScopeConfig {
     /// Manifest-relative globs (`*` within a segment, `**` across segments).
     paths: Vec<String>,
     /// Severity for every reason in matching files.

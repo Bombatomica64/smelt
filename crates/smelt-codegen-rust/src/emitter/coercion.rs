@@ -2457,7 +2457,7 @@ impl FunctionEmitter<'_> {
     ///
     /// Read from the interface's `FieldDecodeFacts`; a class records none and
     /// keeps the `undefined` reading.
-    pub(super) fn field_absent_is_null(&self, owner: smelt_hir::Symbol, field: smelt_hir::Symbol) -> bool {
+    pub(super) fn field_absent_is_null(&self, owner: Symbol, field: Symbol) -> bool {
         self.mir
             .interfaces
             .iter()
@@ -3533,7 +3533,7 @@ impl FunctionEmitter<'_> {
                 let converted_return_text = if let Some(Type::Future(item)) =
                     self.mir.types.get(function.return_ty)
                 {
-                    let _ = self.type_text_with_impl_trait(*item, false)?;
+                    drop(self.type_text_with_impl_trait(*item, false)?);
                     // JavaScript `await` flattens promise chains: an erased
                     // callable adapted to a promise-returning signature may
                     // itself return an erased promise (e.g. a Vitest

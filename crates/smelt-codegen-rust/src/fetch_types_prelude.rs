@@ -65,6 +65,11 @@
 //! So the pair list lives behind an `Rc<RefCell<..>>` with a `smelt_next_object_id`
 //! identity, in the same shape as `SmeltList` and `SmeltRegExp`.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use crate::rust::CodeWriter;
 
 /// Emit the `SmeltHeaders` runtime type.
@@ -72,7 +77,7 @@ use crate::rust::CodeWriter;
 /// `needs_unknown` gates the erasure adapters (`IntoSmeltUnknown` /
 /// `SmeltFromUnknown`): a program that never crosses the dynamic boundary does
 /// not emit the carrier type, so the impls must not be emitted either.
-pub fn emit(writer: &mut CodeWriter, needs_unknown: bool) {
+pub(crate) fn emit(writer: &mut CodeWriter, needs_unknown: bool) {
     emit_struct(writer);
     emit_inherent_impl(writer);
     emit_traits(writer, needs_unknown);
@@ -82,7 +87,7 @@ pub fn emit(writer: &mut CodeWriter, needs_unknown: bool) {
 ///
 /// Gated exactly like [`emit`], and separately from it: a program that uses a
 /// query string but no headers carries only this type.
-pub fn emit_url_search_params(writer: &mut CodeWriter, needs_unknown: bool) {
+pub(crate) fn emit_url_search_params(writer: &mut CodeWriter, needs_unknown: bool) {
     emit_params_struct(writer);
     emit_params_inherent_impl(writer);
     emit_params_traits(writer, needs_unknown);
@@ -559,7 +564,7 @@ fn emit_traits(writer: &mut CodeWriter, needs_unknown: bool) {
 ///
 /// Separate from the types that hold it so a program carrying only `Headers`
 /// pays nothing for it; `Request` and `Response` both turn this gate on.
-pub fn emit_body(writer: &mut CodeWriter, needs_unknown: bool) {
+pub(crate) fn emit_body(writer: &mut CodeWriter, needs_unknown: bool) {
     emit_body_struct(writer);
     emit_body_inherent_impl(writer, needs_unknown);
     emit_body_traits(writer, needs_unknown);
@@ -787,7 +792,7 @@ fn emit_body_inherent_impl(writer: &mut CodeWriter, needs_unknown: bool) {
 /// Gated like the other fetch types, and it turns the `SmeltHeaders` and
 /// `SmeltBody` gates on with it: a response *has* a header list and a body, so
 /// a crate carrying `Response` carries all three.
-pub fn emit_response(writer: &mut CodeWriter, needs_unknown: bool) {
+pub(crate) fn emit_response(writer: &mut CodeWriter, needs_unknown: bool) {
     emit_response_struct(writer);
     emit_response_inherent_impl(writer);
     emit_response_traits(writer, needs_unknown);
@@ -900,7 +905,7 @@ fn emit_response_inherent_impl(writer: &mut CodeWriter) {
 ///
 /// Gated like `SmeltResponse`, and it turns the same two gates on with it: a
 /// request has a header list and a body.
-pub fn emit_request(writer: &mut CodeWriter, needs_unknown: bool) {
+pub(crate) fn emit_request(writer: &mut CodeWriter, needs_unknown: bool) {
     emit_request_init(writer);
     emit_request_struct(writer);
     emit_request_inherent_impl(writer);

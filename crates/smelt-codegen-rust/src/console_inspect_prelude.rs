@@ -74,11 +74,16 @@
 //! * Entry widths are counted in `char`s; Node counts display width, which
 //!   differs for East-Asian wide characters.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 /// The emitted trait's name.
-pub const INSPECT_TRAIT: &str = "SmeltInspect";
+pub(crate) const INSPECT_TRAIT: &str = "SmeltInspect";
 
 /// The trait method a top-level `console.log` argument is rendered through.
-pub const CONSOLE_TEXT_METHOD: &str = "smelt_console_text";
+pub(crate) const CONSOLE_TEXT_METHOD: &str = "smelt_console_text";
 
 /// The core runtime: context, trait, `util.inspect`'s layout helpers, and the
 /// impls for the scalars, `Option` and tuples.
@@ -407,7 +412,7 @@ smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10, L 1
 "#;
 
 /// The largest tuple arity [`CORE`] implements the trait for.
-pub const MAX_TUPLE_ARITY: usize = 12;
+pub(crate) const MAX_TUPLE_ARITY: usize = 12;
 
 /// `SmeltList<T>`: a JavaScript array.
 const LIST_IMPL: &str = r"impl<T: SmeltInspect> SmeltInspect for SmeltList<T> {
@@ -501,7 +506,7 @@ impl SmeltInspect for SmeltUnknown {
     clippy::struct_excessive_bools,
     reason = "each flag is an independent pay-for-use gate of one emitted impl family"
 )]
-pub struct InspectContainers {
+pub(crate) struct InspectContainers {
     /// `SmeltList` is emitted (`needs_smelt_list`).
     pub list: bool,
     /// `SmeltPrimSet` is emitted (`needs_prim_set`).
@@ -526,7 +531,7 @@ const BIGINT_IMPL: &str = r#"impl SmeltInspect for ::num_bigint::BigInt {
 /// Render the runtime half of the formatter: [`CORE`] plus the container impls
 /// whose containers this crate emits.
 #[must_use]
-pub fn runtime_text(containers: InspectContainers) -> String {
+pub(crate) fn runtime_text(containers: InspectContainers) -> String {
     let mut text = String::from(CORE);
     if containers.list {
         text.push('\n');
@@ -565,7 +570,7 @@ pub fn runtime_text(containers: InspectContainers) -> String {
 }
 
 /// One field of a generated record struct, as the inspect impl reads it.
-pub struct InspectField {
+pub(crate) struct InspectField {
     /// The JavaScript property key (the SOURCE spelling).
     pub key: String,
     /// The Rust field identifier.
@@ -583,7 +588,7 @@ pub struct InspectField {
 /// the shared-cell storage (`struct Name(Rc<RefCell<NameInner>>)`), whose
 /// fields are read through one borrow of the cell.
 #[must_use]
-pub fn struct_impl_text(
+pub(crate) fn struct_impl_text(
     rust_name: &str,
     constructor: &str,
     fields: &[InspectField],
@@ -617,7 +622,7 @@ pub fn struct_impl_text(
 /// Render `impl SmeltInspect` for one non-generic concrete union enum: every
 /// method delegates to the member the value holds.
 #[must_use]
-pub fn union_impl_text(rust_name: &str, member_count: usize) -> String {
+pub(crate) fn union_impl_text(rust_name: &str, member_count: usize) -> String {
     let arms = |call: &str| {
         (0..member_count)
             .map(|index| format!("Self::M{index}(value) => value.{call}"))

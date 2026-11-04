@@ -39,6 +39,11 @@
 //! arrow flag — so it answers an object for both. Reading `.prototype` off an
 //! arrow is the only way to see the difference.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use crate::rust::CodeWriter;
 
 /// Emit the function-object helpers into the generated prelude.
@@ -47,7 +52,7 @@ use crate::rust::CodeWriter;
 /// `SmeltErasedFunction` consults it. `[[Construct]]` and the chain walk are
 /// emitted only for a crate that spells them, so a program that never
 /// constructs through a function value carries neither.
-pub fn emit(writer: &mut CodeWriter, needs_construct: bool, needs_instance_of_value: bool) {
+pub(crate) fn emit(writer: &mut CodeWriter, needs_construct: bool, needs_instance_of_value: bool) {
     emit_property_bag(writer);
     if needs_construct {
         emit_construct(writer);

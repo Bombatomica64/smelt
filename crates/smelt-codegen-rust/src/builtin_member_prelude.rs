@@ -22,12 +22,17 @@
 //! a side table (`smelt_register_receiver_method`) and `smelt_function_method`
 //! consults it instead of unconditionally dropping the receiver.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use smelt_stdlib::{BUILTIN_MEMBER_FUNCTIONS, builtin_member_key};
 
 use crate::rust::CodeWriter;
 
 /// Emit the builtin-member value helpers into the generated prelude.
-pub fn emit(writer: &mut CodeWriter) {
+pub(crate) fn emit(writer: &mut CodeWriter) {
     emit_registry(writer);
     emit_prototype_object(writer);
     emit_member_value(writer);

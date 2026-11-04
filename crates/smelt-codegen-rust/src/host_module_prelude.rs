@@ -26,24 +26,29 @@
 //! a Smelt-written `TypeError`. All four are raised through the same error
 //! channel a source `throw` uses.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use crate::rust::CodeWriter;
 
 /// Name of the generated `path.join` helper, `fn(&[String]) -> String`.
-pub const PATH_JOIN_FN: &str = "smelt_path_join";
+pub(crate) const PATH_JOIN_FN: &str = "smelt_path_join";
 /// Name of the generated `path.resolve` helper, `fn(&[String]) -> String`.
-pub const PATH_RESOLVE_FN: &str = "smelt_path_resolve";
+pub(crate) const PATH_RESOLVE_FN: &str = "smelt_path_resolve";
 /// Name of the generated `path.normalize` helper, `fn(&str) -> String`.
-pub const PATH_NORMALIZE_FN: &str = "smelt_path_normalize";
+pub(crate) const PATH_NORMALIZE_FN: &str = "smelt_path_normalize";
 /// Name of the generated `path.dirname` helper, `fn(&str) -> String`.
-pub const PATH_DIRNAME_FN: &str = "smelt_path_dirname";
+pub(crate) const PATH_DIRNAME_FN: &str = "smelt_path_dirname";
 /// Name of the generated `path.basename` helper, `fn(&str, Option<&str>) -> String`.
-pub const PATH_BASENAME_FN: &str = "smelt_path_basename";
+pub(crate) const PATH_BASENAME_FN: &str = "smelt_path_basename";
 /// Name of the generated `path.extname` helper, `fn(&str) -> String`.
-pub const PATH_EXTNAME_FN: &str = "smelt_path_extname";
+pub(crate) const PATH_EXTNAME_FN: &str = "smelt_path_extname";
 /// Name of the generated `path.relative` helper, `fn(&str, &str) -> String`.
-pub const PATH_RELATIVE_FN: &str = "smelt_path_relative";
+pub(crate) const PATH_RELATIVE_FN: &str = "smelt_path_relative";
 /// Name of the generated `path.isAbsolute` helper, `fn(&str) -> bool`.
-pub const PATH_IS_ABSOLUTE_FN: &str = "smelt_path_is_absolute";
+pub(crate) const PATH_IS_ABSOLUTE_FN: &str = "smelt_path_is_absolute";
 
 /// Node's POSIX `lib/path.js`, ported function for function.
 ///
@@ -376,7 +381,7 @@ fn smelt_path_extname(path: &str) -> String {
 "#;
 
 /// Emit the `node:path` helpers.
-pub fn emit_path(writer: &mut CodeWriter) {
+pub(crate) fn emit_path(writer: &mut CodeWriter) {
     writer.blank_line();
     for line in PATH_HELPERS.lines() {
         writer.line(line);
@@ -385,15 +390,15 @@ pub fn emit_path(writer: &mut CodeWriter) {
 }
 
 /// Name of the generated `createHash` helper.
-pub const HASH_CREATE_FN: &str = "smelt_hash_create";
+pub(crate) const HASH_CREATE_FN: &str = "smelt_hash_create";
 /// Name of the generated `hash.update(bytes)` helper.
-pub const HASH_UPDATE_BYTES_FN: &str = "smelt_hash_update_bytes";
+pub(crate) const HASH_UPDATE_BYTES_FN: &str = "smelt_hash_update_bytes";
 /// Name of the generated `hash.update(text, encoding)` helper.
-pub const HASH_UPDATE_TEXT_FN: &str = "smelt_hash_update_text";
+pub(crate) const HASH_UPDATE_TEXT_FN: &str = "smelt_hash_update_text";
 /// Name of the generated `hash.digest(encoding)` helper.
-pub const HASH_DIGEST_TEXT_FN: &str = "smelt_hash_digest_text";
+pub(crate) const HASH_DIGEST_TEXT_FN: &str = "smelt_hash_digest_text";
 /// Name of the generated `hash.digest()` helper.
-pub const HASH_DIGEST_BYTES_FN: &str = "smelt_hash_digest_bytes";
+pub(crate) const HASH_DIGEST_BYTES_FN: &str = "smelt_hash_digest_bytes";
 
 /// The `SmeltHash` runtime type and its helpers, minus the error payloads.
 ///
@@ -575,7 +580,7 @@ fn smelt_hash_digest_text(hash: &SmeltHash, encoding: &str) -> Result<String, Bo
 ///
 /// Only called where the crate carries the thrown-value ABI (the frontend's
 /// hasher calls are fallible, which demands it), since every helper can throw.
-pub fn emit_hash(writer: &mut CodeWriter) {
+pub(crate) fn emit_hash(writer: &mut CodeWriter) {
     let error = |message: &str| {
         crate::thrown::throw_expr(&crate::thrown::error_payload_record_expr(
             "Error",

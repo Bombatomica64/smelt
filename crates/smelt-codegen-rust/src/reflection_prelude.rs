@@ -36,6 +36,11 @@
 //! * The shared host-object registry, for the byte-buffer and Blob/File kinds the
 //!   constructor knows how to build.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use smelt_stdlib::runtime_symbols::{byte_buffer, host};
 
 use crate::rust::CodeWriter;
@@ -130,7 +135,7 @@ fn constructor_class_markers() -> Vec<(&'static str, &'static str)> {
 /// `smelt_reflected_construct` dispatches on. `None` for names that are not
 /// modeled host objects, and for the ones that must not be reflectively
 /// constructed as marker records.
-pub fn reflected_construct_kind(class_name: &str) -> Option<&'static str> {
+pub(crate) fn reflected_construct_kind(class_name: &str) -> Option<&'static str> {
     // A class backed by a generated runtime type must not be reflectively
     // constructed as a marker record: the record would answer `instanceof`
     // correctly and then silently fail every method the program calls on it.
@@ -172,7 +177,7 @@ fn pair_array(pairs: &[(&str, &str)]) -> String {
 }
 
 /// Emit the host-reflection runtime helpers into the generated prelude.
-pub fn emit(writer: &mut CodeWriter) {
+pub(crate) fn emit(writer: &mut CodeWriter) {
     emit_marker_kind(writer);
     emit_constructor_class(writer);
     emit_construct(writer);

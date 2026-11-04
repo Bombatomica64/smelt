@@ -59,6 +59,11 @@
 //! element typing, and nothing in the measured corpora reads a byte written
 //! through an aliasing view.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use smelt_stdlib::runtime_symbols::byte_buffer as symbols;
 use smelt_stdlib::{ByteBufferRole, TypedArrayElement};
 
@@ -197,7 +202,7 @@ fn element_match(arm: impl Fn(TypedArrayElement) -> &'static str, fallback: &str
 /// resolve the record's marker and element stride through the same lookups), so
 /// they are emitted as one block rather than gated individually. They are small
 /// and `dead_code`-allowed like the rest of the prelude.
-pub fn emit(writer: &mut CodeWriter, has_concrete_family: bool) {
+pub(crate) fn emit(writer: &mut CodeWriter, has_concrete_family: bool) {
     emit_identity(writer);
     emit_element_codec(writer);
     emit_record(writer);

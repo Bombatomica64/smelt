@@ -1316,14 +1316,14 @@ mod tests {
     fn excluded_dependency_is_pruned_and_recorded() {
         let dir = tempfile::tempdir().expect("temp dir");
         let root = dir.path();
-        std::fs::create_dir_all(root.join("src/client")).expect("create dirs");
+        fs::create_dir_all(root.join("src/client")).expect("create dirs");
         let importer = root.join("src/main.ts");
-        std::fs::write(
+        fs::write(
             &importer,
             "import { hc } from './client';\nexport const c = hc();\n",
         )
         .expect("write importer");
-        std::fs::write(
+        fs::write(
             root.join("src/client/index.ts"),
             "export const hc = () => 1;\n",
         )
@@ -1346,14 +1346,14 @@ mod tests {
     fn included_dependency_is_not_recorded_as_excluded() {
         let dir = tempfile::tempdir().expect("temp dir");
         let root = dir.path();
-        std::fs::create_dir_all(root.join("src/lib")).expect("create dirs");
+        fs::create_dir_all(root.join("src/lib")).expect("create dirs");
         let importer = root.join("src/main.ts");
-        std::fs::write(
+        fs::write(
             &importer,
             "import { one } from './lib/helper';\nexport const v = one();\n",
         )
         .expect("write importer");
-        std::fs::write(
+        fs::write(
             root.join("src/lib/helper.ts"),
             "export const one = () => 1;\n",
         )

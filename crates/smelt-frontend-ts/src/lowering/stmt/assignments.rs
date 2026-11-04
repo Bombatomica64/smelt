@@ -1647,18 +1647,33 @@ impl ModuleBuilder<'_> {
             };
             let tuple_index = self.static_tuple_index(index, body, tuple_len, member.span)?;
             let mut indexed_tys = Vec::new();
+            // A tuple arm too short for the index reads `undefined` in
+            // JavaScript (`[[h], stash] | [[h]]` read at `[1]` on the second
+            // arm). Dropping that arm typed the read as the other arms' element
+            // alone (`string[]`, never undefined), so `result[1] ? a : b` folded
+            // to `a` and the one-element arm took the stash branch. The read is
+            // that type OR `undefined`, which is `Optional`.
+            let mut absent_in_an_arm = false;
             for item in items {
-                if let Some(Type::Tuple(tuple_items)) = self.ctx.krate.types.get(item)
-                    && let Some(ty) = tuple_items.get(tuple_index).copied()
-                    && !indexed_tys.contains(&ty)
-                {
-                    indexed_tys.push(ty);
+                if let Some(Type::Tuple(tuple_items)) = self.ctx.krate.types.get(item) {
+                    match tuple_items.get(tuple_index).copied() {
+                        Some(ty) if !indexed_tys.contains(&ty) => indexed_tys.push(ty),
+                        Some(_) => {}
+                        None => absent_in_an_arm = true,
+                    }
                 }
             }
             if !indexed_tys.is_empty() {
                 let ty = match indexed_tys.as_slice() {
                     [single] => *single,
                     _ => self.ctx.krate.types.intern(Type::Union(indexed_tys)),
+                };
+                let ty = if absent_in_an_arm
+                    && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)))
+                {
+                    self.ctx.krate.types.intern(Type::Optional(ty))
+                } else {
+                    ty
                 };
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::Index { receiver, index },

@@ -60,6 +60,11 @@
 //!    whole body;
 //! 5. the response is awaited until `end` has been called, then sent.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use crate::rust::CodeWriter;
 
 /// Emit the whole `node:http` server runtime.
@@ -67,7 +72,7 @@ use crate::rust::CodeWriter;
 /// Requires the `SmeltEventEmitter` prelude (composed into
 /// [`SmeltIncomingMessage`]) and the timer prelude's live-handle counter, both
 /// of which `crate::stdlib` gates on this prelude's own use.
-pub fn emit(writer: &mut CodeWriter) {
+pub(crate) fn emit(writer: &mut CodeWriter) {
     emit_incoming_message(writer);
     for line in INCOMING_WEAK_HANDLE.lines() {
         writer.line(line);
@@ -663,7 +668,7 @@ fn smelt_fetch_server_write(response: &SmeltServerResponse, settled: Result<Smel
 }"#;
 
 /// Emit [`FETCH_SERVER`].
-pub fn emit_fetch_server(writer: &mut CodeWriter) {
+pub(crate) fn emit_fetch_server(writer: &mut CodeWriter) {
     for line in FETCH_SERVER.lines() {
         writer.line(line);
     }

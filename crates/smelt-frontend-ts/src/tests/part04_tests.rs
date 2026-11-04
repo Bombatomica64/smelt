@@ -5280,7 +5280,7 @@ export const viaAlias = (value: string): string => apply(value, decodeURICompone
         .iter()
         .flat_map(|body| body.exprs.iter())
         .filter_map(|expr| match expr.kind {
-            smelt_hir::ExprKind::UriTranscode { op, .. } => Some(op),
+            ExprKind::UriTranscode { op, .. } => Some(op),
             _ => None,
         })
         .collect::<Vec<_>>();

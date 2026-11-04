@@ -40,6 +40,11 @@
 //! positions count Unicode scalar values, the same unit every other erased
 //! string operation in the prelude (`length`, indexing) already uses.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use smelt_stdlib::{ERASED_ARRAY_PROTOTYPE_METHODS, ERASED_STRING_PROTOTYPE_METHODS};
 
 use crate::rust::CodeWriter;
@@ -50,7 +55,7 @@ use crate::rust::CodeWriter;
 /// written against the erased carrier, `SmeltArray`, the thrown-payload ABI
 /// (`smelt_throw`/`smelt_panic_throw`) and the builtin-member receiver helpers
 /// (`smelt_builtin_receiver_text`).
-pub fn emit(writer: &mut CodeWriter) {
+pub(crate) fn emit(writer: &mut CodeWriter) {
     emit_lines(writer, COERCION_HELPERS);
     emit_member_tables(writer);
     emit_lines(writer, MEMBER_READS);

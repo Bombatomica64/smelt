@@ -1339,7 +1339,7 @@ impl LoweringCtx<'_> {
                 init_members,
             } => {
                 let input_operand = self.lower_expr(*input)?;
-                let mut lower_optional = |expr: &Option<smelt_hir::ExprId>| {
+                let mut lower_optional = |expr: &Option<ExprId>| {
                     expr.as_ref()
                         .map_or(Ok(None), |expr| self.lower_expr(*expr).map(Some))
                 };
@@ -1386,7 +1386,7 @@ impl LoweringCtx<'_> {
                 status_text,
                 headers,
             } => {
-                let mut lower_optional = |expr: &Option<smelt_hir::ExprId>| {
+                let mut lower_optional = |expr: &Option<ExprId>| {
                     expr.as_ref()
                         .map_or(Ok(None), |expr| self.lower_expr(*expr).map(Some))
                 };

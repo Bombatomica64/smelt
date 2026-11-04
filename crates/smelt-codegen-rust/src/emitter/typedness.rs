@@ -433,7 +433,7 @@ impl FunctionEmitter<'_> {
                 // `Pair<f64>` is `() => Pair<f64>`, which is what the emitted
                 // struct field is). MIR's `generic_records` pass interns the
                 // substituted types.
-                let substitutions: std::collections::HashMap<smelt_hir::Symbol, TypeId> = params
+                let substitutions: HashMap<smelt_hir::Symbol, TypeId> = params
                     .iter()
                     .map(|def| def.name)
                     .zip(args.iter().copied())

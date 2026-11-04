@@ -227,7 +227,7 @@ export function methodOf(request: Request): string {
 }
 
 /// Return whether any lowered body contains an expression matching `predicate`.
-fn any_host_expr(ctx: &HirCtx, predicate: impl Fn(&smelt_hir::ExprKind) -> bool) -> bool {
+fn any_host_expr(ctx: &HirCtx, predicate: impl Fn(&ExprKind) -> bool) -> bool {
     ctx.krate
         .bodies
         .iter()
@@ -267,7 +267,7 @@ export const e = path.sep;
         ensure!(
             any_host_expr(&ctx, |kind| matches!(
                 kind,
-                smelt_hir::ExprKind::HostModuleCall { op: smelt_hir::HostModuleOp::Path(found), .. }
+                ExprKind::HostModuleCall { op: smelt_hir::HostModuleOp::Path(found), .. }
                     if *found == op
             )),
             "expected a `{}` host call",
@@ -277,7 +277,7 @@ export const e = path.sep;
     ensure!(
         any_host_expr(&ctx, |kind| matches!(
             kind,
-            smelt_hir::ExprKind::Literal(smelt_hir::Literal::String(text)) if text == "/"
+            ExprKind::Literal(Literal::String(text)) if text == "/"
         )),
         "`path.sep` must fold to the POSIX separator"
     );
@@ -301,7 +301,7 @@ export const joined = join('a', 'b');
         &mut ctx,
     )?;
     ensure!(
-        !any_host_expr(&ctx, |kind| matches!(kind, smelt_hir::ExprKind::HostModuleCall { .. })),
+        !any_host_expr(&ctx, |kind| matches!(kind, ExprKind::HostModuleCall { .. })),
         "a source `join` must not lower to the node:path host call"
     );
     Ok(())
@@ -349,7 +349,7 @@ export function hex(data: string): string {
         ensure!(
             any_host_expr(&ctx, |kind| matches!(
                 kind,
-                smelt_hir::ExprKind::HostModuleCall { op: smelt_hir::HostModuleOp::Hash(found), .. }
+                ExprKind::HostModuleCall { op: smelt_hir::HostModuleOp::Hash(found), .. }
                     if *found == op
             )),
             "expected a `{}` hasher call",
@@ -378,11 +378,11 @@ export const fixed = new RegExp('a+', 'g');
         &mut ctx,
     )?;
     ensure!(
-        any_host_expr(&ctx, |kind| matches!(kind, smelt_hir::ExprKind::RegExpCompile { .. })),
+        any_host_expr(&ctx, |kind| matches!(kind, ExprKind::RegExpCompile { .. })),
         "a template pattern must compile at run time"
     );
     ensure!(
-        any_host_expr(&ctx, |kind| matches!(kind, smelt_hir::ExprKind::New { .. })),
+        any_host_expr(&ctx, |kind| matches!(kind, ExprKind::New { .. })),
         "a literal pattern keeps the infallible construction"
     );
     Ok(())
@@ -405,18 +405,18 @@ export function manifest(): string {
         &mut ctx,
     )?;
     ensure!(
-        any_host_expr(&ctx, |kind| matches!(kind, smelt_hir::ExprKind::GlobalObject)),
+        any_host_expr(&ctx, |kind| matches!(kind, ExprKind::GlobalObject)),
         "the global object must be the shared global-object node"
     );
     ensure!(
         !any_host_expr(&ctx, |kind| matches!(
             kind,
-            smelt_hir::ExprKind::Literal(smelt_hir::Literal::String(text)) if text == "__smelt_global_object"
+            ExprKind::Literal(Literal::String(text)) if text == "__smelt_global_object"
         )),
         "no per-read marker record may be minted any more"
     );
     ensure!(
-        any_host_expr(&ctx, |kind| matches!(kind, smelt_hir::ExprKind::UnknownCast { .. })),
+        any_host_expr(&ctx, |kind| matches!(kind, ExprKind::UnknownCast { .. })),
         "the ambient read must narrow the stored member to its declared type"
     );
     Ok(())
@@ -444,11 +444,11 @@ serve({ fetch, port: 8080 }, (): void => {
         .flat_map(|body| body.exprs.iter())
         .map(|expr| &expr.kind)
         .collect::<Vec<_>>();
-    if !kinds.iter().any(|kind| matches!(kind, smelt_hir::ExprKind::HttpCreateFetchServer { .. })) {
+    if !kinds.iter().any(|kind| matches!(kind, ExprKind::HttpCreateFetchServer { .. })) {
         return Err("serve did not build a fetch server".to_owned());
     }
     if !kinds.iter().any(|kind| {
-        matches!(kind, smelt_hir::ExprKind::HttpServerOp { op: smelt_hir::HttpServerOp::Listen, args, .. } if args.len() == 3)
+        matches!(kind, ExprKind::HttpServerOp { op: smelt_hir::HttpServerOp::Listen, args, .. } if args.len() == 3)
     }) {
         return Err("serve did not listen with port, host and callback".to_owned());
     }
@@ -494,7 +494,7 @@ console.log(serve({ port: 1 }));
         .bodies
         .iter()
         .flat_map(|body| body.exprs.iter())
-        .any(|expr| matches!(expr.kind, smelt_hir::ExprKind::HttpCreateFetchServer { .. }))
+        .any(|expr| matches!(expr.kind, ExprKind::HttpCreateFetchServer { .. }))
     {
         return Err("a local serve was lowered as the adapter".to_owned());
     }

@@ -1145,7 +1145,7 @@ pub(crate) fn needs_panic_route(mir: &Mir) -> bool {
         || mir.functions.iter().any(|function| function.can_throw)
         || mir.closures.iter().any(|closure| closure.can_throw)
         || mir.types.all().iter().any(|ty| {
-            matches!(ty, smelt_hir::Type::Function(function) if function.may_throw)
+            matches!(ty, Type::Function(function) if function.may_throw)
         })
         // The signature-shaped clauses above answer "can something in this crate
         // throw?", which is the demand for the THROW half of the route. The

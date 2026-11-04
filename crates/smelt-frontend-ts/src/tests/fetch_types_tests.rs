@@ -1502,7 +1502,7 @@ const port = server.address();
         .items
         .iter()
         .find_map(|item| match item {
-            smelt_hir::Item::Interface(interface) if interface.name == *name => Some(interface),
+            Item::Interface(interface) if interface.name == *name => Some(interface),
             _ => None,
         })
         .ok_or("`AddressInfo` must be declared as an interface")?;

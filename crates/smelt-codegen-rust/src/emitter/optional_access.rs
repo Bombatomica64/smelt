@@ -132,6 +132,17 @@ impl FunctionEmitter<'_> {
         } else {
             self.type_id(Type::Unknown)?
         };
+        if !is_optional
+            && matches!(self.mir.types.get(dest_ty), Some(Type::Optional(_)))
+            && let Some(text) = self.concrete_union_optional_index_text(
+                &receiver_text,
+                inner_ty,
+                index,
+                result_ty,
+            )?
+        {
+            return Ok(text);
+        }
         if is_optional {
             let value =
                 self.optional_index_access_text("_smelt_value", inner_ty, index, result_ty)?;

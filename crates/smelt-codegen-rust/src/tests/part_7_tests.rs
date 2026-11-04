@@ -7988,24 +7988,21 @@ export function read(table: Record<string, Pair | Triple>): string {
     );
 
     assert!(source.contains("pub enum SmeltUnion"), "{source}");
-    // The enabling condition: the local really is erased at TWO sites, which is
-    // what made the move observable — one erasure could never fail to compile.
-    let erasures_of_first = source
-        .match_indices("into_smelt_unknown()")
-        .filter(|(at, _)| {
-            source[..*at]
-                .trim_end_matches('.')
-                .trim_end_matches(".clone()")
-                .ends_with("first")
-        })
-        .count();
-    assert_eq!(
-        erasures_of_first, 2,
-        "the union local must be erased at both inspection sites: {source}"
+    // The enabling condition is that the local is INSPECTED at two sites, which
+    // is what made a move observable — one use could never fail to compile.
+    // Both reads used to erase it (`into_smelt_unknown`); since element and
+    // `.length` reads project the union's arms
+    // (`concrete_union_index_reads`, `concrete_union_length_read_text`), both
+    // inspect it through a borrow (`match &first`) and nothing erases it. The
+    // guarantee is unchanged and now holds by construction: neither read
+    // consumes `first`.
+    assert!(
+        source.matches("match &first {").count() >= 2,
+        "the union local must be inspected at both sites, by reference: {source}"
     );
     assert!(
         !source.contains("first.into_smelt_unknown()"),
-        "erasing a union place for inspection must not move it: {source}"
+        "inspecting a union place must not move it: {source}"
     );
 }
 

@@ -106,9 +106,161 @@ impl Drop for TempProject {
     }
 }
 
+/// A generated crate whose dependencies build in this test binary's shared
+/// Cargo build directory instead of a fresh one.
+///
+/// Every generated crate is its own `[workspace]` in a throwaway directory, so
+/// by default each one rebuilds its dependencies from scratch. For the corpus
+/// loops that was the whole cost of the test suite: 114 of the 161 end-to-end
+/// examples depend on chrono, chrono-tz, fancy-regex and tokio, and compiling
+/// them 114 times took ~30 of the CI coverage job's ~39 minutes. Pointing
+/// every crate at one `build.build-dir` compiles each dependency set once;
+/// final binaries still land in the crate's own `target/`.
+///
+/// THE CRATE NAME MUST BE UNIQUE among the crates sharing the directory. Cargo
+/// does not hash a workspace-root package's path into its unit metadata, so two
+/// crates with the same name and version share one unit: when the second
+/// crate's sources are not newer than the first's build, Cargo calls the unit
+/// fresh and hands back the FIRST crate's binary, and the test checks the
+/// wrong program. [`SharedDepsCrate::claim`] enforces uniqueness within the
+/// process, and [`cargo_run_shared`] refuses a manifest whose package name is
+/// not the claimed one. The directory is per test binary, so binaries that
+/// run in parallel (nextest) never share it.
+pub(crate) struct SharedDepsCrate {
+    /// The claimed `[package] name` (also the `[output] crate-name`).
+    name: String,
+}
+
+impl SharedDepsCrate {
+    /// Claims `name` for one generated crate in this process, failing when it
+    /// was already claimed.
+    pub(crate) fn claim(name: impl Into<String>) -> TestResult<Self> {
+        static CLAIMED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+            std::sync::OnceLock::new();
+        let crate_name = name.into();
+        ensure(
+            !crate_name.contains('-'),
+            format!("shared crate name `{crate_name}` must not contain `-` (see the Drop cleanup)"),
+        )?;
+        let newly_claimed = CLAIMED
+            .get_or_init(Default::default)
+            .lock()
+            .map_err(|poisoned| {
+                io::Error::other(format!("shared crate-name registry is poisoned: {poisoned}"))
+            })?
+            .insert(crate_name.clone());
+        if !newly_claimed {
+            return Err(io::Error::other(format!(
+                "generated crate name `{crate_name}` is already used in the shared build dir; \
+                 a reused name can run another crate's binary"
+            ))
+            .into());
+        }
+        Ok(Self { name: crate_name })
+    }
+
+    /// The claimed crate name, for the test's `Smelt.toml`.
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Points `command`'s Cargo (or `smelt build`'s nested Cargo) at the
+    /// shared build directory.
+    #[expect(
+        clippy::unused_self,
+        reason = "taking the claim is what proves the crate's name is unique in the directory"
+    )]
+    fn apply<'command>(&self, command: &'command mut Command) -> &'command mut Command {
+        // Incremental state is useless for a crate built once, and at ~15 MB
+        // per crate it was a third of the directory's size.
+        command
+            .env("CARGO_BUILD_BUILD_DIR", Self::build_dir())
+            .env("CARGO_INCREMENTAL", "0")
+    }
+
+    /// The shared build directory of this test binary.
+    fn build_dir() -> PathBuf {
+        Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join("generated-build")
+            .join(env!("CARGO_CRATE_NAME"))
+    }
+}
+
+impl Drop for SharedDepsCrate {
+    /// Removes the crate's OWN units (`<name>-<hash>` binaries, dep-info and
+    /// fingerprints) from the shared directory, keeping the dependencies.
+    ///
+    /// Without this the directory kept every corpus program's ~10 MB debug
+    /// binary, several GB per run, where the throwaway target dirs used to be
+    /// deleted with their project. Claimed names never contain `-`, so the
+    /// `<name>-` prefix cannot match another crate's units.
+    fn drop(&mut self) {
+        let prefix = format!("{}-", self.name);
+        for kind in ["deps", ".fingerprint", "incremental"] {
+            let Ok(entries) = fs::read_dir(Self::build_dir().join("debug").join(kind)) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                if entry.file_name().to_string_lossy().starts_with(&prefix) {
+                    let path = entry.path();
+                    drop(if path.is_dir() {
+                        fs::remove_dir_all(&path)
+                    } else {
+                        fs::remove_file(&path)
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// Runs `smelt` from the workspace root like [`smelt`], with a manifest whose
+/// `build = true` builds the generated crate in the shared build directory.
+pub(crate) fn smelt_shared(args: &[&str], shared: &SharedDepsCrate) -> TestResult<String> {
+    let output = shared
+        .apply(Command::new(env!("CARGO_BIN_EXE_smelt")).current_dir(workspace_root()?))
+        .args(args)
+        .output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "smelt failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+        .into());
+    }
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+/// Runs `cargo run --manifest-path` for a generated crate whose dependencies
+/// build in the shared build directory, and returns stdout.
+///
+/// Fails before building when the manifest's package name is not the claimed
+/// one, since only a claimed name is guaranteed unique (see [`SharedDepsCrate`]).
+pub(crate) fn cargo_run_shared(manifest: &Path, shared: &SharedDepsCrate) -> TestResult<String> {
+    let package_line = format!("name = \"{}\"", shared.name());
+    ensure(
+        fs::read_to_string(manifest)?
+            .lines()
+            .any(|line| line == package_line),
+        format!(
+            "{} does not declare the claimed package name `{}`",
+            manifest.display(),
+            shared.name()
+        ),
+    )?;
+    run_generated_crate(shared.apply(&mut Command::new("cargo")), manifest)
+}
+
 /// Runs `cargo run --manifest-path` for a generated crate and returns stdout.
 pub(crate) fn cargo_run_manifest(manifest: &Path) -> TestResult<String> {
-    let output = Command::new("cargo")
+    run_generated_crate(&mut Command::new("cargo"), manifest)
+}
+
+/// Runs `cargo run --quiet --manifest-path <manifest>` through `command` (a
+/// `cargo` command, possibly with environment already set) and returns stdout.
+fn run_generated_crate(command: &mut Command, manifest: &Path) -> TestResult<String> {
+    let output = command
         .arg("run")
         .arg("--quiet")
         .arg("--manifest-path")
@@ -462,9 +614,11 @@ pub(crate) fn verify_python_end_to_end_example(name: &str) -> TestResult {
     let project_path = project.path();
     fs::create_dir_all(project_path.join("src"))?;
     fs::write(project_path.join("src/main.py"), &source)?;
+    let shared = SharedDepsCrate::claim(format!("py_e2e_{name}"))?;
     fs::write(
         project_path.join("Smelt.toml"),
-        r#"[project]
+        format!(
+            r#"[project]
 name = "py-example"
 version = "0.1.0"
 
@@ -473,17 +627,19 @@ entries = ["src/main.py"]
 
 [output]
 target = "./dist"
-crate-name = "py_example"
+crate-name = "{crate_name}"
 build = false
 
 [runtime]
 clone-strategy = "aggressive"
 "#,
+            crate_name = shared.name()
+        ),
     )?;
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
     smelt(&["--manifest-path", &manifest_arg, "build"])?;
     let expected_stdout = fs::read_to_string(example.join("expected.stdout"))?;
-    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    let actual_stdout = cargo_run_shared(&project_path.join("dist/Cargo.toml"), &shared)?;
     ensure(
         actual_stdout == expected_stdout,
         format!("{name}: runtime stdout mismatch\n--- generated\n{actual_stdout}--- golden\n{expected_stdout}"),
@@ -652,9 +808,11 @@ pub(crate) fn verify_end_to_end_example(name: &str) -> TestResult {
         project_path.join("src/main.ts"),
         fs::read_to_string(&input)?,
     )?;
+    let shared = SharedDepsCrate::claim(format!("e2e_{name}"))?;
     fs::write(
         project_path.join("Smelt.toml"),
-        r#"[project]
+        format!(
+            r#"[project]
 name = "example-app"
 version = "0.1.0"
 
@@ -663,12 +821,14 @@ entries = ["src/main.ts"]
 
 [output]
 target = "./dist"
-crate-name = "example_app"
+crate-name = "{crate_name}"
 build = false
 
 [runtime]
 clone-strategy = "aggressive"
 "#,
+            crate_name = shared.name()
+        ),
     )?;
 
     let manifest = project_path.join("Smelt.toml");
@@ -696,7 +856,7 @@ clone-strategy = "aggressive"
     }
 
     let expected_stdout = fs::read_to_string(example.join("expected.stdout"))?;
-    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    let actual_stdout = cargo_run_shared(&project_path.join("dist/Cargo.toml"), &shared)?;
     ensure_eq(
         &actual_stdout,
         &expected_stdout,

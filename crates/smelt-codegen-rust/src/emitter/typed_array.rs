@@ -308,7 +308,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn typed_array_index_read_text(
         &self,
         base_ty: TypeId,
-        base: smelt_mir::LocalId,
+        base: LocalId,
         index: &Operand,
     ) -> Result<Option<String>, EmitError> {
         if !self.is_typed_array_view_class_type(base_ty)? {
@@ -335,9 +335,9 @@ impl FunctionEmitter<'_> {
     pub(super) fn typed_array_index_write_statement(
         &self,
         base_ty: TypeId,
-        base: smelt_mir::LocalId,
+        base: LocalId,
         index: &Operand,
-        value: &smelt_mir::Rvalue,
+        value: &Rvalue,
     ) -> Result<Option<String>, EmitError> {
         if !self.is_typed_array_view_class_type(base_ty)? {
             return Ok(None);

@@ -3693,7 +3693,7 @@ fn emit_runtime_prelude(
         writer.line("/// The `AbortError` reason `abort()` uses when the caller names none.");
         writer.line(format!(
             "fn smelt_abort_default_reason() -> SmeltUnknown {{ {} }}",
-            crate::thrown::dom_exception_record_expr(
+            thrown::dom_exception_record_expr(
                 "AbortError",
                 "This operation was aborted"
             )
@@ -3701,7 +3701,7 @@ fn emit_runtime_prelude(
         writer.line("/// The `TimeoutError` reason `AbortSignal.timeout(ms)` aborts with.");
         writer.line(format!(
             "fn smelt_abort_timeout_reason() -> SmeltUnknown {{ {} }}",
-            crate::thrown::dom_exception_record_expr(
+            thrown::dom_exception_record_expr(
                 "TimeoutError",
                 "The operation was aborted due to timeout"
             )
@@ -5448,7 +5448,7 @@ fn emit_runtime_prelude(
                         match_writer.line("Self::Bool(value) => write!(formatter, \"{value}\"),");
                         match_writer.line(format!(
                             "Self::Number(value) => formatter.write_str(&{fn_name}(*value)),",
-                            fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                            fn_name = number_format_prelude::NUMBER_TO_STRING_FN,
                         ));
                         match_writer.line("Self::String(value) => formatter.write_str(value),");
                         match_writer.line("Self::Symbol(value) => formatter.write_str(value),");
@@ -6610,7 +6610,7 @@ fn emit_runtime_prelude(
             let default_generics = if is_generic {
                 derive_generics_text(
                     &class_param_idents,
-                    crate::classes::GENERATED_TYPE_PARAM_BOUNDS,
+                    classes::GENERATED_TYPE_PARAM_BOUNDS,
                 )
             } else {
                 impl_generics.clone()
@@ -7759,7 +7759,7 @@ fn emit_reference_record_storage(
             (
                 derive_generics_text(
                     &record_param_idents,
-                    crate::classes::GENERATED_TYPE_PARAM_BOUNDS,
+                    classes::GENERATED_TYPE_PARAM_BOUNDS,
                 ),
                 type_params.clone(),
             )
@@ -8571,7 +8571,7 @@ fn emit_record_into_smelt_unknown_impl(
 /// because the program does not generate them.
 pub(crate) fn type_supports_from_unknown(
     mir: &Mir,
-    context: &emitter::EmitContext,
+    context: &EmitContext,
     ty: TypeId,
 ) -> bool {
     match mir.types.get(ty) {
@@ -8633,7 +8633,7 @@ pub(crate) fn type_supports_from_unknown(
 fn emit_record_from_smelt_unknown_impl(
     writer: &mut CodeWriter,
     mir: &Mir,
-    context: &emitter::EmitContext,
+    context: &EmitContext,
     name: &str,
     impl_generics: &str,
     type_args: &str,
@@ -8722,7 +8722,7 @@ fn emit_record_from_smelt_unknown_impl(
 fn emit_function_field_origin_restore(
     body: &mut CodeWriter,
     mir: &Mir,
-    context: &emitter::EmitContext,
+    context: &EmitContext,
     scoped_type_params: &HashSet<smelt_hir::Symbol>,
     field_name: &str,
     key: &str,
@@ -8780,7 +8780,7 @@ fn emit_body_host_method(writer: &mut CodeWriter, needs_request: bool, needs_res
     writer.line("/// The `text`/`json` body readers of an erased `Request`/`Response` record.");
     writer.line(format!(
         "fn smelt_body_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> {{ if !matches!(name, \"text\" | \"json\") {{ return None; }} let body = {holders}{{ return None; }}; let parse_json = name == \"json\"; Some(SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| {{ let result = body.take_bytes().and_then(|bytes| {{ let text = String::from_utf8_lossy(&bytes).into_owned(); if parse_json {{ {json_parse}(&text) }} else {{ Ok(SmeltUnknown::String(text.into())) }} }}); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move {{ result }})))) }}))) }}",
-        json_parse = crate::thrown::JSON_PARSE_FN,
+        json_parse = thrown::JSON_PARSE_FN,
     ));
     writer.blank_line();
 }
