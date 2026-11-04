@@ -26,7 +26,7 @@ impl ModuleBuilder<'_> {
 
         let mut scope = HashMap::new();
         for param in &params.params {
-            let name = self.intern_type_name(param.name.name.as_str());
+            let name = self.intern_declared_type_param(param);
             let ty = self.ctx.krate.types.intern(Type::TypeParam { name });
             scope.insert(param.name.name.to_string(), ty);
         }
@@ -35,7 +35,7 @@ impl ModuleBuilder<'_> {
         let mut lowered = Vec::new();
         let mut constraints = HashMap::new();
         for param in &params.params {
-            let name = self.intern_type_name(param.name.name.as_str());
+            let name = self.intern_declared_type_param(param);
             let constraint = param
                 .constraint
                 .as_ref()
@@ -58,6 +58,32 @@ impl ModuleBuilder<'_> {
         }
         self.types.push_param_constraints(constraints);
         Ok(lowered)
+    }
+
+    /// The symbol a declared type parameter is known by: its own spelling when
+    /// rendered, but an identity owned by its DECLARATION.
+    ///
+    /// `Type::TypeParam` is identified by its symbol alone, and every
+    /// substitution map in the pipeline is keyed by it. Interned by spelling,
+    /// two unrelated parameters that share a name (`class Holder<Value>` and
+    /// `class Parser<Value>`) were one type, so a substitution meant for one
+    /// silently rewrote the other — the inherited-copy adapters of a generic
+    /// abstract base read `Holder`'s `Value` as the subclass's `number`
+    /// (bounded-generics plan, increment 5). The identity key therefore names
+    /// the declaration site (file and offset), which is the same for every
+    /// pass that lowers that declaration (predeclaration and body) and
+    /// distinct for every other declaration; the rendering stays the source
+    /// spelling, so the emitted Rust is unchanged.
+    pub(in crate::lowering) fn intern_declared_type_param(
+        &mut self,
+        param: &oxc::ast::ast::TSTypeParameter<'_>,
+    ) -> smelt_hir::Symbol {
+        let spelling = param.name.name.as_str();
+        let span = self.span(param.span.start, param.span.end);
+        let key = format!("{spelling}\u{1f}tp{}:{}", span.file.0, span.start);
+        let name = self.ctx.krate.symbols.intern_rendered(&key, spelling);
+        self.ctx.krate.names.record(name, spelling);
+        name
     }
 
     /// Push the type-parameter scope of a generic CLOSURE value (an arrow

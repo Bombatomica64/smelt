@@ -4529,12 +4529,26 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             return Ok(None);
         }
+        // A callee parameter `T` bound at this call site to one of the CALLER's
+        // own generics is that generic: the callback forwards unchanged, as it
+        // did when the two `T`s were (by accident of spelling) one symbol.
+        let caller_generics = self.current_function_type_params();
         let parameter_mismatch = source.params.len() != target_function.params.len()
             || source
                 .params
                 .iter()
                 .zip(target_function.params.iter())
-                .any(|(source_param, target_param)| source_param != target_param);
+                .any(|(source_param, target_param)| {
+                    source_param != target_param && {
+                        let bound = self.substituted_param_ty(*target_param, callee_bindings);
+                        !(bound == *source_param
+                            && crate::generic_bindings::type_mentions_only_params(
+                                self.mir,
+                                bound,
+                                &caller_generics,
+                            ))
+                    }
+                });
         // The adapter's return is converted into the callee's declared callback
         // return type, which must be resolved through this call site's bindings
         // for the same reason its parameters are (see `substituted_param_ty`).

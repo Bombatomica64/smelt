@@ -232,6 +232,51 @@ pub(crate) fn collect_bindings(
 /// `actual[i] == None` means "no evidence at this position" (an omitted
 /// argument, or one whose type the caller declined to resolve) and leaves the
 /// mentioned parameters `Unbound`.
+/// [`collect_bindings_from_types`] at a call site inside a function whose own
+/// real Rust generics are `caller_generics`.
+///
+/// An argument typed by one of those parameters is a genuine instantiation:
+/// `inner(xs)` inside `outer<T>` binds `inner`'s parameter to `outer`'s `T`,
+/// which rustc infers exactly. Every other type parameter is from a scope that
+/// erased it here and stays `Erased`. Before type parameters carried their
+/// declaration's identity this case was answered by accident: the two `T`s
+/// were one symbol, so the callee's parameter rendered as the caller's.
+pub(crate) fn collect_bindings_from_types_in_scope(
+    mir: &Mir,
+    type_params: &[Symbol],
+    declared: &[TypeId],
+    actual: &[Option<TypeId>],
+    caller_generics: &HashSet<Symbol>,
+) -> CalleeTypeParamBindings {
+    CALLER_GENERICS.with(|scope| scope.borrow_mut().clone_from(caller_generics));
+    let bindings = collect_bindings_from_types(mir, type_params, declared, actual);
+    CALLER_GENERICS.with(|scope| scope.borrow_mut().clear());
+    bindings
+}
+
+thread_local! {
+    /// The caller's real Rust generics while
+    /// [`collect_bindings_from_types_in_scope`] runs; empty otherwise, so every
+    /// other matcher entry point classifies type parameters exactly as before.
+    static CALLER_GENERICS: std::cell::RefCell<HashSet<Symbol>> =
+        std::cell::RefCell::new(HashSet::new());
+}
+
+/// Whether `ty` mentions at least one type parameter and every type parameter
+/// it mentions is in `scope`.
+pub(crate) fn type_mentions_only_params(mir: &Mir, ty: TypeId, scope: &HashSet<Symbol>) -> bool {
+    let mut names = HashSet::new();
+    collect_type_param_occurrences(mir, ty, &mut names);
+    !names.is_empty() && names.iter().all(|name| scope.contains(name))
+}
+
+/// Whether `actual` is a type parameter the current caller emits as a real
+/// Rust generic (see [`collect_bindings_from_types_in_scope`]).
+fn actual_is_caller_generic(mir: &Mir, actual: TypeId) -> bool {
+    matches!(mir.types.get(actual), Some(Type::TypeParam { name })
+        if CALLER_GENERICS.with(|scope| scope.borrow().contains(name)))
+}
+
 pub(crate) fn collect_bindings_from_types(
     mir: &Mir,
     type_params: &[Symbol],
@@ -603,7 +648,9 @@ fn match_types(
     if let Type::TypeParam { name } = declared_ty
         && own_params.contains(name)
     {
-        let observation = if actual_type_is_erased(mir, actual) {
+        let observation = if actual_type_is_erased(mir, actual)
+            && !actual_is_caller_generic(mir, actual)
+        {
             TypeParamBinding::Erased
         } else {
             TypeParamBinding::Concrete(actual)
@@ -805,6 +852,11 @@ pub(crate) fn type_param_occurs(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
 }
 
 /// Collect declared type-parameter names occurring anywhere inside a type.
+/// Every type parameter name `ty` mentions, into `names`.
+pub(crate) fn collect_type_param_names(mir: &Mir, ty: TypeId, names: &mut HashSet<Symbol>) {
+    collect_type_param_occurrences(mir, ty, names);
+}
+
 fn collect_type_param_occurrences(mir: &Mir, ty: TypeId, names: &mut HashSet<Symbol>) {
     match mir.types.get(ty) {
         Some(Type::TypeParam { name }) => {

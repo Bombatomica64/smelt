@@ -500,11 +500,46 @@ impl ModuleBuilder<'_> {
                 })
                 .collect()
         } else {
+            // Without explicit arguments the class's parameters are inferred
+            // from the constructor's arguments, as TypeScript does
+            // (`new Holder(x)` with `x: T` is a `Holder<T>` of the CALLER's
+            // `T`). A parameter no argument pins takes the contextual type's
+            // argument (`this.node = new Node()` into a `Node<T>` field), then
+            // its default, else stays the class's own (uninstantiated)
+            // parameter.
+            let mut inferred = HashMap::new();
+            if let Some(hint) = type_hint
+                && let Some(Type::Class { name, args: hint_args }) = self.ctx.krate.types.get(hint).cloned()
+                && name == class_name
+                && hint_args.len() == class.type_params.len()
+            {
+                for (param, arg) in class.type_params.iter().zip(hint_args) {
+                    inferred.insert(param.name, arg);
+                }
+            }
+            let constructor_params = class
+                .constructor
+                .and_then(|constructor| match self.item_ref(constructor) {
+                    Item::Function(function) => {
+                        Some(function.params.iter().map(|param| param.ty).collect::<Vec<_>>())
+                    }
+                    _ => None,
+                })
+                .unwrap_or_default();
+            for (param_ty, arg) in constructor_params.iter().zip(&args) {
+                let arg_ty = Self::expr_ty(body, *arg);
+                let _ = self.infer_callee_type_bindings(
+                    &class.type_params,
+                    *param_ty,
+                    arg_ty,
+                    &mut inferred,
+                );
+            }
             class
                 .type_params
                 .iter()
                 .map(|param| {
-                    param.default.unwrap_or_else(|| {
+                    inferred.get(&param.name).copied().or(param.default).unwrap_or_else(|| {
                         self.ctx
                             .krate
                             .types

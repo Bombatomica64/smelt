@@ -436,18 +436,36 @@ impl ModuleBuilder<'_> {
         }
         if let TSTypeQueryExprName::IdentifierReference(ident) = &query.expr_name
             && let Some(item) = self.items.get(ident.name.as_str()).copied()
-            && let Item::Function(function) = self.item_ref(item)
+            && let Item::Function(function) = self.item_ref(item).clone()
         {
-            let params = function.params.iter().map(|param| param.ty).collect();
-            return self.ctx.krate.types.intern(Type::Function(FunctionType {
-                params,
+            let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params: function.params.iter().map(|param| param.ty).collect(),
                 rest: function.rest,
                 required_params: None,
-                    mutable_params: Vec::new(),
-return_ty: function.return_ty,
+                mutable_params: Vec::new(),
+                return_ty: function.return_ty,
                 is_async: function.is_async,
-                            may_throw: false,
+                may_throw: false,
             }));
+            // An instantiation expression (`typeof match<Router<T>, T>`) names
+            // the function at those type arguments: its own parameters are
+            // replaced, so the declaring scope's `T` reads through it.
+            let Some(type_arguments) = &query.type_arguments else {
+                return function_ty;
+            };
+            let lowered = type_arguments
+                .params
+                .iter()
+                .map(|arg| self.ts_type_to_hir(arg))
+                .collect::<Result<Vec<_>, _>>();
+            let Ok(lowered) = lowered else {
+                return function_ty;
+            };
+            let span = self.span(query.span.start, query.span.end);
+            return match self.type_argument_substitution(&function.type_params, &lowered, span) {
+                Ok(substitutions) => self.substitute_type_params(function_ty, &substitutions),
+                Err(_) => function_ty,
+            };
         }
         self.erase(ErasureReason::TypeLevel)
     }
@@ -4319,7 +4337,10 @@ return_ty: function.return_ty,
         else {
             return true;
         };
-        self.types.param_type(spelling).is_none()
+        // In scope means THIS parameter is what its spelling resolves to here:
+        // a same-named parameter of another declaration (`sumBy`'s `T` seen
+        // inside `meanBy<T>`) is a different type and is out of scope.
+        self.types.param_type(spelling) != Some(ty)
     }
 
     /// Return whether a `keyof` mapped-type source is entirely array-like.
