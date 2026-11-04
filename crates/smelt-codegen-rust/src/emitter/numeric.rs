@@ -546,28 +546,57 @@ impl FunctionEmitter<'_> {
     /// prefix in the radix, and yields `NaN` when no digits parse or the radix
     /// is out of the 2..=36 range. The result is `f64` to match the existing
     /// `parseInt` destination type.
+    ///
+    /// An `Optional<String>` operand (a `string | undefined` value, such as a
+    /// regexp match-array element `m[0]`) follows JavaScript's `ToString`:
+    /// `undefined` becomes the string `"undefined"`. That is `NaN` in radix
+    /// 2..=30, but `u` is a digit from radix 31 up (`parseInt(undefined, 36)`
+    /// is `86464843759093`), so the absent arm runs the same parser over the
+    /// literal `"undefined"` instead of being hard-coded to `NaN`.
     pub(super) fn parse_int_radix_text(
         &self,
         operand: &Operand,
         radix: &Operand,
     ) -> Result<String, EmitError> {
-        if !matches!(
-            self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::String)
-        ) || !matches!(
-            self.mir.types.get(self.operand_ty(radix)?),
-            Some(Type::Int | Type::Float)
-        ) {
+        let operand_ty = self.mir.types.get(self.operand_ty(operand)?);
+        let operand_is_string = matches!(operand_ty, Some(Type::String));
+        let operand_is_optional_string = matches!(
+            operand_ty,
+            Some(Type::Optional(inner)) if matches!(self.mir.types.get(*inner), Some(Type::String))
+        );
+        if !(operand_is_string || operand_is_optional_string)
+            || !matches!(
+                self.mir.types.get(self.operand_ty(radix)?),
+                Some(Type::Int | Type::Float)
+            )
+        {
             return Err(EmitError::new(
                 "parseInt(radix) requires a string operand and a numeric radix",
             ));
         }
         let operand_text = self.operand_text(operand)?;
         let radix_text = self.operand_text(radix)?;
-        let radix_trunc_text = self.numeric_trunc_f64_text(&radix_text);
-        Ok(format!(
-            "{{ let smelt_src = {operand_text}; let smelt_radix = {{ let r = {radix_trunc_text} as i64; if r == 0 {{ 10 }} else {{ r }} }}; if !(2..=36).contains(&smelt_radix) {{ f64::NAN }} else {{ let smelt_trimmed = smelt_src.trim_start(); let (smelt_neg, smelt_rest) = match smelt_trimmed.strip_prefix('-') {{ Some(rest) => (true, rest), None => (false, smelt_trimmed.strip_prefix('+').unwrap_or(smelt_trimmed)) }}; let smelt_prefix: String = smelt_rest.chars().take_while(|c| c.to_digit(smelt_radix as u32).is_some()).collect(); if smelt_prefix.is_empty() {{ f64::NAN }} else {{ i64::from_str_radix(&smelt_prefix, smelt_radix as u32).map(|v| (if smelt_neg {{ -v }} else {{ v }}) as f64).unwrap_or(f64::NAN) }} }} }}"
-        ))
+        if operand_is_optional_string {
+            let present = self.parse_int_radix_string_text("smelt_present", &radix_text);
+            let absent =
+                self.parse_int_radix_string_text("\"undefined\".to_owned()", &radix_text);
+            return Ok(format!(
+                "match {operand_text} {{ Some(smelt_present) => {present}, None => {absent} }}"
+            ));
+        }
+        Ok(self.parse_int_radix_string_text(&operand_text, &radix_text))
+    }
+
+    /// Render the `parseInt(str, radix)` digit-prefix parser over a Rust
+    /// `String` expression `string_text` and a numeric `radix_text`.
+    ///
+    /// Shared by both operand shapes of [`Self::parse_int_radix_text`] so the
+    /// present and absent arms of an optional operand cannot drift apart.
+    fn parse_int_radix_string_text(&self, string_text: &str, radix_text: &str) -> String {
+        let radix_trunc_text = self.numeric_trunc_f64_text(radix_text);
+        format!(
+            "{{ let smelt_src = {string_text}; let smelt_radix = {{ let r = {radix_trunc_text} as i64; if r == 0 {{ 10 }} else {{ r }} }}; if !(2..=36).contains(&smelt_radix) {{ f64::NAN }} else {{ let smelt_trimmed = smelt_src.trim_start(); let (smelt_neg, smelt_rest) = match smelt_trimmed.strip_prefix('-') {{ Some(rest) => (true, rest), None => (false, smelt_trimmed.strip_prefix('+').unwrap_or(smelt_trimmed)) }}; let smelt_prefix: String = smelt_rest.chars().take_while(|c| c.to_digit(smelt_radix as u32).is_some()).collect(); if smelt_prefix.is_empty() {{ f64::NAN }} else {{ i64::from_str_radix(&smelt_prefix, smelt_radix as u32).map(|v| (if smelt_neg {{ -v }} else {{ v }}) as f64).unwrap_or(f64::NAN) }} }} }}"
+        )
     }
 
     /// Converts a numeric operand to text usable as an `f64` receiver or argument.

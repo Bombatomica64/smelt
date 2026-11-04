@@ -135,6 +135,54 @@ first abort.
 
 Nothing found so far requires a date-fns-specific rule.
 
+## Progress: round 1 (family 3 and the `parse` path)
+
+Two general fixes landed on `ts/date-fns-class-bounds`:
+
+1. **Abstract method on an imported abstract base** (family 3). The root
+   cause was narrower than "generic abstract dispatch". Abstract methods
+   already lower to a callable virtual-dispatch slot on the base, and calls
+   through a base-typed receiver use that slot. However,
+   `receiver_has_callable_storage_field` only consulted the per-module
+   `ClassRegistry`, which holds no fields for classes imported from another
+   module. So `setter.set(..)` lowered as a direct method call, and MIR
+   could not resolve it. The check now falls back to the shared HIR class
+   item. Regression:
+   `build_dispatches_abstract_methods_of_an_imported_abstract_base`
+   (`crates/smelt-transpiler/tests/hir_cli_typescript_tests.rs`). It builds
+   and runs a two-module program and checks the output equals Node's
+   `10 1,1,1`. Defect check: with the fallback disabled, the same input
+   fails with ``class method `set` is not resolvable``. (A frontend unit
+   test was tried first and passed with the fix disabled, so it was
+   dropped. The unit-test harness does not reproduce the CLI's
+   cross-module class state.)
+2. **`parseInt(s, radix)` over `Optional<String>`.** A regexp match element
+   `m[0]` is `Optional<String>`. The emitter rejected the whole program.
+   It now applies `ToString`: an absent element parses the text
+   `"undefined"`, which is `NaN` for radix 10 and a real number for radix
+   31 and above, as in JavaScript. Regression:
+   `parse_int_with_radix_accepts_an_optional_string_match_element`.
+   Behaviour was checked in generated Rust against Node: `42`, `-1`, `-17`.
+
+Effect on date-fns:
+
+| | before | after |
+| --- | --- | --- |
+| Committed fixture `smelt build` | aborts in MIR at `parse/index.ts` | **builds** (no whole-crate abort) |
+| Scoped crate (TZDate/UTCDate specs still excluded) | 54 spec modules, 308 tests | **59 spec modules, 344 tests** |
+| `cargo check` errors | 131 | 957 |
+
+The error count rises because `parse` (about 70 parser and setter classes)
+now reaches rustc. The new tail is mostly one family: **virtual-slot
+adapters over a generic abstract base**. `Parser<Value>` / `Setter`
+declare slots in terms of the erased `Value` and `DateType extends Date`
+parameters, and concrete subclasses override them with `value: number`
+or `flags: &mut ParseFlags`. The adapter passes `SmeltUnknown` / owned
+values, which produces 695 × E0308, 63 × E0631, and 52 + 6 + 4 × E0277
+(`&f64: SmeltFromUnknown`, ...). It reproduces in a single module, so it
+is not a cross-module issue. It is the generic-class half of family 1
+(issue #99) and should be fixed with it.
+
 ## Not covered yet
 
 - No generated test has run, because `cargo check` fails first. Runtime

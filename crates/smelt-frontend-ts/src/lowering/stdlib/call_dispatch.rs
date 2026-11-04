@@ -3858,11 +3858,29 @@ impl<'builder> ModuleBuilder<'builder> {
             .get(name)
             .or_else(|| self.ctx.krate.symbols.get(name))
             .map(str::to_owned);
+        let is_callable_field = |fields: &[smelt_hir::Field]| {
+            fields.iter().find(|item| item.name == field).is_some_and(|item| {
+                matches!(self.ctx.krate.types.get(item.ty), Some(Type::Function(_)))
+            })
+        };
         if class_name
             .as_deref()
             .and_then(|class_name| self.classes.fields(class_name))
-            .and_then(|fields| fields.iter().find(|item| item.name == field))
-            .is_some_and(|item| matches!(self.ctx.krate.types.get(item.ty), Some(Type::Function(_))))
+            .is_some_and(|fields| is_callable_field(fields))
+        {
+            return true;
+        }
+        // `self.classes` only records fields for classes lowered in THIS
+        // module. A class imported from another module is known here only by
+        // its lowered HIR item, which carries the same virtual-dispatch slots
+        // (abstract methods become callable fields, see
+        // `virtual_method_field_names`). Without this fallback an abstract
+        // method called on an imported abstract base lowered as a direct
+        // method call that MIR cannot resolve (date-fns `setter.set(..)` on
+        // `Setter` from `parse/_lib/Setter.ts`).
+        if self
+            .class_by_symbol(name)
+            .is_some_and(|class| is_callable_field(&class.fields))
         {
             return true;
         }

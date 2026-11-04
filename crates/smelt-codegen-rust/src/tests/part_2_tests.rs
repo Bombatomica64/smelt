@@ -177,6 +177,26 @@ const floatValue = parseFloat("42.5");
 }
 
 #[test]
+fn parse_int_with_radix_accepts_an_optional_string_match_element() {
+    // `m[0]` of a regexp match is `Optional<String>` in Smelt. JavaScript's
+    // `parseInt` runs `ToString` on its operand, so an absent element parses
+    // the text "undefined" (NaN in radix 10). The emitter used to reject the
+    // whole program instead (date-fns `parse/_lib/utils.ts`).
+    let source = source_for(
+        r"
+export function leadingNumber(pattern: RegExp, text: string): number {
+  const match = text.match(pattern);
+  if (!match) return -1;
+  return parseInt(match[0], 10);
+}
+",
+    );
+
+    assert!(source.contains("Some(smelt_present) => { let smelt_src = smelt_present;"));
+    assert!(source.contains("None => { let smelt_src = \"undefined\".to_owned();"));
+}
+
+#[test]
 fn emits_number_predicate_calls() {
     let source = source_for(
         r"

@@ -1939,6 +1939,70 @@ fn build_types_cycle_early_reads_of_a_pending_class() -> TestResult {
 }
 
 #[test]
+fn build_dispatches_abstract_methods_of_an_imported_abstract_base() -> TestResult {
+    // An abstract method is a virtual-dispatch slot on the base class. Called
+    // through a base-typed receiver in ANOTHER module, the slot used to be
+    // invisible (the per-module class registry holds no fields for imported
+    // classes), so `setter.set(..)` lowered as a direct method call and MIR
+    // stopped with "class method `set` is not resolvable" (date-fns `parse`
+    // over `parse/_lib/Setter.ts`). Behaviour: each subclass's override runs
+    // in list order, and Node prints `10 1,1,1`. Types: the list stays
+    // `SmeltList<Setter>`, not an erased carrier.
+    let files: &[(&str, &str)] = &[
+        (
+            "src/setter.ts",
+            r"export abstract class Setter {
+  public abstract priority: number;
+  public subPriority = 0;
+  public validate(_value: number): boolean {
+    return true;
+  }
+  public abstract set(value: number): number;
+}
+export class AddSetter extends Setter {
+  public priority = 1;
+  constructor(private amount: number) {
+    super();
+  }
+  public set(value: number): number {
+    return value + this.amount;
+  }
+}
+export class DoubleSetter extends Setter {
+  public priority = 2;
+  override subPriority = -1;
+  public set(value: number): number {
+    return value * 2;
+  }
+}
+",
+        ),
+        (
+            "src/main.ts",
+            r"import { Setter, AddSetter, DoubleSetter } from './setter'
+
+const setters: Setter[] = [new DoubleSetter(), new AddSetter(3), new DoubleSetter()]
+let value = 1
+for (const setter of setters) {
+  if (setter.validate(value)) value = setter.set(value)
+}
+console.log(value, setters.map((setter) => setter.priority + setter.subPriority).join(','))
+",
+        ),
+    ];
+    let (project, manifest) = multi_module_project("imported-abstract-dispatch", true, files)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let generated = fs::read_to_string(project.path().join("dist/src/main.rs"))?;
+    ensure(
+        generated.contains("SmeltList<Setter>"),
+        "the base-typed list must stay a list of the base class",
+    )?;
+    let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
+    ensure_eq(&stdout, &"10 1,1,1\n".to_owned(), "unexpected stdout")?;
+    Ok(())
+}
+
+#[test]
 fn build_keeps_same_offset_unique_symbols_of_two_modules_distinct() -> TestResult {
     // `KEY_A` and `KEY_B` are `Symbol()` calls at the SAME byte offset of two
     // different modules. They are two symbols (Node prints `1 2 false`), so
