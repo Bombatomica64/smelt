@@ -1,0 +1,23 @@
+[project]
+name = "cachetools"
+version = "7.2.8"
+description = "cachetools Smelt probe"
+
+[sources]
+roots = ["src", "tests"]
+entries = ["src/cachetools/__init__.py"]
+
+[output]
+target = "./dist-smelt"
+crate-name = "cachetools_probe"
+build = false
+
+[rust]
+edition = "2024"
+
+[strict]
+typescript = true
+python = true
+
+[runtime]
+clone-strategy = "aggressive"
