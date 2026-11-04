@@ -1389,6 +1389,7 @@ fn python_end_to_end_examples_match_expected_outputs() -> TestResult {
         "08_match",
         "09_break_continue_finally",
         "10_protocol",
+        "11_numbers_and_module_state",
     ] {
         verify_python_end_to_end_example(name)?;
     }
