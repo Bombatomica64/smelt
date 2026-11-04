@@ -67,6 +67,10 @@ pub struct Mir {
     pub symbols: smelt_hir::SymbolInterner,
     /// Original source spellings for symbols that were normalized internally.
     pub names: smelt_hir::OriginalNameTable,
+    /// Record fields stored as accessors; see
+    /// [`smelt_hir::Crate::accessor_fields`].
+    #[serde(default)]
+    pub accessor_fields: Vec<(Symbol, Symbol)>,
 }
 
 /// A module-level mutable global lowered from a source `let`/`var` binding.
@@ -117,6 +121,7 @@ impl Mir {
             types,
             symbols,
             names,
+            accessor_fields: Vec::new(),
         }
     }
 

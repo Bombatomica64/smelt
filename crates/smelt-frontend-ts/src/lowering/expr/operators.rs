@@ -3638,7 +3638,13 @@ impl ModuleBuilder<'_> {
                     continue;
                 }
                 let key = self.object_property_key_expr(object_property, body)?;
-                let unknown_ty = self.erase_with(ErasureReason::UnmodeledType, "object literal getter");
+                // Under a contextual record type the getter returns the
+                // field's type (`get cachedValue(): T` of `readonly
+                // cachedValue: T`), which is what lets the record store it as
+                // an accessor of that type; see `Crate::accessor_fields`.
+                let unknown_ty = self
+                    .object_property_value_hint(object_property, type_hint)
+                    .unwrap_or_else(|| self.erase_with(ErasureReason::UnmodeledType, "object literal getter"));
                 let getter =
                     if let Expression::FunctionExpression(function) = &object_property.value {
                         let getter_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
@@ -3722,11 +3728,66 @@ impl ModuleBuilder<'_> {
             entries.push((key, value));
         }
         let ty = self.object_literal_type(&entries, type_hint, body);
+        let entries = self.record_literal_accessor_entries(ty, entries, body);
         Ok(body.push_expr(Expr {
             kind: ExprKind::DictLit(entries),
             ty,
             span: self.span(object.span.start, object.span.end),
         }))
+    }
+
+    /// Store each getter of an object literal built as record `ty` as the
+    /// accessor of its field.
+    ///
+    /// The getter entry was lowered as the `{ __smelt_get: fn }` marker an
+    /// erased object carries. A literal that became a record struct instead
+    /// hands the getter closure itself to the field and records the field as
+    /// an accessor (`Crate::accessor_fields`), so every read of it calls the
+    /// getter, as JavaScript does. Literals that stayed erased objects keep
+    /// the marker.
+    fn record_literal_accessor_entries(
+        &mut self,
+        ty: smelt_hir::TypeId,
+        entries: Vec<(smelt_hir::ExprId, smelt_hir::ExprId)>,
+        body: &Body,
+    ) -> Vec<(smelt_hir::ExprId, smelt_hir::ExprId)> {
+        let Some(Type::Class { name: owner, .. }) = self.ctx.krate.types.get(ty).cloned() else {
+            return entries;
+        };
+        entries
+            .into_iter()
+            .map(|(key, value)| {
+                let Some(getter) = Self::accessor_marker_function(body, value, "__smelt_get") else {
+                    return (key, value);
+                };
+                if let Some(ExprKind::Literal(Literal::String(field_key))) =
+                    body.exprs.get(usize::try_from(key.0).unwrap_or(usize::MAX)).map(|expr| &expr.kind)
+                {
+                    let field = self.intern_source_name(&field_key.clone());
+                    if !self.ctx.krate.accessor_fields.contains(&(owner, field)) {
+                        self.ctx.krate.accessor_fields.push((owner, field));
+                    }
+                }
+                (key, getter)
+            })
+            .collect()
+    }
+
+    /// The function an accessor marker `{ <marker>: fn }` wraps.
+    fn accessor_marker_function(body: &Body, value: smelt_hir::ExprId, marker: &str) -> Option<smelt_hir::ExprId> {
+        let Some(ExprKind::DictLit(pairs)) =
+            body.exprs.get(usize::try_from(value.0).unwrap_or(usize::MAX)).map(|expr| &expr.kind)
+        else {
+            return None;
+        };
+        let [(key, function)] = pairs.as_slice() else {
+            return None;
+        };
+        matches!(
+            body.exprs.get(usize::try_from(key.0).unwrap_or(usize::MAX)).map(|expr| &expr.kind),
+            Some(ExprKind::Literal(Literal::String(text))) if text == marker
+        )
+        .then_some(*function)
     }
 
     /// Lower an object expression that uses JavaScript spread properties.
@@ -5013,6 +5074,18 @@ impl ModuleBuilder<'_> {
             };
             let field = self.intern_source_name(field_key);
             let expected = self.class_field_type(candidate, field).ok()?;
+            // A getter is stored as the field's accessor, so it fits when it
+            // returns exactly the field's type.
+            if let Some(getter) = Self::accessor_marker_function(body, *value, "__smelt_get") {
+                let returns_field = matches!(
+                    self.ctx.krate.types.get(Self::expr_ty(body, getter)),
+                    Some(Type::Function(function)) if function.params.is_empty() && function.return_ty == expected
+                );
+                if !returns_field {
+                    return None;
+                }
+                continue;
+            }
             let actual = Self::expr_ty(body, *value);
             if !self.contextual_record_field_assignable(actual, expected) {
                 return None;

@@ -71,6 +71,20 @@ fn unknown_index_signature_is_open_layout() -> Result<(), String> {
     assert_recorded(source, ErasureReason::OpenLayout, 1, 15)
 }
 
+/// A type literal whose every member `Object.prototype` supplies
+/// (`{ valueOf: () => number }`) states no layout: every object satisfies it,
+/// a `Date` included, so it is the open layout `object` is. Lowered as a
+/// record it rebuilt a `Date` from its own entries and lost the date (remeda
+/// `Comparable`, `firstBy`/`sortBy` over dates compared `NaN`s). A literal
+/// with any other member keeps its record shape.
+#[test]
+fn object_prototype_surface_is_open_layout() -> Result<(), String> {
+    let source = ts!("function f(a: { valueOf: () => number }): void {\n  console.log(a);\n}\nf(new Date());\n");
+    assert_recorded(source, ErasureReason::OpenLayout, 1, 15)?;
+    let typed = ts!("function g(a: { valueOf(): number; label: string }): void {\n  console.log(a);\n}\ng({ valueOf: () => 1, label: 'x' });\n");
+    assert_not_recorded(typed, ErasureReason::OpenLayout)
+}
+
 /// An empty array literal without an annotation is a missing annotation.
 #[test]
 fn empty_array_without_annotation_is_missing_annotation() -> Result<(), String> {

@@ -364,6 +364,7 @@ impl ModuleBuilder<'_> {
                     // The `Optional<T>` ABI of a defaulted parameter and its body
                     // prelude follow `function_parameter_abi`; see there.
                     let (ty, default_initializer) = this.function_parameter_abi(param)?;
+                    let ty = this.overload_omitted_param_type(name_text, index, param, ty);
                     let (param_name, span, source_name) =
                         if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
                             (
@@ -945,6 +946,46 @@ impl ModuleBuilder<'_> {
     /// (see [`Self::initializer_is_type_zero_default`]). Only an identifier
     /// parameter carries a prelude default; a destructured one is bound by
     /// its own pattern lowering.
+    /// The implementation parameter type at `index` of the overloaded
+    /// function `name_text`, made optional when some overload omits it.
+    ///
+    /// `function toCamelCase(options?: Options): (data: string) => string`
+    /// next to `function toCamelCase(dataOrOptions: Options | string,
+    /// options?: Options)` lets a caller write `toCamelCase()`. JavaScript
+    /// then runs the implementation with `dataOrOptions === undefined`, so the
+    /// implementation's parameter admits `undefined` even though its own
+    /// annotation does not say so (TypeScript only checks callers against the
+    /// overloads). Without this the omitted argument was filled with the
+    /// parameter type's default (`""`), and the implementation took the
+    /// data-first branch. A parameter some overload leaves to a rest list is
+    /// not counted: the rest decides its own arity. A parameter with a default
+    /// initializer already answers its omission with that default.
+    pub(in crate::lowering) fn overload_omitted_param_type(
+        &mut self,
+        name_text: &str,
+        index: usize,
+        param: &oxc::ast::ast::FormalParameter<'_>,
+        ty: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
+        // An erased parameter already carries `undefined` in its runtime tag.
+        if param.initializer.is_some()
+            || matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_) | Type::Unknown))
+        {
+            return ty;
+        }
+        let omitted = self.functions.overloads(name_text).is_some_and(|overloads| {
+            overloads.iter().any(|overload| {
+                overload.rest.is_none()
+                    && overload.required_params.unwrap_or(overload.params.len()) <= index
+            })
+        });
+        if omitted {
+            self.ctx.krate.types.intern(Type::Optional(ty))
+        } else {
+            ty
+        }
+    }
+
     pub(in crate::lowering) fn function_parameter_abi<'src>(
         &mut self,
         param: &'src oxc::ast::ast::FormalParameter<'src>,

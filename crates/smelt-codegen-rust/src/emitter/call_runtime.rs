@@ -318,10 +318,22 @@ impl FunctionEmitter<'_> {
             // key, the rendered name is the Rust struct field.
             let source_name = self.symbol_source_name(field.name)?;
             let field_name = sanitize_ident(self.symbol_name(field.name)?);
+            let accessor = crate::accessor_prelude::is_accessor_field(self.mir, *name, field.name);
             let value = if let Some(entry_value) = literal_entries.get(source_name) {
-                self.value_at_type(entry_value, field.ty)?
+                // The literal's getter becomes the field's accessor; a plain
+                // value at an accessor field answers itself on every read.
+                if accessor
+                    && matches!(self.mir.types.get(self.operand_ty(entry_value)?), Some(Type::Function(getter)) if getter.params.is_empty())
+                {
+                    crate::accessor_prelude::getter_text(&self.operand_text(entry_value)?)
+                } else if accessor {
+                    crate::accessor_prelude::constant_text(&self.value_at_type(entry_value, field.ty)?)
+                } else {
+                    self.value_at_type(entry_value, field.ty)?
+                }
             } else if matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
-                self.default_value(field.ty)?
+                let default = self.default_value(field.ty)?;
+                if accessor { crate::accessor_prelude::constant_text(&default) } else { default }
             } else {
                 return Ok(None);
             };

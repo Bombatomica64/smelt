@@ -217,6 +217,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     );
     // Carry FileId -> path across the HIR/MIR boundary so a later diagnostic
     // can name its source file; see `Mir::file_paths`.
+    mir.accessor_fields.clone_from(&krate.accessor_fields);
     mir.file_paths = krate
         .modules
         .iter()

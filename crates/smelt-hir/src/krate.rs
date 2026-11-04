@@ -44,6 +44,18 @@ pub struct Crate {
     /// interned once, so the reason cannot live on the `TypeId`.
     #[serde(default)]
     pub erasures: Vec<crate::erasure::ErasureRecord>,
+    /// Record fields that some object literal supplies through a `get`
+    /// accessor, as `(record name, field name)`.
+    ///
+    /// JavaScript evaluates a getter on every read, so a hand port stores
+    /// such a field as a closure and calls it where the field is read. HIR
+    /// keeps the field's declared type (`readonly cachedValue: T`); the
+    /// backend renders the storage as an accessor of `T` for exactly these
+    /// fields, so plain data records keep plain fields. A literal that
+    /// supplies one of these fields with a plain value is wrapped as a
+    /// constant accessor.
+    #[serde(default)]
+    pub accessor_fields: Vec<(crate::Symbol, crate::Symbol)>,
 }
 
 impl Crate {

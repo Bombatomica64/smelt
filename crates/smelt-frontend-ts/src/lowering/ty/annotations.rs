@@ -732,10 +732,49 @@ return_ty: function.return_ty,
     }
 
     /// Convert an inline TypeScript object type into Smelt's record-like dict type.
+    /// Whether every member of a type literal names an `Object.prototype`
+    /// member, so that every object satisfies it (see `type_literal_to_hir`).
+    fn type_literal_is_object_prototype_surface(literal: &oxc::ast::ast::TSTypeLiteral<'_>) -> bool {
+        const OBJECT_PROTOTYPE_MEMBERS: [&str; 6] = [
+            "toString",
+            "toLocaleString",
+            "valueOf",
+            "hasOwnProperty",
+            "isPrototypeOf",
+            "propertyIsEnumerable",
+        ];
+        !literal.members.is_empty()
+            && literal.members.iter().all(|member| {
+                let key = match member {
+                    TSSignature::TSPropertySignature(property) if !property.computed => &property.key,
+                    TSSignature::TSMethodSignature(method) if !method.computed => &method.key,
+                    _ => return false,
+                };
+                let name = match key {
+                    oxc::ast::ast::PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str(),
+                    oxc::ast::ast::PropertyKey::StringLiteral(literal) => literal.value.as_str(),
+                    _ => return false,
+                };
+                OBJECT_PROTOTYPE_MEMBERS.contains(&name)
+            })
+    }
+
     pub(in crate::lowering) fn type_literal_to_hir(
         &mut self,
         literal: &oxc::ast::ast::TSTypeLiteral<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
+        // A type literal every member of which `Object.prototype` already
+        // supplies (`{ toString: () => string }`, `{ valueOf(): number }`)
+        // states no layout: EVERY object satisfies it through its prototype,
+        // a `Date` or a class instance included, so it is the open-layout
+        // boundary `object` is (`ErasureReason::OpenLayout`), not a record of
+        // those members. Lowering it as a record rebuilt any value reaching it
+        // from its own entries and lost the rest: remeda's `Comparable`
+        // (`... | { valueOf(): ComparablePrimitive }`) turned each `Date` into
+        // a record of no-op callbacks, so `firstBy`/`sortBy` compared `NaN`s.
+        if Self::type_literal_is_object_prototype_surface(literal) {
+            return Ok(self.erase(ErasureReason::OpenLayout));
+        }
         // A type literal that is callable *and* carries named members is a
         // callable object, not a bare function: it lowers to the same
         // callable-interface class the `interface` spelling produces (see

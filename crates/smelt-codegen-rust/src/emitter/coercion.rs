@@ -2562,6 +2562,13 @@ impl FunctionEmitter<'_> {
             .map(|field| {
                 let source_name = self.symbol_source_name(field.name)?;
                 let field_name = sanitize_ident(self.symbol_name(field.name)?);
+                // An accessor erases the value its getter answers now.
+                let accessor = crate::accessor_prelude::is_accessor_field(self.mir, *name, field.name);
+                let optional_read = if accessor {
+                    crate::accessor_prelude::read_text(&format!("{field_base}.{field_name}"))
+                } else {
+                    format!("{field_base}.{field_name}.clone()")
+                };
                 if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
                     let field_value = self.erase_value_text("value", *inner)?;
                     // A `p: T | null` field holds `null` when its `Option` is
@@ -2569,11 +2576,11 @@ impl FunctionEmitter<'_> {
                     // absent `undefined` is omitted, as JavaScript omits it.
                     if self.field_absent_is_null(*name, field.name) {
                         return Ok(format!(
-                            "smelt_object_entries.push(({source_name:?}.to_owned(), match {field_base}.{field_name}.clone() {{ Some(value) => {field_value}, None => SmeltUnknown::Null }}));"
+                            "smelt_object_entries.push(({source_name:?}.to_owned(), match {optional_read} {{ Some(value) => {field_value}, None => SmeltUnknown::Null }}));"
                         ));
                     }
                     return Ok(format!(
-                        "if let Some(value) = {field_base}.{field_name}.clone() {{ smelt_object_entries.push(({source_name:?}.to_owned(), {field_value})); }}"
+                        "if let Some(value) = {optional_read} {{ smelt_object_entries.push(({source_name:?}.to_owned(), {field_value})); }}"
                     ));
                 }
                 let field_value = if let Some(value) =
@@ -2585,6 +2592,14 @@ impl FunctionEmitter<'_> {
                     // must be cloned out rather than moved (was E0507).
                     self.erase_value_text(
                         &format!("{field_base}.{field_name}.clone()"),
+                        field.ty,
+                    )?
+                } else if accessor {
+                    self.erase_value_text(
+                        &format!(
+                            "({})",
+                            crate::accessor_prelude::read_text(&format!("{field_base}.{field_name}"))
+                        ),
                         field.ty,
                     )?
                 } else {

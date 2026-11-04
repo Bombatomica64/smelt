@@ -4723,6 +4723,34 @@ impl<'mir> FunctionEmitter<'mir> {
                     text.push_str("Into::<SmeltList<_>>::into(smelt_forwarded_args) }");
                     return Ok(text);
                 }
+                // The mirror case: the SLOT packs its trailing arguments into a
+                // rest list (`extractor(response, index, ...params)`), and the
+                // callback names them one by one (`(response, _, word) => ..`).
+                // JavaScript spreads the list into those parameters, so each one
+                // reads its element of the rest list (`undefined` past its end)
+                // instead of receiving the whole list converted to its type.
+                if let Some(rest_index) = target_function.rest
+                    && index >= rest_index
+                    // A callback parameter is positional unless it is itself a
+                    // list-typed rest; a contextually typed closure can carry
+                    // the slot's rest index on a scalar parameter.
+                    && !(source.rest == Some(index)
+                        && matches!(self.mir.types.get(*source_param), Some(Type::List(_))))
+                    && let Some(target_rest) = target_function.params.get(rest_index)
+                    && let Some(Type::List(rest_item)) = self.mir.types.get(*target_rest)
+                {
+                    let offset = index.saturating_sub(rest_index);
+                    let missing = self.element_missing_value_text(*rest_item)?;
+                    let element = format!(
+                        "arg{rest_index}.borrow().get({offset}).cloned().unwrap_or_else(|| {missing})"
+                    );
+                    let arg_text =
+                        self.value_at_type_text(&element, *rest_item, *source_param, &self.render_scope())?;
+                    if self.callback_param_is_shared_reference(source, index, *source_param) {
+                        return Ok(format!("&({arg_text})"));
+                    }
+                    return Ok(arg_text);
+                }
                 if let Some(target_param) = target_function.params.get(index) {
                     // The adapter's parameter is DECLARED at the substituted
                     // type (`arg0: f64`, rendered from the same bindings in

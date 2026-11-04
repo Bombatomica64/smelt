@@ -115,3 +115,4 @@ mod union_element_read_tests;
 mod union_type_param_scope_tests;
 mod generic_call_site_tests;
 mod discriminated_union_tests;
+mod accessor_field_tests;
