@@ -1,0 +1,30 @@
+[project]
+name = "date-fns"
+version = "4.4.0"
+description = "date-fns Smelt probe"
+
+# date-fns v4.4.0 is a pnpm monorepo; the `date-fns` package itself lives in
+# `pkgs/core`, so that is the only root. First scoping pass: no `test-prefix`
+# and no excludes, so the probe records the real first whole-crate abort.
+# blocker-logs/probe-date-fns.md lists the scratch excludes that reach an
+# emitted crate and why (194 of 253 `test.ts` specs import `TZDate`/`UTCDate`
+# from the sibling `@date-fns/tz`/`@date-fns/utc` packages, which are
+# JavaScript behind hand-written `.d.ts`).
+[sources]
+roots = ["pkgs/core/src"]
+entries = ["pkgs/core/src/index.ts"]
+
+[output]
+target = "./dist-smelt"
+crate-name = "date_fns_probe"
+build = false
+
+[rust]
+edition = "2024"
+
+[strict]
+typescript = true
+python = true
+
+[runtime]
+clone-strategy = "aggressive"

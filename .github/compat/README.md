@@ -29,11 +29,13 @@ deliberately to re-baseline a probe against a newer library version.
 | `neverthrow` | `supermacro/neverthrow` | TS |
 | `immer` | `immerjs/immer` | TS |
 | `rxjs` | `ReactiveX/rxjs` | TS |
+| `date-fns` | `date-fns/date-fns` (`pkgs/core`) | TS (scoping probe, see `blocker-logs/probe-date-fns.md`) |
 | `returns` | `dry-python/returns` | Py |
 | `result` | `rustedpy/result` | Py |
 | `more-itertools` | `more-itertools/more-itertools` | Py |
 | `funcy` | `Suor/funcy` | Py |
 | `toolz` | `pytoolz/toolz` | Py |
+| `cachetools` | `tkem/cachetools` | Py (scoping probe, see `blocker-logs/probe-cachetools.md`) |
 
 Immer's upstream performance suite uses `.mjs`, and RxJS's benchmark helper
 uses `.js`. The TypeScript probe scanner intentionally excludes both until it
