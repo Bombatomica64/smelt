@@ -8,10 +8,19 @@
 //! its checkout still matches that revision.
 //!
 //! The cache lives under `$SMELT_PACKAGE_CACHE`, else
-//! `$XDG_CACHE_HOME/smelt/packages`, else `$HOME/.cache/smelt/packages`. A
-//! fetch goes to a temporary sibling directory first and is renamed into
-//! place, so an interrupted fetch never leaves a half checkout that a later
-//! run would trust.
+//! `$XDG_CACHE_HOME/smelt/packages`, else `$HOME/.cache/smelt/packages`.
+//!
+//! # Cache protocol
+//!
+//! The protocol only ever renames into place, so concurrent builds need no
+//! lock. A fetch goes to a staging sibling (`.<key>.<pid>`) first and is
+//! renamed onto the checkout, so an interrupted fetch never leaves a half
+//! checkout that a later run would trust. When two builds fetch the same key
+//! at once, the second rename finds the first build's checkout in place: it
+//! verifies it, discards its own staging and reuses it, never deleting a tree
+//! another build may be reading. Only a checkout that does not match its
+//! revision is replaced, by first renaming it aside. Staging directories whose
+//! owning process is gone (a killed fetch) are removed before a new fetch.
 
 use std::{
     error::Error,
@@ -20,7 +29,7 @@ use std::{
     process::Command,
 };
 
-use crate::config::{Config, PackageSource};
+use crate::config::{Config, PackageLocation, PackageSource};
 
 /// One `[packages.<name>]` declaration with its source tree on disk.
 #[derive(Clone, Debug)]
@@ -76,21 +85,9 @@ fn resolve_package(
     source: &PackageSource,
     manifest_dir: &Path,
 ) -> Result<ResolvedPackage, Box<dyn Error>> {
-    let declared_root = match (&source.path, &source.git) {
-        (Some(path), None) => manifest_dir.join(path),
-        (None, Some(url)) => {
-            let rev = source.rev.as_deref().ok_or_else(|| {
-                invalid(format!(
-                    "[packages.{name}]: `git` needs a pinned `rev` (a tag or a commit)"
-                ))
-            })?;
-            fetch_git_package(name, url, rev)?
-        }
-        _ => {
-            return Err(invalid(format!(
-                "[packages.{name}]: give exactly one of `path` and `git`"
-            )));
-        }
+    let declared_root = match &source.location {
+        PackageLocation::Path(path) => manifest_dir.join(path),
+        PackageLocation::Git { url, rev } => fetch_git_package(name, url, rev)?,
     };
     let root = declared_root.canonicalize().map_err(|error| {
         invalid(format!(
@@ -139,33 +136,19 @@ fn package_cache_dir() -> Result<PathBuf, Box<dyn Error>> {
 }
 
 /// The checkout of `url` at `rev`, fetched into the cache on first use.
+///
+/// See the module docs for the rename-only protocol this follows.
 fn fetch_git_package(name: &str, url: &str, rev: &str) -> Result<PathBuf, Box<dyn Error>> {
     let cache = package_cache_dir()?;
     std::fs::create_dir_all(&cache)?;
-    let slug = |text: &str| {
-        text.chars()
-            .map(|ch| {
-                if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
-                    ch
-                } else {
-                    '_'
-                }
-            })
-            .collect::<String>()
-    };
-    let checkout = cache.join(format!("{}-{}", slug(name), slug(rev)));
-    if checkout.join(".git").is_dir() && checkout_matches(&checkout, rev) {
+    let key = format!("{}-{}", cache_slug(name), cache_slug(rev));
+    let checkout = cache.join(&key);
+    let is_current = |path: &Path| path.join(".git").is_dir() && checkout_matches(path, rev);
+    if is_current(&checkout) {
         return Ok(checkout);
     }
-    let staging = cache.join(format!(
-        ".{}-{}.{}",
-        slug(name),
-        slug(rev),
-        std::process::id()
-    ));
-    if staging.exists() {
-        std::fs::remove_dir_all(&staging)?;
-    }
+    remove_stale_staging(&cache, &key, process_is_gone)?;
+    let staging = cache.join(format!(".{key}.{}", std::process::id()));
     let staging_text = staging.to_string_lossy().into_owned();
     git(
         &[
@@ -184,11 +167,74 @@ fn fetch_git_package(name: &str, url: &str, rev: &str) -> Result<PathBuf, Box<dy
             "[packages.{name}]: checking out `{rev}` of {url}: {error}"
         ))
     })?;
-    if checkout.exists() {
-        std::fs::remove_dir_all(&checkout)?;
+    if std::fs::rename(&staging, &checkout).is_ok() {
+        return Ok(checkout);
     }
+    // The checkout appeared (or was already there) while we fetched.
+    if is_current(&checkout) {
+        // Another build won the race; its tree is as good as ours.
+        std::fs::remove_dir_all(&staging)?;
+        return Ok(checkout);
+    }
+    // A checkout of the wrong revision (a half or foreign tree): move it aside
+    // atomically, put ours in place, then delete the old one.
+    let retired = cache.join(format!(".{key}.retired.{}", std::process::id()));
+    std::fs::rename(&checkout, &retired)?;
     std::fs::rename(&staging, &checkout)?;
+    std::fs::remove_dir_all(&retired)?;
     Ok(checkout)
+}
+
+/// Whether the process `pid` no longer exists.
+///
+/// Answers only where `/proc` lists processes; elsewhere every process is
+/// assumed alive, so a staging directory is never removed from under a live
+/// fetch on a platform where liveness cannot be told.
+fn process_is_gone(pid: u32) -> bool {
+    let proc_root = Path::new("/proc");
+    proc_root.join("self").exists() && !proc_root.join(pid.to_string()).exists()
+}
+
+/// A file-name-safe spelling of a package name or revision.
+fn cache_slug(text: &str) -> String {
+    text.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// Remove the staging (and retired) directories of `key` in `cache` whose
+/// owning process `is_gone`, plus this process's own leftovers.
+///
+/// A staging directory is named `.<key>.<pid>` and a retired checkout
+/// `.<key>.retired.<pid>`; anything else in the cache is left alone.
+fn remove_stale_staging(
+    cache: &Path,
+    key: &str,
+    is_gone: impl Fn(u32) -> bool,
+) -> io::Result<()> {
+    let prefix = format!(".{key}.");
+    let own = std::process::id();
+    for listed in std::fs::read_dir(cache)? {
+        let dir_entry = listed?;
+        let file_name = dir_entry.file_name();
+        let Some(suffix) = file_name.to_str().and_then(|text| text.strip_prefix(&prefix)) else {
+            continue;
+        };
+        let pid_text = suffix.strip_prefix("retired.").unwrap_or(suffix);
+        let Ok(pid) = pid_text.parse::<u32>() else {
+            continue;
+        };
+        if pid == own || is_gone(pid) {
+            std::fs::remove_dir_all(dir_entry.path())?;
+        }
+    }
+    Ok(())
 }
 
 /// Whether the checkout's `HEAD` is the commit `rev` names.
@@ -216,4 +262,45 @@ fn git(args: &[&str], working_dir: Option<&Path>) -> Result<String, Box<dyn Erro
 /// An invalid-input error carrying `message`.
 fn invalid(message: String) -> Box<dyn Error> {
     Box::new(io::Error::new(io::ErrorKind::InvalidInput, message))
+}
+
+#[cfg(test)]
+mod tests {
+    //! Cache-protocol helpers.
+
+    use super::{cache_slug, remove_stale_staging};
+
+    /// Dead owners' staging and retired trees go; live owners', other keys'
+    /// and the checkout itself stay.
+    #[test]
+    fn stale_staging_of_the_key_is_removed_and_nothing_else() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
+        let cache = std::env::temp_dir().join(format!("smelt_package_cache_{unique}"));
+        let key = format!("{}-{}", cache_slug("@scope/pkg"), cache_slug("v1"));
+        let own = std::process::id();
+        for dir in [
+            format!(".{key}.123"),
+            format!(".{key}.retired.124"),
+            format!(".{key}.4567"),
+            format!(".{key}.{own}"),
+            key.clone(),
+            format!(".{key}-other.123"),
+        ] {
+            std::fs::create_dir_all(cache.join(dir)).expect("create");
+        }
+        // 123 and 124 are dead; 4567 is a live concurrent build.
+        remove_stale_staging(&cache, &key, |pid| pid == 123 || pid == 124).expect("clean");
+        let mut left = std::fs::read_dir(&cache)
+            .expect("list")
+            .map(|listed| listed.expect("entry").file_name().into_string().expect("utf8"))
+            .collect::<Vec<_>>();
+        left.sort();
+        std::fs::remove_dir_all(&cache).expect("remove");
+        let mut expected = vec![key.clone(), format!(".{key}-other.123"), format!(".{key}.4567")];
+        expected.sort();
+        assert_eq!(left, expected);
+    }
 }

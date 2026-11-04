@@ -3,6 +3,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::lowering::state::fn_ctx::BodyKind;
+use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::support::visibility;
 use crate::lowering::decls::super_call;
 use crate::lowering::{
@@ -150,11 +152,26 @@ impl ModuleBuilder<'_> {
     /// the parameter and return types the source wrote rather than widening to
     /// the runtime carrier. Parameters and the return follow the same
     /// annotation-or-`Unknown` rules as an abstract method signature.
+    ///
+    /// The method's own type parameters are in scope only while its signature
+    /// lowers; this used to push that scope and never pop it, so every later
+    /// item of the module resolved a same-named type to the method's
+    /// parameter.
     fn method_signature_function_type(
         &mut self,
         method: &oxc::ast::ast::MethodDefinition<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
-        let _type_params = self.push_type_parameter_scope(method.value.type_parameters.as_deref())?;
+        self.with_type_parameter_scope(method.value.type_parameters.as_deref(), |this, _| {
+            this.method_signature_function_type_in_scope(method)
+        })
+    }
+
+    /// [`Self::method_signature_function_type`] with the method's type
+    /// parameters already in scope.
+    fn method_signature_function_type_in_scope(
+        &mut self,
+        method: &oxc::ast::ast::MethodDefinition<'_>,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
         let return_ty = method
             .value
             .return_type
@@ -254,371 +271,286 @@ impl ModuleBuilder<'_> {
         let name = self.intern_source_name(name_text);
         // Retain the declared type parameters so a generic free function such as
         // `function identity<T>(x: T): T` lowers to real Rust generics instead
-        // of erasing `T` to `SmeltUnknown`. The scope is popped below like any
-        // other function scope; the lowered `TypeParamDef`s survive on the item.
-        let type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
-        let assertion_return = match function
-            .return_type
-            .as_ref()
-            .and_then(|annotation| self.assertion_return_type(&annotation.type_annotation))
-            .transpose()
-        {
-            Ok(value) => value,
-            Err(error) => {
-                self.pop_type_parameter_scope();
-                return Err(error);
-            }
-        };
-        let predicate_return = match function
-            .return_type
-            .as_ref()
-            .and_then(|annotation| self.predicate_return_type(&annotation.type_annotation))
-            .transpose()
-        {
-            Ok(value) => value,
-            Err(error) => {
-                self.pop_type_parameter_scope();
-                return Err(error);
-            }
-        };
-        let declared_return_ty = if assertion_return.is_some() {
-            Some(self.ctx.krate.types.intern(Type::None))
-        } else {
-            match self.function_return_type_annotation_or_overload(function, name_text) {
-                Ok(value) => value,
-                Err(error) => {
-                    self.pop_type_parameter_scope();
-                    return Err(error);
-                }
-            }
-        };
-        if function.r#async
-            && !function.generator
-            && declared_return_ty.is_some()
-            && !matches!(
-                declared_return_ty.and_then(|ty| self.ctx.krate.types.get(ty)),
-                Some(Type::Future(_))
-            )
-        {
-            self.pop_type_parameter_scope();
-            return Err(SmeltError::unsupported(
-                self.span(function.span.start, function.span.end),
-                "async functions must declare a Promise<T> return type",
-            ));
-        }
-
-        let saved_locals = self.scope.take_bindings();
-        let saved_date_value_locals = self.scope.take_date_values();
-        let saved_callable_local_props = self.scope.take_callable_prop_writes();
-        let saved_explicit_any_locals = self.scope.take_explicit_any();
-        let saved_narrowed_locals = self.scope.take_narrowings();
-        let saved_async = self.current_async;
-        let saved_return_ty = self.current_return_ty;
-        let saved_generator_yields = self.current_generator_yields;
-        self.current_async = function.r#async;
-        self.current_return_ty = declared_return_ty;
-        let mut body = Body::new(
-            None,
-            self.span(function_body.span.start, function_body.span.end),
-        );
-        body.is_generator = function.generator;
-        let mut params = Vec::new();
-
-        let mut destructured_params = Vec::new();
-        let mut defaulted_params = Vec::new();
-        // A `function` that reads its own `arguments` is variadic: the object is the
-        // ACTUAL argument list, which a declared-arity signature cannot carry (see
-        // `lowering::arguments_forwarding`). Replace the parameter list with one rest
-        // list and re-bind each declared name from it. Every other function keeps its
-        // declared parameters untouched.
-        let arguments_forwarding = match self.arguments_forwarding_params(function, &mut body) {
-            Ok(forwarding) => forwarding,
-            Err(error) => {
-                self.scope.restore_bindings(saved_locals);
-                self.scope.restore_date_values(saved_date_value_locals);
-                self.scope
-                    .restore_callable_prop_writes(saved_callable_local_props);
-                self.scope.restore_explicit_any(saved_explicit_any_locals);
-                self.scope.restore_narrowings(saved_narrowed_locals);
-                self.current_async = saved_async;
-                self.current_return_ty = saved_return_ty;
-                self.current_generator_yields = saved_generator_yields;
-                self.pop_type_parameter_scope();
-                return Err(error);
-            }
-        };
-        if let Some(forwarding) = &arguments_forwarding {
-            params.extend(forwarding.params.iter().cloned());
-            for (name, local) in forwarding.binding_pairs() {
-                self.scope.bind(name, local);
-            }
-        }
-        for (index, param) in function
-            .params
-            .items
-            .iter()
-            .enumerate()
-            .take(if arguments_forwarding.is_some() {
-                0
-            } else {
-                usize::MAX
-            })
-        {
-            let ty = match self.function_parameter_type(param) {
-                Ok(value) => value,
-                Err(error) => {
-                    self.scope.restore_bindings(saved_locals);
-                    self.scope.restore_date_values(saved_date_value_locals);
-                    self.scope.restore_callable_prop_writes(saved_callable_local_props);
-                    self.scope.restore_explicit_any(saved_explicit_any_locals);
-                    self.scope.restore_narrowings(saved_narrowed_locals);
-                    self.current_async = saved_async;
-                    self.current_return_ty = saved_return_ty;
-                    self.current_generator_yields = saved_generator_yields;
-                    self.pop_type_parameter_scope();
-                    return Err(error);
-                }
-            };
-            let (param_name, span, source_name) =
-                if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
-                    (
-                        self.intern_source_name(binding.name.as_str()),
-                        self.span(binding.span.start, binding.span.end),
-                        Some(binding.name.to_string()),
-                    )
-                } else {
-                    let synthetic_name = format!("__param{index}");
-                    (
-                        self.intern_source_name(&synthetic_name),
-                        self.span(param.span.start, param.span.end),
-                        None,
-                    )
-                };
-            // A default initializer makes the parameter optional for callers:
-            // the ABI parameter is `Optional<T>` and a body prelude applies the
-            // default (JavaScript evaluates defaults per call, in callee
-            // scope), so omitted arguments lower through the general
-            // `Optional` machinery instead of per-function fixups.
-            //
-            // Defaults that equal the type's zero value (`= 0`, `= ""`,
-            // `= []`, `= {}`, `= new Map()`, ...) keep the plain ABI instead:
-            // call sites already synthesize exactly that value for omitted
-            // arguments, and keeping the parameter un-wrapped preserves
-            // mutable-reference threading for state accumulators such as
-            // Remeda's `cloneImplementation(value, refFrom = [], refTo = [])`,
-            // where recursive callees must observe the caller's array.
-            let default_initializer = source_name
-                .is_some()
-                .then_some(param.initializer.as_ref())
-                .flatten()
-                .filter(|initializer| !Self::initializer_is_type_zero_default(initializer));
-            let ty = if default_initializer.is_some()
-                && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)))
-            {
-                self.ctx.krate.types.intern(Type::Optional(ty))
-            } else {
-                ty
-            };
-            let local = body.push_local(LocalDecl {
-                name: Some(param_name),
-                ty,
-                mutable: false,
-                span,
-            });
-            body.params.push(local);
-            if self.type_is_known_date_value(ty) {
-                self.scope.mark_date_value(local);
-            }
-            if let Some(source_name) = source_name {
-                self.scope.bind(source_name.clone(), local);
-                if let Some(initializer) = default_initializer {
-                    defaulted_params.push((local, ty, &**initializer, param_name, source_name, span));
-                }
-            } else {
-                destructured_params.push((&param.pattern, local, ty));
-            }
-            params.push(Param {
-                name: param_name,
-                local,
-                ty,
-                span,
-            });
-        }
-        let rest = if let Some(forwarding) = &arguments_forwarding {
-            Some(RestParam {
-                index: forwarding.rest_index,
-                item_ty: forwarding.item_ty,
-            })
-        } else if let Some(rest) = &function.params.rest {
-            let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
-                self.scope.restore_bindings(saved_locals);
-                self.scope.restore_date_values(saved_date_value_locals);
-                self.scope.restore_callable_prop_writes(saved_callable_local_props);
-                self.scope.restore_explicit_any(saved_explicit_any_locals);
-                self.scope.restore_narrowings(saved_narrowed_locals);
-                self.current_async = saved_async;
-                self.current_return_ty = saved_return_ty;
-                self.current_generator_yields = saved_generator_yields;
-                self.pop_type_parameter_scope();
-                return Err(SmeltError::unsupported(
-                    self.span(rest.span.start, rest.span.end),
-                    "destructured rest parameters need rest binding lowering",
-                ));
-            };
-            let ty = match rest
-                .type_annotation
+        // of erasing `T` to `SmeltUnknown`. The scope is popped on every exit
+        // path of the signature and body lowering; the lowered `TypeParamDef`s
+        // survive on the item.
+        let (type_params, assertion_return, predicate_return, declared_return_ty, lowered) = self
+            .with_type_parameter_scope(function.type_parameters.as_deref(), |this, type_params| {
+            let assertion_return = match function
+                .return_type
                 .as_ref()
-                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .and_then(|annotation| this.assertion_return_type(&annotation.type_annotation))
                 .transpose()
-                .and_then(|value| {
-                    value.ok_or_else(|| {
-                        SmeltError::unsupported(
-                            self.span(rest.span.start, rest.span.end),
-                            "rest function parameters must have explicit array type annotations",
-                        )
-                    })
-                }) {
+            {
                 Ok(value) => value,
                 Err(error) => {
-                    self.scope.restore_bindings(saved_locals);
-                    self.scope.restore_date_values(saved_date_value_locals);
-                    self.scope.restore_callable_prop_writes(saved_callable_local_props);
-                    self.scope.restore_explicit_any(saved_explicit_any_locals);
-                    self.scope.restore_narrowings(saved_narrowed_locals);
-                    self.current_async = saved_async;
-                    self.current_return_ty = saved_return_ty;
-                    self.current_generator_yields = saved_generator_yields;
-                    self.pop_type_parameter_scope();
                     return Err(error);
                 }
             };
-            // A fixed-width tuple rest is fixed parameters plus a tuple binding
-            // of them (`lowering::tuple_rest`).
-            if let Some(elements) = self.fixed_tuple_rest_elements(ty) {
-                let span = self.span(binding.span.start, binding.span.end);
-                for param in
-                    self.bind_tuple_rest_params(binding.name.as_str(), ty, &elements, span, &mut body)
+            let predicate_return = match function
+                .return_type
+                .as_ref()
+                .and_then(|annotation| this.predicate_return_type(&annotation.type_annotation))
+                .transpose()
+            {
+                Ok(value) => value,
+                Err(error) => {
+                    return Err(error);
+                }
+            };
+            let declared_return_ty = if assertion_return.is_some() {
+                Some(this.ctx.krate.types.intern(Type::None))
+            } else {
+                match this.function_return_type_annotation_or_overload(function, name_text) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return Err(error);
+                    }
+                }
+            };
+            if function.r#async
+                && !function.generator
+                && declared_return_ty.is_some()
+                && !matches!(
+                    declared_return_ty.and_then(|ty| this.ctx.krate.types.get(ty)),
+                    Some(Type::Future(_))
+                )
+            {
+                return Err(SmeltError::unsupported(
+                    this.span(function.span.start, function.span.end),
+                    "async functions must declare a Promise<T> return type",
+                ));
+            }
+
+            let ctx = this.nested_fn_ctx(BodyKind::Function, function.r#async, declared_return_ty);
+            let lowered = this.with_nested_body(ctx, ScopeGroups::ALL, |this, _| {
+                let mut body = Body::new(
+                    None,
+                    this.span(function_body.span.start, function_body.span.end),
+                );
+                body.set_generator(function.generator);
+                let mut params = Vec::new();
+
+                let mut destructured_params = Vec::new();
+                let mut defaulted_params = Vec::new();
+                // A `function` that reads its own `arguments` is variadic: the object is the
+                // ACTUAL argument list, which a declared-arity signature cannot carry (see
+                // `lowering::arguments_forwarding`). Replace the parameter list with one rest
+                // list and re-bind each declared name from it. Every other function keeps its
+                // declared parameters untouched.
+                let arguments_forwarding = match this.arguments_forwarding_params(function, &mut body) {
+                    Ok(forwarding) => forwarding,
+                    Err(error) => {
+                        return Err(error);
+                    }
+                };
+                if let Some(forwarding) = &arguments_forwarding {
+                    params.extend(forwarding.params.iter().cloned());
+                    for (name, local) in forwarding.binding_pairs() {
+                        this.scope.bind(name, local);
+                    }
+                }
+                for (index, param) in function
+                    .params
+                    .items
+                    .iter()
+                    .enumerate()
+                    .take(if arguments_forwarding.is_some() {
+                        0
+                    } else {
+                        usize::MAX
+                    })
                 {
+                    // The `Optional<T>` ABI of a defaulted parameter and its body
+                    // prelude follow `function_parameter_abi`; see there.
+                    let (ty, default_initializer) = this.function_parameter_abi(param)?;
+                    let (param_name, span, source_name) =
+                        if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                            (
+                                this.intern_source_name(binding.name.as_str()),
+                                this.span(binding.span.start, binding.span.end),
+                                Some(binding.name.to_string()),
+                            )
+                        } else {
+                            let synthetic_name = format!("__param{index}");
+                            (
+                                this.intern_source_name(&synthetic_name),
+                                this.span(param.span.start, param.span.end),
+                                None,
+                            )
+                        };
+                    // Defaults that equal the type's zero value keep the plain ABI,
+                    // which also preserves mutable-reference threading for state
+                    // accumulators such as Remeda's
+                    // `cloneImplementation(value, refFrom = [], refTo = [])`, where
+                    // recursive callees must observe the caller's array.
+                    let local = body.push_local(LocalDecl {
+                        name: Some(param_name),
+                        ty,
+                        mutable: false,
+                        span,
+                    });
+                    body.params.push(local);
+                    if this.type_is_known_date_value(ty) {
+                        this.scope.mark_date_value(local);
+                    }
+                    if let Some(source_name) = source_name {
+                        this.scope.bind(source_name.clone(), local);
+                        if let Some(initializer) = default_initializer {
+                            defaulted_params.push((local, ty, initializer, param_name, source_name, span));
+                        }
+                    } else {
+                        destructured_params.push((&param.pattern, local, ty));
+                    }
                     params.push(Param {
-                        name: param.name,
-                        local: param.local,
-                        ty: param.ty,
+                        name: param_name,
+                        local,
+                        ty,
                         span,
                     });
                 }
-                None
-            } else {
-            let Ok((ty, item_ty)) = self.rest_param_array_type(ty) else {
-                self.scope.restore_bindings(saved_locals);
-                self.scope.restore_date_values(saved_date_value_locals);
-                self.scope.restore_callable_prop_writes(saved_callable_local_props);
-                self.scope.restore_explicit_any(saved_explicit_any_locals);
-                self.scope.restore_narrowings(saved_narrowed_locals);
-                self.current_async = saved_async;
-                self.current_return_ty = saved_return_ty;
-                self.current_generator_yields = saved_generator_yields;
-                self.pop_type_parameter_scope();
-                return Err(SmeltError::unsupported(
-                    self.span(rest.span.start, rest.span.end),
-                    "rest function parameter type must be an array type",
-                ));
-            };
-            let param_name = self.intern_source_name(binding.name.as_str());
-            let local = body.push_local(LocalDecl {
-                name: Some(param_name),
-                ty,
-                mutable: false,
-                span: self.span(binding.span.start, binding.span.end),
-            });
-            body.params.push(local);
-            self.scope.bind(binding.name.to_string(), local);
-            let index = params.len();
-            params.push(Param {
-                name: param_name,
-                local,
-                ty,
-                span: self.span(binding.span.start, binding.span.end),
-            });
-            Some(RestParam { index, item_ty })
-            }
-        } else {
-            None
-        };
-        let required_params = function
-            .params
-            .items
-            .iter()
-            .position(|param| param.optional || Self::formal_parameter_has_default(param))
-            .unwrap_or(function.params.items.len());
+                let rest = if let Some(forwarding) = &arguments_forwarding {
+                    Some(RestParam {
+                        index: forwarding.rest_index,
+                        item_ty: forwarding.item_ty,
+                    })
+                } else if let Some(rest) = &function.params.rest {
+                    let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
+                        return Err(SmeltError::unsupported(
+                            this.span(rest.span.start, rest.span.end),
+                            "destructured rest parameters need rest binding lowering",
+                        ));
+                    };
+                    let ty = match rest
+                        .type_annotation
+                        .as_ref()
+                        .map(|annotation| this.ts_type_to_hir(&annotation.type_annotation))
+                        .transpose()
+                        .and_then(|value| {
+                            value.ok_or_else(|| {
+                                SmeltError::unsupported(
+                                    this.span(rest.span.start, rest.span.end),
+                                    "rest function parameters must have explicit array type annotations",
+                                )
+                            })
+                        }) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            return Err(error);
+                        }
+                    };
+                    // A fixed-width tuple rest is fixed parameters plus a tuple binding
+                    // of them (`lowering::tuple_rest`).
+                    if let Some(elements) = this.fixed_tuple_rest_elements(ty) {
+                        let span = this.span(binding.span.start, binding.span.end);
+                        for param in
+                            this.bind_tuple_rest_params(binding.name.as_str(), ty, &elements, span, &mut body)
+                        {
+                            params.push(Param {
+                                name: param.name,
+                                local: param.local,
+                                ty: param.ty,
+                                span,
+                            });
+                        }
+                        None
+                    } else {
+                    let Ok((ty, item_ty)) = this.rest_param_array_type(ty) else {
+                        return Err(SmeltError::unsupported(
+                            this.span(rest.span.start, rest.span.end),
+                            "rest function parameter type must be an array type",
+                        ));
+                    };
+                    let param_name = this.intern_source_name(binding.name.as_str());
+                    let local = body.push_local(LocalDecl {
+                        name: Some(param_name),
+                        ty,
+                        mutable: false,
+                        span: this.span(binding.span.start, binding.span.end),
+                    });
+                    body.params.push(local);
+                    this.scope.bind(binding.name.to_string(), local);
+                    let index = params.len();
+                    params.push(Param {
+                        name: param_name,
+                        local,
+                        ty,
+                        span: this.span(binding.span.start, binding.span.end),
+                    });
+                    Some(RestParam { index, item_ty })
+                    }
+                } else {
+                    None
+                };
+                let required_params = function
+                    .params
+                    .items
+                    .iter()
+                    .position(|param| param.optional || Self::formal_parameter_has_default(param))
+                    .unwrap_or(function.params.items.len());
 
-        let mut errors = Vec::new();
-        for (pattern, local, ty) in destructured_params {
-            let root = body.root;
-            let value = body.push_expr(Expr {
-                kind: ExprKind::Local(local),
-                ty,
-                span: self.span(function.span.start, function.span.end),
+                let mut errors = Vec::new();
+                for (pattern, local, ty) in destructured_params {
+                    let root = body.root;
+                    let value = body.push_expr(Expr {
+                        kind: ExprKind::Local(local),
+                        ty,
+                        span: this.span(function.span.start, function.span.end),
+                    });
+                    if let Err(error) =
+                        this.binding_declaration(pattern, Some(value), Some(ty), false, &mut body, root)
+                    {
+                        errors.push(error);
+                    }
+                }
+                if let Err(error) = this.apply_parameter_defaults(defaulted_params, &mut body) {
+                    errors.push(error);
+                }
+                if let Err(error) =
+                    this.predeclare_forward_referenced_locals(&function_body.statements, &mut body)
+                {
+                    errors.push(error);
+                }
+                if let Err(error) =
+                    this.predeclare_local_function_declarations(&function_body.statements, &mut body)
+                {
+                    errors.push(error);
+                }
+                let generator_yields = function
+                    .generator
+                    .then(|| this.initialize_generator_yield_accumulator(function, &mut body));
+                this.fn_ctx.generator = generator_yields;
+                // With the variadic rewrite the whole argument list is the single rest
+                // parameter, so the FIXED arity is zero — that is what tells
+                // `arguments_object_expression` to read the list rather than the declared
+                // parameters.
+                this.fn_ctx.arguments_arity = Some(if arguments_forwarding.is_some() {
+                        0
+                    } else {
+                        function.params.items.len()
+                    });
+                for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
+                    if this.is_super_call_statement(statement) {
+                        continue;
+                    }
+                    if let Err(error) = this.statement(statement, &mut body) {
+                        errors.push(error);
+                    }
+                }
+                if let Some(accumulator) = generator_yields {
+                    Self::push_generator_return(accumulator, function, &mut body);
+                }
+                if function.r#async {
+                    body.finish_async();
+                }
+                // Any `fn.prop = value` write this body collected must have been rebuilt
+                // into a callable-interface struct by now; a leftover is a dropped write.
+                this.report_unconsumed_callable_props(&mut errors);
+                Ok((body, params, rest, required_params, errors))
             });
-            if let Err(error) =
-                self.binding_declaration(pattern, Some(value), Some(ty), false, &mut body, root)
-            {
-                errors.push(error);
-            }
-        }
-        if let Err(error) = self.apply_parameter_defaults(defaulted_params, &mut body) {
-            errors.push(error);
-        }
-        if let Err(error) =
-            self.predeclare_forward_referenced_locals(&function_body.statements, &mut body)
-        {
-            errors.push(error);
-        }
-        if let Err(error) =
-            self.predeclare_local_function_declarations(&function_body.statements, &mut body)
-        {
-            errors.push(error);
-        }
-        let generator_yields = function
-            .generator
-            .then(|| self.initialize_generator_yield_accumulator(function, &mut body));
-        self.current_generator_yields = generator_yields;
-        // With the variadic rewrite the whole argument list is the single rest
-        // parameter, so the FIXED arity is zero — that is what tells
-        // `arguments_object_expression` to read the list rather than the declared
-        // parameters.
-        self.current_arguments_arities
-            .push(if arguments_forwarding.is_some() {
-                0
-            } else {
-                function.params.items.len()
-            });
-        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
-            if self.is_super_call_statement(statement) {
-                continue;
-            }
-            if let Err(error) = self.statement(statement, &mut body) {
-                errors.push(error);
-            }
-        }
-        if let Some(accumulator) = generator_yields {
-            Self::push_generator_return(accumulator, function, &mut body);
-        }
-        if function.r#async {
-            body.build_async_state_machine();
-        }
-        // Any `fn.prop = value` write this body collected must have been rebuilt
-        // into a callable-interface struct by now; a leftover is a dropped write.
-        self.report_unconsumed_callable_props(&mut errors);
-        self.scope.restore_bindings(saved_locals);
-        self.scope.restore_date_values(saved_date_value_locals);
-        self.scope.restore_callable_prop_writes(saved_callable_local_props);
-        self.scope.restore_explicit_any(saved_explicit_any_locals);
-        self.scope.restore_narrowings(saved_narrowed_locals);
-        self.current_async = saved_async;
-        self.current_return_ty = saved_return_ty;
-        self.current_generator_yields = saved_generator_yields;
-        self.current_arguments_arities.pop();
-        self.pop_type_parameter_scope();
+            Ok((type_params, assertion_return, predicate_return, declared_return_ty, lowered))
+        })?;
+        let (body, params, rest, required_params, errors) = lowered?;
 
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
@@ -717,7 +649,7 @@ impl ModuleBuilder<'_> {
             return_ty: _,
             next_ty,
         }) = self
-            .current_return_ty
+            .fn_ctx.return_ty
             .and_then(|ty| self.ctx.krate.types.get(ty))
         {
             return GeneratorYieldAccumulator {
@@ -998,6 +930,40 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// The ABI type of a `function` parameter together with the default
+    /// initializer its body prelude must apply, if any.
+    ///
+    /// This is the one rule every `function` form (top-level item, nested
+    /// local declaration, and the hoisting prepass that reserves the nested
+    /// declaration's local) shares, so a caller sees the same signature
+    /// wherever the callee is declared. A default initializer makes the
+    /// parameter optional for callers: the ABI parameter is `Optional<T>` and
+    /// [`Self::apply_parameter_defaults`] applies the default in the callee
+    /// (JavaScript evaluates defaults per call, in callee scope). A default
+    /// that equals the type's zero value keeps the plain ABI, because call
+    /// sites already synthesize exactly that value for an omitted argument
+    /// (see [`Self::initializer_is_type_zero_default`]). Only an identifier
+    /// parameter carries a prelude default; a destructured one is bound by
+    /// its own pattern lowering.
+    pub(in crate::lowering) fn function_parameter_abi<'src>(
+        &mut self,
+        param: &'src oxc::ast::ast::FormalParameter<'src>,
+    ) -> Result<(smelt_hir::TypeId, Option<&'src Expression<'src>>), SmeltError> {
+        let ty = self.function_parameter_type(param)?;
+        let default_initializer = matches!(param.pattern, BindingPattern::BindingIdentifier(_))
+            .then_some(param.initializer.as_deref())
+            .flatten()
+            .filter(|initializer| !Self::initializer_is_type_zero_default(initializer));
+        let ty = if default_initializer.is_some()
+            && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)))
+        {
+            self.ctx.krate.types.intern(Type::Optional(ty))
+        } else {
+            ty
+        };
+        Ok((ty, default_initializer))
+    }
+
     /// Lower a synthetic object-table function while preserving exact key spelling.
     pub(in crate::lowering) fn function_expression_item_with_source_name(
         &mut self,
@@ -1048,173 +1014,164 @@ impl ModuleBuilder<'_> {
         }
 
         let name = self.intern_exact_source_name(name_text);
-        let type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
-        let hinted_function =
-            type_hint.and_then(|ty| match self.ctx.krate.types.get(ty).cloned() {
-                Some(Type::Function(function_ty)) => Some(function_ty),
-                _ => None,
-            });
-        let mut return_ty = if let Some(return_type) = &function.return_type {
-            match self.ts_type_to_hir(&return_type.type_annotation) {
-                Ok(value) => value,
-                Err(error) => {
-                    self.pop_type_parameter_scope();
-                    return Err(error);
+        let (type_params, hinted_function, mut return_ty, body, params, errors) = self.with_type_parameter_scope(function.type_parameters.as_deref(), |this, type_params| {
+            let hinted_function =
+                type_hint.and_then(|ty| match this.ctx.krate.types.get(ty).cloned() {
+                    Some(Type::Function(function_ty)) => Some(function_ty),
+                    _ => None,
+                });
+            let return_ty = if let Some(return_type) = &function.return_type {
+                match this.ts_type_to_hir(&return_type.type_annotation) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return Err(error);
+                    }
                 }
-            }
-        } else if let Some(function_ty) = &hinted_function {
-            function_ty.return_ty
-        } else {
-            self.function_return_type_or_overload(function, name_text)
-                .unwrap_or_else(|_| self.erase(ErasureReason::MissingAnnotation))
-        };
-        if function.r#async
-            && !function.generator
-            && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
-        {
-            self.pop_type_parameter_scope();
-            return Err(SmeltError::unsupported(
-                self.span(function.span.start, function.span.end),
-                "async functions must declare a Promise<T> return type",
-            ));
-        }
-
-        let saved_locals = self.scope.take_bindings();
-        let saved_narrowed_locals = self.scope.take_narrowings();
-        let saved_async = self.current_async;
-        let saved_return_ty = self.current_return_ty;
-        let saved_generator_yields = self.current_generator_yields;
-        let saved_preserve_receiver = self.preserve_specialization_receiver;
-        self.current_async = function.r#async;
-        self.current_return_ty = Some(return_ty);
-        self.preserve_specialization_receiver = receiver.is_some();
-        let mut body = Body::new(
-            None,
-            self.span(function_body.span.start, function_body.span.end),
-        );
-        body.is_generator = function.generator;
-        let mut params = Vec::new();
-        let mut errors = Vec::new();
-        if let Some((_, receiver_ty)) = receiver {
-            let this_name = self.intern_source_name("this");
-            let this_local = body.push_local(LocalDecl {
-                name: Some(this_name),
-                ty: receiver_ty,
-                mutable: true,
-                span: self.span(function.span.start, function.span.start),
-            });
-            body.params.push(this_local);
-            self.scope.bind("this".to_owned(), this_local);
-            params.push(Param {
-                name: this_name,
-                local: this_local,
-                ty: receiver_ty,
-                span: self.span(function.span.start, function.span.start),
-            });
-        }
-
-        for (index, param) in function.params.items.iter().enumerate() {
-            let result = (|| {
-                let ty = if let Some(annotation) = &param.type_annotation {
-                    self.ts_type_to_hir(&annotation.type_annotation)?
-                } else if let Some(function_ty) = &hinted_function {
-                    function_ty.params.get(index).copied().ok_or_else(|| {
-                        SmeltError::unsupported(
-                            self.span(param.span.start, param.span.end),
-                            "function expression parameter is missing from contextual callable type",
-                        )
-                    })?
-                } else {
-                    return Err(SmeltError::unsupported(
-                        self.span(param.span.start, param.span.end),
-                        "function expression parameters must have explicit type annotations",
-                    ));
-                };
-                let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
-                    return Err(SmeltError::unsupported(
-                        self.span(param.span.start, param.span.end),
-                        "function expression parameters must be identifiers",
-                    ));
-                };
-                let param_name = self.intern_source_name(binding.name.as_str());
-                let local = body.push_local(LocalDecl {
-                    name: Some(param_name),
-                    ty,
-                    mutable: false,
-                    span: self.span(binding.span.start, binding.span.end),
-                });
-                body.params.push(local);
-                self.scope.bind(binding.name.to_string(), local);
-                params.push(Param {
-                    name: param_name,
-                    local,
-                    ty,
-                    span: self.span(binding.span.start, binding.span.end),
-                });
-                debug_assert_eq!(
-                    usize::try_from(local.0).unwrap_or(usize::MAX),
-                    index + usize::from(receiver.is_some()),
-                    "function expression parameters should be added in source order",
-                );
-                Ok(())
-            })();
-            if let Err(error) = result {
-                errors.push(error);
-                break;
-            }
-        }
-        let receiver_count = usize::from(receiver.is_some());
-        let source_param_count = params.len().saturating_sub(receiver_count);
-        if errors.is_empty()
-            && let Some(function_ty) = &hinted_function
-            && function_ty.params.len() > source_param_count
-        {
-            for (index, ty) in function_ty
-                .params
-                .iter()
-                .copied()
-                .enumerate()
-                .skip(source_param_count)
+            } else if let Some(function_ty) = &hinted_function {
+                function_ty.return_ty
+            } else {
+                this.function_return_type_or_overload(function, name_text)
+                    .unwrap_or_else(|_| this.erase(ErasureReason::MissingAnnotation))
+            };
+            if function.r#async
+                && !function.generator
+                && !matches!(this.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
             {
-                let param_name = self.intern_source_name(&format!("__unused{index}"));
-                let local = body.push_local(LocalDecl {
-                    name: Some(param_name),
-                    ty,
-                    mutable: false,
-                    span: self.span(function.span.start, function.span.end),
-                });
-                body.params.push(local);
-                params.push(Param {
-                    name: param_name,
-                    local,
-                    ty,
-                    span: self.span(function.span.start, function.span.end),
-                });
+                return Err(SmeltError::unsupported(
+                    this.span(function.span.start, function.span.end),
+                    "async functions must declare a Promise<T> return type",
+                ));
             }
-        }
-        let generator_yields = function
-            .generator
-            .then(|| self.initialize_generator_yield_accumulator(function, &mut body));
-        self.current_generator_yields = generator_yields;
-        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
-            if let Err(error) = self.statement(statement, &mut body) {
-                errors.push(error);
-            }
-        }
-        if let Some(accumulator) = generator_yields {
-            Self::push_generator_return(accumulator, function, &mut body);
-        }
-        if function.r#async {
-            body.build_async_state_machine();
-        }
 
-        self.scope.restore_bindings(saved_locals);
-        self.scope.restore_narrowings(saved_narrowed_locals);
-        self.current_async = saved_async;
-        self.current_return_ty = saved_return_ty;
-        self.current_generator_yields = saved_generator_yields;
-        self.preserve_specialization_receiver = saved_preserve_receiver;
-        self.pop_type_parameter_scope();
+            let mut ctx = this.nested_fn_ctx(BodyKind::Function, function.r#async, Some(return_ty));
+            // A lifted specialization keeps its concrete `this` through `this as T`.
+            ctx.preserve_receiver = receiver.is_some();
+            let scope = ScopeGroups::BINDINGS.with(ScopeGroups::NARROWINGS);
+            let (body, params, errors) = this.with_nested_body(ctx, scope, |this, _| {
+                let mut body = Body::new(
+                    None,
+                    this.span(function_body.span.start, function_body.span.end),
+                );
+                body.set_generator(function.generator);
+                let mut params = Vec::new();
+                let mut errors = Vec::new();
+                if let Some((_, receiver_ty)) = receiver {
+                    let this_name = this.intern_source_name("this");
+                    let this_local = body.push_local(LocalDecl {
+                        name: Some(this_name),
+                        ty: receiver_ty,
+                        mutable: true,
+                        span: this.span(function.span.start, function.span.start),
+                    });
+                    body.params.push(this_local);
+                    this.scope.bind("this".to_owned(), this_local);
+                    params.push(Param {
+                        name: this_name,
+                        local: this_local,
+                        ty: receiver_ty,
+                        span: this.span(function.span.start, function.span.start),
+                    });
+                }
+
+                for (index, param) in function.params.items.iter().enumerate() {
+                    let result = (|| {
+                        let ty = if let Some(annotation) = &param.type_annotation {
+                            this.ts_type_to_hir(&annotation.type_annotation)?
+                        } else if let Some(function_ty) = &hinted_function {
+                            function_ty.params.get(index).copied().ok_or_else(|| {
+                                SmeltError::unsupported(
+                                    this.span(param.span.start, param.span.end),
+                                    "function expression parameter is missing from contextual callable type",
+                                )
+                            })?
+                        } else {
+                            return Err(SmeltError::unsupported(
+                                this.span(param.span.start, param.span.end),
+                                "function expression parameters must have explicit type annotations",
+                            ));
+                        };
+                        let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
+                            return Err(SmeltError::unsupported(
+                                this.span(param.span.start, param.span.end),
+                                "function expression parameters must be identifiers",
+                            ));
+                        };
+                        let param_name = this.intern_source_name(binding.name.as_str());
+                        let local = body.push_local(LocalDecl {
+                            name: Some(param_name),
+                            ty,
+                            mutable: false,
+                            span: this.span(binding.span.start, binding.span.end),
+                        });
+                        body.params.push(local);
+                        this.scope.bind(binding.name.to_string(), local);
+                        params.push(Param {
+                            name: param_name,
+                            local,
+                            ty,
+                            span: this.span(binding.span.start, binding.span.end),
+                        });
+                        debug_assert_eq!(
+                            usize::try_from(local.0).unwrap_or(usize::MAX),
+                            index + usize::from(receiver.is_some()),
+                            "function expression parameters should be added in source order",
+                        );
+                        Ok(())
+                    })();
+                    if let Err(error) = result {
+                        errors.push(error);
+                        break;
+                    }
+                }
+                let receiver_count = usize::from(receiver.is_some());
+                let source_param_count = params.len().saturating_sub(receiver_count);
+                if errors.is_empty()
+                    && let Some(function_ty) = &hinted_function
+                    && function_ty.params.len() > source_param_count
+                {
+                    for (index, ty) in function_ty
+                        .params
+                        .iter()
+                        .copied()
+                        .enumerate()
+                        .skip(source_param_count)
+                    {
+                        let param_name = this.intern_source_name(&format!("__unused{index}"));
+                        let local = body.push_local(LocalDecl {
+                            name: Some(param_name),
+                            ty,
+                            mutable: false,
+                            span: this.span(function.span.start, function.span.end),
+                        });
+                        body.params.push(local);
+                        params.push(Param {
+                            name: param_name,
+                            local,
+                            ty,
+                            span: this.span(function.span.start, function.span.end),
+                        });
+                    }
+                }
+                let generator_yields = function
+                    .generator
+                    .then(|| this.initialize_generator_yield_accumulator(function, &mut body));
+                this.fn_ctx.generator = generator_yields;
+                for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
+                    if let Err(error) = this.statement(statement, &mut body) {
+                        errors.push(error);
+                    }
+                }
+                if let Some(accumulator) = generator_yields {
+                    Self::push_generator_return(accumulator, function, &mut body);
+                }
+                if function.r#async {
+                    body.finish_async();
+                }
+
+                (body, params, errors)
+            });
+            Ok((type_params, hinted_function, return_ty, body, params, errors))
+        })?;
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }
@@ -1570,21 +1527,31 @@ impl ModuleBuilder<'_> {
         &mut self,
         class: &oxc::ast::ast::Class<'_>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
+        self.class_declaration_named(class, None)
+    }
+
+    /// [`Self::class_declaration`] for a class EXPRESSION that initializes a
+    /// binding: `const Foo = class { … }` declares a class named `Foo`.
+    ///
+    /// That is the name TypeScript infers, and it is what makes `new Foo()`,
+    /// `Foo` in type position, `x instanceof Foo` and `extends Foo` resolve
+    /// nominally. The name is passed to exactly this call, so a class
+    /// expression nested deeper inside the same initializer still takes its
+    /// synthetic anonymous name. A class DECLARATION always uses its own
+    /// identifier.
+    pub(in crate::lowering) fn class_declaration_named(
+        &mut self,
+        class: &oxc::ast::ast::Class<'_>,
+        binding_name: Option<&str>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
         // Named classes use their source identifier; anonymous class expressions
         // fall back to a synthetic name so the class still registers and can be
         // referenced as a value. The name is owned here and borrowed as
         // `class_text` for the rest of lowering.
         // A class EXPRESSION initializing a binding is named by that binding
-        // (`class_expression_binding_name`); the name is consumed here so a
-        // class expression nested deeper in the same initializer still falls
-        // back to its synthetic anonymous name. A class DECLARATION always uses
-        // its own identifier.
+        // (see `class_declaration_named`).
         let class_source_name = class.id.as_ref().map_or_else(
-            || {
-                self.class_expression_binding_name
-                    .take()
-                    .unwrap_or_else(|| Self::anonymous_class_name(class))
-            },
+            || binding_name.map_or_else(|| Self::anonymous_class_name(class), str::to_owned),
             |id| id.name.to_string(),
         );
         let scoped_or_host_name = self
@@ -1641,751 +1608,752 @@ impl ModuleBuilder<'_> {
         if materialized.is_some() {
             self.validate_specialization_adapters(self.span(class.span.start, class.span.end))?;
         }
-        let type_params = self.push_type_parameter_scope(class.type_parameters.as_deref())?;
-        let class_type_args = type_params
-            .iter()
-            .map(|param| {
-                self.ctx
-                    .krate
-                    .types
-                    .intern(Type::TypeParam { name: param.name })
-            })
-            .collect::<Vec<_>>();
-        let class_ty = self.ctx.krate.types.intern(Type::Class {
-            name: class_name,
-            args: class_type_args,
-        });
-        let (base, base_args) = self.class_extends_clause(class)?;
-        if let Some(base_name) = base {
-            self.classes
-                .set_base(class_text.to_owned(), class_name, base_name, base_args.clone());
-        }
-        let mut fields = Vec::new();
-        // Methods this class reassigns through `this`, which are carried as
-        // function-typed fields instead of inherent methods. Scanned once here
-        // because both loops below need it: the field loop converts them, the
-        // method loop skips them.
-        let assigned_methods = methods_assigned_on_this(&class.body);
-        let mut field_initializers = Vec::new();
-        let mut constructor = None;
-        let mut methods = Vec::new();
-        let mut static_methods = Vec::new();
-        // Static class constants declared directly in source (`static NAME =
-        // <literal>`), as opposed to `static_fields` merged from specialization.
-        let mut source_static_fields: Vec<smelt_hir::StaticField> = Vec::new();
-        let mut abstract_methods = Vec::new();
-        let mut descriptor_accessors = Vec::new();
-        // Accessor descriptors built directly from plain source getters on a
-        // non-materialized class. Materialized classes derive their descriptors
-        // from the manifest instead (see `merge_materialized_class_descriptors`).
-        let mut source_descriptors: Vec<smelt_hir::Descriptor> = Vec::new();
-        // Value type declared by a class string/number index signature, if any.
-        // Recorded from the `TSIndexSignature` element below and published to the
-        // index-value maps after the class is fully lowered.
-        let mut class_index_value_ty = None;
+        let item = self.with_type_parameter_scope(class.type_parameters.as_deref(), |this, type_params| {
+            let class_type_args = type_params
+                .iter()
+                .map(|param| {
+                    this.ctx
+                        .krate
+                        .types
+                        .intern(Type::TypeParam { name: param.name })
+                })
+                .collect::<Vec<_>>();
+            let class_ty = this.ctx.krate.types.intern(Type::Class {
+                name: class_name,
+                args: class_type_args,
+            });
+            let (base, base_args) = this.class_extends_clause(class)?;
+            if let Some(base_name) = base {
+                this.classes
+                    .set_base(class_text.to_owned(), class_name, base_name, base_args.clone());
+            }
+            let mut fields = Vec::new();
+            // Methods this class reassigns through `this`, which are carried as
+            // function-typed fields instead of inherent methods. Scanned once here
+            // because both loops below need it: the field loop converts them, the
+            // method loop skips them.
+            let assigned_methods = methods_assigned_on_this(&class.body);
+            let mut field_initializers = Vec::new();
+            let mut constructor = None;
+            let mut methods = Vec::new();
+            let mut static_methods = Vec::new();
+            // Static class constants declared directly in source (`static NAME =
+            // <literal>`), as opposed to `static_fields` merged from specialization.
+            let mut source_static_fields: Vec<smelt_hir::StaticField> = Vec::new();
+            let mut abstract_methods = Vec::new();
+            let mut descriptor_accessors = Vec::new();
+            // Accessor descriptors built directly from plain source getters on a
+            // non-materialized class. Materialized classes derive their descriptors
+            // from the manifest instead (see `merge_materialized_class_descriptors`).
+            let mut source_descriptors: Vec<smelt_hir::Descriptor> = Vec::new();
+            // Value type declared by a class string/number index signature, if any.
+            // Recorded from the `TSIndexSignature` element below and published to the
+            // index-value maps after the class is fully lowered.
+            let mut class_index_value_ty = None;
 
-        for element in &class.body.body {
-            match element {
-                // A method this class reassigns through `this` is carried as a
-                // function-typed field rather than as an inherent method, which
-                // cannot be assigned. The field's type is the method's own
-                // signature and its initializer is the method's own body, so a
-                // class that never actually assigns behaves exactly as before.
-                ClassElement::MethodDefinition(method)
-                    if !method.r#static
-                        && method.kind == MethodDefinitionKind::Method
-                        && method.value.body.is_some()
-                        && property_key_plain_name(&method.key)
-                            .is_some_and(|name| assigned_methods.contains(name)) =>
-                {
-                    let name = self.property_key_symbol(&method.key)?;
-                    let ty = self.method_signature_function_type(method)?;
-                    field_initializers.push((
-                        name,
-                        ClassFieldInit::Method(&method.value),
-                        ty,
-                        self.span(method.span.start, method.span.end),
-                    ));
-                    fields.push(Field {
-                        name,
-                        ty,
-                        visibility: visibility(method.accessibility),
-                        optional: false,
-                        span: self.span(method.span.start, method.span.end),
-                    });
-                }
-                ClassElement::PropertyDefinition(property) => {
-                    if !property.decorators.is_empty() && materialized.is_none() {
-                        return Err(SmeltError::specialization_required(
-                            self.span(property.span.start, property.span.end),
-                            class_text,
-                        ));
-                    }
-                    if property.computed && !self.is_resolvable_property_key(&property.key) {
-                        return Err(SmeltError::unsupported(
-                            self.span(property.span.start, property.span.end),
-                            "dynamic computed property names are not lowered yet",
-                        ));
-                    }
-                    if property.r#static {
-                        if materialized.is_some() {
-                            continue;
-                        }
-                        // A `static NAME: T = <literal>` declares a class-level
-                        // constant resolvable via `Class.NAME`. Lower it to a
-                        // materialized static field (issue #98). Non-literal or
-                        // untyped static initializers are not yet lowered.
-                        if let Some(static_field) = self.class_static_field(property)? {
-                            source_static_fields.push(static_field);
-                            continue;
-                        }
-                        // A static field initialized to a function or arrow
-                        // expression (`static c = function () {};`) is a static
-                        // *callable* member, not a data constant. Materializing it
-                        // as an associated function needs the static-method
-                        // lowering path, which is not wired to property
-                        // initializers yet; until then the field is not emitted
-                        // rather than blocking the whole class. This keeps classes
-                        // that merely *carry* such a member lowerable (its value is
-                        // a function, never a data value read back structurally);
-                        // an actual `Class.c(...)` use would fail at the call site
-                        // rather than silently reading a wrong value.
-                        if matches!(
-                            property.value,
-                            Some(
-                                Expression::FunctionExpression(_)
-                                    | Expression::ArrowFunctionExpression(_)
-                            )
-                        ) {
-                            continue;
-                        }
-                        return Err(SmeltError::unsupported(
-                            self.span(property.span.start, property.span.end),
-                            "static fields require a concrete literal initializer",
-                        ));
-                    }
-                    let name = self.property_key_symbol(&property.key)?;
-                    let mut ty = if let Some(annotation) = &property.type_annotation {
-                        self.ts_type_to_hir(&annotation.type_annotation)?
-                    } else if let Some(value) = &property.value {
-                        let mut field_body =
-                            Body::new(None, self.span(value.span().start, value.span().end));
-                        let value = self.expression(value, &mut field_body)?;
-                        Self::expr_ty(&field_body, value)
-                    } else {
-                        return Err(SmeltError::unsupported(
-                            self.span(property.span.start, property.span.end),
-                            "class fields require explicit type annotations",
-                        ));
-                    };
-                    if property.optional {
-                        ty = self.field_type_with_optional(ty, true);
-                    }
-                    if let Some(value) = &property.value {
+            for element in &class.body.body {
+                match element {
+                    // A method this class reassigns through `this` is carried as a
+                    // function-typed field rather than as an inherent method, which
+                    // cannot be assigned. The field's type is the method's own
+                    // signature and its initializer is the method's own body, so a
+                    // class that never actually assigns behaves exactly as before.
+                    ClassElement::MethodDefinition(method)
+                        if !method.r#static
+                            && method.kind == MethodDefinitionKind::Method
+                            && method.value.body.is_some()
+                            && property_key_plain_name(&method.key)
+                                .is_some_and(|name| assigned_methods.contains(name)) =>
+                    {
+                        let name = this.property_key_symbol(&method.key)?;
+                        let ty = this.method_signature_function_type(method)?;
                         field_initializers.push((
                             name,
-                            ClassFieldInit::Expression(value),
+                            ClassFieldInit::Method(&method.value),
                             ty,
-                            self.span(property.span.start, property.span.end),
+                            this.span(method.span.start, method.span.end),
                         ));
-                    }
-                    // A `#name` field is an ECMAScript *private name*, so it is not an
-                    // own property of the instance (`obj['#name']` is `undefined`, and
-                    // it never shows up in `Object.keys`/`JSON`/a structural compare).
-                    // A source `private`/`protected` modifier is only a compile-time
-                    // restriction, so such a field stays an ordinary own property.
-                    let field_visibility =
-                        if matches!(&property.key, PropertyKey::PrivateIdentifier(_)) {
-                            Visibility::Hidden
-                        } else {
-                            visibility(property.accessibility)
-                        };
-                    fields.push(Field {
-                        name,
-                        ty,
-                        visibility: field_visibility,
-                        optional: property.optional,
-                        span: self.span(property.span.start, property.span.end),
-                    });
-                }
-                ClassElement::MethodDefinition(method)
-                    if method.kind == MethodDefinitionKind::Get =>
-                {
-                    if !method.decorators.is_empty() {
-                        if materialized.is_some() {
-                            continue;
-                        }
-                        return Err(SmeltError::specialization_required(
-                            self.span(method.span.start, method.span.end),
-                            class_text,
-                        ));
-                    }
-                    if method.computed && !self.is_resolvable_property_key(&method.key) {
-                        return Err(SmeltError::unsupported(
-                            self.span(method.span.start, method.span.end),
-                            "dynamic computed method names are not lowered yet",
-                        ));
-                    }
-                    if method.r#static {
-                        if materialized.is_some() {
-                            continue;
-                        }
-                        // Static getters need associated-accessor lowering that
-                        // is not implemented yet; static *methods* are handled in
-                        // the method-lowering pass below.
-                        return Err(SmeltError::unsupported(
-                            self.span(method.span.start, method.span.end),
-                            "static accessors are not lowered yet",
-                        ));
-                    }
-                    // A plain source getter (`get x() { … }`) lowers to a `&self`
-                    // method plus an accessor descriptor in the second class pass
-                    // below, so reads of `obj.x` dispatch to the computed method
-                    // instead of a dropped stored field (see the reference-class
-                    // spec's finding #3). For a materialized/auto-accessor class
-                    // the getter still keeps its backing field.
-                    if materialized.is_some() {
-                        let name = self.property_key_symbol(&method.key)?;
-                        let ty = method
-                            .value
-                            .return_type
-                            .as_ref()
-                            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                            .transpose()?
-                            .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
                         fields.push(Field {
-                            // The accessor's backing storage, not a source
-                            // property: it must stay out of every erased view.
-                            visibility: Visibility::Hidden,
                             name,
                             ty,
+                            visibility: visibility(method.accessibility),
                             optional: false,
-                            span: self.span(method.span.start, method.span.end),
+                            span: this.span(method.span.start, method.span.end),
                         });
                     }
-                }
-                ClassElement::TSIndexSignature(sig) => {
-                    // A class string/number index signature `[key: string]: T`
-                    // (or `[key: number]: T`) declares a keyed store whose value
-                    // type is the statically known `T`. Record `T` here (in the
-                    // field-collection pass, before the index-value maps are
-                    // published below) so member and computed access can fall
-                    // back to it when no declared named field or method matches.
-                    // Declared named fields are collected separately and keep
-                    // their concrete types; the index value is only the
-                    // dynamic-keyed fallback shape, never a replacement for named
-                    // members.
-                    let value_ty =
-                        self.ts_type_to_hir(&sig.type_annotation.type_annotation)?;
-                    class_index_value_ty = Some(value_ty);
-                }
-                _ => {}
-            }
-        }
-        for element in &class.body.body {
-            let ClassElement::MethodDefinition(method) = element else {
-                continue;
-            };
-            if method.kind != MethodDefinitionKind::Constructor {
-                continue;
-            }
-            for param in &method.value.params.items {
-                // `readonly x` (with no explicit accessibility) is still a
-                // parameter property and declares a public instance field, so a
-                // constructor arg such as `constructor(readonly innerError: Error)`
-                // must produce a field (was E0609 on `.innerError`).
-                if param.accessibility.is_none() && !param.readonly {
-                    continue;
-                }
-                let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
-                    return Err(SmeltError::unsupported(
-                        self.span(param.span.start, param.span.end),
-                        "destructured constructor parameter properties are not lowered yet",
-                    ));
-                };
-                let name = self.intern_source_name(binding.name.as_str());
-                let ty = if let Some(annotation) = &param.type_annotation {
-                    self.ts_type_to_hir(&annotation.type_annotation)?
-                } else if let Some(default) = &param.initializer {
-                    let mut initializer_body =
-                        Body::new(None, self.span(default.span().start, default.span().end));
-                    let value = self.expression(default, &mut initializer_body)?;
-                    Self::expr_ty(&initializer_body, value)
-                } else {
-                    self.erase(ErasureReason::MissingAnnotation)
-                };
-                fields.push(Field {
-                    name,
-                    ty,
-                    visibility: visibility(param.accessibility),
-                    optional: false,
-                    span: self.span(param.span.start, param.span.end),
-                });
-            }
-        }
-        let mut static_fields = materialized
-            .as_ref()
-            .map_or_else(Vec::new, |materialized_class| {
-                self.merge_materialized_class_members(materialized_class, &mut fields, class_span)
-            });
-        // Source-declared `static NAME = <literal>` constants extend the
-        // materialized set; a materialized value takes precedence when a member
-        // is named by both, so only append source statics not already present.
-        for static_field in source_static_fields {
-            if !static_fields
-                .iter()
-                .any(|existing| existing.name == static_field.name)
-            {
-                static_fields.push(static_field);
-            }
-        }
-        let method_sigs = self.class_method_signatures(&class.body.body)?;
-        let virtual_method_fields =
-            self.virtual_method_field_names(&class.body.body, class.r#abstract);
-        self.add_virtual_class_method_fields(&mut fields, &method_sigs, &virtual_method_fields);
-        // Runtime keyed store for a class index signature (issue #84 / #18).
-        //
-        // A class declaring `[key: string]: T` (or `[key: number]: T`) needs a
-        // real backing store so dynamic keyed writes round-trip at runtime:
-        // `x[k] = v; x[k]` must return `v`, and a missing key must read as
-        // `undefined`. The store is a synthesized private `Record<string, T>`
-        // field that sits ALONGSIDE the declared named fields (which stay
-        // concrete). It is added to the class field list here, so it flows
-        // through MIR, struct emission, the `Default`/`Clone` derives, and the
-        // constructor's default struct literal automatically; codegen only has
-        // to route keyed access to it. The field is `Hidden` so it is excluded
-        // from erased object projection. Number-keyed signatures still use a
-        // string-keyed store because JavaScript object property keys are strings.
-        //
-        // Value type `T` stays concrete (`string`, `number`, a class, ...). A
-        // union index value type (`[key: string]: string | number`) is subject
-        // to the SAME pre-existing limitation as a plain union-typed class field:
-        // the generated union enum lacks `Debug`/`Default`, so a struct storing
-        // it does not derive them. That is an orthogonal codegen gap tracked
-        // separately, not specific to the index store.
-        if let Some(value_ty) = class_index_value_ty {
-            let store_name = self.intern_source_name(CLASS_INDEX_STORE_FIELD);
-            let key_ty = self.ctx.krate.types.intern(Type::String);
-            let store_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
-            if !fields.iter().any(|field| field.name == store_name) {
-                fields.push(Field {
-                    name: store_name,
-                    ty: store_ty,
-                    // Compiler-synthesized keyed storage, never a source property.
-                    visibility: Visibility::Hidden,
-                    optional: false,
-                    span: class_span,
-                });
-            }
-        }
-        self.classes.set_fields(class_text.to_owned(), fields.clone());
-        self.classes.set_methods(class_text.to_owned(), method_sigs.clone());
-        // Publish the class index-signature value type (if any) so member and
-        // computed access can resolve keyed reads/writes through it while the
-        // class's own method bodies are still being lowered, and so later
-        // modules see it too. Named fields resolve first; this is the fallback.
-        //
-        // This drives the *type* level of the index signature (issue #84): the
-        // statically known value type `T` types keyed reads as `Optional<T>`
-        // (missing key -> undefined) and undeclared member reads as `T`, while
-        // declared named fields keep their concrete types. The matching runtime
-        // keyed *store* — the synthesized `__smelt_index_store` field added above
-        // — makes dynamic writes round-trip: codegen routes `x[k] = v` to
-        // `x.__smelt_index_store.insert(k, v)` and `x[k]` to a store lookup.
-        if let Some(value_ty) = class_index_value_ty {
-            self.classes.set_index_value(class_name, value_ty);
-            self.ctx.class_index_values.insert(class_name, value_ty);
-        }
-        self.add_overridden_base_method_fields(base, &method_sigs);
-
-        for element in &class.body.body {
-            match element {
-                ClassElement::PropertyDefinition(_) => {}
-                ClassElement::MethodDefinition(method) => {
-                    // Already lowered as a function-typed field above, because
-                    // this class assigns over it through `this`.
-                    if !method.r#static
-                        && method.kind == MethodDefinitionKind::Method
-                        && method.value.body.is_some()
-                        && property_key_plain_name(&method.key)
-                            .is_some_and(|name| assigned_methods.contains(name))
-                    {
-                        continue;
-                    }
-                    // An overload declaration has no JavaScript body. TypeScript
-                    // validates overload applicability before Smelt runs; when
-                    // the class also contains the matching concrete method, only
-                    // that runtime implementation becomes HIR.
-                    if method.value.body.is_none()
-                        && self.class_method_has_implementation(&class.body.body, method)?
-                    {
-                        continue;
-                    }
-                    if !method.decorators.is_empty() && materialized.is_none() {
-                        return Err(SmeltError::specialization_required(
-                            self.span(method.span.start, method.span.end),
-                            class_text,
-                        ));
-                    }
-                    // Plain source getters AND setters are lowered as class
-                    // methods (`__smelt_get_x` / `__smelt_set_x`) and registered
-                    // as one accessor descriptor per property name below, which
-                    // is what routes `obj.x` and `obj.x = v` to them.
-                    if method.computed && !self.is_resolvable_property_key(&method.key) {
-                        return Err(SmeltError::unsupported(
-                            self.span(method.span.start, method.span.end),
-                            "dynamic computed method names are not lowered yet",
-                        ));
-                    }
-                    if method.r#static {
-                        if materialized.is_some() {
-                            continue;
+                    ClassElement::PropertyDefinition(property) => {
+                        if !property.decorators.is_empty() && materialized.is_none() {
+                            return Err(SmeltError::specialization_required(
+                                this.span(property.span.start, property.span.end),
+                                class_text,
+                            ));
                         }
-                        // Only plain `static foo(..)` methods are lowered as
-                        // receiver-free associated functions (issue #98). Static
-                        // getters/setters and computed static keys are deferred.
-                        if method.kind != MethodDefinitionKind::Method {
+                        if property.computed && !this.is_resolvable_property_key(&property.key) {
                             return Err(SmeltError::unsupported(
-                                self.span(method.span.start, method.span.end),
+                                this.span(property.span.start, property.span.end),
+                                "dynamic computed property names are not lowered yet",
+                            ));
+                        }
+                        if property.r#static {
+                            if materialized.is_some() {
+                                continue;
+                            }
+                            // A `static NAME: T = <literal>` declares a class-level
+                            // constant resolvable via `Class.NAME`. Lower it to a
+                            // materialized static field (issue #98). Non-literal or
+                            // untyped static initializers are not yet lowered.
+                            if let Some(static_field) = this.class_static_field(property)? {
+                                source_static_fields.push(static_field);
+                                continue;
+                            }
+                            // A static field initialized to a function or arrow
+                            // expression (`static c = function () {};`) is a static
+                            // *callable* member, not a data constant. Materializing it
+                            // as an associated function needs the static-method
+                            // lowering path, which is not wired to property
+                            // initializers yet; until then the field is not emitted
+                            // rather than blocking the whole class. This keeps classes
+                            // that merely *carry* such a member lowerable (its value is
+                            // a function, never a data value read back structurally);
+                            // an actual `Class.c(...)` use would fail at the call site
+                            // rather than silently reading a wrong value.
+                            if matches!(
+                                property.value,
+                                Some(
+                                    Expression::FunctionExpression(_)
+                                        | Expression::ArrowFunctionExpression(_)
+                                )
+                            ) {
+                                continue;
+                            }
+                            return Err(SmeltError::unsupported(
+                                this.span(property.span.start, property.span.end),
+                                "static fields require a concrete literal initializer",
+                            ));
+                        }
+                        let name = this.property_key_symbol(&property.key)?;
+                        let mut ty = if let Some(annotation) = &property.type_annotation {
+                            this.ts_type_to_hir(&annotation.type_annotation)?
+                        } else if let Some(value) = &property.value {
+                            let mut field_body =
+                                Body::new(None, this.span(value.span().start, value.span().end));
+                            let value = this.expression(value, &mut field_body)?;
+                            Self::expr_ty(&field_body, value)
+                        } else {
+                            return Err(SmeltError::unsupported(
+                                this.span(property.span.start, property.span.end),
+                                "class fields require explicit type annotations",
+                            ));
+                        };
+                        if property.optional {
+                            ty = this.field_type_with_optional(ty, true);
+                        }
+                        if let Some(value) = &property.value {
+                            field_initializers.push((
+                                name,
+                                ClassFieldInit::Expression(value),
+                                ty,
+                                this.span(property.span.start, property.span.end),
+                            ));
+                        }
+                        // A `#name` field is an ECMAScript *private name*, so it is not an
+                        // own property of the instance (`obj['#name']` is `undefined`, and
+                        // it never shows up in `Object.keys`/`JSON`/a structural compare).
+                        // A source `private`/`protected` modifier is only a compile-time
+                        // restriction, so such a field stays an ordinary own property.
+                        let field_visibility =
+                            if matches!(&property.key, PropertyKey::PrivateIdentifier(_)) {
+                                Visibility::Hidden
+                            } else {
+                                visibility(property.accessibility)
+                            };
+                        fields.push(Field {
+                            name,
+                            ty,
+                            visibility: field_visibility,
+                            optional: property.optional,
+                            span: this.span(property.span.start, property.span.end),
+                        });
+                    }
+                    ClassElement::MethodDefinition(method)
+                        if method.kind == MethodDefinitionKind::Get =>
+                    {
+                        if !method.decorators.is_empty() {
+                            if materialized.is_some() {
+                                continue;
+                            }
+                            return Err(SmeltError::specialization_required(
+                                this.span(method.span.start, method.span.end),
+                                class_text,
+                            ));
+                        }
+                        if method.computed && !this.is_resolvable_property_key(&method.key) {
+                            return Err(SmeltError::unsupported(
+                                this.span(method.span.start, method.span.end),
+                                "dynamic computed method names are not lowered yet",
+                            ));
+                        }
+                        if method.r#static {
+                            if materialized.is_some() {
+                                continue;
+                            }
+                            // Static getters need associated-accessor lowering that
+                            // is not implemented yet; static *methods* are handled in
+                            // the method-lowering pass below.
+                            return Err(SmeltError::unsupported(
+                                this.span(method.span.start, method.span.end),
                                 "static accessors are not lowered yet",
                             ));
                         }
-                        let item = self.class_static_function(
-                            class_text,
-                            class_name,
-                            method,
-                        )?;
-                        static_methods.push(item);
-                        continue;
-                    }
-                    if method.r#type == MethodDefinitionType::TSAbstractMethodDefinition {
-                        if !matches!(method.kind, MethodDefinitionKind::Method) {
-                            return Err(SmeltError::unsupported(
-                                self.span(method.span.start, method.span.end),
-                                "abstract constructors are not lowered yet",
-                            ));
+                        // A plain source getter (`get x() { … }`) lowers to a `&self`
+                        // method plus an accessor descriptor in the second class pass
+                        // below, so reads of `obj.x` dispatch to the computed method
+                        // instead of a dropped stored field (see the reference-class
+                        // spec's finding #3). For a materialized/auto-accessor class
+                        // the getter still keeps its backing field.
+                        if materialized.is_some() {
+                            let name = this.property_key_symbol(&method.key)?;
+                            let ty = method
+                                .value
+                                .return_type
+                                .as_ref()
+                                .map(|annotation| this.ts_type_to_hir(&annotation.type_annotation))
+                                .transpose()?
+                                .unwrap_or_else(|| this.erase(ErasureReason::MissingAnnotation));
+                            fields.push(Field {
+                                // The accessor's backing storage, not a source
+                                // property: it must stay out of every erased view.
+                                visibility: Visibility::Hidden,
+                                name,
+                                ty,
+                                optional: false,
+                                span: this.span(method.span.start, method.span.end),
+                            });
                         }
-                        let sig = self.abstract_class_method_sig(method)?;
-                        abstract_methods.push(sig);
+                    }
+                    ClassElement::TSIndexSignature(sig) => {
+                        // A class string/number index signature `[key: string]: T`
+                        // (or `[key: number]: T`) declares a keyed store whose value
+                        // type is the statically known `T`. Record `T` here (in the
+                        // field-collection pass, before the index-value maps are
+                        // published below) so member and computed access can fall
+                        // back to it when no declared named field or method matches.
+                        // Declared named fields are collected separately and keep
+                        // their concrete types; the index value is only the
+                        // dynamic-keyed fallback shape, never a replacement for named
+                        // members.
+                        let value_ty =
+                            this.ts_type_to_hir(&sig.type_annotation.type_annotation)?;
+                        class_index_value_ty = Some(value_ty);
+                    }
+                    _ => {}
+                }
+            }
+            for element in &class.body.body {
+                let ClassElement::MethodDefinition(method) = element else {
+                    continue;
+                };
+                if method.kind != MethodDefinitionKind::Constructor {
+                    continue;
+                }
+                for param in &method.value.params.items {
+                    // `readonly x` (with no explicit accessibility) is still a
+                    // parameter property and declares a public instance field, so a
+                    // constructor arg such as `constructor(readonly innerError: Error)`
+                    // must produce a field (was E0609 on `.innerError`).
+                    if param.accessibility.is_none() && !param.readonly {
                         continue;
                     }
-                    if !matches!(
-                        method.kind,
-                        MethodDefinitionKind::Constructor
-                            | MethodDefinitionKind::Method
-                            | MethodDefinitionKind::Get
-                            | MethodDefinitionKind::Set
-                    ) {
+                    let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
                         return Err(SmeltError::unsupported(
-                            self.span(method.span.start, method.span.end),
-                            "getters and setters are not lowered yet",
+                            this.span(param.span.start, param.span.end),
+                            "destructured constructor parameter properties are not lowered yet",
                         ));
-                    }
-                    let item = if method.kind == MethodDefinitionKind::Constructor {
-                        if constructor.is_some() {
-                            return Err(SmeltError::unsupported(
-                                self.span(method.span.start, method.span.end),
-                                "duplicate constructors are not allowed",
-                            ));
-                        }
-                        let item = self.class_function(
-                            class_text,
-                            class_name,
-                            class_ty,
-                            method,
-                            true,
-                            &field_initializers,
-                        )?;
-                        constructor = Some(item);
-                        item
+                    };
+                    let name = this.intern_source_name(binding.name.as_str());
+                    let ty = if let Some(annotation) = &param.type_annotation {
+                        this.ts_type_to_hir(&annotation.type_annotation)?
+                    } else if let Some(default) = &param.initializer {
+                        let mut initializer_body =
+                            Body::new(None, this.span(default.span().start, default.span().end));
+                        let value = this.expression(default, &mut initializer_body)?;
+                        Self::expr_ty(&initializer_body, value)
                     } else {
-                        let item = self.class_function(
-                            class_text,
-                            class_name,
-                            class_ty,
-                            method,
-                            false,
-                            &[],
-                        )?;
-                        if matches!(
-                            method.kind,
-                            MethodDefinitionKind::Get | MethodDefinitionKind::Set
-                        ) {
-                            descriptor_accessors.push((
-                                self.property_key_symbol(&method.key)?,
-                                method.kind,
-                                item,
+                        this.erase(ErasureReason::MissingAnnotation)
+                    };
+                    fields.push(Field {
+                        name,
+                        ty,
+                        visibility: visibility(param.accessibility),
+                        optional: false,
+                        span: this.span(param.span.start, param.span.end),
+                    });
+                }
+            }
+            let mut static_fields = materialized
+                .as_ref()
+                .map_or_else(Vec::new, |materialized_class| {
+                    this.merge_materialized_class_members(materialized_class, &mut fields, class_span)
+                });
+            // Source-declared `static NAME = <literal>` constants extend the
+            // materialized set; a materialized value takes precedence when a member
+            // is named by both, so only append source statics not already present.
+            for static_field in source_static_fields {
+                if !static_fields
+                    .iter()
+                    .any(|existing| existing.name == static_field.name)
+                {
+                    static_fields.push(static_field);
+                }
+            }
+            let method_sigs = this.class_method_signatures(&class.body.body)?;
+            let virtual_method_fields =
+                this.virtual_method_field_names(&class.body.body, class.r#abstract);
+            this.add_virtual_class_method_fields(&mut fields, &method_sigs, &virtual_method_fields);
+            // Runtime keyed store for a class index signature (issue #84 / #18).
+            //
+            // A class declaring `[key: string]: T` (or `[key: number]: T`) needs a
+            // real backing store so dynamic keyed writes round-trip at runtime:
+            // `x[k] = v; x[k]` must return `v`, and a missing key must read as
+            // `undefined`. The store is a synthesized private `Record<string, T>`
+            // field that sits ALONGSIDE the declared named fields (which stay
+            // concrete). It is added to the class field list here, so it flows
+            // through MIR, struct emission, the `Default`/`Clone` derives, and the
+            // constructor's default struct literal automatically; codegen only has
+            // to route keyed access to it. The field is `Hidden` so it is excluded
+            // from erased object projection. Number-keyed signatures still use a
+            // string-keyed store because JavaScript object property keys are strings.
+            //
+            // Value type `T` stays concrete (`string`, `number`, a class, ...). A
+            // union index value type (`[key: string]: string | number`) is subject
+            // to the SAME pre-existing limitation as a plain union-typed class field:
+            // the generated union enum lacks `Debug`/`Default`, so a struct storing
+            // it does not derive them. That is an orthogonal codegen gap tracked
+            // separately, not specific to the index store.
+            if let Some(value_ty) = class_index_value_ty {
+                let store_name = this.intern_source_name(CLASS_INDEX_STORE_FIELD);
+                let key_ty = this.ctx.krate.types.intern(Type::String);
+                let store_ty = this.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+                if !fields.iter().any(|field| field.name == store_name) {
+                    fields.push(Field {
+                        name: store_name,
+                        ty: store_ty,
+                        // Compiler-synthesized keyed storage, never a source property.
+                        visibility: Visibility::Hidden,
+                        optional: false,
+                        span: class_span,
+                    });
+                }
+            }
+            this.classes.set_fields(class_text.to_owned(), fields.clone());
+            this.classes.set_methods(class_text.to_owned(), method_sigs.clone());
+            // Publish the class index-signature value type (if any) so member and
+            // computed access can resolve keyed reads/writes through it while the
+            // class's own method bodies are still being lowered, and so later
+            // modules see it too. Named fields resolve first; this is the fallback.
+            //
+            // This drives the *type* level of the index signature (issue #84): the
+            // statically known value type `T` types keyed reads as `Optional<T>`
+            // (missing key -> undefined) and undeclared member reads as `T`, while
+            // declared named fields keep their concrete types. The matching runtime
+            // keyed *store* — the synthesized `__smelt_index_store` field added above
+            // — makes dynamic writes round-trip: codegen routes `x[k] = v` to
+            // `x.__smelt_index_store.insert(k, v)` and `x[k]` to a store lookup.
+            if let Some(value_ty) = class_index_value_ty {
+                this.classes.set_index_value(class_name, value_ty);
+                this.ctx.class_index_values.insert(class_name, value_ty);
+            }
+            this.add_overridden_base_method_fields(base, &method_sigs);
+
+            for element in &class.body.body {
+                match element {
+                    ClassElement::PropertyDefinition(_) => {}
+                    ClassElement::MethodDefinition(method) => {
+                        // Already lowered as a function-typed field above, because
+                        // this class assigns over it through `this`.
+                        if !method.r#static
+                            && method.kind == MethodDefinitionKind::Method
+                            && method.value.body.is_some()
+                            && property_key_plain_name(&method.key)
+                                .is_some_and(|name| assigned_methods.contains(name))
+                        {
+                            continue;
+                        }
+                        // An overload declaration has no JavaScript body. TypeScript
+                        // validates overload applicability before Smelt runs; when
+                        // the class also contains the matching concrete method, only
+                        // that runtime implementation becomes HIR.
+                        if method.value.body.is_none()
+                            && this.class_method_has_implementation(&class.body.body, method)?
+                        {
+                            continue;
+                        }
+                        if !method.decorators.is_empty() && materialized.is_none() {
+                            return Err(SmeltError::specialization_required(
+                                this.span(method.span.start, method.span.end),
+                                class_text,
                             ));
                         }
-                        // Register a source-level accessor descriptor for a plain
-                        // getter or setter so member reads dispatch to the
-                        // computed method and member WRITES dispatch to the
-                        // setter. A property with both accessors is ONE
-                        // descriptor carrying both halves, whichever order the
-                        // two appear in the class body, because that is what the
-                        // read and write emitters look up by property name.
-                        if materialized.is_none()
-                            && matches!(
+                        // Plain source getters AND setters are lowered as class
+                        // methods (`__smelt_get_x` / `__smelt_set_x`) and registered
+                        // as one accessor descriptor per property name below, which
+                        // is what routes `obj.x` and `obj.x = v` to them.
+                        if method.computed && !this.is_resolvable_property_key(&method.key) {
+                            return Err(SmeltError::unsupported(
+                                this.span(method.span.start, method.span.end),
+                                "dynamic computed method names are not lowered yet",
+                            ));
+                        }
+                        if method.r#static {
+                            if materialized.is_some() {
+                                continue;
+                            }
+                            // Only plain `static foo(..)` methods are lowered as
+                            // receiver-free associated functions (issue #98). Static
+                            // getters/setters and computed static keys are deferred.
+                            if method.kind != MethodDefinitionKind::Method {
+                                return Err(SmeltError::unsupported(
+                                    this.span(method.span.start, method.span.end),
+                                    "static accessors are not lowered yet",
+                                ));
+                            }
+                            let item = this.class_static_function(
+                                class_text,
+                                class_name,
+                                method,
+                            )?;
+                            static_methods.push(item);
+                            continue;
+                        }
+                        if method.r#type == MethodDefinitionType::TSAbstractMethodDefinition {
+                            if !matches!(method.kind, MethodDefinitionKind::Method) {
+                                return Err(SmeltError::unsupported(
+                                    this.span(method.span.start, method.span.end),
+                                    "abstract constructors are not lowered yet",
+                                ));
+                            }
+                            let sig = this.abstract_class_method_sig(method)?;
+                            abstract_methods.push(sig);
+                            continue;
+                        }
+                        if !matches!(
+                            method.kind,
+                            MethodDefinitionKind::Constructor
+                                | MethodDefinitionKind::Method
+                                | MethodDefinitionKind::Get
+                                | MethodDefinitionKind::Set
+                        ) {
+                            return Err(SmeltError::unsupported(
+                                this.span(method.span.start, method.span.end),
+                                "getters and setters are not lowered yet",
+                            ));
+                        }
+                        let item = if method.kind == MethodDefinitionKind::Constructor {
+                            if constructor.is_some() {
+                                return Err(SmeltError::unsupported(
+                                    this.span(method.span.start, method.span.end),
+                                    "duplicate constructors are not allowed",
+                                ));
+                            }
+                            let item = this.class_function(
+                                class_text,
+                                class_name,
+                                class_ty,
+                                method,
+                                true,
+                                &field_initializers,
+                            )?;
+                            constructor = Some(item);
+                            item
+                        } else {
+                            let item = this.class_function(
+                                class_text,
+                                class_name,
+                                class_ty,
+                                method,
+                                false,
+                                &[],
+                            )?;
+                            if matches!(
                                 method.kind,
                                 MethodDefinitionKind::Get | MethodDefinitionKind::Set
-                            )
-                        {
-                            let name = self.property_key_symbol(&method.key)?;
-                            match method.kind {
-                                MethodDefinitionKind::Get => {
-                                    // `Unknown` is interned only when an
-                                    // accessor genuinely has no annotation:
-                                    // interning it unconditionally would add an
-                                    // `Unknown` entry to the type table of every
-                                    // crate that declares any class method,
-                                    // which flips crate-wide erasure decisions
-                                    // (record backing, the erased prelude) for
-                                    // code that has no erased value at all.
-                                    let read_ty = match method.value.return_type.as_ref() {
-                                        Some(annotation) => {
-                                            self.ts_type_to_hir(&annotation.type_annotation)?
-                                        }
-                                        None => self.erase(ErasureReason::MissingAnnotation),
-                                    };
-                                    if let Some(existing) = source_descriptors
-                                        .iter_mut()
-                                        .find(|descriptor| descriptor.name == name)
-                                    {
-                                        existing.read_ty = read_ty;
-                                        existing.getter = Some(item);
-                                    } else {
-                                        source_descriptors.push(smelt_hir::Descriptor {
-                                            name,
-                                            read_ty,
-                                            write_ty: None,
-                                            getter: Some(item),
-                                            setter: None,
-                                            data_descriptor: false,
-                                            is_static: false,
-                                            value_fields: Vec::new(),
-                                        });
-                                    }
-                                }
-                                MethodDefinitionKind::Set => {
-                                    // The written type is the setter's own
-                                    // parameter type; a setter takes exactly one
-                                    // parameter, and an unannotated one is the
-                                    // erased boundary the same way an
-                                    // unannotated getter return is.
-                                    let write_ty = match method
-                                        .value
-                                        .params
-                                        .items
-                                        .first()
-                                        .and_then(|param| param.type_annotation.as_ref())
-                                    {
-                                        Some(annotation) => {
-                                            self.ts_type_to_hir(&annotation.type_annotation)?
-                                        }
-                                        None => self.erase(ErasureReason::MissingAnnotation),
-                                    };
-                                    if let Some(existing) = source_descriptors
-                                        .iter_mut()
-                                        .find(|descriptor| descriptor.name == name)
-                                    {
-                                        existing.write_ty = Some(write_ty);
-                                        existing.setter = Some(item);
-                                    } else {
-                                        source_descriptors.push(smelt_hir::Descriptor {
-                                            name,
-                                            // A set-only property has no getter,
-                                            // so no READ ever dispatches through
-                                            // this descriptor (a getterless
-                                            // descriptor read is an emit error,
-                                            // and JavaScript answers `undefined`
-                                            // for one). The slot mirrors the
-                                            // written type rather than interning
-                                            // `Unknown`, which would add an
-                                            // erased entry to the crate's type
-                                            // table for a value that never
-                                            // exists.
-                                            read_ty: write_ty,
-                                            write_ty: Some(write_ty),
-                                            getter: None,
-                                            setter: Some(item),
-                                            data_descriptor: false,
-                                            is_static: false,
-                                            value_fields: Vec::new(),
-                                        });
-                                    }
-                                }
-                                _ => {}
+                            ) {
+                                descriptor_accessors.push((
+                                    this.property_key_symbol(&method.key)?,
+                                    method.kind,
+                                    item,
+                                ));
                             }
-                        }
-                        methods.push(item);
-                        item
-                    };
-                    let _ = item;
-                }
-                ClassElement::AccessorProperty(accessor) => {
-                    if materialized.is_some() {
-                        continue;
+                            // Register a source-level accessor descriptor for a plain
+                            // getter or setter so member reads dispatch to the
+                            // computed method and member WRITES dispatch to the
+                            // setter. A property with both accessors is ONE
+                            // descriptor carrying both halves, whichever order the
+                            // two appear in the class body, because that is what the
+                            // read and write emitters look up by property name.
+                            if materialized.is_none()
+                                && matches!(
+                                    method.kind,
+                                    MethodDefinitionKind::Get | MethodDefinitionKind::Set
+                                )
+                            {
+                                let name = this.property_key_symbol(&method.key)?;
+                                match method.kind {
+                                    MethodDefinitionKind::Get => {
+                                        // `Unknown` is interned only when an
+                                        // accessor genuinely has no annotation:
+                                        // interning it unconditionally would add an
+                                        // `Unknown` entry to the type table of every
+                                        // crate that declares any class method,
+                                        // which flips crate-wide erasure decisions
+                                        // (record backing, the erased prelude) for
+                                        // code that has no erased value at all.
+                                        let read_ty = match method.value.return_type.as_ref() {
+                                            Some(annotation) => {
+                                                this.ts_type_to_hir(&annotation.type_annotation)?
+                                            }
+                                            None => this.erase(ErasureReason::MissingAnnotation),
+                                        };
+                                        if let Some(existing) = source_descriptors
+                                            .iter_mut()
+                                            .find(|descriptor| descriptor.name == name)
+                                        {
+                                            existing.read_ty = read_ty;
+                                            existing.getter = Some(item);
+                                        } else {
+                                            source_descriptors.push(smelt_hir::Descriptor {
+                                                name,
+                                                read_ty,
+                                                write_ty: None,
+                                                getter: Some(item),
+                                                setter: None,
+                                                data_descriptor: false,
+                                                is_static: false,
+                                                value_fields: Vec::new(),
+                                            });
+                                        }
+                                    }
+                                    MethodDefinitionKind::Set => {
+                                        // The written type is the setter's own
+                                        // parameter type; a setter takes exactly one
+                                        // parameter, and an unannotated one is the
+                                        // erased boundary the same way an
+                                        // unannotated getter return is.
+                                        let write_ty = match method
+                                            .value
+                                            .params
+                                            .items
+                                            .first()
+                                            .and_then(|param| param.type_annotation.as_ref())
+                                        {
+                                            Some(annotation) => {
+                                                this.ts_type_to_hir(&annotation.type_annotation)?
+                                            }
+                                            None => this.erase(ErasureReason::MissingAnnotation),
+                                        };
+                                        if let Some(existing) = source_descriptors
+                                            .iter_mut()
+                                            .find(|descriptor| descriptor.name == name)
+                                        {
+                                            existing.write_ty = Some(write_ty);
+                                            existing.setter = Some(item);
+                                        } else {
+                                            source_descriptors.push(smelt_hir::Descriptor {
+                                                name,
+                                                // A set-only property has no getter,
+                                                // so no READ ever dispatches through
+                                                // this descriptor (a getterless
+                                                // descriptor read is an emit error,
+                                                // and JavaScript answers `undefined`
+                                                // for one). The slot mirrors the
+                                                // written type rather than interning
+                                                // `Unknown`, which would add an
+                                                // erased entry to the crate's type
+                                                // table for a value that never
+                                                // exists.
+                                                read_ty: write_ty,
+                                                write_ty: Some(write_ty),
+                                                getter: None,
+                                                setter: Some(item),
+                                                data_descriptor: false,
+                                                is_static: false,
+                                                value_fields: Vec::new(),
+                                            });
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            methods.push(item);
+                            item
+                        };
+                        let _ = item;
                     }
-                    if !accessor.decorators.is_empty() {
-                        return Err(SmeltError::specialization_required(
-                            self.span(accessor.span.start, accessor.span.end),
-                            class_text,
+                    ClassElement::AccessorProperty(accessor) => {
+                        if materialized.is_some() {
+                            continue;
+                        }
+                        if !accessor.decorators.is_empty() {
+                            return Err(SmeltError::specialization_required(
+                                this.span(accessor.span.start, accessor.span.end),
+                                class_text,
+                            ));
+                        }
+                        return Err(SmeltError::unsupported(
+                            this.span(accessor.span.start, accessor.span.end),
+                            "accessor properties are not lowered yet",
                         ));
                     }
-                    return Err(SmeltError::unsupported(
-                        self.span(accessor.span.start, accessor.span.end),
-                        "accessor properties are not lowered yet",
-                    ));
-                }
-                ClassElement::StaticBlock(block) => {
-                    return Err(SmeltError::unsupported(
-                        self.span(block.span.start, block.span.end),
-                        "static blocks are not lowered yet",
-                    ));
-                }
-                ClassElement::TSIndexSignature(_) => {
-                    // The class index signature's value type is collected in the
-                    // field-collection pass above and published to the
-                    // index-value maps; nothing further is emitted for the
-                    // signature member itself here.
-                }
-            }
-        }
-
-        if let Some(materialized_class) = &materialized {
-            let lifted_methods = materialized_class
-                .methods
-                .iter()
-                .filter(|method| {
-                    method.binding_mode == smelt_specialize::BindingMode::Instance
-                        && self.materialized_callable_needs_lift(&method.callable)
-                })
-                .cloned()
-                .collect::<Vec<_>>();
-            for materialized_method in lifted_methods {
-                let method_name =
-                    self.intern_source_name(specialization::materialized_member_name(
-                        &materialized_method.name,
-                    ));
-                let lifted = self.lift_materialized_class_callable(
-                    &materialized_method.callable,
-                    &materialized_method.signature,
-                    specialization::materialized_member_name(&materialized_method.name),
-                    class_name,
-                    class_ty,
-                )?;
-                let original_name =
-                    self.intern_source_name(&format!("__smelt_original_{}", materialized_method.name));
-                let originals = methods
-                    .iter()
-                    .copied()
-                    .filter(|item| {
-                        matches!(
-                            self.item_ref(*item),
-                            Item::Function(function) if function.name == method_name
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                for original in originals {
-                    let index = usize::try_from(original.0).unwrap_or(usize::MAX);
-                    if let Some(Item::Function(function)) =
-                        self.ctx.krate.items.get_mut(index)
-                    {
-                        function.name = original_name;
-                        function.owner = FunctionOwner::ClassMethod {
-                            class: class_name,
-                            method: original_name,
-                        };
+                    ClassElement::StaticBlock(block) => {
+                        return Err(SmeltError::unsupported(
+                            this.span(block.span.start, block.span.end),
+                            "static blocks are not lowered yet",
+                        ));
+                    }
+                    ClassElement::TSIndexSignature(_) => {
+                        // The class index signature's value type is collected in the
+                        // field-collection pass above and published to the
+                        // index-value maps; nothing further is emitted for the
+                        // signature member itself here.
                     }
                 }
-                methods.push(lifted);
             }
-        }
 
-        if constructor.is_none() {
-            constructor = Some(self.synthesize_default_class_constructor(
-                class_text,
-                class_name,
-                class_ty,
-                base.is_some(),
-                &field_initializers,
-                self.span(class.span.start, class.span.end),
-            )?);
-        }
-        let mut instance_initializers = Vec::new();
-        if let Some(materialized_class) = &materialized {
-            let initializer_signature = smelt_specialize::FunctionSignature {
-                parameters: Vec::new(),
-                return_type: smelt_specialize::StaticType::Null,
-                is_async: false,
-                throws: false,
-            };
-            for initializer in materialized_class.initializers.iter().filter(|initializer| {
-                initializer.kind == smelt_specialize::InitializerKind::Instance
-            }) {
-                let hidden_name = format!("__smelt_initializer_{}", initializer.order);
-                let item = self.lift_materialized_class_callable(
-                    &initializer.callable,
-                    &initializer_signature,
-                    &hidden_name,
+            if let Some(materialized_class) = &materialized {
+                let lifted_methods = materialized_class
+                    .methods
+                    .iter()
+                    .filter(|method| {
+                        method.binding_mode == smelt_specialize::BindingMode::Instance
+                            && this.materialized_callable_needs_lift(&method.callable)
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                for materialized_method in lifted_methods {
+                    let method_name =
+                        this.intern_source_name(specialization::materialized_member_name(
+                            &materialized_method.name,
+                        ));
+                    let lifted = this.lift_materialized_class_callable(
+                        &materialized_method.callable,
+                        &materialized_method.signature,
+                        specialization::materialized_member_name(&materialized_method.name),
+                        class_name,
+                        class_ty,
+                    )?;
+                    let original_name =
+                        this.intern_source_name(&format!("__smelt_original_{}", materialized_method.name));
+                    let originals = methods
+                        .iter()
+                        .copied()
+                        .filter(|item| {
+                            matches!(
+                                this.item_ref(*item),
+                                Item::Function(function) if function.name == method_name
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    for original in originals {
+                        let index = usize::try_from(original.0).unwrap_or(usize::MAX);
+                        if let Some(Item::Function(function)) =
+                            this.ctx.krate.items.get_mut(index)
+                        {
+                            function.name = original_name;
+                            function.owner = FunctionOwner::ClassMethod {
+                                class: class_name,
+                                method: original_name,
+                            };
+                        }
+                    }
+                    methods.push(lifted);
+                }
+            }
+
+            if constructor.is_none() {
+                constructor = Some(this.synthesize_default_class_constructor(
+                    class_text,
                     class_name,
                     class_ty,
-                )?;
-                methods.push(item);
-                instance_initializers.push((
-                    item,
-                    initializer.target_kind.clone(),
-                    initializer.target_name.clone(),
-                ));
+                    base.is_some(),
+                    &field_initializers,
+                    this.span(class.span.start, class.span.end),
+                )?);
             }
-        }
-        if let Some(constructor) = constructor {
-            self.prepend_materialized_initializer_calls(
-                constructor,
-                &instance_initializers,
-                class_ty,
-                class_span,
-            )?;
-        }
-        let descriptors = materialized.as_ref().map_or_else(
-            || source_descriptors,
-            |materialized_class| {
-                self.merge_materialized_class_descriptors(
-                    materialized_class,
-                    &descriptor_accessors,
+            let mut instance_initializers = Vec::new();
+            if let Some(materialized_class) = &materialized {
+                let initializer_signature = smelt_specialize::FunctionSignature {
+                    parameters: Vec::new(),
+                    return_type: smelt_specialize::StaticType::Null,
+                    is_async: false,
+                    throws: false,
+                };
+                for initializer in materialized_class.initializers.iter().filter(|initializer| {
+                    initializer.kind == smelt_specialize::InitializerKind::Instance
+                }) {
+                    let hidden_name = format!("__smelt_initializer_{}", initializer.order);
+                    let item = this.lift_materialized_class_callable(
+                        &initializer.callable,
+                        &initializer_signature,
+                        &hidden_name,
+                        class_name,
+                        class_ty,
+                    )?;
+                    methods.push(item);
+                    instance_initializers.push((
+                        item,
+                        initializer.target_kind.clone(),
+                        initializer.target_name.clone(),
+                    ));
+                }
+            }
+            if let Some(constructor) = constructor {
+                this.prepend_materialized_initializer_calls(
+                    constructor,
+                    &instance_initializers,
+                    class_ty,
                     class_span,
-                )
-            },
-        );
+                )?;
+            }
+            let descriptors = materialized.as_ref().map_or_else(
+                || source_descriptors,
+                |materialized_class| {
+                    this.merge_materialized_class_descriptors(
+                        materialized_class,
+                        &descriptor_accessors,
+                        class_span,
+                    )
+                },
+            );
 
-        let implements = class
-            .implements
-            .iter()
-            .filter_map(|imp| self.implements_reference(imp).transpose())
-            .collect::<Result<Vec<_>, _>>()?;
-        self.inject_error_marker_fields(base, class_span, &mut fields);
-        let item = self.ctx.krate.push_item(Item::Class(Class {
-            name: class_name,
-            span: self.span(class.span.start, class.span.end),
-            kind: if class.r#abstract {
-                smelt_hir::ClassKind::Abstract
-            } else {
-                smelt_hir::ClassKind::Plain
-            },
-            type_params,
-            base,
-            base_args,
-            fields,
-            static_fields,
-            descriptors,
-            constructor,
-            methods,
-            static_methods,
-            abstract_methods,
-            implements,
-            protocols: Vec::new(),
-        }));
-        self.pop_type_parameter_scope();
+            let implements = class
+                .implements
+                .iter()
+                .filter_map(|imp| this.implements_reference(imp).transpose())
+                .collect::<Result<Vec<_>, _>>()?;
+            this.inject_error_marker_fields(base, class_span, &mut fields);
+            let item = this.ctx.krate.push_item(Item::Class(Class {
+                name: class_name,
+                span: this.span(class.span.start, class.span.end),
+                kind: if class.r#abstract {
+                    smelt_hir::ClassKind::Abstract
+                } else {
+                    smelt_hir::ClassKind::Plain
+                },
+                type_params,
+                base,
+                base_args,
+                fields,
+                static_fields,
+                descriptors,
+                constructor,
+                methods,
+                static_methods,
+                abstract_methods,
+                implements,
+                protocols: Vec::new(),
+            }));
+            Ok(item)
+        })?;
         self.classes.register(class_source_name, item);
         self.validate_implements(item)?;
         Ok(item)
@@ -2796,129 +2764,133 @@ impl ModuleBuilder<'_> {
         field_initializers: &[(smelt_hir::Symbol, ClassFieldInit<'_>, smelt_hir::TypeId, Span)],
         span: Span,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        let saved_locals = self.scope.take_bindings();
         let saved_class = self.current_class.replace(class_text.to_owned());
-        let mut body = Body::new(None, span);
-        let this_symbol = self.ctx.krate.symbols.intern("this");
-        let this_local = body.push_local(LocalDecl {
-            name: Some(this_symbol),
-            ty: class_ty,
-            mutable: true,
-            span,
-        });
-        self.scope.bind("this".to_owned(), this_local);
-        let forwarded = if has_base {
-            self.reproducible_base_constructor_signature(class_text)
-        } else {
-            None
-        };
-        let (params, required_params) = if let Some(forwarded) = forwarded {
-            // `constructor(...args) { super(...args) }`, spelled positionally:
-            // one local per base parameter, then the same `super(...)` lowering
-            // an explicit derived constructor uses, so the base's parameter
-            // defaults, field initializers, parameter properties and its own
-            // `super(...)` all run exactly once and in source order.
-            let mut params = Vec::new();
-            let mut arguments = Vec::new();
-            for parameter in &forwarded.parameters {
-                let local = body.push_local(LocalDecl {
-                    name: Some(parameter.0),
-                    ty: parameter.1,
+        let ctx = self.nested_fn_ctx(BodyKind::Method, false, Some(class_ty));
+        let scope = ScopeGroups::BINDINGS;
+        let lowered = self.with_nested_body(ctx, scope, |this, _| {
+            let mut body = Body::new(None, span);
+            let this_symbol = this.ctx.krate.symbols.intern("this");
+            let this_local = body.push_local(LocalDecl {
+                name: Some(this_symbol),
+                ty: class_ty,
+                mutable: true,
+                span,
+            });
+            this.scope.bind("this".to_owned(), this_local);
+            let forwarded = if has_base {
+                this.reproducible_base_constructor_signature(class_text)
+            } else {
+                None
+            };
+            let (params, required_params) = if let Some(forwarded) = forwarded {
+                // `constructor(...args) { super(...args) }`, spelled positionally:
+                // one local per base parameter, then the same `super(...)` lowering
+                // an explicit derived constructor uses, so the base's parameter
+                // defaults, field initializers, parameter properties and its own
+                // `super(...)` all run exactly once and in source order.
+                let mut params = Vec::new();
+                let mut arguments = Vec::new();
+                for parameter in &forwarded.parameters {
+                    let local = body.push_local(LocalDecl {
+                        name: Some(parameter.0),
+                        ty: parameter.1,
+                        mutable: false,
+                        span,
+                    });
+                    body.params.push(local);
+                    params.push(Param {
+                        name: parameter.0,
+                        local,
+                        ty: parameter.1,
+                        span,
+                    });
+                    arguments.push(body.push_expr(Expr {
+                        kind: ExprKind::Local(local),
+                        ty: parameter.1,
+                        span,
+                    }));
+                }
+                // The forwarded `super(...)` runs BEFORE this class's own field
+                // initializers, exactly as JavaScript orders them.
+                Self::lower_base_constructor_init(
+                    forwarded.base,
+                    &arguments,
+                    this_local,
+                    class_ty,
+                    span,
+                    &mut body,
+                );
+                (params, forwarded.required_params)
+            } else if let Some(base_name) = this.error_like_base_name(class_text).filter(|_| has_base) {
+                // `class E extends Error {}`: the implicit constructor forwards to
+                // the builtin `Error(message?: string)`, whose signature IS known,
+                // so the forwarded message is a typed optional string and runs the
+                // same slot initialization an explicit `super(message)` does.
+                // Ignoring it (the erased fallback below) left every such error with
+                // an empty `message` and `name`.
+                let string_ty = this.ctx.krate.types.intern(Type::String);
+                let message_ty = this.ctx.krate.types.intern(Type::Optional(string_ty));
+                let message_symbol = this.ctx.krate.symbols.intern("message");
+                let message_local = body.push_local(LocalDecl {
+                    name: Some(message_symbol),
+                    ty: message_ty,
                     mutable: false,
                     span,
                 });
-                body.params.push(local);
-                params.push(Param {
-                    name: parameter.0,
-                    local,
-                    ty: parameter.1,
-                    span,
-                });
-                arguments.push(body.push_expr(Expr {
-                    kind: ExprKind::Local(local),
-                    ty: parameter.1,
-                    span,
-                }));
-            }
-            // The forwarded `super(...)` runs BEFORE this class's own field
-            // initializers, exactly as JavaScript orders them.
-            Self::lower_base_constructor_init(
-                forwarded.base,
-                &arguments,
-                this_local,
-                class_ty,
-                span,
-                &mut body,
-            );
-            (params, forwarded.required_params)
-        } else if let Some(base_name) = self.error_like_base_name(class_text).filter(|_| has_base) {
-            // `class E extends Error {}`: the implicit constructor forwards to
-            // the builtin `Error(message?: string)`, whose signature IS known,
-            // so the forwarded message is a typed optional string and runs the
-            // same slot initialization an explicit `super(message)` does.
-            // Ignoring it (the erased fallback below) left every such error with
-            // an empty `message` and `name`.
-            let string_ty = self.ctx.krate.types.intern(Type::String);
-            let message_ty = self.ctx.krate.types.intern(Type::Optional(string_ty));
-            let message_symbol = self.ctx.krate.symbols.intern("message");
-            let message_local = body.push_local(LocalDecl {
-                name: Some(message_symbol),
-                ty: message_ty,
-                mutable: false,
-                span,
-            });
-            body.params.push(message_local);
-            let message = body.push_expr(Expr {
-                kind: ExprKind::Local(message_local),
-                ty: message_ty,
-                span,
-            });
-            self.lower_error_base_super_call(
-                &base_name,
-                &[message],
-                this_local,
-                class_ty,
-                class_text,
-                span,
-                &mut body,
-            );
-            (
-                vec![Param {
-                    name: message_symbol,
-                    local: message_local,
+                body.params.push(message_local);
+                let message = body.push_expr(Expr {
+                    kind: ExprKind::Local(message_local),
                     ty: message_ty,
                     span,
-                }],
-                Some(0),
-            )
-        } else if has_base {
-            // A base this lowering cannot reproduce: see the doc comment for why
-            // the forwarded argument is a genuine dynamic boundary here.
-            let unknown_ty = self.erase(ErasureReason::UnmodeledType);
-            let arg_ty = self.ctx.krate.types.intern(Type::Optional(unknown_ty));
-            let arg_symbol = self.ctx.krate.symbols.intern("_smelt_super_arg");
-            let arg_local = body.push_local(LocalDecl {
-                name: Some(arg_symbol),
-                ty: arg_ty,
-                mutable: false,
-                span,
-            });
-            body.params.push(arg_local);
-            (
-                vec![Param {
-                    name: arg_symbol,
-                    local: arg_local,
-                    ty: arg_ty,
+                });
+                this.lower_error_base_super_call(
+                    &base_name,
+                    &[message],
+                    this_local,
+                    class_ty,
+                    class_text,
                     span,
-                }],
-                Some(0),
-            )
-        } else {
-            (Vec::new(), None)
-        };
-        self.emit_class_field_initializers(this_local, class_ty, field_initializers, &mut body)?;
-        self.scope.restore_bindings(saved_locals);
+                    &mut body,
+                );
+                (
+                    vec![Param {
+                        name: message_symbol,
+                        local: message_local,
+                        ty: message_ty,
+                        span,
+                    }],
+                    Some(0),
+                )
+            } else if has_base {
+                // A base this lowering cannot reproduce: see the doc comment for why
+                // the forwarded argument is a genuine dynamic boundary here.
+                let unknown_ty = this.erase(ErasureReason::UnmodeledType);
+                let arg_ty = this.ctx.krate.types.intern(Type::Optional(unknown_ty));
+                let arg_symbol = this.ctx.krate.symbols.intern("_smelt_super_arg");
+                let arg_local = body.push_local(LocalDecl {
+                    name: Some(arg_symbol),
+                    ty: arg_ty,
+                    mutable: false,
+                    span,
+                });
+                body.params.push(arg_local);
+                (
+                    vec![Param {
+                        name: arg_symbol,
+                        local: arg_local,
+                        ty: arg_ty,
+                        span,
+                    }],
+                    Some(0),
+                )
+            } else {
+                (Vec::new(), None)
+            };
+            this.emit_class_field_initializers(this_local, class_ty, field_initializers, &mut body)?;
+            Ok((body, params, required_params))
+        });
         self.current_class = saved_class;
+        let (body, params, required_params) = lowered?;
         let body_id = self.ctx.krate.push_body(body);
         let name = self.ctx.krate.symbols.intern("new");
         Ok(self.ctx.krate.push_item(Item::Function(Function {
@@ -3314,8 +3286,17 @@ impl ModuleBuilder<'_> {
                 "this-parameter abstract methods are not lowered yet",
             ));
         }
-        let _type_params =
-            self.push_type_parameter_scope(method.value.type_parameters.as_deref())?;
+        self.with_type_parameter_scope(method.value.type_parameters.as_deref(), |this, _| {
+            this.abstract_class_method_sig_in_scope(method)
+        })
+    }
+
+    /// [`Self::abstract_class_method_sig`] with the method's type parameters
+    /// already in scope.
+    fn abstract_class_method_sig_in_scope(
+        &mut self,
+        method: &oxc::ast::ast::MethodDefinition<'_>,
+    ) -> Result<MethodSig, SmeltError> {
         let return_ty = method
             .value
             .return_type
@@ -3401,7 +3382,6 @@ impl ModuleBuilder<'_> {
             is_async: matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_))),
             span: self.span(method.span.start, method.span.end),
         };
-        self.pop_type_parameter_scope();
         Ok(sig)
     }
 
@@ -3559,375 +3539,356 @@ impl ModuleBuilder<'_> {
                     .intern(&format!("{prefix}{source_name}"))
             })
         };
-        let method_type_params =
-            self.push_type_parameter_scope(method.value.type_parameters.as_deref())?;
-        let return_ty = if is_constructor {
-            if method.value.return_type.is_some() {
-                return Err(SmeltError::unsupported(
-                    self.span(method.span.start, method.span.end),
-                    "constructors cannot declare return types",
-                ));
-            }
-            class_ty
-        } else if method.kind == MethodDefinitionKind::Set {
-            self.ctx.krate.types.intern(Type::None)
-        } else {
-            method
-                .value
-                .return_type
-                .as_ref()
-                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                .transpose()?
-                .unwrap_or_else(|| {
-                    let unknown = self.erase(ErasureReason::MissingAnnotation);
-                    if method.value.r#async && !method.value.generator {
-                        self.ctx.krate.types.intern(Type::Future(unknown))
-                    } else {
-                        unknown
+        let (method_type_params, return_ty, lowered) = self.with_type_parameter_scope(
+            method.value.type_parameters.as_deref(),
+            |this, method_type_params| {
+                let return_ty = if is_constructor {
+                    if method.value.return_type.is_some() {
+                        return Err(SmeltError::unsupported(
+                            this.span(method.span.start, method.span.end),
+                            "constructors cannot declare return types",
+                        ));
                     }
-                })
-        };
-        if method.value.r#async
-            && !method.value.generator
-            && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
-        {
-            return Err(SmeltError::unsupported(
-                self.span(method.span.start, method.span.end),
-                "async methods must declare a Promise<T> return type",
-            ));
-        }
-
-        let saved_locals = self.scope.take_bindings();
-        let saved_class = self.current_class.replace(class_text.to_owned());
-        let saved_async = self.current_async;
-        let saved_return_ty = self.current_return_ty;
-        let saved_generator_yields = self.current_generator_yields;
-        self.current_async = method.value.r#async;
-        self.current_return_ty = Some(return_ty);
-        let mut body = Body::new(
-            None,
-            self.span(function_body.span.start, function_body.span.end),
-        );
-        body.is_generator = method.value.generator;
-        let mut params = Vec::new();
-        let this_symbol = self.ctx.krate.symbols.intern("this");
-        let this_local = body.push_local(LocalDecl {
-            name: Some(this_symbol),
-            ty: class_ty,
-            mutable: true,
-            span: self.span(method.span.start, method.span.start),
-        });
-        // A static method has no `this` receiver: it must not bind `this` and
-        // must not carry a receiver parameter, so it lowers to a receiver-free
-        // associated function.
-        if !is_static {
-            self.scope.bind("this".to_owned(), this_local);
-            if !is_constructor {
-                body.params.push(this_local);
-                params.push(Param {
-                    name: this_symbol,
-                    local: this_local,
-                    ty: class_ty,
-                    span: self.span(method.span.start, method.span.start),
-                });
-            }
-        }
-
-        let mut destructured_params = Vec::new();
-        let mut defaulted_params = Vec::new();
-        let mut parameter_property_initializers = Vec::new();
-        for (index, param) in method.value.params.items.iter().enumerate() {
-            let declared_ty = self.function_parameter_type(param)?;
-            let (param_name, span, source_name) =
-                if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
-                    (
-                        self.intern_source_name(binding.name.as_str()),
-                        self.span(binding.span.start, binding.span.end),
-                        Some(binding.name.to_string()),
-                    )
+                    class_ty
+                } else if method.kind == MethodDefinitionKind::Set {
+                    this.ctx.krate.types.intern(Type::None)
                 } else {
-                    let synthetic_name = format!("__param{index}");
-                    (
-                        self.intern_source_name(&synthetic_name),
-                        self.span(param.span.start, param.span.end),
-                        None,
-                    )
+                    method
+                        .value
+                        .return_type
+                        .as_ref()
+                        .map(|annotation| this.ts_type_to_hir(&annotation.type_annotation))
+                        .transpose()?
+                        .unwrap_or_else(|| {
+                            let unknown = this.erase(ErasureReason::MissingAnnotation);
+                            if method.value.r#async && !method.value.generator {
+                                this.ctx.krate.types.intern(Type::Future(unknown))
+                            } else {
+                                unknown
+                            }
+                        })
                 };
-            // Methods and constructors take parameter defaults through exactly the
-            // machinery plain functions use (see `function_declaration_named`): the
-            // ABI parameter widens to `Optional<T>` and a body prelude applies the
-            // declared initializer, so an omitted argument evaluates the source
-            // default instead of the Rust type's zero value. Defaults that already
-            // equal the type's zero value keep the plain ABI, matching the free
-            // function rule.
-            let default_initializer = source_name
-                .is_some()
-                .then_some(param.initializer.as_ref())
-                .flatten()
-                .filter(|initializer| !Self::initializer_is_type_zero_default(initializer));
-            let abi_ty = if default_initializer.is_some()
-                && !matches!(
-                    self.ctx.krate.types.get(declared_ty),
-                    Some(Type::Optional(_))
-                )
-            {
-                self.ctx.krate.types.intern(Type::Optional(declared_ty))
-            } else {
-                declared_ty
-            };
-            let local = body.push_local(LocalDecl {
-                name: Some(param_name),
-                ty: abi_ty,
-                mutable: false,
-                span,
-            });
-            body.params.push(local);
-            if let Some(source_name) = source_name {
-                self.scope.bind(source_name.clone(), local);
-                if let Some(initializer) = default_initializer {
-                    defaulted_params
-                        .push((local, abi_ty, &**initializer, param_name, source_name, span));
-                }
-            } else {
-                destructured_params.push((&param.pattern, local, abi_ty));
-            }
-            params.push(Param {
-                name: param_name,
-                local,
-                ty: abi_ty,
-                span,
-            });
-            if is_constructor && (param.accessibility.is_some() || param.readonly) {
-                // The declared (non-`Optional`) type is the field's type: the
-                // widened ABI slot only exists to carry "argument omitted". The
-                // initializing local is resolved after the default prelude runs,
-                // so a defaulted parameter property stores the applied value.
-                let field = Field {
-                    name: param_name,
-                    ty: declared_ty,
-                    visibility: visibility(param.accessibility),
-                    optional: false,
-                    span,
-                };
-                self.classes.extend_fields(class_text.to_owned(), [field]);
-                parameter_property_initializers.push((
-                    param_name,
-                    binding_source_name(&param.pattern).map(str::to_owned),
-                    declared_ty,
-                    span,
-                ));
-            }
-        }
-        // A rest parameter binds the list of the remaining arguments, exactly as
-        // in `function_declaration_named`. Methods used to skip it, so every
-        // read of the rest name in the body was an unresolved identifier.
-        let rest = match method.value.params.rest.as_ref() {
-            Some(rest) => {
-                let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
-                    self.scope.restore_bindings(saved_locals);
-                    self.current_class = saved_class;
-                    self.current_async = saved_async;
-                    self.current_return_ty = saved_return_ty;
-                    self.current_generator_yields = saved_generator_yields;
-                    self.pop_type_parameter_scope();
-                    return Err(SmeltError::unsupported(
-                        self.span(rest.span.start, rest.span.end),
-                        "destructured rest parameters need rest binding lowering",
-                    ));
-                };
-                let declared = match rest
-                    .type_annotation
-                    .as_ref()
-                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                    .transpose()
+                if method.value.r#async
+                    && !method.value.generator
+                    && !matches!(this.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
                 {
-                    Ok(Some(declared)) => declared,
-                    Ok(None) => {
-                        let item = self.erase(ErasureReason::MissingAnnotation);
-                        self.ctx.krate.types.intern(Type::List(item))
+                    return Err(SmeltError::unsupported(
+                        this.span(method.span.start, method.span.end),
+                        "async methods must declare a Promise<T> return type",
+                    ));
+                }
+
+                let saved_class = this.current_class.replace(class_text.to_owned());
+                let ctx = this.nested_fn_ctx(BodyKind::Method, method.value.r#async, Some(return_ty));
+                let scope = ScopeGroups::BINDINGS;
+                let lowered = this.with_nested_body(ctx, scope, |this, _| {
+                    let mut body = Body::new(
+                        None,
+                        this.span(function_body.span.start, function_body.span.end),
+                    );
+                    body.set_generator(method.value.generator);
+                    let mut params = Vec::new();
+                    let this_symbol = this.ctx.krate.symbols.intern("this");
+                    let this_local = body.push_local(LocalDecl {
+                        name: Some(this_symbol),
+                        ty: class_ty,
+                        mutable: true,
+                        span: this.span(method.span.start, method.span.start),
+                    });
+                    // A static method has no `this` receiver: it must not bind `this` and
+                    // must not carry a receiver parameter, so it lowers to a receiver-free
+                    // associated function.
+                    if !is_static {
+                        this.scope.bind("this".to_owned(), this_local);
+                        if !is_constructor {
+                            body.params.push(this_local);
+                            params.push(Param {
+                                name: this_symbol,
+                                local: this_local,
+                                ty: class_ty,
+                                span: this.span(method.span.start, method.span.start),
+                            });
+                        }
                     }
-                    Err(error) => {
-                        self.scope.restore_bindings(saved_locals);
-                        self.current_class = saved_class;
-                        self.current_async = saved_async;
-                        self.current_return_ty = saved_return_ty;
-                        self.current_generator_yields = saved_generator_yields;
-                        self.pop_type_parameter_scope();
-                        return Err(error);
-                    }
-                };
-                // A fixed-width tuple rest is fixed parameters plus a tuple
-                // binding of them (`lowering::tuple_rest`).
-                if let Some(elements) = self.fixed_tuple_rest_elements(declared) {
-                    let span = self.span(binding.span.start, binding.span.end);
-                    for param in self.bind_tuple_rest_params(
-                        binding.name.as_str(),
-                        declared,
-                        &elements,
-                        span,
-                        &mut body,
-                    ) {
-                        params.push(Param {
-                            name: param.name,
-                            local: param.local,
-                            ty: param.ty,
+
+                    let mut destructured_params = Vec::new();
+                    let mut defaulted_params = Vec::new();
+                    let mut parameter_property_initializers = Vec::new();
+                    for (index, param) in method.value.params.items.iter().enumerate() {
+                        let declared_ty = this.function_parameter_type(param)?;
+                        let (param_name, span, source_name) =
+                            if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                                (
+                                    this.intern_source_name(binding.name.as_str()),
+                                    this.span(binding.span.start, binding.span.end),
+                                    Some(binding.name.to_string()),
+                                )
+                            } else {
+                                let synthetic_name = format!("__param{index}");
+                                (
+                                    this.intern_source_name(&synthetic_name),
+                                    this.span(param.span.start, param.span.end),
+                                    None,
+                                )
+                            };
+                        // Methods and constructors take parameter defaults through exactly the
+                        // machinery plain functions use (see `function_declaration_named`): the
+                        // ABI parameter widens to `Optional<T>` and a body prelude applies the
+                        // declared initializer, so an omitted argument evaluates the source
+                        // default instead of the Rust type's zero value. Defaults that already
+                        // equal the type's zero value keep the plain ABI, matching the free
+                        // function rule.
+                        let default_initializer = source_name
+                            .is_some()
+                            .then_some(param.initializer.as_ref())
+                            .flatten()
+                            .filter(|initializer| !Self::initializer_is_type_zero_default(initializer));
+                        let abi_ty = if default_initializer.is_some()
+                            && !matches!(
+                                this.ctx.krate.types.get(declared_ty),
+                                Some(Type::Optional(_))
+                            )
+                        {
+                            this.ctx.krate.types.intern(Type::Optional(declared_ty))
+                        } else {
+                            declared_ty
+                        };
+                        let local = body.push_local(LocalDecl {
+                            name: Some(param_name),
+                            ty: abi_ty,
+                            mutable: false,
                             span,
                         });
+                        body.params.push(local);
+                        if let Some(source_name) = source_name {
+                            this.scope.bind(source_name.clone(), local);
+                            if let Some(initializer) = default_initializer {
+                                defaulted_params
+                                    .push((local, abi_ty, &**initializer, param_name, source_name, span));
+                            }
+                        } else {
+                            destructured_params.push((&param.pattern, local, abi_ty));
+                        }
+                        params.push(Param {
+                            name: param_name,
+                            local,
+                            ty: abi_ty,
+                            span,
+                        });
+                        if is_constructor && (param.accessibility.is_some() || param.readonly) {
+                            // The declared (non-`Optional`) type is the field's type: the
+                            // widened ABI slot only exists to carry "argument omitted". The
+                            // initializing local is resolved after the default prelude runs,
+                            // so a defaulted parameter property stores the applied value.
+                            let field = Field {
+                                name: param_name,
+                                ty: declared_ty,
+                                visibility: visibility(param.accessibility),
+                                optional: false,
+                                span,
+                            };
+                            this.classes.extend_fields(class_text.to_owned(), [field]);
+                            parameter_property_initializers.push((
+                                param_name,
+                                binding_source_name(&param.pattern).map(str::to_owned),
+                                declared_ty,
+                                span,
+                            ));
+                        }
                     }
-                    None
-                } else {
-                let (ty, item_ty) = match self.rest_param_array_type(declared) {
-                    Ok(pair) => pair,
-                    Err(error) => {
-                        self.scope.restore_bindings(saved_locals);
-                        self.current_class = saved_class;
-                        self.current_async = saved_async;
-                        self.current_return_ty = saved_return_ty;
-                        self.current_generator_yields = saved_generator_yields;
-                        self.pop_type_parameter_scope();
-                        return Err(error);
+                    // A rest parameter binds the list of the remaining arguments, exactly as
+                    // in `function_declaration_named`. Methods used to skip it, so every
+                    // read of the rest name in the body was an unresolved identifier.
+                    let rest = match method.value.params.rest.as_ref() {
+                        Some(rest) => {
+                            let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
+                                return Err(SmeltError::unsupported(
+                                    this.span(rest.span.start, rest.span.end),
+                                    "destructured rest parameters need rest binding lowering",
+                                ));
+                            };
+                            let declared = match rest
+                                .type_annotation
+                                .as_ref()
+                                .map(|annotation| this.ts_type_to_hir(&annotation.type_annotation))
+                                .transpose()
+                            {
+                                Ok(Some(declared)) => declared,
+                                Ok(None) => {
+                                    let item = this.erase(ErasureReason::MissingAnnotation);
+                                    this.ctx.krate.types.intern(Type::List(item))
+                                }
+                                Err(error) => {
+                                    return Err(error);
+                                }
+                            };
+                            // A fixed-width tuple rest is fixed parameters plus a tuple
+                            // binding of them (`lowering::tuple_rest`).
+                            if let Some(elements) = this.fixed_tuple_rest_elements(declared) {
+                                let span = this.span(binding.span.start, binding.span.end);
+                                for param in this.bind_tuple_rest_params(
+                                    binding.name.as_str(),
+                                    declared,
+                                    &elements,
+                                    span,
+                                    &mut body,
+                                ) {
+                                    params.push(Param {
+                                        name: param.name,
+                                        local: param.local,
+                                        ty: param.ty,
+                                        span,
+                                    });
+                                }
+                                None
+                            } else {
+                            let (ty, item_ty) = match this.rest_param_array_type(declared) {
+                                Ok(pair) => pair,
+                                Err(error) => {
+                                    return Err(error);
+                                }
+                            };
+                            let param_name = this.intern_source_name(binding.name.as_str());
+                            let span = this.span(binding.span.start, binding.span.end);
+                            let local = body.push_local(LocalDecl {
+                                name: Some(param_name),
+                                ty,
+                                mutable: false,
+                                span,
+                            });
+                            body.params.push(local);
+                            this.scope.bind(binding.name.to_string(), local);
+                            let index = params.len();
+                            params.push(Param {
+                                name: param_name,
+                                local,
+                                ty,
+                                span,
+                            });
+                            Some(RestParam { index, item_ty })
+                            }
+                        }
+                        None => None,
+                    };
+                    // A DERIVED constructor initializes its own fields and parameter
+                    // properties when `super(...)` returns, not on entry: JavaScript runs the
+                    // base constructor over the instance first, so a field the derived class
+                    // redeclares (`msg = 'hi'` over the base's `msg = 'x'`) must be written
+                    // after the base's initialization, never before it.
+                    let defer_own_initializers = is_constructor
+                        && this.classes.base(class_text).is_some()
+                        && function_body
+                            .statements
+                            .iter()
+                            .any(|statement| this.is_super_call_statement(statement));
+                    if is_constructor && !defer_own_initializers {
+                        this.emit_class_field_initializers(
+                            this_local,
+                            class_ty,
+                            field_initializers,
+                            &mut body,
+                        )?;
                     }
-                };
-                let param_name = self.intern_source_name(binding.name.as_str());
-                let span = self.span(binding.span.start, binding.span.end);
-                let local = body.push_local(LocalDecl {
-                    name: Some(param_name),
-                    ty,
-                    mutable: false,
-                    span,
-                });
-                body.params.push(local);
-                self.scope.bind(binding.name.to_string(), local);
-                let index = params.len();
-                params.push(Param {
-                    name: param_name,
-                    local,
-                    ty,
-                    span,
-                });
-                Some(RestParam { index, item_ty })
-                }
-            }
-            None => None,
-        };
-        // A DERIVED constructor initializes its own fields and parameter
-        // properties when `super(...)` returns, not on entry: JavaScript runs the
-        // base constructor over the instance first, so a field the derived class
-        // redeclares (`msg = 'hi'` over the base's `msg = 'x'`) must be written
-        // after the base's initialization, never before it.
-        let defer_own_initializers = is_constructor
-            && self.classes.base(class_text).is_some()
-            && function_body
-                .statements
-                .iter()
-                .any(|statement| self.is_super_call_statement(statement));
-        if is_constructor && !defer_own_initializers {
-            self.emit_class_field_initializers(
-                this_local,
-                class_ty,
-                field_initializers,
-                &mut body,
-            )?;
-        }
 
-        let mut errors = Vec::new();
-        for (pattern, local, ty) in destructured_params {
-            let root = body.root;
-            let value = body.push_expr(Expr {
-                kind: ExprKind::Local(local),
-                ty,
-                span: self.span(method.span.start, method.span.end),
-            });
-            if let Err(error) =
-                self.binding_declaration(pattern, Some(value), Some(ty), false, &mut body, root)
-            {
-                errors.push(error);
-            }
-        }
-        if let Err(error) = self.apply_parameter_defaults(defaulted_params, &mut body) {
-            errors.push(error);
-        }
-        // Parameter properties are emitted after the default prelude so a
-        // `constructor(public size = 10)` stores `10`, not the `Optional` slot.
-        let resolved_parameter_properties = parameter_property_initializers
-            .into_iter()
-            .filter_map(|(field, source_name, ty, span)| {
-                let local =
-                    source_name.and_then(|source_name| self.scope.lookup(&source_name))?;
-                Some((field, local, ty, span))
-            })
-            .collect::<Vec<_>>();
-        if is_constructor && !defer_own_initializers {
-            Self::emit_parameter_property_initializers(
-                this_local,
-                class_ty,
-                &resolved_parameter_properties,
-                &mut body,
-            );
-        }
-        if let Err(error) =
-            self.predeclare_forward_referenced_locals(&function_body.statements, &mut body)
-        {
-            errors.push(error);
-        }
-        if let Err(error) =
-            self.predeclare_local_function_declarations(&function_body.statements, &mut body)
-        {
-            errors.push(error);
-        }
-        let generator_yields = method
-            .value
-            .generator
-            .then(|| self.initialize_generator_yield_accumulator(&method.value, &mut body));
-        self.current_generator_yields = generator_yields;
-        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
-            // `super(...)` has no callee to defer to once inheritance is flattened
-            // into the derived struct, so it lowers to the base's initialization
-            // applied to `this` instead of running as an ordinary call.
-            if self.is_super_call_statement(statement) {
-                if let Err(error) = self.lower_super_call_statement(
-                    statement,
-                    this_local,
-                    class_ty,
-                    class_text,
-                    &mut body,
-                ) {
-                    errors.push(error);
-                }
-                if defer_own_initializers {
-                    if let Err(error) = self.emit_class_field_initializers(
-                        this_local,
-                        class_ty,
-                        field_initializers,
-                        &mut body,
-                    ) {
+                    let mut errors = Vec::new();
+                    for (pattern, local, ty) in destructured_params {
+                        let root = body.root;
+                        let value = body.push_expr(Expr {
+                            kind: ExprKind::Local(local),
+                            ty,
+                            span: this.span(method.span.start, method.span.end),
+                        });
+                        if let Err(error) =
+                            this.binding_declaration(pattern, Some(value), Some(ty), false, &mut body, root)
+                        {
+                            errors.push(error);
+                        }
+                    }
+                    if let Err(error) = this.apply_parameter_defaults(defaulted_params, &mut body) {
                         errors.push(error);
                     }
-                    Self::emit_parameter_property_initializers(
-                        this_local,
-                        class_ty,
-                        &resolved_parameter_properties,
-                        &mut body,
-                    );
-                }
-                continue;
-            }
-            if let Err(error) = self.statement(statement, &mut body) {
-                errors.push(error);
-            }
-        }
-        if let Some(accumulator) = generator_yields {
-            Self::push_generator_return(accumulator, &method.value, &mut body);
-        }
-        if method.value.r#async {
-            body.build_async_state_machine();
-        }
-        self.scope.restore_bindings(saved_locals);
-        self.current_class = saved_class;
-        self.current_async = saved_async;
-        self.current_return_ty = saved_return_ty;
-        self.current_generator_yields = saved_generator_yields;
-        self.pop_type_parameter_scope();
+                    // Parameter properties are emitted after the default prelude so a
+                    // `constructor(public size = 10)` stores `10`, not the `Optional` slot.
+                    let resolved_parameter_properties = parameter_property_initializers
+                        .into_iter()
+                        .filter_map(|(field, source_name, ty, span)| {
+                            let local =
+                                source_name.and_then(|source_name| this.scope.lookup(&source_name))?;
+                            Some((field, local, ty, span))
+                        })
+                        .collect::<Vec<_>>();
+                    if is_constructor && !defer_own_initializers {
+                        Self::emit_parameter_property_initializers(
+                            this_local,
+                            class_ty,
+                            &resolved_parameter_properties,
+                            &mut body,
+                        );
+                    }
+                    if let Err(error) =
+                        this.predeclare_forward_referenced_locals(&function_body.statements, &mut body)
+                    {
+                        errors.push(error);
+                    }
+                    if let Err(error) =
+                        this.predeclare_local_function_declarations(&function_body.statements, &mut body)
+                    {
+                        errors.push(error);
+                    }
+                    let generator_yields = method
+                        .value
+                        .generator
+                        .then(|| this.initialize_generator_yield_accumulator(&method.value, &mut body));
+                    this.fn_ctx.generator = generator_yields;
+                    for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
+                        // `super(...)` has no callee to defer to once inheritance is flattened
+                        // into the derived struct, so it lowers to the base's initialization
+                        // applied to `this` instead of running as an ordinary call.
+                        if this.is_super_call_statement(statement) {
+                            if let Err(error) = this.lower_super_call_statement(
+                                statement,
+                                this_local,
+                                class_ty,
+                                class_text,
+                                &mut body,
+                            ) {
+                                errors.push(error);
+                            }
+                            if defer_own_initializers {
+                                if let Err(error) = this.emit_class_field_initializers(
+                                    this_local,
+                                    class_ty,
+                                    field_initializers,
+                                    &mut body,
+                                ) {
+                                    errors.push(error);
+                                }
+                                Self::emit_parameter_property_initializers(
+                                    this_local,
+                                    class_ty,
+                                    &resolved_parameter_properties,
+                                    &mut body,
+                                );
+                            }
+                            continue;
+                        }
+                        if let Err(error) = this.statement(statement, &mut body) {
+                            errors.push(error);
+                        }
+                    }
+                    if let Some(accumulator) = generator_yields {
+                        Self::push_generator_return(accumulator, &method.value, &mut body);
+                    }
+                    if method.value.r#async {
+                        body.finish_async();
+                    }
+                    Ok((body, params, rest, errors))
+                });
+                this.current_class = saved_class;
+                Ok((method_type_params, return_ty, lowered))
+            },
+        )?;
+        let (body, params, rest, errors) = lowered?;
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }

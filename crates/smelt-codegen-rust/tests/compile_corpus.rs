@@ -1696,9 +1696,10 @@ const EXPECTED_FIXTURE_FAILURES: &[ExpectedFailure] = &[
     // is a regression from PRs #202/#203.
     ExpectedFailure {
         name: "generic_class_method_callback",
-        errors: 276,
-        cause: "generic class construction with a composite `T[]` constructor parameter: the \
-                emitted struct is used unparameterized, so nearly every use is E0277",
+        errors: 1,
+        cause: "a generic class method's callback over `T[]` is passed by reference where \
+                the method expects the list by value (E0308); the unparameterized-struct \
+                E0277 cascade (276 errors) is gone",
     },
     ExpectedFailure {
         name: "generic_class_two_methods_callback",
@@ -1733,12 +1734,6 @@ const EXPECTED_FIXTURE_FAILURES: &[ExpectedFailure] = &[
         errors: 0,
         cause: "rejected during emission: \"type table does not contain literal operand type \
                 Unknown\" for a variadic callback over `T`",
-    },
-    ExpectedFailure {
-        name: "source_function_named_gen_is_rust_keyword",
-        errors: 2,
-        cause: "a source function named `gen` is emitted verbatim; `gen` is a Rust 2024 \
-                reserved keyword, so the crate does not parse",
     },
     ExpectedFailure {
         name: "callback_sunk_into_erased_parameter",

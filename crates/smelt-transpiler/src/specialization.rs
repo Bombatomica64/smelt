@@ -25,13 +25,50 @@ use crate::{
     manifest::{ManifestSource, exclusion_base, resolve_manifest_path},
 };
 
+/// How one language's specialization batch was resolved.
+#[derive(Debug)]
+pub(crate) enum Batch {
+    /// The source graph has no specialization candidates in this language.
+    NotNeeded,
+    /// Loaded from the project cache or the emitted package artifact.
+    Cached(SpecializationManifest),
+    /// Produced by running the sandboxed host runtime in this build.
+    Fresh(SpecializationManifest),
+}
+
+impl Batch {
+    /// The materialized manifest, unless the batch was not needed.
+    pub(crate) const fn manifest(&self) -> Option<&SpecializationManifest> {
+        match self {
+            Self::NotNeeded => None,
+            Self::Cached(manifest) | Self::Fresh(manifest) => Some(manifest),
+        }
+    }
+}
+
 /// Per-language manifests supplied to pure frontend entry points.
-#[derive(Debug, Default)]
+///
+/// Only [`prepare`] builds one, so a manifest lowering that takes it by type
+/// cannot run before specialization was resolved: "no candidates" is
+/// [`Batch::NotNeeded`], never a forgotten or skipped preparation.
+#[derive(Debug)]
 pub(crate) struct PreparedSpecialization {
     /// Materialized Python source graph.
-    pub(crate) python: Option<SpecializationManifest>,
+    python: Batch,
     /// Materialized TypeScript source graph.
-    pub(crate) typescript: Option<SpecializationManifest>,
+    typescript: Batch,
+}
+
+impl PreparedSpecialization {
+    /// The Python manifest, when the batch was needed.
+    pub(crate) const fn python(&self) -> Option<&SpecializationManifest> {
+        self.python.manifest()
+    }
+
+    /// The TypeScript manifest, when the batch was needed.
+    pub(crate) const fn typescript(&self) -> Option<&SpecializationManifest> {
+        self.typescript.manifest()
+    }
 }
 
 /// Detects candidates and resolves each language batch through cache or sandbox.
@@ -43,7 +80,7 @@ pub(crate) fn prepare(
     let inputs = detection_inputs(sources);
     let detections = detect_specialization_modules(&inputs);
     if detections.is_empty() {
-        return Ok(PreparedSpecialization::default());
+        return Ok(PreparedSpecialization { python: Batch::NotNeeded, typescript: Batch::NotNeeded });
     }
 
     // `exclusion_base` rather than a bare `parent().canonicalize()?`: the
@@ -65,26 +102,14 @@ pub(crate) fn prepare(
     let typescript_sources = candidates_for(HostLanguage::TypeScript, sources, &candidate_paths);
 
     let python = if python_sources.is_empty() {
-        None
+        Batch::NotNeeded
     } else {
-        Some(prepare_python(
-            &manifest_dir,
-            &cache,
-            &package,
-            sources,
-            &python_sources,
-        )?)
+        prepare_python(&manifest_dir, &cache, &package, sources, &python_sources)?
     };
     let typescript = if typescript_sources.is_empty() {
-        None
+        Batch::NotNeeded
     } else {
-        Some(prepare_typescript(
-            &manifest_dir,
-            &cache,
-            &package,
-            sources,
-            &typescript_sources,
-        )?)
+        prepare_typescript(&manifest_dir, &cache, &package, sources, &typescript_sources)?
     };
     Ok(PreparedSpecialization { python, typescript })
 }
@@ -132,7 +157,7 @@ fn prepare_python(
     package: &SpecializationArtifactStore,
     graph: &[&ManifestSource],
     candidates: &[&ManifestSource],
-) -> Result<SpecializationManifest, Box<dyn std::error::Error>> {
+) -> Result<Batch, Box<dyn std::error::Error>> {
     let python = find_executable("python3")?;
     let runtime_version = command_version(&python, &["--version"])?;
     let policy = sandbox_policy(project_root, &python, false);
@@ -147,7 +172,7 @@ fn prepare_python(
         native_adapter_versions: Vec::new(),
     })?;
     if let Some(manifest) = load_cached(cache, package, HostLanguage::Python, &key)? {
-        return Ok(manifest);
+        return Ok(Batch::Cached(manifest));
     }
 
     let modules = candidates
@@ -170,7 +195,7 @@ fn prepare_python(
         },
     )?;
     persist_artifact(cache, package, &key, &manifest)?;
-    Ok(manifest)
+    Ok(Batch::Fresh(manifest))
 }
 
 /// Resolves one TypeScript batch from cache or canonical tsc + sandboxed Node.
@@ -180,7 +205,7 @@ fn prepare_typescript(
     package: &SpecializationArtifactStore,
     graph: &[&ManifestSource],
     candidates: &[&ManifestSource],
-) -> Result<SpecializationManifest, Box<dyn std::error::Error>> {
+) -> Result<Batch, Box<dyn std::error::Error>> {
     let node = find_executable("node")?;
     let tsc = find_executable("tsc")?;
     let node_version = command_version(&node, &["--version"])?;
@@ -209,7 +234,7 @@ fn prepare_typescript(
         native_adapter_versions: Vec::new(),
     })?;
     if let Some(manifest) = load_cached(cache, package, HostLanguage::TypeScript, &key)? {
-        return Ok(manifest);
+        return Ok(Batch::Cached(manifest));
     }
 
     let emitted_root = artifact_root.join(key.as_str());
@@ -247,7 +272,7 @@ fn prepare_typescript(
         },
     )?;
     persist_artifact(cache, package, &key, &manifest)?;
-    Ok(manifest)
+    Ok(Batch::Fresh(manifest))
 }
 
 /// Tries the project cache and then the emitted package artifact.

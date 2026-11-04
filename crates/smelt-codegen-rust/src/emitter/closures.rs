@@ -537,25 +537,11 @@ impl FunctionEmitter<'_> {
                 // way its own file's language does.
                 absent: closure.absent,
             };
-            let mut emitter = FunctionEmitter::new(self.mir, self.context, &function)?;
             // The closure is emitted inline inside the enclosing function, so
-            // the enclosing function's in-scope type parameters remain visible
-            // in the generated Rust. Propagate them so `T`-typed closure
-            // parameters keep their generic shape instead of erasing to
-            // `SmeltUnknown` (which would otherwise force the enclosing generic
-            // signature to erase as well). The enclosing set is already gated by
-            // that function's own erasure decision.
-            emitter.enclosing_type_params = self.current_function_type_params();
-            emitter.trial_generic_function.set(self.trial_generic_function.get());
-            self.inherit_base_initializer_receiver(&mut emitter, &closure.captures);
-            // A closure inside an inherited copy still spells the declaring
-            // base's parameters, which the receiving `impl` does not declare.
-            emitter
-                .inherited_type_args
-                .clone_from(&self.closure_inherited_type_args);
-            emitter
-                .closure_inherited_type_args
-                .clone_from(&self.closure_inherited_type_args);
+            // the enclosing function's in-scope type parameters (and an
+            // inherited copy's substitution, a base initializer's receiver, a
+            // generic trial) carry into its body: see `child_for_closure`.
+            let mut emitter = self.child_for_closure(&function, &closure.captures)?;
             for (index, param) in closure.params.iter().enumerate() {
                 emitter.names.insert(*param, format!("closure_arg_{index}"));
             }
@@ -1359,7 +1345,7 @@ impl FunctionEmitter<'_> {
             for statement in &block.statements {
                 self.emit_statement(statement, out)?;
             }
-            let branch_declared = self.declared_locals_snapshot();
+            let branch_declared = self.declared_scope();
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
             // Both branches run inside the generated `loop`, so any MIR `Return`
             // they reach must become an explicit `return` (see `in_loop`). A
@@ -1373,7 +1359,7 @@ impl FunctionEmitter<'_> {
                 true,
             )?;
             out.push_str("    } else {\n");
-            self.restore_declared_locals(branch_declared.clone());
+            branch_declared.reset();
             self.emit_closure_block_inner(
                 self.block(*else_block)?,
                 out,
@@ -1383,7 +1369,7 @@ impl FunctionEmitter<'_> {
             )?;
             out.push_str("    }\n");
             out.push_str("    }\n");
-            self.restore_declared_locals(branch_declared);
+            branch_declared.close();
             active.pop();
             return Ok(());
         }
@@ -1554,14 +1540,14 @@ impl FunctionEmitter<'_> {
                 // whole continuation per path (exponential in sequential
                 // branches). Statements follow the `if`, so an arm that returns
                 // must say `return` (the loop-body rule, `in_loop`).
-                let branch_declared = self.declared_locals_snapshot();
+                let branch_declared = self.declared_scope();
                 out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
                 self.emit_closure_block_inner(self.block(*then_block)?, out, active, Some(join), true)?;
                 out.push_str("    } else {\n");
-                self.restore_declared_locals(branch_declared.clone());
+                branch_declared.reset();
                 self.emit_closure_block_inner(self.block(*else_block)?, out, active, Some(join), true)?;
                 out.push_str("    }\n");
-                self.restore_declared_locals(branch_declared);
+                branch_declared.close();
                 self.emit_closure_block_inner(self.block(join)?, out, active, stop, in_loop)
             }
             Terminator::Switch {
@@ -1569,7 +1555,7 @@ impl FunctionEmitter<'_> {
                 then_block,
                 else_block,
             } => {
-                let branch_declared = self.declared_locals_snapshot();
+                let branch_declared = self.declared_scope();
                 out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
                 self.emit_closure_block_inner(
                     self.block(*then_block)?,
@@ -1579,7 +1565,7 @@ impl FunctionEmitter<'_> {
                     in_loop,
                 )?;
                 out.push_str("    } else {\n");
-                self.restore_declared_locals(branch_declared.clone());
+                branch_declared.reset();
                 self.emit_closure_block_inner(
                     self.block(*else_block)?,
                     out,
@@ -1588,7 +1574,7 @@ impl FunctionEmitter<'_> {
                     in_loop,
                 )?;
                 out.push_str("    }\n");
-                self.restore_declared_locals(branch_declared);
+                branch_declared.close();
                 Ok(())
             }
             Terminator::Match {
@@ -1667,7 +1653,7 @@ impl FunctionEmitter<'_> {
         let join = self.match_join(arms, default)?;
         let scrutinee_text = self.match_scrutinee_text(scrutinee)?;
         out.push_str(&format!("    match {scrutinee_text} {{\n"));
-        let match_declared = self.declared_locals_snapshot();
+        let match_declared = self.declared_scope();
         for arm in arms {
             out.push_str(&format!(
                 "        {} => {{\n",
@@ -1675,16 +1661,18 @@ impl FunctionEmitter<'_> {
             ));
             self.emit_closure_block_inner(self.block(arm.target)?, out, active, join, in_loop)?;
             out.push_str("        }\n");
-            self.restore_declared_locals(match_declared.clone());
+            match_declared.reset();
         }
         if let Some(default_block) = default {
             out.push_str("        _ => {\n");
             self.emit_closure_block_inner(self.block(default_block)?, out, active, join, in_loop)?;
             out.push_str("        }\n");
-            self.restore_declared_locals(match_declared);
         } else {
             out.push_str("        _ => {}\n");
         }
+        // Every arm ended with the set reset to the snapshot; close the scope
+        // HERE so the join emitted below keeps its declarations.
+        match_declared.close();
         if join.is_some() {
             out.push_str("    };\n");
         } else {

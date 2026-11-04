@@ -77,7 +77,7 @@ impl ModuleBuilder<'_> {
                 "super() method keyword arguments are not supported yet",
             ));
         }
-        let Some(&self_local) = self.locals.get("self") else {
+        let Some(&self_local) = self.scope.locals.get("self") else {
             return Err(SmeltError::unsupported(
                 span,
                 "super() method calls require a `self` receiver",
@@ -528,14 +528,14 @@ impl ModuleBuilder<'_> {
         if self.items.contains_key(name) {
             return Ok(None);
         }
-        let Some(local) = self.locals.get(name).copied() else {
+        let Some(local) = self.scope.locals.get(name).copied() else {
             return Ok(None);
         };
         let local_ty = Self::local_ty(body, local);
         let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned() else {
             return Ok(None);
         };
-        let callback_meta = self.local_callbacks.get(name).cloned();
+        let callback_meta = self.scope.local_callbacks.get(name).cloned();
         let defaults = callback_meta
             .as_ref()
             .map_or_else(|| vec![None; function.params.len()], |callback| {
@@ -853,7 +853,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         if let Expr::Name(name) = attr.value.as_ref()
-            && !self.locals.contains_key(name.id.as_str())
+            && !self.scope.locals.contains_key(name.id.as_str())
             && !self.items.contains_key(name.id.as_str())
         {
             return Ok(None);
@@ -924,7 +924,7 @@ impl ModuleBuilder<'_> {
         // the same `Type::Class` and only the classmethod receiver is callable).
         if let Expr::Name(name) = call.func.as_ref()
             && name.id.as_str() == "cls"
-            && let Some(&local) = self.locals.get("cls")
+            && let Some(&local) = self.scope.locals.get("cls")
             && let Some(Type::Class { name: class_sym, .. }) =
                 self.ctx.krate.types.get(Self::local_ty(body, local)).cloned()
         {

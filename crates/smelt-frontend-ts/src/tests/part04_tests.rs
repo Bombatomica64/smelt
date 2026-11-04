@@ -4871,7 +4871,7 @@ export function makeCaller(): AsyncCaller {
                     .krate
                     .bodies
                     .get(closure.body.0 as usize)
-                    .is_some_and(|body| body.async_state_machine.is_some())
+                    .is_some_and(|body| body.async_state_machine().is_some())
         })
     });
     ensure!(

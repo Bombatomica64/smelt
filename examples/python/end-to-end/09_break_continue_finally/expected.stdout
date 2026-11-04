@@ -1,0 +1,14 @@
+body 1
+finally 1
+finally 2
+2
+body 1
+finally 1
+finally 2
+body 3
+finally 3
+3
+inner 1
+outer 1
+inner 2
+outer 2

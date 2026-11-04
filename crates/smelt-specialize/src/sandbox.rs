@@ -21,12 +21,14 @@ use crate::SandboxPolicyRecord;
 /// Thread handle for one bounded process-output reader.
 type OutputReader = thread::JoinHandle<Result<Vec<u8>, io::Error>>;
 
-/// Completion state from the wall-time monitor.
-struct WaitOutcome {
-    /// Final child status.
-    status: ExitStatus,
-    /// Whether the monitor killed the child for wall time.
-    timed_out: bool,
+/// How the monitored child left [`wait_for_child`].
+enum Exit {
+    /// It exited on its own with this status.
+    Completed(ExitStatus),
+    /// The monitor killed it at the wall-time deadline.
+    TimedOut,
+    /// The monitor killed it because the output budget was exhausted.
+    OutputExceeded,
 }
 
 /// Availability of a hard-sandbox backend on the current host.
@@ -712,7 +714,15 @@ fn run_prepared(
         policy.output_bytes,
     );
     let wall_limit = Duration::from_millis(policy.wall_time_ms);
-    let wait = wait_for_child(&mut child, &exceeded, started, wall_limit)?;
+    let status = match wait_for_child(&mut child, &exceeded, started, wall_limit)? {
+        Exit::Completed(status) => status,
+        Exit::TimedOut => return Err(SandboxError::WallTimeExceeded { limit: wall_limit }),
+        Exit::OutputExceeded => {
+            return Err(SandboxError::OutputLimitExceeded {
+                limit: policy.output_bytes,
+            });
+        }
+    };
     // A bound violation returns *before* joining the output readers.
     //
     // Killing the launcher does not reap descendants it forked, and an orphan
@@ -724,18 +734,27 @@ fn run_prepared(
     // namespace), but the limit must hold even where the backend does not
     // provide that. The reader threads are detached and exit once the
     // descriptors close; their partial output is discarded on these paths.
-    if wait.timed_out {
-        return Err(SandboxError::WallTimeExceeded { limit: wall_limit });
-    }
+    //
+    // A child that exited on its own can still have exhausted the budget: the
+    // readers may not have drained what it wrote yet, so check before joining
+    // (an already-exceeded budget must not wait for the readers) ...
+    let output_limit = || SandboxError::OutputLimitExceeded {
+        limit: policy.output_bytes,
+    };
     if exceeded.load(Ordering::Acquire) {
-        return Err(SandboxError::OutputLimitExceeded {
-            limit: policy.output_bytes,
-        });
+        return Err(output_limit());
     }
     let stdout = join_reader(stdout_reader)?;
     let stderr = join_reader(stderr_reader)?;
+    // ... and again after: the readers drain the pipes after the child is
+    // gone (a descendant may even write after the guest exited), and a reader
+    // that hits the budget returns its TRUNCATED output. Before this check
+    // that truncated output was reported as a successful run.
+    if exceeded.load(Ordering::Acquire) {
+        return Err(output_limit());
+    }
     Ok(SandboxOutput {
-        status: wait.status,
+        status,
         stdout,
         stderr,
         elapsed: started.elapsed(),
@@ -748,27 +767,20 @@ fn wait_for_child(
     output_exceeded: &AtomicBool,
     started: Instant,
     wall_limit: Duration,
-) -> Result<WaitOutcome, SandboxError> {
+) -> Result<Exit, SandboxError> {
     loop {
         if let Some(status) = child.try_wait()? {
-            return Ok(WaitOutcome {
-                status,
-                timed_out: false,
-            });
+            return Ok(Exit::Completed(status));
         }
         if output_exceeded.load(Ordering::Acquire) {
             child.kill()?;
-            return Ok(WaitOutcome {
-                status: child.wait()?,
-                timed_out: false,
-            });
+            child.wait()?;
+            return Ok(Exit::OutputExceeded);
         }
         if started.elapsed() >= wall_limit {
             child.kill()?;
-            return Ok(WaitOutcome {
-                status: child.wait()?,
-                timed_out: true,
-            });
+            child.wait()?;
+            return Ok(Exit::TimedOut);
         }
         thread::sleep(Duration::from_millis(5));
     }
@@ -1081,6 +1093,28 @@ mod tests {
         assert!(
             matches!(outcome, Err(SandboxError::OutputLimitExceeded { .. })),
             "an unbounded writer must trip the output budget, got: {outcome:?}"
+        );
+    }
+
+    /// A guest that exits before its output is drained still answers to the
+    /// output budget.
+    ///
+    /// The shell exits at once; a background descendant writes 40 bytes to the
+    /// inherited stdout 200 ms later, past the 16-byte budget. The monitor sees
+    /// a clean exit, so only a check AFTER the readers are joined can notice --
+    /// before it, this returned the truncated 16 bytes as a successful run.
+    #[cfg(unix)]
+    #[test]
+    fn output_written_after_the_guest_exits_still_trips_the_budget() {
+        let scratch = std::env::temp_dir();
+        let mut bounded = policy(&scratch);
+        bounded.output_bytes = 16;
+        bounded.wall_time_ms = 10_000;
+        let late = "(sleep 0.2; printf '%040d' 0) &";
+        let outcome = run_prepared(&shell_command(late, &bounded), &bounded);
+        assert!(
+            matches!(outcome, Err(SandboxError::OutputLimitExceeded { .. })),
+            "output past the budget must fail the run even after a clean exit, got: {outcome:?}"
         );
     }
 

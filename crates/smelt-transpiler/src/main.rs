@@ -65,270 +65,139 @@ mod unknown_report;
 use std::{io, io::Write as _, path::PathBuf};
 
 use clap::Parser;
-use cli_parser::{Args, Command};
+use cli_parser::{Args, Command, HirMode, MessageFormat, ReportFormat};
 use config::Config;
 use lowering::SourceLang;
 
 /// Result type used by CLI command handlers.
 type CliResult<T> = Result<T, Box<dyn std::error::Error>>;
 
-/// Main CLI entry point.
+/// Main CLI entry point: one dispatch over every subcommand.
 fn main() -> CliResult<()> {
     let args = Args::parse();
-
-    if matches!(args.command, Command::DumpSchema) {
-        let schema = schemars::schema_for!(Config);
-        let mut stdout = io::stdout().lock();
-        writeln!(stdout, "{}", serde_json::to_string_pretty(&schema)?)?;
-        return Ok(());
-    }
-    if let Command::RustDiagnostics {
-        cargo_manifest,
-        output,
-    } = &args.command
-    {
-        let report = diagnostics::rust_diagnostics_markdown(&PathBuf::from(cargo_manifest))?;
-        if let Some(output_path) = output {
-            std::fs::write(output_path, report)?;
-        } else {
+    let manifest_path = PathBuf::from(args.manifest_path.unwrap_or_else(|| "Smelt.toml".to_owned()));
+    match args.command {
+        Command::DumpSchema => {
+            let schema = schemars::schema_for!(Config);
             let mut stdout = io::stdout().lock();
-            write!(stdout, "{report}")?;
+            writeln!(stdout, "{}", serde_json::to_string_pretty(&schema)?)?;
         }
-        return Ok(());
-    }
-    if let Command::RustTestReport {
-        cargo_manifest,
-        build_manifest,
-        focus,
-        guard,
-        full,
-        baseline_report,
-        diagnostics: include_diagnostics,
-        suppress_warnings,
-        output,
-    } = &args.command
-    {
-        if let Some(source_manifest) = build_manifest {
-            let path = PathBuf::from(source_manifest);
-            let config = config_parser::parse(
-                path.to_str()
-                    .ok_or("build manifest path contains invalid UTF-8")?,
-            )?;
-            pipeline::build_rust_crate(&config, &path)?;
+        Command::RustDiagnostics { cargo_manifest, output } => {
+            let report = diagnostics::rust_diagnostics_markdown(&PathBuf::from(cargo_manifest))?;
+            write_report(output.as_deref(), &report)?;
         }
-        let report = test_report::rust_test_report_markdown(&test_report::RustTestReportOptions {
-            cargo_manifest: &PathBuf::from(cargo_manifest),
+        Command::RustTestReport {
+            cargo_manifest,
+            build_manifest,
             focus,
             guard,
-            full: *full,
-            baseline_report: baseline_report.as_deref().map(PathBuf::from),
-            include_diagnostics: *include_diagnostics,
-            suppress_warnings: *suppress_warnings,
-        })?;
-        if let Some(output_path) = output {
-            std::fs::write(output_path, report)?;
-        } else {
-            let mut stdout = io::stdout().lock();
-            write!(stdout, "{report}")?;
-        }
-        return Ok(());
-    }
-
-    if let Command::ListEscapeReport {
-        manifest,
-        format,
-        function,
-        top,
-        output,
-    } = &args.command
-    {
-        let report_format = match format.as_str() {
-            "json" => list_escape_report::ListEscapeReportFormat::Json,
-            "md" | "markdown" => list_escape_report::ListEscapeReportFormat::Markdown,
-            other => {
-                return Err(format!("unknown --format `{other}`; use `md` or `json`").into());
+            full,
+            baseline_report,
+            diagnostics: include_diagnostics,
+            suppress_warnings,
+            output,
+        } => {
+            if let Some(source_manifest) = build_manifest {
+                let path = PathBuf::from(source_manifest);
+                let config = load_config(&path)?;
+                pipeline::build_rust_crate(&config, &path)?;
             }
-        };
-        let report =
-            list_escape_report::list_escape_report(&list_escape_report::ListEscapeReportOptions {
-                manifest: &PathBuf::from(manifest),
-                format: report_format,
-                functions: function,
-                top: *top,
-            })?;
-        if let Some(output_path) = output {
-            std::fs::write(output_path, &report)?;
-        } else {
-            let mut stdout = io::stdout().lock();
-            write!(stdout, "{report}")?;
+            let report =
+                test_report::rust_test_report_markdown(&test_report::RustTestReportOptions {
+                    cargo_manifest: &PathBuf::from(cargo_manifest),
+                    focus: &focus,
+                    guard: &guard,
+                    full,
+                    baseline_report: baseline_report.as_deref().map(PathBuf::from),
+                    include_diagnostics,
+                    suppress_warnings,
+                })?;
+            write_report(output.as_deref(), &report)?;
         }
-        return Ok(());
-    }
-
-    if let Command::TypednessReport {
-        paths,
-        format,
-        baseline,
-        fail_on_regression,
-        update_baseline,
-        output,
-    } = &args.command
-    {
-        let report_format = match format.as_str() {
-            "json" => typedness_report::TypednessFormat::Json,
-            "md" | "markdown" => typedness_report::TypednessFormat::Markdown,
-            other => {
-                return Err(format!("unknown --format `{other}`; use `md` or `json`").into());
+        Command::ListEscapeReport { manifest, format, function, top, output } => {
+            let report = list_escape_report::list_escape_report(
+                &list_escape_report::ListEscapeReportOptions {
+                    manifest: &PathBuf::from(manifest),
+                    format,
+                    functions: &function,
+                    top,
+                },
+            )?;
+            write_report(output.as_deref(), &report)?;
+        }
+        Command::TypednessReport {
+            paths,
+            format,
+            baseline,
+            fail_on_regression,
+            update_baseline,
+            output,
+        } => {
+            let input_paths = paths.iter().map(PathBuf::from).collect::<Vec<_>>();
+            let outcome =
+                typedness_report::typedness_report(&typedness_report::TypednessReportOptions {
+                    paths: &input_paths,
+                    format,
+                    baseline: baseline.as_deref().map(PathBuf::from),
+                    update_baseline,
+                })?;
+            write_report(output.as_deref(), &outcome.rendered)?;
+            if fail_on_regression {
+                return gate(typedness_regression(&outcome));
             }
-        };
-        let input_paths = paths.iter().map(PathBuf::from).collect::<Vec<_>>();
-        let outcome =
-            typedness_report::typedness_report(&typedness_report::TypednessReportOptions {
-                paths: &input_paths,
-                format: report_format,
+        }
+        Command::Ts7ParityReport { inputs, format, output } => {
+            run_ts7_parity_report(&inputs, format, output.as_deref())?;
+        }
+        Command::SmeltUnknownReport {
+            roots,
+            format,
+            baseline,
+            fail_on_regression,
+            erasure: erasure_sidecars,
+            output,
+        } => {
+            let root_paths = roots.iter().map(PathBuf::from).collect::<Vec<_>>();
+            let sidecar_paths = erasure_sidecars.iter().map(PathBuf::from).collect::<Vec<_>>();
+            let outcome = unknown_report::unknown_report(&unknown_report::UnknownReportOptions {
+                roots: &root_paths,
+                format,
                 baseline: baseline.as_deref().map(PathBuf::from),
-                update_baseline: *update_baseline,
+                fail_on_regression,
+                erasure_sidecars: &sidecar_paths,
             })?;
-        if let Some(output_path) = output {
-            std::fs::write(output_path, &outcome.rendered)?;
-        } else {
-            let mut stdout = io::stdout().lock();
-            write!(stdout, "{}", outcome.rendered)?;
+            write_report(output.as_deref(), &outcome.rendered)?;
+            // `outcome.regression` is only set under `--fail-on-regression`.
+            return gate(outcome.regression.as_ref().map(unknown_regression_message));
         }
-        if *fail_on_regression && !outcome.worsened.is_empty() {
-            let mut stderr = io::stderr().lock();
-            writeln!(
-                stderr,
-                "typedness regressed: {} program(s)/kind(s) became less typed than the baseline:",
-                outcome.worsened.len()
-            )?;
-            for worsening in &outcome.worsened {
-                writeln!(stderr, "  {}: {}", worsening.program, worsening.detail)?;
-            }
-            writeln!(
-                stderr,
-                "Make the program at least as typed again, or (only for a documented, \
-                 justified boundary) re-snapshot with --update-baseline. See the \
-                 `Typedness ratchet` policy in AGENTS.md."
-            )?;
-            std::process::exit(1);
-        }
-        return Ok(());
-    }
-
-    if let Command::Ts7ParityReport { inputs, format, output } = &args.command {
-        return run_ts7_parity_report(inputs, format, output.as_deref());
-    }
-
-    if let Command::SmeltUnknownReport {
-        roots,
-        format,
-        baseline,
-        fail_on_regression,
-        erasure: erasure_sidecars,
-        output,
-    } = &args.command
-    {
-        let report_format = match format.as_str() {
-            "json" => unknown_report::UnknownReportFormat::Json,
-            "md" | "markdown" => unknown_report::UnknownReportFormat::Markdown,
-            other => {
-                return Err(format!("unknown --format `{other}`; use `md` or `json`").into());
-            }
-        };
-        let root_paths = roots.iter().map(PathBuf::from).collect::<Vec<_>>();
-        let sidecar_paths = erasure_sidecars.iter().map(PathBuf::from).collect::<Vec<_>>();
-        let outcome = unknown_report::unknown_report(&unknown_report::UnknownReportOptions {
-            roots: &root_paths,
-            format: report_format,
-            baseline: baseline.as_deref().map(PathBuf::from),
-            fail_on_regression: *fail_on_regression,
-            erasure_sidecars: &sidecar_paths,
-        })?;
-        if let Some(output_path) = output {
-            std::fs::write(output_path, &outcome.rendered)?;
-        } else {
-            let mut stdout = io::stdout().lock();
-            write!(stdout, "{}", outcome.rendered)?;
-        }
-        // With `--fail-on-regression`, a rise in avoidable erasure above the
-        // baseline exits nonzero; the message names the delta and the files that
-        // contribute the most so reviewers know where to look first.
-        if let Some(regression) = outcome.regression {
-            use std::fmt::Write as _;
-            let mut message = format!(
-                "avoidable erasure regressed: {} > {} (baseline), +{} occurrence(s)",
-                regression.current, regression.baseline, regression.delta,
-            );
-            if !regression.top_files.is_empty() {
-                message.push_str("\ntop offending files:");
-                for (file, count) in &regression.top_files {
-                    let _ = write!(message, "\n  {count:>6}  {file}");
+        Command::Check { message_format, erasure } => {
+            let config = load_config(&manifest_path)?;
+            let settings = erasure::ErasureSettings::new(config.erasure(), &erasure)?;
+            match message_format {
+                MessageFormat::Human => {
+                    pipeline::check_manifest(&config, &manifest_path, &settings)?;
+                }
+                MessageFormat::Json => {
+                    let diagnostics = lowering::collect_manifest_diagnostics(
+                        &config,
+                        &manifest_path,
+                        Some(&settings),
+                    )?;
+                    let mut stdout = io::stdout().lock();
+                    writeln!(stdout, "{}", serde_json::to_string_pretty(&diagnostics)?)?;
                 }
             }
-            message.push_str(
-                "\nReclassify a genuine boundary (with a code comment + regression test) \
-                 and re-snapshot the baseline, or reduce the erasure. See the \
-                 `SmeltUnknown enforcement` policy in AGENTS.md.",
-            );
-            // Print the message verbatim and exit nonzero. Returning `Err` would
-            // route through the default `Termination` impl, which Debug-prints
-            // the string with escaped newlines — unreadable for a CI gate.
-            let mut stderr = io::stderr().lock();
-            writeln!(stderr, "{message}")?;
-            std::process::exit(1);
         }
-        return Ok(());
-    }
-
-    let manifest_path_string = args
-        .manifest_path
-        .unwrap_or_else(|| "Smelt.toml".to_owned());
-    let manifest_path = PathBuf::from(manifest_path_string);
-    let mut config = config_parser::parse(
-        manifest_path
-            .to_str()
-            .ok_or("manifest path contains invalid UTF-8")?,
-    )?;
-    match args.command {
-        Command::Check {
-            message_format,
-            erasure,
-        } => match message_format.as_str() {
-            "human" => pipeline::check_manifest(
-                &config,
-                &manifest_path,
-                &erasure::ErasureSettings::new(config.erasure(), &erasure)?,
-            )?,
-            "json" => {
-                let diagnostics = lowering::collect_manifest_diagnostics(
-                    &config,
-                    &manifest_path,
-                    Some(&erasure::ErasureSettings::new(config.erasure(), &erasure)?),
-                )?;
-                let mut stdout = io::stdout().lock();
-                writeln!(stdout, "{}", serde_json::to_string_pretty(&diagnostics)?)?;
-            }
-            other => {
-                return Err(
-                    format!("unknown --message-format `{other}`; use `human` or `json`").into(),
-                );
-            }
-        },
-        Command::Build {
-            hir,
-            hir_debug,
-            define,
-            erasure,
-        } => {
+        Command::Build { hir, define, erasure } => {
+            let mut config = load_config(&manifest_path)?;
             config.extend_defines(define);
-            if hir || hir_debug {
+            if let Some(mode) = hir.mode() {
                 let (krate, modules) = lowering::lower_manifest_entries(&config, &manifest_path)?;
-                pipeline::print_hir(&krate, &modules, hir_debug);
-                return Ok(());
+                pipeline::print_hir(&krate, &modules, mode);
+            } else {
+                let settings = erasure::ErasureSettings::new(config.erasure(), &erasure)?;
+                pipeline::build_rust_crate_with_erasure(&config, &manifest_path, &settings)?;
             }
-            let settings = erasure::ErasureSettings::new(config.erasure(), &erasure)?;
-            pipeline::build_rust_crate_with_erasure(&config, &manifest_path, &settings)?;
         }
         Command::New { name, python } => {
             return Err(format!(
@@ -338,7 +207,8 @@ fn main() -> CliResult<()> {
         }
         Command::DumpHir { file, debug } => {
             let (krate, modules) = lowering::lower_single_file(&file)?;
-            pipeline::print_hir(&krate, &modules, debug);
+            let mode = if debug { HirMode::Debug } else { HirMode::Compact };
+            pipeline::print_hir(&krate, &modules, mode);
         }
         Command::DumpMir { file } => {
             let (krate, _) = lowering::lower_single_file(&file)?;
@@ -352,68 +222,110 @@ fn main() -> CliResult<()> {
                     .into());
             }
         },
-        Command::Probe {
-            run_tests,
-            format,
-            output,
-        } => {
-            let probe_format = match format.as_str() {
-                "json" => probe::ProbeFormat::Json,
-                "md" | "markdown" => probe::ProbeFormat::Markdown,
-                other => {
-                    return Err(format!("unknown --format `{other}`; use `md` or `json`").into());
-                }
-            };
+        Command::Probe { run_tests, format, output } => {
+            let config = load_config(&manifest_path)?;
             let report = probe::probe_report(&probe::ProbeOptions {
                 config: &config,
                 manifest_path: &manifest_path,
                 run_tests,
-                format: probe_format,
+                format,
             })?;
-            if let Some(output_path) = output {
-                std::fs::write(output_path, report)?;
-            } else {
-                let mut stdout = io::stdout().lock();
-                write!(stdout, "{report}")?;
-            }
-        }
-        Command::RustDiagnostics { .. }
-        | Command::RustTestReport { .. }
-        | Command::SmeltUnknownReport { .. }
-        | Command::Ts7ParityReport { .. }
-        | Command::TypednessReport { .. }
-        | Command::ListEscapeReport { .. }
-        | Command::DumpSchema => {
-            return Ok(());
+            write_report(output.as_deref(), &report)?;
         }
         Command::Clean => return Err("`smelt clean` is not implemented yet".into()),
     }
     Ok(())
 }
 
-/// Runs `smelt ts7-parity-report`.
-#[cfg(feature = "ts7")]
-fn run_ts7_parity_report(inputs: &[String], format: &str, output: Option<&str>) -> CliResult<()> {
-    let report_format = match format {
-        "json" => ts7_parity_report::ParityFormat::Json,
-        "md" | "markdown" => ts7_parity_report::ParityFormat::Markdown,
-        other => return Err(format!("unknown --format `{other}`; use `md` or `json`").into()),
-    };
-    let input_paths: Vec<PathBuf> = inputs.iter().map(PathBuf::from).collect();
-    let rendered = ts7_parity_report::ts7_parity_report(&ts7_parity_report::ParityReportOptions {
-        inputs: &input_paths,
-        format: report_format,
-    })?;
-    if let Some(path) = output {
-        std::fs::write(path, rendered)?;
+/// Parse the `Smelt.toml` at `path`.
+fn load_config(path: &std::path::Path) -> CliResult<Config> {
+    config_parser::parse(path.to_str().ok_or("manifest path contains invalid UTF-8")?)
+}
+
+/// Write a rendered report to `output`, or to stdout when none is given.
+fn write_report(output: Option<&str>, report: &str) -> CliResult<()> {
+    if let Some(output_path) = output {
+        std::fs::write(output_path, report)?;
     } else {
-        write!(io::stdout().lock(), "{rendered}")?;
+        write!(io::stdout().lock(), "{report}")?;
     }
     Ok(())
 }
 
+/// Finish a gated report: print a failing gate's message verbatim and exit 1.
+///
+/// Returning `Err` instead would route through the default `Termination`
+/// impl, which Debug-prints the string with escaped newlines — unreadable for
+/// a CI gate.
+#[expect(clippy::exit, reason = "a failing CI gate exits 1 with its message as written")]
+fn gate(failure: Option<String>) -> CliResult<()> {
+    if let Some(message) = failure {
+        writeln!(io::stderr().lock(), "{message}")?;
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+/// The typedness gate's failure message, when any program became less typed.
+fn typedness_regression(outcome: &typedness_report::TypednessOutcome) -> Option<String> {
+    use std::fmt::Write as _;
+    if outcome.worsened.is_empty() {
+        return None;
+    }
+    let mut message = format!(
+        "typedness regressed: {} program(s)/kind(s) became less typed than the baseline:",
+        outcome.worsened.len()
+    );
+    for worsening in &outcome.worsened {
+        let _ = write!(message, "\n  {}: {}", worsening.program, worsening.detail);
+    }
+    message.push_str(
+        "\nMake the program at least as typed again, or (only for a documented, \
+         justified boundary) re-snapshot with --update-baseline. See the \
+         `Typedness ratchet` policy in AGENTS.md.",
+    );
+    Some(message)
+}
+
+/// The `SmeltUnknown` gate's failure message: the delta and the files that
+/// contribute the most, so reviewers know where to look first.
+fn unknown_regression_message(regression: &unknown_report::Regression) -> String {
+    use std::fmt::Write as _;
+    let mut message = format!(
+        "avoidable erasure regressed: {} > {} (baseline), +{} occurrence(s)",
+        regression.current, regression.baseline, regression.delta,
+    );
+    if !regression.top_files.is_empty() {
+        message.push_str("\ntop offending files:");
+        for (file, count) in &regression.top_files {
+            let _ = write!(message, "\n  {count:>6}  {file}");
+        }
+    }
+    message.push_str(
+        "\nReclassify a genuine boundary (with a code comment + regression test) \
+         and re-snapshot the baseline, or reduce the erasure. See the \
+         `SmeltUnknown enforcement` policy in AGENTS.md.",
+    );
+    message
+}
+
+/// Runs `smelt ts7-parity-report`.
+#[cfg(feature = "ts7")]
+fn run_ts7_parity_report(inputs: &[String], format: ReportFormat, output: Option<&str>) -> CliResult<()> {
+    let input_paths: Vec<PathBuf> = inputs.iter().map(PathBuf::from).collect();
+    let rendered = ts7_parity_report::ts7_parity_report(&ts7_parity_report::ParityReportOptions {
+        inputs: &input_paths,
+        format,
+    })?;
+    write_report(output, &rendered)
+}
+
 /// `smelt ts7-parity-report` needs the embedded TypeScript 7 checker.
 #[cfg(not(feature = "ts7"))]
-fn run_ts7_parity_report(_inputs: &[String], _format: &str, _output: Option<&str>) -> CliResult<()> {
+fn run_ts7_parity_report(
+    _inputs: &[String],
+    _format: ReportFormat,
+    _output: Option<&str>,
+) -> CliResult<()> {
     Err("`smelt ts7-parity-report` needs the `ts7` feature (the embedded TypeScript 7 checker)".into())
 }

@@ -431,8 +431,8 @@ struct SmeltPendingFill<K, V> {
 /// The `RefCell` around a field store, building a pending snapshot on first use.
 ///
 /// See `lazy_view` in the code generator: `borrow`/`borrow_mut` are the
-/// `RefCell` ones after materializing; `raw_borrow`/`raw_borrow_mut` skip it
-/// and exist only for the `origin` slot.
+/// `RefCell` ones after materializing; `origin`/`origin_mut` skip it and reach
+/// nothing but the `origin` slot.
 pub struct SmeltStoreCell<K, V> {
     cell: ::std::cell::RefCell<SmeltFieldStore<K, V>>,
     pending: ::std::cell::Cell<Option<SmeltPendingFill<K, V>>>,
@@ -461,12 +461,12 @@ impl<K, V> SmeltStoreCell<K, V> {
     /// Mutably borrow the store, building a pending snapshot first.
     #[inline]
     fn borrow_mut(&self) -> ::std::cell::RefMut<'_, SmeltFieldStore<K, V>> { self.materialize(); self.cell.borrow_mut() }
-    /// Borrow the store as it is, pending snapshot left unbuilt (the origin slot only).
+    /// The origin slot, pending snapshot left unbuilt.
     #[inline]
-    fn raw_borrow(&self) -> ::std::cell::Ref<'_, SmeltFieldStore<K, V>> { self.cell.borrow() }
-    /// Mutably borrow the store as it is (the origin slot only).
+    fn origin(&self) -> ::std::cell::Ref<'_, Option<Box<dyn ::std::any::Any>>> { ::std::cell::Ref::map(self.cell.borrow(), |store| &store.origin) }
+    /// The origin slot, mutably, pending snapshot left unbuilt.
     #[inline]
-    fn raw_borrow_mut(&self) -> ::std::cell::RefMut<'_, SmeltFieldStore<K, V>> { self.cell.borrow_mut() }
+    fn origin_mut(&self) -> ::std::cell::RefMut<'_, Option<Box<dyn ::std::any::Any>>> { ::std::cell::RefMut::map(self.cell.borrow_mut(), |store| &mut store.origin) }
 }
 
 impl<K: ::std::fmt::Debug, V: ::std::fmt::Debug> ::std::fmt::Debug for SmeltStoreCell<K, V> {
@@ -899,7 +899,7 @@ fn smelt_function_length(value: &SmeltUnknown) -> f64 { let function = match val
 /// so narrowing the record back hands out the SAME object.
 #[allow(dead_code)]
 fn smelt_with_host_origin<T: 'static>(erased: SmeltUnknown, origin: T) -> SmeltUnknown {
-    if let SmeltUnknown::Object(object) = &erased { object.store.raw_borrow_mut().origin = Some(Box::new(origin)); }
+    if let SmeltUnknown::Object(object) = &erased { *object.store.origin_mut() = Some(Box::new(origin)); }
     erased
 }
 
@@ -1304,10 +1304,10 @@ impl SmeltObject {
     /// narrowing the erased object back hands out the SAME instance rather than
     /// a copy rebuilt from the field snapshot.
     #[allow(dead_code)]
-    fn smelt_with_origin<T: 'static>(self, origin: T) -> Self { self.store.raw_borrow_mut().origin = Some(Box::new(origin)); self }
+    fn smelt_with_origin<T: 'static>(self, origin: T) -> Self { *self.store.origin_mut() = Some(Box::new(origin)); self }
     /// The live typed value this erased object is a view of, when it is a `T`.
     #[allow(dead_code)]
-    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { self.store.raw_borrow().origin.as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }
+    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { self.store.origin().as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }
     /// Build an erased object whose entries `build` produces on first use (see `SmeltStoreCell`).
     #[allow(dead_code)]
     fn lazy_with_id(id: usize, build: impl FnOnce() -> Vec<(String, SmeltUnknown)> + 'static) -> Self { Self { id, store: ::std::rc::Rc::new(SmeltStoreCell::lazy(SmeltFieldStore::default(), Box::new(build), |store, entries| { for (key, value) in entries { store.insert(key, value); } })) } }
@@ -1316,7 +1316,7 @@ impl SmeltObject {
 impl<K, V> SmeltRecord<K, V> {
     /// The live typed value this record's store is an erased view of, when it is a `T`.
     #[allow(dead_code)]
-    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { self.store.raw_borrow().origin.as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }
+    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { self.store.origin().as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }
 }
 
 /// Return whether an erased object key is visible to JavaScript `for...in` iteration.

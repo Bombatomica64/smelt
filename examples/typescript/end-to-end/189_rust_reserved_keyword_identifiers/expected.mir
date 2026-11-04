@@ -1,0 +1,155 @@
+class Machine fields [Public gen: Float, Public type: String] constructor Some(FuncId(4)) methods [FuncId(5), FuncId(6)]
+interface Fields
+
+fn gen (FuncId(0)) -> Float
+  locals
+    %0 param n: Float
+    %1 temp: Float
+  bb0:
+    %1 = copy %0 + 1.0
+    return move %1
+
+fn become (FuncId(1)) -> Float
+  locals
+    %0 param abstract: Float
+    %1 param final: Float
+    %2 user box: Float
+    %3 user virtual: Float
+    %4 temp: Float
+    %5 temp: Float
+    %6 temp: Float
+  bb0:
+    %4 = copy %0 * 10.0
+    %2 = move %4
+    %5 = move %2 + copy %1
+    %3 = move %5
+    %6 = move %3 + 1.0
+    %3 = move %6
+    return move %3
+
+fn read_fields (FuncId(2)) -> String
+  locals
+    %0 param fields: Fields
+    %1 temp: String
+    %2 temp: String
+    %3 temp: String
+  bb0:
+    %1 = copy %0.field18 + copy %0.field1
+    switch copy %0.field19 ? bb1 : bb2
+  bb1:
+    %2 = "!"
+    goto bb3
+  bb2:
+    %2 = "?"
+    goto bb3
+  bb3:
+    %3 = move %1 + move %2
+    return move %3
+
+fn shadowed (FuncId(3)) -> Float
+  locals
+    %0 user macro: fn(Float) -> Float
+    %1 user self: Float
+    %2 user unsized: Float
+    %3 temp: fn(Float) -> Float
+    %4 temp: Float
+  bb0:
+    %1 = 2.0
+    %2 = 3.0
+    %3 = closure ClosureId(0) [copy %1, copy %2]
+    %0 = move %3
+    %4 = closure_call move %0(4.0)
+    return move %4
+
+fn new (FuncId(4)) -> Machine
+  locals
+    %0 user this: Machine
+    %1 param gen: Float
+  bb0:
+    %0 = struct0 {}
+    %0.field1 = copy %1
+    %0.field12 = "unit"
+    return move %0
+
+fn match (FuncId(5)) -> Float
+  locals
+    %0 param this: Machine
+    %1 param override: Float
+    %2 temp: Float
+  bb0:
+    %2 = copy %0.field1 + copy %1
+    return move %2
+
+fn loop (FuncId(6)) -> String
+  locals
+    %0 param this: Machine
+    %1 temp: String
+    %2 temp: String
+  bb0:
+    %1 = copy %0.field12 + ":"
+    %2 = move %1 + copy %0.field1
+    return move %2
+
+fn main (FuncId(7)) -> None
+  locals
+    %0 user machine: Machine
+    %1 temp: Float
+    %2 temp: Machine
+    %3 temp: Float
+    %4 temp: None
+    %5 temp: Float
+    %6 temp: None
+    %7 temp: Float
+    %8 temp: None
+    %9 temp: String
+    %10 temp: None
+    %11 temp: Fields
+    %12 temp: String
+    %13 temp: None
+    %14 temp: Float
+    %15 temp: None
+  bb0:
+    %1 = call fn0(4.0) -> bb1
+  bb1:
+    %2 = call fn4(move %1) -> bb2
+  bb2:
+    %0 = move %2
+    %3 = call fn0(1.0) -> bb3
+  bb3:
+    %4 = call @console_log(move %3) -> bb4
+  bb4:
+    %5 = call fn1(2.0, 3.0) -> bb5
+  bb5:
+    %6 = call @console_log(move %5) -> bb6
+  bb6:
+    %7 = call fn5(copy %0, 7.0) -> bb7
+  bb7:
+    %8 = call @console_log(move %7) -> bb8
+  bb8:
+    %9 = call fn6(move %0) -> bb9
+  bb9:
+    %10 = call @console_log(move %9) -> bb10
+  bb10:
+    %11 = {"gen": 9.0, "dyn": "d", "priv": true}
+    %12 = call fn2(move %11) -> bb11
+  bb11:
+    %13 = call @console_log(move %12) -> bb12
+  bb12:
+    %14 = call fn3() -> bb13
+  bb13:
+    %15 = call @console_log(move %14) -> bb14
+  bb14:
+    return none
+
+closure ClosureId(0) -> Float
+  locals
+    %0 param __callback_param_0: Float
+    %1 user self: Float
+    %2 user unsized: Float
+    %3 temp: Float
+    %4 temp: Float
+  bb0:
+    %3 = copy %0 * copy %1
+    %4 = copy %3 * copy %2
+    return copy %4
+

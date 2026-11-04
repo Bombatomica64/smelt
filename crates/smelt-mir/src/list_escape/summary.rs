@@ -106,7 +106,7 @@
 
 use std::collections::{HashSet, VecDeque};
 
-use crate::{BasicBlock, Callee, FuncId, Mir, MirFunction, Terminator};
+use crate::{BasicBlock, Callee, FuncId, LocalId, Mir, MirFunction, Terminator};
 
 /// What a statically resolved call does to one argument.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,40 +121,88 @@ pub(super) enum ArgumentEffect {
     },
 }
 
-/// The interprocedural escape facts of one [`MirFunction`].
+/// Whether a call site may consult a function's escape facts, and if so what
+/// they are.
 ///
-/// Only meaningful when [`FunctionSummary::resolvable`] is true; the summary of
-/// an unresolvable body is never consulted and stays at its optimistic initial
-/// value.
+/// `Unresolvable` covers `async` and generator bodies and methods of classes
+/// that participate in inheritance (see the module docs): a call to one is an
+/// unknown callee, and it has no facts to misread.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct FunctionSummary {
-    /// Whether a call site may consult this summary at all. False for `async`
-    /// and generator bodies and for methods of classes that participate in
-    /// inheritance; see the module docs.
-    pub(super) resolvable: bool,
-    /// Whether this body packs a `...rest` parameter, which breaks the
-    /// positional argument-to-parameter mapping.
-    pub(super) packs_rest: bool,
-    /// Per parameter, whether a handle on the argument may outlive the call.
-    pub(super) param_escapes: Vec<bool>,
-    /// Per parameter, whether the body writes through it in place.
-    pub(super) param_mutated: Vec<bool>,
-    /// Whether every returned value is a freshly minted list buffer that is not
-    /// reachable from any parameter and is published nowhere else.
-    pub(super) returns_fresh_list: bool,
+pub(super) enum FunctionSummary {
+    /// Calls must be treated as unknown callees.
+    Unresolvable,
+    /// The body's interprocedural escape facts.
+    Known(SummaryFacts),
 }
 
-impl FunctionSummary {
+/// What a body does with one of its parameters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ParamEffect {
+    /// Whether a handle on the argument may outlive the call.
+    pub(super) escapes: bool,
+    /// Whether the body writes through it in place.
+    pub(super) mutated: bool,
+}
+
+/// The interprocedural escape facts of one resolvable [`MirFunction`].
+///
+/// Holds exactly one [`ParamEffect`] per parameter of the function it was built
+/// for: the only constructors walk `function.params`, so the per-parameter
+/// facts cannot disagree in length with each other or with the body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct SummaryFacts {
+    /// Whether this body packs a `...rest` parameter, which breaks the
+    /// positional argument-to-parameter mapping.
+    packs_rest: bool,
+    /// One entry per parameter, in order.
+    params: Vec<ParamEffect>,
+    /// Whether every returned value is a freshly minted list buffer that is not
+    /// reachable from any parameter and is published nowhere else.
+    returns_fresh_list: bool,
+}
+
+impl SummaryFacts {
+    /// The facts of `function`, with `param_effect` answering each parameter.
+    pub(super) fn new(
+        function: &MirFunction,
+        param_effect: impl FnMut(&LocalId) -> ParamEffect,
+        returns_fresh_list: bool,
+    ) -> Self {
+        Self {
+            packs_rest: function.rest.is_some(),
+            params: function.params.iter().map(param_effect).collect(),
+            returns_fresh_list,
+        }
+    }
+
     /// The optimistic bottom element for `function`: nothing escapes, nothing
     /// is mutated, every result is fresh.
-    fn optimistic(function: &MirFunction, resolvable: bool) -> Self {
-        Self {
-            resolvable,
-            packs_rest: function.rest.is_some(),
-            param_escapes: vec![false; function.params.len()],
-            param_mutated: vec![false; function.params.len()],
-            returns_fresh_list: true,
-        }
+    fn optimistic(function: &MirFunction) -> Self {
+        Self::new(
+            function,
+            |_| ParamEffect {
+                escapes: false,
+                mutated: false,
+            },
+            true,
+        )
+    }
+
+    /// Whether every returned value is a fresh, uniquely owned list buffer.
+    pub(super) const fn returns_fresh_list(&self) -> bool {
+        self.returns_fresh_list
+    }
+
+    /// Per parameter, whether the argument may outlive the call.
+    #[cfg(test)]
+    pub(super) fn param_escapes(&self) -> Vec<bool> {
+        self.params.iter().map(|param| param.escapes).collect()
+    }
+
+    /// Per parameter, whether the body mutates the argument in place.
+    #[cfg(test)]
+    pub(super) fn param_mutated(&self) -> Vec<bool> {
+        self.params.iter().map(|param| param.mutated).collect()
     }
 
     /// The effect of this call on the argument at `index`, given that the call
@@ -164,11 +212,14 @@ impl FunctionSummary {
     /// an argument count that does not match the parameter count, an index past
     /// the end — degrades to [`ArgumentEffect::Escapes`].
     pub(super) fn argument_effect(&self, index: usize, arg_count: usize) -> ArgumentEffect {
-        if self.packs_rest || arg_count != self.param_escapes.len() {
+        if self.packs_rest || arg_count != self.params.len() {
             return ArgumentEffect::Escapes;
         }
-        match (self.param_escapes.get(index), self.param_mutated.get(index)) {
-            (Some(false), Some(mutated)) => ArgumentEffect::Confined { mutated: *mutated },
+        match self.params.get(index) {
+            Some(ParamEffect {
+                escapes: false,
+                mutated,
+            }) => ArgumentEffect::Confined { mutated: *mutated },
             _ => ArgumentEffect::Escapes,
         }
     }
@@ -194,7 +245,7 @@ impl CallSummaries {
             summaries: mir
                 .functions
                 .iter()
-                .map(|function| FunctionSummary::optimistic(function, false))
+                .map(|_| FunctionSummary::Unresolvable)
                 .collect(),
             analyses: 0,
         }
@@ -202,10 +253,11 @@ impl CallSummaries {
 
     /// The summary of `func`, or `None` when the call must be treated as an
     /// unknown callee.
-    pub(super) fn resolved(&self, func: FuncId) -> Option<&FunctionSummary> {
-        self.summaries
-            .get(usize::try_from(func.0).ok()?)
-            .filter(|summary| summary.resolvable)
+    pub(super) fn resolved(&self, func: FuncId) -> Option<&SummaryFacts> {
+        match self.summaries.get(usize::try_from(func.0).ok()?)? {
+            FunctionSummary::Known(facts) => Some(facts),
+            FunctionSummary::Unresolvable => None,
+        }
     }
 
     /// How many body summarizations the fixpoint performed.
@@ -232,10 +284,14 @@ impl CallSummaries {
                 .iter()
                 .enumerate()
                 .map(|(index, function)| {
-                    let resolvable = !function.is_async
-                        && !function.is_generator
-                        && !overridable.contains(&index);
-                    FunctionSummary::optimistic(function, resolvable)
+                    if function.is_async
+                        || function.is_generator
+                        || overridable.contains(&index)
+                    {
+                        FunctionSummary::Unresolvable
+                    } else {
+                        FunctionSummary::Known(SummaryFacts::optimistic(function))
+                    }
                 })
                 .collect(),
             analyses: 0,
@@ -247,7 +303,7 @@ impl CallSummaries {
         let mut queued: Vec<bool> = table
             .summaries
             .iter()
-            .map(|summary| summary.resolvable)
+            .map(|summary| matches!(summary, FunctionSummary::Known(_)))
             .collect();
         let mut worklist: VecDeque<usize> = (0..mir.functions.len())
             .filter(|index| queued.get(*index).copied().unwrap_or(false))
@@ -261,7 +317,7 @@ impl CallSummaries {
                 continue;
             };
             table.analyses = table.analyses.saturating_add(1);
-            let next = super::summarize_function(mir, &table, function);
+            let next = FunctionSummary::Known(super::summarize_function(mir, &table, function));
             let changed = table
                 .summaries
                 .get(index)
@@ -278,7 +334,7 @@ impl CallSummaries {
                     && table
                         .summaries
                         .get(*caller)
-                        .is_some_and(|summary| summary.resolvable)
+                        .is_some_and(|summary| matches!(summary, FunctionSummary::Known(_)))
                 {
                     *slot = true;
                     worklist.push_back(*caller);

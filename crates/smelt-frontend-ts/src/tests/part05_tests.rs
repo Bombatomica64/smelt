@@ -369,7 +369,7 @@ function* values(limit: number): Generator<number> {
         })
         .ok_or_else(|| "missing generator function".to_owned())?;
     let body = function_body(&ctx, function)?;
-    ensure!(body.is_generator);
+    ensure!(body.is_generator());
     ensure!(matches!(
         ctx.krate.types.get(function.return_ty),
         Some(Type::Generator { is_async: false, .. })
@@ -473,8 +473,8 @@ async function* values(): AsyncGenerator<number, void> {
         })
         .ok_or_else(|| "missing free async generator".to_owned())?;
     let body = function_body(&ctx, function)?;
-    ensure!(body.async_state_machine.is_some());
-    ensure!(body.is_generator);
+    ensure!(body.async_state_machine().is_some());
+    ensure!(body.is_generator());
     ensure!(matches!(
         ctx.krate.types.get(function.return_ty),
         Some(Type::Generator { is_async: true, .. })
@@ -517,7 +517,7 @@ function testCase(): Generator<number, number, unknown> {
     )?;
     ensure!(
         ctx.krate.bodies.iter().any(|body| {
-            body.is_generator
+            body.is_generator()
                 && body.exprs
                     .iter()
                     .any(|expr| matches!(expr.kind, ExprKind::GeneratorDelegate { .. }))
@@ -552,8 +552,8 @@ const result = safeTry(async function* () {
     )?;
     ensure!(
         ctx.krate.bodies.iter().any(|body| {
-            body.is_generator
-                && body.async_state_machine.is_some()
+            body.is_generator()
+                && body.async_state_machine().is_some()
                 && body.exprs
                     .iter()
                     .any(|expr| matches!(expr.kind, ExprKind::GeneratorDelegate { .. }))

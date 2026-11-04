@@ -274,7 +274,7 @@ impl ModuleBuilder<'_> {
                     mutable: true,
                     span: self.span(target_name.range),
                 });
-                self.locals.insert(name_str.to_owned(), local);
+                self.scope.locals.insert(name_str.to_owned(), local);
                 Ok(body.push_pattern(HirPattern::Binding(local)))
             }
             Expr::Tuple(tuple) => {

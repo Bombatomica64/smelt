@@ -3,9 +3,10 @@
 //! A [`LoweringCtx`] carries every piece of mutable state needed to lower one
 //! HIR body (a function, method, constructor, module top level, or closure)
 //! into a single [`MirFunction`]. It owns the in-progress function, the HIR/MIR
-//! local and expression maps, the block cursor, and the loop/exception target
-//! stacks. Expression, statement, place, and closure lowering are implemented
-//! as methods on this type in sibling modules; this module owns only the shared
+//! local and expression maps, the block cursor, and the control-scope stack
+//! (whose push/pop discipline and cursor API live in [`super::scope`]).
+//! Expression, statement, place, and closure lowering are implemented as
+//! methods on this type in sibling modules; this module owns only the shared
 //! state, its two constructors, and the small accessor helpers that every other
 //! module builds on (`block`, `hir_expr`, `error`, and friends).
 
@@ -16,10 +17,11 @@ use smelt_hir::{
 };
 
 use crate::{
-    BasicBlock, BlockId, ExceptionHandler, FuncId, HirOrigin, LocalDecl, LocalId, LocalKind,
-    AbsentSpelling, MirClosure, MirFunction, NegativeIndex, Operand, Terminator,
+    BasicBlock, BlockId, FuncId, HirOrigin, LocalDecl, LocalId, LocalKind,
+    AbsentSpelling, MirClosure, MirFunction, NegativeIndex, Operand,
 };
 
+use super::scope::ControlScope;
 use super::{LowerError, function_item_for_body, u32_from_usize, usize_from_u32};
 
 /// Context for lowering a function body from HIR to MIR.
@@ -49,45 +51,16 @@ pub(super) struct LoweringCtx<'hir> {
     pub(super) locals: HashMap<HirLocalId, LocalId>,
     /// Mapping of HIR expression IDs to lowered operands.
     pub(super) exprs: HashMap<ExprId, Operand>,
-    /// Stack of loop targets for break/continue.
-    pub(super) loops: Vec<LoopTargets>,
-    /// Stack of lexical exception targets for throws inside try blocks.
-    pub(super) exception_targets: Vec<ExceptionTarget>,
-    /// Stack of lexical finally clauses active at the current source position.
-    pub(super) generator_cleanups: Vec<crate::GeneratorCleanup>,
-    /// HIR blocks of the `finally` clauses lexically enclosing the cursor.
-    ///
-    /// Innermost last. A `return` inside a `try`/`catch` that has a finalizer must
-    /// run every enclosing finalizer before it leaves the function, so
-    /// [`super::LoweringCtx::lower_return`] re-lowers these blocks inline ahead of
-    /// the `Return` terminator. Holding the *HIR* block — rather than the single
-    /// MIR block the fall-through path uses, whose exit continues after the `try` —
-    /// is what makes that duplication possible.
-    pub(super) finally_scopes: Vec<smelt_hir::BlockId>,
+    /// Lexical control scopes (loops, `try`/`catch` regions) enclosing the
+    /// cursor, innermost last. Pushed only through
+    /// [`LoweringCtx::with_scope`]; see [`super::scope`].
+    pub(super) scopes: Vec<ControlScope>,
     /// Numeric type used for generated index-based loop counters.
     pub(super) loop_index_ty: TypeId,
     /// Boolean type used for generated loop conditions.
     pub(super) loop_bool_ty: TypeId,
     /// See [`LoweringShared::thrown_ty`].
     pub(super) thrown_ty: Option<(TypeId, Symbol)>,
-}
-
-/// Target blocks for break and continue statements.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct LoopTargets {
-    /// Target block for break statements.
-    pub(super) break_target: BlockId,
-    /// Target block for continue statements.
-    pub(super) continue_target: BlockId,
-}
-
-/// Target block and optional binding for a lexical catch clause.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct ExceptionTarget {
-    /// Target block for caught throw statements.
-    pub(super) catch_block: BlockId,
-    /// Local receiving the thrown value when the catch has a binding.
-    pub(super) exception_local: Option<LocalId>,
 }
 
 /// Crate-wide inputs shared by every body lowered in one `lower_hir` run.
@@ -220,7 +193,7 @@ impl<'hir> LoweringCtx<'hir> {
         // stringifies an `Optional`.
         function.absent = absent_for(shared.languages, span);
         function.is_async = is_async;
-        function.is_generator = body.is_generator;
+        function.is_generator = body.is_generator();
         if let Some(hir_function) = function_item_for_body(shared.krate, body_id) {
             function.is_test = hir_function.is_test;
             function.rest = hir_function.rest;
@@ -252,7 +225,7 @@ impl<'hir> LoweringCtx<'hir> {
             span,
         );
         function.absent = absent_for(shared.languages, span);
-        function.is_generator = body.is_generator;
+        function.is_generator = body.is_generator();
         let locals = build_locals(&mut function, body)?;
 
         Ok(Self::from_parts(shared, body, function, locals))
@@ -281,10 +254,7 @@ impl<'hir> LoweringCtx<'hir> {
             current_block: BlockId(0),
             locals,
             exprs: HashMap::new(),
-            loops: Vec::new(),
-            exception_targets: Vec::new(),
-            generator_cleanups: Vec::new(),
-            finally_scopes: Vec::new(),
+            scopes: Vec::new(),
             loop_index_ty: shared.loop_index_ty,
             loop_bool_ty: shared.loop_bool_ty,
             thrown_ty: shared.thrown_ty,
@@ -414,22 +384,6 @@ impl<'hir> LoweringCtx<'hir> {
             .patterns
             .get(pattern_index)
             .ok_or_else(|| self.error("HIR pattern index should be valid", None))
-    }
-
-    /// Sets the terminator for the current block.
-    pub(super) fn set_terminator(&mut self, terminator: Terminator) -> Result<(), LowerError> {
-        self.block_mut()?.terminator = Some(terminator);
-        Ok(())
-    }
-
-    /// Returns the active source-language exception handler for a throwing call.
-    pub(super) fn current_exception_handler(&self) -> Option<ExceptionHandler> {
-        self.exception_targets
-            .last()
-            .map(|target| ExceptionHandler {
-                catch_block: target.catch_block,
-                exception_local: target.exception_local,
-            })
     }
 
     /// Creates a lowering error with optional span information.

@@ -12,6 +12,7 @@ mod asserted_member_read;
 mod function_statics;
 mod hoisting;
 mod int32;
+mod postfix_deferral;
 mod presence_tested_locals;
 mod promise_resolution;
 mod specialization;
@@ -822,16 +823,14 @@ struct ModuleBuilder<'ctx> {
     types: state::type_scope::TypeScope,
     /// Currently processing class name, if any.
     current_class: Option<String>,
-    /// Whether the current lowered function body is async.
-    current_async: bool,
-    /// Declared return type for the current lowered function body.
-    current_return_ty: Option<smelt_hir::TypeId>,
-    /// Synthetic yield accumulator for the current generator function body.
-    current_generator_yields: Option<GeneratorYieldAccumulator>,
-    /// Active JavaScript `arguments` object arities for function bodies.
-    current_arguments_arities: Vec<usize>,
-    /// HIR block that owns side-effect statements emitted while lowering an expression.
-    current_statement_block: Option<smelt_hir::BlockId>,
+    /// The context of the function body being lowered: async-ness, return
+    /// type, generator types, `arguments` arity, statement sink, postfix-update
+    /// mode and specialization receiver.
+    ///
+    /// Owns the one-body-one-context invariant documented on
+    /// [`state::fn_ctx::FnCtx`]; nested bodies are entered only through
+    /// `with_fn_ctx`.
+    fn_ctx: state::fn_ctx::FnCtx,
     /// AST receivers (by node address) of the array-method calls currently
     /// being lowered.
     ///
@@ -843,17 +842,6 @@ struct ModuleBuilder<'ctx> {
     /// Keyed by the node's address because the address identifies exactly the
     /// one receiver node; nested calls push and pop their own entries.
     array_view_receivers: Vec<usize>,
-    /// Postfix updates waiting for the variable initializer that reads their original value.
-    deferred_postfix_updates: Option<Vec<Stmt>>,
-    /// Name a class EXPRESSION takes from the binding it initializes.
-    ///
-    /// `const Foo = class { … }` declares a class named `Foo` — that is the
-    /// name TypeScript infers, and it is what makes `new Foo()`, `Foo` in type
-    /// position, `x instanceof Foo` and `extends Foo` resolve nominally. Set
-    /// around the [`Self::class_declaration`] call for such a declarator and
-    /// consumed by it, so a class expression nested deeper inside the same
-    /// initializer still takes its synthetic anonymous name.
-    class_expression_binding_name: Option<String>,
     /// Number of vitest asymmetric matchers (`expect.any`, `expect.arrayContaining`,
     /// ...) lowered so far in this module.
     ///
@@ -864,13 +852,6 @@ struct ModuleBuilder<'ctx> {
     /// counter before and after lowering one operand answers that exactly,
     /// without re-walking the argument's syntax looking for the spelling.
     asymmetric_matchers_lowered: usize,
-    /// Names whose local was reserved by
-    /// [`Self::predeclare_forward_referenced_locals`] because a closure in an
-    /// EARLIER statement of the same list already reads them. The declaration
-    /// must then assign INTO that reserved local instead of pushing a second
-    /// one, or the earlier capture would observe a slot nothing ever writes.
-    /// An entry is consumed by the declaration that fills it.
-    forward_referenced_locals: HashSet<String>,
     /// Binding span starts of locals widened to `T | undefined` because the
     /// function assigns them a keyed read and tests their presence; see
     /// `presence_tested_locals`. The value is the strongest presence test the
@@ -887,10 +868,9 @@ struct ModuleBuilder<'ctx> {
     /// [`Self::instanceof_expression`] consults this stack instead of emitting a
     /// reference the body cannot resolve.
     defining_local_functions: Vec<String>,
-    /// Whether type-test-only lowering may index erased unknown metadata.
-    allow_unknown_index_access: bool,
-    /// Whether a lifted specialization callable keeps its concrete `this` type through assertions.
-    preserve_specialization_receiver: bool,
+    /// Whether lowering may index erased unknown metadata, and why; see
+    /// [`state::lowering_mode::UnknownIndexAccess`].
+    unknown_index_access: state::lowering_mode::UnknownIndexAccess,
     /// Provenance of source names this module did not declare: value,
     /// type-only and namespace imports, test builtins, `@date-fns/tz`
     /// factories, and `globalThis` aliases.
@@ -904,7 +884,9 @@ struct ModuleBuilder<'ctx> {
     /// prepass that runs before statement lowering, so a fact discovered about
     /// the local *later* (such as "this const binds the ambient global object")
     /// has to be projected onto the exported spelling once lowering finishes;
-    /// this map is what makes that projection possible.
+    /// this map is what makes that projection possible. The projection
+    /// (`record_module_exports`) consumes the module's `SignaturesDeclared`
+    /// phase token, so it cannot run before the prepasses or run twice.
     export_renames: HashMap<String, String>,
     /// Object constants that act as namespace-like API surfaces.
     object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,

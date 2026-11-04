@@ -10,7 +10,7 @@ use gpui::{
 };
 use gpui_component::input::{Input, InputState};
 
-use crate::compiler::DiagnosticMessage;
+use crate::compiler::{CompileReport, DiagnosticMessage};
 use crate::theme;
 
 /// Which output panel is currently visible.
@@ -27,6 +27,37 @@ pub(super) enum OutputTab {
 }
 
 impl OutputTab {
+    /// Fallback order when the requested tab has nothing to show.
+    const FALLBACKS: [Self; 3] = [Self::Rust, Self::Diagnostics, Self::Pipeline];
+
+    /// Whether this tab has something to show for `report`.
+    ///
+    /// The Rust tab needs generated source and the Diagnostics tab needs at
+    /// least one diagnostic; the pipeline trace and export view always render.
+    pub(super) fn is_available(self, report: &CompileReport) -> bool {
+        match self {
+            Self::Rust => report.rust_source().is_some(),
+            Self::Diagnostics => !report.diagnostics().is_empty(),
+            Self::Pipeline | Self::Export => true,
+        }
+    }
+
+    /// The tab actually shown when `self` is requested for `report`.
+    ///
+    /// Every tab transition goes through here, so the view can never sit on a
+    /// Rust tab with no Rust or a Diagnostics tab with no diagnostics: an
+    /// unavailable request falls back to the first available of Rust,
+    /// Diagnostics, Pipeline.
+    pub(super) fn clamp(self, report: &CompileReport) -> Self {
+        if self.is_available(report) {
+            return self;
+        }
+        Self::FALLBACKS
+            .into_iter()
+            .find(|tab| tab.is_available(report))
+            .unwrap_or(Self::Pipeline)
+    }
+
     /// Tab label.
     pub(super) const fn label(self) -> &'static str {
         match self {
@@ -194,7 +225,7 @@ fn render_diagnostic_card(diagnostic: &DiagnosticMessage) -> impl IntoElement {
                 .text_size(px(10.0))
                 .font_weight(FontWeight::BOLD)
                 .text_color(theme::error())
-                .child(diagnostic.stage.to_uppercase()),
+                .child(diagnostic.stage_label().to_uppercase()),
         )
         .child(body)
 }
@@ -311,4 +342,28 @@ fn copy_button(
         .active(|style| style.opacity(0.7))
         .child(label)
         .on_click(on_click)
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tab availability and clamping against real compile reports.
+
+    use super::OutputTab;
+    use crate::compiler::compile_report;
+
+    #[test]
+    fn failed_compile_moves_off_the_rust_tab() {
+        let report = compile_report("function (((", "");
+        assert!(!OutputTab::Rust.is_available(&report));
+        assert_eq!(OutputTab::Rust.clamp(&report), OutputTab::Diagnostics);
+        assert_eq!(OutputTab::Pipeline.clamp(&report), OutputTab::Pipeline);
+    }
+
+    #[test]
+    fn successful_compile_moves_off_the_empty_diagnostics_tab() {
+        let report = compile_report("let x: number = 1;\nconsole.log(x);\n", "");
+        assert!(!OutputTab::Diagnostics.is_available(&report));
+        assert_eq!(OutputTab::Diagnostics.clamp(&report), OutputTab::Rust);
+        assert_eq!(OutputTab::Export.clamp(&report), OutputTab::Export);
+    }
 }

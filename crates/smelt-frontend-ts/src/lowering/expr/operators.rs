@@ -7,6 +7,8 @@
 //! feed construction. The helpers classify receiver and argument types and
 //! emit the concrete HIR construction and projection kinds.
 
+use crate::lowering::state::fn_ctx::BodyKind;
+use crate::lowering::state::local_scope::ScopeGroups;
 use crate::RestParam;
 use smelt_hir::{ErasureReason, PropertyLookup};
 use crate::lowering::{
@@ -1643,11 +1645,7 @@ impl ModuleBuilder<'_> {
             ty: lhs_ty,
             value: Some(lhs),
         };
-        if let Some(block) = self.current_statement_block {
-            body.push_stmt_to_block(block, let_stmt);
-        } else {
-            body.push_stmt(let_stmt);
-        }
+        self.push_stmt_to_sink(body, let_stmt);
         let selector_read = body.push_expr(Expr {
             kind: ExprKind::Local(selector),
             ty: lhs_ty,
@@ -2704,11 +2702,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let operand = self.expression(&unary.argument, body)?;
         let effect = Stmt::Expr(operand);
-        if let Some(block) = self.current_statement_block {
-            body.push_stmt_to_block(block, effect);
-        } else {
-            body.push_stmt(effect);
-        }
+        self.push_stmt_to_sink(body, effect);
         let ty = self.ctx.krate.types.intern(Type::None);
         Ok(body.push_expr(Expr {
             kind: ExprKind::Literal(result),
@@ -4239,249 +4233,237 @@ impl ModuleBuilder<'_> {
             self.erase_with(ErasureReason::MissingAnnotation, "function expression return")
         };
 
-        let saved_locals = self.scope.take_bindings();
-        let saved_async = self.current_async;
-        let saved_return_ty = self.current_return_ty;
-        let saved_generator_yields = self.current_generator_yields;
-        let saved_narrowed_locals = self.scope.take_narrowings();
-        // A postfix update (`x++`) is emitted into the current body's block, but a
-        // variable-declaration initializer defers its postfix updates into a
-        // pending list so `const y = x++;` observes the old value. That deferral
-        // must not leak across a nested function boundary: this function
-        // expression may be the initializer being lowered (`const bound =
-        // function () { … a[k++] … };`), and a postfix update inside its body
-        // belongs to this body, not the outer declaration's deferred list — which
-        // would otherwise flush a statement referencing this body's locals into
-        // the enclosing body's block (a cross-body dangling reference). Reset the
-        // deferral while lowering this body and restore it afterward.
-        let saved_deferred_updates = self.deferred_postfix_updates.take();
-        self.current_async = function.r#async;
-        self.current_return_ty = Some(return_ty);
-        let mut body = Body::new(
-            None,
-            self.span(function_body.span.start, function_body.span.end),
-        );
-        body.is_generator = function.generator;
-        let mut params = Vec::new();
-        let mut param_names = HashSet::new();
-        let mut errors = Vec::new();
-        // A `function` expression that reads its own `arguments` is variadic: the
-        // object is the ACTUAL argument list, which a declared-arity signature
-        // cannot carry (see `lowering::arguments_forwarding`). Replace the parameter
-        // list with one rest list and re-bind each declared name from it.
-        // es-toolkit's `partial`/`partialRight`/`flow` spec helpers are this shape.
-        let arguments_forwarding = match self.arguments_forwarding_params(function, &mut body) {
-            Ok(forwarding) => forwarding,
-            Err(error) => {
-                errors.push(error);
-                None
+        // A postfix update inside this body belongs to this body, not to the
+        // deferral list of a declaration this expression initializes (`const
+        // bound = function () { … a[k++] … };`), and the enclosing statement's
+        // block names nothing in this body: `FnCtx::nested` starts both fresh,
+        // so neither crosses the function boundary.
+        let ctx = self.nested_fn_ctx(BodyKind::Function, function.r#async, Some(return_ty));
+        let scope = ScopeGroups::BINDINGS.with(ScopeGroups::NARROWINGS);
+        let (body, params, rest, required_params, captures, forwards_arguments, errors) =
+            self.with_nested_body(ctx, scope, |this, frame| {
+            let mut body = Body::new(
+                None,
+                this.span(function_body.span.start, function_body.span.end),
+            );
+            body.set_generator(function.generator);
+            let mut params = Vec::new();
+            let mut param_names = HashSet::new();
+            let mut errors = Vec::new();
+            // A `function` expression that reads its own `arguments` is variadic: the
+            // object is the ACTUAL argument list, which a declared-arity signature
+            // cannot carry (see `lowering::arguments_forwarding`). Replace the parameter
+            // list with one rest list and re-bind each declared name from it.
+            // es-toolkit's `partial`/`partialRight`/`flow` spec helpers are this shape.
+            let arguments_forwarding = match this.arguments_forwarding_params(function, &mut body) {
+                Ok(forwarding) => forwarding,
+                Err(error) => {
+                    errors.push(error);
+                    None
+                }
+            };
+            if let Some(forwarding) = &arguments_forwarding {
+                params.extend(forwarding.params.iter().cloned());
+                for (name, local) in forwarding.binding_pairs() {
+                    param_names.insert(name.clone());
+                    this.scope.bind(name, local);
+                }
             }
-        };
-        if let Some(forwarding) = &arguments_forwarding {
-            params.extend(forwarding.params.iter().cloned());
-            for (name, local) in forwarding.binding_pairs() {
-                param_names.insert(name.clone());
-                self.scope.bind(name, local);
+            for (index, param) in function
+                .params
+                .items
+                .iter()
+                .enumerate()
+                .take(if arguments_forwarding.is_some() { 0 } else { usize::MAX })
+            {
+                let result = (|| {
+                    let ty = if let Some(annotation) = &param.type_annotation {
+                        this.ts_type_to_hir(&annotation.type_annotation)?
+                    } else if let Some((_, function_ty)) = &hint_function {
+                        function_ty.params.get(index).copied().ok_or_else(|| {
+                            SmeltError::unsupported(
+                                this.span(param.span.start, param.span.end),
+                                "function expression has more parameters than its type hint",
+                            )
+                        })?
+                    } else {
+                        this.erase_with(ErasureReason::MissingAnnotation, "function expression param")
+                    };
+                    let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
+                        return Err(SmeltError::unsupported(
+                            this.span(param.span.start, param.span.end),
+                            "function expression parameters must be identifiers",
+                        ));
+                    };
+                    let param_name = this.intern_source_name(binding.name.as_str());
+                    let local = body.push_local(LocalDecl {
+                        name: Some(param_name),
+                        ty,
+                        mutable: false,
+                        span: this.span(binding.span.start, binding.span.end),
+                    });
+                    body.params.push(local);
+                    this.scope.bind(binding.name.to_string(), local);
+                    param_names.insert(binding.name.to_string());
+                    params.push(Param {
+                        name: param_name,
+                        local,
+                        ty,
+                        span: this.span(binding.span.start, binding.span.end),
+                    });
+                    Ok(())
+                })();
+                if let Err(error) = result {
+                    errors.push(error);
+                    break;
+                }
             }
-        }
-        for (index, param) in function
-            .params
-            .items
-            .iter()
-            .enumerate()
-            .take(if arguments_forwarding.is_some() { 0 } else { usize::MAX })
-        {
-            let result = (|| {
-                let ty = if let Some(annotation) = &param.type_annotation {
-                    self.ts_type_to_hir(&annotation.type_annotation)?
-                } else if let Some((_, function_ty)) = &hint_function {
-                    function_ty.params.get(index).copied().ok_or_else(|| {
-                        SmeltError::unsupported(
-                            self.span(param.span.start, param.span.end),
-                            "function expression has more parameters than its type hint",
-                        )
-                    })?
-                } else {
-                    self.erase_with(ErasureReason::MissingAnnotation, "function expression param")
-                };
-                let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
-                    return Err(SmeltError::unsupported(
-                        self.span(param.span.start, param.span.end),
-                        "function expression parameters must be identifiers",
-                    ));
-                };
-                let param_name = self.intern_source_name(binding.name.as_str());
-                let local = body.push_local(LocalDecl {
-                    name: Some(param_name),
-                    ty,
-                    mutable: false,
-                    span: self.span(binding.span.start, binding.span.end),
-                });
-                body.params.push(local);
-                self.scope.bind(binding.name.to_string(), local);
-                param_names.insert(binding.name.to_string());
-                params.push(Param {
-                    name: param_name,
-                    local,
-                    ty,
-                    span: self.span(binding.span.start, binding.span.end),
-                });
-                Ok(())
-            })();
-            if let Err(error) = result {
-                errors.push(error);
-                break;
-            }
-        }
-        // Lower an optional `...rest` parameter the same way top-level functions
-        // and arrow expressions do: resolve its array element type, push a packed
-        // list local/param, and record the rest index on the closure so codegen
-        // collects the trailing source arguments into one list. Function
-        // expressions appear as object property values, returned values, and call
-        // arguments, so this keeps rest semantics for all of them.
-        let mut rest = arguments_forwarding.as_ref().map(|forwarding| RestParam {
-            index: forwarding.rest_index,
-            item_ty: forwarding.item_ty,
-        });
-        if rest.is_none()
-            && let Some(rest_param) = &function.params.rest
-        {
-            let result = (|| {
-                let BindingPattern::BindingIdentifier(binding) = &rest_param.rest.argument else {
-                    return Err(SmeltError::unsupported(
-                        self.span(rest_param.span.start, rest_param.span.end),
-                        "function expression destructured rest parameters need rest binding lowering",
-                    ));
-                };
-                let annotated_ty = rest_param
-                    .type_annotation
-                    .as_ref()
-                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                    .transpose()?;
-                let rest_index = params.len();
-                let hint_rest_ty = hint_function.as_ref().and_then(|(_, function_ty)| {
-                    function_ty
-                        .rest
-                        .filter(|index| *index == rest_index)
-                        .and_then(|index| function_ty.params.get(index).copied())
-                });
-                let source_ty = annotated_ty
-                    .or(hint_rest_ty)
-                    .unwrap_or_else(|| self.erase_with(ErasureReason::MissingAnnotation, "function expression rest"));
-                let Ok((ty, item_ty)) = self.rest_param_array_type(source_ty) else {
-                    return Err(SmeltError::unsupported(
-                        self.span(rest_param.span.start, rest_param.span.end),
-                        "function expression rest parameter type must be an array type",
-                    ));
-                };
-                let param_name = self.intern_source_name(binding.name.as_str());
-                let local = body.push_local(LocalDecl {
-                    name: Some(param_name),
-                    ty,
-                    mutable: false,
-                    span: self.span(binding.span.start, binding.span.end),
-                });
-                body.params.push(local);
-                self.scope.bind(binding.name.to_string(), local);
-                param_names.insert(binding.name.to_string());
-                params.push(Param {
-                    name: param_name,
-                    local,
-                    ty,
-                    span: self.span(binding.span.start, binding.span.end),
-                });
-                rest = Some(RestParam {
-                    index: rest_index,
-                    item_ty,
-                });
-                Ok(())
-            })();
-            if let Err(error) = result {
-                errors.push(error);
-            }
-        }
-        let required_params = function
-            .params
-            .items
-            .iter()
-            .position(|param| param.optional || Self::formal_parameter_has_default(param))
-            .unwrap_or(function.params.items.len());
-        let mut captures = Vec::new();
-        if errors.is_empty() {
-            let mut capture_names = Vec::new();
-            let function_locals = self.scope.snapshot_bindings();
-            self.scope.restore_bindings(saved_locals.clone());
-            for statement in &function_body.statements {
-                self.collect_statement_capture_names(statement, &param_names, &mut capture_names);
-            }
-            self.scope.restore_bindings(function_locals);
-            capture_names.sort();
-            capture_names.dedup();
-            for name in capture_names {
-                let Some(source_local) = saved_locals.lookup(name.as_str()) else {
-                    continue;
-                };
-                let Some(source_decl) = usize::try_from(source_local.0)
-                    .ok()
-                    .and_then(|index| outer_body.locals.get(index))
-                else {
-                    continue;
-                };
-                let symbol = source_decl
-                    .name
-                    .unwrap_or_else(|| self.ctx.krate.symbols.intern(name.as_str()));
-                let body_local = body.push_local(LocalDecl {
-                    name: Some(symbol),
-                    ty: source_decl.ty,
-                    mutable: source_decl.mutable,
-                    span: source_decl.span,
-                });
-                self.scope.bind(name, body_local);
-                captures.push(ClosureCapture {
-                    source_local,
-                    body_local: Some(body_local),
-                    symbol,
-                    ty: source_decl.ty,
-                    mode: CaptureMode::ByRef,
-                });
-            }
-        }
-        let generator_yields = function
-            .generator
-            .then(|| self.initialize_generator_yield_accumulator(function, &mut body));
-        self.current_generator_yields = generator_yields;
-        // A non-arrow `function` expression introduces its own `arguments`
-        // binding, so make the array-like `arguments` object available while
-        // lowering the body — mirroring the function-declaration and closure
-        // lowering paths that also push the argument arity stack.
-        // With the variadic rewrite the whole argument list is the single rest
-        // parameter, so the FIXED arity is zero — that is what tells
-        // `arguments_object_expression` to read the list rather than the declared
-        // parameters.
-        self.current_arguments_arities
-            .push(if arguments_forwarding.is_some() {
-                0
-            } else {
-                function.params.items.len()
+            // Lower an optional `...rest` parameter the same way top-level functions
+            // and arrow expressions do: resolve its array element type, push a packed
+            // list local/param, and record the rest index on the closure so codegen
+            // collects the trailing source arguments into one list. Function
+            // expressions appear as object property values, returned values, and call
+            // arguments, so this keeps rest semantics for all of them.
+            let mut rest = arguments_forwarding.as_ref().map(|forwarding| RestParam {
+                index: forwarding.rest_index,
+                item_ty: forwarding.item_ty,
             });
-        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
-            if let Err(error) = self.statement(statement, &mut body) {
-                errors.push(error);
+            if rest.is_none()
+                && let Some(rest_param) = &function.params.rest
+            {
+                let result = (|| {
+                    let BindingPattern::BindingIdentifier(binding) = &rest_param.rest.argument else {
+                        return Err(SmeltError::unsupported(
+                            this.span(rest_param.span.start, rest_param.span.end),
+                            "function expression destructured rest parameters need rest binding lowering",
+                        ));
+                    };
+                    let annotated_ty = rest_param
+                        .type_annotation
+                        .as_ref()
+                        .map(|annotation| this.ts_type_to_hir(&annotation.type_annotation))
+                        .transpose()?;
+                    let rest_index = params.len();
+                    let hint_rest_ty = hint_function.as_ref().and_then(|(_, function_ty)| {
+                        function_ty
+                            .rest
+                            .filter(|index| *index == rest_index)
+                            .and_then(|index| function_ty.params.get(index).copied())
+                    });
+                    let source_ty = annotated_ty
+                        .or(hint_rest_ty)
+                        .unwrap_or_else(|| this.erase_with(ErasureReason::MissingAnnotation, "function expression rest"));
+                    let Ok((ty, item_ty)) = this.rest_param_array_type(source_ty) else {
+                        return Err(SmeltError::unsupported(
+                            this.span(rest_param.span.start, rest_param.span.end),
+                            "function expression rest parameter type must be an array type",
+                        ));
+                    };
+                    let param_name = this.intern_source_name(binding.name.as_str());
+                    let local = body.push_local(LocalDecl {
+                        name: Some(param_name),
+                        ty,
+                        mutable: false,
+                        span: this.span(binding.span.start, binding.span.end),
+                    });
+                    body.params.push(local);
+                    this.scope.bind(binding.name.to_string(), local);
+                    param_names.insert(binding.name.to_string());
+                    params.push(Param {
+                        name: param_name,
+                        local,
+                        ty,
+                        span: this.span(binding.span.start, binding.span.end),
+                    });
+                    rest = Some(RestParam {
+                        index: rest_index,
+                        item_ty,
+                    });
+                    Ok(())
+                })();
+                if let Err(error) = result {
+                    errors.push(error);
+                }
             }
-        }
-        if let Some(accumulator) = generator_yields {
-            Self::push_generator_return(accumulator, function, &mut body);
-        }
-        if function.r#async {
-            body.build_async_state_machine();
-        }
-        self.current_arguments_arities.pop();
-        self.scope.restore_bindings(saved_locals);
-        self.current_async = saved_async;
-        self.current_return_ty = saved_return_ty;
-        self.current_generator_yields = saved_generator_yields;
-        self.scope.restore_narrowings(saved_narrowed_locals);
-        self.deferred_postfix_updates = saved_deferred_updates;
+            let required_params = function
+                .params
+                .items
+                .iter()
+                .position(|param| param.optional || Self::formal_parameter_has_default(param))
+                .unwrap_or(function.params.items.len());
+            let mut captures = Vec::new();
+            if errors.is_empty()
+                && let Some(saved_locals) = frame.enclosing_bindings()
+            {
+                let mut capture_names = Vec::new();
+                let function_locals = this.scope.snapshot_bindings();
+                this.scope.restore_bindings(saved_locals.clone());
+                for statement in &function_body.statements {
+                    this.collect_statement_capture_names(statement, &param_names, &mut capture_names);
+                }
+                this.scope.restore_bindings(function_locals);
+                capture_names.sort();
+                capture_names.dedup();
+                for name in capture_names {
+                    let Some(source_local) = saved_locals.lookup(name.as_str()) else {
+                        continue;
+                    };
+                    let Some(source_decl) = usize::try_from(source_local.0)
+                        .ok()
+                        .and_then(|index| outer_body.locals.get(index))
+                    else {
+                        continue;
+                    };
+                    let symbol = source_decl
+                        .name
+                        .unwrap_or_else(|| this.ctx.krate.symbols.intern(name.as_str()));
+                    let body_local = body.push_local(LocalDecl {
+                        name: Some(symbol),
+                        ty: source_decl.ty,
+                        mutable: source_decl.mutable,
+                        span: source_decl.span,
+                    });
+                    this.scope.bind(name, body_local);
+                    captures.push(ClosureCapture {
+                        source_local,
+                        body_local: Some(body_local),
+                        symbol,
+                        ty: source_decl.ty,
+                        mode: CaptureMode::ByRef,
+                    });
+                }
+            }
+            let generator_yields = function
+                .generator
+                .then(|| this.initialize_generator_yield_accumulator(function, &mut body));
+            this.fn_ctx.generator = generator_yields;
+            // A non-arrow `function` expression introduces its own `arguments`
+            // binding, so make the array-like `arguments` object available while
+            // lowering the body — mirroring the function-declaration and closure
+            // lowering paths that also push the argument arity stack.
+            // With the variadic rewrite the whole argument list is the single rest
+            // parameter, so the FIXED arity is zero — that is what tells
+            // `arguments_object_expression` to read the list rather than the declared
+            // parameters.
+            this.fn_ctx.arguments_arity = Some(if arguments_forwarding.is_some() {
+                    0
+                } else {
+                    function.params.items.len()
+                });
+            for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
+                if let Err(error) = this.statement(statement, &mut body) {
+                    errors.push(error);
+                }
+            }
+            if let Some(accumulator) = generator_yields {
+                Self::push_generator_return(accumulator, function, &mut body);
+            }
+            if function.r#async {
+                body.finish_async();
+            }
+            let forwards_arguments = arguments_forwarding.is_some();
+            (body, params, rest, required_params, captures, forwards_arguments, errors)
+        });
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }
@@ -4497,7 +4479,7 @@ impl ModuleBuilder<'_> {
         // closure with no arguments at all (E0057). The rewritten signature is
         // the only one that describes what was lowered.
         let function_ty = match hint_function {
-            Some((ty, _)) if arguments_forwarding.is_none() => ty,
+            Some((ty, _)) if !forwards_arguments => ty,
             _ => self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: params.iter().map(|param| param.ty).collect(),
                 rest: rest_index,

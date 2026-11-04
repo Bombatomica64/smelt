@@ -1561,7 +1561,7 @@ fn chain_type_substitutions(mir: &Mir, chain: &[&MirClass]) -> Vec<HashMap<Symbo
 ///
 /// This is what an inherited method copied into `owner`'s `impl` renders its
 /// declaring class's parameters as (see
-/// `FunctionEmitter::mark_inherited_copy`); [`effective_class_fields`] applies
+/// `FunctionEmitter::inherited_copy`); [`effective_class_fields`] applies
 /// the same map to the inherited fields, so the copy and the layout agree.
 pub(crate) fn inherited_type_substitution(
     mir: &Mir,

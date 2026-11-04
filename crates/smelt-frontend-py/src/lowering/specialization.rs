@@ -175,13 +175,17 @@ impl ModuleBuilder<'_> {
                 let hidden = self.intern_name(&format!("__smelt_original_{}", method.name));
                 self.rename_function_item(original, hidden)?;
             }
-            let saved_aliases = self.install_materialized_captures(
-                &method.callable.captures,
-                self.span(source.range),
+            let source_span = self.span(source.range);
+            let item = self.with_capture_aliases(
+                |this, saved| {
+                    this.install_materialized_captures(
+                        &method.callable.captures,
+                        source_span,
+                        saved,
+                    )
+                },
+                |this| this.class_method(target.name, target.symbol, target.ty, source),
             )?;
-            let lowered = self.class_method(target.name, target.symbol, target.ty, source);
-            self.restore_capture_aliases(saved_aliases);
-            let item = lowered?;
             let name = self.intern_name(&method.name);
             self.rename_function_item(item, name)?;
             self.validate_materialized_method_signature(
@@ -865,15 +869,18 @@ impl ModuleBuilder<'_> {
                     ),
                 )
             })?;
-            let saved_aliases = self.install_materialized_wrapper_captures(
-                &provenance.captures,
-                inner_item,
-                inner_provenance,
-                self.span(wrapper.range),
+            let wrapper_span = self.span(wrapper.range);
+            let wrapper_item = self.with_capture_aliases(
+                |this, saved| {
+                    this.install_materialized_wrapper_captures(
+                        &provenance.captures,
+                        (inner_item, inner_provenance),
+                        wrapper_span,
+                        saved,
+                    )
+                },
+                |this| this.function_def(wrapper),
             )?;
-            let wrapper_result = self.function_def(wrapper);
-            self.restore_capture_aliases(saved_aliases);
-            let wrapper_item = wrapper_result?;
             let wrapper_symbol =
                 self.intern_name(&format!("__smelt_wrapper_{original_name}_{index}"));
             self.rename_function_item(wrapper_item, wrapper_symbol)?;
@@ -897,11 +904,10 @@ impl ModuleBuilder<'_> {
     fn install_materialized_wrapper_captures(
         &mut self,
         captures: &std::collections::BTreeMap<String, smelt_specialize::ValueId>,
-        inner_item: ItemId,
-        inner_provenance: Option<&smelt_specialize::CallableProvenance>,
+        (inner_item, inner_provenance): (ItemId, Option<&smelt_specialize::CallableProvenance>),
         span: Span,
-    ) -> Result<Vec<(String, Option<ItemId>)>, SmeltError> {
-        let mut saved = Vec::new();
+        saved: &mut Vec<(String, Option<ItemId>)>,
+    ) -> Result<(), SmeltError> {
         for (name, value) in captures {
             let node = self.materialized_value(*value, span)?.clone();
             let is_inner_callable = matches!(
@@ -919,7 +925,7 @@ impl ModuleBuilder<'_> {
             };
             saved.push((name.clone(), self.items.insert(name.clone(), item)));
         }
-        Ok(saved)
+        Ok(())
     }
 
     /// Validates host callable shape against the source-lowered HIR function.
@@ -1094,18 +1100,37 @@ impl ModuleBuilder<'_> {
         Ok(())
     }
 
-    /// Installs closure captures as temporary item aliases/constants.
+    /// Runs `lower` with the item aliases `install` puts in place, then puts
+    /// the shadowed bindings back.
+    ///
+    /// `install` records each binding it shadows in `saved` as it goes, and
+    /// the restore runs whatever `install` or `lower` returned -- so an alias
+    /// installed before a later capture failed to resolve is undone too, rather
+    /// than leaking into every item lowered afterwards.
+    fn with_capture_aliases<T>(
+        &mut self,
+        install: impl FnOnce(&mut Self, &mut Vec<(String, Option<ItemId>)>) -> Result<(), SmeltError>,
+        lower: impl FnOnce(&mut Self) -> Result<T, SmeltError>,
+    ) -> Result<T, SmeltError> {
+        let mut saved = Vec::new();
+        let result = install(self, &mut saved).and_then(|()| lower(self));
+        self.restore_capture_aliases(saved);
+        result
+    }
+
+    /// Installs closure captures as temporary item aliases/constants, recording
+    /// each shadowed binding in `saved` (see [`Self::with_capture_aliases`]).
     fn install_materialized_captures(
         &mut self,
         captures: &std::collections::BTreeMap<String, smelt_specialize::ValueId>,
         span: Span,
-    ) -> Result<Vec<(String, Option<ItemId>)>, SmeltError> {
-        let mut saved = Vec::new();
+        saved: &mut Vec<(String, Option<ItemId>)>,
+    ) -> Result<(), SmeltError> {
         for (name, value) in captures {
             let item = self.materialized_capture_item(name, *value, span)?;
             saved.push((name.clone(), self.items.insert(name.clone(), item)));
         }
-        Ok(saved)
+        Ok(())
     }
 
     /// Restores item bindings shadowed while lowering a lifted callable.

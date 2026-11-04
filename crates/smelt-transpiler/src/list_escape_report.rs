@@ -25,14 +25,8 @@ use smelt_mir::{BodyKey, BodyListEscape, EscapeReason, ListLocalClass};
 
 use crate::{lowering, pipeline};
 
-/// Output format for the report.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ListEscapeReportFormat {
-    /// Human-readable Markdown tables.
-    Markdown,
-    /// Machine-readable JSON, suitable as a checked-in baseline.
-    Json,
-}
+/// Report output format; the `--format` value enum shared by every report.
+pub(crate) type ListEscapeReportFormat = crate::cli_parser::ReportFormat;
 
 /// Inputs for one report run.
 pub(crate) struct ListEscapeReportOptions<'a> {

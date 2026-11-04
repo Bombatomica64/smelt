@@ -140,22 +140,25 @@ impl ModuleBuilder<'_> {
     /// is stored as a small HIR body so package imports can inline the same
     /// object construction at use sites without modelling Python module
     /// initialization order.
+    ///
+    /// Returns whether the assignment had that shape and became a constant
+    /// item; any other assignment is left for pass 2 to lower as a statement.
     fn constructed_constant_assign(
         &mut self,
         assign: &StmtAssign,
         hir_module: &mut Module,
-    ) -> Result<(), SmeltError> {
+    ) -> Result<bool, SmeltError> {
         let Some((name, call)) = Self::constructed_constant_shape(assign) else {
-            return Ok(());
+            return Ok(false);
         };
         let Some(constructor) = stdlib_dispatch::constructed_constant_constructor(call) else {
-            return Ok(());
+            return Ok(false);
         };
         let Some(&class_item) = self.items.get(constructor) else {
-            return Ok(());
+            return Ok(false);
         };
         let Item::Class(class) = self.item_ref(class_item) else {
-            return Ok(());
+            return Ok(false);
         };
         let class_sym = class.name;
         let span = self.span(assign.range);
@@ -190,21 +193,7 @@ impl ModuleBuilder<'_> {
         self.items.insert(name.to_owned(), item);
         self.exports.insert(name.to_owned(), item);
         hir_module.items.push(item);
-        Ok(())
-    }
-
-    /// Return whether a module statement is a direct `NAME = ClassName(...)`
-    /// assignment whose callee is a class item. Pass 2 uses this predicate to
-    /// skip constructed-constant statements.
-    fn is_constructed_constant_assignment(&self, stmt: &Stmt) -> bool {
-        let Stmt::Assign(assign) = stmt else {
-            return false;
-        };
-        let Some((_name, call)) = Self::constructed_constant_shape(assign) else {
-            return false;
-        };
-        stdlib_dispatch::constructed_constant_constructor(call)
-            .is_some_and(|constructor| matches!(self.items.get(constructor), Some(item) if matches!(self.item_ref(*item), Item::Class(_))))
+        Ok(true)
     }
 
     /// Extract the direct `NAME = ClassName(...)` constructed-constant shape.

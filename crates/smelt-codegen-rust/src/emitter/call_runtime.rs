@@ -563,7 +563,7 @@ impl FunctionEmitter<'_> {
                     "return value"
                 };
                 let cleanup_text = if let Some(cleanup) = cleanup {
-                    let declared = self.declared_locals_snapshot();
+                    let declared = self.declared_scope();
                     let mut cleanup_text = String::new();
                     self.emit_block_until_goto(
                         self.block(cleanup.block)?,
@@ -571,7 +571,7 @@ impl FunctionEmitter<'_> {
                         control_flow::RegionExit::Join,
                         &mut cleanup_text,
                     )?;
-                    self.restore_declared_locals(declared);
+                    declared.close();
                     cleanup_text
                 } else {
                     String::new()
@@ -589,7 +589,7 @@ impl FunctionEmitter<'_> {
                     returned.to_owned()
                 };
                 let thrown = if let Some(handler) = unwind {
-                    let declared = self.declared_locals_snapshot();
+                    let declared = self.declared_scope();
                     let mut catch_text = String::new();
                     if let Some(exception_local) = handler.exception_local {
                         let exception_name = self.local_name(exception_local)?;
@@ -608,7 +608,7 @@ impl FunctionEmitter<'_> {
                         self.mark_local_declared(exception_local);
                     }
                     self.emit_block(self.block(handler.catch_block)?, &mut catch_text)?;
-                    self.restore_declared_locals(declared);
+                    declared.close();
                     format!("{{ {catch_text} }}")
                 } else if cleanup.is_some() {
                     format!("{{ {cleanup_text} smelt_panic_throw({}) }}", crate::thrown::throw_expr("error"))

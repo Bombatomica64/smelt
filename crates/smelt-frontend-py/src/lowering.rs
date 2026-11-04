@@ -61,6 +61,24 @@ pub(crate) struct TypeAliasDef {
     params: Vec<String>,
 }
 
+/// What the builder knows about a module's source before lowering it.
+pub(crate) struct ModuleAnalysis {
+    /// `ty`-resolved types (empty unless the `ty` feature is on).
+    pub(crate) resolved_types: crate::ty_resolve::ResolvedTypes,
+    /// Module-scope and class-body bindings (see [`ModuleBindings`]).
+    pub(crate) bindings: ModuleBindings,
+}
+
+impl ModuleAnalysis {
+    /// Analyse `module`, whose `ty` resolution is `resolved_types`.
+    pub(crate) fn new(resolved_types: crate::ty_resolve::ResolvedTypes, module: &ModModule) -> Self {
+        Self {
+            resolved_types,
+            bindings: ModuleBindings::collect(&module.body),
+        }
+    }
+}
+
 /// Stateful Python-module lowering context.
 pub(crate) struct ModuleBuilder<'ctx> {
     /// Source file ID for spans created while lowering.
@@ -69,8 +87,9 @@ pub(crate) struct ModuleBuilder<'ctx> {
     path: String,
     /// Shared HIR context being populated.
     ctx: &'ctx mut HirCtx,
-    /// In-scope locals while lowering a body.
-    locals: HashMap<String, smelt_hir::LocalId>,
+    /// State owned by the function body being lowered; swapped wholesale by
+    /// [`Self::with_fn_scope`].
+    scope: FnScope,
     /// Module-level items (functions / classes) for call resolution.
     items: HashMap<String, ItemId>,
     /// Names exported by the module currently being lowered.
@@ -101,12 +120,8 @@ pub(crate) struct ModuleBuilder<'ctx> {
     module_namespaces: HashMap<String, HashMap<String, ItemId>>,
     /// Pytest fixture functions available to tests in this module.
     pytest_fixtures: HashMap<String, PytestFixture>,
-    /// Whether the current lowered function body is async.
-    current_async: bool,
     /// Whether this module should use pytest-specific test discovery rules.
     pytest_mode: bool,
-    /// Local lambda callbacks with explicit callable annotations.
-    local_callbacks: HashMap<String, LocalCallback>,
     /// Variadic parameter metadata for top-level Python function items.
     function_variadics: HashMap<String, FunctionVariadics>,
     /// Materialized final bindings for this source module.
@@ -116,6 +131,46 @@ pub(crate) struct ModuleBuilder<'ctx> {
     /// Module-scope and class-body bindings, used to resolve what a
     /// decorator, base class or metaclass expression denotes.
     bindings: ModuleBindings,
+}
+
+/// What kind of body the lowering cursor is in.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum FnKind {
+    /// Module top level (and class bodies): no enclosing function.
+    #[default]
+    Module,
+    /// A `def` body.
+    Sync,
+    /// An `async def` body: the only place `await` is legal.
+    Async,
+}
+
+impl FnKind {
+    /// The kind of a `def` (`is_async == false`) or `async def` body.
+    const fn of(is_async: bool) -> Self {
+        if is_async { Self::Async } else { Self::Sync }
+    }
+}
+
+/// Lowering state that belongs to ONE function body.
+///
+/// Every function, method and synthesized constructor is lowered inside
+/// [`ModuleBuilder::with_fn_scope`], which installs a fresh `FnScope` and puts
+/// the enclosing one back on every exit, error included. Before, each site
+/// saved and restored the fields by hand and an early `?` (a failed parameter
+/// annotation, a rejected statement) skipped the restore: the failed
+/// function's locals and async-ness leaked into every item and module
+/// statement lowered after it -- a module-level `print(x)` after
+/// `def f(x: int, y: <bad>)` resolved `x` to the dead function's local and
+/// panicked indexing the module body.
+#[derive(Debug, Default)]
+struct FnScope {
+    /// In-scope locals by source name.
+    locals: HashMap<String, smelt_hir::LocalId>,
+    /// The kind of body being lowered.
+    kind: FnKind,
+    /// Local lambda callbacks with explicit callable annotations, by name.
+    local_callbacks: HashMap<String, LocalCallback>,
 }
 
 /// A local Python lambda value that can be consumed by callback APIs without escaping.
@@ -238,11 +293,16 @@ enum PytestLiteral {
 
 impl<'ctx> ModuleBuilder<'ctx> {
     /// Build a lowering context for one Python source module.
+    ///
+    /// Everything the builder reads about the module before lowering it -- the
+    /// specialization data and the `analysis` of its source -- is an argument
+    /// here, so no field is filled in after construction.
     pub(crate) fn new(
         file_id: FileId,
         path: String,
         ctx: &'ctx mut HirCtx,
         specialization: Option<SpecializationData>,
+        analysis: ModuleAnalysis,
     ) -> Self {
         let items = visible_items(ctx);
         let enum_members = ctx.enum_members.clone();
@@ -254,7 +314,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             pytest_mode: test_support::is_pytest_file(&path),
             path,
             ctx,
-            locals: HashMap::new(),
+            scope: FnScope::default(),
             items,
             exports: HashMap::new(),
             enum_members,
@@ -265,19 +325,39 @@ impl<'ctx> ModuleBuilder<'ctx> {
             type_param_names: Vec::new(),
             module_namespaces,
             pytest_fixtures: HashMap::new(),
-            current_async: false,
-            local_callbacks: HashMap::new(),
             function_variadics: HashMap::new(),
             specialization,
-            resolved_types: crate::ty_resolve::ResolvedTypes::disabled(),
-            bindings: ModuleBindings::default(),
+            resolved_types: analysis.resolved_types,
+            bindings: analysis.bindings,
         }
     }
 
-    /// Install the `ty`-resolved module types used to fill in missing
-    /// annotations. Called once, immediately after construction.
-    pub(crate) fn set_resolved_types(&mut self, resolved: crate::ty_resolve::ResolvedTypes) {
-        self.resolved_types = resolved;
+    /// Lower one function body in a fresh [`FnScope`] of `kind`.
+    ///
+    /// The enclosing scope is restored when `lower` returns, whatever it
+    /// returns, so a failing body cannot leak its locals, its async-ness or its
+    /// callbacks into what is lowered next.
+    fn with_fn_scope<T>(&mut self, kind: FnKind, lower: impl FnOnce(&mut Self) -> T) -> T {
+        let enclosing = std::mem::replace(
+            &mut self.scope,
+            FnScope {
+                kind,
+                ..FnScope::default()
+            },
+        );
+        let result = lower(self);
+        self.scope = enclosing;
+        result
+    }
+
+    /// Lower a nested block whose bindings must not outlive it (an `except`
+    /// handler, a comprehension): the visible locals are restored when `lower`
+    /// returns, whatever it returns.
+    fn with_block_scope<T>(&mut self, lower: impl FnOnce(&mut Self) -> T) -> T {
+        let enclosing = self.scope.locals.clone();
+        let result = lower(self);
+        self.scope.locals = enclosing;
+        result
     }
 
     // -----------------------------------------------------------------------
@@ -295,7 +375,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let module_span = self.span(module.range);
         let mut body = Body::new(None, module_span);
         let mut errors: Vec<SmeltError> = Vec::new();
-        self.bindings = ModuleBindings::collect(&module.body);
 
         if self.specialization.is_none()
             && let Some((span, name)) = self.required_specialization_definition(module)
@@ -305,57 +384,21 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.replay_specialization_output(&mut body);
 
         // Pass 1 — collect top-level function/class declarations so later
-        // statements can reference them in calls.
-        for stmt in &module.body {
-            if let Stmt::FunctionDef(func) = stmt {
-                if self.is_materialized_decorator_factory(func, module) {
-                    continue;
-                }
-                match self.specialized_function_defs(func, module) {
-                    Ok(item_ids) => hir_module.items.extend(item_ids),
-                    Err(err) => errors.push(err),
-                }
-            } else if let Stmt::ClassDef(class) = stmt {
-                if self.is_materialized_metaclass_definition(class, module) {
-                    continue;
-                }
-                match self.class_def(class, module, &mut hir_module) {
-                    Ok(()) => {}
-                    Err(err) => errors.push(err),
-                }
-            } else if let Stmt::Import(import) = stmt {
-                self.import_stmt(import, &mut hir_module);
-            } else if let Stmt::ImportFrom(import) = stmt {
-                self.import_from_stmt(import, &mut hir_module);
-            } else if let Some(name) = type_param_declaration_name(stmt) {
-                // Recorded so a parameterised alias can order its parameters.
-                let name = name.to_owned();
-                if !self.type_param_names.contains(&name) {
-                    self.type_param_names.push(name);
-                }
-            } else if self.register_type_alias_statement(stmt) {
-                // A type alias declares no runtime binding; see
-                // `register_type_alias_statement`.
-            } else if let Stmt::Assign(assign) = stmt {
-                match self.constructed_constant_assign(assign, &mut hir_module) {
-                    Ok(()) => {}
-                    Err(err) => errors.push(err),
-                }
-            }
+        // statements can reference them in calls. Each statement pass 1 takes
+        // care of (successfully or not) is recorded, and pass 2 skips exactly
+        // those: a second predicate re-deciding "was this declared?" against
+        // the *final* item table could disagree with what pass 1 actually did.
+        let mut declared = vec![false; module.body.len()];
+        for (slot, stmt) in declared.iter_mut().zip(&module.body) {
+            *slot = self.declare_module_stmt(stmt, module, &mut hir_module, &mut errors);
         }
         self.register_module_namespace(&hir_module);
 
-        // Pass 2 — lower module-level statements into the module body.
-        for stmt in &module.body {
-            if matches!(
-                stmt,
-                Stmt::FunctionDef(_) | Stmt::ClassDef(_) | Stmt::Import(_) | Stmt::ImportFrom(_)
-            ) || is_module_all_assignment(stmt)
-                || is_type_param_declaration(stmt)
-                || Self::is_type_alias_statement(stmt)
-                || self.is_constructed_constant_assignment(stmt)
-            {
-                continue; // already lowered in Pass 1
+        // Pass 2 — lower the remaining module-level statements into the
+        // module body.
+        for (stmt, is_declared) in module.body.iter().zip(declared) {
+            if is_declared {
+                continue;
             }
             if let Err(err) = self.statement(stmt, &mut body) {
                 errors.push(err);
@@ -369,6 +412,70 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let body_id = self.ctx.krate.push_body(body);
         hir_module.body = Some(body_id);
         Ok(self.ctx.krate.push_module(hir_module))
+    }
+}
+
+impl ModuleBuilder<'_> {
+    /// Pass 1 of [`Self::module`] for one top-level statement: lower it if it
+    /// is a declaration later statements may reference, recording a failure in
+    /// `errors`.
+    ///
+    /// Returns whether the statement is fully handled by this pass (whether or
+    /// not lowering it succeeded), i.e. whether pass 2 must skip it.
+    fn declare_module_stmt(
+        &mut self,
+        stmt: &Stmt,
+        module: &ModModule,
+        hir_module: &mut Module,
+        errors: &mut Vec<SmeltError>,
+    ) -> bool {
+        match stmt {
+            Stmt::FunctionDef(func) => {
+                if !self.is_materialized_decorator_factory(func, module) {
+                    match self.specialized_function_defs(func, module) {
+                        Ok(item_ids) => hir_module.items.extend(item_ids),
+                        Err(err) => errors.push(err),
+                    }
+                }
+                true
+            }
+            Stmt::ClassDef(class) => {
+                if !self.is_materialized_metaclass_definition(class, module)
+                    && let Err(err) = self.class_def(class, module, hir_module)
+                {
+                    errors.push(err);
+                }
+                true
+            }
+            Stmt::Import(import) => {
+                self.import_stmt(import, hir_module);
+                true
+            }
+            Stmt::ImportFrom(import) => {
+                self.import_from_stmt(import, hir_module);
+                true
+            }
+            // `__all__` is export metadata; it lowers to nothing.
+            _ if is_module_all_assignment(stmt) => true,
+            _ if let Some(name) = type_param_declaration_name(stmt) => {
+                // Recorded so a parameterised alias can order its parameters.
+                if !self.type_param_names.iter().any(|known| known == name) {
+                    self.type_param_names.push(name.to_owned());
+                }
+                true
+            }
+            // A type alias declares no runtime binding; see
+            // `register_type_alias_statement`.
+            _ if self.register_type_alias_statement(stmt) => true,
+            Stmt::Assign(assign) => match self.constructed_constant_assign(assign, hir_module) {
+                Ok(handled) => handled,
+                Err(err) => {
+                    errors.push(err);
+                    true
+                }
+            },
+            _ => false,
+        }
     }
 }
 

@@ -1678,7 +1678,7 @@ return_ty,
                     span: self.span(call.span.start, call.span.end),
                 })));
             }
-            if self.allow_unknown_index_access {
+            if self.allows_unknown_index_access() {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 return Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::StringCase { op, operand },

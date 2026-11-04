@@ -26,10 +26,11 @@ pub struct Body {
     pub blocks: Vec<Block>,
     /// All patterns in this body.
     pub patterns: Vec<Pattern>,
-    /// Explicit async state-machine shape for async bodies.
-    pub async_state_machine: Option<AsyncStateMachine>,
-    /// Whether this body belongs to a source generator function.
-    pub is_generator: bool,
+    /// Whether this is a plain, generator, async or async-generator body, with
+    /// the async state machine of the async kinds. Set through
+    /// [`Body::set_generator`] and [`Body::finish_async`]; read through
+    /// [`Body::is_generator`] and [`Body::async_state_machine`].
+    kind: BodyKind,
     /// ID of the root block.
     pub root: BlockId,
 }
@@ -51,8 +52,7 @@ impl Body {
                 span,
             }],
             patterns: Vec::new(),
-            async_state_machine: None,
-            is_generator: false,
+            kind: BodyKind::Sync,
             root: BlockId(0),
         }
     }
@@ -102,8 +102,52 @@ impl Body {
         id
     }
 
-    /// Builds async state-machine metadata from this body's await expressions.
-    pub fn build_async_state_machine(&mut self) {
+    /// Whether this body belongs to a source generator function.
+    #[must_use]
+    pub const fn is_generator(&self) -> bool {
+        matches!(self.kind, BodyKind::Generator | BodyKind::AsyncGenerator(_))
+    }
+
+    /// The async state machine of an async (or async generator) body; `None`
+    /// for a body that is not async.
+    #[must_use]
+    pub const fn async_state_machine(&self) -> Option<&AsyncStateMachine> {
+        match &self.kind {
+            BodyKind::Async(machine) | BodyKind::AsyncGenerator(machine) => Some(machine),
+            BodyKind::Sync | BodyKind::Generator => None,
+        }
+    }
+
+    /// The body's kind.
+    #[must_use]
+    pub const fn kind(&self) -> &BodyKind {
+        &self.kind
+    }
+
+    /// Marks this body as a source generator's (or not), keeping its async-ness.
+    pub fn set_generator(&mut self, is_generator: bool) {
+        let kind = std::mem::replace(&mut self.kind, BodyKind::Sync);
+        self.kind = match (kind, is_generator) {
+            (BodyKind::Sync | BodyKind::Generator, false) => BodyKind::Sync,
+            (BodyKind::Sync | BodyKind::Generator, true) => BodyKind::Generator,
+            (BodyKind::Async(machine) | BodyKind::AsyncGenerator(machine), false) => {
+                BodyKind::Async(machine)
+            }
+            (BodyKind::Async(machine) | BodyKind::AsyncGenerator(machine), true) => {
+                BodyKind::AsyncGenerator(machine)
+            }
+        };
+    }
+
+    /// Makes this body async, deriving its state machine from its `await`
+    /// expressions.
+    ///
+    /// Call once the body is complete: the machine records the awaits present
+    /// *now*. [`crate::validate`] rejects a machine that misses an `await`
+    /// pushed afterwards, so calling this too early is caught rather than
+    /// silently dropping a suspension point. Calling it again re-derives the
+    /// machine.
+    pub fn finish_async(&mut self) {
         let suspensions = self
             .exprs
             .iter()
@@ -122,15 +166,38 @@ impl Body {
             })
             .collect::<Vec<_>>();
         let state_count = suspensions.len() + 1;
-        self.async_state_machine = Some(AsyncStateMachine {
+        let machine = AsyncStateMachine {
             states: (0..state_count)
                 .map(|idx| AsyncState {
                     id: AsyncStateId(id_index(idx)),
                 })
                 .collect(),
             suspensions,
-        });
+        };
+        self.kind = if self.is_generator() {
+            BodyKind::AsyncGenerator(machine)
+        } else {
+            BodyKind::Async(machine)
+        };
     }
+}
+
+/// What kind of function a [`Body`] implements.
+///
+/// The four combinations of generator-ness and async-ness are all real
+/// (`function*`, `async function`, `async function*`), and only the async
+/// kinds carry a state machine, so "an async machine on a sync body" cannot be
+/// represented.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BodyKind {
+    /// A plain body.
+    Sync,
+    /// A synchronous generator body.
+    Generator,
+    /// An async body and its state machine.
+    Async(AsyncStateMachine),
+    /// An async generator body and its state machine.
+    AsyncGenerator(AsyncStateMachine),
 }
 
 /// Identifier for a state in an async body state machine.

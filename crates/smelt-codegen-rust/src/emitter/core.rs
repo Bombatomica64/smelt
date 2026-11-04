@@ -52,16 +52,41 @@ impl<'mir> FunctionEmitter<'mir> {
             .copied()
             .collect();
         Ok(Self {
-            mir,
-            context,
-            function,
             names,
             mutable_locals: assigned_locals(mir, context, function),
             declared_locals: RefCell::new(declared_locals),
             predeclared_locals,
-            deferred_capture_cells: RefCell::new(HashSet::new()),
             static_typeof_str_locals: typeof_str_locals::static_typeof_str_locals(mir, function),
             folded_throw_payloads,
+            ..Self::bare(mir, context, function, none_ty, unknown_ty)
+        })
+    }
+
+    /// The one place every [`FunctionEmitter`] field is initialized.
+    ///
+    /// Answers an emitter with no per-function analysis (no local names, no
+    /// declared or mutable locals) in the [`emit_role::EmitRole::Own`] role.
+    /// [`FunctionEmitter::new`] fills the analysis in on top of it; the
+    /// synthetic type-rendering emitters ([`Self::type_renderer`]) use it as is.
+    /// `unknown_ty` types the synthetic local answered for a missing local.
+    fn bare(
+        mir: &'mir Mir,
+        context: &'mir EmitContext,
+        function: &'mir MirFunction,
+        none_ty: TypeId,
+        unknown_ty: TypeId,
+    ) -> Self {
+        Self {
+            mir,
+            context,
+            function,
+            names: HashMap::new(),
+            mutable_locals: HashSet::new(),
+            declared_locals: RefCell::new(HashSet::new()),
+            predeclared_locals: HashSet::new(),
+            deferred_capture_cells: RefCell::new(HashSet::new()),
+            static_typeof_str_locals: HashSet::new(),
+            folded_throw_payloads: HashSet::new(),
             termination_cache: RefCell::new(HashMap::new()),
             local_write_index: std::cell::OnceCell::new(),
             post_dominators: RefCell::new(None),
@@ -80,18 +105,161 @@ impl<'mir> FunctionEmitter<'mir> {
                     end: 0,
                 },
             },
-            suppress_type_params: RefCell::new(false),
-            enclosing_type_params: HashSet::new(),
+            role: emit_role::EmitRole::Own {
+                generics: emit_role::OwnGenerics::Declared,
+            },
             hoisted_module_item: std::cell::Cell::new(false),
-            emitting_inherited_copy: false,
-            inherited_impl_owner: None,
-            inherited_type_args: HashMap::new(),
-            trial_generic_function: std::cell::Cell::new(None),
-            closure_inherited_type_args: HashMap::new(),
-            rendering_inherited_bound: std::cell::Cell::new(false),
-            base_initializer_owner: None,
-            base_initializer_receivers: HashSet::new(),
-        })
+            inherited_bound_suspended: std::cell::Cell::new(false),
+            flow: flow_state::ControlFlowState::default(),
+        }
+    }
+
+    /// A synthetic emitter used only to render types (and default values) at
+    /// crate level, outside any real function.
+    ///
+    /// Its `function` is `mir.functions.first()` and both its `none_ty` and its
+    /// missing-local type are `ty`, exactly as the three hand-written literals
+    /// this replaced spelled them; see the TODO(plan-197) note in
+    /// [`Self::type_text_for_with_context`] for why the foreign function is
+    /// kept.
+    fn type_renderer(
+        mir: &'mir Mir,
+        context: &'mir EmitContext,
+        ty: TypeId,
+    ) -> Result<Self, EmitError> {
+        let function = mir
+            .functions
+            .first()
+            .ok_or_else(|| EmitError::new("MIR has no functions"))?;
+        Ok(Self::bare(mir, context, function, ty, ty))
+    }
+
+    /// An emitter for `function` re-emitted as an INHERITED copy into the
+    /// subclass `owner`'s `impl` block (see [`emit_role::EmitRole::InheritedCopy`]).
+    ///
+    /// `function` is the type-substituted clone
+    /// (`crate::classes::substituted_inherited_member`); the same substitution
+    /// is recorded for the closures the copy emits.
+    pub(crate) fn inherited_copy(
+        mir: &'mir Mir,
+        context: &'mir EmitContext,
+        function: &'mir MirFunction,
+        owner: Symbol,
+    ) -> Result<Self, EmitError> {
+        let mut emitter = Self::new(mir, context, function)?;
+        let substitution = emitter.inherited_substitution(owner);
+        emitter.role = emit_role::EmitRole::InheritedCopy {
+            owner,
+            substitution,
+        };
+        Ok(emitter)
+    }
+
+    /// An emitter for an ancestor CONSTRUCTOR rendered as the base initializer
+    /// copy that runs inside `owner`'s `impl` (see `crate::base_init` and
+    /// [`emit_role::EmitRole::BaseInitializerCopy`]).
+    pub(crate) fn base_initializer_copy(
+        mir: &'mir Mir,
+        context: &'mir EmitContext,
+        function: &'mir MirFunction,
+        owner: Symbol,
+    ) -> Result<Self, EmitError> {
+        let mut emitter = Self::new(mir, context, function)?;
+        let substitution = emitter.inherited_substitution(owner);
+        emitter.role = emit_role::EmitRole::BaseInitializerCopy {
+            substitution,
+            receiver: emit_role::BaseInitializerReceiver {
+                owner,
+                // The constructor's instance is local 0
+                // (`HirOrigin::ClassConstructor` lowering allocates it there);
+                // in the copy it is the receiver.
+                receivers: HashSet::from([LocalId(0)]),
+            },
+        };
+        Ok(emitter)
+    }
+
+    /// An emitter for a generic free function's body-cleanliness trial (see
+    /// [`Self::renders_real_generics`] and [`emit_role::OwnGenerics::Trial`]).
+    pub(crate) fn for_generic_trial(
+        mir: &'mir Mir,
+        context: &'mir EmitContext,
+        function: &'mir MirFunction,
+    ) -> Result<Self, EmitError> {
+        let mut emitter = Self::new(mir, context, function)?;
+        emitter.role = emit_role::EmitRole::Own {
+            generics: emit_role::OwnGenerics::Trial,
+        };
+        Ok(emitter)
+    }
+
+    /// An emitter for a closure body rendered inline inside this emitter.
+    ///
+    /// `function` is the closure's synthetic [`MirFunction`] and `captures`
+    /// pairs each enclosing local with the closure local receiving it. The child
+    /// inherits, as one [`emit_role::ClosureScope`]: the type parameters in
+    /// scope here (already gated by this emitter's erasure decision and
+    /// hoisting state), the free function on generic trial, the inherited-copy
+    /// substitution meant for closures, and the base-initializer receiver
+    /// mapped through `captures`. Nothing else of this emitter's role carries
+    /// over: the closure's own function declares no type parameters, so an own
+    /// generic decision or a hoisting flag could only gate an empty set.
+    pub(crate) fn child_for_closure<'c>(
+        &'c self,
+        function: &'c MirFunction,
+        captures: &[smelt_mir::MirClosureCapture],
+    ) -> Result<FunctionEmitter<'c>, EmitError>
+    where
+        'mir: 'c,
+    {
+        let base_initializer = self.role.base_initializer().map(|parent| {
+            emit_role::BaseInitializerReceiver {
+                owner: parent.owner,
+                receivers: captures
+                    .iter()
+                    .filter(|capture| parent.receivers.contains(&capture.source_local))
+                    .filter_map(|capture| capture.target_local)
+                    .collect(),
+            }
+        });
+        let scope = emit_role::ClosureScope {
+            enclosing_type_params: self.current_function_type_params(),
+            trial_function: self.trial_generic_function(),
+            inherited_type_args: self.role.closure_inherited_type_args().clone(),
+            base_initializer,
+        };
+        let mut child = FunctionEmitter::new(self.mir, self.context, function)?;
+        child.role = emit_role::EmitRole::Closure(scope);
+        Ok(child)
+    }
+
+    /// Apply the crate-wide generic decision ([`emit_role::crate_generic_decision`])
+    /// to an emitter in the [`emit_role::EmitRole::Own`] role; other roles have
+    /// no own generics to decide.
+    pub(crate) fn apply_crate_generic_decision(&mut self) {
+        if let emit_role::EmitRole::Own { generics } = &mut self.role {
+            *generics = emit_role::crate_generic_decision(self.context, self.function);
+        }
+    }
+
+    /// Force an own item's type parameters out of scope, whatever the crate
+    /// decision says (the typedness measurement of closures with no owner).
+    pub(crate) fn erase_own_generics(&mut self) {
+        self.role = emit_role::EmitRole::Own {
+            generics: emit_role::OwnGenerics::Erased,
+        };
+    }
+
+    /// The free function currently on body-cleanliness trial: this emitter's
+    /// own function in the trial role, or the one a closure inherited.
+    pub(super) const fn trial_generic_function(&self) -> Option<FuncId> {
+        match &self.role {
+            emit_role::EmitRole::Own {
+                generics: emit_role::OwnGenerics::Trial,
+            } => Some(self.function.id),
+            emit_role::EmitRole::Closure(scope) => scope.trial_function,
+            _ => None,
+        }
     }
 
     /// Builds stable Rust names for every MIR local in a function.
@@ -207,6 +375,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// element type`) is unfindable in a corpus the size of Hono, which cost
     /// two rounds of bisecting a manifest's `exclude` list.
     pub(crate) fn emit(&mut self, out: &mut String) -> Result<(), EmitError> {
+        self.apply_crate_generic_decision();
         let emitted = self.emit_free_function(out);
         emitted.map_err(|error| error.with_site(|| self.current_function_site()))
     }
@@ -250,12 +419,10 @@ impl<'mir> FunctionEmitter<'mir> {
 
         // Whether this free function emits real Rust generics was decided once,
         // crate-wide, by `EmitContext::populate_generic_functions` (signature
-        // safety + a body-cleanliness trial). Suppressing the type parameters
-        // when the function is NOT in that set makes the signature, body, and
-        // every call site agree on the erased shape.
-        if !self.context.is_generic_function(self.function.id) {
-            *self.suppress_type_params.borrow_mut() = true;
-        }
+        // safety + a body-cleanliness trial), and applied to this emitter's role
+        // by `emit` (`emit_role::crate_generic_decision`). Erasing the type
+        // parameters when the function is NOT in that set makes the signature,
+        // body, and every call site agree on the erased shape.
         let mut body = String::new();
         self.emit_body(&mut body)?;
 
@@ -280,12 +447,12 @@ impl<'mir> FunctionEmitter<'mir> {
         // A generic free function emits real Rust generics
         // (`fn identity<T: ..>(x: T) -> T`); the suffix is empty otherwise,
         // including when the body-cleanliness trial forced a fall back to
-        // erasure (`suppress_type_params`). In that case the parameters and body
+        // erasure (`OwnGenerics::Erased`). In that case the parameters and body
         // are already rendered as `SmeltUnknown`, so declaring `<T>` would leave
         // an unconstrained, uninferable type parameter on the signature.
         // Source type parameters first, then Increment 2's generated
         // `F{n}: Fn(..) + ?Sized` callback bounds, in declaration order.
-        let generics = if *self.suppress_type_params.borrow() {
+        let generics = if self.role.own_generics_erased() {
             String::new()
         } else {
             let mut parts = crate::classes::function_impl_generics_list(
@@ -353,15 +520,15 @@ impl<'mir> FunctionEmitter<'mir> {
             ));
         }
         self.emit_mutable_local_preludes(out)?;
-        self.emit_block(self.entry_block()?, out)?;
+        let tail = self.emit_region_flow(self.entry_block()?, out)?;
         // `block_eventually_terminates` walks the MIR CFG, which can keep a
         // phantom fall-through edge that the structured emitter never renders
-        // (e.g. a `match` whose every arm returns). `last_emit_diverged`
+        // (e.g. a `match` whose every arm returns). The recorded `Flow`
         // reports whether the *rendered* tail already diverges, so consulting
         // it as well suppresses a trailing `return` that would otherwise be
         // dead `unreachable_code`.
         if !self.block_eventually_terminates(self.function.entry, &mut BlockIdSet::default())?
-            && !control_flow::last_emit_diverged()
+            && !tail.diverges()
             && !emitted_tail_returns(out)
         {
             self.emit_fallthrough_return(out)?;
@@ -373,14 +540,31 @@ impl<'mir> FunctionEmitter<'mir> {
     /// again (the generic body-cleanliness trial renders the body once to decide
     /// on generics, then the real emit renders it again).
     ///
-    /// Body rendering records which locals have already been declared; that must
-    /// start empty on the next pass or the re-rendered body would omit
-    /// declarations. Only the parameter locals are pre-declared at function
-    /// entry, matching [`FunctionEmitter::new`].
+    /// This is ALL the state a body render mutates; everything else on the
+    /// emitter is either fixed at construction (names, the local analyses, the
+    /// role) or a cache of a pure function of the MIR (termination, post
+    /// dominators, loop exits, the local write index) that stays valid.
+    ///
+    /// - the declared-locals set starts over with only the parameters
+    ///   pre-declared, matching [`FunctionEmitter::new`], or the re-rendered
+    ///   body would omit declarations;
+    /// - the deferred capture cells are re-recorded by the parameter preludes;
+    /// - the structural expansion stacks and the scope flags are empty/off
+    ///   between renders (their guards restore them; this also covers a render
+    ///   abandoned by an error);
+    /// - the control-flow state ([`flow_state::ControlFlowState`]) starts over.
     fn reset_body_emission_state(&self) {
-        let mut declared = self.declared_locals.borrow_mut();
-        declared.clear();
-        declared.extend(self.function.params.iter().copied());
+        {
+            let mut declared = self.declared_locals.borrow_mut();
+            declared.clear();
+            declared.extend(self.function.params.iter().copied());
+        }
+        self.deferred_capture_cells.borrow_mut().clear();
+        self.record_conversion_stack.borrow_mut().clear();
+        self.type_expansion_stack.borrow_mut().clear();
+        self.hoisted_module_item.set(false);
+        self.inherited_bound_suspended.set(false);
+        self.flow.reset();
     }
 
     /// Return whether this generic free function's body keeps every type
@@ -401,10 +585,16 @@ impl<'mir> FunctionEmitter<'mir> {
         // its own `T` (`mk(x.into_smelt_unknown())` inside `mk<T>`), failing
         // its own trial forever. The trial asks "does the body stay clean IF
         // this function is generic", so it assumes exactly that.
-        self.trial_generic_function.set(Some(self.function.id));
-        let emitted = self.emit_body(&mut body);
-        self.trial_generic_function.set(None);
-        emitted?;
+        // That assumption is this emitter's role (`OwnGenerics::Trial`, see
+        // `FunctionEmitter::for_generic_trial`).
+        //
+        // The rendered text is only inspected, never emitted, so everything
+        // the render mints into the shared context (accessors, hoisted helpers,
+        // erasure records) is rolled back when the checkpoint drops.
+        {
+            let _trial = self.context.checkpoint();
+            self.emit_body(&mut body)?;
+        }
         self.reset_body_emission_state();
         // A partial lift is governed by `classes::type_param_only_moved`, which
         // asks MIR whether each *lifted* parameter is ever inspected. The
@@ -430,9 +620,9 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Whether a call to the free function `id` renders against its generic
     /// signature: the crate-wide decision, or the function currently on trial
-    /// (see `trial_generic_function`).
+    /// (see [`Self::trial_generic_function`]).
     pub(super) fn callee_emits_generics(&self, id: FuncId) -> bool {
-        self.trial_generic_function.get() == Some(id) || self.context.is_generic_function(id)
+        self.trial_generic_function() == Some(id) || self.context.is_generic_function(id)
     }
 
     /// Emits shared cells for parameters mutated through lexical closures.
@@ -473,7 +663,7 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn emit_fallthrough_return(&self, out: &mut String) -> Result<(), EmitError> {
         // A fallthrough return diverges (or, for `void`, needs no continuation),
         // so the structural tail is terminated either way.
-        control_flow::set_last_emit_diverged(true);
+        self.flow.record(flow_state::Flow::Diverges);
         let return_ty = self.body_return_ty();
         if self.function.can_throw {
             out.push_str(&format!(
@@ -1292,24 +1482,21 @@ impl<'mir> FunctionEmitter<'mir> {
         let ordinal = if let Some(ordinal) = existing {
             ordinal
         } else {
-            let next = {
-                let mut helpers = self.context.record_adapter_helpers.borrow_mut();
-                let next = helpers.len();
-                helpers.insert(module.clone(), (next, "Default::default()".to_owned()));
-                next
+            // Reserved before the body renders (the cycle calls it); released
+            // unless a body is committed (see `helper_reservation`).
+            let reservation =
+                helper_reservation::reserve(&self.context.record_adapter_helpers, module);
+            let body = {
+                // The helper's body is a fresh module-level item: the
+                // expansions in progress at this call site are not its own.
+                let _suspended = helper_reservation::suspend(&self.type_expansion_stack);
+                let module_scope = self.render_scope();
+                self.structural_record_adapter_text("smelt_value", source, target, &module_scope)
             };
-            let saved = std::mem::take(&mut *self.type_expansion_stack.borrow_mut());
-            let module_scope = self.render_scope();
-            let body = self.structural_record_adapter_text("smelt_value", source, target, &module_scope);
-            *self.type_expansion_stack.borrow_mut() = saved;
             let Some(body) = body? else {
-                self.context.record_adapter_helpers.borrow_mut().remove(&module);
                 return Ok(None);
             };
-            if let Some(entry) = self.context.record_adapter_helpers.borrow_mut().get_mut(&module) {
-                entry.1 = body;
-            }
-            next
+            reservation.commit(body)
         };
         drop(hoisted);
         Ok(Some(format!(
@@ -2395,23 +2582,9 @@ impl<'mir> FunctionEmitter<'mir> {
         self.context.function_return_types.get(rust_name).copied()
     }
 
-    /// Mark this emitter as rendering an INHERITED copy of the method.
-    ///
-    /// Called by the crate emitter when a base class's method is re-emitted into
-    /// a subclass's `impl` block; see `emitting_inherited_copy` for what it
-    /// changes.
-    ///
-    /// `owner` is the receiving class, whose type parameters are the ones in
-    /// scope. The caller emits the copy from a type-substituted clone
-    /// (`crate::classes::substituted_inherited_member`); this records the same
-    /// substitution for the closures the copy emits (`inherited_type_args`).
-    pub(crate) fn mark_inherited_copy(&mut self, owner: Symbol) {
-        self.emitting_inherited_copy = true;
-        self.inherited_impl_owner = Some(owner);
-        self.seed_inherited_type_args(owner);
-    }
-
-    /// Record an inherited copy's substitution (see `inherited_type_args`).
+    /// The substitution an inherited or base-initializer copy of this
+    /// emitter's function into `owner`'s `impl` applies (see
+    /// [`emit_role::InheritedSubstitution`]).
     ///
     /// Closures get the whole map. The copy's own emitter also renders closure
     /// DECLARATIONS (a callback's header, its slot type), which are spelled in
@@ -2419,7 +2592,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// does not declare: the copy's substituted locals spell `owner`'s own
     /// parameters, and a name both classes declare (`Middle<T> extends
     /// Base<T[]>`) must keep meaning `owner`'s there.
-    fn seed_inherited_type_args(&mut self, owner: Symbol) {
+    fn inherited_substitution(&self, owner: Symbol) -> emit_role::InheritedSubstitution {
         let substitutions =
             crate::classes::inherited_member_substitution(self.mir, self.function, owner);
         let owner_params: HashSet<Symbol> = self
@@ -2429,50 +2602,13 @@ impl<'mir> FunctionEmitter<'mir> {
             .find(|class| class.name == owner)
             .map(|class| class.type_params.iter().map(|param| param.name).collect())
             .unwrap_or_default();
-        self.inherited_type_args = substitutions
-            .iter()
-            .filter(|(name, _)| !owner_params.contains(name))
-            .map(|(name, ty)| (*name, *ty))
-            .collect();
-        self.closure_inherited_type_args = substitutions;
-    }
-
-    /// Mark this CONSTRUCTOR emitter as rendering the base initializer copy that
-    /// runs inside `owner`'s `impl` (see `crate::base_init`).
-    ///
-    /// The copy receives the instance instead of allocating it, types `this` as
-    /// `Self` (the derived class), and renders type parameters in `owner`'s
-    /// scope — the scope the derived class's flattened layout, and therefore
-    /// every field this body writes, is rendered in.
-    pub(crate) fn mark_base_initializer_copy(&mut self, owner: Symbol) {
-        self.base_initializer_owner = Some(owner);
-        self.seed_inherited_type_args(owner);
-        // The constructor's instance is local 0 (`HirOrigin::ClassConstructor`
-        // lowering allocates it there); in the copy it is the receiver.
-        self.base_initializer_receivers.insert(LocalId(0));
-    }
-
-    /// Carry the base-initializer receiver into a closure emitted inside it.
-    ///
-    /// A closure the base constructor creates captures the receiver, and its
-    /// captured local IS the derived instance too (`Self`, not the declaring
-    /// base). `captures` pairs each enclosing source local with the closure
-    /// local receiving it.
-    pub(super) fn inherit_base_initializer_receiver(
-        &self,
-        closure_emitter: &mut Self,
-        captures: &[smelt_mir::MirClosureCapture],
-    ) {
-        if self.base_initializer_owner.is_none() {
-            return;
-        }
-        closure_emitter.base_initializer_owner = self.base_initializer_owner;
-        for capture in captures {
-            if let Some(target) = capture.target_local
-                && self.base_initializer_receivers.contains(&capture.source_local)
-            {
-                closure_emitter.base_initializer_receivers.insert(target);
-            }
+        emit_role::InheritedSubstitution {
+            own: substitutions
+                .iter()
+                .filter(|(name, _)| !owner_params.contains(name))
+                .map(|(name, ty)| (*name, *ty))
+                .collect(),
+            closures: substitutions,
         }
     }
 
@@ -2495,14 +2631,15 @@ impl<'mir> FunctionEmitter<'mir> {
         target: TypeId,
         scope: &RenderScope,
     ) -> Result<Option<String>, EmitError> {
-        let Some(owner) = self.base_initializer_owner else {
+        let Some(receiver) = self.role.base_initializer() else {
             return Ok(None);
         };
+        let owner = receiver.owner;
         let local = match operand {
             Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
             _ => return Ok(None),
         };
-        if !self.base_initializer_receivers.contains(&local) {
+        if !receiver.receivers.contains(&local) {
             return Ok(None);
         }
         let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
@@ -2520,7 +2657,7 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Whether this emitter renders a base initializer copy.
     pub(super) const fn is_base_initializer_copy(&self) -> bool {
-        self.base_initializer_owner.is_some()
+        self.role.base_initializer().is_some()
     }
 
     /// Whether `local` is the constructor instance of a base initializer copy,
@@ -2529,7 +2666,9 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Its Rust type is `Self` (the impl's class), never the declaring base's
     /// name, which is a different struct under flattening.
     pub(super) fn is_base_initializer_receiver(&self, local: LocalId) -> bool {
-        self.base_initializer_receivers.contains(&local)
+        self.role
+            .base_initializer()
+            .is_some_and(|receiver| receiver.receivers.contains(&local))
     }
 
     /// The Rust type text of a local's shared capture cell contents.
@@ -2558,6 +2697,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Emits a method or constructor definition, naming the site of any
     /// blocker (see [`Self::emit`]).
     pub(crate) fn emit_method(&mut self, out: &mut String) -> Result<(), EmitError> {
+        self.apply_crate_generic_decision();
         let emitted = self.emit_method_definition(out);
         emitted.map_err(|error| error.with_site(|| self.current_function_site()))
     }
@@ -2661,7 +2801,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     ));
                     return self.emit_async_method_owned_self_body(&inner_ret, out);
                 }
-                let return_text = if self.emitting_inherited_copy
+                let return_text = if self.role.is_inherited_copy()
                     && self.returns_the_receiver_at_its_own_class()
                 {
                     if self.function.can_throw {
@@ -2774,6 +2914,7 @@ impl<'mir> FunctionEmitter<'mir> {
         impl_generics: &str,
         type_args: &str,
     ) -> Result<(), EmitError> {
+        self.apply_crate_generic_decision();
         let emitted = self.emit_python_add_impl_body(out, class_name, impl_generics, type_args);
         emitted.map_err(|error| error.with_site(|| self.current_function_site()))
     }
@@ -2855,50 +2996,7 @@ impl<'mir> FunctionEmitter<'mir> {
         context: &EmitContext,
         ty: TypeId,
     ) -> Result<String, EmitError> {
-        FunctionEmitter {
-            mir,
-            context,
-            function: mir
-                .functions
-                .first()
-                .ok_or_else(|| EmitError::new("MIR has no functions"))?,
-            names: HashMap::new(),
-            mutable_locals: HashSet::new(),
-            declared_locals: RefCell::new(HashSet::new()),
-            deferred_capture_cells: RefCell::new(HashSet::new()),
-            predeclared_locals: HashSet::new(),
-            static_typeof_str_locals: HashSet::new(),
-            folded_throw_payloads: HashSet::new(),
-            termination_cache: RefCell::new(HashMap::new()),
-            local_write_index: std::cell::OnceCell::new(),
-            post_dominators: RefCell::new(None),
-            loop_exit_cache: RefCell::new(HashMap::new()),
-            borrowed_callback_names: HashSet::new(),
-            by_reference_param_locals: HashSet::new(),
-            record_conversion_stack: RefCell::new(Vec::new()),
-            type_expansion_stack: RefCell::new(Vec::new()),
-            none_ty: ty,
-            unknown_local: LocalDecl {
-                ty,
-                kind: LocalKind::Temp,
-                span: Span {
-                    file: FileId(0),
-                    start: 0,
-                    end: 0,
-                },
-            },
-            suppress_type_params: RefCell::new(false),
-            enclosing_type_params: HashSet::new(),
-            hoisted_module_item: std::cell::Cell::new(false),
-            emitting_inherited_copy: false,
-            inherited_impl_owner: None,
-            inherited_type_args: HashMap::new(),
-            trial_generic_function: std::cell::Cell::new(None),
-            closure_inherited_type_args: HashMap::new(),
-            rendering_inherited_bound: std::cell::Cell::new(false),
-            base_initializer_owner: None,
-            base_initializer_receivers: HashSet::new(),
-        }
+        FunctionEmitter::type_renderer(mir, context, ty)?
         // TODO(plan-197): this synthetic emitter's `function` is
         // `mir.functions.first()`, so the lexical scope it renders under is an
         // arbitrary *foreign* function's — neither empty nor the caller's, and
@@ -2923,50 +3021,7 @@ impl<'mir> FunctionEmitter<'mir> {
         ty: TypeId,
         substitution: &TypeSubstitution<'_>,
     ) -> Result<String, EmitError> {
-        FunctionEmitter {
-            mir,
-            context,
-            function: mir
-                .functions
-                .first()
-                .ok_or_else(|| EmitError::new("MIR has no functions"))?,
-            names: HashMap::new(),
-            mutable_locals: HashSet::new(),
-            declared_locals: RefCell::new(HashSet::new()),
-            deferred_capture_cells: RefCell::new(HashSet::new()),
-            predeclared_locals: HashSet::new(),
-            static_typeof_str_locals: HashSet::new(),
-            folded_throw_payloads: HashSet::new(),
-            termination_cache: RefCell::new(HashMap::new()),
-            local_write_index: std::cell::OnceCell::new(),
-            post_dominators: RefCell::new(None),
-            loop_exit_cache: RefCell::new(HashMap::new()),
-            borrowed_callback_names: HashSet::new(),
-            by_reference_param_locals: HashSet::new(),
-            record_conversion_stack: RefCell::new(Vec::new()),
-            type_expansion_stack: RefCell::new(Vec::new()),
-            none_ty: ty,
-            unknown_local: LocalDecl {
-                ty,
-                kind: LocalKind::Temp,
-                span: Span {
-                    file: FileId(0),
-                    start: 0,
-                    end: 0,
-                },
-            },
-            suppress_type_params: RefCell::new(false),
-            enclosing_type_params: HashSet::new(),
-            hoisted_module_item: std::cell::Cell::new(false),
-            emitting_inherited_copy: false,
-            inherited_impl_owner: None,
-            inherited_type_args: HashMap::new(),
-            trial_generic_function: std::cell::Cell::new(None),
-            closure_inherited_type_args: HashMap::new(),
-            rendering_inherited_bound: std::cell::Cell::new(false),
-            base_initializer_owner: None,
-            base_initializer_receivers: HashSet::new(),
-        }
+        FunctionEmitter::type_renderer(mir, context, ty)?
         .rust_type(ty, false, substitution)
         .map(RustType::into_string)
     }
@@ -2978,50 +3033,7 @@ impl<'mir> FunctionEmitter<'mir> {
         ty: TypeId,
         substitution: &TypeSubstitution<'_>,
     ) -> Result<String, EmitError> {
-        FunctionEmitter {
-            mir,
-            context,
-            function: mir
-                .functions
-                .first()
-                .ok_or_else(|| EmitError::new("MIR has no functions"))?,
-            names: HashMap::new(),
-            mutable_locals: HashSet::new(),
-            declared_locals: RefCell::new(HashSet::new()),
-            deferred_capture_cells: RefCell::new(HashSet::new()),
-            predeclared_locals: HashSet::new(),
-            static_typeof_str_locals: HashSet::new(),
-            folded_throw_payloads: HashSet::new(),
-            termination_cache: RefCell::new(HashMap::new()),
-            local_write_index: std::cell::OnceCell::new(),
-            post_dominators: RefCell::new(None),
-            loop_exit_cache: RefCell::new(HashMap::new()),
-            borrowed_callback_names: HashSet::new(),
-            by_reference_param_locals: HashSet::new(),
-            record_conversion_stack: RefCell::new(Vec::new()),
-            type_expansion_stack: RefCell::new(Vec::new()),
-            none_ty: ty,
-            unknown_local: LocalDecl {
-                ty,
-                kind: LocalKind::Temp,
-                span: Span {
-                    file: FileId(0),
-                    start: 0,
-                    end: 0,
-                },
-            },
-            suppress_type_params: RefCell::new(false),
-            enclosing_type_params: HashSet::new(),
-            hoisted_module_item: std::cell::Cell::new(false),
-            emitting_inherited_copy: false,
-            inherited_impl_owner: None,
-            inherited_type_args: HashMap::new(),
-            trial_generic_function: std::cell::Cell::new(None),
-            closure_inherited_type_args: HashMap::new(),
-            rendering_inherited_bound: std::cell::Cell::new(false),
-            base_initializer_owner: None,
-            base_initializer_receivers: HashSet::new(),
-        }
+        FunctionEmitter::type_renderer(mir, context, ty)?
         .default_value_with_scoped_type_params(ty, substitution)
     }
 
@@ -6045,19 +6057,20 @@ impl<'mir> FunctionEmitter<'mir> {
         self.declared_locals.borrow().contains(&local)
     }
 
-    /// Captures the currently visible Rust local declarations.
+    /// Open a nested Rust local-declaration scope.
     ///
-    /// MIR locals are function-scoped, but generated Rust branch bodies create
-    /// nested lexical scopes. Code that emits a branch restores this snapshot
-    /// after the branch so locals introduced only inside that branch do not
-    /// leak into later sibling or outer Rust scopes.
-    pub(super) fn declared_locals_snapshot(&self) -> HashSet<LocalId> {
-        self.declared_locals.borrow().clone()
-    }
-
-    /// Restores a previously captured Rust local declaration scope.
-    pub(super) fn restore_declared_locals(&self, snapshot: HashSet<LocalId>) {
-        *self.declared_locals.borrow_mut() = snapshot;
+    /// Generated Rust has lexical scopes for branches, loops, and closures, so
+    /// a local declared inside one must not count as declared in a later
+    /// sibling or outer scope. The returned guard remembers the declared set as
+    /// it is now: [`DeclaredLocalsScope::reset`] restores it between sibling
+    /// branches, [`DeclaredLocalsScope::close`] at the scope's end, and dropping
+    /// the guard restores it too, so an early `?` (whose error a caller may
+    /// catch and fall back from) cannot leak the branch's declarations.
+    pub(super) fn declared_scope(&self) -> DeclaredLocalsScope<'_> {
+        DeclaredLocalsScope {
+            declared: &self.declared_locals,
+            snapshot: Some(self.declared_locals.borrow().clone()),
+        }
     }
 
     /// Gets the declaration of a local owned by another MIR function.
@@ -6779,4 +6792,50 @@ pub(super) enum SlotReceiver {
         /// The Rust name of the new instance handle.
         handle: String,
     },
+}
+
+/// A nested Rust local-declaration scope opened by
+/// [`FunctionEmitter::declared_scope`].
+///
+/// Every success path ends it explicitly: [`Self::close`] restores the set it
+/// captured, [`Self::keep`] leaves the current declarations in place (the
+/// region continued in the same Rust scope, e.g. a `match` whose continuation
+/// is emitted after it with no join). Dropping it without either — an early
+/// `?` — restores the captured set, so an error a caller catches and falls
+/// back from cannot leak the abandoned region's declarations.
+pub(super) struct DeclaredLocalsScope<'e> {
+    /// The emitter's declared-locals set.
+    declared: &'e RefCell<HashSet<LocalId>>,
+    /// The set as it was when the scope opened; `None` once kept.
+    snapshot: Option<HashSet<LocalId>>,
+}
+
+impl DeclaredLocalsScope<'_> {
+    /// Restore the captured set and keep the scope open (between siblings).
+    pub(super) fn reset(&self) {
+        if let Some(snapshot) = &self.snapshot {
+            self.declared.borrow_mut().clone_from(snapshot);
+        }
+    }
+
+    /// Restore the captured set and end the scope.
+    pub(super) fn close(mut self) {
+        if let Some(snapshot) = self.snapshot.take() {
+            *self.declared.borrow_mut() = snapshot;
+        }
+    }
+
+    /// End the scope keeping the declarations made inside it.
+    pub(super) fn keep(mut self) {
+        self.snapshot = None;
+    }
+}
+
+impl Drop for DeclaredLocalsScope<'_> {
+    /// Restore the captured set when the scope was abandoned by an early exit.
+    fn drop(&mut self) {
+        if let Some(snapshot) = self.snapshot.take() {
+            *self.declared.borrow_mut() = snapshot;
+        }
+    }
 }

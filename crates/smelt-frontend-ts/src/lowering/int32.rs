@@ -667,15 +667,18 @@ impl ModuleBuilder<'_> {
         }
         self.check_int32_members_agree(module_items)?;
         let results = self.body_results();
-        for index in first_body..self.ctx.krate.bodies.len() {
-            let span = self.ctx.krate.bodies[index].blocks[0].span;
-            let mut body = std::mem::replace(&mut self.ctx.krate.bodies[index], Body::new(None, span));
+        // The pass rewrites bodies in place and reads only items, types and
+        // symbols. The bodies are moved out of the crate for its duration, so
+        // `krate.bodies` is empty while it runs: a read of another body through
+        // the crate cannot observe a placeholder or a half-rewritten body (it
+        // finds nothing), and every body is put back on every exit path.
+        let mut bodies = std::mem::take(&mut self.ctx.krate.bodies);
+        let outcome = bodies.iter_mut().skip(first_body).try_for_each(|body| {
             let id = body.id;
-            let outcome = self.finish_int32_body(&mut body, results.get(&id));
-            self.ctx.krate.bodies[index] = body;
-            outcome?;
-        }
-        Ok(())
+            self.finish_int32_body(body, results.get(&id))
+        });
+        self.ctx.krate.bodies = bodies;
+        outcome
     }
 
     /// Every body's declared result type and display name.

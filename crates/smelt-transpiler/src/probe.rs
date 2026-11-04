@@ -22,14 +22,8 @@ use smelt_stdlib::DiagnosticCategory;
 use crate::config::Config;
 use crate::{CliResult, lowering, pipeline, test_report};
 
-/// Output format for the probe report.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProbeFormat {
-    /// Human-readable Markdown.
-    Markdown,
-    /// Machine-readable JSON.
-    Json,
-}
+/// Report output format; the `--format` value enum shared by every report.
+pub(crate) type ProbeFormat = crate::cli_parser::ReportFormat;
 
 /// Options controlling a probe run.
 pub(crate) struct ProbeOptions<'a> {
@@ -75,19 +69,99 @@ struct TestOutcome {
     failed: usize,
 }
 
+/// Where the whole-crate build stopped when it did not produce a crate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AbortSite {
+    /// The first source file named by the build error.
+    File(String),
+    /// The frontend panicked; no file is attributable.
+    FrontendPanic,
+    /// The build error named no source file.
+    Unknown,
+}
+
+impl AbortSite {
+    /// The `abort_file` JSON value: absent for [`AbortSite::Unknown`], which
+    /// keeps the pre-enum JSON shape (the field was skipped when `None`).
+    fn json_value(&self) -> Option<&str> {
+        match self {
+            Self::File(file) => Some(file),
+            Self::FrontendPanic => Some("(frontend panic)"),
+            Self::Unknown => None,
+        }
+    }
+
+    /// The abort site as the Markdown report names it.
+    fn display(&self) -> &str {
+        self.json_value().unwrap_or("(unknown)")
+    }
+}
+
+/// Verdict of the whole-crate build.
+#[derive(Debug)]
+enum Verdict {
+    /// A Rust crate was emitted.
+    Transpiled {
+        /// Generated test counts, when `--run-tests` asked for them.
+        tests: Option<TestOutcome>,
+    },
+    /// The build failed.
+    Aborted {
+        /// Where the build stopped.
+        at: AbortSite,
+    },
+}
+
+impl Verdict {
+    /// Classify the outcome of the whole-crate build, caught for panics.
+    fn of_build(build: std::thread::Result<CliResult<()>>) -> Self {
+        match build {
+            Ok(Ok(())) => Self::Transpiled { tests: None },
+            Ok(Err(error)) => Self::Aborted {
+                at: first_abort_file(&error.to_string()).map_or(AbortSite::Unknown, AbortSite::File),
+            },
+            Err(_panic) => Self::Aborted { at: AbortSite::FrontendPanic },
+        }
+    }
+}
+
+impl Serialize for Verdict {
+    /// Serialize as the flat `transpiled` / `abort_file` / `tests` fields the
+    /// probe JSON has always carried, so existing consumers keep working.
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        /// Wire shape of a [`Verdict`].
+        #[derive(Serialize)]
+        struct Wire<'verdict> {
+            /// Whether the whole-crate build produced a Rust crate.
+            transpiled: bool,
+            /// First file the whole-crate build aborted on, when known.
+            #[serde(skip_serializing_if = "Option::is_none")]
+            abort_file: Option<&'verdict str>,
+            /// Generated test counts, when the crate transpiled and tests ran.
+            #[serde(skip_serializing_if = "Option::is_none")]
+            tests: Option<&'verdict TestOutcome>,
+        }
+        let wire = match self {
+            Self::Transpiled { tests } => {
+                Wire { transpiled: true, abort_file: None, tests: tests.as_ref() }
+            }
+            Self::Aborted { at } => {
+                Wire { transpiled: false, abort_file: at.json_value(), tests: None }
+            }
+        };
+        wire.serialize(serializer)
+    }
+}
+
 /// Structured probe result, serialized directly for `--format json`.
 #[derive(Debug, Serialize)]
 struct ProbeResult {
     /// Project name from the manifest.
     project: String,
-    /// Whether the whole-crate build produced a Rust crate.
-    transpiled: bool,
-    /// First file the whole-crate build aborted on, when it failed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    abort_file: Option<String>,
-    /// Generated test counts, when the crate transpiled and tests ran.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tests: Option<TestOutcome>,
+    /// Whole-crate build verdict, flattened into `transpiled`, `abort_file`
+    /// and `tests`.
+    #[serde(flatten)]
+    verdict: Verdict,
     /// Number of source files scanned for blockers.
     files_scanned: usize,
     /// Number of scanned files with at least one blocker.
@@ -121,18 +195,14 @@ fn run_probe(options: &ProbeOptions<'_>) -> CliResult<ProbeResult> {
     let build = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         pipeline::build_rust_crate(options.config, options.manifest_path)
     }));
-    let (transpiled, abort_file) = match build {
-        Ok(Ok(())) => (true, None),
-        Ok(Err(error)) => (false, first_abort_file(&error.to_string())),
-        Err(_) => (false, Some("(frontend panic)".to_owned())),
-    };
+    let mut verdict = Verdict::of_build(build);
 
     // Run the generated test suite when the crate built and tests were asked for.
-    let tests = if transpiled && options.run_tests {
-        Some(measure_tests(options.config, manifest_dir)?)
-    } else {
-        None
-    };
+    if let Verdict::Transpiled { tests } = &mut verdict
+        && options.run_tests
+    {
+        *tests = Some(measure_tests(options.config, manifest_dir)?);
+    }
 
     // Recoverable manifest lowering enumerates every distinct blocker class.
     let files = lowering::discover_source_files(options.config, manifest_dir)?;
@@ -183,9 +253,7 @@ fn run_probe(options: &ProbeOptions<'_>) -> CliResult<ProbeResult> {
 
     Ok(ProbeResult {
         project: options.config.project_name().to_owned(),
-        transpiled,
-        abort_file,
-        tests,
+        verdict,
         files_scanned: files.len(),
         files_with_blockers,
         category_counts,
@@ -438,29 +506,32 @@ fn render_markdown(result: &ProbeResult) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# Probe report: {}", result.project);
     let _ = writeln!(out);
-    if result.transpiled {
-        let _ = writeln!(out, "- Transpile: **yes** — Rust crate emitted");
-        match &result.tests {
-            Some(tests) => {
-                let _ = writeln!(
-                    out,
-                    "- Generated `cargo test`: **{} passed / {} failed**",
-                    tests.passed, tests.failed
-                );
-            }
-            None => {
-                let _ = writeln!(
-                    out,
-                    "- Generated `cargo test`: not run (pass `--run-tests`)"
-                );
+    match &result.verdict {
+        Verdict::Transpiled { tests } => {
+            let _ = writeln!(out, "- Transpile: **yes** — Rust crate emitted");
+            match tests {
+                Some(outcome) => {
+                    let _ = writeln!(
+                        out,
+                        "- Generated `cargo test`: **{} passed / {} failed**",
+                        outcome.passed, outcome.failed
+                    );
+                }
+                None => {
+                    let _ = writeln!(
+                        out,
+                        "- Generated `cargo test`: not run (pass `--run-tests`)"
+                    );
+                }
             }
         }
-    } else {
-        let abort = result.abort_file.as_deref().unwrap_or("(unknown)");
-        let _ = writeln!(
-            out,
-            "- Transpile: **no** — whole-crate build aborts at `{abort}`"
-        );
+        Verdict::Aborted { at } => {
+            let _ = writeln!(
+                out,
+                "- Transpile: **no** — whole-crate build aborts at `{}`",
+                at.display()
+            );
+        }
     }
     let _ = writeln!(
         out,
@@ -671,5 +742,53 @@ mod tests {
             first_abort_file(message).as_deref(),
             Some("/work/lib/src/array/at.spec.ts")
         );
+    }
+
+    /// Serialize a verdict alone, the way `ProbeResult` flattens it.
+    fn verdict_json(verdict: &Verdict) -> String {
+        serde_json::to_string(verdict).expect("verdict serializes")
+    }
+
+    /// The verdict keeps the flat pre-enum JSON spelling consumers read.
+    #[test]
+    fn verdict_json_keeps_the_flat_shape() {
+        assert_eq!(verdict_json(&Verdict::Transpiled { tests: None }), r#"{"transpiled":true}"#);
+        assert_eq!(
+            verdict_json(&Verdict::Transpiled { tests: Some(TestOutcome { passed: 3, failed: 1 }) }),
+            r#"{"transpiled":true,"tests":{"passed":3,"failed":1}}"#
+        );
+        assert_eq!(
+            verdict_json(&Verdict::Aborted { at: AbortSite::File("src/a.ts".to_owned()) }),
+            r#"{"transpiled":false,"abort_file":"src/a.ts"}"#
+        );
+        assert_eq!(
+            verdict_json(&Verdict::Aborted { at: AbortSite::FrontendPanic }),
+            r#"{"transpiled":false,"abort_file":"(frontend panic)"}"#
+        );
+        assert_eq!(
+            verdict_json(&Verdict::Aborted { at: AbortSite::Unknown }),
+            r#"{"transpiled":false}"#
+        );
+    }
+
+    /// A build error that names no source file is an unknown abort site, and a
+    /// caught panic is attributed to the frontend.
+    #[test]
+    fn verdict_classifies_build_outcomes() {
+        let unnamed: CliResult<()> = Err("linker exploded".into());
+        assert!(matches!(
+            Verdict::of_build(Ok(unnamed)),
+            Verdict::Aborted { at: AbortSite::Unknown }
+        ));
+        let named: CliResult<()> = Err("src/lib/a.ts:\nboom".into());
+        assert!(matches!(
+            Verdict::of_build(Ok(named)),
+            Verdict::Aborted { at: AbortSite::File(file) } if file == "src/lib/a.ts"
+        ));
+        assert!(matches!(
+            Verdict::of_build(Err(Box::new("panic"))),
+            Verdict::Aborted { at: AbortSite::FrontendPanic }
+        ));
+        assert!(matches!(Verdict::of_build(Ok(Ok(()))), Verdict::Transpiled { tests: None }));
     }
 }

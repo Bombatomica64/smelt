@@ -215,7 +215,8 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Whether a module-level statement declares a *type alias*.
+    /// Split a type-alias statement into its declared name and aliased type
+    /// expression, or `None` when the statement is not an alias.
     ///
     /// Three spellings are recognized, all of which are unambiguously
     /// type-level in valid typed Python:
@@ -226,12 +227,6 @@ impl ModuleBuilder<'_> {
     ///   accepted only when the right-hand side is itself a type expression
     ///   (`Union[..]`/`Optional[..]` or a PEP 604 `|` chain), so an ordinary
     ///   value assignment is never mistaken for an alias.
-    fn is_type_alias_statement(stmt: &Stmt) -> bool {
-        Self::type_alias_parts(stmt).is_some()
-    }
-
-    /// Split a type-alias statement into its declared name and aliased type
-    /// expression, or `None` when the statement is not an alias.
     fn type_alias_parts(stmt: &Stmt) -> Option<(&str, &Expr)> {
         /// Whether an annotation names PEP 613's `TypeAlias`.
         fn is_type_alias_marker(annotation: &Expr) -> bool {

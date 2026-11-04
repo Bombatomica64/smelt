@@ -1,6 +1,7 @@
 //! `ModuleBuilder` lowering methods (part 06): assertion/expectation lowering
 //! and related HIR construction helpers split out of `lowering.rs`.
 
+use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::{LocalCallback, LocalCallbackDefault, ModuleBuilder, RestParam, TestMatcher};
 use crate::SmeltError;
 use oxc::ast::ast::{Argument, BindingPattern, Expression, PropertyKey, Statement};
@@ -1456,11 +1457,7 @@ impl ModuleBuilder<'_> {
             ty: bool_ty,
             value: Some(false_expr),
         };
-        if let Some(block) = self.current_statement_block {
-            body.push_stmt_to_block(block, did_throw_stmt);
-        } else {
-            body.push_stmt(did_throw_stmt);
-        }
+        self.push_stmt_to_sink(body, did_throw_stmt);
 
         let try_block = if let Argument::ArrowFunctionExpression(arrow) = actual_arg {
             let none_ty = self.ctx.krate.types.intern(Type::None);
@@ -1605,11 +1602,7 @@ impl ModuleBuilder<'_> {
             catch_body: Some(catch_block),
             finally_body: None,
         };
-        if let Some(block) = self.current_statement_block {
-            body.push_stmt_to_block(block, try_stmt);
-        } else {
-            body.push_stmt(try_stmt);
-        }
+        self.push_stmt_to_sink(body, try_stmt);
 
         let did_throw_check = body.push_expr(Expr {
             kind: ExprKind::Local(did_throw),
@@ -1798,17 +1791,10 @@ impl ModuleBuilder<'_> {
     /// Assertions are built while lowering an expression, so they cannot use
     /// `Body::push_stmt` directly: that always appends to the function root,
     /// which would hoist an assertion out of the `if` or loop body it was
-    /// written in. `current_statement_block` names the block the enclosing
-    /// statement lowering is filling.
+    /// written in. The statement sink names the block the enclosing statement
+    /// lowering is filling.
     pub(in crate::lowering) fn push_assertion_stmt(&self, body: &mut Body, stmt: Stmt) {
-        match self.current_statement_block {
-            Some(block) => {
-                body.push_stmt_to_block(block, stmt);
-            }
-            None => {
-                body.push_stmt(stmt);
-            }
-        }
+        self.push_stmt_to_sink(body, stmt);
     }
 
     /// Push a throwing failure block guarded by a boolean condition.
@@ -1828,11 +1814,7 @@ impl ModuleBuilder<'_> {
             then_block: failure_block,
             else_block: None,
         };
-        if let Some(block) = self.current_statement_block {
-            body.push_stmt_to_block(block, failure_stmt);
-        } else {
-            body.push_stmt(failure_stmt);
-        }
+        self.push_stmt_to_sink(body, failure_stmt);
     }
 
     /// Build the runtime message thrown by a failed synthesized assertion.
@@ -1996,7 +1978,7 @@ impl ModuleBuilder<'_> {
                 }))
             }
             Some(Type::Unknown)
-                if self.allow_unknown_index_access || self.type_contains_unknown(operand_ty) =>
+                if self.allows_unknown_index_access() || self.type_contains_unknown(operand_ty) =>
             {
                 let int_ty = self.ctx.krate.types.intern(Type::Int);
                 Ok(body.push_expr(Expr {
@@ -2005,7 +1987,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(span.start, span.end),
                 }))
             }
-            _ if self.allow_unknown_index_access => {
+            _ if self.allows_unknown_index_access() => {
                 let int_ty = self.ctx.krate.types.intern(Type::Int);
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::Len { operand },
@@ -4131,8 +4113,7 @@ impl ModuleBuilder<'_> {
                     // would leave the earlier capture reading a slot nothing
                     // ever assigns. The arrow and self-binding shapes are
                     // already routed there by their own declaration paths.
-                    self.forward_referenced_locals
-                        .insert(binding.name.as_str().to_owned());
+                    self.reserve_forward_local(binding.name.as_str().to_owned());
                 }
             }
         }
@@ -4274,9 +4255,13 @@ impl ModuleBuilder<'_> {
             }
             self.push_type_parameter_scope(function.type_parameters.as_deref())?;
             let result = (|| {
+                // The same ABI the declaration itself lowers to (see
+                // `local_function_declaration`), so a call lowered before the
+                // declaration statement already passes `Optional<T>` for a
+                // defaulted parameter.
                 let mut params = Vec::new();
                 for param in &function.params.items {
-                    params.push(self.function_parameter_type(param)?);
+                    params.push(self.function_parameter_abi(param)?.0);
                 }
                 let required_params = function
                     .params
@@ -4383,12 +4368,7 @@ impl ModuleBuilder<'_> {
             // binding held a placeholder instance and `new Foo()` erased into a
             // dynamic construction whose methods answered `null` (H68).
             if let Some((name, class)) = Self::const_class_expression(declarator) {
-                let previous = self
-                    .class_expression_binding_name
-                    .replace(name.to_owned());
-                let lowered = self.class_declaration(class);
-                self.class_expression_binding_name = previous;
-                lowered?;
+                self.class_declaration_named(class, Some(name))?;
                 continue;
             }
             // `const { placeholder } = partial;` destructures a static property off
@@ -4479,7 +4459,7 @@ impl ModuleBuilder<'_> {
             let reserved_forward_local = if let BindingPattern::BindingIdentifier(binding) =
                 &declarator.id
             {
-                self.forward_referenced_locals.remove(binding.name.as_str())
+                self.take_forward_local_reservation(binding.name.as_str())
             } else {
                 false
             };
@@ -4514,14 +4494,25 @@ impl ModuleBuilder<'_> {
             } else {
                 None
             };
-            let prior_deferred_updates = self.deferred_postfix_updates.replace(Vec::new());
-            let value_result = declarator
+            // Postfix stores move after the binding only when no later part of
+            // the initializer can observe them; otherwise each one stores where
+            // JavaScript evaluates it (see `postfix_deferral`).
+            let mut lower_init = |this: &mut Self| {
+                declarator
+                    .init
+                    .as_ref()
+                    .map(|init| this.expression_with_hint(init, body, annotated_ty))
+                    .transpose()
+            };
+            let (value_result, deferred_updates) = if declarator
                 .init
                 .as_ref()
-                .map(|init| self.expression_with_hint(init, body, annotated_ty))
-                .transpose();
-            let deferred_updates = self.deferred_postfix_updates.take().unwrap_or_default();
-            self.deferred_postfix_updates = prior_deferred_updates;
+                .is_none_or(crate::lowering::postfix_deferral::initializer_can_defer_postfix_updates)
+            {
+                self.with_deferred_updates(lower_init)
+            } else {
+                (lower_init(self), Vec::new())
+            };
             let value = value_result?;
             let annotated_ty = self.presence_widened_binding_type(declarator, annotated_ty, value, body);
             let value = value.map(|value| self.keyed_read_into_optional_slot(value, annotated_ty, body));
@@ -5120,24 +5111,25 @@ impl ModuleBuilder<'_> {
         self.push_type_parameter_scope(function.type_parameters.as_deref())?;
         // Everything below lowers this function's OWN body, where its name does
         // not denote a value it can reach (see `defining_local_functions`).
-        self.defining_local_functions.push(id.name.as_str().to_owned());
-        let result = (|| {
+        let defining = id.name.as_str().to_owned();
+        let result = self.with_defining_local_function(defining, |this| {
             let mut param_tys = Vec::new();
             let mut closure_body = Body::new(
                 None,
-                self.span(function_body.span.start, function_body.span.end),
+                this.span(function_body.span.start, function_body.span.end),
             );
-            closure_body.is_generator = function.generator;
+            closure_body.set_generator(function.generator);
             let mut closure_params = Vec::new();
             let mut param_names = HashSet::new();
             let mut saved_locals = Vec::new();
+            let mut defaulted_params = Vec::new();
 
             // A nested `function` that reads its own `arguments` is variadic: the
             // object is the ACTUAL argument list, which a declared-arity signature
             // cannot carry (see `lowering::arguments_forwarding`). Replace the
             // parameter list with one rest list and re-bind each declared name from
             // it. es-toolkit's `rest`/`ary`/`unary` spec helpers are this shape.
-            let arguments_forwarding = self.arguments_forwarding_params(function, &mut closure_body)?;
+            let arguments_forwarding = this.arguments_forwarding_params(function, &mut closure_body)?;
             // `Function.prototype.length` is the SOURCE arity — `fn(a, b, c).length`
             // is `3` — and es-toolkit `rest(func)` reads it to choose its default
             // `start` (`func.length - 1`). The variadic rewrite replaces the
@@ -5146,20 +5138,25 @@ impl ModuleBuilder<'_> {
             // `required_params` is the field `length` is derived from, and it still
             // describes the source contract (the parameters before the first
             // optional one) even though the internal ABI is now a single list.
-            let source_required_params = arguments_forwarding.as_ref().map(|_| {
+            //
+            // The same count is what a caller may omit down to, so it is
+            // recorded for every nested declaration, not only the variadic one:
+            // without it a call that omits a defaulted or optional argument
+            // looked short of the declared arity and lost every argument.
+            let source_required_params = Some(
                 function
                     .params
                     .items
                     .iter()
                     .position(|param| param.optional || Self::formal_parameter_has_default(param))
-                    .unwrap_or(function.params.items.len())
-            });
+                    .unwrap_or(function.params.items.len()),
+            );
             if let Some(forwarding) = &arguments_forwarding {
                 closure_params.extend(forwarding.params.iter().cloned());
                 param_tys.extend(forwarding.param_tys.iter().copied());
                 for (name, local) in forwarding.binding_pairs() {
                     param_names.insert(name.clone());
-                    saved_locals.push((name.clone(), self.scope.bind(name, local)));
+                    saved_locals.push((name.clone(), this.scope.bind(name, local)));
                 }
             }
             for (index, param) in function
@@ -5169,16 +5166,20 @@ impl ModuleBuilder<'_> {
                 .enumerate()
                 .take(if arguments_forwarding.is_some() { 0 } else { usize::MAX })
             {
-                let ty = self.function_parameter_type(param)?;
+                // A defaulted parameter takes the `Optional<T>` ABI and a body
+                // prelude applies its default, exactly like a top-level
+                // `function` (see `function_parameter_abi`). Dropping the
+                // default here left an omitted argument with nothing to fill it.
+                let (ty, default_initializer) = this.function_parameter_abi(param)?;
                 let (symbol, param_span, source_name) = match &param.pattern {
                     BindingPattern::BindingIdentifier(binding) => (
-                        self.intern_source_name(binding.name.as_str()),
-                        self.span(binding.span.start, binding.span.end),
+                        this.intern_source_name(binding.name.as_str()),
+                        this.span(binding.span.start, binding.span.end),
                         Some(binding.name.as_str().to_owned()),
                     ),
                     _ => (
-                        self.synthetic_param_symbol(index),
-                        self.span(param.span.start, param.span.end),
+                        this.synthetic_param_symbol(index),
+                        this.span(param.span.start, param.span.end),
                         None,
                     ),
                 };
@@ -5198,8 +5199,18 @@ impl ModuleBuilder<'_> {
                 param_tys.push(ty);
                 if let Some(source_name) = source_name {
                     param_names.insert(source_name.clone());
+                    if let Some(initializer) = default_initializer {
+                        defaulted_params.push((
+                            local,
+                            ty,
+                            initializer,
+                            symbol,
+                            source_name.clone(),
+                            param_span,
+                        ));
+                    }
                     saved_locals
-                        .push((source_name.clone(), self.scope.bind(source_name, local)));
+                        .push((source_name.clone(), this.scope.bind(source_name, local)));
                 }
             }
 
@@ -5216,43 +5227,43 @@ impl ModuleBuilder<'_> {
             } else if let Some(rest_param) = &function.params.rest {
                 let BindingPattern::BindingIdentifier(binding) = &rest_param.rest.argument else {
                     return Err(SmeltError::unsupported(
-                        self.span(rest_param.span.start, rest_param.span.end),
+                        this.span(rest_param.span.start, rest_param.span.end),
                         "nested function destructured rest parameters need rest binding lowering",
                     ));
                 };
                 let source_ty = rest_param
                     .type_annotation
                     .as_ref()
-                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                    .map(|annotation| this.ts_type_to_hir(&annotation.type_annotation))
                     .transpose()?
                     .unwrap_or_else(|| {
-                        self.erase_with(ErasureReason::MissingAnnotation, "rest parameter")
+                        this.erase_with(ErasureReason::MissingAnnotation, "rest parameter")
                     });
-                let Ok((ty, _item_ty)) = self.rest_param_array_type(source_ty) else {
+                let Ok((ty, _item_ty)) = this.rest_param_array_type(source_ty) else {
                     return Err(SmeltError::unsupported(
-                        self.span(rest_param.span.start, rest_param.span.end),
+                        this.span(rest_param.span.start, rest_param.span.end),
                         "nested function rest parameter type must be an array type",
                     ));
                 };
                 let rest_index = closure_params.len();
-                let symbol = self.intern_source_name(binding.name.as_str());
+                let symbol = this.intern_source_name(binding.name.as_str());
                 let local = closure_body.push_local(LocalDecl {
                     name: Some(symbol),
                     ty,
                     mutable: false,
-                    span: self.span(binding.span.start, binding.span.end),
+                    span: this.span(binding.span.start, binding.span.end),
                 });
                 closure_body.params.push(local);
                 closure_params.push(Param {
                     name: symbol,
                     local,
                     ty,
-                    span: self.span(binding.span.start, binding.span.end),
+                    span: this.span(binding.span.start, binding.span.end),
                 });
                 param_tys.push(ty);
                 let source_name = binding.name.as_str().to_owned();
                 param_names.insert(source_name.clone());
-                saved_locals.push((source_name.clone(), self.scope.bind(source_name, local)));
+                saved_locals.push((source_name.clone(), this.scope.bind(source_name, local)));
                 Some(rest_index)
             } else {
                 None
@@ -5261,40 +5272,40 @@ impl ModuleBuilder<'_> {
             let declared_return_ty = function
                 .return_type
                 .as_ref()
-                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .map(|annotation| this.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?;
             // not a new erasure: provisional return, replaced by the inferred
             // one once the body is lowered.
             let provisional_return_ty =
-                declared_return_ty.unwrap_or_else(|| self.unknown_type());
-            let provisional_fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                declared_return_ty.unwrap_or_else(|| this.unknown_type());
+            let provisional_fn_ty = this.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: param_tys.clone(),
                 rest: rest_index,
-                required_params: None,
+                required_params: source_required_params,
                 mutable_params: Vec::new(),
                 return_ty: provisional_return_ty,
                 is_async: function.r#async,
                 may_throw: false,
             }));
-            let function_symbol = self.intern_source_name(id.name.as_str());
+            let function_symbol = this.intern_source_name(id.name.as_str());
             // A function declaration binds its OWN name for the whole scope it
             // is declared in, its own body included, so `function walk(i) { …
             // walk(i + 1) … }` is ordinary recursion. The name therefore has to
             // denote the ENCLOSING body's local that this declaration is
-            // assigned to — the same shape as the self-recursive arrow
+            // assigned to — the same shape as the this-recursive arrow
             // `const walk = (i) => … walk(i + 1) …`, which already lowers to a
             // genuine capture of that local and which codegen already ties with
             // a weak `Rc<RefCell<…>>` knot. Binding the name to a fresh,
             // never-assigned local inside the closure body instead (what this
             // did before) emitted a reference to a name Rust has never seen.
             let outer_local =
-                self.reserve_local_function_local(function_symbol, id, provisional_fn_ty, outer_body);
+                this.reserve_local_function_local(function_symbol, id, provisional_fn_ty, outer_body);
             saved_locals.push((id.name.as_str().to_owned(), Some(outer_local)));
-            self.scope.bind(id.name.as_str().to_owned(), outer_local);
+            this.scope.bind(id.name.as_str().to_owned(), outer_local);
 
             let mut capture_names = Vec::new();
             for statement in &function_body.statements {
-                self.collect_statement_capture_names(statement, &param_names, &mut capture_names);
+                this.collect_statement_capture_names(statement, &param_names, &mut capture_names);
             }
             capture_names.sort();
             capture_names.dedup();
@@ -5306,7 +5317,7 @@ impl ModuleBuilder<'_> {
                     .find_map(|(saved_name, prior)| {
                         (saved_name == &name).then_some(*prior).flatten()
                     })
-                    .or_else(|| self.scope.lookup(name.as_str()))
+                    .or_else(|| this.scope.lookup(name.as_str()))
                 else {
                     continue;
                 };
@@ -5318,14 +5329,14 @@ impl ModuleBuilder<'_> {
                 };
                 let symbol = source_decl
                     .name
-                    .unwrap_or_else(|| self.ctx.krate.symbols.intern(name.as_str()));
+                    .unwrap_or_else(|| this.ctx.krate.symbols.intern(name.as_str()));
                 let body_local = closure_body.push_local(LocalDecl {
                     name: Some(symbol),
                     ty: source_decl.ty,
                     mutable: source_decl.mutable,
                     span: source_decl.span,
                 });
-                saved_locals.push((name.clone(), self.scope.bind(name, body_local)));
+                saved_locals.push((name.clone(), this.scope.bind(name, body_local)));
                 captures.push(ClosureCapture {
                     source_local,
                     body_local: Some(body_local),
@@ -5335,62 +5346,64 @@ impl ModuleBuilder<'_> {
                 });
             }
 
-            let saved_return_ty = self.current_return_ty;
-            let saved_async = self.current_async;
-            let saved_generator_yields = self.current_generator_yields;
-            self.current_return_ty = declared_return_ty;
-            self.current_async = function.r#async;
-            let generator_yields = function
-                .generator
-                .then(|| self.initialize_generator_yield_accumulator(function, &mut closure_body));
-            self.current_generator_yields = generator_yields;
-            // With the variadic rewrite the whole argument list is the single rest
-            // parameter, so the FIXED arity is zero — that is what tells
-            // `arguments_object_expression` to read the list rather than the
-            // declared parameters.
-            self.current_arguments_arities.push(if arguments_forwarding.is_some() {
-                0
-            } else {
-                function.params.items.len()
-            });
-            let mut lowering_result = Ok(());
-            for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
-                if let Err(error) = self.statement(statement, &mut closure_body) {
-                    lowering_result = Err(error);
-                    break;
+            let ctx = this.nested_fn_ctx(BodyKind::Function, function.r#async, declared_return_ty);
+            let lowering_result = this.with_fn_ctx(ctx, |this| {
+                let generator_yields = function
+                    .generator
+                    .then(|| this.initialize_generator_yield_accumulator(function, &mut closure_body));
+                this.fn_ctx.generator = generator_yields;
+                // With the variadic rewrite the whole argument list is the single rest
+                // parameter, so the FIXED arity is zero — that is what tells
+                // `arguments_object_expression` to read the list rather than the
+                // declared parameters.
+                this.fn_ctx.arguments_arity = Some(if arguments_forwarding.is_some() {
+                    0
+                } else {
+                    function.params.items.len()
+                });
+                // Defaults run first, in callee scope, before any body
+                // statement; each rebinds its parameter name to the applied
+                // local, which the `saved_locals` restore below undoes.
+                let mut lowering_result =
+                    this.apply_parameter_defaults(defaulted_params, &mut closure_body);
+                for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
+                    if lowering_result.is_err() {
+                        break;
+                    }
+                    if let Err(error) = this.statement(statement, &mut closure_body) {
+                        lowering_result = Err(error);
+                        break;
+                    }
                 }
-            }
-            if let Some(accumulator) = generator_yields {
-                Self::push_generator_return(accumulator, function, &mut closure_body);
-            }
-            if function.r#async {
-                closure_body.build_async_state_machine();
-            }
-            self.current_return_ty = saved_return_ty;
-            self.current_async = saved_async;
-            self.current_generator_yields = saved_generator_yields;
-            self.current_arguments_arities.pop();
+                if let Some(accumulator) = generator_yields {
+                    Self::push_generator_return(accumulator, function, &mut closure_body);
+                }
+                if function.r#async {
+                    closure_body.finish_async();
+                }
+                lowering_result
+            });
             for (name, prior) in saved_locals.into_iter().rev() {
                 if let Some(local) = prior {
-                    self.scope.bind(name, local);
+                    this.scope.bind(name, local);
                 } else {
-                    self.scope.unbind(name.as_str());
+                    this.scope.unbind(name.as_str());
                 }
             }
             lowering_result?;
 
             let mut return_ty = if function.generator && declared_return_ty.is_none() {
-                self.inferred_generator_type(&closure_body, function.r#async)
+                this.inferred_generator_type(&closure_body, function.r#async)
             } else {
                 declared_return_ty
-                    .or_else(|| self.last_return_type(&closure_body))
-                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None))
+                    .or_else(|| this.last_return_type(&closure_body))
+                    .unwrap_or_else(|| this.ctx.krate.types.intern(Type::None))
             };
             if function.generator && declared_return_ty.is_some() {
-                return_ty = self.generator_type_with_fallthrough(&closure_body, return_ty);
+                return_ty = this.generator_type_with_fallthrough(&closure_body, return_ty);
             }
-            let body_id = self.ctx.krate.push_body(closure_body);
-            let fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            let body_id = this.ctx.krate.push_body(closure_body);
+            let fn_ty = this.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: param_tys,
                 rest: rest_index,
                 required_params: source_required_params,
@@ -5407,7 +5420,7 @@ impl ModuleBuilder<'_> {
             {
                 decl.ty = fn_ty;
             }
-            self.scope.bind(id.name.as_str().to_owned(), local);
+            this.scope.bind(id.name.as_str().to_owned(), local);
             let value = outer_body.push_expr(Expr {
                 kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                     params: closure_params,
@@ -5417,10 +5430,10 @@ impl ModuleBuilder<'_> {
                     captures,
                     body: body_id,
                     function_item: None,
-                    span: self.span(function.span.start, function.span.end),
+                    span: this.span(function.span.start, function.span.end),
                 }),
                 ty: fn_ty,
-                span: self.span(function.span.start, function.span.end),
+                span: this.span(function.span.start, function.span.end),
             });
             let pat = outer_body.push_pattern(Pattern::Binding(local));
             outer_body.push_stmt_to_block(
@@ -5432,8 +5445,7 @@ impl ModuleBuilder<'_> {
                 },
             );
             Ok(())
-        })();
-        self.defining_local_functions.pop();
+        });
         self.pop_type_parameter_scope();
         result
     }

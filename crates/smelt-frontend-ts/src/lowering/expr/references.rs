@@ -394,7 +394,7 @@ impl ModuleBuilder<'_> {
                 let ty = self.erase_with(ErasureReason::ByName, "forward callable");
                 return self.module_global_expression(name, ty, start, end, body);
             }
-            if self.allow_unknown_index_access {
+            if self.allows_unknown_index_access() {
                 let ty = self.erase_with(ErasureReason::ByName, "unresolved global");
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::None),
@@ -544,14 +544,15 @@ impl ModuleBuilder<'_> {
     /// has its own parameter list — the parameter shape does not match the arity
     /// on the stack and there is nothing local to read. Those references keep the
     /// length-only record rather than reporting a nested closure's parameters as
-    /// the outer call's arguments.
+    /// the outer call's arguments. (An arrow inherits the enclosing function's
+    /// arity through `FnCtx::nested`.)
     pub(in crate::lowering) fn arguments_object_expression(
         &mut self,
         start: u32,
         end: u32,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let Some(argument_count) = self.current_arguments_arities.last().copied() else {
+        let Some(argument_count) = self.fn_ctx.arguments_arity else {
             return Err(SmeltError::unsupported(
                 self.span(start, end),
                 "`arguments` is only available inside function bodies",

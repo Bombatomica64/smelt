@@ -1,0 +1,208 @@
+fn break_in_try (FuncId(0)) -> Int throws
+  locals
+    %0 param limit: Int
+    %1 user count: Int
+    %2 user i: Int
+    %3 temp: Bool
+    %4 temp: Int
+    %5 user smelt_pending_thrown: Unknown
+    %6 temp: Bool
+    %7 temp: Bool
+    %8 temp: Int
+    %9 temp: None
+    %10 temp: None
+    %11 temp: Int
+    %12 temp: None
+  bb0:
+    %1 = 0
+    %2 = 0
+    goto bb1
+  bb1:
+    %3 = copy %2 < copy %0
+    switch move %3 ? bb2 : bb3
+  bb2:
+    %4 = move %2 + 1
+    %2 = move %4
+    %5 = undefined
+    %6 = false
+    goto bb4
+  bb3:
+    return move %1
+  bb4:
+    %7 = copy %2 == 2
+    switch move %7 ? bb8 : bb9
+  bb5:
+    goto bb1
+  bb6:
+    %11 = move %1 + 1
+    %1 = move %11
+    %12 = call @console_log("finally", copy %2) -> bb12
+  bb7:
+    %6 = true
+    goto bb6
+  bb8:
+    %8 = move %1 + 1
+    %1 = move %8
+    %9 = call @console_log("finally", move %2) -> bb10
+  bb9:
+    %10 = call @console_log("body", copy %2) -> bb11 unwind bb7
+  bb10:
+    goto bb3
+  bb11:
+    goto bb6
+  bb12:
+    switch move %6 ? bb13 : bb5
+  bb13:
+    throw move %5
+
+fn continue_in_try (FuncId(1)) -> Int throws
+  locals
+    %0 param limit: Int
+    %1 user count: Int
+    %2 user i: Int
+    %3 temp: Bool
+    %4 temp: Int
+    %5 user smelt_pending_thrown: Unknown
+    %6 temp: Bool
+    %7 temp: Bool
+    %8 temp: Int
+    %9 temp: None
+    %10 temp: None
+    %11 temp: Int
+    %12 temp: None
+  bb0:
+    %1 = 0
+    %2 = 0
+    goto bb1
+  bb1:
+    %3 = copy %2 < copy %0
+    switch move %3 ? bb2 : bb3
+  bb2:
+    %4 = move %2 + 1
+    %2 = move %4
+    %5 = undefined
+    %6 = false
+    goto bb4
+  bb3:
+    return move %1
+  bb4:
+    %7 = copy %2 == 2
+    switch move %7 ? bb8 : bb9
+  bb5:
+    goto bb1
+  bb6:
+    %11 = move %1 + 1
+    %1 = move %11
+    %12 = call @console_log("finally", copy %2) -> bb12
+  bb7:
+    %6 = true
+    goto bb6
+  bb8:
+    %8 = move %1 + 1
+    %1 = move %8
+    %9 = call @console_log("finally", copy %2) -> bb10
+  bb9:
+    %10 = call @console_log("body", copy %2) -> bb11 unwind bb7
+  bb10:
+    goto bb1
+  bb11:
+    goto bb6
+  bb12:
+    switch move %6 ? bb13 : bb5
+  bb13:
+    throw move %5
+
+fn nested (FuncId(2)) -> None throws
+  locals
+    %0 param limit: Int
+    %1 user i: Int
+    %2 temp: Bool
+    %3 temp: Int
+    %4 user smelt_pending_thrown: Unknown
+    %5 temp: Bool
+    %6 user smelt_pending_thrown: Unknown
+    %7 temp: Bool
+    %8 temp: Bool
+    %9 temp: None
+    %10 temp: None
+    %11 temp: None
+    %12 temp: None
+    %13 temp: None
+    %14 temp: None
+  bb0:
+    %1 = 0
+    goto bb1
+  bb1:
+    %2 = copy %1 < copy %0
+    switch move %2 ? bb2 : bb3
+  bb2:
+    %3 = move %1 + 1
+    %1 = move %3
+    %4 = undefined
+    %5 = false
+    goto bb4
+  bb3:
+    return none
+  bb4:
+    %6 = undefined
+    %7 = false
+    goto bb8
+  bb5:
+    goto bb1
+  bb6:
+    %14 = call @console_log("outer", copy %1) -> bb20
+  bb7:
+    %5 = true
+    goto bb6
+  bb8:
+    %8 = copy %1 == 1
+    switch move %8 ? bb12 : bb13
+  bb9:
+    goto bb6
+  bb10:
+    %13 = call @console_log("inner", copy %1) -> bb18 unwind bb7
+  bb11:
+    %7 = true
+    goto bb10
+  bb12:
+    %9 = call @console_log("inner", copy %1) -> bb14 unwind bb7
+  bb13:
+    %11 = call @console_log("inner", copy %1) -> bb16 unwind bb7
+  bb14:
+    %10 = call @console_log("outer", copy %1) -> bb15
+  bb15:
+    goto bb1
+  bb16:
+    %12 = call @console_log("outer", move %1) -> bb17
+  bb17:
+    goto bb3
+  bb18:
+    switch move %7 ? bb19 : bb9
+  bb19:
+    %4 = move %6
+    goto bb7
+  bb20:
+    switch move %5 ? bb21 : bb5
+  bb21:
+    throw move %4
+
+fn main (FuncId(3)) -> None throws
+  locals
+    %0 temp: Int
+    %1 temp: None
+    %2 temp: Int
+    %3 temp: None
+    %4 temp: None
+  bb0:
+    %0 = call fn0(3) -> bb1
+  bb1:
+    %1 = call @console_log(move %0) -> bb2
+  bb2:
+    %2 = call fn1(3) -> bb3
+  bb3:
+    %3 = call @console_log(move %2) -> bb4
+  bb4:
+    %4 = call fn2(3) -> bb5
+  bb5:
+    return none
+

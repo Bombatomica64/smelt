@@ -154,6 +154,7 @@ mod collections_reject_b_tests;
 mod lang_features_tests;
 mod name_resolution_tests;
 mod packages_tests;
+mod fn_scope_tests;
 mod pytest_tests;
 mod specialization_tests;
 #[cfg(feature = "ty")]

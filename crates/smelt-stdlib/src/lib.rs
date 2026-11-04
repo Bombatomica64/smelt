@@ -50,7 +50,7 @@ pub use host_modules::{
     unmodeled_package_use_blocks,
 };
 pub use host_object::{
-    ByteBufferRole, HOST_OBJECTS, HostObject, TypedArrayElement, byte_buffer_host_objects,
+    ByteBufferRole, HOST_OBJECTS, HostKind, HostObject, TypedArrayElement, byte_buffer_host_objects,
     byte_buffer_role, data_view_accessor, host_object_by_class, host_object_marker,
     host_object_markers,
     reflectively_constructible, typed_array_element, typed_array_host_objects,

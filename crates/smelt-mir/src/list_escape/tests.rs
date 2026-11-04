@@ -9,7 +9,7 @@
 use smelt_frontend_ts::{HirCtx, to_hir};
 use smelt_hir::FileId;
 
-use super::summary::{CallSummaries, FunctionSummary};
+use super::summary::{CallSummaries, SummaryFacts};
 use super::{FunctionBody, ListLocalClass, analyze_body, analyze_list_escapes};
 use crate::{BodyKey, EscapeReason, Mir, lower_hir, opt};
 
@@ -293,7 +293,7 @@ fn every_body_reports_each_list_local_exactly_once() {
 ///
 /// Panics when no such function exists, so a fixture that stops producing the
 /// body it is about fails loudly.
-fn summary_of(source: &str, function: &str) -> FunctionSummary {
+fn summary_of(source: &str, function: &str) -> SummaryFacts {
     let mir = mir_of(source);
     let summaries = CallSummaries::compute(&mir);
     for (index, candidate) in mir.functions.iter().enumerate() {
@@ -335,7 +335,7 @@ fn a_callee_that_retains_its_parameter_reports_the_parameter_as_escaping() {
         "export function keep(values: number[]): number[] { return values; }\n",
         "keep",
     );
-    assert_eq!(summary.param_escapes, vec![true]);
+    assert_eq!(summary.param_escapes(), vec![true]);
 }
 
 #[test]
@@ -344,8 +344,8 @@ fn a_callee_that_only_reads_its_parameter_reports_it_as_confined() {
         "export function total(values: number[]): number { return values.length; }\n",
         "total",
     );
-    assert_eq!(summary.param_escapes, vec![false]);
-    assert_eq!(summary.param_mutated, vec![false]);
+    assert_eq!(summary.param_escapes(), vec![false]);
+    assert_eq!(summary.param_mutated(), vec![false]);
 }
 
 #[test]
@@ -375,8 +375,8 @@ fn a_callee_that_mutates_its_parameter_marks_the_argument_mutated() {
         "export function seed(values: number[]): void { values.push(1); }\n",
         "seed",
     );
-    assert_eq!(summary.param_escapes, vec![false]);
-    assert_eq!(summary.param_mutated, vec![true]);
+    assert_eq!(summary.param_escapes(), vec![false]);
+    assert_eq!(summary.param_mutated(), vec![true]);
 
     let (class, _) = class_of(
         "function seed(values: number[]): void { values.push(1); }\n\
@@ -403,7 +403,7 @@ fn a_fresh_list_returned_by_a_callee_is_confined_in_the_caller() {
                   \x20 numbers.push(4);\n\
                   \x20 return numbers.length;\n\
                   }\n";
-    assert!(summary_of(source, "make").returns_fresh_list);
+    assert!(summary_of(source, "make").returns_fresh_list());
     assert_eq!(
         per_body_class_of(source, "run", "numbers"),
         ListLocalClass::Escaping,
@@ -423,7 +423,7 @@ fn a_callee_that_hands_back_a_container_element_does_not_return_a_fresh_list() {
                   \x20 const row = pick(rows);\n\
                   \x20 return row.length;\n\
                   }\n";
-    assert!(!summary_of(source, "pick").returns_fresh_list);
+    assert!(!summary_of(source, "pick").returns_fresh_list());
     let (class, reason) = class_of(source, "run", "row");
     assert_eq!(class, ListLocalClass::Escaping);
     assert_eq!(reason, Some(EscapeReason::UnprovenDefinition));
@@ -446,8 +446,8 @@ fn mutual_recursion_terminates_and_confines_a_read_only_argument() {
                   \x20 const numbers: number[] = [1, 2, 3];\n\
                   \x20 return even(numbers, 4);\n\
                   }\n";
-    assert!(!summary_of(source, "even").param_escapes[0]);
-    assert!(!summary_of(source, "odd").param_escapes[0]);
+    assert_eq!(summary_of(source, "even").param_escapes().first(), Some(&false));
+    assert_eq!(summary_of(source, "odd").param_escapes().first(), Some(&false));
     let (class, _) = class_of(source, "run", "numbers");
     assert_eq!(class, ListLocalClass::LocalImmutable);
 }
@@ -469,9 +469,10 @@ fn mutual_recursion_propagates_a_real_escape_through_the_cycle() {
                   \x20 const numbers: number[] = [1, 2, 3];\n\
                   \x20 return even(numbers, 4).length;\n\
                   }\n";
-    assert!(summary_of(source, "odd").param_escapes[0]);
-    assert!(
-        summary_of(source, "even").param_escapes[0],
+    assert_eq!(summary_of(source, "odd").param_escapes().first(), Some(&true));
+    assert_eq!(
+        summary_of(source, "even").param_escapes().first(),
+        Some(&true),
         "the escape has to travel back around the cycle"
     );
     let (class, reason) = class_of(source, "run", "numbers");
@@ -491,7 +492,7 @@ fn self_recursion_returning_a_fresh_list_stays_fresh() {
                   \x20 const numbers = build(3);\n\
                   \x20 return numbers.length;\n\
                   }\n";
-    assert!(summary_of(source, "build").returns_fresh_list);
+    assert!(summary_of(source, "build").returns_fresh_list());
     let (class, _) = class_of(source, "run", "numbers");
     assert_eq!(class, ListLocalClass::LocalImmutable);
 }
@@ -508,7 +509,7 @@ fn self_recursion_whose_base_case_leaks_makes_the_result_unproven() {
                   \x20 const numbers = build(rows, 3);\n\
                   \x20 return numbers.length;\n\
                   }\n";
-    assert!(!summary_of(source, "build").returns_fresh_list);
+    assert!(!summary_of(source, "build").returns_fresh_list());
     let (class, reason) = class_of(source, "run", "numbers");
     assert_eq!(class, ListLocalClass::Escaping);
     assert_eq!(reason, Some(EscapeReason::UnprovenDefinition));
@@ -584,7 +585,7 @@ fn a_callee_that_hands_back_its_parameter_does_not_return_a_fresh_list() {
                   \x20 const second = keep(first);\n\
                   \x20 return first.length + second.length;\n\
                   }\n";
-    assert!(!summary_of(source, "keep").returns_fresh_list);
+    assert!(!summary_of(source, "keep").returns_fresh_list());
     let (class, reason) = class_of(source, "run", "second");
     assert_eq!(class, ListLocalClass::Escaping);
     assert_eq!(reason, Some(EscapeReason::UnprovenDefinition));

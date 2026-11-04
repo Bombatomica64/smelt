@@ -40,12 +40,6 @@ pub(crate) struct ResolvedTypes {
 }
 
 impl ResolvedTypes {
-    /// A resolver that resolves nothing (feature off, or resolution skipped).
-    #[must_use]
-    pub(crate) fn disabled() -> Self {
-        Self::default()
-    }
-
     /// Resolve every function/method return and parameter type in `source`
     /// via `ty`.
     ///
@@ -54,7 +48,8 @@ impl ResolvedTypes {
     /// source, resolution is silently skipped and every later query returns
     /// `None`, so lowering falls back to annotations.
     ///
-    /// Without the `ty` feature this is a no-op returning a disabled resolver.
+    /// Without the `ty` feature this is a no-op returning a resolver that
+    /// resolves nothing (`Self::default()`).
     #[must_use]
     pub(crate) fn resolve(source: &str, stem: &str) -> Self {
         #[cfg(feature = "ty")]
@@ -65,7 +60,7 @@ impl ResolvedTypes {
         #[cfg(not(feature = "ty"))]
         {
             let _ = (source, stem);
-            Self::disabled()
+            Self::default()
         }
     }
 

@@ -152,7 +152,7 @@ fn format_body_sections(krate: &Crate, body: &Body, out: &mut String) {
         }
     }
 
-    if let Some(machine) = &body.async_state_machine {
+    if let Some(machine) = body.async_state_machine() {
         out.push_str("  async state machine\n");
         let states = machine
             .states

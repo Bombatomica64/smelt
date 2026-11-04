@@ -189,7 +189,7 @@ test("rejects", () => {
     );
     let body = function_body(&ctx, test_fn)?;
     ensure!(
-        body.async_state_machine.is_some(),
+        body.async_state_machine().is_some(),
         "an async test function must carry an async state machine",
     );
     Ok(())

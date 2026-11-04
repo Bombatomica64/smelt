@@ -14,7 +14,7 @@
 //!   positions are code-unit positions for every character the algorithm looks
 //!   at, and slicing at them never splits a multi-byte character.
 //! * **`node:crypto` `createHash`.** The stateful, chainable `Hash`
-//!   (`SmeltHash`): an algorithm, the bytes fed so far and a finalized flag,
+//!   (`SmeltHash`): open (an algorithm and the bytes fed so far) or finalized,
 //!   behind a shared cell so `h.update(a); h.update(b)` feeds one hasher and
 //!   `update` can answer the SAME hash for chaining. The hashing itself is the
 //!   RustCrypto crates a Rust team would pick (`md-5`, `sha1`, `sha2`, which
@@ -409,9 +409,17 @@ const HASH_HELPERS: &str = r#"/// The algorithms `createHash` accepts, by their 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SmeltHashAlgorithm { Md5, Sha1, Sha224, Sha256, Sha384, Sha512, Sha512_224, Sha512_256 }
 
-/// The mutable half of a `Hash`: what it hashes and whether `digest` ran.
+/// The mutable half of a `Hash`: accepting input until `digest` finalizes it.
+///
+/// A finalized hash has no algorithm or buffered bytes left to misuse, so
+/// every operation on it can only answer `Digest already called`.
 #[derive(Debug)]
-struct SmeltHashState { algorithm: SmeltHashAlgorithm, data: Vec<u8>, finalized: bool }
+enum SmeltHashState {
+    /// Accepting `update`s: the algorithm and the bytes fed so far.
+    Open { algorithm: SmeltHashAlgorithm, data: Vec<u8> },
+    /// `digest` ran.
+    Finalized,
+}
 
 /// `node:crypto`'s `Hash`: a shared hasher state with a JS reference identity.
 ///
@@ -425,7 +433,7 @@ impl PartialEq for SmeltHash { fn eq(&self, other: &Self) -> bool { self.id == o
 /// A placeholder for a slot that is assigned before it is read: an already
 /// finalized hash, so a stray use throws `Digest already called` instead of
 /// hashing into a value the program never created.
-impl Default for SmeltHash { fn default() -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltHashState { algorithm: SmeltHashAlgorithm::Sha256, data: Vec::new(), finalized: true })) } } }
+impl Default for SmeltHash { fn default() -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltHashState::Finalized)) } } }
 
 impl SmeltHash {
     /// JS reference identity of this hash.
@@ -456,16 +464,16 @@ fn smelt_hash_algorithm(name: &str) -> Option<SmeltHashAlgorithm> {
 #[allow(dead_code)]
 fn smelt_hash_create(algorithm: &str) -> Result<SmeltHash, Box<dyn ::std::error::Error>> {
     let Some(algorithm) = smelt_hash_algorithm(algorithm) else { return Err({not_supported}) };
-    Ok(SmeltHash { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltHashState { algorithm, data: Vec::new(), finalized: false })) })
+    Ok(SmeltHash { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltHashState::Open { algorithm, data: Vec::new() })) })
 }
 
 /// `hash.update(bytes)`: feed bytes, answering the same hash.
 #[allow(dead_code)]
 fn smelt_hash_update_bytes(hash: &SmeltHash, bytes: &[u8]) -> Result<SmeltHash, Box<dyn ::std::error::Error>> {
-    let mut state = hash.state.borrow_mut();
-    if state.finalized { return Err({finalized}) }
-    state.data.extend_from_slice(bytes);
-    drop(state);
+    match &mut *hash.state.borrow_mut() {
+        SmeltHashState::Open { data, .. } => data.extend_from_slice(bytes),
+        SmeltHashState::Finalized => return Err({finalized}),
+    }
     Ok(hash.clone())
 }
 
@@ -517,11 +525,9 @@ fn smelt_hash_update_text(hash: &SmeltHash, text: &str, encoding: &str) -> Resul
 #[allow(dead_code)]
 fn smelt_hash_digest_bytes(hash: &SmeltHash) -> Result<Vec<u8>, Box<dyn ::std::error::Error>> {
     use sha2::Digest as _;
-    let mut state = hash.state.borrow_mut();
-    if state.finalized { return Err({finalized}) }
-    state.finalized = true;
-    let data = ::std::mem::take(&mut state.data);
-    Ok(match state.algorithm {
+    let state = ::std::mem::replace(&mut *hash.state.borrow_mut(), SmeltHashState::Finalized);
+    let SmeltHashState::Open { algorithm, data } = state else { return Err({finalized}) };
+    Ok(match algorithm {
         SmeltHashAlgorithm::Md5 => md5::Md5::digest(&data).to_vec(),
         SmeltHashAlgorithm::Sha1 => sha1::Sha1::digest(&data).to_vec(),
         SmeltHashAlgorithm::Sha224 => sha2::Sha224::digest(&data).to_vec(),

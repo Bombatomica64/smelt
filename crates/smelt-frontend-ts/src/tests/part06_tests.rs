@@ -854,8 +854,7 @@ async function main(): Promise<number> {
             .any(|expr| matches!(expr.kind, ExprKind::Await(_)))
     );
     let machine = body
-        .async_state_machine
-        .as_ref()
+        .async_state_machine()
         .ok_or_else(|| "async body should have state-machine metadata".to_owned())?;
     ensure_eq!(machine.states.len(), 2);
     ensure_eq!(machine.suspensions.len(), 1);

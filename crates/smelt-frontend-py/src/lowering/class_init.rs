@@ -99,81 +99,81 @@ impl ModuleBuilder<'_> {
         fields: &[Field],
         span: Span,
     ) -> Result<ItemId, SmeltError> {
-        let saved_locals = std::mem::take(&mut self.locals);
         let none_ty = self.intern_type(Type::None);
-        let mut fn_body = Body::new(None, span);
-        let mut params: Vec<Param> = Vec::new();
-        let mut field_locals: Vec<smelt_hir::LocalId> = Vec::new();
+        let (fn_body, params) = self.with_fn_scope(FnKind::Sync, |this| {
+            let mut fn_body = Body::new(None, span);
+            let mut params: Vec<Param> = Vec::new();
+            let mut field_locals: Vec<smelt_hir::LocalId> = Vec::new();
 
-        // `self` local
-        let self_sym = self.intern_name("self");
-        let self_local = fn_body.push_local(LocalDecl {
-            name: Some(self_sym),
-            ty: class_ty,
-            mutable: false,
-            span,
-        });
-        self.locals.insert("self".to_owned(), self_local);
-
-        // One param per field.
-        for field in fields {
-            let local = fn_body.push_local(LocalDecl {
-                name: Some(field.name),
-                ty: field.ty,
-                mutable: false,
-                span: field.span,
-            });
-            fn_body.params.push(local);
-            field_locals.push(local);
-            let field_name_str = self
-                .ctx
-                .krate
-                .symbols
-                .get(field.name)
-                .unwrap_or("")
-                .to_owned();
-            self.locals.insert(field_name_str, local);
-            params.push(Param {
-                name: field.name,
-                local,
-                ty: field.ty,
-                span: field.span,
-            });
-        }
-
-        // Body: `self.field = param` for each field.
-        let root_block = fn_body.root;
-        for (field, param_local) in fields.iter().zip(field_locals.iter().copied()) {
-            let param_ty = field.ty;
-
-            let self_expr = fn_body.push_expr(HirExpr {
-                kind: ExprKind::Local(self_local),
+            // `self` local
+            let self_sym = this.intern_name("self");
+            let self_local = fn_body.push_local(LocalDecl {
+                name: Some(self_sym),
                 ty: class_ty,
+                mutable: false,
                 span,
             });
-            let field_lhs = fn_body.push_expr(HirExpr {
-                kind: ExprKind::Field {
-                    receiver: self_expr,
-                    field: field.name,
-                },
-                ty: param_ty,
-                span: field.span,
-            });
-            let param_expr = fn_body.push_expr(HirExpr {
-                kind: ExprKind::Local(param_local),
-                ty: param_ty,
-                span: field.span,
-            });
-            fn_body.push_stmt_to_block(
-                root_block,
-                HirStmt::Assign {
-                    target: field_lhs,
-                    value: param_expr,
-                },
-            );
-        }
+            this.scope.locals.insert("self".to_owned(), self_local);
 
-        self.locals = saved_locals;
+            // One param per field.
+            for field in fields {
+                let local = fn_body.push_local(LocalDecl {
+                    name: Some(field.name),
+                    ty: field.ty,
+                    mutable: false,
+                    span: field.span,
+                });
+                fn_body.params.push(local);
+                field_locals.push(local);
+                let field_name_str = this
+                    .ctx
+                    .krate
+                    .symbols
+                    .get(field.name)
+                    .unwrap_or("")
+                    .to_owned();
+                this.scope.locals.insert(field_name_str, local);
+                params.push(Param {
+                    name: field.name,
+                    local,
+                    ty: field.ty,
+                    span: field.span,
+                });
+            }
+
+            // Body: `self.field = param` for each field.
+            let root_block = fn_body.root;
+            for (field, param_local) in fields.iter().zip(field_locals.iter().copied()) {
+                let param_ty = field.ty;
+
+                let self_expr = fn_body.push_expr(HirExpr {
+                    kind: ExprKind::Local(self_local),
+                    ty: class_ty,
+                    span,
+                });
+                let field_lhs = fn_body.push_expr(HirExpr {
+                    kind: ExprKind::Field {
+                        receiver: self_expr,
+                        field: field.name,
+                    },
+                    ty: param_ty,
+                    span: field.span,
+                });
+                let param_expr = fn_body.push_expr(HirExpr {
+                    kind: ExprKind::Local(param_local),
+                    ty: param_ty,
+                    span: field.span,
+                });
+                fn_body.push_stmt_to_block(
+                    root_block,
+                    HirStmt::Assign {
+                        target: field_lhs,
+                        value: param_expr,
+                    },
+                );
+            }
+            Ok((fn_body, params))
+        })?;
         let body_id = self.ctx.krate.push_body(fn_body);
         let init_sym = self.intern_name("__init__");
         let item = Item::Function(Function {
@@ -205,23 +205,24 @@ return_ty: none_ty,
         class_ty: TypeId,
         span: Span,
     ) -> ItemId {
-        let saved_locals = std::mem::take(&mut self.locals);
-        let mut fn_body = Body::new(None, span);
-        let self_sym = self.intern_name("self");
-        let self_local = fn_body.push_local(LocalDecl {
-            name: Some(self_sym),
-            ty: class_ty,
-            mutable: false,
-            span,
+        let fn_body = self.with_fn_scope(FnKind::Sync, |this| {
+            let mut fn_body = Body::new(None, span);
+            let self_sym = this.intern_name("self");
+            let self_local = fn_body.push_local(LocalDecl {
+                name: Some(self_sym),
+                ty: class_ty,
+                mutable: false,
+                span,
+            });
+            this.scope.locals.insert("self".to_owned(), self_local);
+            let self_expr = fn_body.push_expr(HirExpr {
+                kind: ExprKind::Local(self_local),
+                ty: class_ty,
+                span,
+            });
+            fn_body.blocks[usize::try_from(fn_body.root.0).unwrap_or(0)].tail = Some(self_expr);
+            fn_body
         });
-        self.locals.insert("self".to_owned(), self_local);
-        let self_expr = fn_body.push_expr(HirExpr {
-            kind: ExprKind::Local(self_local),
-            ty: class_ty,
-            span,
-        });
-        fn_body.blocks[usize::try_from(fn_body.root.0).unwrap_or(0)].tail = Some(self_expr);
-        self.locals = saved_locals;
         let body_id = self.ctx.krate.push_body(fn_body);
         let init_sym = self.intern_name("__init__");
         self.ctx.krate.push_item(Item::Function(Function {
@@ -282,102 +283,103 @@ return_ty: class_ty,
                 SmeltError::unsupported(span, "base class constructor is not available")
             })?;
 
-        let saved_locals = std::mem::take(&mut self.locals);
-        let mut body = Body::new(None, span);
-        let self_local = body.push_local(LocalDecl {
-            name: Some(self.intern_name("self")),
-            ty: class_ty,
-            mutable: false,
-            span,
-        });
-        self.locals.insert("self".to_owned(), self_local);
-
-        let mut params = Vec::with_capacity(base_constructor.params.len());
-        let mut args = Vec::with_capacity(base_constructor.params.len());
-        for inherited in &base_constructor.params {
-            let local = body.push_local(LocalDecl {
-                name: Some(inherited.name),
-                ty: inherited.ty,
+        let (body, params) = self.with_fn_scope(FnKind::Sync, |this| {
+            let mut body = Body::new(None, span);
+            let self_local = body.push_local(LocalDecl {
+                name: Some(this.intern_name("self")),
+                ty: class_ty,
                 mutable: false,
-                span: inherited.span,
+                span,
             });
-            body.params.push(local);
-            params.push(Param {
-                local,
-                ..inherited.clone()
-            });
-            args.push(body.push_expr(HirExpr {
-                kind: ExprKind::Local(local),
-                ty: inherited.ty,
-                span: inherited.span,
-            }));
-        }
+            this.scope.locals.insert("self".to_owned(), self_local);
 
-        let base_ty = self.intern_type(Type::Class {
-            name: base_sym,
-            args: Vec::new(),
-        });
-        let constructed = body.push_expr(HirExpr {
-            kind: ExprKind::New {
-                class: base_sym,
-                args,
-            },
-            ty: base_ty,
-            span,
-        });
-        let base_local = body.push_local(LocalDecl {
-            name: Some(self.intern_name("__smelt_super")),
-            ty: base_ty,
-            mutable: false,
-            span,
-        });
-        let pattern = body.push_pattern(HirPattern::Binding(base_local));
-        let root = body.root;
-        body.push_stmt_to_block(
-            root,
-            HirStmt::Let {
-                pat: pattern,
+            let mut params = Vec::with_capacity(base_constructor.params.len());
+            let mut args = Vec::with_capacity(base_constructor.params.len());
+            for inherited in &base_constructor.params {
+                let local = body.push_local(LocalDecl {
+                    name: Some(inherited.name),
+                    ty: inherited.ty,
+                    mutable: false,
+                    span: inherited.span,
+                });
+                body.params.push(local);
+                params.push(Param {
+                    local,
+                    ..inherited.clone()
+                });
+                args.push(body.push_expr(HirExpr {
+                    kind: ExprKind::Local(local),
+                    ty: inherited.ty,
+                    span: inherited.span,
+                }));
+            }
+
+            let base_ty = this.intern_type(Type::Class {
+                name: base_sym,
+                args: Vec::new(),
+            });
+            let constructed = body.push_expr(HirExpr {
+                kind: ExprKind::New {
+                    class: base_sym,
+                    args,
+                },
                 ty: base_ty,
-                value: Some(constructed),
-            },
-        );
+                span,
+            });
+            let base_local = body.push_local(LocalDecl {
+                name: Some(this.intern_name("__smelt_super")),
+                ty: base_ty,
+                mutable: false,
+                span,
+            });
+            let pattern = body.push_pattern(HirPattern::Binding(base_local));
+            let root = body.root;
+            body.push_stmt_to_block(
+                root,
+                HirStmt::Let {
+                    pat: pattern,
+                    ty: base_ty,
+                    value: Some(constructed),
+                },
+            );
 
-        for field in self.inherited_base_fields(&base_name) {
-            let receiver = body.push_expr(HirExpr {
+            for field in this.inherited_base_fields(&base_name) {
+                let receiver = body.push_expr(HirExpr {
+                    kind: ExprKind::Local(self_local),
+                    ty: class_ty,
+                    span,
+                });
+                let target = body.push_expr(HirExpr {
+                    kind: ExprKind::Field {
+                        receiver,
+                        field: field.name,
+                    },
+                    ty: field.ty,
+                    span: field.span,
+                });
+                let base = body.push_expr(HirExpr {
+                    kind: ExprKind::Local(base_local),
+                    ty: base_ty,
+                    span,
+                });
+                let value = body.push_expr(HirExpr {
+                    kind: ExprKind::Field {
+                        receiver: base,
+                        field: field.name,
+                    },
+                    ty: field.ty,
+                    span: field.span,
+                });
+                body.push_stmt_to_block(root, HirStmt::Assign { target, value });
+            }
+            let result = body.push_expr(HirExpr {
                 kind: ExprKind::Local(self_local),
                 ty: class_ty,
                 span,
             });
-            let target = body.push_expr(HirExpr {
-                kind: ExprKind::Field {
-                    receiver,
-                    field: field.name,
-                },
-                ty: field.ty,
-                span: field.span,
-            });
-            let base = body.push_expr(HirExpr {
-                kind: ExprKind::Local(base_local),
-                ty: base_ty,
-                span,
-            });
-            let value = body.push_expr(HirExpr {
-                kind: ExprKind::Field {
-                    receiver: base,
-                    field: field.name,
-                },
-                ty: field.ty,
-                span: field.span,
-            });
-            body.push_stmt_to_block(root, HirStmt::Assign { target, value });
-        }
-        let result = body.push_expr(HirExpr {
-            kind: ExprKind::Local(self_local),
-            ty: class_ty,
-            span,
+            body.blocks[usize::try_from(root.0).unwrap_or(0)].tail = Some(result);
+            (body, params)
         });
-        body.blocks[usize::try_from(root.0).unwrap_or(0)].tail = Some(result);
-        self.locals = saved_locals;
 
         let body_id = self.ctx.krate.push_body(body);
         let item = Function {

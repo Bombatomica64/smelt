@@ -1219,6 +1219,12 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "181_crypto_hmac_json_space_finally",
     "183_self_construction_types_its_arguments",
     "184_nested_prime_race_headers_body",
+    "185_break_continue_run_finally",
+    "186_nested_body_statement_sinks",
+    "187_postfix_update_observed_in_initializer",
+    "188_nested_function_parameter_defaults",
+    "189_rust_reserved_keyword_identifiers",
+    "190_type_parameter_scope_ends_with_its_class",
     "14_c_for_loop",
     "15_break_continue",
     "16_switch_break_no_fallthrough",
@@ -1380,6 +1386,7 @@ fn python_end_to_end_examples_match_expected_outputs() -> TestResult {
         "06_function",
         "07_if_else",
         "08_match",
+        "09_break_continue_finally",
     ] {
         verify_python_end_to_end_example(name)?;
     }

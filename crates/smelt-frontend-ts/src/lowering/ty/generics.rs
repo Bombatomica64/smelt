@@ -32,32 +32,66 @@ impl ModuleBuilder<'_> {
         }
         self.types.push_param_types(scope);
 
+        // The names are in scope while the constraints and defaults lower, so
+        // one may mention a sibling (`<T, K extends keyof T>`). A failure
+        // there must not leave the name scope pushed without its constraint
+        // scope: the push is all-or-nothing.
         let mut lowered = Vec::new();
         let mut constraints = HashMap::new();
-        for param in &params.params {
-            let name = self.intern_type_name(param.name.name.as_str());
-            let constraint = param
-                .constraint
-                .as_ref()
-                .map(|constraint| self.ts_type_to_hir(constraint))
-                .transpose()?;
-            if let Some(constraint) = constraint {
-                constraints.insert(name, constraint);
+        let mut lower_bounds = || -> Result<(), SmeltError> {
+            for param in &params.params {
+                let name = self.intern_type_name(param.name.name.as_str());
+                let constraint = param
+                    .constraint
+                    .as_ref()
+                    .map(|constraint| self.ts_type_to_hir(constraint))
+                    .transpose()?;
+                if let Some(constraint) = constraint {
+                    constraints.insert(name, constraint);
+                }
+                let default = param
+                    .default
+                    .as_ref()
+                    .map(|default| self.ts_type_to_hir(default))
+                    .transpose()?;
+                lowered.push(TypeParamDef {
+                    name,
+                    constraint,
+                    default,
+                    span: self.span(param.span.start, param.span.end),
+                });
             }
-            let default = param
-                .default
-                .as_ref()
-                .map(|default| self.ts_type_to_hir(default))
-                .transpose()?;
-            lowered.push(TypeParamDef {
-                name,
-                constraint,
-                default,
-                span: self.span(param.span.start, param.span.end),
-            });
-        }
+            Ok(())
+        };
+        let bounds = lower_bounds();
         self.types.push_param_constraints(constraints);
+        if let Err(error) = bounds {
+            self.types.pop_param_scope();
+            return Err(error);
+        }
         Ok(lowered)
+    }
+
+    /// Run `lower` inside the type-parameter scope of `params`, popping it on
+    /// EVERY exit path, an early `return Err(..)` or `?` inside `lower`
+    /// included.
+    ///
+    /// This is the scoped form of [`Self::push_type_parameter_scope`] /
+    /// [`Self::pop_type_parameter_scope`], in the same shape as
+    /// `with_fn_ctx`: a scope left pushed by a failed declaration would
+    /// otherwise stay active for every item lowered after it, so a later
+    /// reference to a type with the same name as one of its parameters
+    /// resolved to that stale parameter. `lower` receives the lowered
+    /// parameter declarations.
+    pub(in crate::lowering) fn with_type_parameter_scope<R>(
+        &mut self,
+        params: Option<&oxc::ast::ast::TSTypeParameterDeclaration<'_>>,
+        lower: impl FnOnce(&mut Self, Vec<TypeParamDef>) -> Result<R, SmeltError>,
+    ) -> Result<R, SmeltError> {
+        let defs = self.push_type_parameter_scope(params)?;
+        let result = lower(self, defs);
+        self.pop_type_parameter_scope();
+        result
     }
 
     /// Push the type-parameter scope of a generic CLOSURE value (an arrow

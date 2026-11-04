@@ -1,0 +1,32 @@
+module examples/python/end-to-end/09_break_continue_finally/input.py (ModuleId(0))
+  body BodyId(3)
+  items
+    fn break_in_try owner Module
+    fn continue_in_try owner Module
+    fn nested owner Module
+  exprs
+    #0: None = @0(console_log)
+    #1: fn(Int) -> Int = @1(break_in_try)
+    #2: Int = 3
+    #3: Int = call #1(#2)
+    #4: None = call #0(#3)
+    #5: None = @0(console_log)
+    #6: fn(Int) -> Int = @2(continue_in_try)
+    #7: Int = 3
+    #8: Int = call #6(#7)
+    #9: None = call #5(#8)
+    #10: fn(Int) -> None = @3(nested)
+    #11: Int = 3
+    #12: None = call #10(#11)
+  stmts
+    s0: #4
+    s1: #9
+    s2: #12
+
+interned types
+  t0 = None
+  t1 = String
+  t2 = Int
+  t3 = Bool
+  t4 = fn(Int) -> Int
+  t5 = fn(Int) -> None

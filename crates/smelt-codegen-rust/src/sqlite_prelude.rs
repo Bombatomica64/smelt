@@ -38,7 +38,17 @@ const SQLITE_RUNTIME: &str = r#"/// A `node:sqlite` `DatabaseSync`: one connecti
 pub struct SmeltSqliteDatabase {
     /// The JavaScript object identity every handle on this database shares.
     id: usize,
-    connection: ::std::rc::Rc<::std::cell::RefCell<Option<rusqlite::Connection>>>,
+    connection: ::std::rc::Rc<::std::cell::RefCell<SmeltSqliteConnection>>,
+}
+
+/// A database's connection: open, or closed (by `close()`, or never opened).
+#[derive(Default)]
+enum SmeltSqliteConnection {
+    /// The live connection.
+    Open(rusqlite::Connection),
+    /// No connection: every operation answers "database is not open".
+    #[default]
+    Closed,
 }
 
 /// A database that was never opened: every operation answers "database is not open".
@@ -48,7 +58,7 @@ impl Default for SmeltSqliteDatabase {
 
 impl ::std::fmt::Debug for SmeltSqliteDatabase {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        formatter.debug_struct("SmeltSqliteDatabase").field("open", &self.connection.borrow().is_some()).finish()
+        formatter.debug_struct("SmeltSqliteDatabase").field("open", &matches!(*self.connection.borrow(), SmeltSqliteConnection::Open(_))).finish()
     }
 }
 
@@ -67,12 +77,12 @@ impl SmeltSqliteDatabase {
     pub fn open(path: &str) -> Result<Self, Box<dyn ::std::error::Error>> {
         let connection = if path == ":memory:" { rusqlite::Connection::open_in_memory() } else { rusqlite::Connection::open(path) };
         let connection = connection.map_err(smelt_sqlite_error)?;
-        Ok(Self { id: smelt_next_object_id(), connection: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(connection))) })
+        Ok(Self { id: smelt_next_object_id(), connection: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltSqliteConnection::Open(connection))) })
     }
     /// Run `action` on the open connection.
     fn with<R>(&self, action: impl FnOnce(&rusqlite::Connection) -> Result<R, Box<dyn ::std::error::Error>>) -> Result<R, Box<dyn ::std::error::Error>> {
         let connection = self.connection.borrow();
-        let connection = connection.as_ref().ok_or_else(|| smelt_sqlite_error("database is not open"))?;
+        let SmeltSqliteConnection::Open(connection) = &*connection else { return Err(smelt_sqlite_error("database is not open")) };
         action(connection)
     }
     /// `db.exec(sql)`: run every statement in `sql`.
@@ -86,7 +96,8 @@ impl SmeltSqliteDatabase {
     }
     /// `db.close()`: closes the connection for every handle on it.
     pub fn close(&self) -> Result<(), Box<dyn ::std::error::Error>> {
-        let connection = self.connection.borrow_mut().take().ok_or_else(|| smelt_sqlite_error("database is not open"))?;
+        let previous = ::std::mem::replace(&mut *self.connection.borrow_mut(), SmeltSqliteConnection::Closed);
+        let SmeltSqliteConnection::Open(connection) = previous else { return Err(smelt_sqlite_error("database is not open")) };
         connection.close().map_err(|(_, error)| smelt_sqlite_error(error))
     }
 }

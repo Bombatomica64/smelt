@@ -346,7 +346,7 @@ impl ModuleBuilder<'_> {
                     let mode = if local_decl
                         .name
                         .and_then(|symbol| self.ctx.krate.symbols.get(symbol))
-                        .is_some_and(|name| self.forward_referenced_locals.contains(name))
+                        .is_some_and(|name| self.is_forward_referenced_local(name))
                     {
                         CaptureMode::ByMut
                     } else {

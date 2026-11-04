@@ -1,0 +1,61 @@
+module examples/typescript/end-to-end/185_break_continue_run_finally/input.ts (ModuleId(0))
+  body BodyId(7)
+  items
+    global mut log: List<String>
+    fn break_out_of_for_of owner Module
+    fn continue_in_while owner Module
+    fn nested_try owner Module
+    fn loop_inside_try owner Module
+    fn break_from_catch owner Module
+    fn finally_throw_skips_own_catch owner Module
+  locals
+    %0 let line: String
+  exprs
+    #0: None = global_get @0(log)
+    #1: fn() -> None = @1(break_out_of_for_of)
+    #2: None = call #1()
+    #3: fn() -> None = @2(continue_in_while)
+    #4: None = call #3()
+    #5: fn() -> None = @3(nested_try)
+    #6: None = call #5()
+    #7: fn() -> None = @4(loop_inside_try)
+    #8: None = call #7()
+    #9: fn() -> None = @5(break_from_catch)
+    #10: None = call #9()
+    #11: List<String> = global_get @0(log)
+    #12: Bool = true
+    #13: fn(Bool) -> String = @6(finally_throw_skips_own_catch)
+    #14: String = call #13(#12)
+    #15: Float = list_push #11, #14
+    #16: List<String> = global_get @0(log)
+    #17: Bool = false
+    #18: fn(Bool) -> String = @6(finally_throw_skips_own_catch)
+    #19: String = call #18(#17)
+    #20: Float = list_push #16, #19
+    #21: List<String> = global_get @0(log)
+    #22: String = %0
+    #23: None = @8(console_log)
+    #24: None = call #23(#22)
+  stmts
+    s0: #0
+    s1: #2
+    s2: #4
+    s3: #6
+    s4: #8
+    s5: #10
+    s6: #15
+    s7: #20
+    s8: #24
+    s9: for %0 in #21 BlockId(1)
+
+interned types
+  t0 = String
+  t1 = List<String>
+  t2 = None
+  t3 = fn() -> None
+  t4 = Bool
+  t5 = fn(Bool) -> String
+  t6 = Float
+  t7 = List<Float>
+  t8 = fn() -> None
+  t9 = fn(Bool) -> String

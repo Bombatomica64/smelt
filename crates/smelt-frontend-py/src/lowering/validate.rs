@@ -102,12 +102,8 @@ fn is_module_all_assignment(stmt: &Stmt) -> bool {
 /// spelling (`from typing import TypeVar as TV`) is deliberately not: this keys
 /// on the constructor name only, which is the general rule these three PEPs
 /// define, not a per-library pattern.
-fn is_type_param_declaration(stmt: &Stmt) -> bool {
-    type_param_declaration_name(stmt).is_some()
-}
-
-/// The name a type-parameter declaration binds, or `None` for any other
-/// statement. See [`is_type_param_declaration`].
+///
+/// Returns the name the declaration binds, or `None` for any other statement.
 fn type_param_declaration_name(stmt: &Stmt) -> Option<&str> {
     const TYPE_PARAM_CONSTRUCTORS: [&str; 3] = ["TypeVar", "ParamSpec", "TypeVarTuple"];
 
