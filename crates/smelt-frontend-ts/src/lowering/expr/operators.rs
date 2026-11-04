@@ -4879,15 +4879,99 @@ impl ModuleBuilder<'_> {
         entries: &[(smelt_hir::ExprId, smelt_hir::ExprId)],
         body: &Body,
     ) -> Option<smelt_hir::TypeId> {
-        let candidate = match self.ctx.krate.types.get(type_hint) {
-            Some(Type::Class { .. }) => type_hint,
-            Some(Type::Optional(inner))
-                if matches!(self.ctx.krate.types.get(*inner), Some(Type::Class { .. })) =>
-            {
-                *inner
-            }
-            _ => return None,
+        let hint = match self.ctx.krate.types.get(type_hint) {
+            Some(Type::Optional(inner)) => *inner,
+            _ => type_hint,
         };
+        match self.ctx.krate.types.get(hint).cloned() {
+            Some(Type::Class { .. }) => self.contextual_record_literal_member(hint, entries, body),
+            Some(Type::Union(members)) => {
+                self.contextual_union_record_literal_member(&members, entries, body)
+            }
+            _ => None,
+        }
+    }
+
+    /// The one object-shaped arm of an expected union that an object literal
+    /// is a value of, chosen as TypeScript's discriminated-union check
+    /// chooses it.
+    ///
+    /// `return { done: false, hasNext: true, next: value }` against
+    /// `LazyEmpty | LazyMany<T> | LazyNext<T>` is a `LazyNext<T>`: it supplies
+    /// every required field of that arm, every key it writes is declared
+    /// there, and its literal-typed field `hasNext: true` admits the literal
+    /// written (`LazyEmpty` declares `hasNext: false`, `LazyMany` requires
+    /// `hasMany`). HIR stores literal-typed fields as their primitive, so the
+    /// literal values come from the interface's recorded
+    /// [`smelt_hir::FieldDecodeFacts`]. A hand port builds the matching
+    /// variant directly; anything other than exactly one fitting arm declines
+    /// and keeps the record path.
+    fn contextual_union_record_literal_member(
+        &mut self,
+        members: &[smelt_hir::TypeId],
+        entries: &[(smelt_hir::ExprId, smelt_hir::ExprId)],
+        body: &Body,
+    ) -> Option<smelt_hir::TypeId> {
+        let mut fitting = Vec::new();
+        for member in members {
+            if !matches!(self.ctx.krate.types.get(*member), Some(Type::Class { .. })) {
+                continue;
+            }
+            if self.record_literal_discriminants_match(*member, entries, body)
+                && let Some(fit) = self.contextual_record_literal_member(*member, entries, body)
+            {
+                fitting.push(fit);
+            }
+        }
+        match fitting.as_slice() {
+            [single] => Some(*single),
+            _ => None,
+        }
+    }
+
+    /// Whether every literal-valued entry of an object literal is admitted by
+    /// the literal type of the field it writes on interface arm `member`.
+    ///
+    /// A field without recorded literals (or an arm that is not an interface)
+    /// constrains nothing here; the field-type check does the rest.
+    fn record_literal_discriminants_match(
+        &self,
+        member: smelt_hir::TypeId,
+        entries: &[(smelt_hir::ExprId, smelt_hir::ExprId)],
+        body: &Body,
+    ) -> bool {
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(member) else {
+            return true;
+        };
+        let Some(interface) = self.find_interface(*name) else {
+            return true;
+        };
+        entries.iter().all(|(key, value)| {
+            let expr = |id: smelt_hir::ExprId| body.exprs.get(usize::try_from(id.0).unwrap_or(usize::MAX));
+            let Some(ExprKind::Literal(Literal::String(field_key))) = expr(*key).map(|key| &key.kind) else {
+                return true;
+            };
+            let Some(ExprKind::Literal(written)) = expr(*value).map(|value| &value.kind) else {
+                return true;
+            };
+            let Some(facts) = interface.decode_facts.iter().find(|facts| {
+                self.ctx.krate.symbols.source(facts.name) == Some(field_key.as_str())
+                    && !facts.literals.is_empty()
+            }) else {
+                return true;
+            };
+            facts.literals.iter().any(|admitted| literal_values_equal(admitted, written))
+        })
+    }
+
+    /// Whether the literal object literal `entries` is exactly a value of the
+    /// single record type `candidate`.
+    fn contextual_record_literal_member(
+        &mut self,
+        candidate: smelt_hir::TypeId,
+        entries: &[(smelt_hir::ExprId, smelt_hir::ExprId)],
+        body: &Body,
+    ) -> Option<smelt_hir::TypeId> {
         let fields = self.contextual_record_literal_fields(candidate)?;
         if fields.is_empty() {
             return None;
@@ -4907,13 +4991,15 @@ impl ModuleBuilder<'_> {
                 }
             })
             .collect::<Option<Vec<_>>>()?;
+        // Compared by SOURCE spelling: a literal writes `hasNext`, the field
+        // symbol renders `has_next`.
         if fields.iter().any(|field| {
             !field.optional
                 && !self
                     .ctx
                     .krate
                     .symbols
-                    .get(field.name)
+                    .source(field.name)
                     .is_some_and(|name| supplied_keys.iter().any(|key| key == name))
         }) {
             return None;
@@ -5086,5 +5172,21 @@ impl ModuleBuilder<'_> {
                 })))
             }
         }
+    }
+}
+
+/// Whether two literal values are the same JavaScript value (`1` and `1.0`
+/// are one number).
+fn literal_values_equal(left: &Literal, right: &Literal) -> bool {
+    #[expect(clippy::cast_precision_loss, reason = "a JavaScript number literal is an f64")]
+    let number = |literal: &Literal| match literal {
+        Literal::Int(value) => Some(*value as f64),
+        Literal::Float(value) => Some(*value),
+        _ => None,
+    };
+    match (number(left), number(right)) {
+        // JavaScript `===` on numbers: exact IEEE equality is the semantics.
+        (Some(left), Some(right)) => left.total_cmp(&right).is_eq() || (left == 0.0 && right == 0.0),
+        _ => left == right,
     }
 }

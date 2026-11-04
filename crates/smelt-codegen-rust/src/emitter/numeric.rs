@@ -291,6 +291,26 @@ impl FunctionEmitter<'_> {
             Some(Type::Int | Type::Float)
         );
         let is_erased_operand = self.has_dynamic_shape(operand_ty);
+        // An optional NUMBER reaches here only from a non-coercing
+        // `Number.*` predicate (the frontend asserts presence for the
+        // coercing global ones): absent is "not a number", so the predicate
+        // is `false` there and tested on the value where present.
+        if let Some(Type::Optional(inner)) = self.mir.types.get(operand_ty)
+            && matches!(self.mir.types.get(*inner), Some(Type::Int | Type::Float))
+        {
+            let test = match op {
+                smelt_hir::NumericPredicateOp::IsFinite => "smelt_value.is_finite()",
+                smelt_hir::NumericPredicateOp::IsInteger => "smelt_value.fract() == 0.0",
+                smelt_hir::NumericPredicateOp::IsNaN => "smelt_value.is_nan()",
+                smelt_hir::NumericPredicateOp::IsSafeInteger => {
+                    "smelt_value.fract() == 0.0 && smelt_value.abs() <= 9007199254740991.0"
+                }
+            };
+            return Ok(format!(
+                "{}.map_or(false, |smelt_value| {{ let smelt_value = smelt_value as f64; {test} }})",
+                self.operand_text(operand)?
+            ));
+        }
         // `Number.isSafeInteger` performs NO type coercion: ECMAScript returns
         // `false` for every argument whose type is not Number, so `'1'` is not a
         // safe integer even though `Number('1')` is. An erased operand therefore

@@ -536,8 +536,14 @@ impl FunctionEmitter<'_> {
                     op = cloned_value_text(&self.operand_text(operand)?)
                 ));
             }
+            // A target element that is a GENERATED union (`number | number[]`
+            // stored as `SmeltUnionN`) is concrete storage, not the erased
+            // carrier: a list element injects into its arm through
+            // `value_at_type_text` (`flat([[1, 2], [[3]]])`, E0308 when it
+            // erased instead).
             let value_text = if matches!(self.mir.types.get(*source_item), Some(Type::List(_)))
-                && (self.has_dynamic_shape(*target_item))
+                && self.has_dynamic_shape(*target_item)
+                && self.concrete_union_members(*target_item).is_none()
             {
                 "value.into_smelt_unknown()".to_owned()
             } else {
@@ -3188,11 +3194,64 @@ impl FunctionEmitter<'_> {
             } else {
                 "SmeltRecord::with_id_from_entries(values.id, values.into_iter())"
             };
+            // A callable-object struct (`LazyMeta & ((...args) => LazyFn)`,
+            // stored as `{ single, __smelt_call }`) is, in JavaScript, a
+            // FUNCTION carrying own properties. An erased plain function is
+            // therefore a value of it: its `__smelt_call` is the function
+            // itself and every other field is the function's own property
+            // (absent when never assigned). Defaulting it instead replaced
+            // the function with a no-op that answers `null` (remeda's
+            // `purryFromLazy` handed every `lazy` through this path, so
+            // `pipe` ran a no-op evaluator and every lazy pipe came back
+            // empty).
+            let function_arm = if let Some(fields) = self.callable_object_record_keys(target)? {
+                let entries = fields
+                    .iter()
+                    .map(|key| {
+                        format!(
+                            "({key:?}.to_owned(), smelt_get_unknown_field(&smelt_function_value, {key:?}))"
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    " smelt_function_value @ SmeltUnknown::Function(_) => {{ let smelt_record_map = SmeltRecord::from_iter([(\"__smelt_call\".to_owned(), smelt_function_value.clone()), {entries}].into_iter().filter(|(_, value)| !matches!(value, SmeltUnknown::Undefined))); {adapter} }},"
+                )
+            } else {
+                String::new()
+            };
             return Ok(format!(
-                "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => {{ let smelt_record_map = {record_view}; {adapter} }}, _ => Default::default() }}"
+                "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => {{ let smelt_record_map = {record_view}; {adapter} }},{function_arm} _ => Default::default() }}"
             ));
         }
         Ok("Default::default()".to_owned())
+    }
+
+    /// The source keys of a callable-object struct's data fields (every
+    /// field but `__smelt_call`), or `None` when `target` is not a class or
+    /// interface with a `__smelt_call` slot.
+    fn callable_object_record_keys(&self, target: TypeId) -> Result<Option<Vec<String>>, EmitError> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
+            return Ok(None);
+        };
+        let fields = if let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) {
+            class.fields.clone()
+        } else if let Some(interface) = self.mir.interfaces.iter().find(|interface| interface.name == *name) {
+            crate::classes::effective_interface_fields(self.mir, interface)
+        } else {
+            return Ok(None);
+        };
+        let mut has_call = false;
+        let mut keys = Vec::new();
+        for field in &fields {
+            let key = self.symbol_source_name(field.name)?;
+            if key == "__smelt_call" {
+                has_call = true;
+            } else {
+                keys.push(key.to_owned());
+            }
+        }
+        Ok(has_call.then_some(keys))
     }
 
     /// `__smelt_from_unknown_record_<n>((text).into_smelt_unknown())`, the call
