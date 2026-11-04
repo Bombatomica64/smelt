@@ -250,14 +250,21 @@ impl ModuleBuilder<'_> {
                 }
                 let mut meaningful = Vec::new();
                 let mut fields = Vec::new();
+                // Whether some non-function member has no readable fields
+                // (a type parameter `TObj`, an opaque alias). Attached to a
+                // function arm, such a member's properties would be dropped.
+                let mut unreadable_object_member = false;
                 for member in &intersection.types {
                     if matches!(member, TSType::TSTypeLiteral(lit) if lit.members.is_empty()) {
                         continue;
                     }
-                    if let Ok(member_fields) = self.type_fields_from_ts(member) {
-                        fields.extend(member_fields);
-                    }
-                    meaningful.push(self.ts_type_to_hir(member)?);
+                    let member_fields = self.type_fields_from_ts(member);
+                    let member_ty = self.ts_type_to_hir(member)?;
+                    let member_fields = member_fields.unwrap_or_default();
+                    unreadable_object_member |= member_fields.is_empty()
+                        && !matches!(self.ctx.krate.types.get(member_ty), Some(Type::Function(_)));
+                    fields.extend(member_fields);
+                    meaningful.push(member_ty);
                 }
                 match meaningful.as_slice() {
                     [] => Ok(self.ctx.krate.types.intern(Type::None)),
@@ -266,6 +273,16 @@ impl ModuleBuilder<'_> {
                         matches!(self.ctx.krate.types.get(*member_ty), Some(Type::Function(_)))
                     }) =>
                     {
+                        // A function intersected with an object whose fields
+                        // are not known (`(() => void) & TObj`) is a callable
+                        // object with an open property set. Narrowing it to
+                        // the function arm would claim keyed reads and
+                        // `Object.assign` copies of it are reads of a bare
+                        // function; the honest answer is the erased callable
+                        // object, as for `ts_type_is_callable_object_surface`.
+                        if unreadable_object_member {
+                            return Ok(self.erase(ErasureReason::UnmodeledType));
+                        }
                         let function_ty = *meaningful
                             .iter()
                             .find(|member_ty| {
