@@ -94,6 +94,22 @@ impl ModuleBuilder<'_> {
         result
     }
 
+    /// [`Self::with_type_parameter_scope`] for a CLASS METHOD's own type
+    /// parameters: the scope is pushed by
+    /// [`Self::push_method_type_parameter_scope`], so a bounded method
+    /// parameter lowers as its bound (a method slot cannot be generic), and it
+    /// is popped on every exit path. `lower` receives the unbounded parameters.
+    pub(in crate::lowering) fn with_method_type_parameter_scope<R>(
+        &mut self,
+        params: Option<&oxc::ast::ast::TSTypeParameterDeclaration<'_>>,
+        lower: impl FnOnce(&mut Self, Vec<TypeParamDef>) -> Result<R, SmeltError>,
+    ) -> Result<R, SmeltError> {
+        let defs = self.push_method_type_parameter_scope(params)?;
+        let result = lower(self, defs);
+        self.pop_type_parameter_scope();
+        result
+    }
+
     /// The symbol a declared type parameter is known by: its own spelling when
     /// rendered, but an identity owned by its DECLARING ITEM.
     ///
@@ -143,17 +159,18 @@ impl ModuleBuilder<'_> {
     /// The declaration is first pushed as an ordinary scope so a constraint
     /// may mention a sibling parameter (`<T, K extends keyof T>`); when any
     /// parameter is constrained that scope is replaced by the erased one. Pop
-    /// it with [`Self::pop_type_parameter_scope`] as usual.
+    /// it with [`Self::pop_type_parameter_scope`] as usual. Returns every
+    /// declared parameter, constraint included.
     pub(in crate::lowering) fn push_closure_type_parameter_scope(
         &mut self,
         params: Option<&oxc::ast::ast::TSTypeParameterDeclaration<'_>>,
-    ) -> Result<(), SmeltError> {
+    ) -> Result<Vec<TypeParamDef>, SmeltError> {
         let defs = self.push_type_parameter_scope(params)?;
         let Some(params) = params else {
-            return Ok(());
+            return Ok(defs);
         };
         if defs.iter().all(|def| def.constraint.is_none()) {
-            return Ok(());
+            return Ok(defs);
         }
         self.pop_type_parameter_scope();
         let mut scope = HashMap::new();
@@ -170,7 +187,7 @@ impl ModuleBuilder<'_> {
         }
         self.types.push_param_types(scope);
         self.types.push_param_constraints(constraints);
-        Ok(())
+        Ok(defs)
     }
 
     /// Whether `left` and `right` are the same type up to a consistent
@@ -298,6 +315,31 @@ impl ModuleBuilder<'_> {
                 .iter()
                 .zip(rights)
                 .all(|(left_item, right_item)| self.alpha_equivalent_under(*left_item, *right_item, renaming))
+    }
+
+    /// Push the type-parameter scope of a CLASS METHOD's own parameters
+    /// (`set<D extends Date>(date: D): D`), and return the ones that stay
+    /// type parameters.
+    ///
+    /// A method is emitted inside its class's `impl`, and it is also stored in
+    /// a virtual-method slot (`Rc<dyn Fn ..>`, see
+    /// `virtual_class_method_fields`) and in the prototype entries; neither
+    /// can be generic over the method's own parameters, so Rust never lifts
+    /// them (`HirCtx::erased_item_type_params`). A bounded one is therefore
+    /// fixed at its bound, by the same erase-to-constraint rule as a generic
+    /// closure ([`Self::push_closure_type_parameter_scope`]) — the decision
+    /// the bounded-generics plan (increment 5) records for generic method
+    /// slots: every `D` a caller can pass IS a `Date`, so the method, its
+    /// slot and every override agree on `SmeltDate` and an override receives
+    /// the caller's own date handle instead of an erased copy. An unbounded
+    /// parameter has no single type to stand for it, stays a
+    /// [`Type::TypeParam`], and is returned so the caller can record it.
+    pub(in crate::lowering) fn push_method_type_parameter_scope(
+        &mut self,
+        params: Option<&oxc::ast::ast::TSTypeParameterDeclaration<'_>>,
+    ) -> Result<Vec<TypeParamDef>, SmeltError> {
+        let defs = self.push_closure_type_parameter_scope(params)?;
+        Ok(defs.into_iter().filter(|def| def.constraint.is_none()).collect())
     }
 
     /// Record the type-parameter declarations of every class in this program.

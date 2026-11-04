@@ -2485,6 +2485,182 @@ console.log(negative === null ? "none" : negative.ok(), parser.run("x") === null
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end CLI fixture: the program and its assertions are one scenario"
+)]
+fn build_dispatches_a_generic_abstract_base_to_concrete_overrides() -> TestResult {
+    // Bounded-generics plan, increment 5: `Parser<Value>` declares abstract
+    // `parse`/`validate`, and `NumberParser extends Parser<number>` /
+    // `WordParser extends Parser<string>` override them with concrete
+    // `value: number` / `value: string` parameters. Calls go through the base
+    // (`Parser<number>[]`, the inherited `check`), so they reach the overrides
+    // through the virtual slots. Behaviour: Node prints the two lines below.
+    // Types: each subclass's slot is the concrete override signature, never
+    // `SmeltUnknown`.
+    let files: &[(&str, &str)] = &[(
+        "src/main.ts",
+        r#"abstract class Parser<Value> {
+  abstract parse(input: string): Value;
+  abstract validate(value: Value): boolean;
+  check(input: string): string {
+    const value = this.parse(input);
+    return this.validate(value) ? "ok" : "rejected";
+  }
+}
+
+class NumberParser extends Parser<number> {
+  constructor(private min: number) {
+    super();
+  }
+  parse(input: string): number {
+    return Number(input);
+  }
+  validate(value: number): boolean {
+    return value >= this.min && !isNaN(value);
+  }
+}
+
+class WordParser extends Parser<string> {
+  parse(input: string): string {
+    return input.trim();
+  }
+  validate(value: string): boolean {
+    return value.length > 0;
+  }
+}
+
+function runAll(parsers: Parser<number>[], input: string): string[] {
+  return parsers.map((parser) => parser.check(input));
+}
+
+const numbers: Parser<number>[] = [new NumberParser(0), new NumberParser(5)];
+const words: Parser<string> = new WordParser();
+console.log(runAll(numbers, "4").join(","), runAll(numbers, "x").join(","), numbers[1].validate(7), numbers[0].parse("2.5") * 2);
+console.log(words.check("  hi "), words.check("   "), words.validate("x"));
+"#,
+    )];
+    let (project, manifest) = multi_module_project("generic-abstract-base", true, files)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let generated = generated_rust_text(project.path())?;
+    let slots = generated_lines_with(&generated, "validate: ::std::rc::Rc<dyn Fn(");
+    for expected in [
+        "validate: ::std::rc::Rc<dyn Fn(&Value) -> bool>,",
+        "validate: ::std::rc::Rc<dyn Fn(f64) -> bool>,",
+        "validate: ::std::rc::Rc<dyn Fn(String) -> bool>,",
+    ] {
+        ensure(
+            slots.contains(&expected),
+            format!("missing slot `{expected}`, got {slots:?}"),
+        )?;
+    }
+    ensure(
+        generated_lines_with(&generated, "fn validate(")
+            .iter()
+            .all(|line| !line.contains("SmeltUnknown")),
+        "an override's parameter is its concrete type",
+    )?;
+    let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &stdout,
+        &"ok,rejected rejected,rejected true 5\nok rejected true\n".to_owned(),
+        "unexpected stdout",
+    )?;
+    Ok(())
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end CLI fixture: the program and its assertions are one scenario"
+)]
+fn build_fixes_a_bounded_generic_method_slot_at_its_bound() -> TestResult {
+    // Bounded-generics plan, increment 5 (user decision: fix a bounded method
+    // type parameter at its bound). `set<DateType extends Date>` is abstract
+    // on `Setter` and overridden by `DaySetter`; it is called through the base
+    // (`Setter[]`), so through a virtual slot, which is one stored closure and
+    // cannot be generic. The slot, the base method and the override all take
+    // and return the bound, `SmeltDate`, so the override mutates the CALLER's
+    // date: Node prints `9 9 true` (the alias sees both setters and `set`
+    // returns the same date). Erased to `SmeltUnknown`, the override mutated
+    // a converted copy and Smelt printed `1 9 false`.
+    let files: &[(&str, &str)] = &[(
+        "src/main.ts",
+        r"abstract class Setter {
+  abstract priority: number;
+  abstract set<DateType extends Date>(date: DateType, flags: { timestampIsSet: boolean }): DateType;
+  validate<DateType extends Date>(_date: DateType): boolean {
+    return true;
+  }
+}
+
+class DaySetter extends Setter {
+  priority = 10;
+  constructor(private day: number) {
+    super();
+  }
+  set<DateType extends Date>(date: DateType, _flags: { timestampIsSet: boolean }): DateType {
+    date.setUTCDate(this.day);
+    return date;
+  }
+  validate<DateType extends Date>(date: DateType): boolean {
+    return !isNaN(date.getTime());
+  }
+}
+
+function applyAll(setters: Setter[], date: Date): Date {
+  let result = date;
+  for (const setter of setters) {
+    if (setter.validate(result)) {
+      result = setter.set(result, { timestampIsSet: false });
+    }
+  }
+  return result;
+}
+
+const start = new Date(0);
+const alias = start;
+const out = applyAll([new DaySetter(5), new DaySetter(9)], start);
+console.log(alias.getUTCDate(), out.getUTCDate(), out === start);
+const bad = new Date(NaN);
+console.log(applyAll([new DaySetter(3)], bad) === bad, isNaN(bad.getTime()));
+",
+    )];
+    let (project, manifest) = multi_module_project("bounded-method-slot", true, files)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let generated = generated_rust_text(project.path())?;
+    let set_slots = generated_lines_with(&generated, "set: ::std::rc::Rc<dyn Fn(");
+    ensure(
+        !set_slots.is_empty()
+            && set_slots.iter().all(|line| {
+                *line == "set: ::std::rc::Rc<dyn Fn(SmeltDate, SmeltRecord<String, bool>) -> SmeltDate>,"
+            }),
+        format!("the `set` slot is fixed at the `Date` bound, got {set_slots:?}"),
+    )?;
+    let validate_slots = generated_lines_with(&generated, "validate: ::std::rc::Rc<dyn Fn(");
+    ensure(
+        !validate_slots.is_empty()
+            && validate_slots
+                .iter()
+                .all(|line| *line == "validate: ::std::rc::Rc<dyn Fn(SmeltDate) -> bool>,"),
+        format!("the `validate` slot is fixed at the `Date` bound, got {validate_slots:?}"),
+    )?;
+    for method in ["fn set(", "fn validate("] {
+        let heads = generated_lines_with(&generated, method);
+        ensure(
+            !heads.is_empty()
+                && heads
+                    .iter()
+                    .all(|line| line.contains(": SmeltDate") && !line.contains("SmeltUnknown")),
+            format!("`{method}` takes the concrete date handle, got {heads:?}"),
+        )?;
+    }
+    let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
+    ensure_eq(&stdout, &"9 9 true\ntrue true\n".to_owned(), "unexpected stdout")?;
+    Ok(())
+}
+
+#[test]
 fn build_keeps_same_offset_unique_symbols_of_two_modules_distinct() -> TestResult {
     // `KEY_A` and `KEY_B` are `Symbol()` calls at the SAME byte offset of two
     // different modules. They are two symbols (Node prints `1 2 false`), so
