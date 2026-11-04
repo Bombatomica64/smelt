@@ -21,6 +21,7 @@
 //! * `BigInt.asIntN` / `BigInt.asUintN` are fallible on their width;
 //! * `~x` over a bigint is `x ^ -1n` at bigint type, not the int32 form.
 
+use crate::lowering::js_text::opt_js_str_text;
 use smelt_hir::{BigIntOp, BinOp, Body, Expr, ExprId, ExprKind, Literal, Span, Type, TypeId};
 
 use super::ModuleBuilder;
@@ -213,7 +214,7 @@ impl ModuleBuilder<'_> {
         let Some(member) = call.callee.as_member_expression() else {
             return Ok(None);
         };
-        let op = match member.static_property_name() {
+        let op = match opt_js_str_text(member.static_property_name()).as_deref() {
             Some("asIntN") => BigIntOp::AsIntN,
             Some("asUintN") => BigIntOp::AsUintN,
             _ => return Ok(None),

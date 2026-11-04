@@ -2,6 +2,7 @@
 //! narrowing, param-pattern binding and inference, arrow closure bodies,
 //! throw analysis, and capture-name collection over expressions/statements.
 
+use crate::lowering::js_text::js_str_text;
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::{
@@ -15,6 +16,7 @@ use smelt_hir::ErasureReason;
 use super::super::support::{arrow_block_statements, statement_terminates};
 use oxc::span::GetSpan;
 use oxc::ast::ast::UnaryOperator;
+use std::borrow::Cow;
 
 /// Fallback-eligible error for a compact callback guard that `typeof`-tests a
 /// union-typed parameter; see `reject_callback_union_typeof_guard`.
@@ -1032,8 +1034,10 @@ impl ModuleBuilder<'_> {
                         ));
                     }
                     let field_text = match &property.key {
-                        PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str(),
-                        PropertyKey::StringLiteral(literal) => literal.value.as_str(),
+                        PropertyKey::StaticIdentifier(identifier) => {
+                            Cow::Borrowed(identifier.name.as_str())
+                        }
+                        PropertyKey::StringLiteral(literal) => js_str_text(literal.value),
                         _ => {
                             return Err(SmeltError::unsupported(
                                 self.span(property.key.span().start, property.key.span().end),
@@ -1041,7 +1045,7 @@ impl ModuleBuilder<'_> {
                             ));
                         }
                     };
-                    let field = self.intern_source_name(field_text);
+                    let field = self.intern_source_name(&field_text);
                     // A destructured field's type is the FIELD's type. Falling
                     // back to the receiver's own type here silently mistyped
                     // every shape not listed below: `arrays.map(({ length }) =>
@@ -1073,7 +1077,7 @@ impl ModuleBuilder<'_> {
                             .callback_erase_unless_unknown(
                                 value.ty,
                                 ErasureReason::ByName,
-                                field_text,
+                                &field_text,
                             ),
                         _ => {
                             return Err(SmeltError::unsupported(

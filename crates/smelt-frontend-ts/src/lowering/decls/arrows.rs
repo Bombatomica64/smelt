@@ -1,6 +1,7 @@
 //! Arrow-function const-declaration lowering and related helpers.
 
 
+use crate::lowering::js_text::js_str_text;
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::support::{
@@ -22,6 +23,7 @@ use oxc::syntax::operator::{
 use smelt_hir::{
     Body, ErasureReason, Expr, ExprKind, Function, FunctionOwner, FunctionType, Item, Literal, LocalDecl, Param, Span, Stmt, Type,
 };
+use std::borrow::Cow;
 
 impl ModuleBuilder<'_> {
     /// Lower a `const name = (...) => ...` declaration into a HIR function item.
@@ -936,7 +938,7 @@ return_ty: target_function.return_ty,
                 ty: self.ctx.krate.types.intern(Type::Float),
             }),
             Expression::StringLiteral(lit) => Ok(ConstLiteral {
-                literal: Literal::String(lit.value.to_string()),
+                literal: Literal::String(js_str_text(lit.value).into_owned()),
                 ty: self.ctx.krate.types.intern(Type::String),
             }),
             Expression::BooleanLiteral(lit) => Ok(ConstLiteral {
@@ -1070,14 +1072,14 @@ return_ty: target_function.return_ty,
     /// value path.
     pub(in crate::lowering) fn symbol_for_call_description<'a>(
         call: &'a oxc::ast::ast::CallExpression<'a>,
-    ) -> Option<&'a str> {
+    ) -> Option<Cow<'a, str>> {
         if !Self::is_symbol_for_call(call) {
             return None;
         }
         let [Argument::StringLiteral(description)] = call.arguments.as_slice() else {
             return None;
         };
-        Some(description.value.as_str())
+        Some(js_str_text(description.value))
     }
 
     /// Return whether an initializer is a `globalThis.X`-presence host-constructor
@@ -1265,7 +1267,7 @@ return_ty: target_function.return_ty,
             && self.expr_is_global_alias(&binary.right)
             && let Expression::StringLiteral(key_lit) = &binary.left
         {
-            return match smelt_stdlib::global_member_presence(key_lit.value.as_str()) {
+            return match smelt_stdlib::global_member_presence(&js_str_text(key_lit.value)) {
                 smelt_stdlib::GlobalPresence::Present => Some(true),
                 smelt_stdlib::GlobalPresence::Absent => Some(false),
                 // `Unknown` (and any future undecided presence) must not fold.
@@ -1289,7 +1291,7 @@ return_ty: target_function.return_ty,
         let operand_is_global_alias = self.is_ambient_global_alias(operand_name);
         ambient_globals::global_typeof_probe_value(
             operand_is_global_alias,
-            kind_lit.value.as_str(),
+            &js_str_text(kind_lit.value),
             is_equality,
         )
     }
@@ -1309,7 +1311,7 @@ return_ty: target_function.return_ty,
     ) -> Result<ConstLiteral, SmeltError> {
         if let Some(description) = Self::symbol_for_call_description(call) {
             return Ok(ConstLiteral {
-                literal: Literal::Symbol(call_dispatch::registry_symbol_spelling(description)),
+                literal: Literal::Symbol(call_dispatch::registry_symbol_spelling(&description)),
                 ty: self.erase(ErasureReason::UnmodeledType),
             });
         }
@@ -1324,12 +1326,12 @@ return_ty: target_function.return_ty,
             // a folded initializer and a directly lowered `Symbol('d')` at the same
             // source offset denote one symbol and must compare equal at runtime.
             let description = match call.arguments.first() {
-                Some(Argument::StringLiteral(literal)) => literal.value.as_str(),
-                _ => "",
+                Some(Argument::StringLiteral(literal)) => js_str_text(literal.value),
+                _ => Cow::Borrowed(""),
             };
             return Ok(ConstLiteral {
                 literal: Literal::Symbol(call_dispatch::unique_symbol_spelling(
-                    description,
+                    &description,
                     self.span(call.span.start, call.span.end),
                 )),
                 ty: self.erase(ErasureReason::UnmodeledType),

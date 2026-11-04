@@ -14,6 +14,7 @@ mod asserted_member_read;
 mod function_statics;
 mod hoisting;
 mod int32;
+mod js_text;
 mod postfix_deferral;
 mod presence_tested_locals;
 mod promise_resolution;
@@ -27,6 +28,8 @@ mod symbol_consts;
 mod type_predicates;
 mod union_member_read;
 mod ty;
+use crate::lowering::js_text::js_str_text;
+use std::borrow::Cow;
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
@@ -625,16 +628,18 @@ pub fn scan_written_host_globals(source: &str, path: &str) -> HashSet<String> {
 /// Return whether an assignment-target member names a reassigned modeled host
 /// global (`globalThis.<Name>` / `global.<Name>` / `self.<Name>`, static or a
 /// string-literal computed key), yielding the modeled host constructor name.
-fn assignment_target_host_global_name<'a>(target: &'a AssignmentTarget<'a>) -> Option<&'a str> {
+fn assignment_target_host_global_name<'a>(
+    target: &'a AssignmentTarget<'a>,
+) -> Option<Cow<'a, str>> {
     let (object, property) = match target {
         AssignmentTarget::StaticMemberExpression(member) if !member.optional => {
-            (&member.object, member.property.name.as_str())
+            (&member.object, Cow::Borrowed(member.property.name.as_str()))
         }
         AssignmentTarget::ComputedMemberExpression(member) if !member.optional => {
             let Expression::StringLiteral(key) = &member.expression else {
                 return None;
             };
-            (&member.object, key.value.as_str())
+            (&member.object, js_str_text(key.value))
         }
         _ => return None,
     };
@@ -644,7 +649,7 @@ fn assignment_target_host_global_name<'a>(target: &'a AssignmentTarget<'a>) -> O
     if !ambient_globals::is_global_alias_name(base.name.as_str()) {
         return None;
     }
-    (smelt_stdlib::host_object_by_class(property).is_some()).then_some(property)
+    (smelt_stdlib::host_object_by_class(&property).is_some()).then_some(property)
 }
 
 /// Scan one TypeScript source for the MODULE-SCOPE type names it declares,
@@ -743,7 +748,7 @@ struct WrittenHostGlobalCollector<'names> {
 impl<'a> oxc::ast_visit::Visit<'a> for WrittenHostGlobalCollector<'_> {
     fn visit_assignment_expression(&mut self, assign: &oxc::ast::ast::AssignmentExpression<'a>) {
         if let Some(name) = assignment_target_host_global_name(&assign.left) {
-            self.names.insert(name.to_owned());
+            self.names.insert(name.into_owned());
         }
         oxc::ast_visit::walk::walk_assignment_expression(self, assign);
     }

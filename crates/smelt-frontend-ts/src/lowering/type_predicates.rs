@@ -24,12 +24,14 @@
 //! a generated union is read through the existing narrowing cast, which the
 //! emitter lowers to a `match` that unwraps the member — never an erasure.
 
+use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::{
     Argument, BindingPattern, CallExpression, ClassElement, Expression, FormalParameters,
     MethodDefinitionKind, PropertyKey, Statement, TSType, TSTypeAnnotation,
     TSTypeParameterDeclaration,
 };
 use smelt_hir::{Body, Type, TypeId};
+use std::borrow::Cow;
 
 use crate::lowering::{AssertionNarrowing, ModuleBuilder};
 
@@ -43,10 +45,10 @@ pub(in crate::lowering) enum PredicateKind {
 }
 
 /// Return the plain (non-computed, non-private) name of a class member key.
-fn member_key_name<'a>(key: &'a PropertyKey<'a>) -> Option<&'a str> {
+fn member_key_name<'a>(key: &'a PropertyKey<'a>) -> Option<Cow<'a, str>> {
     match key {
-        PropertyKey::StaticIdentifier(ident) => Some(ident.name.as_str()),
-        PropertyKey::StringLiteral(literal) => Some(literal.value.as_str()),
+        PropertyKey::StaticIdentifier(ident) => Some(Cow::Borrowed(ident.name.as_str())),
+        PropertyKey::StringLiteral(literal) => Some(js_str_text(literal.value)),
         _ => None,
     }
 }
@@ -233,7 +235,7 @@ impl ModuleBuilder<'_> {
                 continue;
             };
             self.functions.set_method_type_predicate(
-                (class_name.clone(), is_static, method_name.to_owned()),
+                (class_name.clone(), is_static, method_name.into_owned()),
                 kind,
                 narrowing,
             );

@@ -27,7 +27,9 @@
 //! labels type-checks. Mixed or unresolved enums register no alias and keep
 //! their opaque type.
 
+use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::{Expression, TSEnumDeclaration, TSEnumMemberName};
+use std::borrow::Cow;
 
 use crate::lowering::{ConstLiteral, ModuleBuilder};
 use smelt_hir::{Item, Literal, Type, TypeAlias};
@@ -88,7 +90,7 @@ impl ModuleBuilder<'_> {
                 next_auto = number + 1.0_f64;
             }
 
-            members.insert(member_name.to_owned(), value);
+            members.insert(member_name.into_owned(), value);
         }
 
         if members.is_empty() {
@@ -172,10 +174,10 @@ impl ModuleBuilder<'_> {
     /// Only plain identifier and string-literal member names have a stable
     /// runtime key that a `case EnumName.Member:` label or `EnumName.Member`
     /// read can reference; computed names are not lowered.
-    fn enum_member_name<'a>(name: &'a TSEnumMemberName<'a>) -> Option<&'a str> {
+    fn enum_member_name<'a>(name: &'a TSEnumMemberName<'a>) -> Option<Cow<'a, str>> {
         match name {
-            TSEnumMemberName::Identifier(ident) => Some(ident.name.as_str()),
-            TSEnumMemberName::String(string) => Some(string.value.as_str()),
+            TSEnumMemberName::Identifier(ident) => Some(Cow::Borrowed(ident.name.as_str())),
+            TSEnumMemberName::String(string) => Some(js_str_text(string.value)),
             TSEnumMemberName::ComputedString(_) | TSEnumMemberName::ComputedTemplateString(_) => {
                 None
             }

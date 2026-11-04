@@ -1,6 +1,7 @@
 //! `ModuleBuilder` lowering methods (part 05): test-suite (`describe`/hooks)
 //! lowering and related HIR construction helpers split out of `lowering.rs`.
 
+use crate::lowering::js_text::js_str_text;
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
 use crate::SmeltError;
@@ -14,6 +15,7 @@ use oxc::ast::ast::{
 use oxc::span::GetSpan;
 use smelt_hir::{Body, Function, FunctionOwner, Item, LocalDecl, Pattern, Span, Stmt, Type};
 use crate::lowering::support::arrow_block_statements;
+use std::borrow::Cow;
 
 impl ModuleBuilder<'_> {
     /// Lower a `describe` test-suite declaration and its inherited hooks.
@@ -1011,8 +1013,10 @@ impl ModuleBuilder<'_> {
                             ));
                         }
                         let key_text = match &property.key {
-                            PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str(),
-                            PropertyKey::StringLiteral(literal) => literal.value.as_str(),
+                            PropertyKey::StaticIdentifier(identifier) => {
+                                Cow::Borrowed(identifier.name.as_str())
+                            }
+                            PropertyKey::StringLiteral(literal) => js_str_text(literal.value),
                             _ => {
                                 return Err(SmeltError::unsupported(
                                     self.span(property.key.span().start, property.key.span().end),
@@ -1033,9 +1037,9 @@ impl ModuleBuilder<'_> {
                             };
                             let row_key_text = match &row_property.key {
                                 PropertyKey::StaticIdentifier(identifier) => {
-                                    identifier.name.as_str()
+                                    Cow::Borrowed(identifier.name.as_str())
                                 }
-                                PropertyKey::StringLiteral(literal) => literal.value.as_str(),
+                                PropertyKey::StringLiteral(literal) => js_str_text(literal.value),
                                 _ => return None,
                             };
                             (row_key_text == key_text).then_some(&row_property.value)
@@ -1226,7 +1230,7 @@ impl ModuleBuilder<'_> {
         table_bindings: &[(&str, TableBindingValue<'_>)],
     ) -> Result<String, SmeltError> {
         match argument {
-            Argument::StringLiteral(name) => Ok(name.value.to_string()),
+            Argument::StringLiteral(name) => Ok(js_str_text(name.value).into_owned()),
             Argument::Identifier(identifier) => Ok(identifier.name.to_string()),
             Argument::TemplateLiteral(template) => {
                 let mut text = String::new();
@@ -1265,7 +1269,7 @@ impl ModuleBuilder<'_> {
         table_bindings: &[(&str, TableBindingValue<'_>)],
     ) -> Option<String> {
         match expression {
-            Expression::StringLiteral(literal) => Some(literal.value.to_string()),
+            Expression::StringLiteral(literal) => Some(js_str_text(literal.value).into_owned()),
             Expression::NumericLiteral(literal) => Some(literal.value.to_string()),
             Expression::BooleanLiteral(literal) => Some(literal.value.to_string()),
             // `undefined`/`null` stringify to their JavaScript spellings, which
@@ -1380,7 +1384,9 @@ impl ModuleBuilder<'_> {
         element: &ArrayExpressionElement<'_>,
     ) -> Option<String> {
         match element {
-            ArrayExpressionElement::StringLiteral(literal) => Some(literal.value.to_string()),
+            ArrayExpressionElement::StringLiteral(literal) => {
+                Some(js_str_text(literal.value).into_owned())
+            }
             ArrayExpressionElement::NumericLiteral(literal) => Some(literal.value.to_string()),
             ArrayExpressionElement::BooleanLiteral(literal) => Some(literal.value.to_string()),
             ArrayExpressionElement::NullLiteral(_) => Some("null".to_owned()),

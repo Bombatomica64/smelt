@@ -25,6 +25,7 @@
 //! how the `Map`/`Set` collection dispatch works.
 
 use crate::SmeltError;
+use crate::lowering::js_text::{js_str_text, static_name_text};
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::Expression;
 use oxc::span::GetSpan;
@@ -1148,6 +1149,7 @@ impl ModuleBuilder<'_> {
                                 format!("{type_name} init requires statically named keys"),
                             ));
                         };
+                        let key = static_name_text(key);
                         if !keys.contains(&key.as_ref()) {
                             return Err(SmeltError::unsupported(
                                 span,
@@ -1575,7 +1577,7 @@ impl ModuleBuilder<'_> {
         let Some(oxc::ast::ast::Argument::StringLiteral(event)) = call.arguments.first() else {
             return None;
         };
-        let params = class.event_listener_string_params(event.value.as_str())?;
+        let params = class.event_listener_string_params(&js_str_text(event.value))?;
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let none_ty = self.ctx.krate.types.intern(Type::None);
         Some(

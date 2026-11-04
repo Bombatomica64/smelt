@@ -29,6 +29,7 @@
 
 use super::super::ModuleBuilder;
 use crate::error::SmeltError;
+use crate::lowering::js_text::static_name_text;
 use oxc::ast::ast::Expression;
 use smelt_hir::{
     Body, Expr, ExprKind, HttpServerOp, IncomingMessageOp, Literal, ServerResponseOp, Type,
@@ -127,7 +128,7 @@ impl ModuleBuilder<'_> {
                 return Err(SmeltError::unsupported(span, "`serve` options are modeled with static keys"));
             };
             let value = self.expression(&property.value, body)?;
-            match key.as_ref() {
+            match static_name_text(key).as_ref() {
                 "fetch" => fetch = Some(value),
                 "port" => port = Some(value),
                 "hostname" => hostname = Some(value),

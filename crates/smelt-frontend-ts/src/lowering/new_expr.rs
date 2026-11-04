@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use super::ModuleBuilder;
 use crate::SmeltError;
+use crate::lowering::js_text::{js_str_text, template_element_text};
 use oxc::ast::ast::{Argument, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
@@ -2201,7 +2202,7 @@ impl ModuleBuilder<'_> {
             Expression::StringLiteral(lit) => {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(lit.value.to_string())),
+                    kind: ExprKind::Literal(Literal::String(js_str_text(lit.value).into_owned())),
                     ty,
                     span: self.span(lit.span.start, lit.span.end),
                 }))
@@ -3996,12 +3997,7 @@ impl ModuleBuilder<'_> {
                 "template literals must contain at least one quasi",
             ));
         };
-        let first_str = first_quasi
-            .value
-            .cooked
-            .as_ref()
-            .map_or_else(|| first_quasi.value.raw.as_str(), |c| c.as_str())
-            .to_owned();
+        let first_str = template_element_text(&first_quasi.value).into_owned();
         let mut acc = body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::String(first_str)),
             ty: str_ty,
@@ -4023,14 +4019,10 @@ impl ModuleBuilder<'_> {
                 span,
             });
             if let Some(quasi) = tpl.quasis.get(i.saturating_add(1)) {
-                let s = quasi
-                    .value
-                    .cooked
-                    .as_ref()
-                    .map_or_else(|| quasi.value.raw.as_str(), |c| c.as_str());
+                let s = template_element_text(&quasi.value);
                 if !s.is_empty() {
                     let lit = body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::String(s.to_owned())),
+                        kind: ExprKind::Literal(Literal::String(s.into_owned())),
                         ty: str_ty,
                         span,
                     });
