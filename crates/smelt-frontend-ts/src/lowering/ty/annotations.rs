@@ -752,11 +752,15 @@ return_ty: function.return_ty,
                     _ => return false,
                 };
                 let name = match key {
-                    oxc::ast::ast::PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str(),
-                    oxc::ast::ast::PropertyKey::StringLiteral(literal) => literal.value.as_str(),
+                    oxc::ast::ast::PropertyKey::StaticIdentifier(identifier) => {
+                        std::borrow::Cow::Borrowed(identifier.name.as_str())
+                    }
+                    oxc::ast::ast::PropertyKey::StringLiteral(literal) => {
+                        crate::lowering::js_text::js_str_text(literal.value)
+                    }
                     _ => return false,
                 };
-                OBJECT_PROTOTYPE_MEMBERS.contains(&name)
+                OBJECT_PROTOTYPE_MEMBERS.contains(&name.as_ref())
             })
     }
 
