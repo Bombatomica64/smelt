@@ -466,18 +466,37 @@ impl ModuleBuilder<'_> {
         }
         if let TSTypeQueryExprName::IdentifierReference(ident) = &query.expr_name
             && let Some(item) = self.items.get(ident.name.as_str()).copied()
-            && let Item::Function(function) = self.item_ref(item)
+            && let Item::Function(function) = self.item_ref(item).clone()
         {
-            let params = function.params.iter().map(|param| param.ty).collect();
-            return self.ctx.krate.types.intern(Type::Function(FunctionType {
-                params,
+            let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params: function.params.iter().map(|param| param.ty).collect(),
                 rest: function.rest,
                 required_params: None,
-                    mutable_params: Vec::new(),
-return_ty: function.return_ty,
+                mutable_params: Vec::new(),
+                return_ty: function.return_ty,
                 is_async: function.is_async,
-                            may_throw: false,
+                may_throw: false,
             }));
+            // An instantiation expression (`typeof match<Router<T>, T>`) names
+            // the function at those type arguments: its own parameters are
+            // replaced, so the declaring scope's `T` reads through it.
+            let Some(type_arguments) = &query.type_arguments else {
+                return function_ty;
+            };
+            let lowered = type_arguments
+                .params
+                .iter()
+                .map(|arg| self.ts_type_to_hir(arg))
+                .collect::<Result<Vec<_>, _>>();
+            let Ok(lowered) = lowered else {
+                return function_ty;
+            };
+            let span = self.span(query.span.start, query.span.end);
+            return self
+                .type_argument_substitution(&function.type_params, &lowered, span)
+                .map_or(function_ty, |substitutions| {
+                    self.substitute_type_params(function_ty, &substitutions)
+                });
         }
         self.erase(ErasureReason::TypeLevel)
     }
@@ -3285,10 +3304,27 @@ return_ty: function.return_ty,
                     return Ok(field_ty);
                 }
                 let class_item = self.class_by_symbol(name).cloned();
+                // The receiver's arguments instantiate the class's own
+                // parameters. Its item may not exist yet (an import cycle
+                // through a barrel lowers a consumer first), and then the
+                // declarations recorded crate-wide by the class prepass
+                // (`collect_class_type_parameter_defaults`) name them: each
+                // parameter is its own type, so a member spelled in `Ok<T>`'s
+                // scope must be instantiated, never read as the caller's `T`.
+                let class_substitutions = match &class_item {
+                    Some(class) => {
+                        self.type_argument_substitution(&class.type_params, &args, self.span(0, 0))?
+                    }
+                    None => match self.ctx.class_type_params.get(&name).cloned() {
+                        Some(type_params) if !args.is_empty() => self
+                            .type_argument_substitution(&type_params, &args, self.span(0, 0))?,
+                        _ => HashMap::new(),
+                    },
+                };
                 if class_item.is_none()
                     && let Some(ty) = self.in_progress_class_method_member_type(name, field)
                 {
-                    return Ok(ty);
+                    return Ok(self.substitute_type_params(ty, &class_substitutions));
                 }
                 let class_field = if let Some(class) = &class_item {
                     let substitutions =
@@ -3310,26 +3346,24 @@ return_ty: function.return_ty,
                     .get(name)
                     .or_else(|| self.ctx.krate.symbols.get(name))
                     .map(str::to_owned);
-                let sidecar_field = class_name.as_deref().and_then(|class_name| {
-                    self.classes.fields(class_name).and_then(|fields| {
-                        fields
-                            .iter()
-                            .find(|item| item.name == field)
-                            .map(|item| item.ty)
+                let sidecar_field = class_name
+                    .as_deref()
+                    .and_then(|class_name| {
+                        self.classes.fields(class_name).and_then(|fields| {
+                            fields
+                                .iter()
+                                .find(|item| item.name == field)
+                                .map(|item| item.ty)
+                        })
                     })
-                });
+                    .map(|ty| self.substitute_type_params(ty, &class_substitutions));
                 // A method's signature is spelled in its class's scope, so it is
                 // instantiated at the receiver's type arguments like a field is:
                 // `map(fn: (value: T) => string)` read off `Base<number>` takes
                 // a `(value: number) => string` callback. Reached through the
                 // base walk below, `args` are already the base's arguments in
                 // the receiver's scope.
-                let method_substitutions = match &class_item {
-                    Some(class) => {
-                        self.type_argument_substitution(&class.type_params, &args, self.span(0, 0))?
-                    }
-                    None => HashMap::new(),
-                };
+                let method_substitutions = class_substitutions.clone();
                 let sidecar_method = class_name.as_deref().and_then(|class_name| {
                     let method = self.classes.methods(class_name)?
                         .iter()
@@ -3411,11 +3445,15 @@ return_ty: function.return_ty,
                         self.instantiate_field_type(ty, optional, &substitutions)
                     })
                 } else {
+                    // A class's predeclared member surface, spelled in its
+                    // own scope like the sidecar members above.
                     let field_data = alias_fields
                         .iter()
                         .find(|item| item.name == field)
                         .map(|item| (item.ty, item.optional));
-                    field_data.map(|(ty, optional)| self.field_type_with_optional(ty, optional))
+                    field_data.map(|(ty, optional)| {
+                        self.instantiate_field_type(ty, optional, &class_substitutions)
+                    })
                 };
                 // A class string/number index signature contributes a keyed
                 // store whose value type is statically known. When no declared
@@ -4398,7 +4436,10 @@ return_ty: function.return_ty,
         else {
             return true;
         };
-        self.types.param_type(spelling).is_none()
+        // In scope means THIS parameter is what its spelling resolves to here:
+        // a same-named parameter of another declaration (`sumBy`'s `T` seen
+        // inside `meanBy<T>`) is a different type and is out of scope.
+        self.types.param_type(spelling) != Some(ty)
     }
 
     /// Return whether a `keyof` mapped-type source is entirely array-like.

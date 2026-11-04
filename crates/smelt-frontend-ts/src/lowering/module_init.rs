@@ -506,6 +506,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ts_facts: None,
             int32_type_depth: 0,
             tuple_rest_arrows: HashMap::new(),
+            type_param_owners: HashMap::new(),
+            asserted_call_return: None,
             erasure_anchor: Span::new(file_id, 0, 0),
         }
     }
@@ -5996,7 +5998,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let key_ty = self.ctx.krate.types.intern(Type::String);
         let first_value_ty = entries.first().map(|entry| entry.value_ty);
         let value_ty = first_value_ty
-            .filter(|first_ty| entries.iter().all(|entry| entry.value_ty == *first_ty))
+            // Values whose types differ only in their OWN generic parameters
+            // (`asc: <T>(x: T, y: T) => .., desc: <T>(..) => ..`) share one
+            // type; see `alpha_equivalent_types`.
+            .filter(|first_ty| {
+                entries
+                    .iter()
+                    .all(|entry| self.alpha_equivalent_types(entry.value_ty, *first_ty))
+            })
             .unwrap_or_else(|| {
                 if entries.is_empty() {
                     self.erase_with(ErasureReason::MissingAnnotation, "empty const object")

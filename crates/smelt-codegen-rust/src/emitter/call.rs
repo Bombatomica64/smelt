@@ -2010,7 +2010,13 @@ impl FunctionEmitter<'_> {
             actual.push(Some(self.operand_ty(arg)?));
         }
 
-        let bindings = collect_bindings_from_types(self.mir, &type_params, &declared, &actual);
+        let bindings = crate::generic_bindings::collect_bindings_from_types_in_scope(
+            self.mir,
+            &type_params,
+            &declared,
+            &actual,
+            &self.current_function_type_params(),
+        );
         // (4) — every type parameter pinned, or the site demotes.
         if !bindings.all_concrete() {
             return Ok(None);
@@ -2020,7 +2026,18 @@ impl FunctionEmitter<'_> {
             let Some(actual_ty) = *supplied else {
                 continue;
             };
+            // A callback position is rendered through the call-site adapter,
+            // which DECLARES the callee's substituted parameter types, so it
+            // needs no exact match to pin anything — but only once every
+            // parameter it mentions is already pinned by a value position, so
+            // rustc still has a direct argument to infer from. (`sumBy(items,
+            // item => ..)` inside `meanBy<T>`: the one-argument arrow is
+            // adapted to the two-argument callback, and `T` comes from `items`.)
+            let adapted_callback = matches!(self.mir.types.get(*target_ty), Some(Type::Function(_)))
+                && matches!(self.mir.types.get(actual_ty), Some(Type::Function(_)))
+                && type_params_pinned_by_values(self.mir, &declared, &actual, *target_ty, &bindings);
             if self.type_mentions_any(*target_ty, &own_params)
+                && !adapted_callback
                 && !substitution_matches(self.mir, *target_ty, actual_ty, &bindings)
             {
                 return Ok(None);
@@ -2086,12 +2103,36 @@ impl FunctionEmitter<'_> {
         // closed and the declared type stays in charge exactly as before.
         if !class_type_params.is_empty() {
             let declared_names = class_type_params.iter().copied().collect::<Vec<_>>();
-            let bindings = collect_bindings_from_types(
+            // A parameter bound to one of the CALLER's own generics is that
+            // generic (`new Holder<Value>(.., this.validate)` inside
+            // `Parser<Value>` binds `Holder`'s `Value` to `Parser`'s).
+            let bindings = crate::generic_bindings::collect_bindings_from_types_in_scope(
                 self.mir,
                 &declared_names,
                 &[target_ty],
                 &[Some(self.operand_ty(arg)?)],
+                &self.current_function_type_params(),
             );
+            // A callback is adapted at this site, and the adapter DECLARES the
+            // callee's parameter types: they are rendered through the bindings
+            // (in the caller's scope), so they need no interned substituted
+            // function type. Without them the class's own parameter renders
+            // erased in the caller and the adapter takes `&SmeltUnknown` where
+            // the constructor's `impl<Value>` expects `&Value` (E0631).
+            if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
+                && self.type_mentions_any(target_ty, class_type_params)
+                && class_type_params.iter().all(|name| {
+                    !type_param_occurs(self.mir, target_ty, *name)
+                        || matches!(
+                            bindings.get(*name),
+                            Some(crate::generic_bindings::TypeParamBinding::Concrete(_))
+                        )
+                })
+                && let Some(adapter) =
+                    self.function_shape_adapter_text(arg, target_ty, false, Some(&bindings))?
+            {
+                return Ok(adapter);
+            }
             if let Some(substituted) = substituted_type_id(self.mir, target_ty, &bindings)
                 && substituted != target_ty
             {
@@ -3899,4 +3940,26 @@ impl FunctionEmitter<'_> {
         false
     }
 
+}
+
+/// Whether every type parameter `callback_ty` mentions is pinned at this call
+/// site by some NON-callback position whose declared type matches its argument
+/// exactly under `bindings` (see `static_call_monomorphization`, check 5).
+fn type_params_pinned_by_values(
+    mir: &Mir,
+    declared: &[TypeId],
+    actual: &[Option<TypeId>],
+    callback_ty: TypeId,
+    bindings: &CalleeTypeParamBindings,
+) -> bool {
+    let mut mentioned = HashSet::new();
+    crate::generic_bindings::collect_type_param_occurrences(mir, callback_ty, &mut mentioned);
+    mentioned.iter().all(|name| {
+        declared.iter().zip(actual).any(|(declared_ty, supplied)| {
+            let Some(actual_ty) = supplied else { return false };
+            !matches!(mir.types.get(*declared_ty), Some(Type::Function(_)))
+                && type_param_occurs(mir, *declared_ty, *name)
+                && substitution_matches(mir, *declared_ty, *actual_ty, bindings)
+        })
+    })
 }

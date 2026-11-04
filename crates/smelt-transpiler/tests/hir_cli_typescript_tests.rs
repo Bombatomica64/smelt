@@ -2401,6 +2401,89 @@ console.log(isValid(start), isValid(invalid), isValid(addDays(invalid, 1)))
     Ok(())
 }
 
+/// Every generated line declaring `needle` (a struct field or a method head),
+/// trimmed. Several classes may declare the same member, so a check over a
+/// member name has to see all of them.
+fn generated_lines_with<'a>(generated: &'a str, needle: &str) -> Vec<&'a str> {
+    generated
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with(needle))
+        .collect()
+}
+
+#[test]
+fn build_keeps_same_named_type_params_of_two_generic_classes_distinct() -> TestResult {
+    // Bounded-generics plan, increment 5: a type parameter is identified by
+    // the item that DECLARES it, not by its spelling. `Holder<Value>` and
+    // `Parser<Value>` declare two different `Value`s; `NumberParser extends
+    // Parser<number>` gets an inherited copy of `run` in which Parser's
+    // `Value` is `number`, but `Holder`'s `Value` is only instantiated by the
+    // `new Holder<Value>(..)` expression. Interned by spelling, the copy's
+    // substitution rewrote both, and the callback adapter declared
+    // `Holder`'s `Value` erased: E0631/E0308 in the inherited `run` (12
+    // errors). Behaviour: Node prints the two lines below. Types: the
+    // subclass's virtual slot takes the concrete `f64`.
+    let files: &[(&str, &str)] = &[(
+        "src/main.ts",
+        r#"class Holder<Value> {
+  constructor(
+    public value: Value,
+    private check: (value: Value) => boolean,
+  ) {}
+  ok(): boolean {
+    return this.check(this.value);
+  }
+}
+
+abstract class Parser<Value> {
+  abstract parse(input: string): { value: Value } | null;
+  accept(_value: Value): boolean {
+    return true;
+  }
+  run(input: string): Holder<Value> | null {
+    const parsed = this.parse(input);
+    if (!parsed) return null;
+    return new Holder<Value>(parsed.value, this.accept);
+  }
+}
+
+class NumberParser extends Parser<number> {
+  parse(input: string): { value: number } | null {
+    const n = Number(input);
+    return isNaN(n) ? null : { value: n };
+  }
+  accept(value: number): boolean {
+    return value >= 0;
+  }
+}
+
+const words = new Holder<string>("hi", (value) => value.length > 1);
+const parser = new NumberParser();
+const held = parser.run("42");
+const negative = parser.run("-3");
+console.log(words.value, words.ok(), held === null ? "none" : held.value + 1, held === null ? false : held.ok());
+console.log(negative === null ? "none" : negative.ok(), parser.run("x") === null);
+"#,
+    )];
+    let (project, manifest) = multi_module_project("type-param-identity", true, files)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let generated = generated_rust_text(project.path())?;
+    let slots = generated_lines_with(&generated, "accept: ::std::rc::Rc<dyn Fn(");
+    ensure(
+        slots.contains(&"accept: ::std::rc::Rc<dyn Fn(f64) -> bool>,")
+            && slots.contains(&"accept: ::std::rc::Rc<dyn Fn(&Value) -> bool>,"),
+        format!("the base slot takes `&Value` and the subclass's `f64`, got {slots:?}"),
+    )?;
+    let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &stdout,
+        &"hi true 43 true\nfalse true\n".to_owned(),
+        "unexpected stdout",
+    )?;
+    Ok(())
+}
+
 #[test]
 fn build_keeps_same_offset_unique_symbols_of_two_modules_distinct() -> TestResult {
     // `KEY_A` and `KEY_B` are `Symbol()` calls at the SAME byte offset of two

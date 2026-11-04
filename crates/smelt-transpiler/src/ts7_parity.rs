@@ -116,7 +116,9 @@ fn shape_at_depth(krate: &Crate, id: TypeId, depth: usize) -> String {
         Type::Union(members) => join(members, " | "),
         Type::Tuple(members) => format!("({})", join(members, ", ")),
         Type::Class { name, .. } => format!("Class({})", symbol(*name)),
-        Type::TypeParam { name } => format!("TypeParam({})", symbol(*name)),
+        // A declared type parameter's identity key names its declaration
+        // site; its rendering is the source spelling.
+        Type::TypeParam { name } => format!("TypeParam({})", krate.symbols.get(*name).unwrap_or("?")),
         Type::Bool => "Bool".to_owned(),
         Type::Int => "Int".to_owned(),
         Type::Float => "Float".to_owned(),

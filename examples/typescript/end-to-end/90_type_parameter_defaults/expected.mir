@@ -14,7 +14,7 @@ fn relabel (FuncId(0)) -> Slot<Bool, String, Float>
     %2 = call fn4(copy %0) -> bb1
   bb1:
     %3 = move %2 * 2.0
-    %4 = call fn2(copy %0.field14, copy %1, move %3) -> bb2
+    %4 = call fn2(copy %0.field16, copy %1, move %3) -> bb2
   bb2:
     return move %4
 
@@ -42,22 +42,22 @@ fn new (FuncId(2)) -> Slot<T, U, V>
     %3 param third: V
   bb0:
     %0 = struct1 {}
-    %0.field14 = copy %1
-    %0.field15 = copy %2
-    %0.field16 = copy %3
+    %0.field16 = copy %1
+    %0.field17 = copy %2
+    %0.field18 = copy %3
     return move %0
 
 fn label (FuncId(3)) -> U
   locals
     %0 param this: Slot<T, U, V>
   bb0:
-    return copy %0.field15
+    return copy %0.field17
 
 fn count (FuncId(4)) -> V
   locals
     %0 param this: Slot<T, U, V>
   bb0:
-    return copy %0.field16
+    return copy %0.field18
 
 fn new (FuncId(5)) -> Holder
   locals
@@ -99,21 +99,21 @@ fn new (FuncId(7)) -> Config<A, B>
     %2 param value: B
   bb0:
     %0 = struct3 {}
-    %0.field21 = copy %1
-    %0.field22 = copy %2
+    %0.field23 = copy %1
+    %0.field24 = copy %2
     return move %0
 
 fn name (FuncId(8)) -> A
   locals
     %0 param this: Config<A, B>
   bb0:
-    return copy %0.field21
+    return copy %0.field23
 
 fn amount (FuncId(9)) -> B
   locals
     %0 param this: Config<A, B>
   bb0:
-    return copy %0.field22
+    return copy %0.field24
 
 fn new (FuncId(10)) -> Pair<A, B>
   locals
@@ -122,15 +122,15 @@ fn new (FuncId(10)) -> Pair<A, B>
     %2 param rest: B
   bb0:
     %0 = struct4 {}
-    %0.field25 = copy %1
-    %0.field26 = copy %2
+    %0.field27 = copy %1
+    %0.field28 = copy %2
     return move %0
 
 fn tail (FuncId(11)) -> B
   locals
     %0 param this: Pair<A, B>
   bb0:
-    return copy %0.field26
+    return copy %0.field28
 
 fn main (FuncId(12)) -> None
   locals
@@ -168,7 +168,7 @@ fn main (FuncId(12)) -> None
     %6 = call fn6(copy %0) -> bb3
   bb3:
     %7 = copy %0.field2
-    %8 = call @console_log(move %6, copy %7.field14) -> bb4
+    %8 = call @console_log(move %6, copy %7.field16) -> bb4
   bb4:
     %9 = call fn0(copy %0.field2, "two") -> bb5
   bb5:
@@ -177,7 +177,7 @@ fn main (FuncId(12)) -> None
   bb6:
     %11 = call fn4(copy %1) -> bb7
   bb7:
-    %12 = call @console_log(move %10, move %11, copy %1.field14) -> bb8
+    %12 = call @console_log(move %10, move %11, copy %1.field16) -> bb8
   bb8:
     %13 = call fn7("width", 42.0) -> bb9
   bb9:
@@ -201,7 +201,7 @@ fn main (FuncId(12)) -> None
     %22 = len move %21
     %23 = call fn11(copy %3) -> bb17
   bb17:
-    %24 = call @console_log(copy %3.field25, move %22, copy %23[1.0]) -> bb18
+    %24 = call @console_log(copy %3.field27, move %22, copy %23[1.0]) -> bb18
   bb18:
     return none
 

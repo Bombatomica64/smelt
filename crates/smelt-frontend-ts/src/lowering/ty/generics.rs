@@ -26,7 +26,7 @@ impl ModuleBuilder<'_> {
 
         let mut scope = HashMap::new();
         for param in &params.params {
-            let name = self.intern_type_name(param.name.name.as_str());
+            let name = self.intern_declared_type_param(param);
             let ty = self.ctx.krate.types.intern(Type::TypeParam { name });
             scope.insert(param.name.name.to_string(), ty);
         }
@@ -40,7 +40,7 @@ impl ModuleBuilder<'_> {
         let mut constraints = HashMap::new();
         let mut lower_bounds = || -> Result<(), SmeltError> {
             for param in &params.params {
-                let name = self.intern_type_name(param.name.name.as_str());
+                let name = self.intern_declared_type_param(param);
                 let constraint = param
                     .constraint
                     .as_ref()
@@ -94,6 +94,39 @@ impl ModuleBuilder<'_> {
         result
     }
 
+    /// The symbol a declared type parameter is known by: its own spelling when
+    /// rendered, but an identity owned by its DECLARING ITEM.
+    ///
+    /// `Type::TypeParam` is identified by its symbol alone, and every
+    /// substitution map in the pipeline is keyed by it. Interned by spelling,
+    /// two unrelated parameters that share a name (`class Holder<Value>` and
+    /// `class Parser<Value>`) were one type, so a substitution meant for one
+    /// silently rewrote the other — the inherited-copy adapters of a generic
+    /// abstract base read `Holder`'s `Value` as the subclass's `number`
+    /// (bounded-generics plan, increment 5). The identity key therefore names
+    /// the file and the owning item's path (`type_param_owners`): the overload
+    /// signatures of one function, or of one method, share their parameters as
+    /// TypeScript does, and every other item's parameters are distinct. The
+    /// rendering stays the source spelling, so the emitted Rust is unchanged.
+    pub(in crate::lowering) fn intern_declared_type_param(
+        &mut self,
+        param: &oxc::ast::ast::TSTypeParameter<'_>,
+    ) -> smelt_hir::Symbol {
+        let spelling = param.name.name.as_str();
+        // Every declaration of a parsed module is in the owner map; a miss (a
+        // builder that never scanned its program) keys by the declaration
+        // site, which is still never shared with another item.
+        let owner = self
+            .type_param_owners
+            .get(&param.span.start)
+            .cloned()
+            .unwrap_or_else(|| format!("@{}", param.span.start));
+        let key = format!("{spelling}\u{1f}tp{}:{owner}", self.file_id.0);
+        let name = self.ctx.krate.symbols.intern_rendered(&key, spelling);
+        self.ctx.krate.names.record(name, spelling);
+        name
+    }
+
     /// Push the type-parameter scope of a generic CLOSURE value (an arrow
     /// expression lowered as a closure rather than lifted to an item).
     ///
@@ -138,6 +171,133 @@ impl ModuleBuilder<'_> {
         self.types.push_param_types(scope);
         self.types.push_param_constraints(constraints);
         Ok(())
+    }
+
+    /// Whether `left` and `right` are the same type up to a consistent
+    /// renaming of type parameters that are NOT in scope here.
+    ///
+    /// Each generic declaration owns its parameters (`intern_declared_type_param`),
+    /// so `asc: <T>(x: T, y: T) => x > y` and `desc: <T>(x: T, y: T) => x < y`
+    /// have two different `T`s and two different interned function types.
+    /// Seen from the code that holds both values, though, neither `T` is in
+    /// scope: each is bound by its own value's signature, and the two
+    /// signatures are alpha-equivalent — one type, as TypeScript reports it.
+    /// A parameter that IS in scope (the enclosing function's `T`) names one
+    /// type here and is never renamed.
+    pub(in crate::lowering) fn alpha_equivalent_types(
+        &self,
+        left: smelt_hir::TypeId,
+        right: smelt_hir::TypeId,
+    ) -> bool {
+        let mut renaming = HashMap::new();
+        self.alpha_equivalent_under(left, right, &mut renaming)
+    }
+
+    /// [`Self::alpha_equivalent_types`] with the renaming built so far
+    /// (`left` parameter -> `right` parameter).
+    fn alpha_equivalent_under(
+        &self,
+        left: smelt_hir::TypeId,
+        right: smelt_hir::TypeId,
+        renaming: &mut HashMap<smelt_hir::TypeId, smelt_hir::TypeId>,
+    ) -> bool {
+        if left == right && renaming.is_empty() {
+            return true;
+        }
+        let (Some(left_ty), Some(right_ty)) =
+            (self.ctx.krate.types.get(left), self.ctx.krate.types.get(right))
+        else {
+            return false;
+        };
+        match (left_ty, right_ty) {
+            (Type::TypeParam { .. }, Type::TypeParam { .. }) => {
+                if !self.type_param_is_out_of_scope(left) || !self.type_param_is_out_of_scope(right) {
+                    return left == right;
+                }
+                // A bijection: each side's parameter maps to exactly one.
+                match renaming.get(&left) {
+                    Some(mapped) => *mapped == right,
+                    None if renaming.values().any(|mapped| *mapped == right) => false,
+                    None => {
+                        renaming.insert(left, right);
+                        true
+                    }
+                }
+            }
+            (Type::List(left_item), Type::List(right_item))
+            | (Type::Set(left_item), Type::Set(right_item))
+            | (Type::Optional(left_item), Type::Optional(right_item))
+            | (Type::Future(left_item), Type::Future(right_item)) => {
+                self.alpha_equivalent_under(*left_item, *right_item, renaming)
+            }
+            (Type::Dict(left_key, left_value), Type::Dict(right_key, right_value))
+            | (Type::JsMap(left_key, left_value), Type::JsMap(right_key, right_value)) => {
+                self.alpha_equivalent_under(*left_key, *right_key, renaming)
+                    && self.alpha_equivalent_under(*left_value, *right_value, renaming)
+            }
+            (Type::Tuple(left_items), Type::Tuple(right_items))
+            | (Type::Union(left_items), Type::Union(right_items)) => {
+                self.alpha_equivalent_slices(left_items, right_items, renaming)
+            }
+            (
+                Type::Class { name: left_name, args: left_args },
+                Type::Class { name: right_name, args: right_args },
+            ) => {
+                left_name == right_name
+                    && self.alpha_equivalent_slices(left_args, right_args, renaming)
+            }
+            (Type::Function(left_fn), Type::Function(right_fn)) => {
+                left_fn.rest == right_fn.rest
+                    && left_fn.required_params == right_fn.required_params
+                    && left_fn.mutable_params == right_fn.mutable_params
+                    && left_fn.is_async == right_fn.is_async
+                    && left_fn.may_throw == right_fn.may_throw
+                    && self.alpha_equivalent_slices(&left_fn.params, &right_fn.params, renaming)
+                    && self.alpha_equivalent_under(left_fn.return_ty, right_fn.return_ty, renaming)
+            }
+            (
+                Type::Generator {
+                    is_async: left_async,
+                    yield_ty: left_yield,
+                    return_ty: left_return,
+                    next_ty: left_next,
+                },
+                Type::Generator {
+                    is_async: right_async,
+                    yield_ty: right_yield,
+                    return_ty: right_return,
+                    next_ty: right_next,
+                },
+            ) => {
+                left_async == right_async
+                    && self.alpha_equivalent_under(*left_yield, *right_yield, renaming)
+                    && self.alpha_equivalent_under(*left_return, *right_return, renaming)
+                    && self.alpha_equivalent_under(*left_next, *right_next, renaming)
+            }
+            (
+                Type::GeneratorResult { yield_ty: left_yield, return_ty: left_return },
+                Type::GeneratorResult { yield_ty: right_yield, return_ty: right_return },
+            ) => {
+                self.alpha_equivalent_under(*left_yield, *right_yield, renaming)
+                    && self.alpha_equivalent_under(*left_return, *right_return, renaming)
+            }
+            _ => left == right,
+        }
+    }
+
+    /// [`Self::alpha_equivalent_under`] position by position over two lists
+    /// of the same length.
+    fn alpha_equivalent_slices(
+        &self,
+        lefts: &[smelt_hir::TypeId],
+        rights: &[smelt_hir::TypeId],
+        renaming: &mut HashMap<smelt_hir::TypeId, smelt_hir::TypeId>,
+    ) -> bool {
+        lefts.len() == rights.len()
+            && lefts
+                .iter()
+                .zip(rights)
+                .all(|(left_item, right_item)| self.alpha_equivalent_under(*left_item, *right_item, renaming))
     }
 
     /// Record the type-parameter declarations of every class in this program.
