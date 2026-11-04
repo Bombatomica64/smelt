@@ -1507,3 +1507,108 @@ def check(r: Ok | Err) -> bool:
     )?;
     Ok(())
 }
+
+/// Return the base-class name recorded on the class item named `class_name`.
+fn class_base_name(ctx: &HirCtx, module_id: ModuleId, class_name: &str) -> Result<String, String> {
+    let module = module(ctx, module_id)?;
+    for item_id in &module.items {
+        if let Item::Class(class) = item(ctx, *item_id)?
+            && symbol(ctx, class.name)? == class_name
+        {
+            let base = class.base.ok_or_else(|| format!("expected '{class_name}' to have a base"))?;
+            return Ok(symbol(ctx, base)?.to_owned());
+        }
+    }
+    Err(format!("expected class item '{class_name}'"))
+}
+
+#[test]
+fn dotted_base_class_resolves_through_its_import_binding() -> TestResult {
+    // A dotted base denotes what its import binding makes it denote, whatever
+    // the spelling: plain `import m`, a submodule import, and an aliased
+    // module all record the same base as `from m import Name` would.
+    let source = py!(r"
+import unittest
+import collections.abc
+import collections.abc as cabc
+
+class A(unittest.TestCase):
+    pass
+
+class B(collections.abc.MutableMapping):
+    pass
+
+class C(cabc.Mapping[str, int]):
+    pass
+");
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    ensure_eq(&class_base_name(&ctx, module_id, "A")?.as_str(), &"TestCase", "A base")?;
+    ensure_eq(&class_base_name(&ctx, module_id, "B")?.as_str(), &"MutableMapping", "B base")?;
+    ensure_eq(&class_base_name(&ctx, module_id, "C")?.as_str(), &"Mapping", "C base")?;
+    Ok(())
+}
+
+#[test]
+fn dotted_base_class_inherits_methods_from_a_project_module() -> TestResult {
+    // `pkg.models.Base` reached through `import pkg.models` is the project
+    // class `Base`: the child inherits its methods, so `self.value()` resolves.
+    let mut ctx = HirCtx::new();
+    lower_path_module(
+        py!(r"
+class Base:
+    def value(self) -> int:
+        return 1
+"),
+        "src/pkg/models.py",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_module(
+        py!(r"
+import pkg.models
+
+class Child(pkg.models.Base):
+    def doubled(self) -> int:
+        return self.value() * 2
+"),
+        "src/pkg/views.py",
+        &mut ctx,
+    )?;
+    ensure_eq(&class_base_name(&ctx, module_id, "Child")?.as_str(), &"Base", "Child base")?;
+    Ok(())
+}
+
+#[test]
+fn dotted_base_class_without_a_single_import_meaning_is_rejected() -> TestResult {
+    // The spelling's prefix is not trusted: `factory().Base` is no import
+    // chain, and `m.Base` with `m` bound to a different module on each path
+    // has no single meaning.
+    for source in [
+        py!(r"
+def factory() -> int:
+    return 1
+
+class A(factory().Base):
+    pass
+"),
+        py!(r"
+import os
+if os.name == 'nt':
+    import ntpath as m
+else:
+    import posixpath as m
+
+class A(m.Base):
+    pass
+"),
+    ] {
+        let mut ctx = HirCtx::new();
+        let errors = lower_errors(source, &mut ctx)?;
+        let error = first_error(&errors)?;
+        ensure(
+            error.message.contains("complex base class expression not supported"),
+            format!("expected a complex-base rejection, got {error:?}"),
+        )?;
+    }
+    Ok(())
+}
