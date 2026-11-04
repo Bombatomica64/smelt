@@ -642,21 +642,37 @@ class Color(IntEnum):
 }
 
 #[test]
-fn protocol_base_is_rejected_for_every_import_spelling() -> TestResult {
-    // Structural subtyping is not modeled. Lowering the protocol as a plain
-    // class (what the bare spelling used to do) made `x: HasArea = Square()`
-    // emit a Rust type mismatch and `def f() -> HasArea` emit `-> Square`.
+fn protocol_base_lowers_as_an_interface_for_every_import_spelling() -> TestResult {
+    // Requirement change (2026-11-04): this test used to require rejection
+    // (`smelt::no-protocol`), because lowering a protocol as a plain class
+    // made `x: HasArea = Square()` a Rust type mismatch. A protocol is now a
+    // structural HIR interface, as a TypeScript interface is, so every
+    // spelling of `typing.Protocol` must produce the interface item and no
+    // class item. Conformance at the use sites is covered in `class_tests`.
     for (import, spelled) in spellings("typing", "Protocol") {
         let source = format!(
             "{import}\n\nclass HasArea({spelled}):\n    def area(self) -> float:\n        pass\n"
         );
         let mut ctx = HirCtx::new();
-        let errors = lower_errors(&source, &mut ctx)?;
-        let error = first_error(&errors)?;
-        ensure_eq(&error.code, &"smelt::no-protocol", &source)?;
+        lower_module(&source, &mut ctx)?;
+        let interface = ctx
+            .krate
+            .items
+            .iter()
+            .find_map(|item| match item {
+                Item::Interface(interface)
+                    if ctx.krate.symbols.get(interface.name) == Some("HasArea") =>
+                {
+                    Some(interface)
+                }
+                _ => None,
+            })
+            .ok_or_else(|| format!("expected an interface for: {source}"))?;
+        ensure_eq(&interface.methods.len(), &1, &source)?;
         ensure(
-            error.message.contains("class 'HasArea' derives from typing.Protocol"),
-            format!("unexpected message: {}", error.message),
+            !ctx.krate.items.iter().any(|item| matches!(item, Item::Class(class)
+                if ctx.krate.symbols.get(class.name) == Some("HasArea"))),
+            format!("a protocol must not also lower as a class: {source}"),
         )?;
     }
     Ok(())

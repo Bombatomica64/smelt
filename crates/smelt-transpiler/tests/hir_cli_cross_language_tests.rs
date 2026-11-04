@@ -1388,6 +1388,7 @@ fn python_end_to_end_examples_match_expected_outputs() -> TestResult {
         "07_if_else",
         "08_match",
         "09_break_continue_finally",
+        "10_protocol",
     ] {
         verify_python_end_to_end_example(name)?;
     }

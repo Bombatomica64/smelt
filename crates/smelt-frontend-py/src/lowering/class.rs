@@ -32,6 +32,19 @@ struct ClassBases {
     type_params: Vec<TypeParamDef>,
     /// The single non-marker base class, if any.
     base: Option<Symbol>,
+    /// Whether a `typing.Protocol` base makes the class a structural
+    /// interface; see [`ModuleBuilder::protocol_def`].
+    is_protocol: bool,
+    /// For a protocol, the protocols it extends (its other bases).
+    protocol_parents: Vec<Symbol>,
+}
+
+/// What a `typing.Protocol` class's bases declare.
+struct ProtocolBases {
+    /// Type parameters of a generic protocol (`Protocol[T]`).
+    type_params: Vec<TypeParamDef>,
+    /// The protocols it extends.
+    parents: Vec<Symbol>,
 }
 
 impl ModuleBuilder<'_> {
@@ -116,7 +129,20 @@ impl ModuleBuilder<'_> {
             is_int_enum,
             type_params,
             base,
+            is_protocol,
+            protocol_parents,
         } = self.resolve_class_bases(class, materialized.as_ref(), span, class_name_str)?;
+        if is_protocol {
+            return self.protocol_def(
+                class,
+                class_name_str,
+                ProtocolBases {
+                    type_params,
+                    parents: protocol_parents,
+                },
+                hir_module,
+            );
+        }
         if is_abstract_class {
             kind = ClassKind::Abstract;
         }
@@ -221,7 +247,7 @@ impl ModuleBuilder<'_> {
     /// add no base; `abc.ABCMeta` is the only supported metaclass; an
     /// `enum.IntEnum` base makes the class an integer enumeration and is
     /// recorded under its own name, `IntEnum`. A `typing.Protocol` base is
-    /// rejected (see [`SmeltError::protocol_unsupported`]).
+    /// lowered as a structural interface (see [`Self::protocol_def`]).
     fn resolve_class_bases(
         &mut self,
         class: &StmtClassDef,
@@ -236,6 +262,8 @@ impl ModuleBuilder<'_> {
             is_int_enum: false,
             type_params: Vec::new(),
             base: None,
+            is_protocol: false,
+            protocol_parents: Vec::new(),
         };
         let Some(args) = class.arguments.as_deref() else {
             return Ok(bases);
@@ -264,7 +292,8 @@ impl ModuleBuilder<'_> {
             match denoted {
                 Some(StdlibName::Object) => {}
                 Some(StdlibName::Protocol) => {
-                    return Err(SmeltError::protocol_unsupported(span, class_name_str));
+                    bases.is_protocol = true;
+                    bases.type_params = self.generic_marker_type_params(base_expr);
                 }
                 Some(StdlibName::Abc) => bases.is_abstract = true,
                 Some(StdlibName::Generic) => {
@@ -272,6 +301,30 @@ impl ModuleBuilder<'_> {
                 }
                 _ => positional.push((base_expr, denoted)),
             }
+        }
+        if bases.is_protocol {
+            // Every other base of a protocol must itself be a protocol
+            // (CPython raises `TypeError` otherwise); they are the interfaces
+            // this one extends.
+            for (base_expr, _) in &positional {
+                let parent = self
+                    .base_class_name(base_expr, scope, class_name_str)
+                    .filter(|name| {
+                        self.items
+                            .get(name)
+                            .is_some_and(|id| matches!(self.item_ref(*id), Item::Interface(_)))
+                    })
+                    .ok_or_else(|| {
+                        SmeltError::unsupported(
+                            span,
+                            format!(
+                                "protocol '{class_name_str}': a protocol can only extend other protocols"
+                            ),
+                        )
+                    })?;
+                bases.protocol_parents.push(self.intern_name(&parent));
+            }
+            return Ok(bases);
         }
         bases.base = match positional.as_slice() {
             [] => None,
@@ -1362,6 +1415,231 @@ impl ModuleBuilder<'_> {
             is_async: false,
             span,
         })
+    }
+
+    /// Lower a `typing.Protocol` class to a structural HIR interface.
+    ///
+    /// A protocol declares a structural type: any class whose members match
+    /// conforms without naming it. That is exactly a TypeScript interface, so
+    /// it lowers to the same item: an [`Item::Interface`] whose methods are
+    /// method signatures and also function-typed fields (the vtable record
+    /// codegen builds when a conforming class instance enters the interface
+    /// type), and whose annotated attributes are fields. Call boundaries
+    /// accept a conforming class through [`Self::structurally_conforms`].
+    ///
+    /// Members must be stubs: methods annotated and with a `...`, `pass` or
+    /// docstring body, attributes annotated without a value. A default method
+    /// body (inherited only by classes that subclass the protocol explicitly)
+    /// and static/class methods or properties are rejected.
+    fn protocol_def(
+        &mut self,
+        class: &StmtClassDef,
+        class_name_str: &str,
+        bases: ProtocolBases,
+        hir_module: &mut Module,
+    ) -> Result<(), SmeltError> {
+        let ProtocolBases {
+            type_params,
+            parents,
+        } = bases;
+        let span = self.span(class.range);
+        let name = self.intern_name(class_name_str);
+        let mut fields = Vec::new();
+        let mut methods = Vec::new();
+        for body_stmt in &class.body {
+            match body_stmt {
+                Stmt::FunctionDef(func) => {
+                    if !func.decorator_list.is_empty() {
+                        return Err(SmeltError::unsupported(
+                            self.span(func.range),
+                            format!(
+                                "protocol '{class_name_str}': decorated member '{}' is not supported",
+                                func.name
+                            ),
+                        ));
+                    }
+                    if !is_stub_body(&func.body) {
+                        return Err(SmeltError::unsupported(
+                            self.span(func.range),
+                            format!(
+                                "protocol '{class_name_str}': method '{}' has a default implementation, which is not supported",
+                                func.name
+                            ),
+                        ));
+                    }
+                    let mut sig = self.abstract_method_sig(func)?;
+                    sig.is_async = func.is_async;
+                    sig.required_params = Some(
+                        func.parameters
+                            .args
+                            .iter()
+                            .skip(1)
+                            .filter(|param| param.default.is_none())
+                            .count(),
+                    );
+                    let function_ty = self.intern_type(Type::Function(FunctionType {
+                        params: sig.params.iter().map(|param| param.ty).collect(),
+                        rest: None,
+                        required_params: sig.required_params,
+                        mutable_params: Vec::new(),
+                        return_ty: sig.return_ty,
+                        is_async: sig.is_async,
+                        may_throw: false,
+                    }));
+                    fields.push(Field {
+                        name: sig.name,
+                        ty: function_ty,
+                        visibility: Visibility::Public,
+                        optional: false,
+                        span: sig.span,
+                    });
+                    methods.push(sig);
+                }
+                Stmt::AnnAssign(ann) if ann.value.is_none() => {
+                    let Expr::Name(target) = ann.target.as_ref() else {
+                        return Err(SmeltError::unsupported(
+                            self.span(ann.range),
+                            "protocol attribute target must be a simple name",
+                        ));
+                    };
+                    let ty = self.annotation_to_hir(&ann.annotation)?;
+                    fields.push(Field {
+                        name: self.intern_name(target.id.as_str()),
+                        ty,
+                        visibility: Visibility::Public,
+                        optional: matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))),
+                        span: self.span(ann.range),
+                    });
+                }
+                Stmt::Pass(_) => {}
+                Stmt::Expr(expr)
+                    if matches!(
+                        expr.value.as_ref(),
+                        Expr::StringLiteral(_) | Expr::EllipsisLiteral(_)
+                    ) => {}
+                other => {
+                    return Err(SmeltError::unsupported(
+                        self.span(other.range()),
+                        format!(
+                            "protocol '{class_name_str}': unsupported protocol body statement '{}'",
+                            stmt_kind_name(other)
+                        ),
+                    ));
+                }
+            }
+        }
+        let item = self.ctx.krate.push_item(Item::Interface(smelt_hir::Interface {
+            name,
+            span,
+            type_params,
+            extends: parents
+                .into_iter()
+                .map(|parent| smelt_hir::InterfaceHeritage {
+                    parent,
+                    args: Vec::new(),
+                })
+                .collect(),
+            fields,
+            methods,
+            decode_facts: Vec::new(),
+        }));
+        self.items.insert(class_name_str.to_owned(), item);
+        hir_module.items.push(item);
+        Ok(())
+    }
+
+    /// Whether a value of type `supplied` conforms to the protocol type
+    /// `expected` (see [`Self::protocol_def`]).
+    ///
+    /// Structural, as Python's static type checkers define it: `supplied` (a class,
+    /// or another protocol) must have every method of the protocol and of the
+    /// protocols it extends, each with the same parameter count, parameters
+    /// that accept the protocol's (contravariant) and a return the protocol's
+    /// accepts (covariant), plus every protocol attribute at its declared
+    /// type. The value keeps its own type in HIR; codegen builds the
+    /// interface's method record where it enters the protocol type, as it does
+    /// for a TypeScript class passed where an interface is expected.
+    fn structurally_conforms(&self, expected: TypeId, supplied: TypeId) -> bool {
+        let types = &self.ctx.krate.types;
+        let (Some(Type::Class { name: protocol, .. }), Some(Type::Class { name: value, .. })) =
+            (types.get(expected), types.get(supplied))
+        else {
+            return false;
+        };
+        let Some((methods, attributes)) = self.protocol_members(*protocol) else {
+            return false;
+        };
+        let value_methods = self.member_signatures(*value);
+        let methods_conform = methods.iter().all(|sig| {
+            value_methods.iter().any(|(name, params, return_ty)| {
+                *name == sig.name
+                    && params.len() == sig.params.len()
+                    && params.iter().zip(&sig.params).all(|(param, wanted)| {
+                        *param == wanted.ty || self.type_assignable_to(wanted.ty, *param)
+                    })
+                    && (*return_ty == sig.return_ty
+                        || self.type_assignable_to(*return_ty, sig.return_ty))
+            })
+        });
+        methods_conform
+            && attributes.iter().all(|field| {
+                self.field_type_on_class(*value, field.name)
+                    .or_else(|| {
+                        self.protocol_members(*value).and_then(|(_, fields)| {
+                            fields.iter().find(|own| own.name == field.name).map(|own| own.ty)
+                        })
+                    })
+                    .is_some_and(|ty| ty == field.ty)
+            })
+    }
+
+    /// The methods and plain attributes a protocol interface requires,
+    /// including those of the protocols it extends; `None` when `name` is not
+    /// an interface.
+    fn protocol_members(&self, name: Symbol) -> Option<(Vec<MethodSig>, Vec<Field>)> {
+        let interface = self.ctx.krate.items.iter().find_map(|item| match item {
+            Item::Interface(interface) if interface.name == name => Some(interface),
+            _ => None,
+        })?;
+        let mut methods = interface.methods.clone();
+        let mut attributes: Vec<Field> = interface
+            .fields
+            .iter()
+            .filter(|field| !methods.iter().any(|method| method.name == field.name))
+            .cloned()
+            .collect();
+        for parent in &interface.extends {
+            if let Some((parent_methods, parent_fields)) = self.protocol_members(parent.parent) {
+                methods.extend(parent_methods);
+                attributes.extend(parent_fields);
+            }
+        }
+        Some((methods, attributes))
+    }
+
+    /// `(name, parameter types without the receiver, return type)` of every
+    /// instance method a class has (inherited ones included), or of every
+    /// method a protocol requires.
+    fn member_signatures(&self, name: Symbol) -> Vec<(Symbol, Vec<TypeId>, TypeId)> {
+        if let Some((methods, _)) = self.protocol_members(name) {
+            return methods
+                .into_iter()
+                .map(|sig| {
+                    (sig.name, sig.params.iter().map(|param| param.ty).collect(), sig.return_ty)
+                })
+                .collect();
+        }
+        self.effective_hir_class_methods(name)
+            .into_iter()
+            .filter_map(|method| match self.item_ref(method) {
+                Item::Function(function) => Some((
+                    function.name,
+                    function.params.iter().skip(1).map(|param| param.ty).collect(),
+                    function.return_ty,
+                )),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Extract type parameters from a `Generic[T, U]` marker base.

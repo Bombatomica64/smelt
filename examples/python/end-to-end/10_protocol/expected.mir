@@ -1,0 +1,157 @@
+class Square fields [Public side: Int, Public name: String] constructor Some(FuncId(2)) methods [FuncId(0), FuncId(1)]
+class Rect fields [Public w: Int, Public h: Int, Public name: String] constructor Some(FuncId(5)) methods [FuncId(3), FuncId(4)]
+interface Named
+interface Shape
+
+fn area (FuncId(0)) -> Int
+  locals
+    %0 param self: Square
+    %1 temp: Int
+  bb0:
+    %1 = copy %0.field8 * copy %0.field8
+    return move %1
+
+fn label (FuncId(1)) -> String
+  locals
+    %0 param self: Square
+    %1 param prefix: String
+    %2 temp: String
+  bb0:
+    %2 = copy %1 + copy %0.field2
+    return move %2
+
+fn __init__ (FuncId(2)) -> None
+  locals
+    %0 user self: Square
+    %1 param side: Int
+  bb0:
+    %0 = struct7 {}
+    %0.field8 = copy %1
+    %0.field2 = "square"
+    return move %0
+
+fn area (FuncId(3)) -> Int
+  locals
+    %0 param self: Rect
+    %1 temp: Int
+  bb0:
+    %1 = copy %0.field12 * copy %0.field13
+    return move %1
+
+fn label (FuncId(4)) -> String
+  locals
+    %0 param self: Rect
+    %1 param prefix: String
+    %2 temp: String
+    %3 temp: String
+    %4 temp: String
+    %5 temp: String
+    %6 temp: String
+    %7 temp: String
+    %8 temp: String
+  bb0:
+    %2 = copy %1 + copy %0.field2
+    %3 = move %2 + " "
+    %4 = primitive_cast_string copy %0.field12
+    %5 = move %3 + move %4
+    %6 = move %5 + "x"
+    %7 = primitive_cast_string copy %0.field13
+    %8 = move %6 + move %7
+    return move %8
+
+fn __init__ (FuncId(5)) -> None
+  locals
+    %0 user self: Rect
+    %1 param w: Int
+    %2 param h: Int
+  bb0:
+    %0 = struct11 {}
+    %0.field12 = copy %1
+    %0.field13 = copy %2
+    %0.field2 = "rect"
+    return move %0
+
+fn describe (FuncId(6)) -> String throws
+  locals
+    %0 param shape: Shape
+    %1 temp: String
+    %2 temp: String
+    %3 temp: Int
+    %4 temp: String
+    %5 temp: String
+  bb0:
+    %1 = closure_call copy %0.field6("a ")
+    %2 = move %1 + " of area "
+    %3 = closure_call copy %0.field4()
+    %4 = primitive_cast_string move %3
+    %5 = move %2 + move %4
+    return move %5
+
+fn biggest (FuncId(7)) -> Shape throws
+  locals
+    %0 param a: Shape
+    %1 param b: Shape
+    %2 temp: Int
+    %3 temp: Int
+    %4 temp: Bool
+  bb0:
+    %2 = closure_call copy %0.field4()
+    %3 = closure_call copy %1.field4()
+    %4 = move %2 >= move %3
+    switch move %4 ? bb1 : bb2
+  bb1:
+    return copy %0
+  bb2:
+    return copy %1
+
+fn run (FuncId(8)) -> None throws
+  locals
+    %0 user s: Shape
+    %1 temp: Square
+    %2 temp: String
+    %3 temp: None
+    %4 temp: Rect
+    %5 temp: String
+    %6 temp: None
+    %7 temp: Square
+    %8 temp: None
+    %9 temp: Square
+    %10 temp: Rect
+    %11 temp: Shape
+    %12 temp: None
+  bb0:
+    %1 = call fn2(3) -> bb1
+  bb1:
+    %2 = call fn6(move %1) -> bb2
+  bb2:
+    %3 = call @console_log(move %2) -> bb3
+  bb3:
+    %4 = call fn5(2, 5) -> bb4
+  bb4:
+    %5 = call fn6(move %4) -> bb5
+  bb5:
+    %6 = call @console_log(move %5) -> bb6
+  bb6:
+    %7 = call fn2(4) -> bb7
+  bb7:
+    %0 = move %7
+    %8 = call @console_log(copy %0.field2) -> bb8
+  bb8:
+    %9 = call fn2(3) -> bb9
+  bb9:
+    %10 = call fn5(2, 5) -> bb10
+  bb10:
+    %11 = call fn7(move %9, move %10) -> bb11
+  bb11:
+    %12 = call @console_log(copy %11.field2) -> bb12
+  bb12:
+    return none
+
+fn main (FuncId(9)) -> None throws
+  locals
+    %0 temp: None
+  bb0:
+    %0 = call fn8() -> bb1
+  bb1:
+    return none
+
