@@ -733,9 +733,7 @@ impl ModuleBuilder<'_> {
     /// a name whose meaning depends on which conditional import ran, is only
     /// known by running the definition, which is what specialization does.
     fn class_requires_specialization(&self, class: &StmtClassDef) -> bool {
-        let scope = EvalScope::Module {
-            at: class.range.start(),
-        };
+        let scope = self.bindings.class_statement_scope(class.range.start());
         let denotes = |expr: &Expr, expected: StdlibName| {
             self.bindings
                 .resolve(expr, scope)

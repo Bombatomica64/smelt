@@ -373,10 +373,10 @@ impl ModuleBuilder<'_> {
 
         for part in fstring.value.iter() {
             match part {
-                ruff_python_ast::FStringPart::Literal(literal) => {
+                ruff_python_ast::FStringPartRef::Literal(literal) => {
                     segments.push(Segment::Literal(literal.as_str().to_owned()));
                 }
-                ruff_python_ast::FStringPart::FString(inner) => {
+                ruff_python_ast::FStringPartRef::FString(inner) => {
                     for element in &inner.elements {
                         match element {
                             ruff_python_ast::InterpolatedStringElement::Literal(literal) => {
@@ -406,6 +406,27 @@ impl ModuleBuilder<'_> {
                                     ));
                                 }
                                 let expr = self.expression(&interp.expression, body)?;
+                                // `f"{x}"` formats `x` with `format(x, "")`, which
+                                // for `int`, `float` and `bool` is `str(x)`: the
+                                // same `ToString` cast `str(x)` lowers to, so a
+                                // float interpolates as `12.0` and an int keeps
+                                // all its digits (the string `+` fold below
+                                // would coerce it the JavaScript way).
+                                let expr = if matches!(
+                                    self.ctx.krate.types.get(Self::expr_ty(body, expr)),
+                                    Some(Type::Bool | Type::Int | Type::Float)
+                                ) {
+                                    body.push_expr(HirExpr {
+                                        kind: ExprKind::PrimitiveCast {
+                                            op: PrimitiveCastOp::ToString,
+                                            operand: expr,
+                                        },
+                                        ty: str_ty,
+                                        span: self.span(interp.range),
+                                    })
+                                } else {
+                                    expr
+                                };
                                 segments.push(Segment::Expr(expr));
                             }
                         }
@@ -532,8 +553,29 @@ impl ModuleBuilder<'_> {
                 ));
             }
         };
-        let lhs = self.expression(&b.left, body)?;
-        let rhs = self.expression(&b.right, body)?;
+        let mut lhs = self.expression(&b.left, body)?;
+        let mut rhs = self.expression(&b.right, body)?;
+        // Python's numeric tower: `/` is true division, a `float` even for two
+        // `int`s (`7 / 2 == 3.5`), and arithmetic mixing `int` and `float`
+        // promotes the `int` (`1 + 2.5 == 3.5`). The promoted operand goes
+        // through the same `ToFloat` cast `float(x)` lowers to, so codegen
+        // never sees an `i64` meet an `f64`.
+        let operand_kinds = (
+            self.ctx.krate.types.get(Self::expr_ty(body, lhs)).cloned(),
+            self.ctx.krate.types.get(Self::expr_ty(body, rhs)).cloned(),
+        );
+        let both_numeric = matches!(
+            operand_kinds,
+            (Some(Type::Int | Type::Float), Some(Type::Int | Type::Float))
+        );
+        let any_float = matches!(operand_kinds, (Some(Type::Float), _) | (_, Some(Type::Float)));
+        if both_numeric
+            && matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div)
+            && (op == BinOp::Div || any_float)
+        {
+            lhs = self.promote_int_to_float(lhs, body);
+            rhs = self.promote_int_to_float(rhs, body);
+        }
         let ty = if result_is_bool {
             self.intern_type(Type::Bool)
         } else if op == BinOp::Add {
@@ -547,6 +589,32 @@ impl ModuleBuilder<'_> {
             ty,
             span,
         }))
+    }
+
+    /// Cast an `int`-typed operand to `float` (`float(x)`); any other operand
+    /// is returned unchanged. See the numeric-tower rule in
+    /// [`Self::binop_expression`].
+    fn promote_int_to_float(
+        &mut self,
+        operand: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, operand)),
+            Some(Type::Int)
+        ) {
+            return operand;
+        }
+        let float_ty = self.intern_type(Type::Float);
+        let span = Self::expr_span(body, operand);
+        body.push_expr(HirExpr {
+            kind: ExprKind::PrimitiveCast {
+                op: PrimitiveCastOp::ToFloat,
+                operand,
+            },
+            ty: float_ty,
+            span,
+        })
     }
 
     /// Return the concrete output type declared by a class's Python `__add__`.
@@ -707,7 +775,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(c.range);
-        if c.ops.len() != 1 || c.comparators.len() != 1 {
+        if c.ops.len() != 1 || c.comparators().len() != 1 {
             return Err(SmeltError::unsupported(
                 span,
                 "chained comparisons (e.g. a < b < c) are not supported",
@@ -730,8 +798,8 @@ impl ModuleBuilder<'_> {
             CmpOp::Is => BinOp::Eq,
             CmpOp::IsNot => BinOp::NotEq,
         };
-        let lhs = self.expression(&c.left, body)?;
-        let [rhs_expr] = c.comparators.as_ref() else {
+        let lhs = self.expression(c.first_operand(), body)?;
+        let [rhs_expr] = c.comparators() else {
             return Err(SmeltError::unsupported(
                 span,
                 "chained comparisons (e.g. a < b < c) are not supported",
@@ -759,8 +827,8 @@ impl ModuleBuilder<'_> {
         op: CmpOp,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(c.range);
-        let needle = self.expression(&c.left, body)?;
-        let [haystack_expr] = c.comparators.as_ref() else {
+        let needle = self.expression(c.first_operand(), body)?;
+        let [haystack_expr] = c.comparators() else {
             return Err(SmeltError::unsupported(
                 span,
                 "containment requires a single comparison target",

@@ -51,6 +51,7 @@
 //! equally. Making such a value a single allocation needs lazily-initialized
 //! module statics, which is recorded as a gap rather than smuggled in here.
 
+use crate::lowering::js_text::static_name_text;
 use oxc::ast::ast::{AssignmentOperator, AssignmentTarget, BindingPattern, Expression};
 
 use crate::SmeltError;
@@ -318,7 +319,7 @@ impl ModuleBuilder<'_> {
             let BindingPattern::BindingIdentifier(binding) = &property.value else {
                 return Ok(false);
             };
-            let item_key = static_property_key(owner.name.as_str(), key.as_ref());
+            let item_key = static_property_key(owner.name.as_str(), &static_name_text(key));
             let Some(item) = self.items.get(&item_key).copied() else {
                 return Ok(false);
             };

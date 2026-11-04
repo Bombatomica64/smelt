@@ -626,3 +626,103 @@ def firsts(pairs: list[tuple[int, int]]) -> list[int]:
     )?;
     Ok(())
 }
+
+/// Every expression of every body in the crate.
+fn all_exprs(ctx: &HirCtx) -> impl Iterator<Item = &smelt_hir::Expr> {
+    ctx.krate.bodies.iter().flat_map(|candidate| candidate.exprs.iter())
+}
+
+#[test]
+fn module_constructed_binding_is_one_global_read_everywhere() -> TestResult {
+    // `c = Counter()` runs once: functions read the global's cell, they never
+    // construct a fresh `Counter`, and the module body touches it in place.
+    let source = py!(r"
+class Counter:
+    def __init__(self) -> None:
+        self.value = 0
+    def tick(self) -> int:
+        self.value = self.value + 1
+        return self.value
+
+c = Counter()
+
+def bump() -> int:
+    return c.tick()
+");
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let module_body = body(&ctx, module.body.ok_or("expected module body")?)?;
+    let touches = module_body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::GlobalGet { .. }))
+        .count();
+    ensure_eq(&touches, &1, "module body touches the global once")?;
+    let constructions = all_exprs(&ctx)
+        .filter(|expr| matches!(expr.kind, ExprKind::New { .. }))
+        .count();
+    ensure_eq(&constructions, &1, "only the initializer constructs the Counter")?;
+    ensure(
+        all_exprs(&ctx).filter(|expr| matches!(expr.kind, ExprKind::GlobalGet { .. })).count() >= 2,
+        "bump reads the global",
+    )
+}
+
+#[test]
+fn true_division_and_mixed_arithmetic_promote_ints_to_float() -> TestResult {
+    // `/` is true division even for two ints, and `int op float` promotes the
+    // int: both operands of each reach codegen as floats.
+    let source = py!(r"
+def half(n: int) -> float:
+    return n / 2
+
+def shifted(n: int) -> float:
+    return n + 0.5
+
+def doubled(n: int) -> int:
+    return n * 2
+");
+    let mut ctx = HirCtx::new();
+    lower_module(source, &mut ctx)?;
+    let float_ty = ctx.krate.types.intern(Type::Float);
+    let int_ty = ctx.krate.types.intern(Type::Int);
+    let mut float_ops = 0_usize;
+    for candidate in &ctx.krate.bodies {
+        for expr in &candidate.exprs {
+            if let ExprKind::BinOp { op, lhs, rhs } = &expr.kind {
+                let operand_ty = |id: &smelt_hir::ExprId| {
+                    candidate.exprs.get(id.0 as usize).map(|operand| operand.ty)
+                };
+                match op {
+                    BinOp::Div | BinOp::Add => {
+                        ensure_eq(&expr.ty, &float_ty, "promoted result")?;
+                        ensure(
+                            operand_ty(lhs) == Some(float_ty) && operand_ty(rhs) == Some(float_ty),
+                            "both operands are floats",
+                        )?;
+                        float_ops += 1_usize;
+                    }
+                    BinOp::Mul => ensure_eq(&expr.ty, &int_ty, "int * int stays int")?,
+                    _ => {}
+                }
+            }
+        }
+    }
+    ensure_eq(&float_ops, &2, "the division and the mixed addition")
+}
+
+#[test]
+fn fstring_number_interpolation_uses_str() -> TestResult {
+    // `f"{x}"` is `format(x, "")`, i.e. `str(x)` for numbers and bools.
+    let source = py!(r#"
+def show(x: float, n: int) -> str:
+    return f"{x} and {n}"
+"#);
+    let mut ctx = HirCtx::new();
+    lower_module(source, &mut ctx)?;
+    let casts = all_exprs(&ctx)
+        .filter(|expr| matches!(expr.kind, ExprKind::PrimitiveCast { op: PrimitiveCastOp::ToString, .. }))
+        .count();
+    ensure_eq(&casts, &2, "each number interpolation is a str() cast")
+}

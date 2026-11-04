@@ -9,7 +9,7 @@
 use super::{emitted_function_body, source_for};
 
 /// The router-result shape: two tuple arms of different arity.
-const OUTCOME: &str = r#"
+const OUTCOME: &str = r"
 type Indexed = Record<string, number>;
 type Named = Record<string, string>;
 type Outcome = [[string, Indexed][], string[]] | [[string, Named][]];
@@ -20,7 +20,7 @@ export function describe(outcome: Outcome): string {
   const direct = outcome[1] ? outcome[1][raw as number] : (raw as string);
   return `${handlers.length} ${head[0]} ${direct}`;
 }
-"#;
+";
 
 #[test]
 fn tuple_and_list_element_reads_project_each_arm() {

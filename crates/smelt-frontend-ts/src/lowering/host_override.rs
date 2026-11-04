@@ -8,6 +8,7 @@
 //! -identical folding and native construction (pay-for-use).
 
 use crate::SmeltError;
+use crate::lowering::js_text::js_str_text;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::{AssignmentTarget, Expression};
 use oxc::syntax::operator::AssignmentOperator;
@@ -15,6 +16,7 @@ use smelt_hir::{
     Body, ClosureExpr, ErasureReason, Expr, ExprKind, FunctionType, Item, LocalDecl, Param, Span, Stmt, Type,
     UnaryOp, UnknownKind,
 };
+use std::borrow::Cow;
 
 impl ModuleBuilder<'_> {
     /// Return whether `name` is a modeled host constructor the crate reassigns
@@ -112,7 +114,7 @@ impl ModuleBuilder<'_> {
         let Some(name) = self.assignment_target_written_host_global(&assign.left) else {
             return Ok(None);
         };
-        let name = name.to_owned();
+        let name = name.into_owned();
         if assign.operator != AssignmentOperator::Assign {
             return Err(SmeltError::unsupported(
                 self.span(assign.span.start, assign.span.end),
@@ -166,23 +168,23 @@ impl ModuleBuilder<'_> {
     fn assignment_target_written_host_global<'a>(
         &self,
         target: &'a AssignmentTarget<'a>,
-    ) -> Option<&'a str> {
+    ) -> Option<Cow<'a, str>> {
         let (object, property) = match target {
             AssignmentTarget::StaticMemberExpression(member) if !member.optional => {
-                (&member.object, member.property.name.as_str())
+                (&member.object, Cow::Borrowed(member.property.name.as_str()))
             }
             AssignmentTarget::ComputedMemberExpression(member) if !member.optional => {
                 let Expression::StringLiteral(key) = &member.expression else {
                     return None;
                 };
-                (&member.object, key.value.as_str())
+                (&member.object, js_str_text(key.value))
             }
             _ => return None,
         };
         if !self.expr_is_global_alias(object) {
             return None;
         }
-        self.is_written_host_global(property).then_some(property)
+        self.is_written_host_global(&property).then_some(property)
     }
 
     /// Lower a `class <Name> extends <Host> { ... }` expression assigned into a

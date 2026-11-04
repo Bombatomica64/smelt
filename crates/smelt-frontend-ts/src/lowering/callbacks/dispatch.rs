@@ -2,6 +2,7 @@
 //! into a [`CallbackExpr`] (with body/truthy fallbacks) and the large
 //! `callback_expression` match that lowers every supported callback body form.
 
+use crate::lowering::js_text::js_str_text;
 use crate::lowering::{
     Argument, ArrayExpressionElement, AssignmentOperator, AssignmentTarget, BinOp, BinaryOperator,
     Body, CallbackCallArg, CallbackExpr, CallbackExprKind, ClosureCallback, ConstCollectionValue,
@@ -11,6 +12,7 @@ use crate::lowering::{
 use crate::{ObjectConst, ObjectConstValue};
 use smelt_hir::ErasureReason;
 use oxc::span::GetSpan;
+use std::borrow::Cow;
 
 impl ModuleBuilder<'_> {
     /// Return the local callback registered under `name`, unless a binding of
@@ -1186,7 +1188,9 @@ impl ModuleBuilder<'_> {
                 })
             }
             Expression::StringLiteral(literal) => Ok(CallbackExpr {
-                kind: CallbackExprKind::Literal(Literal::String(literal.value.to_string())),
+                kind: CallbackExprKind::Literal(Literal::String(
+                    js_str_text(literal.value).into_owned(),
+                )),
                 ty: self.ctx.krate.types.intern(Type::String),
             }),
             Expression::BooleanLiteral(literal) => Ok(CallbackExpr {
@@ -1232,7 +1236,7 @@ impl ModuleBuilder<'_> {
                         }
                         ArrayExpressionElement::StringLiteral(literal) => CallbackExpr {
                             kind: CallbackExprKind::Literal(Literal::String(
-                                literal.value.to_string(),
+                                js_str_text(literal.value).into_owned(),
                             )),
                             ty: self.ctx.krate.types.intern(Type::String),
                         },
@@ -1405,8 +1409,10 @@ impl ModuleBuilder<'_> {
                         ));
                     };
                     let key_text = match &property.key {
-                        PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str(),
-                        PropertyKey::StringLiteral(literal) => literal.value.as_str(),
+                        PropertyKey::StaticIdentifier(identifier) => {
+                            Cow::Borrowed(identifier.name.as_str())
+                        }
+                        PropertyKey::StringLiteral(literal) => js_str_text(literal.value),
                         _ => {
                             let value = self.callback_expression(&property.value, params, body)?;
                             entries.push((self.intern_exact_source_name("__computed"), value));
@@ -1414,7 +1420,7 @@ impl ModuleBuilder<'_> {
                         }
                     };
                     let value = self.callback_expression(&property.value, params, body)?;
-                    entries.push((self.intern_exact_source_name(key_text), value));
+                    entries.push((self.intern_exact_source_name(&key_text), value));
                 }
                 Ok(CallbackExpr {
                     kind: CallbackExprKind::DictLit(entries),
@@ -2397,7 +2403,7 @@ impl ModuleBuilder<'_> {
                         return Ok(CallbackExpr {
                             kind: CallbackExprKind::HasField {
                                 receiver: Box::new(receiver),
-                                field: self.ctx.krate.symbols.intern(field.value.as_str()),
+                                field: self.ctx.krate.symbols.intern(&js_str_text(field.value)),
                             },
                             ty: self.ctx.krate.types.intern(Type::Bool),
                         });

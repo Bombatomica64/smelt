@@ -551,6 +551,21 @@ impl FunctionEmitter<'_> {
             // of the range (`1e+21`, `1e-7`). An `Int` is still a JavaScript
             // number, and a JS number is an `f64`, so both widths go through
             // the one helper rather than depending on which Smelt inferred.
+            // Python's `str(int)` is the exact decimal digits and `str(float)`
+            // is `repr(float)` (`12.0`); a body's language decides.
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Int)
+                if self.absent_spelling() == AbsentSpelling::None =>
+            {
+                Ok(format!("{operand_text}.to_string()"))
+            }
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Float)
+                if self.absent_spelling() == AbsentSpelling::None =>
+            {
+                Ok(format!(
+                    "{fn_name}({operand_text})",
+                    fn_name = crate::number_format_prelude::PY_FLOAT_REPR_FN,
+                ))
+            }
             (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Int) => Ok(format!(
                 "{fn_name}({operand_text} as f64)",
                 fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
@@ -572,7 +587,13 @@ impl FunctionEmitter<'_> {
                 // The PRESENT arm stringifies the inner value the way that type
                 // stringifies on its own, so a `number | undefined` holding
                 // `1e21` prints what `String(1e21)` does.
+                let python = self.absent_spelling() == AbsentSpelling::None;
                 let present = match self.mir.types.get(*inner) {
+                    Some(Type::Int) if python => "value.to_string()".to_owned(),
+                    Some(Type::Float) if python => format!(
+                        "{fn_name}(value)",
+                        fn_name = crate::number_format_prelude::PY_FLOAT_REPR_FN,
+                    ),
                     Some(Type::Int) => format!(
                         "{fn_name}(value as f64)",
                         fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,

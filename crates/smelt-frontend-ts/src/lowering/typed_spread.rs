@@ -24,8 +24,10 @@
 //! behind. Explicit values and sources are then bound to locals in source
 //! order, so the struct literal's field order cannot reorder their effects.
 
+use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::{Expression, ObjectExpression, ObjectPropertyKind, PropertyKey};
 use smelt_hir::{Body, Expr, ExprKind, Field, Literal, Type};
+use std::borrow::Cow;
 
 use super::ModuleBuilder;
 use crate::SmeltError;
@@ -93,11 +95,13 @@ impl ModuleBuilder<'_> {
                 }
                 ObjectPropertyKind::ObjectProperty(property) => {
                     let key = match &property.key {
-                        PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str(),
-                        PropertyKey::StringLiteral(literal) => literal.value.as_str(),
+                        PropertyKey::StaticIdentifier(identifier) => {
+                            Cow::Borrowed(identifier.name.as_str())
+                        }
+                        PropertyKey::StringLiteral(literal) => js_str_text(literal.value),
                         _ => return Ok(None),
                     };
-                    let name = self.intern_source_name(key);
+                    let name = self.intern_source_name(&key);
                     if !target_fields.iter().any(|field| field.name == name) {
                         // A property the record does not declare (an
                         // intersection's extra member) needs the record path.

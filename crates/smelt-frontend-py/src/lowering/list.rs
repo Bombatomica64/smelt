@@ -1227,7 +1227,7 @@ impl ModuleBuilder<'_> {
                         "callback chained comparisons are not supported",
                     ));
                 };
-                let [right_expr] = compare.comparators.as_ref() else {
+                let [right_expr] = compare.comparators() else {
                     return Err(SmeltError::unsupported(
                         self.span(compare.range),
                         "callback comparison is missing a right operand",
@@ -1247,7 +1247,7 @@ impl ModuleBuilder<'_> {
                         ));
                     }
                 };
-                let lhs = self.python_callback_expr(&compare.left, params, body)?;
+                let lhs = self.python_callback_expr(compare.first_operand(), params, body)?;
                 let rhs = self.python_callback_expr(right_expr, params, body)?;
                 Ok(CallbackExpr {
                     kind: CallbackExprKind::Binary {

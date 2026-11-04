@@ -35,6 +35,12 @@ impl ModuleBuilder<'_> {
         {
             return Some(field_ty);
         }
+        // A protocol-typed value exposes the protocol's declared attributes.
+        if let Some((_, attributes)) = self.protocol_members(class_name)
+            && let Some(attribute) = attributes.iter().find(|attribute| attribute.name == field)
+        {
+            return Some(attribute.ty);
+        }
         self.ctx.krate.items.iter().find_map(|item| {
             let Item::Class(class) = item else {
                 return None;

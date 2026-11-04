@@ -1,6 +1,7 @@
 //! Callback value transforms: string/template/typeof/binary/conditional
 //! callback expressions and the list search/entries/`at` collection calls.
 
+use crate::lowering::js_text::{js_str_text, template_element_text};
 use crate::lowering::{
     Argument, BinOp, BinaryOperator, BindingPattern, Body, CallbackCallArg, CallbackExpr,
     CallbackExprKind, Expr, ExprKind, Expression, HashMap, ListSearchOp, Literal, ModuleBuilder,
@@ -102,12 +103,7 @@ impl ModuleBuilder<'_> {
                 "callback template literals must contain at least one quasi",
             ));
         };
-        let first_text = first_quasi
-            .value
-            .cooked
-            .as_ref()
-            .map_or_else(|| first_quasi.value.raw.as_str(), |cooked| cooked.as_str())
-            .to_owned();
+        let first_text = template_element_text(&first_quasi.value).into_owned();
         let mut acc = CallbackExpr {
             kind: CallbackExprKind::Literal(Literal::String(first_text)),
             ty: string_ty,
@@ -123,14 +119,10 @@ impl ModuleBuilder<'_> {
                 ty: string_ty,
             };
             if let Some(quasi) = template.quasis.get(index.saturating_add(1)) {
-                let text = quasi
-                    .value
-                    .cooked
-                    .as_ref()
-                    .map_or_else(|| quasi.value.raw.as_str(), |cooked| cooked.as_str());
+                let text = template_element_text(&quasi.value);
                 if !text.is_empty() {
                     let literal = CallbackExpr {
-                        kind: CallbackExprKind::Literal(Literal::String(text.to_owned())),
+                        kind: CallbackExprKind::Literal(Literal::String(text.into_owned())),
                         ty: string_ty,
                     };
                     acc = CallbackExpr {
@@ -435,7 +427,7 @@ impl ModuleBuilder<'_> {
         let Expression::StringLiteral(kind_literal) = &binary.right else {
             return Ok(None);
         };
-        let Some(kind) = unknown_kind_from_typeof(kind_literal.value.as_str()) else {
+        let Some(kind) = unknown_kind_from_typeof(&js_str_text(kind_literal.value)) else {
             return Ok(None);
         };
         let value = self.callback_expression(&unary.argument, params, body)?;
@@ -454,7 +446,7 @@ impl ModuleBuilder<'_> {
         // against the concrete `SmeltUnion` variant rather than a `SmeltUnknown`
         // tag, so this costs no erasure.
         let mut expr = self
-            .static_typeof_match(value.ty, kind_literal.value.as_str())
+            .static_typeof_match(value.ty, &js_str_text(kind_literal.value))
             .map_or_else(
                 || CallbackExpr {
                     kind: CallbackExprKind::UnknownIs {

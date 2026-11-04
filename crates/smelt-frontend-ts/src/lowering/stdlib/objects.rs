@@ -1,6 +1,7 @@
 //! Lowering helpers continued: `SameValueZero` equality and additional
 //! JavaScript call and expression forms.
 
+use crate::lowering::js_text::js_str_text;
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
 use oxc::ast::ast::{Argument, Expression};
@@ -1729,7 +1730,7 @@ return_ty,
         }
         let form = match call.arguments.as_slice() {
             [] => StringNormalizeForm::Nfc,
-            [Argument::StringLiteral(literal)] => match literal.value.as_str() {
+            [Argument::StringLiteral(literal)] => match js_str_text(literal.value).as_ref() {
                 "NFC" => StringNormalizeForm::Nfc,
                 "NFD" => StringNormalizeForm::Nfd,
                 "NFKC" => StringNormalizeForm::Nfkc,

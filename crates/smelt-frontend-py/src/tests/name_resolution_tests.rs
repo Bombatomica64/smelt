@@ -642,21 +642,37 @@ class Color(IntEnum):
 }
 
 #[test]
-fn protocol_base_is_rejected_for_every_import_spelling() -> TestResult {
-    // Structural subtyping is not modeled. Lowering the protocol as a plain
-    // class (what the bare spelling used to do) made `x: HasArea = Square()`
-    // emit a Rust type mismatch and `def f() -> HasArea` emit `-> Square`.
+fn protocol_base_lowers_as_an_interface_for_every_import_spelling() -> TestResult {
+    // Requirement change (2026-11-04): this test used to require rejection
+    // (`smelt::no-protocol`), because lowering a protocol as a plain class
+    // made `x: HasArea = Square()` a Rust type mismatch. A protocol is now a
+    // structural HIR interface, as a TypeScript interface is, so every
+    // spelling of `typing.Protocol` must produce the interface item and no
+    // class item. Conformance at the use sites is covered in `class_tests`.
     for (import, spelled) in spellings("typing", "Protocol") {
         let source = format!(
             "{import}\n\nclass HasArea({spelled}):\n    def area(self) -> float:\n        pass\n"
         );
         let mut ctx = HirCtx::new();
-        let errors = lower_errors(&source, &mut ctx)?;
-        let error = first_error(&errors)?;
-        ensure_eq(&error.code, &"smelt::no-protocol", &source)?;
+        lower_module(&source, &mut ctx)?;
+        let interface = ctx
+            .krate
+            .items
+            .iter()
+            .find_map(|item| match item {
+                Item::Interface(interface)
+                    if ctx.krate.symbols.get(interface.name) == Some("HasArea") =>
+                {
+                    Some(interface)
+                }
+                _ => None,
+            })
+            .ok_or_else(|| format!("expected an interface for: {source}"))?;
+        ensure_eq(&interface.methods.len(), &1, &source)?;
         ensure(
-            error.message.contains("class 'HasArea' derives from typing.Protocol"),
-            format!("unexpected message: {}", error.message),
+            !ctx.krate.items.iter().any(|item| matches!(item, Item::Class(class)
+                if ctx.krate.symbols.get(class.name) == Some("HasArea"))),
+            format!("a protocol must not also lower as a class: {source}"),
         )?;
     }
     Ok(())
@@ -735,5 +751,62 @@ class Point:
         &error_codes(source)?,
         &vec!["smelt::specialization-required"],
         "decided only by running the module",
+    )
+}
+
+#[test]
+fn nested_class_statement_runs_in_the_enclosing_class_body() -> TestResult {
+    // The nested statement's bases run in `Outer`'s body, so `Outer`'s own
+    // rebinding of `ABC` shadows the import there. The nested class's methods
+    // run in its own body and skip `Outer`'s: an unbound name falls back to
+    // module scope, where `abstractmethod` is the `abc` import even though
+    // `Outer` rebinds it.
+    let source = "from abc import ABC, abstractmethod\n\
+                  class Outer:\n    \
+                      ABC = 1\n    \
+                      abstractmethod = 2\n    \
+                      class Inner(ABC):\n        \
+                          @abstractmethod\n        \
+                          def m(self) -> int: ...\n";
+    let body = parse_body(source)?;
+    let bindings = ModuleBindings::collect(&body);
+    let outer = class_stmt(&body, "Outer")?;
+    let inner = class_stmt(&outer.body, "Inner")?;
+    let scope = bindings.class_statement_scope(inner.range.start());
+    ensure(
+        matches!(scope, EvalScope::ClassBody { class_start, at }
+            if class_start == outer.range.start() && at == inner.range.start()),
+        format!("expected the nested statement to run in Outer's body, got {scope:?}"),
+    )?;
+    let base = inner
+        .arguments
+        .as_deref()
+        .and_then(|arguments| arguments.args.first())
+        .ok_or("Inner has no base")?;
+    ensure_eq(
+        &bindings
+            .resolve(base, scope)
+            .ok_or("base is not a name")?
+            .candidates()
+            .to_vec(),
+        &vec![Denotation::Local],
+        "nested base sees the enclosing class-body binding",
+    )?;
+    let Some(Stmt::FunctionDef(method)) = inner.body.first() else {
+        return Err("missing Inner.m".to_owned());
+    };
+    let decorator = method.decorator_list.first().ok_or("missing decorator")?;
+    let method_scope = EvalScope::ClassBody {
+        class_start: inner.range.start(),
+        at: method.range.start(),
+    };
+    ensure_eq(
+        &bindings
+            .resolve(&decorator.expression, method_scope)
+            .ok_or("decorator is not a name")?
+            .candidates()
+            .to_vec(),
+        &vec![qualified("abc.abstractmethod")],
+        "nested method decorator skips the enclosing class body",
     )
 }

@@ -2022,7 +2022,8 @@ impl FunctionEmitter<'_> {
                 // `callee_uses_erased_call_method` (see its docs for the
                 // precedence and why it matters); `call_text`'s
                 // `Callee::Indirect` arm consults the same helper.
-                let call_text = if self.callee_uses_erased_call_method(callee)? {
+                let uses_erased_call_method = self.callee_uses_erased_call_method(callee)?;
+                let call_text = if uses_erased_call_method {
                     format!("{callee_text}.call({args_text})")
                 } else if self.callee_is_borrowed_function_handle(callee)? {
                     format!("{callee_text}({args_text})")
@@ -2077,7 +2078,14 @@ impl FunctionEmitter<'_> {
                         // destination needs, so treat the erased-rest call's source
                         // type as `Unknown` and let `value_at_type_text` inject the
                         // correct `Some(..)`/extraction at the assignment seam.
-                        let source_ty = if callee_is_erased_rest
+                        // Only that `.call(..)` ABI erases the result: a callee
+                        // of the same shape held as a borrowed `&dyn Fn` handle
+                        // (a callback parameter, a borrowed capture) is invoked
+                        // directly and returns its declared `return_ty`, so
+                        // `(...args: any[]) => number` / `Callable[..., int]`
+                        // yields the `f64`/`i64` itself, which must not be
+                        // re-extracted from a `SmeltUnknown` (E0308).
+                        let source_ty = if (callee_is_erased_rest && uses_erased_call_method)
                             || self.declared_slot_return_is_erased(callee, function)
                         {
                             self.type_id(Type::Unknown)?

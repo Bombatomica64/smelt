@@ -19,6 +19,7 @@ use ty_python_core::ProgramFile;
 use ty_python_core::platform::PythonPlatform;
 use ty_python_core::program::{FallibleStrategy, Program, ProgramSettings};
 use ty_python_semantic::lint::{LintRegistry, RuleSelection};
+use ty_python_semantic::dependency::DependencyMetadata;
 use ty_python_semantic::{AnalysisSettings, Db as SemanticDb, default_lint_registry};
 use ty_site_packages::PythonVersionWithSource;
 
@@ -71,6 +72,10 @@ impl SmeltTyDb {
                 python_version: PythonVersionWithSource::default(),
                 python_platform: PythonPlatform::default(),
                 search_paths,
+                // Smelt resolves one source tree against the vendored
+                // typeshed; it never discovers a virtual or system Python
+                // environment (no site-packages), so there is none to record.
+                python_environment: Ok(None),
             },
         })
     }
@@ -142,6 +147,12 @@ impl SemanticDb for SmeltTyDb {
 
     fn analysis_settings(&self, _file: File) -> &AnalysisSettings {
         &self.analysis_settings
+    }
+
+    /// Smelt reads no package-manager lockfile, so no file has dependency
+    /// metadata (ty uses it only to attribute imports to distributions).
+    fn dependency_metadata(&self, _file: File) -> Option<&DependencyMetadata> {
+        None
     }
 
     fn verbose(&self) -> bool {

@@ -1348,9 +1348,15 @@ impl FunctionEmitter<'_> {
         let constant = match index {
             Operand::Const(Constant::Int(value)) => usize::try_from(*value).ok(),
             Operand::Const(Constant::Float(value))
-                if value.fract() == 0.0 && *value >= 0.0 && *value < 4_294_967_296.0 =>
+                if value.fract() == 0.0_f64 && *value >= 0.0_f64 && *value < 4_294_967_296.0_f64 =>
             {
-                Some(*value as usize)
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "the guard proves a whole number in 0..2^32, exact in usize"
+                )]
+                let index = *value as usize;
+                Some(index)
             }
             _ => None,
         };

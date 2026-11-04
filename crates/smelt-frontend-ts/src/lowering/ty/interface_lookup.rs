@@ -4,6 +4,7 @@
 //! resolution, interface satisfaction checks, and small accessors for looking
 //! up expression, local, and item types.
 
+use crate::lowering::js_text::js_str_text;
 use crate::lowering::{ModuleBuilder, field_type_satisfies};
 use crate::SmeltError;
 use oxc::ast::ast::{Expression, PropertyKey, TSTypeName};
@@ -26,7 +27,7 @@ impl ModuleBuilder<'_> {
             PropertyKey::PrivateIdentifier(ident) => {
                 Ok(self.intern_private_name(ident.name.as_str()))
             }
-            PropertyKey::StringLiteral(lit) => Ok(self.intern_source_name(lit.value.as_str())),
+            PropertyKey::StringLiteral(lit) => Ok(self.intern_source_name(&js_str_text(lit.value))),
             PropertyKey::NumericLiteral(lit) => {
                 // JavaScript coerces numeric property keys to their string form
                 // (`{ 0: x }` names the member `"0"`). Prefer the raw spelling
@@ -148,7 +149,9 @@ impl ModuleBuilder<'_> {
             Expression::Identifier(identifier) => {
                 self.identifier_computed_key_name(identifier.name.as_str())
             }
-            Expression::StringLiteral(literal) => Some((literal.value.to_string(), false)),
+            Expression::StringLiteral(literal) => {
+                Some((js_str_text(literal.value).into_owned(), false))
+            }
             Expression::ParenthesizedExpression(inner) => {
                 self.resolve_static_computed_key_name_expr(&inner.expression)
             }
@@ -213,8 +216,9 @@ impl ModuleBuilder<'_> {
     /// `Symbol(...)` call or a non-literal description has no stable static
     /// spelling and returns `None`.
     fn symbol_for_call_key(call: &oxc::ast::ast::CallExpression<'_>) -> Option<String> {
-        Self::symbol_for_call_description(call)
-            .map(crate::lowering::ty::computed_key_symbols::registry_symbol_key)
+        Self::symbol_for_call_description(call).map(|description| {
+            crate::lowering::ty::computed_key_symbols::registry_symbol_key(&description)
+        })
     }
 
     /// Return whether a computed property key resolves to a static member name.
@@ -302,7 +306,9 @@ impl ModuleBuilder<'_> {
             PropertyKey::StringLiteral(literal) => {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(literal.value.to_string())),
+                    kind: ExprKind::Literal(Literal::String(
+                        js_str_text(literal.value).into_owned(),
+                    )),
                     ty,
                     span: self.span(literal.span.start, literal.span.end),
                 }))

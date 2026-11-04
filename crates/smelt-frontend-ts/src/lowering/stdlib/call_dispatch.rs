@@ -4,6 +4,7 @@
 //! builtin-call registry routing, immediately-invoked function expressions, and
 //! direct function/method invocation into typed HIR.
 
+use crate::lowering::js_text::js_str_text;
 use crate::lowering::spread_arguments::CallArg;
 use crate::lowering::{ModuleBuilder, RestParam, stdlib_dispatch};
 use crate::{OverloadSignature, SmeltError, test_support};
@@ -4339,7 +4340,7 @@ impl<'builder> ModuleBuilder<'builder> {
         }
         let description = description_arg
             .and_then(|argument| match argument {
-                Argument::StringLiteral(literal) => Some(literal.value.as_str().to_owned()),
+                Argument::StringLiteral(literal) => Some(js_str_text(literal.value).into_owned()),
                 _ => None,
             })
             .unwrap_or_default();

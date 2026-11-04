@@ -360,6 +360,15 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         span: Span,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        // A module global (a constructed module-level binding) is one shared
+        // object: read its cell, never re-run its initializer.
+        if let Item::MutableGlobal(global) = self.item_ref(item_id) {
+            return Ok(Some(body.push_expr(HirExpr {
+                kind: ExprKind::GlobalGet { item: item_id },
+                ty: global.ty,
+                span,
+            })));
+        }
         let Item::Const(const_item) = self.item_ref(item_id) else {
             return Ok(None);
         };

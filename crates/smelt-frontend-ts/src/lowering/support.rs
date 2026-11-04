@@ -5,6 +5,7 @@ use super::{
     ConstItem, ConstLiteral, Declaration, ExprKind, HashMap, HashSet, Item, ModuleExportName,
     Program, PropertyKey, Statement, TSAccessibility, UnknownKind, Visibility,
 };
+use crate::lowering::js_text::js_str_text;
 
 /// The statements of an arrow function's block body.
 ///
@@ -125,7 +126,7 @@ pub(super) fn module_export_name(name: &ModuleExportName<'_>) -> String {
     match name {
         ModuleExportName::IdentifierName(ident) => ident.name.as_str().to_owned(),
         ModuleExportName::IdentifierReference(ident) => ident.name.as_str().to_owned(),
-        ModuleExportName::StringLiteral(literal) => literal.value.as_str().to_owned(),
+        ModuleExportName::StringLiteral(literal) => js_str_text(literal.value).into_owned(),
     }
 }
 

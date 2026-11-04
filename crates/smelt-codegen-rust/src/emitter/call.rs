@@ -3269,6 +3269,23 @@ impl FunctionEmitter<'_> {
             // `console.log(10n)` prints `10n`: the console shows a bigint with
             // its suffix, where `String(10n)` (and a template) is `"10"`.
             Ok(("{}n", self.operand_text(operand)?))
+        } else if absent == AbsentSpelling::None && matches!(self.mir.types.get(ty), Some(Type::Int))
+        {
+            // Python's `int` is an integer, not a JavaScript number: `print`
+            // writes its decimal digits, exactly (no `f64` round trip).
+            Ok(("{}", self.operand_text(operand)?))
+        } else if absent == AbsentSpelling::None
+            && matches!(self.mir.types.get(ty), Some(Type::Float))
+        {
+            // Python's `print(12.0)` writes `repr(12.0)`, `12.0`.
+            Ok((
+                "{}",
+                format!(
+                    "{fn_name}({})",
+                    self.operand_text(operand)?,
+                    fn_name = crate::number_format_prelude::PY_FLOAT_REPR_FN,
+                ),
+            ))
         } else if matches!(self.mir.types.get(ty), Some(Type::Int | Type::Float)) {
             // A NUMBER goes through the console's own formatter, not Rust's
             // `Display`: JavaScript switches to exponential notation at both

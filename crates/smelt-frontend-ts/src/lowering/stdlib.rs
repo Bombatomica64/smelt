@@ -17,6 +17,7 @@ mod sqlite;
 mod text_codec;
 mod url;
 
+use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
 use smelt_hir::{
@@ -24,6 +25,7 @@ use smelt_hir::{
     LocalDecl, Pattern, PropertyLookup, RegexMatchOp, Stmt, Type, UnaryOp,
 };
 use smelt_stdlib::RuleId;
+use std::borrow::Cow;
 
 use super::testing::LoweredActual;
 use super::{ModuleBuilder, SmeltError, stdlib_dispatch};
@@ -561,7 +563,7 @@ impl ModuleBuilder<'_> {
                 }
                 let key_text = match &object_property.key {
                     PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
-                    PropertyKey::StringLiteral(lit) => lit.value.to_string(),
+                    PropertyKey::StringLiteral(lit) => js_str_text(lit.value).into_owned(),
                     _ => {
                         return Err(SmeltError::unsupported(
                             self.span(
@@ -943,8 +945,10 @@ impl ModuleBuilder<'_> {
                         continue;
                     };
                     let key = match &property.key {
-                        PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str(),
-                        PropertyKey::StringLiteral(literal) => literal.value.as_str(),
+                        PropertyKey::StaticIdentifier(identifier) => {
+                            Cow::Borrowed(identifier.name.as_str())
+                        }
+                        PropertyKey::StringLiteral(literal) => js_str_text(literal.value),
                         _ => continue,
                     };
                     if key == "now" {

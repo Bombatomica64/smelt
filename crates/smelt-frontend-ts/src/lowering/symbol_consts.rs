@@ -20,12 +20,14 @@
 //! `Symbol('description')` call. Anything else keeps the existing path.
 
 use crate::HirCtx;
+use crate::lowering::js_text::js_str_text;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::stdlib::call_dispatch::unique_symbol_spelling;
 use oxc::ast::ast::{
     Argument, BindingPattern, Declaration, Expression, Program, Statement, VariableDeclarationKind,
 };
 use smelt_hir::{FileId, Span};
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 /// Record the module-level unique-symbol consts `program` declares into
@@ -62,14 +64,14 @@ pub(in crate::lowering) fn record_unique_symbol_consts(
                 continue;
             }
             let description = match call.arguments.as_slice() {
-                [] => "",
-                [Argument::StringLiteral(literal)] => literal.value.as_str(),
+                [] => Cow::Borrowed(""),
+                [Argument::StringLiteral(literal)] => js_str_text(literal.value),
                 _ => continue,
             };
             let site = Span::new(file_id, call.span.start, call.span.end);
             bindings.insert(
                 id.name.as_str().to_owned(),
-                unique_symbol_spelling(description, site),
+                unique_symbol_spelling(&description, site),
             );
         }
     }

@@ -31,7 +31,7 @@ use smelt_hir::{
 use smelt_stdlib::RuleId;
 
 use crate::helpers::{
-    collect_bitor_parts, decorator_frozen_kwarg, decorator_simple_name, dotted_name,
+    collect_bitor_parts, decorator_frozen_kwarg, decorator_simple_name, dotted_name, is_stub_body,
     expr_kind_name, expr_simple_name, expr_type_name, is_django_model_base, range_to_span,
     stmt_kind_name, two_type_args,
 };
@@ -398,6 +398,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // module body.
         for (stmt, is_declared) in module.body.iter().zip(declared) {
             if is_declared {
+                // A constructed binding Pass 1 lifted to a module global is
+                // touched here, so its initializer runs in source order.
+                if let Some(touch) = self.module_global_touch(stmt, &mut body) {
+                    body.push_stmt(HirStmt::Expr(touch));
+                }
                 continue;
             }
             if let Err(err) = self.statement(stmt, &mut body) {

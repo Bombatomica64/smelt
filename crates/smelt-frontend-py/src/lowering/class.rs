@@ -32,47 +32,86 @@ struct ClassBases {
     type_params: Vec<TypeParamDef>,
     /// The single non-marker base class, if any.
     base: Option<Symbol>,
+    /// Whether a `typing.Protocol` base makes the class a structural
+    /// interface; see [`ModuleBuilder::protocol_def`].
+    is_protocol: bool,
+    /// For a protocol, the protocols it extends (its other bases).
+    protocol_parents: Vec<Symbol>,
+}
+
+/// What a `typing.Protocol` class's bases declare.
+struct ProtocolBases {
+    /// Type parameters of a generic protocol (`Protocol[T]`).
+    type_params: Vec<TypeParamDef>,
+    /// The protocols it extends.
+    parents: Vec<Symbol>,
 }
 
 impl ModuleBuilder<'_> {
-    /// Lower a Python class definition into the current HIR module.
-    ///
-    /// The class's entry in `class_fields` is rolled back when lowering it
-    /// fails, so a class that errors half-way through its body does not leave
-    /// the fields it had collected so far for later field lookups to find.
-    /// (Fields another class's materialized descriptors merged into a
-    /// *different* class are that class's business and are kept.)
+    /// Lower a module-level Python class definition into the current HIR module.
     fn class_def(
         &mut self,
         class: &StmtClassDef,
         module: &ModModule,
         hir_module: &mut Module,
     ) -> Result<(), SmeltError> {
-        let name = class.name.as_str();
-        let before = self.class_fields.get(name).cloned();
-        let result = self.lower_class_def(class, module, hir_module);
+        self.class_def_named(class, class.name.as_str(), module, hir_module)
+    }
+
+    /// Lower a class definition under its qualified name (`__qualname__`).
+    ///
+    /// The class's entry in `class_fields` is rolled back when lowering it
+    /// fails, so a class that errors half-way through its body does not leave
+    /// the fields it had collected so far for later field lookups to find.
+    /// (Fields another class's materialized descriptors merged into a
+    /// *different* class are that class's business and are kept.)
+    fn class_def_named(
+        &mut self,
+        class: &StmtClassDef,
+        class_name_str: &str,
+        module: &ModModule,
+        hir_module: &mut Module,
+    ) -> Result<(), SmeltError> {
+        let before = self.class_fields.get(class_name_str).cloned();
+        let result = self.lower_class_def(class, class_name_str, module, hir_module);
         if result.is_err() {
             match before {
                 Some(fields) => {
-                    self.class_fields.insert(name.to_owned(), fields);
+                    self.class_fields.insert(class_name_str.to_owned(), fields);
                 }
                 None => {
-                    self.class_fields.remove(name);
+                    self.class_fields.remove(class_name_str);
                 }
             }
         }
         result
     }
 
-    /// The body of [`Self::class_def`].
+    /// The body of [`Self::class_def_named`].
+    ///
+    /// A class nested in a class body (`class Outer: class Inner: ...`) is a
+    /// class object stored as an attribute of the enclosing class; it closes
+    /// over nothing from that body, because Python resolves the names a class
+    /// body leaves unbound in module scope. It is therefore hoisted to a
+    /// module-level type named by its qualified name, `Outer.Inner`, the way a
+    /// Rust port would declare a separate struct for it. Nested classes are
+    /// lowered before the class that contains them, so the enclosing class's
+    /// methods can construct and annotate `Outer.Inner`; see
+    /// [`Self::nested_class_path`] for how those references resolve.
     fn lower_class_def(
         &mut self,
         class: &StmtClassDef,
+        class_name_str: &str,
         module: &ModModule,
         hir_module: &mut Module,
     ) -> Result<(), SmeltError> {
+        for body_stmt in &class.body {
+            if let Stmt::ClassDef(inner) = body_stmt {
+                let qualified = format!("{class_name_str}.{}", inner.name);
+                self.class_def_named(inner, &qualified, module, hir_module)?;
+            }
+        }
         let span = self.span(class.range);
-        let class_name_str = class.name.as_str();
         let class_sym = self.intern_name(class_name_str);
         let class_ty = self.intern_type(Type::Class {
             name: class_sym,
@@ -90,7 +129,20 @@ impl ModuleBuilder<'_> {
             is_int_enum,
             type_params,
             base,
+            is_protocol,
+            protocol_parents,
         } = self.resolve_class_bases(class, materialized.as_ref(), span, class_name_str)?;
+        if is_protocol {
+            return self.protocol_def(
+                class,
+                class_name_str,
+                ProtocolBases {
+                    type_params,
+                    parents: protocol_parents,
+                },
+                hir_module,
+            );
+        }
         if is_abstract_class {
             kind = ClassKind::Abstract;
         }
@@ -155,9 +207,7 @@ impl ModuleBuilder<'_> {
         } else {
             &[]
         };
-        let scope = EvalScope::Module {
-            at: class.range.start(),
-        };
+        let scope = self.bindings.class_statement_scope(class.range.start());
         let owner = format!("class '{class_name_str}'");
         for dec in runtime_decorators {
             let callee = ruff_python_ast::helpers::map_callable(&dec.expression);
@@ -197,7 +247,7 @@ impl ModuleBuilder<'_> {
     /// add no base; `abc.ABCMeta` is the only supported metaclass; an
     /// `enum.IntEnum` base makes the class an integer enumeration and is
     /// recorded under its own name, `IntEnum`. A `typing.Protocol` base is
-    /// rejected (see [`SmeltError::protocol_unsupported`]).
+    /// lowered as a structural interface (see [`Self::protocol_def`]).
     fn resolve_class_bases(
         &mut self,
         class: &StmtClassDef,
@@ -205,15 +255,15 @@ impl ModuleBuilder<'_> {
         span: Span,
         class_name_str: &str,
     ) -> Result<ClassBases, SmeltError> {
-        let scope = EvalScope::Module {
-            at: class.range.start(),
-        };
+        let scope = self.bindings.class_statement_scope(class.range.start());
         let owner = format!("class '{class_name_str}'");
         let mut bases = ClassBases {
             is_abstract: false,
             is_int_enum: false,
             type_params: Vec::new(),
             base: None,
+            is_protocol: false,
+            protocol_parents: Vec::new(),
         };
         let Some(args) = class.arguments.as_deref() else {
             return Ok(bases);
@@ -242,7 +292,8 @@ impl ModuleBuilder<'_> {
             match denoted {
                 Some(StdlibName::Object) => {}
                 Some(StdlibName::Protocol) => {
-                    return Err(SmeltError::protocol_unsupported(span, class_name_str));
+                    bases.is_protocol = true;
+                    bases.type_params = self.generic_marker_type_params(base_expr);
                 }
                 Some(StdlibName::Abc) => bases.is_abstract = true,
                 Some(StdlibName::Generic) => {
@@ -250,6 +301,30 @@ impl ModuleBuilder<'_> {
                 }
                 _ => positional.push((base_expr, denoted)),
             }
+        }
+        if bases.is_protocol {
+            // Every other base of a protocol must itself be a protocol
+            // (CPython raises `TypeError` otherwise); they are the interfaces
+            // this one extends.
+            for (base_expr, _) in &positional {
+                let parent = self
+                    .base_class_name(base_expr, scope, class_name_str)
+                    .filter(|name| {
+                        self.items
+                            .get(name)
+                            .is_some_and(|id| matches!(self.item_ref(*id), Item::Interface(_)))
+                    })
+                    .ok_or_else(|| {
+                        SmeltError::unsupported(
+                            span,
+                            format!(
+                                "protocol '{class_name_str}': a protocol can only extend other protocols"
+                            ),
+                        )
+                    })?;
+                bases.protocol_parents.push(self.intern_name(&parent));
+            }
+            return Ok(bases);
         }
         bases.base = match positional.as_slice() {
             [] => None,
@@ -261,10 +336,12 @@ impl ModuleBuilder<'_> {
                 // A modeled standard-library base is recorded under its own
                 // name whatever its spelling; any other base keeps the bare
                 // name it is spelled with.
-                let base_name =
-                    denoted.map(StdlibName::name).or_else(|| base_class_name(base_expr));
+                let base_name = denoted.map_or_else(
+                    || self.base_class_name(base_expr, scope, class_name_str),
+                    |name| Some(name.name().to_owned()),
+                );
                 match base_name {
-                    Some(name) => Some(self.intern_name(name)),
+                    Some(name) => Some(self.intern_name(&name)),
                     None => {
                         return Err(SmeltError::unsupported(
                             span,
@@ -278,6 +355,76 @@ impl ModuleBuilder<'_> {
             _ => return Err(SmeltError::no_multiple_inheritance(span, class_name_str)),
         };
         Ok(bases)
+    }
+
+    /// The class name a non-modeled base class expression refers to.
+    ///
+    /// A subscripted base (`Base[int]`) names its subscripted value. A bare
+    /// name is the class name itself. A dotted base (`pkg.mod.Base`,
+    /// `unittest.TestCase`) is resolved through the module's bindings, the
+    /// way the class statement evaluates it: when every reaching binding
+    /// agrees that the chain denotes the imported definition `q`, the base is
+    /// the definition `q` names, recorded under its own name (the last
+    /// segment of `q`) exactly as `from pkg.mod import Base` records it. The
+    /// spelling's own prefix is never trusted: a chain whose head is not an
+    /// import (a local value, or a name bound differently on different
+    /// paths) has no single qualified meaning and yields `None`.
+    ///
+    /// For a nested class statement, `class_name` is its qualified name: a bare
+    /// base naming an earlier sibling nested class (`class Child(Base)` next
+    /// to `class Base` in the same body) denotes that sibling, which the body
+    /// bound, and keeps the sibling's qualified name.
+    fn base_class_name(
+        &self,
+        base_expr: &Expr,
+        scope: EvalScope,
+        class_name: &str,
+    ) -> Option<String> {
+        let base_value = ruff_python_ast::helpers::map_subscript(base_expr);
+        match base_value {
+            Expr::Name(name) => {
+                let sibling = class_name
+                    .rsplit_once('.')
+                    .map(|(enclosing, _)| format!("{enclosing}.{}", name.id))
+                    .filter(|sibling| {
+                        self.items
+                            .get(sibling)
+                            .is_some_and(|id| matches!(self.item_ref(*id), Item::Class(_)))
+                    });
+                Some(sibling.unwrap_or_else(|| name.id.as_str().to_owned()))
+            }
+            Expr::Attribute(_) => {
+                if let Some(nested) = self.nested_class_path(base_value) {
+                    return Some(nested);
+                }
+                let resolution = self.bindings.resolve(base_value, scope)?;
+                let qualified = resolution.qualified_name()?;
+                let (_, name) = qualified.rsplit_once('.')?;
+                Some(name.to_owned())
+            }
+            _ => None,
+        }
+    }
+
+    /// The qualified name of the hoisted nested class an attribute chain
+    /// names (`Outer.Inner`, `Outer.Mid.Inner`), if it names one.
+    ///
+    /// Only nested classes are lowered under a dotted name (see
+    /// [`Self::class_def_named`]), so a chain whose dotted spelling is a class
+    /// item's name denotes that class, provided its head really is the
+    /// module-level class: a local variable spelled like the class shadows
+    /// it, and then the chain is an ordinary attribute read.
+    fn nested_class_path(&self, expr: &Expr) -> Option<String> {
+        let Expr::Attribute(_) = expr else {
+            return None;
+        };
+        let path = dotted_name(expr)?;
+        let (head, _) = path.split_once('.')?;
+        if self.scope.locals.contains_key(head) {
+            return None;
+        }
+        let item_id = *self.items.get(&path)?;
+        matches!(self.item_ref(item_id), Item::Class(_)).then_some(path)
     }
 
     /// Resolve a definition-time expression evaluated in `scope` to the
@@ -525,6 +672,8 @@ impl ModuleBuilder<'_> {
                     }
                 }
                 Stmt::Pass(_) => {}
+                // Already hoisted to a module-level type by `class_def_named`.
+                Stmt::ClassDef(_) => {}
                 // A bare expression statement in a class body carries no runtime
                 // member. Two shapes are accepted as no-ops (matching how `pass`
                 // is skipped): a docstring (`"""..."""`) and an ellipsis body
@@ -542,8 +691,7 @@ impl ModuleBuilder<'_> {
                         ));
                     }
                 }
-                Stmt::ClassDef(_)
-                | Stmt::Return(_)
+                Stmt::Return(_)
                 | Stmt::Delete(_)
                 | Stmt::TypeAlias(_)
                 | Stmt::Assign(_)
@@ -1267,6 +1415,231 @@ impl ModuleBuilder<'_> {
             is_async: false,
             span,
         })
+    }
+
+    /// Lower a `typing.Protocol` class to a structural HIR interface.
+    ///
+    /// A protocol declares a structural type: any class whose members match
+    /// conforms without naming it. That is exactly a TypeScript interface, so
+    /// it lowers to the same item: an [`Item::Interface`] whose methods are
+    /// method signatures and also function-typed fields (the vtable record
+    /// codegen builds when a conforming class instance enters the interface
+    /// type), and whose annotated attributes are fields. Call boundaries
+    /// accept a conforming class through [`Self::structurally_conforms`].
+    ///
+    /// Members must be stubs: methods annotated and with a `...`, `pass` or
+    /// docstring body, attributes annotated without a value. A default method
+    /// body (inherited only by classes that subclass the protocol explicitly)
+    /// and static/class methods or properties are rejected.
+    fn protocol_def(
+        &mut self,
+        class: &StmtClassDef,
+        class_name_str: &str,
+        bases: ProtocolBases,
+        hir_module: &mut Module,
+    ) -> Result<(), SmeltError> {
+        let ProtocolBases {
+            type_params,
+            parents,
+        } = bases;
+        let span = self.span(class.range);
+        let name = self.intern_name(class_name_str);
+        let mut fields = Vec::new();
+        let mut methods = Vec::new();
+        for body_stmt in &class.body {
+            match body_stmt {
+                Stmt::FunctionDef(func) => {
+                    if !func.decorator_list.is_empty() {
+                        return Err(SmeltError::unsupported(
+                            self.span(func.range),
+                            format!(
+                                "protocol '{class_name_str}': decorated member '{}' is not supported",
+                                func.name
+                            ),
+                        ));
+                    }
+                    if !is_stub_body(&func.body) {
+                        return Err(SmeltError::unsupported(
+                            self.span(func.range),
+                            format!(
+                                "protocol '{class_name_str}': method '{}' has a default implementation, which is not supported",
+                                func.name
+                            ),
+                        ));
+                    }
+                    let mut sig = self.abstract_method_sig(func)?;
+                    sig.is_async = func.is_async;
+                    sig.required_params = Some(
+                        func.parameters
+                            .args
+                            .iter()
+                            .skip(1)
+                            .filter(|param| param.default.is_none())
+                            .count(),
+                    );
+                    let function_ty = self.intern_type(Type::Function(FunctionType {
+                        params: sig.params.iter().map(|param| param.ty).collect(),
+                        rest: None,
+                        required_params: sig.required_params,
+                        mutable_params: Vec::new(),
+                        return_ty: sig.return_ty,
+                        is_async: sig.is_async,
+                        may_throw: false,
+                    }));
+                    fields.push(Field {
+                        name: sig.name,
+                        ty: function_ty,
+                        visibility: Visibility::Public,
+                        optional: false,
+                        span: sig.span,
+                    });
+                    methods.push(sig);
+                }
+                Stmt::AnnAssign(ann) if ann.value.is_none() => {
+                    let Expr::Name(target) = ann.target.as_ref() else {
+                        return Err(SmeltError::unsupported(
+                            self.span(ann.range),
+                            "protocol attribute target must be a simple name",
+                        ));
+                    };
+                    let ty = self.annotation_to_hir(&ann.annotation)?;
+                    fields.push(Field {
+                        name: self.intern_name(target.id.as_str()),
+                        ty,
+                        visibility: Visibility::Public,
+                        optional: matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))),
+                        span: self.span(ann.range),
+                    });
+                }
+                Stmt::Pass(_) => {}
+                Stmt::Expr(expr)
+                    if matches!(
+                        expr.value.as_ref(),
+                        Expr::StringLiteral(_) | Expr::EllipsisLiteral(_)
+                    ) => {}
+                other => {
+                    return Err(SmeltError::unsupported(
+                        self.span(other.range()),
+                        format!(
+                            "protocol '{class_name_str}': unsupported protocol body statement '{}'",
+                            stmt_kind_name(other)
+                        ),
+                    ));
+                }
+            }
+        }
+        let item = self.ctx.krate.push_item(Item::Interface(smelt_hir::Interface {
+            name,
+            span,
+            type_params,
+            extends: parents
+                .into_iter()
+                .map(|parent| smelt_hir::InterfaceHeritage {
+                    parent,
+                    args: Vec::new(),
+                })
+                .collect(),
+            fields,
+            methods,
+            decode_facts: Vec::new(),
+        }));
+        self.items.insert(class_name_str.to_owned(), item);
+        hir_module.items.push(item);
+        Ok(())
+    }
+
+    /// Whether a value of type `supplied` conforms to the protocol type
+    /// `expected` (see [`Self::protocol_def`]).
+    ///
+    /// Structural, as Python's static type checkers define it: `supplied` (a class,
+    /// or another protocol) must have every method of the protocol and of the
+    /// protocols it extends, each with the same parameter count, parameters
+    /// that accept the protocol's (contravariant) and a return the protocol's
+    /// accepts (covariant), plus every protocol attribute at its declared
+    /// type. The value keeps its own type in HIR; codegen builds the
+    /// interface's method record where it enters the protocol type, as it does
+    /// for a TypeScript class passed where an interface is expected.
+    fn structurally_conforms(&self, expected: TypeId, supplied: TypeId) -> bool {
+        let types = &self.ctx.krate.types;
+        let (Some(Type::Class { name: protocol, .. }), Some(Type::Class { name: value, .. })) =
+            (types.get(expected), types.get(supplied))
+        else {
+            return false;
+        };
+        let Some((methods, attributes)) = self.protocol_members(*protocol) else {
+            return false;
+        };
+        let value_methods = self.member_signatures(*value);
+        let methods_conform = methods.iter().all(|sig| {
+            value_methods.iter().any(|(name, params, return_ty)| {
+                *name == sig.name
+                    && params.len() == sig.params.len()
+                    && params.iter().zip(&sig.params).all(|(param, wanted)| {
+                        *param == wanted.ty || self.type_assignable_to(wanted.ty, *param)
+                    })
+                    && (*return_ty == sig.return_ty
+                        || self.type_assignable_to(*return_ty, sig.return_ty))
+            })
+        });
+        methods_conform
+            && attributes.iter().all(|field| {
+                self.field_type_on_class(*value, field.name)
+                    .or_else(|| {
+                        self.protocol_members(*value).and_then(|(_, fields)| {
+                            fields.iter().find(|own| own.name == field.name).map(|own| own.ty)
+                        })
+                    })
+                    .is_some_and(|ty| ty == field.ty)
+            })
+    }
+
+    /// The methods and plain attributes a protocol interface requires,
+    /// including those of the protocols it extends; `None` when `name` is not
+    /// an interface.
+    fn protocol_members(&self, name: Symbol) -> Option<(Vec<MethodSig>, Vec<Field>)> {
+        let interface = self.ctx.krate.items.iter().find_map(|item| match item {
+            Item::Interface(interface) if interface.name == name => Some(interface),
+            _ => None,
+        })?;
+        let mut methods = interface.methods.clone();
+        let mut attributes: Vec<Field> = interface
+            .fields
+            .iter()
+            .filter(|field| !methods.iter().any(|method| method.name == field.name))
+            .cloned()
+            .collect();
+        for parent in &interface.extends {
+            if let Some((parent_methods, parent_fields)) = self.protocol_members(parent.parent) {
+                methods.extend(parent_methods);
+                attributes.extend(parent_fields);
+            }
+        }
+        Some((methods, attributes))
+    }
+
+    /// `(name, parameter types without the receiver, return type)` of every
+    /// instance method a class has (inherited ones included), or of every
+    /// method a protocol requires.
+    fn member_signatures(&self, name: Symbol) -> Vec<(Symbol, Vec<TypeId>, TypeId)> {
+        if let Some((methods, _)) = self.protocol_members(name) {
+            return methods
+                .into_iter()
+                .map(|sig| {
+                    (sig.name, sig.params.iter().map(|param| param.ty).collect(), sig.return_ty)
+                })
+                .collect();
+        }
+        self.effective_hir_class_methods(name)
+            .into_iter()
+            .filter_map(|method| match self.item_ref(method) {
+                Item::Function(function) => Some((
+                    function.name,
+                    function.params.iter().skip(1).map(|param| param.ty).collect(),
+                    function.return_ty,
+                )),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Extract type parameters from a `Generic[T, U]` marker base.
