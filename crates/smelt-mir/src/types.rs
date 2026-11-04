@@ -807,6 +807,34 @@ pub enum Rvalue {
         /// Call arguments evaluated before dispatch.
         args: Vec<Operand>,
     },
+    /// Call a method through a type parameter's class or interface bound
+    /// (`a.speak()` with `a: A` and `A extends Animal`).
+    ///
+    /// The call is typed by the bound's declaration but dispatched by the
+    /// receiver's concrete type, so it has no single static callee: codegen
+    /// renders it through the generated bound trait (`A: AnimalLike`) when the
+    /// parameter is a real Rust generic, and as a dynamic member call when the
+    /// parameter erased.
+    BoundMethod {
+        /// Receiver whose static type is the bounded type parameter.
+        receiver: Operand,
+        /// The bound's class or interface name.
+        bound: Symbol,
+        /// Source method name.
+        method: Symbol,
+        /// Call arguments, receiver excluded.
+        args: Vec<Operand>,
+    },
+    /// Read a property through a type parameter's class or interface bound
+    /// (`a.legs` with `a: A` and `A extends Animal`); see [`Self::BoundMethod`].
+    BoundField {
+        /// Receiver whose static type is the bounded type parameter.
+        receiver: Operand,
+        /// The bound's class or interface name.
+        bound: Symbol,
+        /// Source property name.
+        field: Symbol,
+    },
     /// Return an optional value's content or a fallback operand.
     OptionalCoalesce {
         /// Optional operand to inspect.

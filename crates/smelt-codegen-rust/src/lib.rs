@@ -104,6 +104,7 @@ mod typed_array_prelude;
 mod url_prelude;
 pub(crate) mod base_init;
 pub(crate) mod class_proto;
+pub(crate) mod bound_traits;
 pub(crate) mod classes;
 pub(crate) mod classify;
 pub(crate) mod lazy_view;
@@ -6535,6 +6536,10 @@ fn emit_source_with_free_function_router(
             }
         }
     }
+
+    // The generated traits of class- and interface-bounded type parameters,
+    // implemented by delegating to the class impls just emitted.
+    out.push_str(&emitter::bound_dispatch::emit_bound_traits(mir, &context)?);
 
     // Flushed HERE, after every free function AND every class impl body has been
     // emitted: a function-item value can first be erased inside a constructor or

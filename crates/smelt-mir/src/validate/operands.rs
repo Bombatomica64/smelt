@@ -221,7 +221,7 @@ impl Rvalue {
                     visit(case);
                 }
             }
-            Self::OptionalField { receiver, .. } => {
+            Self::OptionalField { receiver, .. } | Self::BoundField { receiver, .. } => {
                 visit(receiver);
             }
             Self::OptionalIndex { receiver, index } => {
@@ -229,7 +229,8 @@ impl Rvalue {
                 visit(index);
             }
             Self::OptionalMethod { receiver, args, .. }
-            | Self::UnionMethod { receiver, args, .. } => {
+            | Self::UnionMethod { receiver, args, .. }
+            | Self::BoundMethod { receiver, args, .. } => {
                 visit(receiver);
                 for arg in args {
                     visit(arg);
@@ -1180,7 +1181,7 @@ impl Rvalue {
                     visit(case);
                 }
             }
-            Self::OptionalField { receiver, .. } => {
+            Self::OptionalField { receiver, .. } | Self::BoundField { receiver, .. } => {
                 visit(receiver);
             }
             Self::OptionalIndex { receiver, index } => {
@@ -1188,7 +1189,8 @@ impl Rvalue {
                 visit(index);
             }
             Self::OptionalMethod { receiver, args, .. }
-            | Self::UnionMethod { receiver, args, .. } => {
+            | Self::UnionMethod { receiver, args, .. }
+            | Self::BoundMethod { receiver, args, .. } => {
                 visit(receiver);
                 for arg in args.iter_mut() {
                     visit(arg);

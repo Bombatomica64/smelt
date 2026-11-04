@@ -374,6 +374,17 @@ impl LoweringCtx<'_> {
                 }
                 let receiver_operand = self.lower_expr(*receiver)?;
                 let receiver_ty = self.hir_expr(*receiver)?.ty;
+                if let Some(bound) = self.type_param_bound(receiver_ty) {
+                    return self.assign_temp(
+                        expr.ty,
+                        expr.span,
+                        Rvalue::BoundField {
+                            receiver: receiver_operand,
+                            bound,
+                            field: *field,
+                        },
+                    );
+                }
                 let base =
                     self.materialize_operand_local(receiver_operand, receiver_ty, expr.span)?;
                 Operand::Copy(Place::Field {
@@ -2897,7 +2908,22 @@ impl LoweringCtx<'_> {
             } => {
                 let receiver_operand = self.lower_expr(*receiver)?;
                 let receiver_ty = self.hir_expr(*receiver)?.ty;
-                if matches!(self.krate.types.get(receiver_ty), Some(Type::Union(_))) {
+                if let Some(bound) = self.type_param_bound(receiver_ty) {
+                    let lowered_args = args
+                        .iter()
+                        .map(|arg| self.lower_expr(*arg))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    self.assign_temp(
+                        expr.ty,
+                        expr.span,
+                        Rvalue::BoundMethod {
+                            receiver: receiver_operand,
+                            bound,
+                            method: *method,
+                            args: lowered_args,
+                        },
+                    )?
+                } else if matches!(self.krate.types.get(receiver_ty), Some(Type::Union(_))) {
                     let lowered_args = args
                         .iter()
                         .map(|arg| self.lower_expr(*arg))
@@ -3358,6 +3384,19 @@ impl LoweringCtx<'_> {
                     Some(span),
                 )
             })
+    }
+
+    /// The class or interface bounding `receiver_ty`, when it is a type
+    /// parameter in scope with such a bound (see
+    /// [`LoweringCtx::type_param_bounds`]).
+    ///
+    /// A member access on such a receiver is typed by the bound in HIR and
+    /// lowers to `Rvalue::BoundField` / `Rvalue::BoundMethod`.
+    fn type_param_bound(&self, receiver_ty: TypeId) -> Option<Symbol> {
+        let Some(Type::TypeParam { name }) = self.krate.types.get(receiver_ty) else {
+            return None;
+        };
+        self.type_param_bounds.get(name).copied()
     }
 
     /// Resolves a method call to its function ID based on the receiver type.

@@ -703,6 +703,7 @@ fn lower_module_bodies(
 /// operational type normalization then run once over the finalized MIR.
 fn run_finalization_passes(mir: &mut Mir) {
     intern_fallible_builtin_return_types(mir);
+    intern_bound_dispatch_carrier_type(mir);
     passes::generic_records::intern_generic_record_instantiations(mir);
     closures::mark_escaping_closures(mir);
     passes::throwing::propagate_throwing_functions(mir);
@@ -712,6 +713,34 @@ fn run_finalization_passes(mir: &mut Mir) {
     crate::promote_erased_mutated_records(mir);
     crate::normalize_operational_types(mir);
     passes::inherited_types::intern_inherited_member_types(mir);
+}
+
+/// Interns `unknown` when any body reads a member through a type parameter's
+/// class or interface bound (`Rvalue::BoundMethod` / `Rvalue::BoundField`).
+///
+/// Wherever such a parameter does not become a real Rust generic, codegen
+/// renders the access — and any field write through the same parameter — as a
+/// dynamic member lookup on the erased carrier and converts its result from
+/// `unknown`. Before these reads were typed through the bound they were
+/// themselves `unknown`-typed, so the type was always interned; a program whose
+/// only `unknown` they were must still find it.
+fn intern_bound_dispatch_carrier_type(mir: &mut Mir) {
+    let reads_through_bound = |blocks: &[crate::BasicBlock]| {
+        blocks.iter().flat_map(|block| &block.statements).any(|statement| {
+            matches!(
+                statement,
+                crate::Statement::Assign {
+                    value: crate::Rvalue::BoundMethod { .. } | crate::Rvalue::BoundField { .. },
+                    ..
+                }
+            )
+        })
+    };
+    if mir.functions.iter().any(|function| reads_through_bound(&function.blocks))
+        || mir.closures.iter().any(|closure| reads_through_bound(&closure.blocks))
+    {
+        mir.types.intern(Type::Unknown);
+    }
 }
 
 /// Interns the return type of every fallible builtin the program calls.

@@ -347,13 +347,16 @@ fn rewrite_rvalue(
             rewrite_operand_except(key, aliases, dest),
             |changed, (_, case)| rewrite_operand_except(case, aliases, dest) | changed,
         ),
-        Rvalue::OptionalField { receiver, .. } => rewrite_operand_except(receiver, aliases, dest),
+        Rvalue::OptionalField { receiver, .. } | Rvalue::BoundField { receiver, .. } => {
+            rewrite_operand_except(receiver, aliases, dest)
+        }
         Rvalue::OptionalIndex { receiver, index } => {
             rewrite_operand_except(receiver, aliases, dest)
                 | rewrite_operand_except(index, aliases, dest)
         }
         Rvalue::OptionalMethod { receiver, args, .. }
-        | Rvalue::UnionMethod { receiver, args, .. } => args.iter_mut().fold(
+        | Rvalue::UnionMethod { receiver, args, .. }
+        | Rvalue::BoundMethod { receiver, args, .. } => args.iter_mut().fold(
             rewrite_operand_except(receiver, aliases, dest),
             |changed, arg| rewrite_operand_except(arg, aliases, dest) | changed,
         ),

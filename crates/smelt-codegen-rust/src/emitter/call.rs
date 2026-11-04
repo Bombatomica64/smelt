@@ -1977,6 +1977,7 @@ impl FunctionEmitter<'_> {
             self.mir,
             function,
             &self.context.owned_callback_params,
+            &self.context.bound_traits,
         );
         let type_params = function
             .type_params

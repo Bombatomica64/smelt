@@ -1421,7 +1421,8 @@ fn operand_roles(value: &Rvalue) -> Vec<(&Operand, OperandRole)> {
         | Rvalue::HostConstruct { args, .. }
         | Rvalue::AsyncOp { args, .. } => args.iter().map(|arg| (arg, CALLED)).collect(),
         Rvalue::OptionalMethod { receiver, args, .. }
-        | Rvalue::UnionMethod { receiver, args, .. } => {
+        | Rvalue::UnionMethod { receiver, args, .. }
+        | Rvalue::BoundMethod { receiver, args, .. } => {
             let mut roles = vec![(receiver, CALLED)];
             roles.extend(args.iter().map(|arg| (arg, CALLED)));
             roles

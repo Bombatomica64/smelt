@@ -1336,6 +1336,17 @@ impl FunctionEmitter<'_> {
                 method,
                 args,
             } => self.union_method_text(receiver, *method, args, dest_ty),
+            Rvalue::BoundMethod {
+                receiver,
+                bound,
+                method,
+                args,
+            } => self.bound_method_text(receiver, *bound, *method, args, dest_ty),
+            Rvalue::BoundField {
+                receiver,
+                bound,
+                field,
+            } => self.bound_field_text(receiver, *bound, *field, dest_ty),
             Rvalue::AbortSignalOp { op, args } => {
                 self.abort_signal_op_text(*op, args, dest_ty)
             }

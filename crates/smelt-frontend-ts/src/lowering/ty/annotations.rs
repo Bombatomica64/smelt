@@ -3095,7 +3095,13 @@ return_ty: function.return_ty,
             }
             // not a new erasure: the receiver is already erased
             Type::Unknown => Ok(self.unknown_type()),
-            Type::TypeParam { .. } => Ok(self.erase(ErasureReason::ByName)),
+            // A member of a class- or interface-bounded parameter has the type
+            // its bound declares (see `type_param_member_bound`); any other
+            // parameter's members have no static layout.
+            Type::TypeParam { .. } => match self.type_param_member_bound(receiver_ty) {
+                Some(bound) => self.class_field_type(bound, field),
+                None => Ok(self.erase(ErasureReason::ByName)),
+            },
             Type::Tuple(_) => Ok(self.erase(ErasureReason::ByName)),
             Type::Bool => {
                 Ok(self.erase(ErasureReason::ByName))
@@ -3932,6 +3938,13 @@ return_ty: function.return_ty,
             // typed call and dispatches over the concrete tagged-union arms.
             return Ok((return_ty, smelt_hir::ItemId(u32::MAX)));
         }
+        // A class- or interface-bounded type parameter resolves the method on its
+        // bound: the call is typed by the bound's declaration and MIR dispatches
+        // it by the receiver's concrete type (`Rvalue::BoundMethod`), so the
+        // bound's item id is only reported for its generic-method instantiation.
+        if let Some(bound) = self.type_param_member_bound(receiver_ty) {
+            return self.resolve_method(bound, method, span);
+        }
         let Some(Type::Class { name, args }) = self.ctx.krate.types.get(receiver_ty).cloned() else {
             // Non-class receiver: no concrete class method item exists. Fall to
             // the dynamic-dispatch boundary so records, interfaces, concrete
@@ -4228,6 +4241,50 @@ return_ty: function.return_ty,
                 ),
             )),
         }
+    }
+
+    /// The user class or interface that bounds a type parameter, when members
+    /// read through `ty` should be typed from it.
+    ///
+    /// `ty` qualifies when it is a [`Type::TypeParam`] whose active constraint
+    /// (`<A extends Animal>`, `<L extends HasLen>`) is a NON-GENERIC class or
+    /// interface declared in the program. A member read on such a receiver
+    /// (`a.legs`, `a.speak()`) has exactly the type the bound declares for it,
+    /// so it is typed through the bound instead of erasing (bounded-generics
+    /// plan, increment 1); the receiver keeps its type `A`, and MIR dispatches
+    /// the member by the receiver's concrete type (`Rvalue::BoundMethod`).
+    ///
+    /// Every other constraint answers `None` and keeps the erased member read:
+    /// a builtin bound (`extends Date`, which names no class item), a generic
+    /// bound (`extends Box<T>`), a structural or function constraint, or an
+    /// unconstrained parameter.
+    pub(in crate::lowering) fn type_param_member_bound(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
+        let Some(Type::TypeParam { name }) = self.ctx.krate.types.get(ty) else {
+            return None;
+        };
+        let constraint = self.type_parameter_constraint(*name)?;
+        let Some(Type::Class { name: bound_name, args }) = self.ctx.krate.types.get(constraint) else {
+            return None;
+        };
+        if !args.is_empty() {
+            return None;
+        }
+        let bound = *bound_name;
+        let declared_class = self.class_by_symbol(bound).is_some_and(|class| class.type_params.is_empty())
+            || self
+                .ctx
+                .krate
+                .names
+                .get(bound)
+                .or_else(|| self.ctx.krate.symbols.get(bound))
+                .is_some_and(|spelling| self.classes.item(spelling).is_some() && self.class_by_symbol(bound).is_none());
+        let declared_interface = self
+            .find_interface(bound)
+            .is_some_and(|interface| interface.type_params.is_empty());
+        (declared_class || declared_interface).then_some(constraint)
     }
 
     /// Return a type parameter's active constraint when expression lowering needs its shape.

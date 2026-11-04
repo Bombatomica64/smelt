@@ -99,6 +99,7 @@ impl Drop for HoistedModuleItemScope<'_, '_> {
 pub(crate) type BlockIdSet = rustc_hash::FxHashSet<smelt_mir::BlockId>;
 
 mod backend_erasure;
+pub(crate) mod bound_dispatch;
 mod bigint;
 pub(crate) mod typedness;
 mod binary_ops;
@@ -190,6 +191,9 @@ struct TestRuntimeResets {
 pub(crate) struct EmitContext {
     /// The type ID of the None type.
     pub(crate) none_ty: TypeId,
+    /// The generated traits of class- and interface-bounded type parameters
+    /// (see [`crate::bound_traits`]).
+    pub(crate) bound_traits: crate::bound_traits::BoundTraitPlan,
     /// Runtime state every emitted native test resets before its body.
     test_runtime_resets: TestRuntimeResets,
     /// Rust function names keyed by MIR function ID.
@@ -407,6 +411,7 @@ impl EmitContext {
 
         Ok(Self {
             none_ty,
+            bound_traits: crate::bound_traits::BoundTraitPlan::compute(mir),
             test_runtime_resets: TestRuntimeResets {
                 date_now: crate::stdlib::needs_date_now_runtime(mir),
                 timers: crate::needs_timer_helpers(mir),
@@ -524,8 +529,10 @@ impl EmitContext {
     /// the first round's answer — the historical one — if it oscillates. In
     /// practice both compat corpora settle in two rounds.
     pub(crate) fn populate_generic_functions(&self, mir: &Mir) -> Result<(), EmitError> {
-        /// Rounds attempted before declaring the iteration non-convergent.
-        const MAX_ROUNDS: usize = 16;
+        /// Bound on the demotion rounds; each round holds out at least one more
+        /// function, so the bound is never reached by a finite crate in
+        /// practice and only caps a pathological one.
+        const MAX_DEMOTION_ROUNDS: usize = 16;
 
         let signature_safe: Vec<&MirFunction> = mir
             .functions
@@ -536,14 +543,58 @@ impl EmitContext {
                     mir,
                     function,
                     &self.owned_callback_params,
+                    &self.bound_traits,
                 )
             })
             .collect();
 
+        // Functions demoted because a caller forwarding them its own bounded
+        // type parameter did not lift it. Empty for every program without a
+        // class- or interface-bounded generic, so the loop below then runs the
+        // trial fixed point exactly once, as it always did.
+        let mut forced_out: HashSet<FuncId> = HashSet::new();
+        for _ in 0..MAX_DEMOTION_ROUNDS {
+            let mut settled = self.trial_fixed_point(mir, &signature_safe, &forced_out)?;
+            let before = settled.len();
+            self.demote_unforwardable_bounded_callees(mir, &mut settled);
+            if settled.len() == before {
+                *self.generic_functions.borrow_mut() = settled;
+                return Ok(());
+            }
+            // A demoted callee changes how its lifted callers render their
+            // calls, so the trials are rerun with it held out.
+            forced_out.extend(
+                self.generic_functions
+                    .borrow()
+                    .iter()
+                    .copied()
+                    .filter(|id| !settled.contains(id)),
+            );
+            *self.generic_functions.borrow_mut() = settled;
+        }
+        Ok(())
+    }
+
+    /// The body-cleanliness trial iterated to a fixed point (see
+    /// [`Self::populate_generic_functions`]), never admitting a function in
+    /// `forced_out`. Leaves the answer in `generic_functions` and returns it.
+    fn trial_fixed_point(
+        &self,
+        mir: &Mir,
+        signature_safe: &[&MirFunction],
+        forced_out: &HashSet<FuncId>,
+    ) -> Result<HashSet<FuncId>, EmitError> {
+        /// Rounds attempted before declaring the iteration non-convergent.
+        const MAX_ROUNDS: usize = 16;
+
+        self.generic_functions.borrow_mut().clear();
         let mut first_round: Option<HashSet<FuncId>> = None;
         for _ in 0..MAX_ROUNDS {
             let mut next = HashSet::new();
-            for function in &signature_safe {
+            for function in signature_safe {
+                if forced_out.contains(&function.id) {
+                    continue;
+                }
                 let emitter = FunctionEmitter::new(mir, self, function)?;
                 if emitter.renders_real_generics()? {
                     next.insert(function.id);
@@ -553,16 +604,59 @@ impl EmitContext {
                 first_round = Some(next.clone());
             }
             if *self.generic_functions.borrow() == next {
-                return Ok(());
+                return Ok(next);
             }
             *self.generic_functions.borrow_mut() = next;
         }
         // Non-convergent: keep the historical single-pass answer rather than an
         // arbitrary round of an oscillation.
-        if let Some(historical) = first_round {
-            *self.generic_functions.borrow_mut() = historical;
+        let historical = first_round.unwrap_or_default();
+        self.generic_functions.borrow_mut().clone_from(&historical);
+        Ok(historical)
+    }
+
+    /// Remove from `generic` every function that receives a caller's own
+    /// bounded type parameter (see `classes::bound_forwarding_callers`) from a
+    /// caller that does not lift that parameter, to a fixed point.
+    ///
+    /// `liftable_type_params` accepts `loud(a)` inside
+    /// `twice<A extends Animal>(a: A)` because the caller's `A` will carry
+    /// `AnimalLike` too — but only if `twice` itself ends up generic. When it
+    /// does not, `a` is a `SmeltUnknown` there, which implements no bound
+    /// trait, so the callee must take the erased signature as well. Removing a
+    /// callee can in turn strand its own forwarding callees, hence the loop.
+    fn demote_unforwardable_bounded_callees(&self, mir: &Mir, generic: &mut HashSet<FuncId>) {
+        loop {
+            let stranded: Vec<FuncId> = generic
+                .iter()
+                .copied()
+                .filter(|id| {
+                    let Some(function) = usize::try_from(id.0).ok().and_then(|index| mir.functions.get(index)) else {
+                        return false;
+                    };
+                    crate::classes::bound_forwarding_callers(mir, function)
+                        .into_iter()
+                        .any(|(caller_id, caller_param)| {
+                            !generic.contains(&caller_id)
+                                || usize::try_from(caller_id.0).ok().and_then(|index| mir.functions.get(index)).is_none_or(|caller| {
+                                    !crate::classes::liftable_type_params(
+                                        mir,
+                                        caller,
+                                        &self.owned_callback_params,
+                                        &self.bound_traits,
+                                    )
+                                    .contains(&caller_param)
+                                })
+                        })
+                })
+                .collect();
+            if stranded.is_empty() {
+                return;
+            }
+            for id in stranded {
+                generic.remove(&id);
+            }
         }
-        Ok(())
     }
 
     /// Return whether the free function with `id` emits real Rust generics.
