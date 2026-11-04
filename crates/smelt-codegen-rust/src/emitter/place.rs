@@ -88,6 +88,15 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(format!("({}.len() as f64)", self.local_value_text(*base)?));
                 }
+                // A tuple's `.length` is its arity, fixed by its type. Rust
+                // tuples have no `length` field, so the raw fallback below
+                // was E0609.
+                if let Some(Type::Tuple(items)) = self.mir.types.get(base_ty)
+                    && smelt_stdlib::typescript_field_rule(self.symbol_source_name(*field)?)
+                        == Some(smelt_stdlib::FieldRule::TsLength)
+                {
+                    return Ok(format!("{}.0", items.len()));
+                }
                 // A value whose static type is a GENERATED union is dispatched
                 // through its own enum arms: when every arm declares the
                 // property at one type, the read is that type and each arm

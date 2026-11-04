@@ -2076,11 +2076,12 @@ impl FunctionEmitter<'_> {
                     }
                     _ => (dest_ty, call_text),
                 };
-                if matches!(self.mir.types.get(source_ty), Some(Type::Unknown))
-                    && matches!(self.mir.types.get(dest_ty), Some(Type::Function(_)))
-                {
-                    return Ok(rendered_call_text);
-                }
+                // An erased call result bound to a function-typed local is
+                // extracted to that function like any other typed destination:
+                // every later use (a call, `Object.assign(fn, ..)`, an erasure)
+                // renders the local as the typed `Rc<dyn Fn>` its MIR type
+                // says. Leaving the bare `SmeltUnknown` in it was E0308/E0618
+                // at each of those uses (remeda `const fn = lazy(...lazyArgs)`).
                 if callee_is_erased_rest && self.mir.types.get(dest_ty) == Some(&Type::None) {
                     return Ok(format!("{{ {rendered_call_text}; () }}"));
                 }

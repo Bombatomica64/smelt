@@ -3173,6 +3173,14 @@ impl FunctionEmitter<'_> {
                 if self.callee_is_dynamically_dispatched(callee_ty) {
                     return self.type_id(Type::Unknown);
                 }
+                // An erased-rest callable (`(...args: any) => LazyFn`) is the
+                // `SmeltErasedFunction` carrier, and `.call(..)` on it answers
+                // `SmeltUnknown` whatever its declared return: the call's value
+                // is erased and converts to the destination from there
+                // (remeda `const fn = lazy(...lazyArgs)`, E0308/E0618).
+                if self.callee_uses_erased_call_method(indirect_callee)? {
+                    return self.type_id(Type::Unknown);
+                }
                 let Some(Type::Function(function)) = self.mir.types.get(callee_ty) else {
                     return Err(EmitError::new("indirect call target is not a function"));
                 };

@@ -638,7 +638,19 @@ impl ModuleBuilder<'_> {
         // here would make `Number.isSafeInteger('1')` answer `true`, so the
         // erased operand is carried through unchanged and the codegen tests its
         // runtime tag instead.
-        if matches!(op, NumericPredicateOp::IsSafeInteger)
+        // The `Number.*` predicates never coerce either: an absent value is
+        // not a number, so `Number.isNaN(x)` over `x: number | undefined` is
+        // `false` when `x` is absent (remeda `when((x) => Number.isNaN(x) ||
+        // x === undefined, ..)` asserted presence and panicked). An optional
+        // operand is carried through and tested where present.
+        let non_coercing_optional = source_name.starts_with("Number.")
+            && matches!(
+                self.ctx.krate.types.get(operand_ty),
+                Some(Type::Optional(inner))
+                    if matches!(self.ctx.krate.types.get(*inner), Some(Type::Int | Type::Float))
+            );
+        if non_coercing_optional
+            || matches!(op, NumericPredicateOp::IsSafeInteger)
             && matches!(
                 self.ctx.krate.types.get(operand_ty),
                 Some(

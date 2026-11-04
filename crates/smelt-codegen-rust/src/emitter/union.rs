@@ -372,6 +372,29 @@ impl FunctionEmitter<'_> {
             let coerced = self.value_at_type_text(value_text, source, members[*index], scope)?;
             return Ok(Some(format!("{}::M{index}({coerced})", union_name(target))));
         }
+        // A string-keyed record that fits several object arms (`{ done,
+        // hasNext: false }` against `LazyEmpty | LazyNext<T>`, whose literal
+        // field types HIR stores as `Bool`) cannot pick its arm statically: the
+        // deciding values live in the record. When the arms' structural guards
+        // tell them apart (required keys, literal-typed fields; see
+        // `interface_member_structural_guard`), the record is routed through
+        // the enum's runtime recovery, which tests exactly those fields — the
+        // decision TypeScript's discriminated-union check makes. Without
+        // guards the choice would be a guess, so the site keeps declining.
+        if structural.len() > 1
+            && matches!(self.mir.types.get(source), Some(Type::Dict(key, _)) if matches!(self.mir.types.get(*key), Some(Type::String)))
+            && structural
+                .iter()
+                .filter(|index| self.union_member_structural_guard(members[**index], members, **index).is_none())
+                .count()
+                <= 1
+        {
+            let erased = self.erase_value_text(value_text, source)?;
+            return Ok(Some(format!(
+                "{}::from_smelt_unknown({erased})",
+                union_name(target)
+            )));
+        }
         // An erased source (object-field read, erased return, nullish default)
         // carries a `SmeltUnknown`; reconstruct the concrete union by routing the
         // runtime value to its matching variant. `value_text` must be an owned
@@ -498,6 +521,21 @@ impl FunctionEmitter<'_> {
         )
     }
 
+    /// The single arm of `targets` that instantiates the same named class or
+    /// interface as `member` with different type arguments, if exactly one
+    /// does.
+    fn union_member_same_nominal(&self, member: TypeId, targets: &[TypeId]) -> Option<(usize, TypeId)> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(member) else {
+            return None;
+        };
+        let mut found = targets.iter().enumerate().filter(|(_, target)| {
+            **target != member
+                && matches!(self.mir.types.get(**target), Some(Type::Class { name: other, .. }) if other == name)
+        });
+        let (index, target) = found.next()?;
+        found.next().is_none().then_some((index, *target))
+    }
+
     /// Project a guarded union value into a concrete member or narrower union.
     pub(super) fn project_union_value_text(
         &self,
@@ -547,25 +585,53 @@ impl FunctionEmitter<'_> {
         }
         if let Some(target_members) = self.concrete_union_members(target) {
             let target_name = union_name(target);
-            let arms = source_members
-                .iter()
-                .enumerate()
-                .filter_map(|(source_index, member)| {
-                    target_members
-                        .iter()
-                        .position(|target_member| target_member == member)
-                        .map(|target_index| {
-                            format!(
-                                "{source_name}::M{source_index}(value) => {target_name}::M{target_index}(value)"
-                            )
-                        })
-                })
-                .collect::<Vec<_>>();
+            let mut arms = Vec::new();
+            for (source_index, member) in source_members.iter().enumerate() {
+                if let Some(target_index) =
+                    target_members.iter().position(|target_member| target_member == member)
+                {
+                    arms.push(format!(
+                        "{source_name}::M{source_index}(value) => {target_name}::M{target_index}(value)"
+                    ));
+                    continue;
+                }
+                // The same generic record at another instantiation
+                // (`LazyNext<SmeltUnknown>` from an erased generic call into
+                // the caller's `LazyNext<f64>`): the arm is the same source
+                // type, so the value converts into it instead of being
+                // treated as excluded.
+                if let Some((target_index, target_member)) =
+                    self.union_member_same_nominal(*member, target_members)
+                {
+                    let converted =
+                        self.value_at_type_text("value", *member, target_member, &self.render_scope())?;
+                    arms.push(format!(
+                        "{source_name}::M{source_index}(value) => {target_name}::M{target_index}({converted})"
+                    ));
+                    continue;
+                }
+                // A string-keyed RECORD arm (`cond ? { .. } : SKIP_ITEM`) is
+                // an object literal the target can still hold: it injects the
+                // way a lone record would, through the target arms' literal
+                // discriminants. Any other unmatched arm is one the program
+                // narrowed away and stays excluded.
+                if matches!(self.mir.types.get(*member), Some(Type::Dict(key, _)) if matches!(self.mir.types.get(*key), Some(Type::String)))
+                    && let Some(injected) =
+                        self.inject_union_value_text("value", *member, target, &self.render_scope())?
+                {
+                    arms.push(format!("{source_name}::M{source_index}(value) => {injected}"));
+                }
+            }
             if arms.is_empty() {
                 return Ok(None);
             }
+            let fallback = if arms.len() == source_members.len() {
+                String::new()
+            } else {
+                ", _ => unreachable!(\"union guard selected an excluded member\")".to_owned()
+            };
             return Ok(Some(format!(
-                "match {value_text} {{ {}, _ => unreachable!(\"union guard selected an excluded member\") }}",
+                "match {value_text} {{ {}{fallback} }}",
                 arms.join(", ")
             )));
         }
@@ -937,6 +1003,9 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(member) else {
             return None;
         };
+        if let Some(interface) = self.mir.interfaces.iter().find(|interface| interface.name == *name) {
+            return self.interface_member_structural_guard(interface, &siblings);
+        }
         let fields = self
             .mir
             .classes
@@ -968,6 +1037,122 @@ impl FunctionEmitter<'_> {
         } else {
             Some(format!("({})", distinguishing.join(" && ")))
         }
+    }
+
+    /// The structural guard of an object-shaped (interface) union arm.
+    ///
+    /// An interface states two kinds of evidence a runtime object can be
+    /// tested against:
+    ///
+    /// * a REQUIRED field that some same-tag sibling does not declare (key
+    ///   presence, as for classes);
+    /// * a required field whose type is a LITERAL (`hasNext: false`,
+    ///   `kind: "circle"`), recorded by the frontend as
+    ///   [`smelt_hir::FieldDecodeFacts::literals`] because HIR stores the field
+    ///   as its primitive. It discriminates against a sibling that declares
+    ///   the same field with disjoint literals.
+    ///
+    /// The guard is the conjunction of every such test. Each one is a
+    /// necessary condition for a value of this arm, so a value that fails it
+    /// is not this arm; this is what TypeScript's discriminated-union
+    /// narrowing decides from the same declarations.
+    fn interface_member_structural_guard(
+        &self,
+        interface: &smelt_mir::MirInterface,
+        siblings: &[TypeId],
+    ) -> Option<String> {
+        let fields = crate::classes::effective_interface_fields(self.mir, interface);
+        let mut tests = Vec::new();
+        for field in &fields {
+            let Ok(key) = self.symbol_source_name(field.name) else {
+                continue;
+            };
+            if matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
+                continue;
+            }
+            let literals = interface
+                .decode_facts
+                .iter()
+                .find(|facts| facts.name == field.name && !facts.may_be_absent)
+                .map(|facts| facts.literals.as_slice())
+                .unwrap_or_default();
+            let absent_somewhere = siblings
+                .iter()
+                .any(|sibling| !self.union_member_declares_field(*sibling, field.name));
+            let literal_disjoint = !literals.is_empty()
+                && siblings.iter().any(|sibling| {
+                    self.union_member_field_literals(*sibling, field.name)
+                        .is_some_and(|other| other.iter().all(|value| !literals.contains(value)))
+                });
+            if absent_somewhere {
+                tests.push(format!(
+                    "matches!(&value, SmeltUnknown::Object(map) if map.contains_key({key:?}))"
+                ));
+            }
+            if literal_disjoint
+                && let Some(test) = Self::literal_field_test(key, literals)
+            {
+                tests.push(test);
+            }
+        }
+        (!tests.is_empty()).then(|| format!("({})", tests.join(" && ")))
+    }
+
+    /// Whether the object-shaped union arm `ty` declares field `name`.
+    fn union_member_declares_field(&self, ty: TypeId, name: Symbol) -> bool {
+        let Some(Type::Class { name: owner, .. }) = self.mir.types.get(ty) else {
+            return false;
+        };
+        if let Some(interface) = self.mir.interfaces.iter().find(|interface| interface.name == *owner) {
+            return crate::classes::effective_interface_fields(self.mir, interface)
+                .iter()
+                .any(|field| field.name == name);
+        }
+        self.symbol_name(name)
+            .is_ok_and(|field| self.union_member_has_field(ty, field))
+    }
+
+    /// The literal values an interface arm's field `name` admits when present
+    /// (an optional `hasMany?: false` admits `false`, or is absent; neither
+    /// passes a `hasMany === true` test); `None` when the arm is not an
+    /// interface or the field is not literal-typed.
+    fn union_member_field_literals(&self, ty: TypeId, name: Symbol) -> Option<&[smelt_hir::Literal]> {
+        let Some(Type::Class { name: owner, .. }) = self.mir.types.get(ty) else {
+            return None;
+        };
+        let interface = self.mir.interfaces.iter().find(|interface| interface.name == *owner)?;
+        interface
+            .decode_facts
+            .iter()
+            .find(|facts| facts.name == name && !facts.literals.is_empty())
+            .map(|facts| facts.literals.as_slice())
+    }
+
+    /// `value.key` is one of `literals`, as a runtime test on an erased object;
+    /// `None` when a literal has no erased spelling to compare against.
+    fn literal_field_test(key: &str, literals: &[smelt_hir::Literal]) -> Option<String> {
+        let arms = literals
+            .iter()
+            .map(|literal| match literal {
+                smelt_hir::Literal::Bool(value) => {
+                    Some(format!("matches!(map.get({key:?}), Some(SmeltUnknown::Bool({value})))"))
+                }
+                smelt_hir::Literal::String(text) => Some(format!(
+                    "matches!(map.get({key:?}), Some(SmeltUnknown::String(smelt_text)) if smelt_text.to_string() == {text:?})"
+                )),
+                smelt_hir::Literal::Float(number) if number.is_finite() => Some(format!(
+                    "matches!(map.get({key:?}), Some(SmeltUnknown::Number(smelt_number)) if smelt_number == {number:?})"
+                )),
+                smelt_hir::Literal::Int(number) => Some(format!(
+                    "matches!(map.get({key:?}), Some(SmeltUnknown::Number(smelt_number)) if smelt_number == {number}.0)"
+                )),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(format!(
+            "matches!(&value, SmeltUnknown::Object(map) if {})",
+            arms.join(" || ")
+        ))
     }
 
     /// Whether recovering into this arm leaves every leaf of the erased value

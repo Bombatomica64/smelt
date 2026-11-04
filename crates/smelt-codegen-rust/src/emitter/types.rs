@@ -882,9 +882,12 @@ impl FunctionEmitter<'_> {
                 // report. Keeping the resolved type aligned with the rendered
                 // expression lets callers coerce from the concrete `f64` instead
                 // of treating an already-concrete value as erased.
-                if matches!(self.mir.types.get(base_ty), Some(Type::List(_) | Type::Set(_)))
-                    && smelt_stdlib::typescript_field_rule(self.symbol_source_name(*field)?)
-                        == Some(smelt_stdlib::FieldRule::TsLength)
+                // A tuple's `.length` renders as its constant arity.
+                if matches!(
+                    self.mir.types.get(base_ty),
+                    Some(Type::List(_) | Type::Set(_) | Type::Tuple(_))
+                ) && smelt_stdlib::typescript_field_rule(self.symbol_source_name(*field)?)
+                    == Some(smelt_stdlib::FieldRule::TsLength)
                 {
                     return self.type_id(Type::Float);
                 }

@@ -4650,7 +4650,7 @@ impl IntoSmeltUnknown for SmeltUnion2 {
 }
 impl SmeltUnion2 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(__smelt_from_unknown_record_0((value).into_smelt_unknown())); }
+        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if matches!(map.get("kind"), Some(SmeltUnknown::String(smelt_text)) if smelt_text.to_string() == "circle")) && matches!(&value, SmeltUnknown::Object(map) if map.contains_key("radius"))) { return Self::M0(__smelt_from_unknown_record_0((value).into_smelt_unknown())); }
         Self::M1(__smelt_from_unknown_record_1((value).into_smelt_unknown()))
     }
 }
