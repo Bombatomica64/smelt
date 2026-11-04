@@ -2,19 +2,19 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 13515,
+      "concrete": 13542,
       "generic": 221,
-      "erased": 8766
+      "erased": 8729
     },
     "reads": {
-      "concrete": 323,
+      "concrete": 324,
       "generic": 33,
-      "erased": 1089
+      "erased": 1088
     },
     "calls": {
-      "concrete": 2098,
+      "concrete": 2112,
       "generic": 35,
-      "erased": 1319
+      "erased": 1305
     }
   },
   "programs": {
@@ -938,9 +938,9 @@
     },
     "src/array/head.spec.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 10,
         "generic": 0,
-        "erased": 8
+        "erased": 2
       },
       "reads": {
         "concrete": 0,
@@ -948,9 +948,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 3,
         "generic": 0,
-        "erased": 4
+        "erased": 1
       }
     },
     "src/array/head.ts": {
@@ -1227,9 +1227,9 @@
     },
     "src/array/last.spec.ts": {
       "values": {
-        "concrete": 19,
+        "concrete": 23,
         "generic": 0,
-        "erased": 17
+        "erased": 9
       },
       "reads": {
         "concrete": 0,
@@ -1237,9 +1237,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 2,
+        "concrete": 6,
         "generic": 0,
-        "erased": 5
+        "erased": 1
       }
     },
     "src/array/last.ts": {
@@ -1329,9 +1329,9 @@
     },
     "src/array/maxBy.spec.ts": {
       "values": {
-        "concrete": 43,
+        "concrete": 46,
         "generic": 0,
-        "erased": 49
+        "erased": 46
       },
       "reads": {
         "concrete": 4,
@@ -1339,9 +1339,9 @@
         "erased": 6
       },
       "calls": {
-        "concrete": 3,
+        "concrete": 6,
         "generic": 0,
-        "erased": 12
+        "erased": 9
       }
     },
     "src/array/maxBy.ts": {
@@ -1363,9 +1363,9 @@
     },
     "src/array/minBy.spec.ts": {
       "values": {
-        "concrete": 43,
+        "concrete": 46,
         "generic": 0,
-        "erased": 49
+        "erased": 46
       },
       "reads": {
         "concrete": 4,
@@ -1373,9 +1373,9 @@
         "erased": 6
       },
       "calls": {
-        "concrete": 3,
+        "concrete": 6,
         "generic": 0,
-        "erased": 12
+        "erased": 9
       }
     },
     "src/array/minBy.ts": {
@@ -1533,9 +1533,9 @@
     },
     "src/array/reduceAsync.spec.ts": {
       "values": {
-        "concrete": 150,
+        "concrete": 152,
         "generic": 0,
-        "erased": 92
+        "erased": 89
       },
       "reads": {
         "concrete": 3,
@@ -1543,9 +1543,9 @@
         "erased": 27
       },
       "calls": {
-        "concrete": 13,
+        "concrete": 14,
         "generic": 0,
-        "erased": 10
+        "erased": 9
       }
     },
     "src/array/reduceAsync.ts": {
@@ -4219,14 +4219,14 @@
     },
     "src/compat/array/orderBy.ts": {
       "values": {
-        "concrete": 62,
+        "concrete": 65,
         "generic": 0,
-        "erased": 76
+        "erased": 73
       },
       "reads": {
-        "concrete": 1,
+        "concrete": 2,
         "generic": 0,
-        "erased": 16
+        "erased": 15
       },
       "calls": {
         "concrete": 3,
@@ -8979,9 +8979,9 @@
     },
     "src/function/memoize.spec.ts": {
       "values": {
-        "concrete": 94,
+        "concrete": 97,
         "generic": 13,
-        "erased": 70
+        "erased": 67
       },
       "reads": {
         "concrete": 4,
@@ -8996,9 +8996,9 @@
     },
     "src/function/memoize.ts": {
       "values": {
-        "concrete": 3,
+        "concrete": 4,
         "generic": 0,
-        "erased": 32
+        "erased": 29
       },
       "reads": {
         "concrete": 0,
@@ -9217,9 +9217,9 @@
     },
     "src/function/retry.spec.ts": {
       "values": {
-        "concrete": 76,
+        "concrete": 81,
         "generic": 0,
-        "erased": 144
+        "erased": 139
       },
       "reads": {
         "concrete": 0,
