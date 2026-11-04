@@ -1725,3 +1725,138 @@ class Outer:
     ensure_eq(&symbol(&ctx, base)?, &"Outer.Base", "a sibling nested base keeps its qualified name")?;
     Ok(())
 }
+
+/// A protocol, two conforming classes and one that does not conform.
+const SHAPES: &str = r"
+from typing import Protocol
+
+class Named(Protocol):
+    name: str
+
+class Shape(Named, Protocol):
+    def area(self) -> int: ...
+    def label(self, prefix: str, suffix: str = '') -> str: ...
+
+class Square:
+    def __init__(self, side: int) -> None:
+        self.side = side
+        self.name = 'square'
+    def area(self) -> int:
+        return self.side * self.side
+    def label(self, prefix: str, suffix: str = '') -> str:
+        return prefix + self.name + suffix
+
+class Blob:
+    def __init__(self) -> None:
+        self.name = 'blob'
+    def area(self) -> str:
+        return 'big'
+    def label(self, prefix: str, suffix: str = '') -> str:
+        return prefix
+";
+
+#[test]
+fn protocol_lowers_to_an_interface_with_method_slots_and_parents() -> TestResult {
+    let mut ctx = HirCtx::new();
+    lower_module(&format!("{SHAPES}\ndef ok() -> int:\n    return 1\n"), &mut ctx)?;
+    let shape = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Interface(interface) if ctx.krate.symbols.get(interface.name) == Some("Shape") => {
+                Some(interface)
+            }
+            _ => None,
+        })
+        .ok_or("expected the Shape interface")?;
+    let names = |symbols: Vec<Symbol>| -> Result<Vec<String>, String> {
+        symbols.into_iter().map(|sym| symbol(&ctx, sym).map(ToOwned::to_owned)).collect()
+    };
+    ensure_eq(
+        &names(shape.methods.iter().map(|method| method.name).collect())?,
+        &vec!["area".to_owned(), "label".to_owned()],
+        "methods",
+    )?;
+    ensure_eq(
+        &names(shape.extends.iter().map(|parent| parent.parent).collect())?,
+        &vec!["Named".to_owned()],
+        "extends",
+    )?;
+    let label = shape.methods.get(1).ok_or("label")?;
+    ensure_eq(&label.required_params, &Some(1), "suffix has a default")?;
+    // Each method is also a function-typed slot, like a TypeScript interface.
+    ensure(
+        shape.fields.iter().any(|field| symbol(&ctx, field.name) == Ok("label")
+            && matches!(ctx.krate.types.get(field.ty), Some(Type::Function(_)))),
+        "expected the label slot",
+    )
+}
+
+#[test]
+fn conforming_class_is_accepted_where_the_protocol_is_expected() -> TestResult {
+    let source = format!(
+        "{SHAPES}
+def describe(shape: Shape) -> str:
+    return shape.label('a ', '!') + shape.name
+
+def run() -> str:
+    return describe(Square(2))
+"
+    );
+    let mut ctx = HirCtx::new();
+    lower_module(&source, &mut ctx)?;
+    // `shape.label(..)` reads the interface slot and calls it.
+    let calls_slot = ctx.krate.bodies.iter().any(|candidate| {
+        candidate.exprs.iter().any(|expr| match &expr.kind {
+            ExprKind::ClosureCall { callee, .. } => candidate
+                .exprs
+                .get(callee.0 as usize)
+                .is_some_and(|callee| matches!(callee.kind, ExprKind::Field { .. })),
+            _ => false,
+        })
+    });
+    ensure(calls_slot, "expected the protocol method call to call the interface slot")
+}
+
+#[test]
+fn non_conforming_class_is_rejected_where_the_protocol_is_expected() -> TestResult {
+    // `Blob.area` returns `str`, not `int`: structurally it is not a `Shape`.
+    let source = format!(
+        "{SHAPES}
+def describe(shape: Shape) -> str:
+    return shape.label('a ')
+
+def run() -> str:
+    return describe(Blob())
+"
+    );
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(&source, &mut ctx)?;
+    ensure(
+        errors.iter().any(|error| error.message.contains("argument type does not match")),
+        format!("expected a conformance rejection, got {errors:?}"),
+    )
+}
+
+#[test]
+fn protocol_members_must_be_stubs_and_parents_protocols() -> TestResult {
+    for (source, expected) in [
+        (
+            "from typing import Protocol\nclass P(Protocol):\n    def f(self) -> int:\n        return 1\n",
+            "has a default implementation",
+        ),
+        (
+            "from typing import Protocol\nclass Base:\n    pass\nclass P(Base, Protocol):\n    def f(self) -> int: ...\n",
+            "can only extend other protocols",
+        ),
+    ] {
+        let mut ctx = HirCtx::new();
+        let errors = lower_errors(source, &mut ctx)?;
+        ensure(
+            errors.iter().any(|error| error.message.contains(expected)),
+            format!("expected '{expected}' for {source}, got {errors:?}"),
+        )?;
+    }
+    Ok(())
+}

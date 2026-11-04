@@ -195,3 +195,18 @@ pub(crate) fn expr_simple_name(expr: &Expr) -> Option<&str> {
         None
     }
 }
+
+/// Whether a function body is a stub: only `...`, `pass` and docstrings.
+///
+/// Protocol and overload members are declared with such bodies; anything else
+/// is a real implementation.
+pub(crate) fn is_stub_body(body: &[Stmt]) -> bool {
+    body.iter().all(|stmt| match stmt {
+        Stmt::Pass(_) => true,
+        Stmt::Expr(expr) => matches!(
+            expr.value.as_ref(),
+            Expr::StringLiteral(_) | Expr::EllipsisLiteral(_)
+        ),
+        _ => false,
+    })
+}

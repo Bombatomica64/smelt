@@ -728,7 +728,8 @@ impl ModuleBuilder<'_> {
             args.push(self.kwargs_argument(&extra_keywords, meta.value_ty, span, body)?);
         }
         for (arg, expected) in args.iter().zip(signature.params) {
-            if Self::expr_ty(body, *arg) != *expected {
+            let supplied = Self::expr_ty(body, *arg);
+            if supplied != *expected && !self.structurally_conforms(*expected, supplied) {
                 return Err(SmeltError::unsupported(
                     span,
                     format!(
@@ -886,6 +887,9 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.range()),
             })));
         }
+        if let Some(sig) = self.protocol_method_sig(receiver_ty, method) {
+            return self.protocol_receiver_call(call, receiver, &sig, body).map(Some);
+        }
         if self.class_method_dispatch(receiver_ty, method).is_none() {
             return Ok(None);
         }
@@ -904,6 +908,85 @@ impl ModuleBuilder<'_> {
             body,
         )
         .map(Some)
+    }
+
+    /// The signature of `method` on a protocol-typed receiver, when the
+    /// receiver's type is a protocol interface that declares it (directly or
+    /// through a protocol it extends).
+    fn protocol_method_sig(&self, receiver_ty: TypeId, method: &str) -> Option<MethodSig> {
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver_ty) else {
+            return None;
+        };
+        let (methods, _) = self.protocol_members(*name)?;
+        methods
+            .into_iter()
+            .find(|sig| self.ctx.krate.symbols.get(sig.name) == Some(method))
+    }
+
+    /// Lower a method call on a protocol-typed receiver.
+    ///
+    /// The receiver is a structural interface value whose methods are
+    /// function-typed slots, so the call lowers exactly as a TypeScript
+    /// interface method call does: a [`ExprKind::Field`] read of the slot and
+    /// a [`ExprKind::ClosureCall`] of it. Arguments
+    /// are checked against the protocol's declared parameters (trailing
+    /// parameters with defaults may be omitted only when the protocol says so;
+    /// keyword arguments are not supported on this path).
+    fn protocol_receiver_call(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        receiver: smelt_hir::ExprId,
+        sig: &MethodSig,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(call.range());
+        let required = sig.required_params.unwrap_or(sig.params.len());
+        let supplied = call.arguments.args.len();
+        if !call.arguments.keywords.is_empty() || supplied < required || supplied > sig.params.len()
+        {
+            return Err(SmeltError::unsupported(
+                span,
+                "protocol method call arguments must match the protocol's positional parameters",
+            ));
+        }
+        let mut args = Vec::with_capacity(supplied);
+        for (arg, param) in call.arguments.args.iter().zip(&sig.params) {
+            let lowered = self.expression_with_hint(arg, body, Some(param.ty))?;
+            let arg_ty = Self::expr_ty(body, lowered);
+            if arg_ty != param.ty
+                && !self.type_assignable_to(arg_ty, param.ty)
+                && !self.structurally_conforms(param.ty, arg_ty)
+            {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "protocol method call argument type does not match parameter",
+                ));
+            }
+            args.push(lowered);
+        }
+        // The slot's type, interned exactly as `protocol_def` declared it.
+        let method_ty = self.intern_type(Type::Function(FunctionType {
+            params: sig.params.iter().map(|param| param.ty).collect(),
+            rest: None,
+            required_params: sig.required_params,
+            mutable_params: Vec::new(),
+            return_ty: sig.return_ty,
+            is_async: sig.is_async,
+            may_throw: false,
+        }));
+        let callee = body.push_expr(HirExpr {
+            kind: ExprKind::Field {
+                receiver,
+                field: sig.name,
+            },
+            ty: method_ty,
+            span,
+        });
+        Ok(body.push_expr(HirExpr {
+            kind: ExprKind::ClosureCall { callee, args },
+            ty: sig.return_ty,
+            span,
+        }))
     }
 
     /// Lower a `cls(...)` construction inside a `@classmethod` body.
