@@ -737,3 +737,60 @@ class Point:
         "decided only by running the module",
     )
 }
+
+#[test]
+fn nested_class_statement_runs_in_the_enclosing_class_body() -> TestResult {
+    // The nested statement's bases run in `Outer`'s body, so `Outer`'s own
+    // rebinding of `ABC` shadows the import there. The nested class's methods
+    // run in its own body and skip `Outer`'s: an unbound name falls back to
+    // module scope, where `abstractmethod` is the `abc` import even though
+    // `Outer` rebinds it.
+    let source = "from abc import ABC, abstractmethod\n\
+                  class Outer:\n    \
+                      ABC = 1\n    \
+                      abstractmethod = 2\n    \
+                      class Inner(ABC):\n        \
+                          @abstractmethod\n        \
+                          def m(self) -> int: ...\n";
+    let body = parse_body(source)?;
+    let bindings = ModuleBindings::collect(&body);
+    let outer = class_stmt(&body, "Outer")?;
+    let inner = class_stmt(&outer.body, "Inner")?;
+    let scope = bindings.class_statement_scope(inner.range.start());
+    ensure(
+        matches!(scope, EvalScope::ClassBody { class_start, at }
+            if class_start == outer.range.start() && at == inner.range.start()),
+        format!("expected the nested statement to run in Outer's body, got {scope:?}"),
+    )?;
+    let base = inner
+        .arguments
+        .as_deref()
+        .and_then(|arguments| arguments.args.first())
+        .ok_or("Inner has no base")?;
+    ensure_eq(
+        &bindings
+            .resolve(base, scope)
+            .ok_or("base is not a name")?
+            .candidates()
+            .to_vec(),
+        &vec![Denotation::Local],
+        "nested base sees the enclosing class-body binding",
+    )?;
+    let Some(Stmt::FunctionDef(method)) = inner.body.first() else {
+        return Err("missing Inner.m".to_owned());
+    };
+    let decorator = method.decorator_list.first().ok_or("missing decorator")?;
+    let method_scope = EvalScope::ClassBody {
+        class_start: inner.range.start(),
+        at: method.range.start(),
+    };
+    ensure_eq(
+        &bindings
+            .resolve(&decorator.expression, method_scope)
+            .ok_or("decorator is not a name")?
+            .candidates()
+            .to_vec(),
+        &vec![qualified("abc.abstractmethod")],
+        "nested method decorator skips the enclosing class body",
+    )
+}

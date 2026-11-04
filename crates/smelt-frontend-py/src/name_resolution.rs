@@ -241,32 +241,65 @@ pub(crate) enum EvalScope {
 
 /// Bindings that may be in effect at the start of each class statement of a
 /// module, and at the start of each method definition in those classes.
+///
+/// Classes nested in a class body are covered too: their statement is
+/// snapshotted in the enclosing class body (where their decorators and bases
+/// run), and their own body is walked as one more class scope.
 #[derive(Debug, Default)]
 pub(crate) struct ModuleBindings {
-    /// Module-scope flow at the start of each class statement.
+    /// Module-scope flow at the start of each module-level class statement.
     module: HashMap<TextSize, Flow>,
-    /// Class-body flow at the start of each method, keyed by the start of the
-    /// `class` statement and then of the method.
-    classes: HashMap<TextSize, HashMap<TextSize, Flow>>,
+    /// Class bodies: snapshots and the scope each class statement runs in.
+    classes: ClassScopes,
+}
+
+/// What the reaching-definitions pass records about every class body of a
+/// module, nested ones included.
+#[derive(Debug, Default)]
+struct ClassScopes {
+    /// Class-body flow at the start of each method and nested class
+    /// statement, keyed by the start of the `class` statement and then of the
+    /// member.
+    bodies: HashMap<TextSize, HashMap<TextSize, Flow>>,
+    /// For each class, the start of the module-level class statement that
+    /// (transitively) contains it, or the class itself at module level.
+    /// Python resolves a name a class body has not bound in module scope,
+    /// skipping any enclosing class body, and module scope is as of the
+    /// statement that started running the outermost class.
+    anchors: HashMap<TextSize, TextSize>,
+    /// For each nested class, the start of the class whose body contains its
+    /// `class` statement.
+    parents: HashMap<TextSize, TextSize>,
 }
 
 impl ModuleBindings {
     /// Run the reaching-definitions pass over a module body.
     pub(crate) fn collect(body: &[Stmt]) -> Self {
+        let mut classes = ClassScopes::default();
         let mut walker = ScopeWalker {
             snapshots: HashMap::new(),
-            kind: ScopeKind::Module {
-                classes: HashMap::new(),
-            },
+            class: None,
+            classes: &mut classes,
         };
         walker.block(body, &mut Flow::default());
-        let classes = match walker.kind {
-            ScopeKind::Module { classes } => classes,
-            ScopeKind::Class => HashMap::new(),
-        };
         Self {
             module: walker.snapshots,
             classes,
+        }
+    }
+
+    /// The scope the definition-time expressions (decorators, bases,
+    /// keywords) of the class statement starting at `class_start` run in.
+    ///
+    /// A module-level class statement runs in module scope; a class nested in
+    /// a class body runs in that body, right before the nested statement.
+    pub(crate) fn class_statement_scope(&self, class_start: TextSize) -> EvalScope {
+        match self.classes.parents.get(&class_start) {
+            Some(&parent) => EvalScope::ClassBody {
+                class_start: parent,
+                at: class_start,
+            },
+            None => EvalScope::Module { at: class_start },
         }
     }
 
@@ -293,7 +326,7 @@ impl ModuleBindings {
         match scope {
             EvalScope::Module { at } => Some(Resolution::new(self.module_candidates(name, at)?)),
             EvalScope::ClassBody { class_start, at } => {
-                let flow = self.classes.get(&class_start)?.get(&at)?;
+                let flow = self.classes.bodies.get(&class_start)?.get(&at)?;
                 let mut candidates = Vec::new();
                 let mut falls_back = false;
                 for target in flow.lookup(name) {
@@ -305,7 +338,8 @@ impl ModuleBindings {
                     }
                 }
                 if falls_back {
-                    candidates.extend(self.module_candidates(name, class_start)?);
+                    let anchor = self.classes.anchors.get(&class_start)?;
+                    candidates.extend(self.module_candidates(name, *anchor)?);
                 }
                 Some(Resolution::new(candidates))
             }
@@ -429,31 +463,22 @@ fn qualify_member(module: &str, member: &str) -> String {
 /// three passes, so reaching this means a non-monotone change to [`Flow`].
 const LOOP_PASS_SANITY_BOUND: usize = 1024;
 
-/// Which scope a [`ScopeWalker`] walks, and what that scope collects.
-enum ScopeKind {
-    /// Module scope: snapshots at each class statement, plus each class body's
-    /// own method snapshots keyed by the class statement's start.
-    Module {
-        /// Per-class method snapshots.
-        classes: HashMap<TextSize, HashMap<TextSize, Flow>>,
-    },
-    /// A class body: snapshots at each method definition.
-    Class,
-}
-
 /// Statement walker for one scope's reaching-definitions pass.
 ///
-/// It stops at nested function and lambda scopes. Class bodies are walked as
-/// their own scope, only when walking module scope.
-struct ScopeWalker {
-    /// Flow at the start of each class statement (module scope) or method
-    /// definition (class scope).
+/// It stops at nested function and lambda scopes. Class bodies, nested ones
+/// included, are walked as their own scope.
+struct ScopeWalker<'a> {
+    /// Flow at the start of each class statement, and (in a class body) of
+    /// each method definition.
     snapshots: HashMap<TextSize, Flow>,
-    /// The scope being walked.
-    kind: ScopeKind,
+    /// `None` in module scope; in a class body, the start of that class
+    /// statement and of the module-level class statement containing it.
+    class: Option<(TextSize, TextSize)>,
+    /// Shared output for every class body walked.
+    classes: &'a mut ClassScopes,
 }
 
-impl ScopeWalker {
+impl ScopeWalker<'_> {
     /// Walk a statement sequence, threading `flow` through it.
     fn block(&mut self, body: &[Stmt], flow: &mut Flow) {
         for stmt in body {
@@ -472,7 +497,7 @@ impl ScopeWalker {
     fn stmt(&mut self, stmt: &Stmt, flow: &mut Flow) {
         match stmt {
             Stmt::FunctionDef(function) => {
-                if matches!(self.kind, ScopeKind::Class) {
+                if self.class.is_some() {
                     self.snapshots.insert(function.range.start(), flow.clone());
                 }
                 // Decorators and defaults run in this scope; the body (and a
@@ -485,15 +510,21 @@ impl ScopeWalker {
                 flow.bind(function.name.as_str(), Target::Denotes(Denotation::Local));
             }
             Stmt::ClassDef(class) => {
-                if let ScopeKind::Module { classes } = &mut self.kind {
-                    self.snapshots.insert(class.range.start(), flow.clone());
-                    let mut body = Self {
-                        snapshots: HashMap::new(),
-                        kind: ScopeKind::Class,
-                    };
-                    body.block(&class.body, &mut Flow::default());
-                    classes.insert(class.range.start(), body.snapshots);
+                let start = class.range.start();
+                self.snapshots.insert(start, flow.clone());
+                let anchor = self.class.map_or(start, |(_, anchor)| anchor);
+                if let Some((parent, _)) = self.class {
+                    self.classes.parents.insert(start, parent);
                 }
+                let mut body = ScopeWalker {
+                    snapshots: HashMap::new(),
+                    class: Some((start, anchor)),
+                    classes: &mut *self.classes,
+                };
+                body.block(&class.body, &mut Flow::default());
+                let snapshots = body.snapshots;
+                self.classes.bodies.insert(start, snapshots);
+                self.classes.anchors.insert(start, anchor);
                 let mut exprs = ExprWalker::new(flow);
                 for decorator in &class.decorator_list {
                     exprs.visit_decorator(decorator);
