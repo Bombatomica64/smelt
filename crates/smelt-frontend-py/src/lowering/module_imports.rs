@@ -134,15 +134,21 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Lower `NAME = ClassName(...)` into an importable constructed constant item.
+    /// Lower `NAME = ClassName(...)` into an importable module global.
     ///
-    /// Only constructors already known as class items are accepted.  The value
-    /// is stored as a small HIR body so package imports can inline the same
-    /// object construction at use sites without modelling Python module
-    /// initialization order.
+    /// Python runs a module-level assignment once, when the module executes,
+    /// and every later read sees that one object: mutating it through `NAME`
+    /// is visible everywhere. So the binding is a [`Item::MutableGlobal`] whose
+    /// initializer is a synthesized nullary function constructing the value,
+    /// exactly as the TypeScript frontend lifts a module `const`/`let` slot,
+    /// and reads are [`ExprKind::GlobalGet`] (see `const_item_expression`).
+    /// It used to be a constant whose construction was inlined at each use,
+    /// which rebuilt a fresh object per read and lost every mutation. The
+    /// module body touches the global at the assignment's own position (see
+    /// `module_global_touch`), so the constructor runs in source order.
     ///
-    /// Returns whether the assignment had that shape and became a constant
-    /// item; any other assignment is left for pass 2 to lower as a statement.
+    /// Returns whether the assignment had that shape and became a global;
+    /// any other assignment is left for pass 2 to lower as a statement.
     fn constructed_constant_assign(
         &mut self,
         assign: &StmtAssign,
@@ -166,14 +172,14 @@ impl ModuleBuilder<'_> {
             name: class_sym,
             args: vec![],
         });
-        let mut const_body = Body::new(None, span);
+        let mut init_body = Body::new(None, span);
         let args = call
             .arguments
             .args
             .iter()
-            .map(|arg| self.expression(arg, &mut const_body))
+            .map(|arg| self.expression(arg, &mut init_body))
             .collect::<Result<Vec<_>, _>>()?;
-        let value = const_body.push_expr(HirExpr {
+        let value = init_body.push_expr(HirExpr {
             kind: ExprKind::New {
                 class: class_sym,
                 args,
@@ -181,19 +187,72 @@ impl ModuleBuilder<'_> {
             ty: class_ty,
             span,
         });
-        let body_id = self.ctx.krate.push_body(const_body);
+        init_body.push_stmt(HirStmt::Return(Some(value)));
+        let body_id = self.ctx.krate.push_body(init_body);
         let name_sym = self.intern_name(name);
-        let item = self.ctx.krate.push_item(Item::Const(ConstItem {
+        let item = self.ctx.krate.push_item(Item::MutableGlobal(smelt_hir::MutableGlobalItem {
             name: name_sym,
             ty: class_ty,
-            value,
-            body: body_id,
+            init: smelt_hir::MutableGlobalInit::Pending,
+            visibility: Visibility::Public,
             span,
         }));
+        // Named after the binding and the global's item index, as the
+        // TypeScript frontend names its initializers: unique crate-wide and
+        // deterministic, and `$` keeps it out of the source namespace.
+        let init_name = self.intern_name(&format!("smelt_global_init${name}${}", item.0));
+        let init_item = self.ctx.krate.push_item(Item::Function(Function {
+            name: init_name,
+            span,
+            type_params: Vec::new(),
+            params: Vec::new(),
+            rest: None,
+            required_params: Some(0),
+            return_ty: class_ty,
+            is_async: false,
+            is_test: false,
+            body: Some(body_id),
+            owner: FunctionOwner::Module,
+        }));
+        if let Some(Item::MutableGlobal(global)) = self
+            .ctx
+            .krate
+            .items
+            .get_mut(usize::try_from(item.0).unwrap_or(usize::MAX))
+        {
+            global.init = smelt_hir::MutableGlobalInit::Initializer(init_item);
+        }
+        hir_module.items.push(init_item);
         self.items.insert(name.to_owned(), item);
         self.exports.insert(name.to_owned(), item);
         hir_module.items.push(item);
         Ok(true)
+    }
+
+    /// A unit-typed read of the module global a constructed assignment
+    /// statement declared, or `None` for any other statement.
+    ///
+    /// The global's cell initializes lazily on first access, which would move
+    /// the constructor's side effects to the first read. Python runs the
+    /// assignment when the module reaches it, so the module body reads the
+    /// global there and discards the value; a unit-typed `GlobalGet` is how
+    /// codegen emits a bare touch of the cell, as for TypeScript module slots.
+    fn module_global_touch(&mut self, stmt: &Stmt, body: &mut Body) -> Option<smelt_hir::ExprId> {
+        let Stmt::Assign(assign) = stmt else {
+            return None;
+        };
+        let (name, _) = Self::constructed_constant_shape(assign)?;
+        let item = *self.items.get(name)?;
+        let Item::MutableGlobal(global) = self.item_ref(item) else {
+            return None;
+        };
+        let span = global.span;
+        let unit = self.intern_type(Type::None);
+        Some(body.push_expr(HirExpr {
+            kind: ExprKind::GlobalGet { item },
+            ty: unit,
+            span,
+        }))
     }
 
     /// Extract the direct `NAME = ClassName(...)` constructed-constant shape.

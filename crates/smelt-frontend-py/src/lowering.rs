@@ -398,6 +398,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // module body.
         for (stmt, is_declared) in module.body.iter().zip(declared) {
             if is_declared {
+                // A constructed binding Pass 1 lifted to a module global is
+                // touched here, so its initializer runs in source order.
+                if let Some(touch) = self.module_global_touch(stmt, &mut body) {
+                    body.push_stmt(HirStmt::Expr(touch));
+                }
                 continue;
             }
             if let Err(err) = self.statement(stmt, &mut body) {
