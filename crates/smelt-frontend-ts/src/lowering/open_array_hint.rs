@@ -88,8 +88,36 @@ impl ModuleBuilder<'_> {
     /// it mentions neither `unknown` nor a type parameter anywhere. A
     /// type parameter in the element means the element was itself typed from
     /// the open hint, so it proves nothing.
+    ///
+    /// A function-typed element is not used either. A generic callee whose
+    /// type parameter is reachable only through callbacks in a container
+    /// (`cbs: ((inner: (v: T) => T) => T)[]`) stays erased in Rust
+    /// (`liftable_type_params`), and the call boundary has no adapter that
+    /// converts a list of concrete closures into erased ones. The literal then
+    /// keeps the hint, as before this rule (the `g1_nest_vec_*` cases of the
+    /// codegen shape grid).
     fn fills_open_slot(&self, ty: TypeId) -> bool {
-        self.type_is_closed(ty, 0)
+        self.type_is_closed(ty, 0) && !self.mentions_function(ty, 0)
+    }
+
+    /// Whether `ty` mentions a function type at any depth.
+    fn mentions_function(&self, ty: TypeId, depth: usize) -> bool {
+        if depth > MAX_DEPTH {
+            return true;
+        }
+        let next = depth.saturating_add(1);
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Function(_)) | None => true,
+            Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
+                self.mentions_function(*item, next)
+            }
+            Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
+                self.mentions_function(*key, next) || self.mentions_function(*value, next)
+            }
+            Some(Type::Tuple(items) | Type::Union(items)) => items.iter().any(|item| self.mentions_function(*item, next)),
+            Some(Type::Class { args, .. }) => args.iter().any(|arg| self.mentions_function(*arg, next)),
+            Some(_) => false,
+        }
     }
 
     /// Whether `ty` is free of `Unknown` and `TypeParam` at every depth.

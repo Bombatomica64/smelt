@@ -102,6 +102,12 @@ for review; the baseline was not hand-edited.
 
 ## Found and not fixed
 
+- Rule 1 does not fill a slot from function-typed elements. A generic callee
+  whose type parameter is reachable only through callbacks in a container
+  (`cbs: ((inner: (v: T) => T) => T)[]`) stays erased in Rust, and the call
+  boundary has no adapter from a list of concrete closures to erased ones
+  (the codegen shape grid's `g1_nest_vec_*` cases failed to compile).
+
 - `pairUp<A, B>(pair: [A, B])` whose body formats `A`/`B` in a template string
   is still not lifted to real Rust generics by codegen (stringifying a bare
   `T` needs erasure). The call site is now typed `(f64, String)`.
