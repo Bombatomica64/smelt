@@ -35,44 +35,70 @@ struct ClassBases {
 }
 
 impl ModuleBuilder<'_> {
-    /// Lower a Python class definition into the current HIR module.
-    ///
-    /// The class's entry in `class_fields` is rolled back when lowering it
-    /// fails, so a class that errors half-way through its body does not leave
-    /// the fields it had collected so far for later field lookups to find.
-    /// (Fields another class's materialized descriptors merged into a
-    /// *different* class are that class's business and are kept.)
+    /// Lower a module-level Python class definition into the current HIR module.
     fn class_def(
         &mut self,
         class: &StmtClassDef,
         module: &ModModule,
         hir_module: &mut Module,
     ) -> Result<(), SmeltError> {
-        let name = class.name.as_str();
-        let before = self.class_fields.get(name).cloned();
-        let result = self.lower_class_def(class, module, hir_module);
+        self.class_def_named(class, class.name.as_str(), module, hir_module)
+    }
+
+    /// Lower a class definition under its qualified name (`__qualname__`).
+    ///
+    /// The class's entry in `class_fields` is rolled back when lowering it
+    /// fails, so a class that errors half-way through its body does not leave
+    /// the fields it had collected so far for later field lookups to find.
+    /// (Fields another class's materialized descriptors merged into a
+    /// *different* class are that class's business and are kept.)
+    fn class_def_named(
+        &mut self,
+        class: &StmtClassDef,
+        class_name_str: &str,
+        module: &ModModule,
+        hir_module: &mut Module,
+    ) -> Result<(), SmeltError> {
+        let before = self.class_fields.get(class_name_str).cloned();
+        let result = self.lower_class_def(class, class_name_str, module, hir_module);
         if result.is_err() {
             match before {
                 Some(fields) => {
-                    self.class_fields.insert(name.to_owned(), fields);
+                    self.class_fields.insert(class_name_str.to_owned(), fields);
                 }
                 None => {
-                    self.class_fields.remove(name);
+                    self.class_fields.remove(class_name_str);
                 }
             }
         }
         result
     }
 
-    /// The body of [`Self::class_def`].
+    /// The body of [`Self::class_def_named`].
+    ///
+    /// A class nested in a class body (`class Outer: class Inner: ...`) is a
+    /// class object stored as an attribute of the enclosing class; it closes
+    /// over nothing from that body, because Python resolves the names a class
+    /// body leaves unbound in module scope. It is therefore hoisted to a
+    /// module-level type named by its qualified name, `Outer.Inner`, the way a
+    /// Rust port would declare a separate struct for it. Nested classes are
+    /// lowered before the class that contains them, so the enclosing class's
+    /// methods can construct and annotate `Outer.Inner`; see
+    /// [`Self::nested_class_path`] for how those references resolve.
     fn lower_class_def(
         &mut self,
         class: &StmtClassDef,
+        class_name_str: &str,
         module: &ModModule,
         hir_module: &mut Module,
     ) -> Result<(), SmeltError> {
+        for body_stmt in &class.body {
+            if let Stmt::ClassDef(inner) = body_stmt {
+                let qualified = format!("{class_name_str}.{}", inner.name);
+                self.class_def_named(inner, &qualified, module, hir_module)?;
+            }
+        }
         let span = self.span(class.range);
-        let class_name_str = class.name.as_str();
         let class_sym = self.intern_name(class_name_str);
         let class_ty = self.intern_type(Type::Class {
             name: class_sym,
@@ -155,9 +181,7 @@ impl ModuleBuilder<'_> {
         } else {
             &[]
         };
-        let scope = EvalScope::Module {
-            at: class.range.start(),
-        };
+        let scope = self.bindings.class_statement_scope(class.range.start());
         let owner = format!("class '{class_name_str}'");
         for dec in runtime_decorators {
             let callee = ruff_python_ast::helpers::map_callable(&dec.expression);
@@ -205,9 +229,7 @@ impl ModuleBuilder<'_> {
         span: Span,
         class_name_str: &str,
     ) -> Result<ClassBases, SmeltError> {
-        let scope = EvalScope::Module {
-            at: class.range.start(),
-        };
+        let scope = self.bindings.class_statement_scope(class.range.start());
         let owner = format!("class '{class_name_str}'");
         let mut bases = ClassBases {
             is_abstract: false,
@@ -261,10 +283,10 @@ impl ModuleBuilder<'_> {
                 // A modeled standard-library base is recorded under its own
                 // name whatever its spelling; any other base keeps the bare
                 // name it is spelled with.
-                let base_name = match denoted {
-                    Some(name) => Some(name.name().to_owned()),
-                    None => self.base_class_name(base_expr, scope),
-                };
+                let base_name = denoted.map_or_else(
+                    || self.base_class_name(base_expr, scope, class_name_str),
+                    |name| Some(name.name().to_owned()),
+                );
                 match base_name {
                     Some(name) => Some(self.intern_name(&name)),
                     None => {
@@ -294,18 +316,62 @@ impl ModuleBuilder<'_> {
     /// spelling's own prefix is never trusted: a chain whose head is not an
     /// import (a local value, or a name bound differently on different
     /// paths) has no single qualified meaning and yields `None`.
-    fn base_class_name(&self, base_expr: &Expr, scope: EvalScope) -> Option<String> {
-        let base_expr = ruff_python_ast::helpers::map_subscript(base_expr);
-        match base_expr {
-            Expr::Name(name) => Some(name.id.as_str().to_owned()),
+    ///
+    /// For a nested class statement, `class_name` is its qualified name: a bare
+    /// base naming an earlier sibling nested class (`class Child(Base)` next
+    /// to `class Base` in the same body) denotes that sibling, which the body
+    /// bound, and keeps the sibling's qualified name.
+    fn base_class_name(
+        &self,
+        base_expr: &Expr,
+        scope: EvalScope,
+        class_name: &str,
+    ) -> Option<String> {
+        let base_value = ruff_python_ast::helpers::map_subscript(base_expr);
+        match base_value {
+            Expr::Name(name) => {
+                let sibling = class_name
+                    .rsplit_once('.')
+                    .map(|(enclosing, _)| format!("{enclosing}.{}", name.id))
+                    .filter(|sibling| {
+                        self.items
+                            .get(sibling)
+                            .is_some_and(|id| matches!(self.item_ref(*id), Item::Class(_)))
+                    });
+                Some(sibling.unwrap_or_else(|| name.id.as_str().to_owned()))
+            }
             Expr::Attribute(_) => {
-                let resolution = self.bindings.resolve(base_expr, scope)?;
+                if let Some(nested) = self.nested_class_path(base_value) {
+                    return Some(nested);
+                }
+                let resolution = self.bindings.resolve(base_value, scope)?;
                 let qualified = resolution.qualified_name()?;
                 let (_, name) = qualified.rsplit_once('.')?;
                 Some(name.to_owned())
             }
             _ => None,
         }
+    }
+
+    /// The qualified name of the hoisted nested class an attribute chain
+    /// names (`Outer.Inner`, `Outer.Mid.Inner`), if it names one.
+    ///
+    /// Only nested classes are lowered under a dotted name (see
+    /// [`Self::class_def_named`]), so a chain whose dotted spelling is a class
+    /// item's name denotes that class, provided its head really is the
+    /// module-level class: a local variable spelled like the class shadows
+    /// it, and then the chain is an ordinary attribute read.
+    fn nested_class_path(&self, expr: &Expr) -> Option<String> {
+        let Expr::Attribute(_) = expr else {
+            return None;
+        };
+        let path = dotted_name(expr)?;
+        let (head, _) = path.split_once('.')?;
+        if self.scope.locals.contains_key(head) {
+            return None;
+        }
+        let item_id = *self.items.get(&path)?;
+        matches!(self.item_ref(item_id), Item::Class(_)).then_some(path)
     }
 
     /// Resolve a definition-time expression evaluated in `scope` to the
@@ -553,6 +619,8 @@ impl ModuleBuilder<'_> {
                     }
                 }
                 Stmt::Pass(_) => {}
+                // Already hoisted to a module-level type by `class_def_named`.
+                Stmt::ClassDef(_) => {}
                 // A bare expression statement in a class body carries no runtime
                 // member. Two shapes are accepted as no-ops (matching how `pass`
                 // is skipped): a docstring (`"""..."""`) and an ellipsis body
@@ -570,8 +638,7 @@ impl ModuleBuilder<'_> {
                         ));
                     }
                 }
-                Stmt::ClassDef(_)
-                | Stmt::Return(_)
+                Stmt::Return(_)
                 | Stmt::Delete(_)
                 | Stmt::TypeAlias(_)
                 | Stmt::Assign(_)

@@ -170,10 +170,42 @@ impl ModuleBuilder<'_> {
     /// lands on an annotation form the frontend cannot lower, letting the caller
     /// fall back to its explicit-annotation requirement (an explicit boundary,
     /// never a silent widening).
+    ///
+    /// `ty` spells a class by its `__name__`, which does not identify a class
+    /// hoisted from a class body (`Outer.Inner` displays as `Inner`). A
+    /// spelling that names a nested class's short name is therefore ambiguous
+    /// and is dropped, so the source annotation (or the explicit-annotation
+    /// requirement) decides instead of a guess.
     fn resolved_spelling_to_hir(&mut self, spelling: &str) -> Option<TypeId> {
         let parsed = ruff_python_parser::parse_expression(spelling).ok()?;
         let expr = parsed.syntax().body.as_ref();
+        if self.mentions_nested_class_short_name(expr) {
+            return None;
+        }
         self.annotation_to_hir(expr).ok()
+    }
+
+    /// Whether any bare name in a `ty` type spelling is the short name of a
+    /// hoisted nested class (see [`Self::resolved_spelling_to_hir`]).
+    fn mentions_nested_class_short_name(&self, expr: &Expr) -> bool {
+        /// Collects every `Name` identifier of an expression.
+        struct Names<'a>(Vec<&'a str>);
+        impl<'a> ruff_python_ast::visitor::Visitor<'a> for Names<'a> {
+            fn visit_expr(&mut self, expr: &'a Expr) {
+                if let Expr::Name(name) = expr {
+                    self.0.push(name.id.as_str());
+                }
+                ruff_python_ast::visitor::walk_expr(self, expr);
+            }
+        }
+        let mut names = Names(Vec::new());
+        ruff_python_ast::visitor::Visitor::visit_expr(&mut names, expr);
+        names.0.iter().any(|name| {
+            self.items.iter().any(|(path, item_id)| {
+                path.rsplit_once('.').is_some_and(|(_, short)| short == *name)
+                    && matches!(self.item_ref(*item_id), Item::Class(_))
+            })
+        })
     }
 
     /// Lower a Python type annotation expression to a HIR [`TypeId`].
@@ -185,8 +217,12 @@ impl ModuleBuilder<'_> {
         } else if let Expr::NoneLiteral(_) = annotation {
             Ok(self.intern_type(Type::None))
         } else if let Expr::Attribute(attr) = annotation {
-            // `typing.Optional[T]`, `typing.Union[T, U]` etc.
-            self.name_annotation(attr.attr.as_str(), attr.range)
+            // A hoisted nested class keeps its qualified name (`Outer.Inner`);
+            // any other chain is a module member (`typing.Optional[T]`).
+            match self.nested_class_path(annotation) {
+                Some(nested) => self.name_annotation(&nested, attr.range),
+                None => self.name_annotation(attr.attr.as_str(), attr.range),
+            }
         } else if let Expr::Subscript(sub) = annotation {
             self.subscript_annotation(sub)
         } else if let Expr::BinOp(b) = annotation {

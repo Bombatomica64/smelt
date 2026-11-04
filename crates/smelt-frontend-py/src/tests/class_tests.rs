@@ -1612,3 +1612,116 @@ class A(m.Base):
     }
     Ok(())
 }
+
+/// Find the class item whose symbol is `name` anywhere in the crate.
+fn class_item<'a>(ctx: &'a HirCtx, name: &str) -> Result<&'a smelt_hir::Class, String> {
+    ctx.krate
+        .items
+        .iter()
+        .find_map(|candidate| match candidate {
+            Item::Class(class) if ctx.krate.symbols.get(class.name) == Some(name) => Some(class),
+            _ => None,
+        })
+        .ok_or_else(|| format!("expected class item '{name}'"))
+}
+
+#[test]
+fn nested_class_hoists_to_a_qualified_module_level_type() -> TestResult {
+    // `Outer.Inner` is a class object stored on `Outer`. It lowers to its own
+    // type named by its qualified name, constructed and annotated through
+    // that path; `Other.Inner` is a different class with the same short name.
+    let source = py!(r"
+class Outer:
+    class Inner:
+        def __init__(self, count: int) -> None:
+            self.count = count
+
+        def bump(self) -> int:
+            return self.count + 1
+
+    def __init__(self) -> None:
+        self.root: Outer.Inner = Outer.Inner(0)
+
+    def make(self, n: int) -> 'Outer.Inner':
+        return Outer.Inner(n)
+
+class Other:
+    class Inner:
+        def __init__(self, label: str) -> None:
+            self.label = label
+
+def run() -> int:
+    return Outer().make(2).bump()
+");
+    let mut ctx = HirCtx::new();
+    lower_module(source, &mut ctx)?;
+    let inner = class_item(&ctx, "Outer.Inner")?;
+    ensure(
+        inner.constructor.is_some() && inner.methods.len() == 1,
+        "expected Outer.Inner's constructor and bump method on the hoisted type",
+    )?;
+    ensure(
+        inner.fields.iter().any(|field| symbol(&ctx, field.name) == Ok("count")),
+        "expected Outer.Inner.count",
+    )?;
+    let other = class_item(&ctx, "Other.Inner")?;
+    ensure(
+        other.fields.iter().any(|field| symbol(&ctx, field.name) == Ok("label")),
+        "expected Other.Inner to stay a separate type",
+    )?;
+    ensure(
+        ctx.krate.items.iter().all(|candidate| {
+            !matches!(candidate, Item::Class(class) if ctx.krate.symbols.get(class.name) == Some("Inner"))
+        }),
+        "a nested class must not lower under its bare name",
+    )?;
+    let outer = class_item(&ctx, "Outer")?;
+    let root = outer
+        .fields
+        .iter()
+        .find(|field| symbol(&ctx, field.name) == Ok("root"))
+        .ok_or("expected Outer.root")?;
+    let inner_sym = inner.name;
+    ensure(
+        matches!(ctx.krate.types.get(root.ty), Some(Type::Class { name, .. }) if *name == inner_sym),
+        "expected Outer.root: Outer.Inner",
+    )?;
+    let constructs_inner = ctx.krate.bodies.iter().any(|candidate| {
+        candidate.exprs.iter().any(
+            |expr| matches!(&expr.kind, ExprKind::New { class, .. } if *class == inner_sym),
+        )
+    });
+    ensure(constructs_inner, "expected `Outer.Inner(..)` to construct the hoisted class")?;
+    Ok(())
+}
+
+#[test]
+fn nested_class_decorators_and_bases_run_in_the_enclosing_body() -> TestResult {
+    // The nested statement's decorator resolves like any class decorator, and
+    // a nested class may name a sibling nested class as its base.
+    let source = py!(r"
+from dataclasses import dataclass
+
+class Outer:
+    @dataclass
+    class Point:
+        x: int
+
+    class Base:
+        def value(self) -> int:
+            return 1
+
+    class Child(Base):
+        def doubled(self) -> int:
+            return self.value() * 2
+");
+    let mut ctx = HirCtx::new();
+    lower_module(source, &mut ctx)?;
+    ensure(
+        matches!(class_item(&ctx, "Outer.Point")?.kind, smelt_hir::ClassKind::DataclassLike { .. }),
+        "expected the nested @dataclass to lower as a dataclass",
+    )?;
+    let base = class_item(&ctx, "Outer.Child")?.base.ok_or("expected Outer.Child base")?;
+    ensure_eq(&symbol(&ctx, base)?, &"Outer.Base", "a sibling nested base keeps its qualified name")?;
+    Ok(())
+}

@@ -426,9 +426,14 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         span: Span,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        // Named function call OR class constructor call.
-        if let Expr::Name(name) = call.func.as_ref() {
-            let name_str = name.id.as_str();
+        // Named function call OR class constructor call. A hoisted nested
+        // class is constructed through its qualified path (`Outer.Inner(..)`).
+        let callee_name = match call.func.as_ref() {
+            Expr::Name(name) => Some(name.id.to_string()),
+            func @ Expr::Attribute(_) => self.nested_class_path(func),
+            _ => None,
+        };
+        if let Some(name_str) = callee_name.as_deref() {
             if let Some(expr) = self.local_callable_call(call, name_str, body)? {
                 return Ok(Some(expr));
             }
