@@ -111,3 +111,4 @@ mod bigint_tests;
 mod local_write_index_tests;
 mod trial_rollback_tests;
 mod union_element_read_tests;
+mod erased_rest_callback_tests;
