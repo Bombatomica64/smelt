@@ -586,10 +586,14 @@ jobs:
   # importing them; the explicit Vitest import added to the disposable clone
   # keeps `typed.test.ts` discoverable without changing upstream sources, and
   # the globals-as-test-modules rule makes every other suite real: 387 tests
-  # (84 before that rule). Three still fail on shapes Smelt does not model yet
-  # (`as any` type-violating inputs x2, `Proxy` traps x1) -- see
-  # blocker-logs/globals-suite-failures.md -- so the assertion below pins
-  # exactly those three failures until they land.
+  # (84 before that rule). Four still fail on shapes Smelt does not model yet
+  # (`as any` type-violating inputs x2, `Proxy` traps x1, and `omit function
+  # handles null keys`, which passes `null as unknown as []` where a tuple is
+  # declared) -- see blocker-logs/globals-suite-failures.md -- so the assertion
+  # below pins exactly those four failures until they land. The fourth passed
+  # only vacuously until the multi-line `export {..} from` dependency fix: `_.omit`
+  # had resolved to `undefined`, so the call did nothing. Type-violating test
+  # inputs stay unsupported.
   radash-regression:
     # Opt-in on PRs via the `run-regressions` label; always on for main pushes.
     # See the banner above `remeda-regression`.
@@ -641,7 +645,7 @@ jobs:
           # admits through `as any`; `callable` needs `Proxy` traps). The pin
           # fails on any other failure or a changed total; the target is
           # `ok. 387 passed; 0 failed;` once Proxy lands.
-          grep -F "test result: FAILED. 384 passed; 3 failed;" radash-tests.log
+          grep -F "test result: FAILED. 383 passed; 4 failed;" radash-tests.log
 
   # Regression gate for the Hono campaign (blocker-logs/hono-campaign-plan.md).
   #

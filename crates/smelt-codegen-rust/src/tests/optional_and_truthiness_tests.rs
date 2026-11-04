@@ -14,6 +14,8 @@
 //!   into a list; it used to pass the tuple through (E0308).
 //! * Every object is truthy, maps and lists included; `!record` used to read
 //!   `!(false)`.
+//! * An all-nullish list instantiates a generic at `()`, which the runtime
+//!   can un-erase into (es-toolkit `uniq([null, undefined])`).
 
 use super::*;
 
@@ -154,4 +156,23 @@ export function itemCount(items: number[]): number {
         );
         assert!(body.contains("!(true)"), "`obj` is truthy:\n{body}");
     }
+}
+
+/// An all-nullish array literal instantiates a generic at the collapsed
+/// nullish type `()` (null and undefined are both `Type::None`), and the
+/// runtime can un-erase into it. Before the prelude carried
+/// `SmeltFromUnknown for ()`, `uniq([null, undefined])` (es-toolkit
+/// `uniq.spec.ts`) failed to compile with E0277 at the generic bound. The
+/// list stays typed: it must not fall back to `SmeltList<SmeltUnknown>`.
+#[test]
+fn an_all_nullish_list_instantiates_a_generic_at_unit() {
+    let source = source_for(
+        r"
+export function uniq<T>(arr: readonly T[]): T[] { return Array.from(new Set(arr)) }
+console.log(uniq([null, undefined, null]).length)
+",
+    );
+    assert!(source.contains("impl SmeltFromUnknown for ()"), "{source}");
+    assert!(source.contains(": SmeltList<()> = uniq("), "{source}");
+    assert!(!source.contains("SmeltList<SmeltUnknown> = uniq("), "{source}");
 }
