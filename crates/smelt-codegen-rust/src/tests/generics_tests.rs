@@ -174,9 +174,14 @@ export function first<T>(xs: T[]): T {
 
 #[test]
 fn erases_generic_free_function_with_bounded_type_param() {
-    // Issue #99 (deferred slice): a BOUNDED type parameter still needs method
-    // dispatch through the erased boundary, so the function falls back to full
-    // erasure rather than emitting an unusable generic.
+    // Issue #99 (deferred slice). Old requirement: ANY bounded type parameter
+    // erased, because a member access on it had no emitted dispatch. New
+    // requirement (bounded-generics plan, increments 1-3): a parameter bounded
+    // by a declared class or interface lifts with a generated trait bound (see
+    // `lifts_class_bounded_type_param_with_generated_trait`), but a BUILTIN
+    // bound such as `Date` names no class item and gets no trait, so it still
+    // falls back to full erasure exactly as before. Lifting `Date` is
+    // increment 4 (a `SmeltDate` newtype to hang `DateLike` on).
     let source = source_for(
         r"
 export function invalid<D extends Date>(value: D): boolean {
@@ -188,6 +193,79 @@ export function invalid<D extends Date>(value: D): boolean {
     // No real generic parameter is declared; the parameter is erased.
     assert!(!source.contains("fn invalid<D"));
     assert!(source.contains("fn invalid(value: SmeltUnknown) -> bool"));
+    assert!(!source.contains("DateLike"), "a builtin bound gets no trait:\n{source}");
+}
+
+#[test]
+fn lifts_class_bounded_type_param_with_generated_trait() {
+    // Bounded-generics plan, increments 1-3: `A extends Animal` lifts to
+    // `A: AnimalLike + <common bounds>`. The trait carries exactly the members
+    // read through the bound — the method as a method, the field as a getter —
+    // and is implemented for the bound and its subclass, so the call through
+    // it dispatches to the receiver's own override.
+    let source = source_for(
+        r#"
+class Animal {
+  constructor(public legs: number) {}
+  speak(): string { return "..."; }
+}
+class Dog extends Animal {
+  speak(): string { return "woof"; }
+}
+export function loud<A extends Animal>(a: A): A {
+  console.log(a.speak(), a.legs);
+  return a;
+}
+export function main(): void {
+  loud(new Dog(4));
+}
+"#,
+    );
+
+    assert!(
+        source.contains(
+            "fn loud<A: AnimalLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(a: A) -> A"
+        ),
+        "the class-bounded parameter must lift with its trait:\n{source}"
+    );
+    assert!(source.contains("trait AnimalLike {"), "{source}");
+    assert!(source.contains("fn speak(&self) -> String;"), "{source}");
+    assert!(source.contains("fn legs(&self) -> f64;"), "{source}");
+    assert!(source.contains("impl AnimalLike for Animal {"), "{source}");
+    assert!(source.contains("impl AnimalLike for Dog {"), "{source}");
+    assert!(source.contains("a.speak()"), "the call goes through the trait:\n{source}");
+    assert!(source.contains("a.legs()"), "the field read is the getter:\n{source}");
+    assert!(
+        !source.contains("smelt_get_unknown_field(&a"),
+        "no erased member lookup remains in the lifted body:\n{source}"
+    );
+}
+
+#[test]
+fn bounded_type_param_written_through_keeps_erased_fallback() {
+    // A WRITE through the bound has no trait setter (a design question the
+    // plan leaves open), so the parameter keeps the erased signature and the
+    // dynamic member write it had before; the read-only sibling still lifts.
+    let source = source_for(
+        r"
+class Animal {
+  constructor(public legs: number) {}
+}
+export function grow<A extends Animal>(a: A): number {
+  a.legs = a.legs + 1;
+  return a.legs;
+}
+export function legsOf<A extends Animal>(a: A): number {
+  return a.legs;
+}
+export function main(): void {
+  console.log(grow(new Animal(1)), legsOf(new Animal(2)));
+}
+",
+    );
+
+    assert!(source.contains("fn grow(mut a: SmeltUnknown) -> f64"), "{source}");
+    assert!(source.contains("fn legs_of<A: AnimalLike + "), "{source}");
 }
 
 #[test]
