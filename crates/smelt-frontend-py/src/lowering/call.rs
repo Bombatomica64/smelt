@@ -547,6 +547,11 @@ impl ModuleBuilder<'_> {
                 callback.defaults.clone()
             });
         let callee = self.identifier_expression(name, call.func.range(), body)?;
+        if self.is_gradual_parameter_list(&function) {
+            return self
+                .gradual_callable_call(call, callee, function.return_ty, body)
+                .map(Some);
+        }
         let args = self.callable_call_args(
             call,
             body,
@@ -580,6 +585,11 @@ impl ModuleBuilder<'_> {
         let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned() else {
             return Ok(None);
         };
+        if self.is_gradual_parameter_list(&function) {
+            return self
+                .gradual_callable_call(call, callee, function.return_ty, body)
+                .map(Some);
+        }
         let defaults = vec![None; function.params.len()];
         let args = self.callable_call_args(
             call,
@@ -728,7 +738,8 @@ impl ModuleBuilder<'_> {
             args.push(self.kwargs_argument(&extra_keywords, meta.value_ty, span, body)?);
         }
         for (arg, expected) in args.iter().zip(signature.params) {
-            if Self::expr_ty(body, *arg) != *expected {
+            let supplied = Self::expr_ty(body, *arg);
+            if supplied != *expected && !self.gradual_accepts(*expected, supplied) {
                 return Err(SmeltError::unsupported(
                     span,
                     format!(
@@ -739,6 +750,77 @@ impl ModuleBuilder<'_> {
             }
         }
         Ok(args)
+    }
+
+    /// Lower a call through a `Callable[..., R]` value.
+    ///
+    /// The gradual parameter list accepts any positional arguments, so each
+    /// one is lowered with its own type and passed unpacked, as TypeScript
+    /// does for a `(...args: any[]) => R` value; codegen erases each argument
+    /// into the `Vec<SmeltUnknown>` the erased callable takes. The erased
+    /// callable has no keyword parameters, so keyword arguments are rejected
+    /// rather than dropped.
+    fn gradual_callable_call(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        callee: smelt_hir::ExprId,
+        return_ty: TypeId,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(call.range());
+        if !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                span,
+                "keyword arguments to a `Callable[..., R]` value are not supported: \
+                 the erased callable takes positional arguments only",
+            ));
+        }
+        let args = call
+            .arguments
+            .args
+            .iter()
+            .map(|arg| self.expression(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(body.push_expr(HirExpr {
+            kind: ExprKind::ClosureCall { callee, args },
+            ty: return_ty,
+            span,
+        }))
+    }
+
+    /// Whether a gradual parameter type accepts a value of another type.
+    ///
+    /// Python's `Any` (erased to `Type::Unknown`) accepts every value, and
+    /// `Callable[..., R]` (the erased callable: one rest parameter of erased
+    /// values) accepts every function returning a value its `R` accepts, the
+    /// way TypeScript's `any` and `(...args: any[]) => R` do. The value keeps
+    /// its own type in HIR; codegen inserts the boundary adapter
+    /// (`IntoSmeltUnknown`, or the `SmeltErasedFunction` wrapper) where the
+    /// concrete value enters the gradual slot.
+    fn gradual_accepts(&self, expected: TypeId, supplied: TypeId) -> bool {
+        let types = &self.ctx.krate.types;
+        match (types.get(expected), types.get(supplied)) {
+            (Some(Type::Unknown), _) => true,
+            (Some(Type::Function(gradual)), Some(Type::Function(value))) => {
+                self.is_gradual_parameter_list(gradual)
+                    && !value.is_async
+                    && !gradual.is_async
+                    && (value.return_ty == gradual.return_ty
+                        || self.gradual_accepts(gradual.return_ty, value.return_ty))
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether a function type's parameter list is the gradual `...` one that
+    /// [`Self::gradual_callable_annotation`] lowers `Callable[..., R]` to.
+    fn is_gradual_parameter_list(&self, function: &FunctionType) -> bool {
+        let types = &self.ctx.krate.types;
+        function.rest == Some(0)
+            && function.required_params == Some(0)
+            && matches!(function.params.as_slice(), [rest]
+                if matches!(types.get(*rest), Some(Type::List(item))
+                    if matches!(types.get(*item), Some(Type::Unknown))))
     }
 
     /// Packs Python keyword arguments into the lowered `**kwargs` dictionary argument.

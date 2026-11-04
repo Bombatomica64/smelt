@@ -1,0 +1,24 @@
+module examples/python/end-to-end/10_gradual_any/input.py (ModuleId(0))
+  body BodyId(4)
+  items
+    fn apply owner Module
+    fn show owner Module
+    fn run owner Module
+  exprs
+    #0: fn() -> None = @3(run)
+    #1: None = call #0()
+  stmts
+    s0: #1
+
+interned types
+  t0 = None
+  t1 = String
+  t2 = Int
+  t3 = Unknown
+  t4 = List<Unknown>
+  t5 = fn(...List<Unknown>) -> Int
+  t6 = fn(Int, Int) -> Int
+  t7 = fn(fn(...List<Unknown>) -> Int, Int) -> Int
+  t8 = fn(Unknown) -> None
+  t9 = Bool
+  t10 = fn() -> None

@@ -1,0 +1,58 @@
+fn apply (FuncId(0)) -> Int
+  locals
+    %0 param f: fn(...List<Unknown>) -> Int
+    %1 param x: Int
+    %2 temp: Int
+  bb0:
+    %2 = closure_call copy %0(copy %1, 1)
+    return move %2
+
+fn show (FuncId(1)) -> None
+  locals
+    %0 param v: Unknown
+    %1 temp: None
+  bb0:
+    %1 = call @console_log(copy %0) -> bb1
+  bb1:
+    return none
+
+fn run (FuncId(2)) -> None
+  locals
+    %0 user add: fn(Int, Int) -> Int
+    %1 temp: fn(Int, Int) -> Int
+    %2 temp: Int
+    %3 temp: None
+    %4 temp: None
+    %5 temp: None
+    %6 temp: None
+  bb0:
+    %1 = closure ClosureId(0) []
+    %2 = call fn0(move %1, 2) -> bb1
+  bb1:
+    %3 = call @console_log(move %2) -> bb2
+  bb2:
+    %4 = call fn1(3) -> bb3
+  bb3:
+    %5 = call fn1("hi") -> bb4
+  bb4:
+    %6 = call fn1(true) -> bb5
+  bb5:
+    return none
+
+fn main (FuncId(3)) -> None
+  locals
+    %0 temp: None
+  bb0:
+    %0 = call fn2() -> bb1
+  bb1:
+    return none
+
+closure ClosureId(0) -> Int
+  locals
+    %0 param __callback_param_0: Int
+    %1 param __callback_param_1: Int
+    %2 temp: Int
+  bb0:
+    %2 = copy %0 + copy %1
+    return copy %2
+

@@ -514,6 +514,10 @@ impl ModuleBuilder<'_> {
             "str" => Ok(self.intern_type(Type::String)),
             "bool" => Ok(self.intern_type(Type::Bool)),
             "None" | "NoneType" => Ok(self.intern_type(Type::None)),
+            // `typing.Any` is the gradual type: the author opted out of a
+            // static shape, exactly as TypeScript's `any` does, so it lowers
+            // the same way (an `explicit-any` erasure to `SmeltUnknown`).
+            "Any" => Ok(self.erase(smelt_hir::ErasureReason::ExplicitAny, span, "typing.Any")),
             "object" => {
                 // Top type — no exact HIR equivalent, map to opaque Class.
                 let sym = self.intern_name("object");
@@ -538,6 +542,37 @@ impl ModuleBuilder<'_> {
                 }))
             }
         }
+    }
+
+    /// Lower `Callable[..., R]`, a callable whose parameter list is gradual.
+    ///
+    /// `...` accepts any arguments, which is TypeScript's `(...args: any[]) =>
+    /// R`; it lowers to the same shape: one rest parameter of erased values
+    /// (an `explicit-any` erasure) and no required parameters. That is the
+    /// signature codegen renders as the erased callable `SmeltErasedFunction`,
+    /// called through `ClosureCall` with its arguments packed as
+    /// `SmeltUnknown`s. The return type keeps whatever `R` lowers to.
+    fn gradual_callable_annotation(
+        &mut self,
+        return_expr: &Expr,
+        span: Span,
+    ) -> Result<TypeId, SmeltError> {
+        let arg = self.erase(
+            smelt_hir::ErasureReason::ExplicitAny,
+            span,
+            "Callable[..., R] parameters",
+        );
+        let rest = self.intern_type(Type::List(arg));
+        let return_ty = self.annotation_to_hir(return_expr)?;
+        Ok(self.intern_type(Type::Function(FunctionType {
+            params: vec![rest],
+            rest: Some(0),
+            required_params: Some(0),
+            mutable_params: Vec::new(),
+            return_ty,
+            is_async: false,
+            may_throw: false,
+        })))
     }
 
     /// Lower a subscript annotation: `list[T]`, `Optional[T]`, `dict[K, V]`, …
@@ -600,6 +635,9 @@ impl ModuleBuilder<'_> {
             "Callable" => {
                 // `Callable[[P1, P2], R]`
                 let (param_list_expr, return_expr) = two_type_args(&sub.slice, span)?;
+                if let Expr::EllipsisLiteral(_) = param_list_expr {
+                    return self.gradual_callable_annotation(return_expr, span);
+                }
                 let params = if let Expr::List(l) = param_list_expr {
                     l.elts
                         .iter()
