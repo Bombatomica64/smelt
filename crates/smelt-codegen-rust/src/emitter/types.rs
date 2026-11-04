@@ -1592,11 +1592,6 @@ impl FunctionEmitter<'_> {
     /// `allow_impl_trait` stays a separate argument rather than folding into the
     /// substitution: it is a property of the render *position* (root versus
     /// nested), not of the type-parameter environment.
-    ///
-    /// Known gap: the concrete-union arm still delegates to `union_type_text`,
-    /// which consults no environment at all and spells a union's free type
-    /// parameters unconditionally. Reconciling that moves emitted bytes and is
-    /// therefore its own change.
     pub(super) fn rust_type(
         &self,
         ty: TypeId,
@@ -1888,13 +1883,12 @@ impl FunctionEmitter<'_> {
                     substitution,
                 )?
             ))),
+            // The generated enum's arguments resolve through the same
+            // substitution as every other type parameter at this position, so
+            // a parameter free here (a callable type's own `<T>`, an erased
+            // item's generics) erases instead of naming an undeclared type.
             Type::Union(_) if self.concrete_union_members(ty).is_some() => {
-                // Deliberately NOT threaded with the substitution in this
-                // increment: `union_type_text` spells the generated enum's own
-                // declared parameter names and consults no scope at all, so
-                // giving it one changes emitted output. Reconciling it is its
-                // own, separately byte-verified change.
-                self.union_type_text(ty).map(RustType::raw)
+                self.union_type_text_in(ty, substitution).map(RustType::raw)
             }
             Type::Union(arms) => {
                 self.note_backend_erasure(

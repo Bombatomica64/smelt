@@ -903,10 +903,10 @@ fn operand_type_is_erased(mir: &Mir, caller: &MirFunction, operand: &Operand) ->
 /// NOT descend into:
 /// - **`Union`** — a union erases to `SmeltUnknown` in emission, so a `T`
 ///   inside `T | string` disappears from the emitted signature and cannot be
-///   inferred (`E0283`). It is doubly true inside a callback: a *concrete*
-///   union renders through `union_type_text`, which spells the generated
-///   enum's own declared parameter names and consults no substitution at all,
-///   so the caller's parameter never reaches the emitted `Fn` bound either;
+///   inferred (`E0283`). A *concrete* union renders as its generated enum
+///   with arguments resolved through the render position's substitution, but
+///   inference through an enum argument is not modelled here, so the walk
+///   stays conservative and treats the union as opaque;
 /// - **`Function`** — a callback boundary. Reached by
 ///   [`type_param_in_callback`] as an *occurrence* walk, and as an inference
 ///   source only through [`type_param_inferable_through_callback`], which

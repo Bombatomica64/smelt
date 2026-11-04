@@ -2469,6 +2469,24 @@ impl FunctionEmitter<'_> {
             })
     }
 
+    /// The effective fields of the class or interface named `name`, at their
+    /// declared types (empty when `name` is neither).
+    fn class_or_interface_fields(&self, name: Symbol) -> Vec<MirField> {
+        self.mir
+            .classes
+            .iter()
+            .find(|class| class.name == name)
+            .map(|class| crate::classes::effective_class_fields(self.mir, class))
+            .or_else(|| {
+                self.mir
+                    .interfaces
+                    .iter()
+                    .find(|interface| interface.name == name)
+                    .map(|interface| crate::classes::effective_interface_fields(self.mir, interface))
+            })
+            .unwrap_or_default()
+    }
+
     /// Wrap a generated class or interface value into an erased object.
     ///
     /// TypeScript structural objects often reach erased helper surfaces through
@@ -2487,22 +2505,30 @@ impl FunctionEmitter<'_> {
             return Ok("SmeltUnknown::Null".to_owned());
         };
         let conversion_entry = helper_reservation::push_entry(&self.record_conversion_stack, target);
-        let fields = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == *name)
-            .map(|class| crate::classes::effective_class_fields(self.mir, class))
-            .or_else(|| {
-                self.mir
-                    .interfaces
-                    .iter()
-                    .find(|interface| interface.name == *name)
-                    .map(|interface| {
-                        crate::classes::effective_interface_fields(self.mir, interface)
-                    })
-            })
-            .unwrap_or_default();
+        // Field types at the value's own type arguments: `LazyMany<R>` stores
+        // `next: SmeltList<R>`, not the declaration's `SmeltList<T>`, and each
+        // field erases by what it holds here. Judging the declared `T` against
+        // this render scope mistook an in-scope `R` list for an erased one
+        // (E0277 `SmeltArray: From<SmeltList<R>>`).
+        //
+        // A callable field keeps its DECLARED type: which of its parameters
+        // the stored `Rc<dyn Fn>` takes by shared reference is decided on the
+        // declaration (`&T`), and the erasure adapter must call it with that
+        // ABI whatever `T` is bound to here.
+        let declared_fields = self.class_or_interface_fields(*name);
+        let fields = match self.structural_record_fields(target) {
+            Some(substituted) if substituted.len() == declared_fields.len() => substituted
+                .into_iter()
+                .zip(&declared_fields)
+                .map(|(mut field, declared)| {
+                    if matches!(self.mir.types.get(declared.ty), Some(Type::Function(_))) {
+                        field.ty = declared.ty;
+                    }
+                    field
+                })
+                .collect(),
+            _ => declared_fields,
+        };
 
         // A reference class stores its fields inside the shared `Rc<RefCell<Inner>>`
         // cell, so erasing one to a plain object must read each field through
@@ -3509,18 +3535,20 @@ impl FunctionEmitter<'_> {
                         "{{ let smelt_value = {smelt_owned_text}; let smelt_function = match smelt_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ SmeltErasedFunction {{ callback: ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| (smelt_function)(smelt_args).unwrap_or_else(|error| smelt_panic_throw(error))), length: {length}.0, object: match smelt_value {{ SmeltUnknown::Object(object) => Some(object), _ => None }} }} }} else {{ {default_callback} }} }}"
                     ));
                 }
-                let target_text = self.type_text_with_impl_trait(target, false)?;
-                let return_ty = self.type_text_with_impl_trait(function.return_ty, false)?;
-                // The adapted callback's PARAMETER types erase while
-                // `target_text` and `return_ty` above use the caller's lexical
-                // scope. Same split as `param_type_text`; threaded as a named
-                // empty substitution rather than reconciled.
+                // The callback slot and its return type render in `scope`, the
+                // same environment the return value is extracted in below, so a
+                // type parameter the scope spells (a generic union enum's own
+                // parameter inside its `from_smelt_unknown`) stays spelled.
+                let target_text = self.rust_type(target, false, &scope.substitution())?.into_string();
+                let return_ty = self.rust_type(function.return_ty, false, &scope.substitution())?.into_string();
+                // The adapter closure is cast to `target_text`, so its
+                // PARAMETER types render in the same `scope`: a parameter the
+                // scope spells (`&T`) must be bound as `&T`, or the closure
+                // does not coerce to the slot (E0631). Each argument is then
+                // erased through `IntoSmeltUnknown`, which every spelled
+                // parameter's bound provides.
                 let params = self
-                    .callback_arg_decls(
-                        function,
-                        &TypeSubstitution::erased(),
-                        MutablePrefix::Apply,
-                    )?
+                    .callback_arg_decls(function, &scope.substitution(), MutablePrefix::Apply)?
                     .join(", ");
                 let args = self.unknown_function_call_args_text(function)?;
                 let call_text = if function.may_throw {

@@ -233,6 +233,34 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(child)
     }
 
+    /// An emitter for a generated module-level item that declares exactly
+    /// `type_params` (a generic union enum `SmeltUnionN<T, ..>` and its impl
+    /// blocks), rendering in that item's scope rather than `function`'s.
+    ///
+    /// `function` only supplies the emitter's MIR context; none of its own
+    /// generics, locals or erasure decisions apply to the item. Every render
+    /// inside the item (member types, `IntoSmeltUnknown` and
+    /// `from_smelt_unknown` bodies) spells exactly `type_params`, which the
+    /// item's `impl<..>` header declares, and erases any other parameter.
+    /// The scope is carried by the [`emit_role::EmitRole::Closure`] role,
+    /// whose `enclosing_type_params` is precisely "the parameters the
+    /// enclosing Rust output declares".
+    pub(crate) fn for_generated_item(
+        mir: &'mir Mir,
+        context: &'mir EmitContext,
+        function: &'mir MirFunction,
+        type_params: HashSet<Symbol>,
+    ) -> Result<Self, EmitError> {
+        let mut emitter = Self::new(mir, context, function)?;
+        emitter.role = emit_role::EmitRole::Closure(emit_role::ClosureScope {
+            enclosing_type_params: type_params,
+            trial_function: None,
+            inherited_type_args: HashMap::new(),
+            base_initializer: None,
+        });
+        Ok(emitter)
+    }
+
     /// Apply the crate-wide generic decision ([`emit_role::crate_generic_decision`])
     /// to an emitter in the [`emit_role::EmitRole::Own`] role; other roles have
     /// no own generics to decide.

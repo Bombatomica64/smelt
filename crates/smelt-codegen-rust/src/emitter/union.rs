@@ -13,8 +13,56 @@ pub(crate) fn union_name(ty: TypeId) -> String {
 }
 
 impl FunctionEmitter<'_> {
-    /// Render a concrete union storage type including its scoped generic arguments.
+    /// Render a concrete union storage type at a use site of the current
+    /// function, with its generic arguments resolved in this function's
+    /// lexical type-parameter scope (see [`Self::union_type_text_in`]).
     pub(super) fn union_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
+        self.union_type_text_in(ty, &self.render_scope().substitution())
+    }
+
+    /// Render a concrete union storage type at a use site, resolving each of
+    /// the generated enum's type parameters through `substitution`.
+    ///
+    /// The enum `SmeltUnionN<T, ..>` declares every free type parameter its
+    /// members mention (in [`Self::union_type_params`] order), and a use site
+    /// passes one argument per declared parameter. Each argument is the
+    /// parameter rendered like any other `Type::TypeParam` at this position:
+    /// spelled when the enclosing item declares it, bound when a call site
+    /// pinned it, and `SmeltUnknown` when it is free here. A parameter is free
+    /// at a use site when it is bound by something the Rust item cannot
+    /// declare: the own type parameter of a callable TYPE
+    /// (`newRouter: <T>() => Router<T>`, a polymorphic value no `Rc<dyn Fn>`
+    /// can carry) or of an item whose generics are erased (a lifted generic
+    /// arrow, a method). Spelling the raw name there referenced a type the
+    /// item never declares (E0425 `cannot find type T`).
+    pub(super) fn union_type_text_in(
+        &self,
+        ty: TypeId,
+        substitution: &TypeSubstitution<'_>,
+    ) -> Result<String, EmitError> {
+        let params = self.union_type_params(ty)?;
+        if params.is_empty() {
+            return Ok(union_name(ty));
+        }
+        let args = params
+            .iter()
+            .map(|param| {
+                let param_ty = self
+                    .mir
+                    .types
+                    .lookup(&Type::TypeParam { name: *param })
+                    .ok_or_else(|| EmitError::new("union type parameter is not interned"))?;
+                Ok(self.rust_type(param_ty, false, substitution)?.into_string())
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?
+            .join(", ");
+        Ok(format!("{}<{args}>", union_name(ty)))
+    }
+
+    /// Spell a concrete union with the generated enum's OWN declared
+    /// parameter names (`SmeltUnionN<T>`), for the enum's definition and impl
+    /// blocks, where those names are in scope by construction.
+    pub(super) fn union_declared_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
         let params = self.union_type_params(ty)?;
         if params.is_empty() {
             return Ok(union_name(ty));
@@ -269,6 +317,25 @@ impl FunctionEmitter<'_> {
         };
         if let Some(index) = members.iter().position(|member| *member == source) {
             return Ok(Some(format!("{}::M{index}({value_text})", union_name(target))));
+        }
+        // A member that is itself a generated union (`number | ResponseOrInit`
+        // where `ResponseOrInit = ResponseInit | Response`, kept as its own
+        // enum) holds the source as one of ITS exact arms: wrap twice. Only an
+        // exact nested arm counts, and only when exactly one member union has
+        // it, so the choice stays as unambiguous as the direct match above.
+        let nested = members
+            .iter()
+            .enumerate()
+            .filter(|(_, member)| {
+                self.concrete_union_members(**member)
+                    .is_some_and(|inner| inner.contains(&source))
+            })
+            .map(|(index, member)| (index, *member))
+            .collect::<Vec<_>>();
+        if let [(index, member)] = nested.as_slice()
+            && let Some(inner) = self.inject_union_value_text(value_text, source, *member, scope)?
+        {
+            return Ok(Some(format!("{}::M{index}({inner})", union_name(target))));
         }
         // Structural injection: the source is not an exact member but shares a
         // single member's collection shape (for example an empty
@@ -701,8 +768,9 @@ impl FunctionEmitter<'_> {
     pub(super) fn union_from_smelt_unknown_body_in_scope(
         &self,
         members: &[TypeId],
-        substitution: &TypeSubstitution<'_>,
+        member_scope: &HashSet<Symbol>,
     ) -> Result<String, EmitError> {
+        let substitution = &TypeSubstitution::callee_emission(member_scope);
         let order = self.union_recovery_order(members);
         let mut body = String::new();
         // A modeled host class (a `ReadableStream` body, a `Blob`, a typed
@@ -738,7 +806,15 @@ impl FunctionEmitter<'_> {
             };
             let mut member_params = Vec::new();
             self.collect_union_type_params(member, &mut member_params)?;
-            let extracted = if member_params
+            // A callable member has no `SmeltFromUnknown` impl (an
+            // `Rc<dyn Fn>` is rebuilt as an adapter closure around the erased
+            // function), so it takes the value-extraction path rendered in the
+            // enum's own scope, which spells its parameters like the trait
+            // path does.
+            let is_callable = matches!(self.mir.types.get(member), Some(Type::Function(_)));
+            let extracted = if is_callable {
+                self.extract_value_text("value", member, &RenderScope::lexical(member_scope.clone()))?
+            } else if member_params
                 .iter()
                 .any(|param| substitution.spells(*param))
             {
@@ -1577,6 +1653,17 @@ pub(crate) fn emit_union_definitions(
         };
         let name = union_name(type_id);
         let params = emitter.union_type_params(type_id)?;
+        // Everything inside the enum and its impl blocks renders in the enum's
+        // own scope: exactly the parameters its headers declare. The probing
+        // emitter above renders in the first function's scope, which neither
+        // declares the enum's parameters nor may leak its own into the enum.
+        let scoped = FunctionEmitter::for_generated_item(
+            mir,
+            context,
+            function,
+            params.iter().copied().collect(),
+        )?;
+        let emitter = &scoped;
         let declaration_generics = if params.is_empty() {
             String::new()
         } else {
@@ -1616,7 +1703,7 @@ pub(crate) fn emit_union_definitions(
         // and is not weakened by it: it routes through the erased view, which
         // needs `IntoSmeltUnknown` anyway.
         let default_generics = impl_generics.clone();
-        let target = emitter.union_type_text(type_id)?;
+        let target = emitter.union_declared_type_text(type_id)?;
         // Render the members in the enum's OWN type-parameter environment. The
         // default environment is the first function's lexical scope, which does
         // not declare the union's parameters, so a member mentioning one erased
@@ -1626,9 +1713,8 @@ pub(crate) fn emit_union_definitions(
         // carried discarded, and `T` uninferable at any construction site
         // (E0282). `declaration_generics` is derived from exactly these
         // parameters, so spelling them here is what makes the declaration and its
-        // members agree. The enum declaration members now use the enum's own
-        // environment; the "known gap" recorded on `FunctionEmitter::rust_type`
-        // stays open.
+        // members agree. Use sites pass one argument per parameter, resolved
+        // in their own scope (`FunctionEmitter::union_type_text_in`).
         let member_scope: ::std::collections::HashSet<Symbol> = params.iter().copied().collect();
         let member_substitution = TypeSubstitution::callee_emission(&member_scope);
         output.push_str("#[derive(Clone)]\n");
@@ -1671,7 +1757,7 @@ pub(crate) fn emit_union_definitions(
         output.push_str(&format!("impl{impl_generics} {target} {{\n"));
         output.push_str("    fn from_smelt_unknown(value: SmeltUnknown) -> Self {\n");
         output.push_str(
-            &emitter.union_from_smelt_unknown_body_in_scope(members, &member_substitution)?,
+            &emitter.union_from_smelt_unknown_body_in_scope(members, &member_scope)?,
         );
         output.push_str("    }\n}\n");
         output.push_str(&format!("impl{impl_generics} PartialEq for {target} {{\n"));
