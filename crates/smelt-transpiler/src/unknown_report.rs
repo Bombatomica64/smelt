@@ -76,6 +76,8 @@ pub(crate) struct UnknownReportOptions<'a> {
     /// against a baseline is advisory by default: it surfaces regressions without
     /// failing the command, so intentional boundary additions are never blocked.
     pub(crate) baseline: Option<PathBuf>,
+    /// Rewrite `baseline` with this scan, unless avoidable erasure rose.
+    pub(crate) update_baseline: bool,
     /// Explicit `smelt-erasure.json` sidecars to read (`--erasure`). Besides
     /// these, a sidecar beside a scanned directory (`<root>/../smelt-erasure.json`,
     /// the layout `smelt build` writes next to `src/`) or inside it is read
@@ -213,14 +215,21 @@ pub(crate) fn unknown_report(
     }
     let scanned = &scan.report;
     let baseline = match &options.baseline {
+        Some(path) if options.update_baseline && !path.is_file() => None,
         Some(path) => Some(report::load_json::<UnknownReport>(path, "baseline ")?),
         None => None,
     };
+    if options.update_baseline
+        && let Some(path) = &options.baseline
+    {
+        let updated = updated_baseline(scanned, baseline.as_ref());
+        report::write_if_changed(path, &serde_json::to_string_pretty(updated)?)?;
+    }
     let rendered = match options.format {
         ReportFormat::Json => serde_json::to_string_pretty(scanned)?,
         ReportFormat::Markdown => render_markdown(scanned, baseline.as_ref()),
     };
-    let regression = detect_regression(&scan, baseline.as_ref());
+    let regression = baseline.as_ref().and_then(|prior| detect_regression(&scan, prior));
     Ok(GatedOutcome {
         rendered,
         regression: regression.as_ref().map(regression_message),
@@ -275,15 +284,26 @@ fn regression_message(regression: &Regression) -> String {
     message
 }
 
+/// The report `--update-baseline` writes: the scan, unless avoidable erasure
+/// rose above `baseline`, which then stands, so a regression can never be
+/// snapshotted. The report has no per-file records to keep selectively, so the
+/// guard is on the corpus total the gate itself judges.
+fn updated_baseline<'report>(
+    scanned: &'report UnknownReport,
+    baseline: Option<&'report UnknownReport>,
+) -> &'report UnknownReport {
+    let avoidable = |report: &UnknownReport| report.category_total(Category::AvoidableErasure);
+    baseline.filter(|prior| avoidable(scanned) > avoidable(prior)).unwrap_or(scanned)
+}
+
 /// Compute an avoidable-erasure [`Regression`] versus `baseline`, if any.
 ///
-/// Returns `None` when there is no baseline, or when avoidable erasure did not
-/// rise above it — a flat or falling count is never a regression. The top
+/// Returns `None` when avoidable erasure did not rise above the baseline — a
+/// flat or falling count is never a regression. The top
 /// offending files are ranked by their avoidable-erasure occurrence count in the
 /// current scan, so the message points reviewers at where to look first.
-fn detect_regression(scan: &ScanResult, baseline: Option<&UnknownReport>) -> Option<Regression> {
-    let baseline_report = baseline?;
-    let baseline_avoidable = baseline_report.category_total(Category::AvoidableErasure);
+fn detect_regression(scan: &ScanResult, baseline: &UnknownReport) -> Option<Regression> {
+    let baseline_avoidable = baseline.category_total(Category::AvoidableErasure);
     let current_avoidable = scan.report.category_total(Category::AvoidableErasure);
     let delta = current_avoidable.checked_sub(baseline_avoidable)?;
     if delta == 0 {
@@ -2127,7 +2147,7 @@ mod tests {
     fn detect_regression_flags_increase_with_top_files() {
         let scan = fixture_scan(10, &[("a.rs", 2), ("b.rs", 7), ("c.rs", 1)]);
         let baseline = fixture_baseline(4);
-        let regression = detect_regression(&scan, Some(&baseline)).expect("increase is a regression");
+        let regression = detect_regression(&scan, &baseline).expect("increase is a regression");
         assert_eq!(regression.baseline, 4);
         assert_eq!(regression.current, 10);
         assert_eq!(regression.delta, 6);
@@ -2141,16 +2161,76 @@ mod tests {
     #[test]
     fn detect_regression_ignores_flat_and_decrease() {
         let flat = fixture_scan(4, &[("a.rs", 4)]);
-        assert!(detect_regression(&flat, Some(&fixture_baseline(4))).is_none());
+        assert!(detect_regression(&flat, &fixture_baseline(4)).is_none());
         let lower = fixture_scan(2, &[("a.rs", 2)]);
-        assert!(detect_regression(&lower, Some(&fixture_baseline(9))).is_none());
+        assert!(detect_regression(&lower, &fixture_baseline(9)).is_none());
     }
 
-    /// Without a baseline there is nothing to regress against.
+    /// A gate needs a baseline to compare against.
+    ///
+    /// Old requirement: `--fail-on-regression` without `--baseline` was accepted
+    /// and exited 0, which let a gate pass without measuring anything. New
+    /// requirement: clap rejects that command line, and [`detect_regression`]
+    /// takes a baseline by value, so no path reaches it without one.
     #[test]
     fn detect_regression_requires_baseline() {
-        let scan = fixture_scan(99, &[("a.rs", 99)]);
-        assert!(detect_regression(&scan, None).is_none());
+        use clap::Parser as _;
+        let gate = ["smelt", "smelt-unknown-report", "src", "--fail-on-regression"];
+        let error = crate::cli_parser::Args::try_parse_from(gate).expect_err("no baseline");
+        assert_eq!(error.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+        assert!(error.to_string().contains("--baseline"), "{error}");
+    }
+
+    /// A scanned tree holding `avoidable` erased struct fields.
+    fn scanned_tree(avoidable: usize) -> tempfile::TempDir {
+        let tree = tempfile::tempdir().expect("temp dir");
+        let fields = "    value: SmeltUnknown,\n".repeat(avoidable);
+        std::fs::write(tree.path().join("a.rs"), format!("struct S {{\n{fields}}}\n")).expect("source");
+        tree
+    }
+
+    /// Run `--update-baseline` over `tree`, returning the gate's verdict.
+    fn update(tree: &Path, baseline: &Path) -> GatedOutcome {
+        unknown_report(&UnknownReportOptions {
+            roots: &[tree.to_path_buf()],
+            format: ReportFormat::Json,
+            baseline: Some(baseline.to_path_buf()),
+            update_baseline: true,
+            erasure_sidecars: &[],
+        })
+        .expect("report")
+    }
+
+    fn avoidable_in(baseline: &Path) -> usize {
+        report::load_json::<UnknownReport>(baseline, "")
+            .expect("baseline")
+            .category_total(Category::AvoidableErasure)
+    }
+
+    /// A rise in avoidable erasure can never be snapshotted: the old baseline
+    /// stays byte for byte and the regression is still reported.
+    #[test]
+    fn update_baseline_refuses_a_regression() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let baseline = dir.path().join("baseline.json");
+        update(scanned_tree(1).path(), &baseline);
+        assert_eq!(avoidable_in(&baseline), 1, "a first update creates the baseline");
+        let before = std::fs::read(&baseline).expect("baseline");
+
+        let outcome = update(scanned_tree(3).path(), &baseline);
+        assert_eq!(std::fs::read(&baseline).expect("baseline"), before);
+        assert!(outcome.regression.is_some());
+    }
+
+    /// A flat or falling count is taken, as the policy's re-snapshot requires.
+    #[test]
+    fn update_baseline_takes_a_fall() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let baseline = dir.path().join("baseline.json");
+        update(scanned_tree(3).path(), &baseline);
+        let outcome = update(scanned_tree(1).path(), &baseline);
+        assert_eq!(avoidable_in(&baseline), 1);
+        assert!(outcome.regression.is_none());
     }
 
     /// The top-offenders list is capped so a huge corpus yields a readable message.
@@ -2165,7 +2245,7 @@ mod tests {
             .collect();
         let scan = fixture_scan(1000, &refs);
         let regression =
-            detect_regression(&scan, Some(&fixture_baseline(0))).expect("increase is a regression");
+            detect_regression(&scan, &fixture_baseline(0)).expect("increase is a regression");
         assert_eq!(regression.top_files.len(), TOP_OFFENDER_LIMIT);
         // The single largest contributor leads.
         assert_eq!(regression.top_files[0].1, 25);

@@ -79,8 +79,7 @@ pub fn run() -> CliResult<()> {
         }
         Command::TypednessReport {
             paths,
-            gate: GateArgs { format, baseline, fail_on_regression, output },
-            update_baseline,
+            gate: GateArgs { format, baseline, fail_on_regression, update_baseline, output },
         } => {
             let input_paths = paths.iter().map(PathBuf::from).collect::<Vec<_>>();
             let outcome =
@@ -97,7 +96,7 @@ pub fn run() -> CliResult<()> {
         }
         Command::SmeltUnknownReport {
             roots,
-            gate: GateArgs { format, baseline, fail_on_regression, output },
+            gate: GateArgs { format, baseline, fail_on_regression, update_baseline, output },
             erasure: erasure_sidecars,
         } => {
             let root_paths = roots.iter().map(PathBuf::from).collect::<Vec<_>>();
@@ -106,6 +105,7 @@ pub fn run() -> CliResult<()> {
                 roots: &root_paths,
                 format,
                 baseline: baseline.as_deref().map(PathBuf::from),
+                update_baseline,
                 erasure_sidecars: &sidecar_paths,
             })?;
             report::finish_gated(&outcome, output.as_deref(), fail_on_regression)?;

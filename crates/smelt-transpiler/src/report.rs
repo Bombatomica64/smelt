@@ -68,6 +68,16 @@ pub(crate) fn finish_gated(
     Ok(())
 }
 
+/// Write `text` to `path` only when its bytes change, preserving the mtime of an
+/// unchanged file.
+pub(crate) fn write_if_changed(path: &Path, text: &str) -> CliResult<()> {
+    if std::fs::read_to_string(path).is_ok_and(|existing| existing == text) {
+        return Ok(());
+    }
+    std::fs::write(path, text)?;
+    Ok(())
+}
+
 /// Load a JSON report, naming the offending path on failure.
 ///
 /// `kind` prefixes the path in the message: `"baseline "` for a file that can

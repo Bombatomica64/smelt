@@ -233,12 +233,7 @@ fn render_json(report: &TypednessReport) -> CliResult<String> {
 
 /// Write a report to `path` only when its bytes change.
 pub(crate) fn write_report_if_changed(path: &Path, report: &TypednessReport) -> CliResult<()> {
-    let text = render_json(report)?;
-    if std::fs::read_to_string(path).is_ok_and(|existing| existing == text) {
-        return Ok(());
-    }
-    std::fs::write(path, text)?;
-    Ok(())
+    report::write_if_changed(path, &render_json(report)?)
 }
 
 /// The three kinds, by name.

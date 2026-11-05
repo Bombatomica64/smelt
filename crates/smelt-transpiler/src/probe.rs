@@ -352,7 +352,19 @@ fn measure_tests(config: &Config, manifest_dir: &Path) -> CliResult<TestOutcome>
         include_diagnostics: false,
         suppress_warnings: true,
     })?;
-    let (passed, failed) = parse_test_counts(&report).unwrap_or((0, 0));
+    test_outcome(&report, &cargo_manifest)
+}
+
+/// The counts of a generated test report; a report without them means the suite
+/// never ran, which must not read as zero failures.
+fn test_outcome(report: &str, cargo_manifest: &Path) -> CliResult<TestOutcome> {
+    let (passed, failed) = parse_test_counts(report).ok_or_else(|| {
+        format!(
+            "the generated test suite of `{}` reported no `N passed; M failed` summary, \
+             so it did not run",
+            cargo_manifest.display()
+        )
+    })?;
     Ok(TestOutcome { passed, failed })
 }
 
@@ -708,6 +720,18 @@ mod tests {
     fn parses_test_counts() {
         let line = "test result: FAILED. 1768 passed; 21 failed; 0 ignored";
         assert_eq!(parse_test_counts(line), Some((1768, 21)));
+    }
+
+    /// A suite that never reported a summary is an error, not zero failures.
+    #[test]
+    fn missing_test_summary_is_an_error() {
+        let manifest = Path::new("dist/Cargo.toml");
+        let error = test_outcome("# Generated Rust Test Report\n", manifest)
+            .err()
+            .expect("no summary");
+        assert!(error.to_string().contains("dist/Cargo.toml"), "{error}");
+        let outcome = test_outcome("test result: ok. 3 passed; 1 failed;", manifest).expect("summary");
+        assert_eq!((outcome.passed, outcome.failed), (3, 1));
     }
 
     /// The first source path is pulled out of a build error string.

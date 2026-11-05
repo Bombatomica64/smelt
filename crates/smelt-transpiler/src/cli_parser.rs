@@ -250,11 +250,6 @@ pub enum Command {
         /// Format, destination and baseline gate of the report.
         #[command(flatten)]
         gate: GateArgs,
-
-        /// Rewrite `--baseline`, taking each program's new record only when it
-        /// is no less typed (a regression keeps its old record).
-        #[arg(long)]
-        update_baseline: bool,
     },
 
     /// Classify list-typed MIR locals as escaping, aliased, or frame-local
@@ -353,8 +348,13 @@ pub struct GateArgs {
 
     /// Exit nonzero on a regression against `--baseline`. Off by default: the
     /// report stays advisory unless a gate opts in.
-    #[arg(long)]
+    #[arg(long, requires = "baseline")]
     pub fail_on_regression: bool,
+
+    /// Rewrite `--baseline` with what was measured, keeping the old record
+    /// wherever the measurement regressed.
+    #[arg(long, requires = "baseline")]
+    pub update_baseline: bool,
 
     /// Write the report to this file instead of stdout.
     #[arg(long, value_name = "PATH")]
@@ -424,6 +424,22 @@ mod tests {
             parse(&["smelt", "check"]),
             Command::Check { message_format: MessageFormat::Human, .. }
         ));
+    }
+
+    /// A gate with nothing to compare against would pass vacuously, and an
+    /// update with nowhere to write would do nothing, so clap refuses both.
+    #[test]
+    fn gate_flags_require_a_baseline() {
+        for report in [["smelt", "smelt-unknown-report", "src"], ["smelt", "typedness-report", "src"]] {
+            for flag in ["--fail-on-regression", "--update-baseline"] {
+                let mut argv = report.to_vec();
+                argv.push(flag);
+                let error = Args::try_parse_from(&argv).expect_err("no baseline");
+                assert_eq!(error.kind(), clap::error::ErrorKind::MissingRequiredArgument, "{argv:?}");
+                argv.extend(["--baseline", "base.json"]);
+                assert!(Args::try_parse_from(&argv).is_ok(), "{argv:?}");
+            }
+        }
     }
 
     #[test]
