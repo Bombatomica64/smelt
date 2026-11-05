@@ -54,29 +54,8 @@ pub(crate) fn print_mir(krate: &smelt_hir::Crate) -> Result<(), Box<dyn std::err
 pub(crate) fn lower_to_optimized_mir(
     krate: &smelt_hir::Crate,
 ) -> Result<smelt_mir::Mir, Box<dyn std::error::Error>> {
-    let mut mir = timing::measure("mir.lower_hir", || {
-        smelt_mir::lower_hir(krate).map_err(|errors| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("MIR lowering failed:\n{errors:#?}"),
-            )
-        })
-    })?;
-    timing::measure("mir.optimize", || {
-        smelt_mir::opt::optimize(&mut mir);
-        Ok::<(), Box<dyn std::error::Error>>(())
-    })?;
-    let validation_errors = timing::measure("mir.validate", || {
-        Ok::<_, Box<dyn std::error::Error>>(smelt_mir::validate(&mir))
-    })?;
-    if !validation_errors.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("MIR validation failed:\n{validation_errors:#?}"),
-        )
-        .into());
-    }
-    Ok(mir)
+    smelt_mir::compile_observed(krate, timing::report)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()).into())
 }
 
 /// Builds a Rust crate from manifest configuration, with the manifest's own

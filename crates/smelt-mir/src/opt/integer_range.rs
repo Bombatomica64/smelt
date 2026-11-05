@@ -44,7 +44,6 @@ use std::collections::{HashMap, HashSet};
 
 use smelt_hir::{BinOp, IntWidth, PrimitiveCastOp, Type, TypeId, TypeInterner, UnaryOp};
 
-use super::FinalPass;
 use crate::{
     AbsentSpelling, BasicBlock, BlockId, Constant, GlobalProjection, LocalDecl, LocalId,
     LocalKind, Mir, Operand, Place, Rvalue, Statement, Terminator,
@@ -77,14 +76,9 @@ const MAX_ROUNDS: usize = 64;
 #[derive(Debug, Default)]
 pub struct IntegerRange;
 
-impl FinalPass for IntegerRange {
-    /// Returns the stable identifier of this pass.
-    fn name(&self) -> &'static str {
-        "integer-range"
-    }
-
+impl IntegerRange {
     /// Retypes proven locals in every JavaScript function and closure body.
-    fn run(&self, mir: &mut Mir) -> bool {
+    pub fn run(&self, mir: &mut Mir) -> bool {
         let Mir {
             functions,
             closures,

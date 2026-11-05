@@ -131,11 +131,6 @@ use super::local_use::local_decl;
 pub struct DictEntryUpdate;
 
 impl Pass for DictEntryUpdate {
-    /// Returns the stable identifier of this pass.
-    fn name(&self) -> &'static str {
-        "dict-entry-update"
-    }
-
     /// Applies the pass to `mir`, returning true if it was modified.
     fn run(&self, mir: &mut Mir) -> bool {
         let mut changed = false;

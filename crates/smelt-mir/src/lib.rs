@@ -31,6 +31,8 @@
     reason = "MIR structs are constructed across workspace crates during lowering and tests"
 )]
 
+/// The MIR stage as one call: lower, optimize, validate.
+mod compile;
 /// Promote erased-and-mutated record locals to an erased value representation.
 mod erased_record_promote;
 /// Compact MIR formatting utilities.
@@ -50,6 +52,7 @@ mod types;
 /// MIR validation and diagnostics.
 mod validate;
 
+pub use compile::{CompileError, compile, compile_observed};
 pub use erased_record_promote::promote_erased_mutated_records;
 pub use format::format_compact;
 pub use list_escape::{
