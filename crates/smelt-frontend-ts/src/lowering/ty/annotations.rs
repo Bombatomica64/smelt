@@ -251,14 +251,21 @@ impl ModuleBuilder<'_> {
                 }
                 let mut meaningful = Vec::new();
                 let mut fields = Vec::new();
+                // Whether some non-function member has no readable fields
+                // (a type parameter `TObj`, an opaque alias). Attached to a
+                // function arm, such a member's properties would be dropped.
+                let mut unreadable_object_member = false;
                 for member in &intersection.types {
                     if matches!(member, TSType::TSTypeLiteral(lit) if lit.members.is_empty()) {
                         continue;
                     }
-                    if let Ok(member_fields) = self.type_fields_from_ts(member) {
-                        fields.extend(member_fields);
-                    }
-                    meaningful.push(self.ts_type_to_hir(member)?);
+                    let member_fields = self.type_fields_from_ts(member);
+                    let member_ty = self.ts_type_to_hir(member)?;
+                    let member_fields = member_fields.unwrap_or_default();
+                    unreadable_object_member |= member_fields.is_empty()
+                        && !matches!(self.ctx.krate.types.get(member_ty), Some(Type::Function(_)));
+                    fields.extend(member_fields);
+                    meaningful.push(member_ty);
                 }
                 match meaningful.as_slice() {
                     [] => Ok(self.ctx.krate.types.intern(Type::None)),
@@ -267,6 +274,16 @@ impl ModuleBuilder<'_> {
                         matches!(self.ctx.krate.types.get(*member_ty), Some(Type::Function(_)))
                     }) =>
                     {
+                        // A function intersected with an object whose fields
+                        // are not known (`(() => void) & TObj`) is a callable
+                        // object with an open property set. Narrowing it to
+                        // the function arm would claim keyed reads and
+                        // `Object.assign` copies of it are reads of a bare
+                        // function; the honest answer is the erased callable
+                        // object, as for `ts_type_is_callable_object_surface`.
+                        if unreadable_object_member {
+                            return Ok(self.erase(ErasureReason::UnmodeledType));
+                        }
                         let function_ty = *meaningful
                             .iter()
                             .find(|member_ty| {
@@ -716,10 +733,53 @@ return_ty: function.return_ty,
     }
 
     /// Convert an inline TypeScript object type into Smelt's record-like dict type.
+    /// Whether every member of a type literal names an `Object.prototype`
+    /// member, so that every object satisfies it (see `type_literal_to_hir`).
+    fn type_literal_is_object_prototype_surface(literal: &oxc::ast::ast::TSTypeLiteral<'_>) -> bool {
+        const OBJECT_PROTOTYPE_MEMBERS: [&str; 6] = [
+            "toString",
+            "toLocaleString",
+            "valueOf",
+            "hasOwnProperty",
+            "isPrototypeOf",
+            "propertyIsEnumerable",
+        ];
+        !literal.members.is_empty()
+            && literal.members.iter().all(|member| {
+                let key = match member {
+                    TSSignature::TSPropertySignature(property) if !property.computed => &property.key,
+                    TSSignature::TSMethodSignature(method) if !method.computed => &method.key,
+                    _ => return false,
+                };
+                let name = match key {
+                    oxc::ast::ast::PropertyKey::StaticIdentifier(identifier) => {
+                        std::borrow::Cow::Borrowed(identifier.name.as_str())
+                    }
+                    oxc::ast::ast::PropertyKey::StringLiteral(literal) => {
+                        crate::lowering::js_text::js_str_text(literal.value)
+                    }
+                    _ => return false,
+                };
+                OBJECT_PROTOTYPE_MEMBERS.contains(&name.as_ref())
+            })
+    }
+
     pub(in crate::lowering) fn type_literal_to_hir(
         &mut self,
         literal: &oxc::ast::ast::TSTypeLiteral<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
+        // A type literal every member of which `Object.prototype` already
+        // supplies (`{ toString: () => string }`, `{ valueOf(): number }`)
+        // states no layout: EVERY object satisfies it through its prototype,
+        // a `Date` or a class instance included, so it is the open-layout
+        // boundary `object` is (`ErasureReason::OpenLayout`), not a record of
+        // those members. Lowering it as a record rebuilt any value reaching it
+        // from its own entries and lost the rest: remeda's `Comparable`
+        // (`... | { valueOf(): ComparablePrimitive }`) turned each `Date` into
+        // a record of no-op callbacks, so `firstBy`/`sortBy` compared `NaN`s.
+        if Self::type_literal_is_object_prototype_surface(literal) {
+            return Ok(self.erase(ErasureReason::OpenLayout));
+        }
         // A type literal that is callable *and* carries named members is a
         // callable object, not a bare function: it lowers to the same
         // callable-interface class the `interface` spelling produces (see
@@ -851,7 +911,8 @@ return_ty: function.return_ty,
                 member_tys.push(self.ts_type_to_hir(&index.type_annotation.type_annotation)?);
             }
         }
-        for field in self.type_literal_fields(literal)? {
+        let fields = self.type_literal_fields(literal)?;
+        for field in &fields {
             member_tys.push(if field.optional {
                 self.ctx.krate.types.intern(Type::Optional(field.ty))
             } else {
@@ -877,6 +938,11 @@ return_ty: function.return_ty,
                     value_tys.push(arm);
                 }
             }
+        }
+        // Fields of different types have no common `Dict` value type: the
+        // merged union would retype every field (see `decls::anonymous_record`).
+        if let Some(record_ty) = self.anonymous_record_literal_type(literal, &fields) {
+            return Ok(record_ty);
         }
         let value_ty = match value_tys.as_slice() {
             [] => self.ctx.krate.types.intern(Type::None),

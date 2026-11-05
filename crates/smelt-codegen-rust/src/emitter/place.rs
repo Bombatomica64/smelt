@@ -88,6 +88,15 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(format!("({}.len() as f64)", self.local_value_text(*base)?));
                 }
+                // A tuple's `.length` is its arity, fixed by its type. Rust
+                // tuples have no `length` field, so the raw fallback below
+                // was E0609.
+                if let Some(Type::Tuple(items)) = self.mir.types.get(base_ty)
+                    && smelt_stdlib::typescript_field_rule(self.symbol_source_name(*field)?)
+                        == Some(smelt_stdlib::FieldRule::TsLength)
+                {
+                    return Ok(format!("{}.0", items.len()));
+                }
                 // A value whose static type is a GENERATED union is dispatched
                 // through its own enum arms: when every arm declares the
                 // property at one type, the read is that type and each arm
@@ -274,14 +283,15 @@ impl FunctionEmitter<'_> {
                 {
                     let base_text = self.local_value_text(*base)?;
                     let field_name = sanitize_ident(self.symbol_name(*field)?);
-                    return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
-                        Ok(format!(
-                            "{base_text}.as_ref().and_then(|_smelt_value| _smelt_value.{field_name}.clone())"
-                        ))
+                    let read = if crate::accessor_prelude::is_accessor_field_of_type(self.mir, *inner, *field) {
+                        crate::accessor_prelude::read_text(&format!("_smelt_value.{field_name}"))
                     } else {
-                        Ok(format!(
-                            "{base_text}.as_ref().map(|_smelt_value| _smelt_value.{field_name}.clone())"
-                        ))
+                        format!("_smelt_value.{field_name}.clone()")
+                    };
+                    return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
+                        Ok(format!("{base_text}.as_ref().and_then(|_smelt_value| {read})"))
+                    } else {
+                        Ok(format!("{base_text}.as_ref().map(|_smelt_value| {read})"))
                     };
                 }
                 // A JavaScript function is an object: a property read on one
@@ -426,11 +436,17 @@ impl FunctionEmitter<'_> {
                         sanitize_ident(self.symbol_name(*field)?)
                     ));
                 }
-                Ok(format!(
+                let field_text = format!(
                     "{}.{}",
                     self.local_value_text(*base)?,
                     sanitize_ident(self.symbol_name(*field)?)
-                ))
+                );
+                // An accessor field runs its getter on every read; see
+                // `crate::accessor_prelude`.
+                if crate::accessor_prelude::is_accessor_field_of_type(self.mir, base_ty, *field) {
+                    return Ok(crate::accessor_prelude::read_text(&field_text));
+                }
+                Ok(field_text)
             }
             Place::Index {
                 base,

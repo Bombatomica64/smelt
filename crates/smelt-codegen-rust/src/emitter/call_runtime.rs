@@ -318,10 +318,22 @@ impl FunctionEmitter<'_> {
             // key, the rendered name is the Rust struct field.
             let source_name = self.symbol_source_name(field.name)?;
             let field_name = sanitize_ident(self.symbol_name(field.name)?);
+            let accessor = crate::accessor_prelude::is_accessor_field(self.mir, *name, field.name);
             let value = if let Some(entry_value) = literal_entries.get(source_name) {
-                self.value_at_type(entry_value, field.ty)?
+                // The literal's getter becomes the field's accessor; a plain
+                // value at an accessor field answers itself on every read.
+                if accessor
+                    && matches!(self.mir.types.get(self.operand_ty(entry_value)?), Some(Type::Function(getter)) if getter.params.is_empty())
+                {
+                    crate::accessor_prelude::getter_text(&self.operand_text(entry_value)?)
+                } else if accessor {
+                    crate::accessor_prelude::constant_text(&self.value_at_type(entry_value, field.ty)?)
+                } else {
+                    self.value_at_type(entry_value, field.ty)?
+                }
             } else if matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
-                self.default_value(field.ty)?
+                let default = self.default_value(field.ty)?;
+                if accessor { crate::accessor_prelude::constant_text(&default) } else { default }
             } else {
                 return Ok(None);
             };
@@ -407,9 +419,16 @@ impl FunctionEmitter<'_> {
             // data` with `data: object | null | undefined` is `undefined` when
             // `data` is, exactly as in JavaScript. Asserting presence instead
             // (the arm below) panicked as soon as a caller passed `undefined`
-            // as `None` (remeda `prop(undefined, 'a')`).
+            // as `None` (remeda `prop(undefined, 'a')`). A type parameter the
+            // function carries erased renders as that same carrier, so
+            // `defaultValue as TDefault` with `defaultValue?: TDefault` is
+            // `undefined` too (radash `get(null, 'a')`), not a panic.
             Rvalue::Use(operand)
-                if matches!(self.mir.types.get(dest_ty), Some(Type::Unknown))
+                if (matches!(self.mir.types.get(dest_ty), Some(Type::Unknown))
+                    || matches!(self.mir.types.get(dest_ty), Some(Type::TypeParam { .. }))
+                        && self
+                            .type_text_with_impl_trait(dest_ty, false)
+                            .is_ok_and(|text| text == "SmeltUnknown"))
                     && matches!(
                         self.mir.types.get(self.operand_ty(operand)?),
                         Some(Type::Optional(inner)) if *inner == dest_ty
@@ -2077,11 +2096,12 @@ impl FunctionEmitter<'_> {
                     }
                     _ => (dest_ty, call_text),
                 };
-                if matches!(self.mir.types.get(source_ty), Some(Type::Unknown))
-                    && matches!(self.mir.types.get(dest_ty), Some(Type::Function(_)))
-                {
-                    return Ok(rendered_call_text);
-                }
+                // An erased call result bound to a function-typed local is
+                // extracted to that function like any other typed destination:
+                // every later use (a call, `Object.assign(fn, ..)`, an erasure)
+                // renders the local as the typed `Rc<dyn Fn>` its MIR type
+                // says. Leaving the bare `SmeltUnknown` in it was E0308/E0618
+                // at each of those uses (remeda `const fn = lazy(...lazyArgs)`).
                 if callee_is_erased_rest && self.mir.types.get(dest_ty) == Some(&Type::None) {
                     return Ok(format!("{{ {rendered_call_text}; () }}"));
                 }

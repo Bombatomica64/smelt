@@ -3375,8 +3375,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Result<(smelt_hir::Symbol, smelt_hir::TypeId, Option<RestParam>), SmeltError> {
         let name = self.intern_source_name(name_text);
         let mut params = Vec::new();
-        for param in &function.params.items {
-            params.push(self.function_parameter_type(param)?);
+        for (index, param) in function.params.items.iter().enumerate() {
+            let ty = self.function_parameter_type(param)?;
+            params.push(self.overload_omitted_param_type(name_text, index, param, ty));
         }
         let rest = if let Some(rest) = &function.params.rest {
             let Some(annotation) = &rest.type_annotation else {
@@ -3650,7 +3651,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let saved_locals = self.scope.take_bindings();
         for (index, param) in function.params.items.iter().enumerate() {
             let ty = match self.function_parameter_type(param) {
-                Ok(ty) => ty,
+                Ok(ty) => self.overload_omitted_param_type(name_text, index, param, ty),
                 Err(error) => {
                     self.scope.restore_bindings(saved_locals);
                     return Err(error);

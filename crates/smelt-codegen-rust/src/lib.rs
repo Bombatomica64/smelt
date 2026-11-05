@@ -87,6 +87,7 @@ mod builtin_member_prelude;
 mod callable_registry;
 mod erased_method_prelude;
 mod erased_list_alias;
+mod accessor_prelude;
 mod bigint_prelude;
 mod byte_buffer_prelude;
 mod event_emitter_prelude;
@@ -1170,6 +1171,9 @@ fn emit_runtime_prelude(
     // reach it, so it leads the prelude rather than sitting behind a gate that
     // would have to name all of them.
     number_format_prelude::emit(&mut writer);
+    if accessor_prelude::needed(mir) {
+        accessor_prelude::emit_prelude(&mut writer, needs_unknown);
+    }
     if mir
         .functions
         .iter()
@@ -5780,6 +5784,20 @@ fn emit_runtime_prelude(
             );
         });
         writer.blank_line();
+        // The mirror of `IntoSmeltUnknown for ()`: Rust `()` is the collapsed
+        // JavaScript nullish type (`null` and `undefined` both lower to
+        // `Type::None`), so any erased value un-erases to it. Needed when a
+        // generic is instantiated at an all-nullish element type
+        // (`uniq([null, undefined])` binds `T = ()`).
+        writer.block("impl SmeltFromUnknown for ()", |impl_writer| {
+            impl_writer.block(
+                "fn smelt_from_unknown(_value: SmeltUnknown) -> Self",
+                |fn_writer| {
+                    fn_writer.line("");
+                },
+            );
+        });
+        writer.blank_line();
         // Un-erasing a `SmeltUnknown` back into statically typed collections is the
         // mirror of the `IntoSmeltUnknown` impls above: a returned generic value
         // (e.g. `identity<T>(x): T` inferred at `SmeltRecord<String, String>`) is
@@ -6043,7 +6061,12 @@ fn emit_runtime_prelude(
         if has_function_field {
             writer.line("#[derive(Clone)]");
             writer.line("#[allow(dead_code)]");
-        } else if needs_serde_json && interface_is_json_serializable(mir, interface) {
+        } else if needs_serde_json
+            && interface_is_json_serializable(mir, interface)
+            && !fields
+                .iter()
+                .any(|field| accessor_prelude::is_accessor_field(mir, interface.name, field.name))
+        {
             writer.line(format!(
                 "#[derive(Clone, Debug, Default{interface_partial_eq_derive}, serde::Serialize, serde::Deserialize)]"
             ));
@@ -6093,6 +6116,11 @@ fn emit_runtime_prelude(
                     &TypeSubstitution::lexical(&scoped_type_params),
                 )
                 .unwrap_or_else(|_| "SmeltUnknown".to_owned());
+                let field_ty = if accessor_prelude::is_accessor_field(mir, interface.name, field.name) {
+                    accessor_prelude::storage_type_text(&field_ty)
+                } else {
+                    field_ty
+                };
                 block_writer.line(format!("{field_name}: {field_ty},"));
             }
             if !interface_param_idents.is_empty() {
@@ -6106,6 +6134,7 @@ fn emit_runtime_prelude(
                 &mut writer,
                 mir,
                 context,
+                Some(interface.name),
                 &name,
                 &impl_generics,
                 &type_params,
@@ -6121,6 +6150,7 @@ fn emit_runtime_prelude(
                 &mut writer,
                 mir,
                 context,
+                Some(interface.name),
                 &scoped_type_params,
                 &name,
                 &impl_generics,
@@ -6626,6 +6656,7 @@ fn emit_runtime_prelude(
                 &mut writer,
                 mir,
                 context,
+                None,
                 &name,
                 &default_generics,
                 &type_params,
@@ -6718,6 +6749,7 @@ fn emit_runtime_prelude(
                 &mut writer,
                 mir,
                 context,
+                None,
                 &scoped_type_params,
                 &name,
                 &impl_generics,
@@ -7775,6 +7807,7 @@ fn emit_reference_record_storage(
             writer,
             mir,
             context,
+            None,
             &inner_name,
             &default_generics,
             type_args,
@@ -8064,6 +8097,7 @@ fn emit_default_impl_for_storage_type(
     writer: &mut CodeWriter,
     mir: &Mir,
     context: &EmitContext,
+    accessor_owner: Option<smelt_hir::Symbol>,
     name: &str,
     impl_generics: &str,
     type_args: &str,
@@ -8116,6 +8150,17 @@ fn emit_default_impl_for_storage_type(
         // bounds instead (`classes::GENERATED_TYPE_PARAM_BOUNDS`), which is what
         // the return type's `Default` impl asks for.
         let is_callable_slot = type_holds_function(mir, field.ty, NominalStorage::Opaque);
+        // An accessor field answers its type's default through a constant
+        // getter; its storage is never a delegation.
+        if accessor_owner.is_some_and(|owner| accessor_prelude::is_accessor_field(mir, owner, field.name)) {
+            field_defaults.push((
+                field_name,
+                accessor_prelude::storage_type_text(&field_type_text),
+                accessor_prelude::constant_text(&default_value),
+                true,
+            ));
+            continue;
+        }
         field_defaults.push((field_name, field_type_text, default_value, is_callable_slot));
     }
     let delegating_field_types = field_defaults
@@ -8468,6 +8513,7 @@ fn emit_record_into_smelt_unknown_impl(
     writer: &mut CodeWriter,
     mir: &Mir,
     context: &EmitContext,
+    accessor_owner: Option<smelt_hir::Symbol>,
     scoped_type_params: &HashSet<smelt_hir::Symbol>,
     name: &str,
     impl_generics: &str,
@@ -8532,11 +8578,20 @@ fn emit_record_into_smelt_unknown_impl(
                     let absent_is_null = decode_facts.iter().any(|facts| {
                         facts.name == field.name && facts.admits_null && !facts.may_be_absent
                     });
+                    // An accessor is read by running its getter now: the erased
+                    // view holds the value the property answers at erase time.
+                    let field_source = if accessor_owner
+                        .is_some_and(|owner| accessor_prelude::is_accessor_field(mir, owner, field.name))
+                    {
+                        format!("({})", accessor_prelude::read_text(&format!("self.{field_name}")))
+                    } else {
+                        format!("self.{field_name}")
+                    };
                     let value = match mir.types.get(field.ty) {
                         Some(Type::Optional(inner)) if absent_is_null => {
                             record_field_unknown_text(mir, "smelt_present", *inner).map(|present| {
                                 format!(
-                                    "self.{field_name}.map_or(SmeltUnknown::Null, |smelt_present| {present})"
+                                    "{field_source}.map_or(SmeltUnknown::Null, |smelt_present| {present})"
                                 )
                             })
                         }
@@ -8544,11 +8599,11 @@ fn emit_record_into_smelt_unknown_impl(
                             mir,
                             context,
                             scoped_type_params,
-                            &format!("self.{field_name}"),
+                            &field_source,
                             field.ty,
                         )
                         .map_or_else(
-                            || record_field_unknown_text(mir, &format!("self.{field_name}"), field.ty),
+                            || record_field_unknown_text(mir, &field_source, field.ty),
                             Ok,
                         ),
                     }

@@ -122,3 +122,38 @@ export function wrap(text: string): Response & Brand<string> {
     );
     Ok(())
 }
+
+/// A lifted generic arrow const declares its own type parameters, exactly as
+/// `function f<T>()` does: every `T` its signature mentions is bound by the
+/// item. Before, the item declared none, so a `T` appearing only in the return
+/// (`<T>(): Outcome<T> => EMPTY`, remeda's `lazyEmptyEvaluator`) stayed free in
+/// the signature and the generated Rust named an undeclared type (E0425).
+#[test]
+fn generic_arrow_item_declares_its_type_parameters() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+type Empty = { done: boolean };
+type Next<T> = { done: boolean; next: T };
+const EMPTY: Empty = { done: true };
+export const emptyOutcome = <T>(): Empty | Next<T> => EMPTY;
+export const pair = <K, V>(key: K, value: V): [K, V] => [key, value];
+console.log(emptyOutcome<number>().done, pair('a', 1));
+"),
+        &mut ctx,
+    )?;
+    for (name, expected) in [("empty_outcome", vec!["T"]), ("pair", vec!["K", "V"])] {
+        let item = arrow_item(&ctx, name)?;
+        let Some(Item::Function(function)) = ctx.krate.items.get(usize::try_from(item.0).unwrap_or(usize::MAX)) else {
+            return Err(format!("`{name}` is not a function item"));
+        };
+        let declared = function
+            .type_params
+            .iter()
+            .map(|param| ctx.krate.symbols.get(param.name).unwrap_or_default())
+            .collect::<Vec<_>>();
+        ensure_eq!(declared, expected);
+    }
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}

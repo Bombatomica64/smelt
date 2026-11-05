@@ -192,7 +192,7 @@ pub struct HirCtx {
     /// Type parameters a callable item DECLARES in source but whose HIR item
     /// does not carry (its `Function::type_params` is empty).
     ///
-    /// Class methods, static methods and lifted arrow functions do not yet
+    /// Class methods and static methods do not yet
     /// materialize their own generics: codegen renders each such parameter as
     /// `SmeltUnknown` in the definition. A call to one must still know which
     /// type parameters in the declared signature are the CALLEE's own, so the

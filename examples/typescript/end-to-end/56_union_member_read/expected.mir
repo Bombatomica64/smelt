@@ -137,25 +137,25 @@ fn main (FuncId(3)) -> None
     %8 temp: Response
     %9 temp: String
     %10 temp: None
-    %11 temp: Dict<String, Float>
+    %11 temp: InitLike
     %12 temp: String
     %13 temp: None
     %14 temp: List<String>
     %15 temp: List<List<String>>
     %16 temp: Headers
-    %17 temp: Dict<String, Headers>
+    %17 temp: InitLike
     %18 temp: String
     %19 temp: None
     %20 temp: Dict<String, String>
     %21 temp: Response
     %22 temp: String
     %23 temp: None
-    %24 temp: Dict<String, Float>
+    %24 temp: InitLike
     %25 temp: String
     %26 temp: None
     %27 temp: String
     %28 temp: None
-    %29 temp: Dict<String, Float>
+    %29 temp: InitLike
     %30 temp: Float
     %31 temp: None
     %32 temp: Response

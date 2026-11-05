@@ -1034,7 +1034,23 @@ fn typescript_import_statements(source: &str) -> Vec<String> {
             if trimmed.ends_with(';') || statement_has_module_specifier(buffer) {
                 statements.push(buffer.trim_end_matches(';').trim().to_owned());
                 current = None;
+            } else if buffer.starts_with("export") && trimmed.contains('}') && !trimmed.contains("from") {
+                // A multi-line LOCAL export list (`export {\n a,\n b\n}`)
+                // closes without naming a module: it is no dependency edge,
+                // and buffering on would swallow the following statements.
+                current = None;
             }
+            continue;
+        }
+        // `export {\n a,\n b\n} from './m'` names its module only on the
+        // closing line. Skipping the opening line (it has no ` from `) lost the
+        // re-export edge: a barrel `index.ts` formatted this way had no
+        // dependency on the modules it re-exports, so it could lower before
+        // them and a namespace import of the barrel saw none of their exports.
+        if (trimmed.starts_with("export {") || trimmed.starts_with("export type {"))
+            && !trimmed.contains('}')
+        {
+            current = Some(trimmed.to_owned());
             continue;
         }
         if trimmed.starts_with("import ")
@@ -1173,6 +1189,46 @@ mod tests {
                 "./utils/mime".to_owned(),
             ],
             "every import after the multi-line one has to be scanned"
+        );
+    }
+
+    /// A multi-line `export { .. } from` names its module on the closing line.
+    ///
+    /// Regression: the scanner only started an export statement on a line that
+    /// already contained ` from `, so the Prettier-formatted radash barrel
+    /// (`export {\n  debounce,\n  ..\n} from './curry'`) had no dependency edges
+    /// at all. The barrel then lowered before the modules it re-exports, and a
+    /// test's `import * as _ from '..'` resolved `_.debounce(..)` to an erased
+    /// `undefined`. A multi-line local export list (no `from`) is not an edge and
+    /// must not swallow the statements after it.
+    #[test]
+    fn a_multiline_reexport_is_a_dependency_edge() {
+        let source = "export {\n\
+                        alphabetical,\n\
+                        boil\n\
+                      } from './array'\n\
+                      export type {\n\
+                        AggregateError\n\
+                      } from './async'\n\
+                      const a = 1\n\
+                      export {\n\
+                        a\n\
+                      }\n\
+                      export { debounce } from './curry'\n\
+                      import {\n\
+                        x\n\
+                      } from './x'\n";
+
+        let imports = scan_typescript_imports(source);
+        let modules = imports
+            .iter()
+            .map(|import| (import.module.as_str(), import.type_only))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            modules,
+            vec![("./array", false), ("./async", true), ("./curry", false), ("./x", false)],
+            "multi-line re-exports are edges; a local export list is not and swallows nothing"
         );
     }
 

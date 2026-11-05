@@ -34,7 +34,7 @@ module examples/typescript/end-to-end/56_union_member_read/input.ts (ModuleId(0)
     #22: None = call #21(#20)
     #23: String = "status"
     #24: Float = 204.0
-    #25: Dict<String, Float> = {#23: #24}
+    #25: InitLike = {#23: #24}
     #26: String = "x-a"
     #27: fn(InitLike | Response, String) -> String = @2(header_of)
     #28: String = call #27(#25, #26)
@@ -46,7 +46,7 @@ module examples/typescript/end-to-end/56_union_member_read/input.ts (ModuleId(0)
     #34: List<String> = [#32, #33]
     #35: List<List<String>> = [#34]
     #36: Headers = headers_new #35
-    #37: Dict<String, Headers> = {#31: #36}
+    #37: InitLike = {#31: #36}
     #38: fn(Float | InitLike | Response) -> String = @3(status_header_of)
     #39: String = call #38(#37)
     #40: None = @10(console_log)
@@ -62,7 +62,7 @@ module examples/typescript/end-to-end/56_union_member_read/input.ts (ModuleId(0)
     #50: None = call #49(#48)
     #51: String = "status"
     #52: Float = 201.0
-    #53: Dict<String, Float> = {#51: #52}
+    #53: InitLike = {#51: #52}
     #54: fn(Float | InitLike | Response) -> String = @3(status_header_of)
     #55: String = call #54(#53)
     #56: None = @12(console_log)
@@ -74,7 +74,7 @@ module examples/typescript/end-to-end/56_union_member_read/input.ts (ModuleId(0)
     #62: None = call #61(#60)
     #63: String = "status"
     #64: Float = 201.0
-    #65: Dict<String, Float> = {#63: #64}
+    #65: InitLike = {#63: #64}
     #66: fn(Float | InitLike | Response) -> Float = @4(status_of)
     #67: Float = call #66(#65)
     #68: None = @14(console_log)
@@ -127,8 +127,6 @@ interned types
   t20 = fn(InitLike | Response, String) -> String
   t21 = Dict<String, String>
   t22 = Float | Optional<Float>
-  t23 = Dict<String, Float>
-  t24 = Unknown | Optional<Headers>
-  t25 = Dict<String, Headers>
-  t26 = fn(Float | InitLike | Response) -> String
-  t27 = fn(Float | InitLike | Response) -> Float
+  t23 = Unknown | Optional<Headers>
+  t24 = fn(Float | InitLike | Response) -> String
+  t25 = fn(Float | InitLike | Response) -> Float

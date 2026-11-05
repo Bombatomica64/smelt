@@ -233,6 +233,34 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(child)
     }
 
+    /// An emitter for a generated module-level item that declares exactly
+    /// `type_params` (a generic union enum `SmeltUnionN<T, ..>` and its impl
+    /// blocks), rendering in that item's scope rather than `function`'s.
+    ///
+    /// `function` only supplies the emitter's MIR context; none of its own
+    /// generics, locals or erasure decisions apply to the item. Every render
+    /// inside the item (member types, `IntoSmeltUnknown` and
+    /// `from_smelt_unknown` bodies) spells exactly `type_params`, which the
+    /// item's `impl<..>` header declares, and erases any other parameter.
+    /// The scope is carried by the [`emit_role::EmitRole::Closure`] role,
+    /// whose `enclosing_type_params` is precisely "the parameters the
+    /// enclosing Rust output declares".
+    pub(crate) fn for_generated_item(
+        mir: &'mir Mir,
+        context: &'mir EmitContext,
+        function: &'mir MirFunction,
+        type_params: HashSet<Symbol>,
+    ) -> Result<Self, EmitError> {
+        let mut emitter = Self::new(mir, context, function)?;
+        emitter.role = emit_role::EmitRole::Closure(emit_role::ClosureScope {
+            enclosing_type_params: type_params,
+            trial_function: None,
+            inherited_type_args: HashMap::new(),
+            base_initializer: None,
+        });
+        Ok(emitter)
+    }
+
     /// Apply the crate-wide generic decision ([`emit_role::crate_generic_decision`])
     /// to an emitter in the [`emit_role::EmitRole::Own`] role; other roles have
     /// no own generics to decide.
@@ -4694,6 +4722,34 @@ impl<'mir> FunctionEmitter<'mir> {
                     }
                     text.push_str("Into::<SmeltList<_>>::into(smelt_forwarded_args) }");
                     return Ok(text);
+                }
+                // The mirror case: the SLOT packs its trailing arguments into a
+                // rest list (`extractor(response, index, ...params)`), and the
+                // callback names them one by one (`(response, _, word) => ..`).
+                // JavaScript spreads the list into those parameters, so each one
+                // reads its element of the rest list (`undefined` past its end)
+                // instead of receiving the whole list converted to its type.
+                if let Some(rest_index) = target_function.rest
+                    && index >= rest_index
+                    // A callback parameter is positional unless it is itself a
+                    // list-typed rest; a contextually typed closure can carry
+                    // the slot's rest index on a scalar parameter.
+                    && !(source.rest == Some(index)
+                        && matches!(self.mir.types.get(*source_param), Some(Type::List(_))))
+                    && let Some(target_rest) = target_function.params.get(rest_index)
+                    && let Some(Type::List(rest_item)) = self.mir.types.get(*target_rest)
+                {
+                    let offset = index.saturating_sub(rest_index);
+                    let missing = self.element_missing_value_text(*rest_item)?;
+                    let element = format!(
+                        "arg{rest_index}.borrow().get({offset}).cloned().unwrap_or_else(|| {missing})"
+                    );
+                    let arg_text =
+                        self.value_at_type_text(&element, *rest_item, *source_param, &self.render_scope())?;
+                    if self.callback_param_is_shared_reference(source, index, *source_param) {
+                        return Ok(format!("&({arg_text})"));
+                    }
+                    return Ok(arg_text);
                 }
                 if let Some(target_param) = target_function.params.get(index) {
                     // The adapter's parameter is DECLARED at the substituted

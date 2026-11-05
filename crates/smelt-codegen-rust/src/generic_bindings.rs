@@ -521,7 +521,46 @@ pub(crate) fn substitution_matches(
     actual: TypeId,
     bindings: &CalleeTypeParamBindings,
 ) -> bool {
-    substituted_type_id(mir, declared, bindings) == Some(actual)
+    if substituted_type_id(mir, declared, bindings) == Some(actual) {
+        return true;
+    }
+    // A shorter callback is exact on every position it declares: its leading
+    // parameters and return are the slot's under `bindings`, and the call
+    // site's arity adapter drops the trailing arguments.
+    let (Some(Type::Function(slot)), Some(Type::Function(callback))) =
+        (mir.types.get(declared), mir.types.get(actual))
+    else {
+        return false;
+    };
+    callback_accepts_fewer_params(slot, callback)
+        && slot
+            .params
+            .iter()
+            .zip(&callback.params)
+            .all(|(slot_param, param)| substituted_type_id(mir, *slot_param, bindings) == Some(*param))
+        && substituted_type_id(mir, slot.return_ty, bindings) == Some(callback.return_ty)
+}
+
+/// Whether `actual` is a callback declaring a strict prefix of `declared`'s
+/// parameters with the same calling convention.
+///
+/// TypeScript accepts `acc => ..` for a `(value: T, index: number) => T`
+/// slot, and JavaScript calls it with both arguments. Neither side may pack a
+/// rest parameter (positions would stop corresponding), sync/async and
+/// throwing must agree, and a mutable (`&mut`) position must agree on every
+/// parameter the callback declares.
+pub(crate) fn callback_accepts_fewer_params(declared: &FunctionType, actual: &FunctionType) -> bool {
+    actual.params.len() < declared.params.len()
+        && declared.rest.is_none()
+        && actual.rest.is_none()
+        && declared.is_async == actual.is_async
+        && declared.may_throw == actual.may_throw
+        && actual.mutable_params.iter().all(|index| declared.mutable_params.contains(index))
+        && declared
+            .mutable_params
+            .iter()
+            .filter(|index| **index < actual.params.len())
+            .all(|index| actual.mutable_params.contains(index))
 }
 
 /// Resolve the static type of an operand without emitter state.
@@ -709,6 +748,12 @@ fn match_type_slices(
 }
 
 /// Match function types only when their arity and rest layout correspond.
+///
+/// A callback that declares FEWER parameters than the slot also corresponds
+/// ([`callback_accepts_fewer_params`]): JavaScript calls it with the slot's
+/// arguments and it ignores the trailing ones, so its leading parameters and
+/// its return are evidence for the slot's (`acc => acc + 'x'` for
+/// `(value: T, i: number) => T` pins `T = string`).
 fn match_function_types(
     mir: &Mir,
     declared: &FunctionType,
@@ -716,6 +761,12 @@ fn match_function_types(
     own_params: &HashSet<Symbol>,
     bindings: &mut CalleeTypeParamBindings,
 ) {
+    if callback_accepts_fewer_params(declared, actual) {
+        let used = declared.params.get(..actual.params.len()).unwrap_or_default();
+        match_type_slices(mir, used, &actual.params, own_params, bindings);
+        match_types(mir, declared.return_ty, actual.return_ty, own_params, bindings);
+        return;
+    }
     if declared.params.len() != actual.params.len()
         || declared.rest != actual.rest
         || declared.required_params != actual.required_params
@@ -1102,6 +1153,14 @@ mod tests {
 
     #[test]
     fn function_arity_mismatch_is_unsupported() {
+        // Requirement history: this used to pin that ANY arity mismatch is
+        // `Unsupported`. A callback declaring FEWER parameters than its slot
+        // is valid TypeScript (JavaScript drops the surplus arguments), so it
+        // now contributes evidence for the positions it declares and leaves
+        // the rest `Unbound` (see `shorter_callback_binds_declared_positions`),
+        // which still demotes the call site unless another argument pins the
+        // parameter. A callback declaring MORE parameters than its slot stays
+        // unsupported, which is what this test pins.
         let mut types = TypeInterner::default();
         let float = types.intern(Type::Float);
         let type_param = types.intern(Type::TypeParam { name: Symbol(0) });
@@ -1115,9 +1174,9 @@ mod tests {
             may_throw: false,
         }));
         let actual = types.intern(Type::Function(FunctionType {
-            params: Vec::new(),
+            params: vec![float, float],
             rest: None,
-            required_params: Some(0),
+            required_params: Some(2),
             mutable_params: Vec::new(),
             return_ty: float,
             is_async: false,
@@ -1135,6 +1194,41 @@ mod tests {
                 BindingUnsupportedReason::FunctionShape
             ))
         );
+    }
+
+    #[test]
+    fn shorter_callback_binds_declared_positions() {
+        // `acc => acc + 'x'` against `(value: T, index: number) => T`.
+        let mut types = TypeInterner::default();
+        let float = types.intern(Type::Float);
+        let string = types.intern(Type::String);
+        let type_param = types.intern(Type::TypeParam { name: Symbol(0) });
+        let declared = types.intern(Type::Function(FunctionType {
+            params: vec![type_param, float],
+            rest: None,
+            required_params: Some(2),
+            mutable_params: Vec::new(),
+            return_ty: type_param,
+            is_async: false,
+            may_throw: false,
+        }));
+        let actual = types.intern(Type::Function(FunctionType {
+            params: vec![string],
+            rest: None,
+            required_params: Some(1),
+            mutable_params: Vec::new(),
+            return_ty: string,
+            is_async: false,
+            may_throw: false,
+        }));
+        let mir = mir_with_types(types);
+        let own = HashSet::from([Symbol(0)]);
+        let mut bindings = one_binding(Symbol(0));
+
+        match_types(&mir, declared, actual, &own, &mut bindings);
+
+        assert_eq!(bindings.get(Symbol(0)), Some(TypeParamBinding::Concrete(string)));
+        assert!(substitution_matches(&mir, declared, actual, &bindings));
     }
 
     #[test]

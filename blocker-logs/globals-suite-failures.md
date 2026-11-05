@@ -53,6 +53,17 @@ emitter; if the campaign wants these green, it is a harness policy call — a
 compat-overlay note that `as any` inputs outside the parameter's declared domain
 are out of scope for typed lowering.
 
+### A2. `null as unknown as []` (radash, 1 test) — test-semantics, not a Smelt gap
+
+- `object.test.ts` "omit function handles null keys":
+  `_.omit(person, null as unknown as [])` passes `null` where the parameter is
+  declared as a tuple of keys, and the erased-to-tuple conversion panics
+  "unknown is not tuple". Same family as A: the declared type cannot represent
+  the value, and widening the parameter to `SmeltUnknown` is forbidden. It
+  passed only vacuously before the multi-line `export {..} from` dependency fix
+  (`_.omit` had resolved to `undefined`), which is why the radash gate moved
+  from 384/3 to 383/4.
+
 ### B. `Proxy` traps (radash, 1 test) — unmodeled runtime feature
 
 `curry.test.ts` "callable makes object callable": `_.callable(obj, fn)` returns

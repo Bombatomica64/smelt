@@ -1918,6 +1918,13 @@ impl ModuleBuilder<'_> {
                 }
                 let ty = match self.ctx.krate.types.get(receiver.ty) {
                     Some(Type::Dict(_, value) | Type::JsMap(_, value)) => *value,
+                    // A tuple's `.length` is its arity, a number: the read is
+                    // not a stored field (remeda `tap(DATA, (data) =>
+                    // data.length)` with `data: readonly [1]` typed it
+                    // `Unknown` and emitted `data.length` on a Rust tuple).
+                    Some(Type::Tuple(_)) if member.property.name == "length" => {
+                        self.ctx.krate.types.intern(Type::Float)
+                    }
                     Some(Type::Optional(_)) => self.class_field_type(receiver.ty, field)?,
                     Some(Type::Class { .. }) => self.class_field_type(receiver.ty, field)?,
                     _ => self.callback_erase_unless_unknown(

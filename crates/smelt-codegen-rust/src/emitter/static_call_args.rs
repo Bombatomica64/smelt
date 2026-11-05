@@ -291,6 +291,24 @@ impl FunctionEmitter<'_> {
     ) -> Result<(), EmitError> {
         match kind {
             StaticArgumentKind::Surplus => {}
+            // A site that monomorphized binds `T` from this argument. A site
+            // that demoted instantiates the callee at `T = SmeltUnknown` in
+            // every other position (callback adapters, the call's own type),
+            // so the argument erases too: passing it concrete pinned `T` to
+            // its own type against an adapter built for the erased `T`
+            // (radash `iterate(n, acc => acc + i, 0)`, E0308). An argument
+            // that is already erased, or a type parameter forwarded from the
+            // caller (`repeat(x, n - 1)` inside `repeat<T>`), passes through as
+            // before: it pins no concrete type.
+            StaticArgumentKind::CalleeGeneric { .. }
+                if callee_bindings.is_none()
+                    && !crate::generic_bindings::actual_type_is_erased(
+                        self.mir,
+                        self.operand_ty(arg)?,
+                    ) =>
+            {
+                rendered_args.push(self.erase(arg)?);
+            }
             StaticArgumentKind::CalleeGeneric { target_ty } => {
                 rendered_args.push(self.callee_generic_argument_text(
                     arg,
