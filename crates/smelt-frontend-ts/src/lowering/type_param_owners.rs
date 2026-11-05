@@ -121,7 +121,7 @@ impl<'a> Visit<'a> for OwnerCollector {
         } else {
             it.key
                 .static_name()
-                .map(|name| name.to_string())
+                .map(|name| crate::lowering::js_text::static_name_text(name).into_owned())
                 .or_else(|| it.key.private_name().map(|name| format!("#{name}")))
         };
         self.named_next = Some(match name {
@@ -151,7 +151,10 @@ impl<'a> Visit<'a> for OwnerCollector {
         for signature in &it.body {
             self.named_next = match signature {
                 TSSignature::TSMethodSignature(method) if !method.computed => {
-                    method.key.static_name().map(|name| name.to_string())
+                    method
+                        .key
+                        .static_name()
+                        .map(|name| crate::lowering::js_text::static_name_text(name).into_owned())
                 }
                 TSSignature::TSCallSignatureDeclaration(_) => Some("()".to_owned()),
                 TSSignature::TSConstructSignatureDeclaration(_) => Some("new()".to_owned()),
