@@ -905,7 +905,7 @@ impl<'a> BodyWalk<'a> {
         let mut alias_sources: Vec<(LocalId, bool)> = Vec::new();
         let mut reads: Vec<(LocalId, OperandRole)> = Vec::new();
         let mut bases: Vec<LocalId> = Vec::new();
-        value.for_each_operand(|operand| {
+        value.reads(|operand| {
             // Any operand the role table did not name is unmodelled, so it
             // escapes. This is what makes a newly added `Rvalue` variant (or a
             // newly added operand on an existing one) fail safe.
@@ -1156,7 +1156,7 @@ pub const fn rvalue_mints_fresh_list(value: &Rvalue) -> bool {
 /// The role of each operand this rvalue reads, for operands the analysis models.
 ///
 /// Returned as `(&Operand, role)` pairs so [`BodyWalk::visit_rvalue`] can match them
-/// against [`Rvalue::for_each_operand`] by pointer identity — that keeps the
+/// against [`Rvalue::reads`] by pointer identity — that keeps the
 /// canonical operand walk as the single enumeration point while still letting
 /// positions differ in role. **Any operand not named here gets
 /// [`OperandRole::Escapes`]**, including every operand of every variant that

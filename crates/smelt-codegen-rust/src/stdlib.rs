@@ -683,7 +683,7 @@ pub(crate) fn needs_body_host_method(mir: &Mir) -> bool {
                 return false;
             };
             let mut found = false;
-            value.for_each_operand(|operand| {
+            value.reads(|operand| {
                 if let smelt_mir::Operand::Copy(smelt_mir::Place::Index { base, .. })
                 | smelt_mir::Operand::Move(smelt_mir::Place::Index { base, .. }) = operand
                     && body_holder(locals, *base)

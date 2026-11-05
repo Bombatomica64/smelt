@@ -234,7 +234,7 @@ fn measure_body(
         for statement in &block.statements {
             match statement {
                 Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
-                    value.for_each_operand(&mut read);
+                    value.reads(&mut read);
                 }
                 Statement::DictEntryUpdate {
                     index,
@@ -244,7 +244,7 @@ fn measure_body(
                 } => {
                     read(index);
                     read(default);
-                    value.for_each_operand(&mut read);
+                    value.reads(&mut read);
                 }
             }
         }
@@ -351,18 +351,18 @@ fn referenced_locals(blocks: &[BasicBlock]) -> std::collections::HashSet<smelt_m
             match statement {
                 Statement::Assign { dest, value } => {
                     out.insert(*dest);
-                    value.for_each_operand(|read| operand(read, &mut out));
+                    value.reads(|read| operand(read, &mut out));
                 }
                 Statement::AssignPlace { place: target, value } => {
                     place(target, &mut out);
-                    value.for_each_operand(|read| operand(read, &mut out));
+                    value.reads(|read| operand(read, &mut out));
                 }
                 Statement::DictEntryUpdate { base, index, default, current, value } => {
                     out.insert(*base);
                     out.insert(*current);
                     operand(index, &mut out);
                     operand(default, &mut out);
-                    value.for_each_operand(|read| operand(read, &mut out));
+                    value.reads(|read| operand(read, &mut out));
                 }
             }
         }

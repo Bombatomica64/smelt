@@ -7,7 +7,7 @@
 #![expect(
     clippy::too_many_lines,
     reason = "the remaining long functions are single exhaustive matches over the full \
-              ExprKind/Rvalue surface (lower_expr, the for_each_operand walkers, the \
+              ExprKind/Rvalue surface (lower_expr, the reads walkers, the \
               format/opt dispatchers); compile-time exhaustiveness keeps them in sync \
               and splitting them per variant family would hide that guarantee"
 )]
@@ -41,6 +41,8 @@ pub mod list_escape;
 mod lower;
 /// MIR optimization passes.
 pub mod opt;
+/// The IR's own read/define traversal.
+mod traversal;
 /// MIR operational type normalization.
 mod type_normalize;
 /// MIR core data types.
@@ -55,6 +57,7 @@ pub use list_escape::{
 };
 pub use lower::{LowerError, PENDING_THROWN_LOCAL, lower_hir};
 pub use type_normalize::normalize_operational_types;
+pub use traversal::{Read, ReadMut};
 pub use types::*;
 pub use validate::{ValidationError, validate};
 

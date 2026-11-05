@@ -418,7 +418,7 @@ fn body_only_moves(
                 _ => None,
             };
             let mut reads_t = false;
-            value.for_each_operand(|operand| {
+            value.reads(|operand| {
                 if through_bound.is_some_and(|receiver| std::ptr::eq(receiver, operand)) {
                     return;
                 }
@@ -1017,7 +1017,7 @@ fn body_uses_bound_only_through_trait(
                 return false;
             }
             let mut projected = false;
-            value.for_each_operand(|operand| {
+            value.reads(|operand| {
                 if operand_projects(operand) {
                     projected = true;
                 }

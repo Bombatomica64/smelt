@@ -119,7 +119,7 @@ fn rewrite_block(
         let counts = statement_read_counts(stmt);
         if let Some(value) = statement_value_mut(stmt) {
             let mut local_changed = false;
-            value.for_each_operand_mut(|operand| {
+            value.reads_mut(|operand| {
                 if try_convert(operand, live_after, &counts, convertible) {
                     local_changed = true;
                 }
@@ -342,7 +342,7 @@ const fn terminator_def(terminator: &Terminator) -> Option<LocalId> {
 fn statement_reads(stmt: &Statement, out: &mut Vec<LocalId>) {
     match stmt {
         Statement::Assign { value, .. } => {
-            value.for_each_operand(|operand| collect_operand_reads(operand, out));
+            value.reads(|operand| collect_operand_reads(operand, out));
         }
         Statement::AssignPlace { place, value } => {
             match place {
@@ -361,7 +361,7 @@ fn statement_reads(stmt: &Statement, out: &mut Vec<LocalId>) {
                     }
                 }
             }
-            value.for_each_operand(|operand| collect_operand_reads(operand, out));
+            value.reads(|operand| collect_operand_reads(operand, out));
         }
         // The container is mutated in place and therefore stays live, exactly
         // like an `Index` assignment target. The key, the seed and the stored
@@ -376,7 +376,7 @@ fn statement_reads(stmt: &Statement, out: &mut Vec<LocalId>) {
             out.push(*base);
             collect_operand_reads(index, out);
             collect_operand_reads(default, out);
-            value.for_each_operand(|operand| collect_operand_reads(operand, out));
+            value.reads(|operand| collect_operand_reads(operand, out));
         }
     }
 }

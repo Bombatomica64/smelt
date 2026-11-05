@@ -129,7 +129,7 @@ fn elidable_pair(
     let user_decl = local_decl(function, user)?;
     let reads_user = {
         let mut reads = false;
-        value.for_each_operand(|operand| reads |= super::local_use::operand_reads_local(operand, user));
+        value.reads(|operand| reads |= super::local_use::operand_reads_local(operand, user));
         reads
     };
     let is_function = |ty| matches!(types.get(ty), Some(Type::Function(_)));

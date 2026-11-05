@@ -111,7 +111,7 @@ fn statement_read_count(statement: &Statement, local: LocalId) -> usize {
 /// Count reads of a local across every operand of an rvalue.
 fn rvalue_read_count(value: &Rvalue, local: LocalId) -> usize {
     let mut count: usize = 0;
-    value.for_each_operand(|operand| {
+    value.reads(|operand| {
         count = count.saturating_add(usize::from(operand_reads_local(operand, local)));
     });
     count
@@ -213,7 +213,7 @@ pub fn inline_absent_constant_temps(function: &mut MirFunction, candidates: &[Lo
             });
             for statement in &mut block.statements {
                 if let Statement::Assign { value, .. } = statement {
-                    value.for_each_operand_mut(|operand| {
+                    value.reads_mut(|operand| {
                         if operand_local(operand) == Some(local) {
                             *operand = Operand::Const(constant.clone());
                         }
@@ -228,7 +228,7 @@ pub fn inline_absent_constant_temps(function: &mut MirFunction, candidates: &[Lo
 /// projection); a projected read is not a value the constant could replace.
 fn rvalue_direct_read_count(value: &Rvalue, local: LocalId) -> usize {
     let mut count: usize = 0;
-    value.for_each_operand(|operand| {
+    value.reads(|operand| {
         count = count.saturating_add(usize::from(operand_local(operand) == Some(local)));
     });
     count

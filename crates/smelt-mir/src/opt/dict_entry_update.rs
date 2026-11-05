@@ -312,7 +312,7 @@ fn rvalue_is_borrow_safe(value: &Rvalue, current: LocalId) -> bool {
         return false;
     }
     let mut safe = true;
-    value.for_each_operand(|operand| {
+    value.reads(|operand| {
         safe &= match operand {
             Operand::Const(_) => true,
             Operand::Copy(place) | Operand::Move(place) => *place == Place::Local(current),

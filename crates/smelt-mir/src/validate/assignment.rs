@@ -315,9 +315,9 @@ fn validate_rvalue(
     value: &Rvalue,
     errors: &mut Vec<ValidationError>,
 ) {
-    // Operand traversal is the single source of truth in `Rvalue::for_each_operand`;
+    // Operand traversal is the single source of truth in `Rvalue::reads`;
     // route validation through it so the two cannot drift as variants are added.
-    value.for_each_operand(|operand| {
+    value.reads(|operand| {
         validate_operand(mir, function, definitions, operand, errors);
     });
 }

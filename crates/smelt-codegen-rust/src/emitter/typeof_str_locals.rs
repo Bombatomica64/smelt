@@ -161,7 +161,7 @@ fn every_read_is_supported(
         for statement in &block.statements {
             match statement {
                 Statement::Assign { value, .. } => {
-                    value.for_each_operand(|operand| count(&mut total, operand));
+                    value.reads(|operand| count(&mut total, operand));
                     if let Rvalue::Binary { op, lhs, rhs } = value
                         && is_equality_op(*op)
                     {
@@ -174,7 +174,7 @@ fn every_read_is_supported(
                 }
                 Statement::AssignPlace { place, value } => {
                     count_place_reads(place, &mut |operand| count(&mut total, operand));
-                    value.for_each_operand(|operand| count(&mut total, operand));
+                    value.reads(|operand| count(&mut total, operand));
                 }
                 Statement::DictEntryUpdate {
                     base,
@@ -188,7 +188,7 @@ fn every_read_is_supported(
                     }
                     count(&mut total, index);
                     count(&mut total, default);
-                    value.for_each_operand(|operand| count(&mut total, operand));
+                    value.reads(|operand| count(&mut total, operand));
                 }
             }
         }

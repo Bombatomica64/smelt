@@ -161,7 +161,7 @@ fn is_foldable_payload_rvalue(value: &Rvalue) -> bool {
 
 /// Count every read of every local in a function body.
 ///
-/// Reads are counted through the canonical [`Rvalue::for_each_operand`] walk so
+/// Reads are counted through the canonical [`Rvalue::reads`] walk so
 /// the tally cannot silently miss an rvalue variant, plus the place bases an assignment reads before writing, and the
 /// terminator operands.
 fn local_read_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
@@ -194,7 +194,7 @@ fn local_read_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
         for statement in &block.statements {
             match statement {
                 Statement::Assign { value, .. } => {
-                    value.for_each_operand(|operand| count_operand(&mut counts, operand));
+                    value.reads(|operand| count_operand(&mut counts, operand));
                 }
                 Statement::AssignPlace { place, value } => {
                     match place {
@@ -210,7 +210,7 @@ fn local_read_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
                             count_operand(&mut counts, index);
                         }
                     }
-                    value.for_each_operand(|operand| count_operand(&mut counts, operand));
+                    value.reads(|operand| count_operand(&mut counts, operand));
                 }
                 // Same read tally as the `Index` place above, plus the seed.
                 Statement::DictEntryUpdate {
@@ -224,7 +224,7 @@ fn local_read_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
                     *count = count.saturating_add(1);
                     count_operand(&mut counts, index);
                     count_operand(&mut counts, default);
-                    value.for_each_operand(|operand| count_operand(&mut counts, operand));
+                    value.reads(|operand| count_operand(&mut counts, operand));
                 }
             }
         }
@@ -395,7 +395,7 @@ pub(super) fn folded_throw_payload_locals(mir: &Mir, function: &MirFunction) -> 
                 break;
             }
             folded.insert(*dest);
-            value.for_each_operand(|operand| {
+            value.reads(|operand| {
                 if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) =
                     operand
                 {

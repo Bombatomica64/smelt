@@ -509,7 +509,7 @@ fn useful_locals(
         for statement in &block.statements {
             match statement {
                 Statement::Assign { value, .. } | Statement::DictEntryUpdate { value, .. } => {
-                    value.for_each_operand(|operand| {
+                    value.reads(|operand| {
                         if let Operand::Copy(place) | Operand::Move(place) = operand {
                             record_place(place, &mut useful);
                         }
@@ -517,7 +517,7 @@ fn useful_locals(
                 }
                 Statement::AssignPlace { place, value } => {
                     record_place(place, &mut useful);
-                    value.for_each_operand(|operand| {
+                    value.reads(|operand| {
                         if let Operand::Copy(place) | Operand::Move(place) = operand {
                             record_place(place, &mut useful);
                         }
@@ -586,7 +586,7 @@ fn widening_thresholds(blocks: &[BasicBlock]) -> Vec<i128> {
     for block in blocks {
         for statement in &block.statements {
             if let Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } = statement {
-                value.for_each_operand(&mut record);
+                value.reads(&mut record);
             }
         }
     }
@@ -1225,7 +1225,7 @@ fn accepted_locals(
                         &blocks[definition.block].statements[definition.statement]
                         && !matches!(value, Rvalue::Len(_))
                     {
-                        value.for_each_operand(|operand| {
+                        value.reads(|operand| {
                             if let Some(read) = operand_local(operand) {
                                 reads_rejected |= !accepted.contains(&read);
                             }
@@ -1294,7 +1294,7 @@ fn choose_widths(
             };
             if accepted.contains(&dest) {
                 if !matches!(value, Rvalue::Len(_)) {
-                    value.for_each_operand(|operand| {
+                    value.reads(|operand| {
                         if let Some(read) = operand_local(operand) {
                             union(&mut parents, dest, read);
                         }
@@ -1501,7 +1501,7 @@ impl Rewriter<'_> {
 
     /// Rewrites every operand of a non-integer rvalue.
     fn rewrite_rvalue(&mut self, value: &mut Rvalue, prelude: &mut Vec<Statement>) {
-        value.for_each_operand_mut(|operand| self.rewrite_number_operand(operand, prelude));
+        value.reads_mut(|operand| self.rewrite_number_operand(operand, prelude));
     }
 
     /// Rewrites one operand in a `number` context.
