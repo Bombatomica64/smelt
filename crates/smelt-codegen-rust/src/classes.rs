@@ -980,7 +980,7 @@ fn body_uses_bound_only_through_trait(
                     }
                     value
                 }
-                _ => continue,
+                Statement::DictEntryUpdate { .. } => continue,
             };
             if let Rvalue::Closure { id, .. } = value
                 && seen.insert(id.0)

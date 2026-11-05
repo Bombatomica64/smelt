@@ -273,7 +273,7 @@ pub(super) fn folded_throw_payload_locals(mir: &Mir, function: &MirFunction) -> 
                     let count = assign_counts.entry(*current).or_default();
                     *count = count.saturating_add(1);
                 }
-                _ => {}
+                Statement::AssignPlace { .. } => {}
             }
         }
     }

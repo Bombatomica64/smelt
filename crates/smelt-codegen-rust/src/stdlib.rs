@@ -120,26 +120,12 @@ fn any_rvalue_needs(mir: &Mir, needs_dependency: impl Fn(&Rvalue) -> bool) -> bo
 pub(crate) fn rvalues(mir: &Mir) -> impl Iterator<Item = &Rvalue> {
     let function_rvalues = mir.functions.iter().flat_map(|function| {
         function.blocks.iter().flat_map(|block| {
-            block
-                .statements
-                .iter()
-                .filter_map(|statement| match statement {
-                    Statement::Assign { value, .. }
-                    | Statement::AssignPlace { value, .. }
-                    | Statement::DictEntryUpdate { value, .. } => Some(value),
-                })
+            block.statements.iter().map(Statement::value)
         })
     });
     let closure_rvalues = mir.closures.iter().flat_map(|closure| {
         closure.blocks.iter().flat_map(|block| {
-            block
-                .statements
-                .iter()
-                .filter_map(|statement| match statement {
-                    Statement::Assign { value, .. }
-                    | Statement::AssignPlace { value, .. }
-                    | Statement::DictEntryUpdate { value, .. } => Some(value),
-                })
+            block.statements.iter().map(Statement::value)
         })
     });
     function_rvalues.chain(closure_rvalues)

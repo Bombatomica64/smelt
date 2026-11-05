@@ -1020,7 +1020,7 @@ fn callback_param_escapes_locally(
         block.statements.iter().any(|statement| {
             let value = match statement {
                 Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => value,
-                _ => return false,
+                Statement::DictEntryUpdate { .. } => return false,
             };
             matches!(
                 value,

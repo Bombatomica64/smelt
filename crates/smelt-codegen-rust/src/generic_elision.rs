@@ -461,7 +461,7 @@ fn collect_block_types(
                 Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
                     collect_rvalue_types(value, types, closures);
                 }
-                _ => {}
+                Statement::DictEntryUpdate { .. } => {}
             }
         }
     }
