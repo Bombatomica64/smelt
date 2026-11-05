@@ -138,13 +138,15 @@ impl LoweringCtx<'_> {
                 .checked_add(1)
                 .ok_or_else(|| self.error("MIR closure index overflowed usize", Some(expr_span)))?,
         };
-        let closure_ctx = LoweringCtx::new_closure(
+        let mut closure_ctx = LoweringCtx::new_closure(
             shared,
             closure.body,
             closure_body,
             closure.return_ty,
             closure.span,
         )?;
+        // A closure sees the type parameters of the body it is written in.
+        closure_ctx.type_param_bounds.clone_from(&self.type_param_bounds);
         let (function, nested_closures) = closure_ctx.lower()?;
         // Carry the function-item identity tag from HIR so codegen can cache one
         // runtime wrapper per named function item. The `ItemId` index is a

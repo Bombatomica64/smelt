@@ -181,6 +181,13 @@ fn statement_can_throw(
     {
         return true;
     }
+    // A call through a type parameter's bound reaches whichever implementation
+    // the receiver's concrete class carries, so it throws when any of them can.
+    if let Rvalue::BoundMethod { bound, method, .. } = value
+        && bound_method_can_throw(*bound, *method, facts)
+    {
+        return true;
+    }
     // `EventEmitter.emit` calls every registered listener, and a listener that
     // throws leaves through the emitting function exactly as a direct call
     // would. Which listeners are registered is a run-time fact, so the
@@ -258,6 +265,54 @@ fn optional_method_can_throw(
                 facts.function_names.get(index).copied() == Some(method)
                     && facts.throwing.get(index).copied().unwrap_or(false)
             })
+    })
+}
+
+/// Returns whether a method called through the class or interface `bound`
+/// (`Rvalue::BoundMethod`) can throw.
+///
+/// The receiver may be any class that is, extends, or implements the bound, so
+/// every such class is asked — through its own base chain, since an inherited
+/// method is the receiver's method too. Interface-typed object literals carry
+/// their methods as closure fields, which the emitter calls without a `Result`
+/// (the same as a direct call on an interface value), so they add nothing.
+fn bound_method_can_throw(bound: Symbol, method: Symbol, facts: &CrateThrowFacts) -> bool {
+    let class_named = |name: Symbol| facts.classes.iter().find(|class| class.name == name);
+    let reaches_bound = |class: &crate::MirClass| {
+        let mut current = Some(class);
+        let mut steps = 0usize;
+        while let Some(candidate) = current
+            && steps <= facts.classes.len()
+        {
+            if candidate.name == bound || candidate.implements.contains(&bound) {
+                return true;
+            }
+            current = candidate.base.and_then(class_named);
+            steps = steps.saturating_add(1);
+        }
+        false
+    };
+    let declares_throwing = |class: &crate::MirClass| {
+        class.methods.iter().any(|func| {
+            usize_from_u32(func.0, "MIR function index does not fit in usize").is_ok_and(|index| {
+                facts.function_names.get(index).copied() == Some(method)
+                    && facts.throwing.get(index).copied().unwrap_or(false)
+            })
+        })
+    };
+    facts.classes.iter().filter(|class| reaches_bound(class)).any(|class| {
+        let mut current = Some(class);
+        let mut steps = 0usize;
+        while let Some(candidate) = current
+            && steps <= facts.classes.len()
+        {
+            if declares_throwing(candidate) {
+                return true;
+            }
+            current = candidate.base.and_then(class_named);
+            steps = steps.saturating_add(1);
+        }
+        false
     })
 }
 

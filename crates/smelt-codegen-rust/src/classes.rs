@@ -13,7 +13,7 @@ use smelt_mir::{
 };
 
 use crate::{
-    EmitError, emitter::EmitContext, generic_bindings, id_index,
+    EmitError, bound_traits::BoundTraitPlan, emitter::EmitContext, generic_bindings, id_index,
     rust::RustIdent,
 };
 
@@ -311,8 +311,9 @@ pub(crate) fn function_emits_rust_generics(
     mir: &Mir,
     function: &MirFunction,
     owned_callback_params: &HashSet<(FuncId, LocalId)>,
+    bounds: &BoundTraitPlan,
 ) -> bool {
-    !liftable_type_params(mir, function, owned_callback_params).is_empty()
+    !liftable_type_params(mir, function, owned_callback_params, bounds).is_empty()
 }
 
 /// Whether every value whose type mentions `name` is only ever *moved* in this
@@ -407,8 +408,20 @@ fn body_only_moves(
             if rvalue_preserves_opacity(value) {
                 continue;
             }
+            // A member read or method call through the parameter's bound
+            // dispatches through its generated trait, which is an operation a
+            // lifted bounded `T` supports; only its arguments can inspect.
+            let through_bound = match value {
+                Rvalue::BoundMethod { receiver, .. } | Rvalue::BoundField { receiver, .. } => {
+                    Some(receiver)
+                }
+                _ => None,
+            };
             let mut reads_t = false;
             value.for_each_operand(|operand| {
+                if through_bound.is_some_and(|receiver| std::ptr::eq(receiver, operand)) {
+                    return;
+                }
                 if mentions(operand) {
                     reads_t = true;
                 }
@@ -556,6 +569,7 @@ pub(crate) fn liftable_type_params(
     mir: &Mir,
     function: &MirFunction,
     owned_callback_params: &HashSet<(FuncId, LocalId)>,
+    bounds: &BoundTraitPlan,
 ) -> HashSet<Symbol> {
     if function.type_params.is_empty() {
         return HashSet::new();
@@ -586,10 +600,14 @@ pub(crate) fn liftable_type_params(
         .type_params
         .iter()
         .filter(|type_param| {
-            // A constrained parameter has no emitted bound, so it erases — but
-            // only it. Before Increment 5 this returned `false` for the whole
-            // function.
-            if type_param.constraint.is_some() {
+            // A constrained parameter erases — but only it (before Increment 5
+            // this returned `false` for the whole function) — unless its bound
+            // is a class or interface with a generated trait that every use and
+            // every call site can go through (bounded-generics plan,
+            // increment 3; see `bounded_type_param_liftable`).
+            if type_param.constraint.is_some()
+                && !bounded_type_param_liftable(mir, function, type_param, bounds)
+            {
                 return false;
             }
             let name = type_param.name;
@@ -769,6 +787,312 @@ fn callback_only_params_are_pinned_at_every_call_site(
     true
 }
 
+/// Whether the class- or interface-bounded type parameter `type_param` of
+/// `function` can be a real Rust generic carrying its bound's trait
+/// (`A: AnimalLike`, bounded-generics plan increment 3).
+///
+/// Every condition is structural, and each one guards a way the lifted
+/// signature would fail to compile or change behaviour:
+///
+/// 1. the bound has a planned trait ([`BoundTraitPlan`]), and every member read
+///    through this parameter is one of its members;
+/// 2. the parameter occurs in value parameters only bare (`a: A`), so each call
+///    site's argument type IS the instantiation (`A[]` or a callback would
+///    need the trait on a type inferred through a container);
+/// 3. no place projects a field or index off a value of the parameter's type
+///    (a write `a.legs = 1` has no trait setter, and a raw place read would
+///    render the erased member lookup against a generic `A`);
+/// 4. every static call — from a function or a closure — passes, in each bare
+///    position, a type that implements the trait, the function's own `A`
+///    (recursion), or a type parameter of the calling free function bounded
+///    by the same bound. That last case lifts only if the caller's parameter
+///    lifts too, which `EmitContext::populate_generic_functions` enforces
+///    crate-wide (see [`bound_forwarding_callers`]).
+///
+/// Anything else keeps the erased fallback, so `D extends Date` (no class
+/// item, no trait) erases exactly as before.
+fn bounded_type_param_liftable(
+    mir: &Mir,
+    function: &MirFunction,
+    type_param: &smelt_hir::TypeParamDef,
+    bounds: &BoundTraitPlan,
+) -> bool {
+    let Some(bound) = crate::bound_traits::constraint_bound(mir, type_param.constraint) else {
+        return false;
+    };
+    let Some(planned) = bounds.trait_for(bound) else {
+        return false;
+    };
+    let name = type_param.name;
+    let is_bare = |ty: TypeId| {
+        matches!(mir.types.get(ty), Some(Type::TypeParam { name: found }) if *found == name)
+    };
+    let mut bare_positions = Vec::new();
+    for (index, param) in function.params.iter().enumerate() {
+        let Some(ty) = id_index(param.0, "local index does not fit usize")
+            .ok()
+            .and_then(|slot| function.locals.get(slot))
+            .map(|local| local.ty)
+        else {
+            return false;
+        };
+        if is_bare(ty) {
+            bare_positions.push(index);
+        } else if generic_bindings::type_param_occurs(mir, ty, name) {
+            return false;
+        }
+    }
+    if bare_positions.is_empty() {
+        return false;
+    }
+    let mut seen = HashSet::new();
+    if !body_uses_bound_only_through_trait(
+        mir,
+        &function.locals,
+        &function.blocks,
+        &BoundUse { name, bound, planned },
+        &mut seen,
+    ) {
+        return false;
+    }
+
+    let callers = mir
+        .functions
+        .iter()
+        .map(|caller| (Some(caller), caller.locals.as_slice(), caller.blocks.as_slice()))
+        .chain(
+            mir.closures
+                .iter()
+                .map(|closure| (None, closure.locals.as_slice(), closure.blocks.as_slice())),
+        );
+    for (caller, locals, blocks) in callers {
+        for block in blocks {
+            let Some(Terminator::Call {
+                callee: smelt_mir::Callee::Static(target),
+                args,
+                ..
+            }) = &block.terminator
+            else {
+                continue;
+            };
+            if *target != function.id {
+                continue;
+            }
+            for &position in &bare_positions {
+                let Some(Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) =
+                    args.get(position)
+                else {
+                    return false;
+                };
+                let Some(arg_ty) = id_index(local.0, "local index does not fit usize")
+                    .ok()
+                    .and_then(|index| locals.get(index))
+                    .map(|decl| decl.ty)
+                else {
+                    return false;
+                };
+                if planned.implemented_by(mir, arg_ty) {
+                    continue;
+                }
+                let Some(Type::TypeParam { name: arg_param }) = mir.types.get(arg_ty) else {
+                    return false;
+                };
+                let forwarded_by_caller = caller.is_some_and(|calling| {
+                    (calling.id == function.id && *arg_param == name)
+                        || (matches!(calling.origin, smelt_mir::HirOrigin::Body(_))
+                            && calling.type_params.iter().any(|declared| {
+                                declared.name == *arg_param
+                                    && crate::bound_traits::constraint_bound(mir, declared.constraint)
+                                        == Some(bound)
+                            }))
+                });
+                if !forwarded_by_caller {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+/// One bounded type parameter and its planned trait, for
+/// [`body_uses_bound_only_through_trait`].
+struct BoundUse<'plan> {
+    /// The type parameter's name.
+    name: Symbol,
+    /// Its class or interface bound.
+    bound: Symbol,
+    /// The bound's planned trait.
+    planned: &'plan crate::bound_traits::BoundTrait,
+}
+
+/// Whether one body (and every closure it creates) touches values of the type
+/// parameter only through the bound's trait: each `BoundMethod` / `BoundField`
+/// on such a receiver names a member of the planned trait, and no place
+/// projects a field or index off a local of that type.
+fn body_uses_bound_only_through_trait(
+    mir: &Mir,
+    locals: &[LocalDecl],
+    blocks: &[BasicBlock],
+    bound_use: &BoundUse<'_>,
+    seen: &mut HashSet<u32>,
+) -> bool {
+    let local_is_param = |local: LocalId| {
+        id_index(local.0, "local index does not fit usize")
+            .ok()
+            .and_then(|index| locals.get(index))
+            .is_some_and(|decl| {
+                matches!(
+                    mir.types.get(decl.ty),
+                    Some(Type::TypeParam { name: found }) if *found == bound_use.name
+                )
+            })
+    };
+    let projects = |place: &Place| match place {
+        Place::Field { base, .. } | Place::Index { base, .. } => local_is_param(*base),
+        Place::Local(_) | Place::Global { .. } => false,
+    };
+    let operand_projects = |operand: &Operand| match operand {
+        Operand::Copy(place) | Operand::Move(place) => projects(place),
+        Operand::Const(_) => false,
+    };
+    let operand_is_param = |operand: &Operand| match operand {
+        Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
+            local_is_param(*local)
+        }
+        Operand::Copy(_) | Operand::Move(_) | Operand::Const(_) => false,
+    };
+    for block in blocks {
+        for statement in &block.statements {
+            let value = match statement {
+                Statement::Assign { value, .. } => value,
+                Statement::AssignPlace { place, value } => {
+                    if projects(place) {
+                        return false;
+                    }
+                    value
+                }
+                _ => continue,
+            };
+            if let Rvalue::Closure { id, .. } = value
+                && seen.insert(id.0)
+                && let Some(closure) = mir.closures.iter().find(|candidate| candidate.id == *id)
+                && !body_uses_bound_only_through_trait(
+                    mir,
+                    &closure.locals,
+                    &closure.blocks,
+                    bound_use,
+                    seen,
+                )
+            {
+                return false;
+            }
+            let through_bound = match value {
+                Rvalue::BoundMethod {
+                    receiver,
+                    bound,
+                    method: member,
+                    ..
+                }
+                | Rvalue::BoundField {
+                    receiver,
+                    bound,
+                    field: member,
+                } => Some((receiver, *bound, *member)),
+                _ => None,
+            };
+            if let Some((receiver, bound, member)) = through_bound
+                && operand_is_param(receiver)
+                && (bound != bound_use.bound || bound_use.planned.member(member).is_none())
+            {
+                return false;
+            }
+            let mut projected = false;
+            value.for_each_operand(|operand| {
+                if operand_projects(operand) {
+                    projected = true;
+                }
+            });
+            if projected {
+                return false;
+            }
+        }
+        if let Some(terminator) = &block.terminator {
+            let projected = match terminator {
+                Terminator::Call { args, .. } => args.iter().any(operand_projects),
+                Terminator::Switch { cond: probe, .. }
+                | Terminator::Match {
+                    scrutinee: probe, ..
+                } => operand_projects(probe),
+                _ => false,
+            };
+            if projected {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// The call sites that forward a calling free function's own type parameter
+/// into a bare bounded position of `function`: `(caller, caller's parameter)`
+/// pairs.
+///
+/// [`bounded_type_param_liftable`] accepts such an argument when the caller's
+/// parameter has the same bound, but the lifted signature is only callable
+/// with it while the CALLER's parameter is itself a real generic carrying the
+/// same trait. Whether it is depends on the caller's own trial, so
+/// `EmitContext::populate_generic_functions` demotes `function` whenever a
+/// caller listed here did not lift that parameter.
+pub(crate) fn bound_forwarding_callers(mir: &Mir, function: &MirFunction) -> Vec<(FuncId, Symbol)> {
+    let bounded = crate::bound_traits::declared_bounds(mir, &function.type_params);
+    if bounded.is_empty() {
+        return Vec::new();
+    }
+    let bare_positions: Vec<usize> = function
+        .params
+        .iter()
+        .enumerate()
+        .filter_map(|(index, param)| {
+            let ty = function
+                .locals
+                .get(id_index(param.0, "local index does not fit usize").ok()?)?
+                .ty;
+            matches!(mir.types.get(ty), Some(Type::TypeParam { name }) if bounded.contains_key(name))
+                .then_some(index)
+        })
+        .collect();
+    let mut found = Vec::new();
+    for caller in &mir.functions {
+        if caller.id == function.id {
+            continue;
+        }
+        for block in &caller.blocks {
+            let Some(Terminator::Call {
+                callee: smelt_mir::Callee::Static(target),
+                args,
+                ..
+            }) = &block.terminator
+            else {
+                continue;
+            };
+            if *target != function.id {
+                continue;
+            }
+            for &position in &bare_positions {
+                if let Some(arg) = args.get(position)
+                    && let Ok(arg_ty) = generic_bindings::operand_type(mir, caller, arg)
+                    && let Some(Type::TypeParam { name }) = mir.types.get(arg_ty)
+                    && caller.type_params.iter().any(|declared| declared.name == *name)
+                {
+                    found.push((caller.id, *name));
+                }
+            }
+        }
+    }
+    found
+}
+
 /// Return whether any call site in the crate passes an *erased* argument into a
 /// position typed as one of `function`'s own type parameters.
 ///
@@ -836,6 +1160,14 @@ fn called_with_erased_type_param_argument(mir: &Mir, function: &MirFunction) -> 
                 {
                     continue;
                 }
+                // A calling free function forwarding its OWN type parameter,
+                // bounded by the same class or interface as this position's,
+                // pins the parameter as long as the caller's parameter is a
+                // real generic too — which `populate_generic_functions`
+                // enforces through `bound_forwarding_callers`.
+                if forwards_same_bound(mir, function, position, caller, arg) {
+                    continue;
+                }
                 if operand_type_is_erased(mir, caller, arg) {
                     return true;
                 }
@@ -843,6 +1175,41 @@ fn called_with_erased_type_param_argument(mir: &Mir, function: &MirFunction) -> 
         }
     }
     false
+}
+
+/// Whether argument `arg` of a call from `caller` into position `position` of
+/// `function` is the caller's own type parameter bounded by the same class or
+/// interface as the callee's bare parameter at that position.
+fn forwards_same_bound(
+    mir: &Mir,
+    function: &MirFunction,
+    position: usize,
+    caller: &MirFunction,
+    arg: &Operand,
+) -> bool {
+    let declared_bound = function
+        .params
+        .get(position)
+        .and_then(|param| function.locals.get(usize::try_from(param.0).ok()?))
+        .and_then(|local| match mir.types.get(local.ty) {
+            Some(Type::TypeParam { name }) => function
+                .type_params
+                .iter()
+                .find(|declared| declared.name == *name)
+                .and_then(|declared| crate::bound_traits::constraint_bound(mir, declared.constraint)),
+            _ => None,
+        });
+    let Some(callee_bound) = declared_bound else {
+        return false;
+    };
+    matches!(caller.origin, smelt_mir::HirOrigin::Body(_))
+        && generic_bindings::operand_type(mir, caller, arg).is_ok_and(|ty| {
+            matches!(mir.types.get(ty), Some(Type::TypeParam { name }) if caller
+                .type_params
+                .iter()
+                .any(|declared| declared.name == *name
+                    && crate::bound_traits::constraint_bound(mir, declared.constraint) == Some(callee_bound)))
+        })
 }
 
 /// Return whether an operand's static type is erased for codegen purposes
@@ -1297,8 +1664,9 @@ pub(crate) fn callback_generic_params(
     mir: &Mir,
     function: &MirFunction,
     owned: &HashSet<(FuncId, LocalId)>,
+    bounds: &BoundTraitPlan,
 ) -> Result<Vec<(LocalId, String)>, EmitError> {
-    if !function_emits_rust_generics(mir, function, owned) {
+    if !function_emits_rust_generics(mir, function, owned, bounds) {
         return Ok(Vec::new());
     }
     let mut taken: HashSet<String> = HashSet::new();
@@ -1356,8 +1724,9 @@ pub(crate) fn function_impl_generics_list(
     mir: &Mir,
     function: &MirFunction,
     owned_callback_params: &HashSet<(FuncId, LocalId)>,
+    bounds: &BoundTraitPlan,
 ) -> Result<Vec<String>, EmitError> {
-    let liftable = liftable_type_params(mir, function, owned_callback_params);
+    let liftable = liftable_type_params(mir, function, owned_callback_params, bounds);
     if liftable.is_empty() {
         return Ok(Vec::new());
     }
@@ -1377,11 +1746,18 @@ pub(crate) fn function_impl_generics_list(
         .iter()
         .filter(|param| liftable.contains(&param.name))
         .map(|param| {
+            // A lifted bounded parameter also carries its bound's generated
+            // trait (`A: AnimalLike + ..`); `liftable_type_params` only lifts a
+            // constrained parameter whose bound has one.
+            let bound_trait = crate::bound_traits::constraint_bound(mir, param.constraint)
+                .and_then(|bound| bounds.trait_for(bound))
+                .map(|planned| format!("{} + ", planned.trait_name))
+                .unwrap_or_default();
             mir.symbols
                 .get(param.name)
                 .map(|name| {
                     format!(
-                        "{}: {GENERATED_TYPE_PARAM_BOUNDS}",
+                        "{}: {bound_trait}{GENERATED_TYPE_PARAM_BOUNDS}",
                         RustIdent::new(name).into_string()
                     )
                 })

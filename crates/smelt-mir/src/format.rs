@@ -370,6 +370,30 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 method.0
             )
         }
+        Rvalue::BoundMethod {
+            receiver,
+            bound,
+            method,
+            args,
+        } => {
+            let args_text = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
+            format!(
+                "bound_method<{}> {}.method{}({args_text})",
+                bound.0,
+                operand_text(receiver),
+                method.0
+            )
+        }
+        Rvalue::BoundField {
+            receiver,
+            bound,
+            field,
+        } => format!(
+            "bound_field<{}> {}.field{}",
+            bound.0,
+            operand_text(receiver),
+            field.0
+        ),
         Rvalue::OptionalCoalesce { optional, fallback } => {
             format!("{} ?? {}", operand_text(optional), operand_text(fallback))
         }

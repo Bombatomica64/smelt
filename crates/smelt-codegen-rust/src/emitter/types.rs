@@ -1459,6 +1459,7 @@ impl FunctionEmitter<'_> {
             self.mir,
             self.function,
             &self.context.owned_callback_params,
+            &self.context.bound_traits,
         )
     }
 
@@ -1609,6 +1610,7 @@ impl FunctionEmitter<'_> {
                     self.mir,
                     self.function,
                     &self.context.owned_callback_params,
+                    &self.context.bound_traits,
                 );
             }
         };

@@ -2002,6 +2002,307 @@ console.log(value, setters.map((setter) => setter.priority + setter.subPriority)
     Ok(())
 }
 
+/// Every generated `.rs` file under a built project's `dist/src`, concatenated,
+/// so a signature assertion does not depend on which module a function lands in.
+fn generated_rust_text(project: &std::path::Path) -> TestResult<String> {
+    let mut text = String::new();
+    for entry in fs::read_dir(project.join("dist/src"))? {
+        let path = entry?.path();
+        if path.extension().is_some_and(|extension| extension == "rs") {
+            text.push_str(&fs::read_to_string(path)?);
+        }
+    }
+    Ok(text)
+}
+
+/// The emitted signature line of free function `name` (`fn name<..>(..) -> ..`).
+fn emitted_signature(generated: &str, name: &str) -> TestResult<String> {
+    let needle = format!("fn {name}");
+    generated
+        .lines()
+        .find(|line| {
+            line.find(&needle).is_some_and(|at| {
+                matches!(generated_after(line, at.saturating_add(needle.len())), Some('<' | '('))
+            })
+        })
+        .map(str::to_owned)
+        .ok_or_else(|| std::io::Error::other(format!("no `fn {name}` in:\n{generated}")).into())
+}
+
+/// The character right after byte `at` of `line`, if any.
+fn generated_after(line: &str, at: usize) -> Option<char> {
+    line.get(at..).and_then(|rest| rest.chars().next())
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end CLI fixture: a two-module program and its assertions are one scenario"
+)]
+fn build_dispatches_class_bounded_members_through_a_generated_trait() -> TestResult {
+    // Bounded-generics plan, increments 1-3. A method call (`a.speak()`), a
+    // field read (`a.legs`) and an inherited method with an argument
+    // (`a.describe(prefix)`) on `A extends Animal` go through a generated
+    // `AnimalLike` trait implemented by `Animal` and every subclass, declared in
+    // another module. Behaviour: each receiver's own override runs — Node
+    // prints `woof 4`, `yip 3`, `... 2`, then `3 1 p:yip/2 a:.../3` (the
+    // instantiation keeps the concrete `Dog`/`Puppy`, so `.age` reads back).
+    // Types: both functions lift to `A: AnimalLike + ..` instead of the
+    // `SmeltUnknown` signature every bounded parameter had before.
+    let files: &[(&str, &str)] = &[
+        (
+            "src/animals.ts",
+            r#"export class Animal {
+  constructor(public legs: number, public age: number) {}
+  speak(): string {
+    return "...";
+  }
+  describe(prefix: string): string {
+    return prefix + ":" + this.speak() + "/" + this.legs;
+  }
+}
+export class Dog extends Animal {
+  speak(): string {
+    return "woof";
+  }
+}
+export class Puppy extends Dog {
+  speak(): string {
+    return "yip";
+  }
+}
+"#,
+        ),
+        (
+            "src/main.ts",
+            r"import { Animal, Dog, Puppy } from './animals'
+
+function loud<A extends Animal>(a: A): A {
+  console.log(a.speak(), a.legs)
+  return a
+}
+function tag<A extends Animal>(a: A, prefix: string): string {
+  return a.describe(prefix)
+}
+
+const dog = loud(new Dog(4, 3))
+const puppy = loud(new Puppy(3, 1))
+loud(new Animal(2, 9))
+console.log(dog.age, puppy.age, tag(new Puppy(2, 0), 'p'), tag(new Animal(3, 9), 'a'))
+",
+        ),
+    ];
+    let (project, manifest) = multi_module_project("class-bound-trait", true, files)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let generated = generated_rust_text(project.path())?;
+    for name in ["loud", "tag"] {
+        let signature = emitted_signature(&generated, name)?;
+        ensure(
+            signature.contains("<A: AnimalLike + ") && !signature.contains(": SmeltUnknown") && !signature.contains("-> SmeltUnknown"),
+            format!("`{name}` must lift with the bound's trait, got `{signature}`"),
+        )?;
+    }
+    for implementor in ["Animal", "Dog", "Puppy"] {
+        ensure(
+            generated.contains(&format!("impl AnimalLike for {implementor} {{")),
+            format!("`{implementor}` must implement the bound trait"),
+        )?;
+    }
+    let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &stdout,
+        &"woof 4\nyip 3\n... 2\n3 1 p:yip/2 a:.../3\n".to_owned(),
+        "unexpected stdout",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn build_lifts_an_interface_bound_called_with_record_literals_and_implementors() -> TestResult {
+    // An interface bound: `L extends HasLen` reads a field and calls a method
+    // signature through `HasLenLike`, implemented by the interface's own struct
+    // (what an object literal of exactly that shape becomes) and by a class
+    // declaring `implements HasLen`. Node prints `2 two lit#5 rope7#7` and
+    // `rope9`; the literal arguments keep their own closures and the class
+    // argument its own method. Types: `L: HasLenLike + ..`, and the result of
+    // `longest` over literals is the interface type, not a string-keyed record.
+    let files: &[(&str, &str)] = &[(
+        "src/main.ts",
+        r"interface HasLen {
+  len: number
+  label(): string
+}
+class Rope implements HasLen {
+  constructor(public len: number) {}
+  label(): string {
+    return 'rope' + this.len
+  }
+}
+
+function longest<L extends HasLen>(a: L, b: L): L {
+  return a.len >= b.len ? a : b
+}
+function labelOf<L extends HasLen>(item: L): string {
+  return item.label() + '#' + item.len
+}
+
+const picked = longest({ len: 1, label: () => 'one' }, { len: 2, label: () => 'two' })
+console.log(picked.len, picked.label(), labelOf({ len: 5, label: () => 'lit' }), labelOf(new Rope(7)))
+console.log(longest(new Rope(3), new Rope(9)).label())
+",
+    )];
+    let (project, manifest) = multi_module_project("interface-bound-trait", true, files)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let generated = generated_rust_text(project.path())?;
+    for name in ["longest", "label_of"] {
+        let signature = emitted_signature(&generated, name)?;
+        ensure(
+            signature.contains("<L: HasLenLike + ") && !signature.contains(": SmeltUnknown") && !signature.contains("-> SmeltUnknown"),
+            format!("`{name}` must lift with the bound's trait, got `{signature}`"),
+        )?;
+    }
+    ensure(
+        generated.contains("impl HasLenLike for HasLen {")
+            && generated.contains("impl HasLenLike for Rope {"),
+        "the interface struct and the implementing class must implement the trait",
+    )?;
+    let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
+    ensure_eq(&stdout, &"2 two lit#5 rope7#7\nrope9\n".to_owned(), "unexpected stdout")?;
+    Ok(())
+}
+
+#[test]
+fn build_returns_the_bounded_type_param_chosen_through_its_bound() -> TestResult {
+    // A bounded generic returning its own type parameter, chosen by fields read
+    // through the bound. Returning `A` keeps the caller's concrete instantiation:
+    // the `Dog` that wins still speaks `woof`. Node prints `3 woof 1`. Types:
+    // `fn older<A: AnimalLike + ..>(a: A, b: A) -> A`.
+    let files: &[(&str, &str)] = &[(
+        "src/main.ts",
+        r"class Animal {
+  constructor(public legs: number, public age: number) {}
+  speak(): string {
+    return '...'
+  }
+}
+class Dog extends Animal {
+  speak(): string {
+    return 'woof'
+  }
+}
+
+function older<A extends Animal>(a: A, b: A): A {
+  return a.age >= b.age ? a : b
+}
+
+const winner = older(new Dog(4, 5), new Dog(3, 7))
+console.log(winner.legs, winner.speak(), older(new Animal(1, 2), new Animal(2, 1)).legs)
+",
+    )];
+    let (project, manifest) = multi_module_project("bound-returns-param", true, files)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let generated = generated_rust_text(project.path())?;
+    let signature = emitted_signature(&generated, "older")?;
+    ensure(
+        signature.contains("<A: AnimalLike + ") && signature.contains("(a: A, b: A) -> A"),
+        format!("`older` must lift and return `A`, got `{signature}`"),
+    )?;
+    let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
+    ensure_eq(&stdout, &"3 woof 1\n".to_owned(), "unexpected stdout")?;
+    Ok(())
+}
+
+#[test]
+fn build_lifts_a_bounded_generic_that_forwards_its_parameter_to_another() -> TestResult {
+    // `twice<A extends Animal>` passes its own `A` to `loud<A extends Animal>`.
+    // Both lift together: the forwarded argument is a real generic carrying the
+    // same trait, which `EmitContext::populate_generic_functions` verifies after
+    // the body trials (a caller that erased would demote the callee too). Node
+    // prints `yip 4` twice, `... 2` twice, then `yip+yip ...+...`.
+    let files: &[(&str, &str)] = &[(
+        "src/main.ts",
+        r"class Animal {
+  constructor(public legs: number) {}
+  speak(): string {
+    return '...'
+  }
+}
+class Puppy extends Animal {
+  speak(): string {
+    return 'yip'
+  }
+}
+
+function loud<A extends Animal>(a: A): A {
+  console.log(a.speak(), a.legs)
+  return a
+}
+function twice<A extends Animal>(a: A): string {
+  return loud(a).speak() + '+' + loud(a).speak()
+}
+
+console.log(twice(new Puppy(4)), twice(new Animal(2)))
+",
+    )];
+    let (project, manifest) = multi_module_project("bound-forwarding", true, files)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let generated = generated_rust_text(project.path())?;
+    for name in ["loud", "twice"] {
+        let signature = emitted_signature(&generated, name)?;
+        ensure(
+            signature.contains("<A: AnimalLike + ") && !signature.contains(": SmeltUnknown") && !signature.contains("-> SmeltUnknown"),
+            format!("`{name}` must lift with the bound's trait, got `{signature}`"),
+        )?;
+    }
+    let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &stdout,
+        &"yip 4\nyip 4\n... 2\n... 2\nyip+yip ...+...\n".to_owned(),
+        "unexpected stdout",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn build_keeps_the_erased_fallback_for_a_write_through_a_bound() -> TestResult {
+    // A field WRITE through a class bound has no trait setter, so the parameter
+    // keeps the erased signature and its dynamic member write — and the write
+    // still reaches the caller's object through the erased view's write-through,
+    // as in Node (`5 5`). The program has no `unknown` of its own any more (the
+    // reads are typed through the bound); MIR interns it for the erased path
+    // (`intern_bound_dispatch_carrier_type`), without which this build failed
+    // with "type table does not contain literal operand type Unknown".
+    let files: &[(&str, &str)] = &[(
+        "src/main.ts",
+        r"class Animal {
+  constructor(public legs: number) {}
+  rest(): void {
+    this.legs = 0
+  }
+}
+
+function grow<A extends Animal>(a: A): number {
+  a.legs = a.legs + 1
+  return a.legs
+}
+
+const animal = new Animal(4)
+console.log(grow(animal), animal.legs)
+",
+    )];
+    let (project, manifest) = multi_module_project("bound-write-fallback", true, files)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let generated = generated_rust_text(project.path())?;
+    let signature = emitted_signature(&generated, "grow")?;
+    ensure(
+        signature.contains("SmeltUnknown") && !signature.contains("AnimalLike"),
+        format!("`grow` must keep the erased signature, got `{signature}`"),
+    )?;
+    let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
+    ensure_eq(&stdout, &"5 5\n".to_owned(), "unexpected stdout")?;
+    Ok(())
+}
+
 #[test]
 fn build_keeps_same_offset_unique_symbols_of_two_modules_distinct() -> TestResult {
     // `KEY_A` and `KEY_B` are `Symbol()` calls at the SAME byte offset of two

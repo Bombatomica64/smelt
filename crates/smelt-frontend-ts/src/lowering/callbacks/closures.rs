@@ -1426,6 +1426,32 @@ impl ModuleBuilder<'_> {
                 }
                 false
             }
+            // A class- or interface-bounded type parameter declares what its
+            // bound declares (bounded-generics plan, increment 1), so the call
+            // stays an `ExprKind::Method` that MIR dispatches through the bound.
+            // An interface counts only for a METHOD signature with a typed
+            // result: a function-valued property is still a callable field, and
+            // an erased result would have `member_call` drop the call.
+            Some(Type::TypeParam { .. }) => {
+                let Some(bound) = self.type_param_member_bound(receiver_ty) else {
+                    return false;
+                };
+                if self.receiver_declares_method(bound, method) {
+                    return true;
+                }
+                let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(bound) else {
+                    return false;
+                };
+                self.find_interface(*name).is_some_and(|interface| {
+                    interface.methods.iter().any(|signature| {
+                        signature.name == method
+                            && !matches!(
+                                self.ctx.krate.types.get(signature.return_ty),
+                                Some(Type::Unknown)
+                            )
+                    })
+                })
+            }
             _ => false,
         }
     }
