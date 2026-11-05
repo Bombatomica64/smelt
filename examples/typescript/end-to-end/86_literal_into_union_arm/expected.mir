@@ -139,8 +139,7 @@ fn main (FuncId(3)) -> None
   bb2:
     %7 = ("a", 1.0)
     %8 = ("b", 2.0)
-    %9 = [move %7, move %8]
-    %0 = move %9
+    %0 = [move %7, move %8]
     %10 = call fn0(move %0) -> bb3
   bb3:
     %11 = "bound: " + move %10

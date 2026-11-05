@@ -250,10 +250,7 @@ fn main() {
     let mut _smelt_tmp_32: usize;
     let mut _smelt_tmp_33: usize;
     let mut _smelt_tmp_34: bool;
-    let mut _smelt_tmp_35: String;
-    let mut _smelt_tmp_36: String;
-    let _smelt_tmp_4: SmeltUrlSearchParams = SmeltUrlSearchParams::from_query(&"?a=1&b=two&a=3".to_owned());
-    let query: SmeltUrlSearchParams = _smelt_tmp_4;
+    let query: SmeltUrlSearchParams = SmeltUrlSearchParams::from_query(&"?a=1&b=two&a=3".to_owned());
     let _smelt_tmp_5: () = query.clone().append(&"greeting".to_owned(), &"hello world".to_owned());
     let _smelt_tmp_6: () = query.clone().set(&"b".to_owned(), &"TWO".to_owned());
     let _smelt_tmp_7: Option<String> = query.clone().get(&"a".to_owned());
@@ -287,10 +284,8 @@ fn main() {
     _smelt_tmp_34 = _smelt_tmp_32 < _smelt_tmp_33;
     if !(_smelt_tmp_34) { break; }
     __smelt_for_item = _smelt_tmp_31.borrow().get(_smelt_tmp_32).cloned().unwrap_or_else(|| (String::new(), String::new()));
-    _smelt_tmp_35 = __smelt_for_item.clone().0.clone();
-    name = _smelt_tmp_35;
-    _smelt_tmp_36 = __smelt_for_item.1.clone();
-    value = _smelt_tmp_36;
+    name = __smelt_for_item.clone().0.clone();
+    value = __smelt_for_item.1.clone();
     let _ = { println!("{} {}", name, value); };
     _smelt_tmp_32 = _smelt_tmp_32 + 1;
     }

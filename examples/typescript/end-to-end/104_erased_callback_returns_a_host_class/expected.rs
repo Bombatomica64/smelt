@@ -4092,7 +4092,6 @@ use super::*;
 pub(crate) fn describe(maker: SmeltUnion4) -> String {
     let buffer: SmeltArrayBuffer;
     let _smelt_tmp_3: ::std::rc::Rc<dyn Fn(f64) -> SmeltArrayBuffer>;
-    let _smelt_tmp_4: SmeltArrayBuffer;
     let _smelt_tmp_5: f64;
     let _smelt_tmp_6: String;
     let _smelt_tmp_7: bool;
@@ -4100,8 +4099,7 @@ pub(crate) fn describe(maker: SmeltUnion4) -> String {
     let _smelt_tmp_2: bool = matches!(maker.clone(), SmeltUnion4::M1(_));
     if _smelt_tmp_2 {
     _smelt_tmp_3 = (match maker.clone() { SmeltUnion4::M1(value) => value, _ => unreachable!("union guard selected an excluded member") }).clone();
-    _smelt_tmp_4 = (_smelt_tmp_3)(4.0);
-    buffer = _smelt_tmp_4;
+    buffer = (_smelt_tmp_3)(4.0);
     _smelt_tmp_5 = buffer.byte_length();
     _smelt_tmp_6 = "bytes=".to_owned() + &smelt_number_to_string(_smelt_tmp_5);
     return _smelt_tmp_6;

@@ -161,8 +161,7 @@ fn main (FuncId(7)) -> None
     %10 = call fn6() -> bb1
   bb1:
     %0 = move %10
-    %11 = [4.0, 5.0]
-    %1 = move %11
+    %1 = [4.0, 5.0]
     %12 = []
     %13 = call fn2(copy %0, move %12) -> bb2
   bb2:
@@ -189,10 +188,8 @@ fn main (FuncId(7)) -> None
     %27 = string_join move %26, "/"
     %28 = call @console_log(move %23, move %25, move %27) -> bb10
   bb10:
-    %29 = ("a")
-    %2 = move %29
-    %30 = ["b"]
-    %3 = move %30
+    %2 = ("a")
+    %3 = ["b"]
     %4 = copy %0.field19
     %5 = copy %2
     %6 = move %2

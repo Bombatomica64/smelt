@@ -47,12 +47,10 @@ fn main (FuncId(0)) -> None
     %44 temp: None
   bb0:
     %5 = {"Content-Type": "text/plain"}
-    %6 = headers_new move %5
-    %0 = move %6
+    %0 = headers_new move %5
     %7 = headers_append copy %0, "Accept", "text/html"
     %8 = headers_append copy %0, "accept", "application/json"
-    %9 = headers_new copy %0
-    %1 = move %9
+    %1 = headers_new copy %0
     %10 = headers_set copy %1, "X-Trace", "first"
     %11 = headers_set copy %1, "x-trace", "second"
     %12 = headers_append copy %1, "Set-Cookie", "a=1"
@@ -97,10 +95,8 @@ fn main (FuncId(0)) -> None
     switch move %41 ? bb9 : bb11
   bb9:
     %2 = copy %38[copy %39]
-    %42 = tuple_index copy %2, 0
-    %3 = move %42
-    %43 = tuple_index move %2, 1
-    %4 = move %43
+    %3 = tuple_index copy %2, 0
+    %4 = tuple_index move %2, 1
     %44 = call @console_log(move %3, move %4) -> bb12
   bb10:
     %39 = copy %39 + 1

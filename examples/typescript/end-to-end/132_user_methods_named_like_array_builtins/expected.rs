@@ -3735,7 +3735,6 @@ fn main() {
     let _smelt_tmp_57: Stack;
     let _smelt_tmp_65: Stack;
     let _smelt_tmp_66: String;
-    let _smelt_tmp_68: SmeltList<f64>;
     let _smelt_tmp_69: ::std::rc::Rc<dyn Fn(f64, f64, i64, &SmeltList<f64>) -> f64>;
     let _smelt_tmp_70: f64;
     let _smelt_tmp_71: ::std::rc::Rc<dyn Fn(f64, i64, &SmeltList<f64>) -> f64>;
@@ -3817,8 +3816,7 @@ fn main() {
     _smelt_tmp_65 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
     _smelt_tmp_66 = _smelt_tmp_65.0.borrow().items.clone().borrow().join(&"|".to_owned());
     let _ = { println!("{} {}", _smelt_tmp_64, _smelt_tmp_66); };
-    _smelt_tmp_68 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
-    arr = Into::<SmeltList<_>>::into(_smelt_tmp_68);
+    arr = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
     _smelt_tmp_70 = arr.borrow().iter().enumerate().fold(0.0, |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &arr; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
     let _smelt_tmp_2: f64 = closure_arg_0 + closure_arg_1;
     _smelt_tmp_2

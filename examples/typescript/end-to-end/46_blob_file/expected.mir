@@ -90,8 +90,7 @@ async fn main (FuncId(0)) -> None throws
     %87 temp: None
   bb0:
     %8 = ["hello, ", "world"]
-    %9 = blob_from_parts move %8, "text/plain", none, none
-    %0 = move %9
+    %0 = blob_from_parts move %8, "text/plain", none, none
     %10 = blob_size copy %0
     %11 = call @console_log(move %10) -> bb1
   bb1:
@@ -105,8 +104,7 @@ async fn main (FuncId(0)) -> None throws
     %17 = call @console_log(move %16) -> bb4
   bb4:
     %18 = ["report"]
-    %19 = blob_from_parts move %18, "text/csv", "report.csv", 42.0
-    %1 = move %19
+    %1 = blob_from_parts move %18, "text/csv", "report.csv", 42.0
     %20 = blob_size copy %1
     %21 = call @console_log(move %20) -> bb5
   bb5:
@@ -125,21 +123,18 @@ async fn main (FuncId(0)) -> None throws
     %30 = instanceof copy %1, class1
     %31 = call @console_log(move %30) -> bb10
   bb10:
-    %32 = blob_slice copy %0 0.0, 5.0
-    %2 = move %32
+    %2 = blob_slice copy %0 0.0, 5.0
     %33 = blob_size copy %2
     %34 = blob_type copy %2
     %35 = instanceof copy %2, class1
     %36 = call @console_log(move %33, move %34, move %35) -> bb11
   bb11:
     %37 = -5.0
-    %38 = blob_slice copy %0 move %37
-    %3 = move %38
+    %3 = blob_slice copy %0 move %37
     %39 = blob_size move %3
     %40 = call @console_log(move %39) -> bb12
   bb12:
-    %41 = blob_slice copy %0 0.0, 5.0, "text/html"
-    %4 = move %41
+    %4 = blob_slice copy %0 0.0, 5.0, "text/html"
     %42 = blob_type move %4
     %43 = call @console_log(move %42) -> bb13
   bb13:
@@ -150,8 +145,7 @@ async fn main (FuncId(0)) -> None throws
     %47 = ["!"]
     %48 = blob_from_parts move %47, "", none, none
     %49 = [copy %0, move %48]
-    %50 = blob_from_parts move %49, "", none, none
-    %5 = move %50
+    %5 = blob_from_parts move %49, "", none, none
     %51 = blob_size copy %5
     %52 = call @console_log(move %51) -> bb15
   bb15:
@@ -181,8 +175,7 @@ async fn main (FuncId(0)) -> None throws
     %71 = call @console_log(move %70) -> bb21
   bb21:
     %72 = []
-    %73 = blob_from_parts move %72, "", none, none
-    %6 = move %73
+    %6 = blob_from_parts move %72, "", none, none
     %74 = blob_size copy %6
     %75 = blob_type copy %6
     %76 = blob_text move %6
@@ -190,8 +183,7 @@ async fn main (FuncId(0)) -> None throws
     %78 = call @console_log(move %74, move %75, move %77) -> bb22
   bb22:
     %79 = ["héllo 😀"]
-    %80 = blob_from_parts move %79, "", none, none
-    %7 = move %80
+    %7 = blob_from_parts move %79, "", none, none
     %81 = blob_size copy %7
     %82 = call @console_log(move %81) -> bb23
   bb23:

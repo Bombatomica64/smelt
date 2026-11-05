@@ -60,8 +60,7 @@ fn collect_indices(values: SmeltList<f64>) -> SmeltList<f64> {
     let mut _smelt_tmp_8: bool;
     let mut _smelt_tmp_9: f64;
     let mut _smelt_tmp_10: f64;
-    let _smelt_tmp_5: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![]; smelt_list_items }));
-    let mut indices: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_5);
+    let mut indices: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![]; smelt_list_items }));
     let mut __for_each_index: f64 = 0.0;
     let mut _smelt_tmp_6: usize = 0;
     loop {

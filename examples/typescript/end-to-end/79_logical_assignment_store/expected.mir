@@ -159,8 +159,7 @@ fn main (FuncId(1)) -> None
     %37 = move %35 + move %36
     %38 = call @console_log(move %37) -> bb1
   bb1:
-    %39 = {"field": 0.0}
-    %2 = move %39
+    %2 = {"field": 0.0}
     %2.field0 = 5.0
     %3 = 5.0
     %40 = primitive_cast_string move %3
@@ -170,8 +169,7 @@ fn main (FuncId(1)) -> None
     %44 = move %42 + move %43
     %45 = call @console_log(move %44) -> bb2
   bb2:
-    %46 = {}
-    %4 = move %46
+    %4 = {}
     %4["a"] = 5.0
     %5 = 5.0
     %47 = primitive_cast_string move %5
@@ -207,8 +205,7 @@ fn main (FuncId(1)) -> None
     %63 = move %61 + move %62
     %64 = call @console_log(move %63) -> bb7
   bb7:
-    %65 = {"field": 0.0}
-    %10 = move %65
+    %10 = {"field": 0.0}
     %11 = undefined
     %66 = copy %10.field0 != 0.0
     %67 = !move %66
@@ -230,8 +227,7 @@ fn main (FuncId(1)) -> None
     %72 = move %70 + move %71
     %73 = call @console_log(move %72) -> bb11
   bb11:
-    %74 = {}
-    %14 = move %74
+    %14 = {}
     %15 = undefined
     %75 = copy %14?.["a"]
     %76 = move %75 != none
@@ -284,8 +280,7 @@ fn main (FuncId(1)) -> None
     %97 = move %94 + move %96
     %98 = call @console_log(move %97) -> bb21
   bb21:
-    %99 = {}
-    %21 = move %99
+    %21 = {}
     %100 = copy %21?.["a"]
     %101 = move %100 == none
     switch move %101 ? bb22 : bb23
@@ -302,8 +297,7 @@ fn main (FuncId(1)) -> None
     %107 = move %105 + move %106
     %108 = call @console_log(move %107) -> bb24
   bb24:
-    %109 = {}
-    %23 = move %109
+    %23 = {}
     %110 = copy %23?.["a"]
     %111 = primitive_cast_bool move %110
     switch move %111 ? bb25 : bb26
@@ -318,8 +312,7 @@ fn main (FuncId(1)) -> None
     %115 = "and absent: " + move %114
     %116 = call @console_log(move %115) -> bb27
   bb27:
-    %117 = {"a": 3.0}
-    %25 = move %117
+    %25 = {"a": 3.0}
     %118 = copy %25?.["a"]
     %119 = primitive_cast_bool move %118
     switch move %119 ? bb28 : bb29
@@ -344,8 +337,7 @@ fn main (FuncId(1)) -> None
     %125 = "nullish local: " + move %124
     %126 = call @console_log(move %125) -> bb33
   bb33:
-    %127 = {}
-    %29 = move %127
+    %29 = {}
     %128 = copy %29.field0 == none
     switch move %128 ? bb34 : bb35
   bb34:

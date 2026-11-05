@@ -16,8 +16,7 @@ fn main() {
     let word: String = "abc".to_owned();
     let first: String = word.chars().nth({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).unwrap_or_default();
     let _smelt_tmp_5: f64 = -1.0;
-    let _smelt_tmp_6: Option<String> = ({ let smelt_len = word.clone().chars().count() as i64; let smelt_index = _smelt_tmp_5 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| word.clone().chars().nth(index).map(|ch| ch.to_string()));
-    let last: Option<String> = _smelt_tmp_6;
+    let last: Option<String> = ({ let smelt_len = word.clone().chars().count() as i64; let smelt_index = _smelt_tmp_5 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| word.clone().chars().nth(index).map(|ch| ch.to_string()));
     let mut joined: String = "".to_owned();
     let mut _smelt_tmp_7: usize = 0;
     loop {

@@ -15,8 +15,7 @@ async fn later (FuncId(1)) -> None
   bb0:
     %1 = call fn0("queued") -> bb1
   bb1:
-    %2 = await move %1
-    %0 = move %2
+    %0 = await move %1
     %3 = call @console_log(move %0) -> bb2
   bb2:
     return none

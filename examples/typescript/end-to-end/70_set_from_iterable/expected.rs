@@ -192,12 +192,10 @@ fn main() {
     let _smelt_tmp_18: SmeltList<String>;
     let _smelt_tmp_19: String;
     let _smelt_tmp_21: SmeltList<String>;
-    let _smelt_tmp_22: SmeltPrimSet<String>;
     let _smelt_tmp_23: f64;
     let _smelt_tmp_25: SmeltList<String>;
     let _smelt_tmp_26: String;
     let _smelt_tmp_28: bool;
-    let _smelt_tmp_30: SmeltPrimSet<String>;
     let _smelt_tmp_31: f64;
     let _smelt_tmp_33: SmeltList<String>;
     let _smelt_tmp_34: String;
@@ -206,9 +204,7 @@ fn main() {
     let _smelt_tmp_39: SmeltList<String>;
     let _smelt_tmp_40: String;
     let _smelt_tmp_42: SmeltList<String>;
-    let _smelt_tmp_43: SmeltPrimSet<String>;
     let _smelt_tmp_44: SmeltList<String>;
-    let _smelt_tmp_45: SmeltPrimSet<String>;
     let _smelt_tmp_46: SmeltList<String>;
     let _smelt_tmp_47: String;
     let _smelt_tmp_49: SmeltList<String>;
@@ -217,8 +213,7 @@ fn main() {
     let _smelt_tmp_52: String;
     let _smelt_tmp_53: bool;
     let _smelt_tmp_6: SmeltList<String> = Into::<SmeltList<_>>::into(".\\+*[^]$()".to_owned().chars().map(|ch| ch.to_string()).collect::<Vec<_>>());
-    let _smelt_tmp_7: SmeltPrimSet<String> = _smelt_tmp_6.borrow().iter().cloned().collect::<SmeltPrimSet<_>>();
-    let reg_exp_meta_chars: SmeltPrimSet<String> = _smelt_tmp_7;
+    let reg_exp_meta_chars: SmeltPrimSet<String> = _smelt_tmp_6.borrow().iter().cloned().collect::<SmeltPrimSet<_>>();
     let _smelt_tmp_8: f64 = reg_exp_meta_chars.len() as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_8)); };
     _smelt_tmp_10 = reg_exp_meta_chars.clone().contains(&"*".to_owned());
@@ -233,8 +228,7 @@ fn main() {
     _smelt_tmp_19 = _smelt_tmp_18.borrow().join(&"".to_owned());
     let _ = { println!("{}", _smelt_tmp_19); };
     _smelt_tmp_21 = Into::<SmeltList<_>>::into("aabbcc".to_owned().chars().map(|ch| ch.to_string()).collect::<Vec<_>>());
-    _smelt_tmp_22 = _smelt_tmp_21.borrow().iter().cloned().collect::<SmeltPrimSet<_>>();
-    repeated = _smelt_tmp_22;
+    repeated = _smelt_tmp_21.borrow().iter().cloned().collect::<SmeltPrimSet<_>>();
     _smelt_tmp_23 = repeated.len() as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_23)); };
     _smelt_tmp_25 = Into::<SmeltList<_>>::into(repeated.iter().cloned().collect::<Vec<_>>());
@@ -242,8 +236,7 @@ fn main() {
     let _ = { println!("{}", _smelt_tmp_26); };
     _smelt_tmp_28 = repeated.contains(&"d".to_owned());
     let _ = { println!("{}", _smelt_tmp_28); };
-    _smelt_tmp_30 = SmeltPrimSet::from(["c".to_owned(), "a".to_owned(), "b".to_owned(), "a".to_owned()]);
-    from_array = _smelt_tmp_30;
+    from_array = SmeltPrimSet::from(["c".to_owned(), "a".to_owned(), "b".to_owned(), "a".to_owned()]);
     _smelt_tmp_31 = from_array.len() as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_31)); };
     _smelt_tmp_33 = Into::<SmeltList<_>>::into(from_array.iter().cloned().collect::<Vec<_>>());
@@ -257,11 +250,9 @@ fn main() {
     _smelt_tmp_40 = _smelt_tmp_39.borrow().join(&"|".to_owned());
     let _ = { println!("{}", _smelt_tmp_40); };
     _smelt_tmp_42 = Into::<SmeltList<_>>::into("hello".to_owned().chars().map(|ch| ch.to_string()).collect::<Vec<_>>());
-    _smelt_tmp_43 = _smelt_tmp_42.borrow().iter().cloned().collect::<SmeltPrimSet<_>>();
-    direct = _smelt_tmp_43;
+    direct = _smelt_tmp_42.borrow().iter().cloned().collect::<SmeltPrimSet<_>>();
     _smelt_tmp_44 = Into::<SmeltList<_>>::into("hello".to_owned().chars().map(|ch| ch.to_string()).collect::<Vec<_>>());
-    _smelt_tmp_45 = _smelt_tmp_44.borrow().iter().cloned().collect::<SmeltPrimSet<_>>();
-    via_spread = _smelt_tmp_45;
+    via_spread = _smelt_tmp_44.borrow().iter().cloned().collect::<SmeltPrimSet<_>>();
     _smelt_tmp_46 = Into::<SmeltList<_>>::into(direct.iter().cloned().collect::<Vec<_>>());
     _smelt_tmp_47 = _smelt_tmp_46.borrow().join(&"|".to_owned());
     let _ = { println!("{}", _smelt_tmp_47); };

@@ -4,8 +4,7 @@ fn main (FuncId(0)) -> None
     %1 temp: (String, Float)
     %2 temp: None
   bb0:
-    %1 = ("age", 42.0)
-    %0 = move %1
+    %0 = ("age", 42.0)
     %2 = call @console_log(move %0) -> bb1
   bb1:
     return none

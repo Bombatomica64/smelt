@@ -19,14 +19,11 @@ fn cluster (FuncId(0)) -> List<List<Float>>
     %16 temp: Float
     %17 temp: Float
   bb0:
-    %6 = copy %1 ?? 2.0
-    %2 = move %6
+    %2 = copy %1 ?? 2.0
     %7 = len copy %0
     %8 = move %7 / copy %2
-    %9 = numeric_ceil move %8
-    %3 = move %9
-    %10 = []
-    %4 = move %10
+    %3 = numeric_ceil move %8
+    %4 = []
     %5 = 0.0
     goto bb1
   bb1:

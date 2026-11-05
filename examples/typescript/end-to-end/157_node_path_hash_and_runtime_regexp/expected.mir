@@ -241,8 +241,7 @@ fn main (FuncId(7)) -> None throws
     %86 temp: RegExp
     %87 temp: None
   bb0:
-    %2 = ["public", "sub/", "../file.html"]
-    %0 = move %2
+    %0 = ["public", "sub/", "../file.html"]
     %3 = ["/home/app", "static//main.html"]
     %4 = path.join move %3
     %5 = call @console_log(move %4) -> bb1
@@ -370,8 +369,7 @@ fn main (FuncId(7)) -> None throws
   bb43:
     %85 = call @console_log(move %82, move %83, move %84) -> bb44
   bb44:
-    %86 = external_new14("x+", "g")
-    %1 = move %86
+    %1 = external_new14("x+", "g")
     %87 = call @console_log(copy %1.field42, copy %1.field26) -> bb45
   bb45:
     return none

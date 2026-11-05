@@ -72,8 +72,7 @@ fn main() {
     let mut _smelt_tmp_6: bool;
     let ready: bool = true;
     let blocked: bool = false;
-    let _smelt_tmp_3: f64 = -3.0;
-    let value: f64 = _smelt_tmp_3;
+    let value: f64 = -3.0;
     let _smelt_tmp_4: bool = !(blocked);
     let _smelt_tmp_5: bool = if _smelt_tmp_4 { ready } else { false };
     let _smelt_tmp_6: bool = if _smelt_tmp_5 { ready } else { false };

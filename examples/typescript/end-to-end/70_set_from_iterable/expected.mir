@@ -57,8 +57,7 @@ fn main (FuncId(0)) -> None
     %54 temp: None
   bb0:
     %6 = string_chars ".\+*[^]$()"
-    %7 = list_to_set move %6
-    %0 = move %7
+    %0 = list_to_set move %6
     %8 = len copy %0
     %9 = call @console_log(move %8) -> bb1
   bb1:
@@ -79,8 +78,7 @@ fn main (FuncId(0)) -> None
     %20 = call @console_log(move %19) -> bb6
   bb6:
     %21 = string_chars "aabbcc"
-    %22 = list_to_set move %21
-    %1 = move %22
+    %1 = list_to_set move %21
     %23 = len copy %1
     %24 = call @console_log(move %23) -> bb7
   bb7:
@@ -91,8 +89,7 @@ fn main (FuncId(0)) -> None
     %28 = set_contains move %1, "d"
     %29 = call @console_log(move %28) -> bb9
   bb9:
-    %30 = set{"c", "a", "b", "a"}
-    %2 = move %30
+    %2 = set{"c", "a", "b", "a"}
     %31 = len copy %2
     %32 = call @console_log(move %31) -> bb10
   bb10:
@@ -110,11 +107,9 @@ fn main (FuncId(0)) -> None
     %41 = call @console_log(move %40) -> bb13
   bb13:
     %42 = string_chars "hello"
-    %43 = list_to_set move %42
-    %4 = move %43
+    %4 = list_to_set move %42
     %44 = string_chars "hello"
-    %45 = list_to_set move %44
-    %5 = move %45
+    %5 = list_to_set move %44
     %46 = set_values copy %4
     %47 = string_join move %46, "|"
     %48 = call @console_log(move %47) -> bb14

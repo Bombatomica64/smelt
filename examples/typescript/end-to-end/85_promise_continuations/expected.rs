@@ -3789,14 +3789,10 @@ pub(crate) async fn run() -> Result<String, Box<dyn std::error::Error>> {
     let mapped: String;
     let chained: String;
     let _smelt_tmp_5: ::std::rc::Rc<dyn Fn() -> String>;
-    let _smelt_tmp_7: String;
     let _smelt_tmp_9: ::std::rc::Rc<dyn Fn() -> String>;
-    let _smelt_tmp_11: String;
     let _smelt_tmp_13: ::std::rc::Rc<dyn Fn(String) -> String>;
-    let _smelt_tmp_15: String;
     let _smelt_tmp_17: ::std::rc::Rc<dyn Fn() -> String>;
     let _smelt_tmp_19: ::std::rc::Rc<dyn Fn(String) -> String>;
-    let _smelt_tmp_21: String;
     let _smelt_tmp_22: SmeltList<String>;
     let _smelt_tmp_23: String;
     let _smelt_tmp_4 = SmeltFuture::from_future(Box::pin(work("bad".to_owned())));
@@ -3804,23 +3800,20 @@ pub(crate) async fn run() -> Result<String, Box<dyn std::error::Error>> {
     "typed:recovered".to_owned()
     });
     let _smelt_tmp_6: SmeltFuture<String> = { let smelt_promise_callback = (_smelt_tmp_5).clone(); SmeltFuture::from_future(Box::pin(async move { match _smelt_tmp_4.await { Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => { let smelt_callback_value = ({ let _ = smelt_thrown_value(&*smelt_error); (smelt_promise_callback)() }); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) } } })) };
-    _smelt_tmp_7 = _smelt_tmp_6.await?;
-    recovered = _smelt_tmp_7;
+    recovered = _smelt_tmp_6.await?;
     let _smelt_tmp_8 = SmeltFuture::from_future(Box::pin(work("kept".to_owned())));
     _smelt_tmp_9 = ::std::rc::Rc::new(|| {
     "not reached".to_owned()
     });
     let _smelt_tmp_10: SmeltFuture<String> = { let smelt_promise_callback = (_smelt_tmp_9).clone(); SmeltFuture::from_future(Box::pin(async move { match _smelt_tmp_8.await { Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => { let smelt_callback_value = ({ let _ = smelt_thrown_value(&*smelt_error); (smelt_promise_callback)() }); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) } } })) };
-    _smelt_tmp_11 = _smelt_tmp_10.await?;
-    untouched = _smelt_tmp_11;
+    untouched = _smelt_tmp_10.await?;
     let _smelt_tmp_12 = SmeltFuture::from_future(Box::pin(work("mapped".to_owned())));
     _smelt_tmp_13 = ::std::rc::Rc::new(|closure_arg_0: String| {
     let _smelt_tmp_1: String = closure_arg_0.clone() + &"/then".to_owned();
     _smelt_tmp_1.clone()
     });
     let _smelt_tmp_14: SmeltFuture<String> = { let smelt_promise_callback = (_smelt_tmp_13).clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_value = _smelt_tmp_12.await?; let smelt_callback_value = (smelt_promise_callback)(smelt_value); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) })) };
-    _smelt_tmp_15 = _smelt_tmp_14.await?;
-    mapped = _smelt_tmp_15;
+    mapped = _smelt_tmp_14.await?;
     let _smelt_tmp_16 = SmeltFuture::from_future(Box::pin(work("bad".to_owned())));
     _smelt_tmp_17 = ::std::rc::Rc::new(|| {
     "recovered".to_owned()
@@ -3831,8 +3824,7 @@ pub(crate) async fn run() -> Result<String, Box<dyn std::error::Error>> {
     _smelt_tmp_1.clone()
     });
     let _smelt_tmp_20: SmeltFuture<String> = { let smelt_promise_callback = (_smelt_tmp_19).clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_value = _smelt_tmp_18.await?; let smelt_callback_value = (smelt_promise_callback)(smelt_value); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) })) };
-    _smelt_tmp_21 = _smelt_tmp_20.await?;
-    chained = _smelt_tmp_21;
+    chained = _smelt_tmp_20.await?;
     _smelt_tmp_22 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![recovered.clone(), untouched.clone(), mapped.clone(), chained.clone()]; smelt_list_items }));
     _smelt_tmp_23 = _smelt_tmp_22.borrow().join(&" | ".to_owned());
     return Ok(_smelt_tmp_23);

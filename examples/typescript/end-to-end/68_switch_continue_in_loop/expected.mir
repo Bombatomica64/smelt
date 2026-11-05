@@ -32,8 +32,7 @@ fn escape_html (FuncId(0)) -> String
     switch move %7 ? bb2 : bb4
   bb2:
     %17 = primitive_cast_float copy %3
-    %8 = string_char_code_at copy %0, move %17
-    %4 = move %8
+    %4 = string_char_code_at copy %0, move %17
     %5 = ""
     match move %4 {34.0 => bb5, 38.0 => bb6, 60.0 => bb7, 62.0 => bb8, _ => bb9}
   bb3:

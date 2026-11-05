@@ -22,8 +22,7 @@ fn pick (FuncId(0)) -> String
     %19 temp: String
   bb0:
     %3 = external_new0("^\/a(?:\/b()|\/c())$", "")
-    %4 = regex_find move %3, copy %0
-    %1 = move %4
+    %1 = regex_find move %3, copy %0
     %5 = !copy %1
     switch move %5 ? bb1 : bb2
   bb1:
@@ -31,8 +30,7 @@ fn pick (FuncId(0)) -> String
   bb2:
     %6 = copy %1
     %7 = move %6
-    %8 = list_find move %7, "", 1.0
-    %2 = move %8
+    %2 = list_find move %7, "", 1.0
     %9 = "" + move %2
     %10 = move %9 + ":"
     %11 = copy %1
@@ -101,8 +99,7 @@ fn describe (FuncId(1)) -> None
     %43 temp: None
   bb0:
     %6 = external_new0("(\d+)-(\d+)?", "")
-    %7 = regex_find move %6, copy %0
-    %1 = move %7
+    %1 = regex_find move %6, copy %0
     %8 = !copy %1
     switch move %8 ? bb1 : bb2
   bb1:
@@ -110,8 +107,7 @@ fn describe (FuncId(1)) -> None
   bb2:
     %10 = copy %1
     %11 = move %10
-    %12 = list_slice move %11, 1.0, _
-    %2 = move %12
+    %2 = list_slice move %11, 1.0, _
     %13 = len move %2
     %14 = copy %1
     %15 = move %14
@@ -142,10 +138,8 @@ fn describe (FuncId(1)) -> None
     goto bb5
   bb8:
     %32 = copy %1
-    %33 = copy %32?.[1.0]
-    %4 = move %33
-    %34 = move %32?.[2.0]
-    %5 = move %34
+    %4 = copy %32?.[1.0]
+    %5 = move %32?.[2.0]
     %35 = copy %1
     %36 = move %35
     %37 = []
@@ -201,8 +195,7 @@ fn digits (FuncId(2)) -> String
     %27 temp: String
   bb0:
     %4 = external_new0("\d", "g")
-    %5 = regex_find move %4, copy %0
-    %1 = move %5
+    %1 = regex_find move %4, copy %0
     %6 = copy %1 != none
     switch move %6 ? bb1 : bb2
   bb1:
@@ -221,8 +214,7 @@ fn digits (FuncId(2)) -> String
     %13 = move %11 ?? move %12
     %14 = closure ClosureId(1) []
     %15 = list_map move %13, move %14
-    %16 = string_join move %15, ""
-    %3 = move %16
+    %3 = string_join move %15, ""
     %17 = unknown_is Null copy %1
     %18 = !move %17
     switch move %18 ? bb4 : bb5
@@ -260,8 +252,7 @@ fn first_two (FuncId(3)) -> String
     %3 = regex_find copy %1, copy %0
     %4 = move %3
     %5 = []
-    %6 = move %4 ?? move %5
-    %2 = move %6
+    %2 = move %4 ?? move %5
     %7 = list_slice move %2, 0.0, 2.0
     %8 = closure ClosureId(2) []
     %9 = list_map move %7, move %8
@@ -290,8 +281,7 @@ fn main (FuncId(4)) -> None
     %17 temp: String
     %18 temp: None
   bb0:
-    %1 = external_new0("^\/a(?:\/b()|\/c())$", "")
-    %0 = move %1
+    %0 = external_new0("^\/a(?:\/b()|\/c())$", "")
     %2 = call fn0("/a/b") -> bb1
   bb1:
     %3 = call fn0("/a/c") -> bb2

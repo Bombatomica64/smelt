@@ -45,8 +45,7 @@ fn mix (FuncId(1)) -> i32
   bb0:
     %3 = primitive_cast_float copy %0
     %4 = primitive_cast_float copy %1
-    %5 = move %3 + move %4
-    %2 = move %5
+    %2 = move %3 + move %4
     %6 = primitive_cast_float copy %0
     %7 = primitive_cast_float copy %1
     %8 = move %6 * move %7
@@ -96,20 +95,15 @@ fn bits (FuncId(2)) -> i32
     %6 = copy %0 & 255.0
     %7 = move %6 * 3.0
     %8 = move %7 + 1.0
-    %9 = primitive_cast_int32 move %8
-    %1 = move %9
+    %1 = primitive_cast_int32 move %8
     %10 = copy %0 >> 2.0
-    %11 = primitive_cast_int32 move %10
-    %2 = move %11
+    %2 = primitive_cast_int32 move %10
     %12 = 1.0 << 31.0
-    %13 = primitive_cast_int32 move %12
-    %3 = move %13
+    %3 = primitive_cast_int32 move %12
     %14 = numeric_clz32 copy %0
-    %15 = primitive_cast_int32 move %14
-    %4 = move %15
+    %4 = primitive_cast_int32 move %14
     %16 = copy %0 ^ -1.0
-    %17 = primitive_cast_int32 move %16
-    %5 = move %17
+    %5 = primitive_cast_int32 move %16
     %18 = primitive_cast_float move %1
     %19 = primitive_cast_float move %2
     %20 = move %18 ^ move %19
@@ -146,10 +140,8 @@ fn count (FuncId(3)) -> i32
     %18 temp: Float
     %19 temp: i32
   bb0:
-    %4 = primitive_cast_int32 0.0
-    %2 = move %4
-    %5 = primitive_cast_int32 0.0
-    %3 = move %5
+    %2 = primitive_cast_int32 0.0
+    %3 = primitive_cast_int32 0.0
     goto bb1
   bb1:
     %6 = primitive_cast_float copy %3

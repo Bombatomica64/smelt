@@ -4401,7 +4401,6 @@ use super::*;
 pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let counter: Counter;
     let reply: SmeltResponse;
-    let _smelt_tmp_9: SmeltResponse;
     let _smelt_tmp_10: f64;
     let _smelt_tmp_12: String;
     let _smelt_tmp_15: SmeltList<String>;
@@ -4413,8 +4412,7 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _ = { println!("{}", counter.__smelt_get_label().clone()); };
     let _smelt_tmp_7: SmeltUnion3 = counter.reply();
     let _smelt_tmp_8: SmeltFuture<SmeltResponse> = match _smelt_tmp_7 { SmeltUnion3::M0(value) => SmeltFuture::<SmeltResponse>::resolved(value), SmeltUnion3::M1(value) => value };
-    _smelt_tmp_9 = _smelt_tmp_8.await?;
-    reply = _smelt_tmp_9;
+    reply = _smelt_tmp_8.await?;
     _smelt_tmp_10 = reply.clone().status();
     let _smelt_tmp_11: SmeltFuture<String> = { let smelt_response = reply.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
     _smelt_tmp_12 = _smelt_tmp_11.await?;
@@ -4495,12 +4493,9 @@ pub(crate) fn scan__module_main(url: String, key: Option<String>, multiple: Opti
     let _smelt_tmp_18: f64;
     let _smelt_tmp_19: f64;
     let _smelt_tmp_20: bool;
-    let _smelt_tmp_21: f64;
     let mut _smelt_tmp_22: f64;
     let mut _smelt_tmp_23: bool;
     let mut _smelt_tmp_24: f64;
-    let mut _smelt_tmp_25: f64;
-    let mut _smelt_tmp_26: f64;
     let mut _smelt_tmp_27: bool;
     let mut _smelt_tmp_28: bool;
     let mut _smelt_tmp_29: f64;
@@ -4521,8 +4516,7 @@ pub(crate) fn scan__module_main(url: String, key: Option<String>, multiple: Opti
     let mut _smelt_tmp_44: String;
     let _smelt_tmp_8: f64 = url.clone().find(&"%".to_owned()).map_or(-1.0, |idx| idx as f64);
     let _smelt_tmp_9: f64 = -1.0;
-    let _smelt_tmp_10: bool = _smelt_tmp_8 != _smelt_tmp_9;
-    let encoded: bool = _smelt_tmp_10;
+    let encoded: bool = _smelt_tmp_8 != _smelt_tmp_9;
     let _smelt_tmp_11: bool = !(multiple.clone().clone().unwrap_or(false));
     let _smelt_tmp_12: bool = if _smelt_tmp_11 { key.clone().clone().map_or(false, |value| !(value).is_empty()) } else { false };
     let mut _smelt_tmp_13: bool = false;
@@ -4543,18 +4537,15 @@ pub(crate) fn scan__module_main(url: String, key: Option<String>, multiple: Opti
     return None::<String>;
     }
     }
-    _smelt_tmp_21 = url.clone().find(&"?".to_owned()).map_or(-1.0, |idx| idx as f64);
-    index = _smelt_tmp_21;
+    index = url.clone().find(&"?".to_owned()).map_or(-1.0, |idx| idx as f64);
     out = "".to_owned();
     loop {
     _smelt_tmp_22 = -1.0;
     _smelt_tmp_23 = index != _smelt_tmp_22;
     if !(_smelt_tmp_23) { break; }
     _smelt_tmp_24 = index + 1.0;
-    _smelt_tmp_25 = { let smelt_haystack = url.clone(); let smelt_needle = "&".to_owned(); let smelt_from = (_smelt_tmp_24 as i64).max(0) as usize; let smelt_prefix_bytes = smelt_haystack.char_indices().nth(smelt_from).map_or(smelt_haystack.len(), |(byte, _)| byte); smelt_haystack.get(smelt_prefix_bytes..).and_then(|suffix| suffix.find(&smelt_needle).map(|index| (smelt_prefix_bytes + index) as f64)).unwrap_or(-1.0) };
-    next = _smelt_tmp_25;
-    _smelt_tmp_26 = { let smelt_haystack = url.clone(); let smelt_needle = "=".to_owned(); let smelt_from = (index as i64).max(0) as usize; let smelt_prefix_bytes = smelt_haystack.char_indices().nth(smelt_from).map_or(smelt_haystack.len(), |(byte, _)| byte); smelt_haystack.get(smelt_prefix_bytes..).and_then(|suffix| suffix.find(&smelt_needle).map(|index| (smelt_prefix_bytes + index) as f64)).unwrap_or(-1.0) };
-    eq = _smelt_tmp_26;
+    next = { let smelt_haystack = url.clone(); let smelt_needle = "&".to_owned(); let smelt_from = (_smelt_tmp_24 as i64).max(0) as usize; let smelt_prefix_bytes = smelt_haystack.char_indices().nth(smelt_from).map_or(smelt_haystack.len(), |(byte, _)| byte); smelt_haystack.get(smelt_prefix_bytes..).and_then(|suffix| suffix.find(&smelt_needle).map(|index| (smelt_prefix_bytes + index) as f64)).unwrap_or(-1.0) };
+    eq = { let smelt_haystack = url.clone(); let smelt_needle = "=".to_owned(); let smelt_from = (index as i64).max(0) as usize; let smelt_prefix_bytes = smelt_haystack.char_indices().nth(smelt_from).map_or(smelt_haystack.len(), |(byte, _)| byte); smelt_haystack.get(smelt_prefix_bytes..).and_then(|suffix| suffix.find(&smelt_needle).map(|index| (smelt_prefix_bytes + index) as f64)).unwrap_or(-1.0) };
     _smelt_tmp_27 = eq > next;
     if _smelt_tmp_27 {
     _smelt_tmp_29 = -1.0;

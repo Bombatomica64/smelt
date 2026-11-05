@@ -3856,14 +3856,11 @@ fn main() {
     let _smelt_tmp_15: String;
     let _smelt_tmp_16: String;
     let _smelt_tmp_18: (f64, String);
-    let _smelt_tmp_20: String;
-    let _smelt_tmp_21: f64;
     let _smelt_tmp_22: String;
     let _smelt_tmp_23: f64;
     let _smelt_tmp_25: SmeltList<f64>;
     let _smelt_tmp_26: ::std::rc::Rc<dyn Fn(f64) -> bool>;
     let _smelt_tmp_28: String;
-    let _smelt_tmp_30: SmeltList<SmeltUnion4>;
     let _smelt_tmp_31: f64;
     let _smelt_tmp_32: bool;
     let _smelt_tmp_33: bool;
@@ -3871,12 +3868,10 @@ fn main() {
     let _smelt_tmp_35: String;
     let _smelt_tmp_37: SmeltList<SmeltUnion6>;
     let _smelt_tmp_38: ::std::rc::Rc<dyn Fn(SmeltUnion6, i64, &SmeltList<SmeltUnion6>) -> SmeltUnion6>;
-    let _smelt_tmp_39: SmeltList<SmeltUnion6>;
     let _smelt_tmp_40: String;
     let _smelt_tmp_42: SmeltList<f64>;
     let _smelt_tmp_43: SmeltList<SmeltUnion11>;
     let _smelt_tmp_44: SmeltList<SmeltUnion13>;
-    let _smelt_tmp_45: SmeltList<SmeltUnion15>;
     let _smelt_tmp_46: SmeltList<SmeltUnion13>;
     let _smelt_tmp_47: String;
     let _smelt_tmp_48: SmeltList<SmeltUnion11>;
@@ -3898,10 +3893,8 @@ fn main() {
     let _ = { println!("{} {}", _smelt_tmp_15, _smelt_tmp_16); };
     _smelt_tmp_18 = (7.0, "seven".to_owned());
     let _smelt_tmp_19: (String, f64) = swap(_smelt_tmp_18);
-    _smelt_tmp_20 = _smelt_tmp_19.clone().0.clone();
-    label = _smelt_tmp_20;
-    _smelt_tmp_21 = _smelt_tmp_19.1.clone();
-    count = _smelt_tmp_21;
+    label = _smelt_tmp_19.clone().0.clone();
+    count = _smelt_tmp_19.1.clone();
     _smelt_tmp_22 = label.to_uppercase();
     _smelt_tmp_23 = count + 1.0;
     let _ = { println!("{} {}", _smelt_tmp_22, smelt_console_number(_smelt_tmp_23)); };
@@ -3913,8 +3906,7 @@ fn main() {
     let _smelt_tmp_27: SmeltList<f64> = keep(_smelt_tmp_25, &mut { let _smelt_adapted_callback = _smelt_tmp_26.clone(); move |arg0: &f64| (_smelt_adapted_callback)(arg0.clone()) });
     _smelt_tmp_28 = _smelt_tmp_27.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_28); };
-    _smelt_tmp_30 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnion4> = vec![SmeltUnion4::M0(1.0), SmeltUnion4::M1("two".to_owned()), SmeltUnion4::M2(true)]; smelt_list_items }));
-    mixed = Into::<SmeltList<_>>::into(_smelt_tmp_30);
+    mixed = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnion4> = vec![SmeltUnion4::M0(1.0), SmeltUnion4::M1("two".to_owned()), SmeltUnion4::M2(true)]; smelt_list_items }));
     _smelt_tmp_31 = mixed.len() as f64;
     _smelt_tmp_32 = { let smelt_needle = SmeltUnion4::M1("two".to_owned()); mixed.borrow().iter().any(|item| item.same_js_key(&smelt_needle)) };
     _smelt_tmp_33 = { let smelt_needle = SmeltUnion4::M0(2.0); mixed.borrow().iter().any(|item| item.same_js_key(&smelt_needle)) };
@@ -3940,7 +3932,7 @@ fn main() {
     }
     _smelt_tmp_2.clone()
     });
-    _smelt_tmp_39 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion6, _arg0: i64, _arg1: &SmeltList<SmeltUnion6>| {
+    bumped = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion6, _arg0: i64, _arg1: &SmeltList<SmeltUnion6>| {
     let mut _smelt_tmp_2: SmeltUnion6;
     let _smelt_tmp_3: f64;
     let _smelt_tmp_4: f64;
@@ -3958,14 +3950,12 @@ fn main() {
     }
     _smelt_tmp_2.clone()
     }); let smelt_array = _smelt_tmp_37; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
-    bumped = Into::<SmeltList<_>>::into(_smelt_tmp_39);
     _smelt_tmp_40 = bumped.borrow().iter().map(|item| { match (item.clone().into_smelt_unknown()) { SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() } }).collect::<Vec<_>>().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_40); };
     _smelt_tmp_42 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![4.0]; smelt_list_items }));
     _smelt_tmp_43 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnion11> = vec![SmeltUnion11::M0(3.0), SmeltUnion11::M1(_smelt_tmp_42.clone())]; smelt_list_items }));
     _smelt_tmp_44 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnion13> = vec![SmeltUnion13::M0(2.0), SmeltUnion13::M1(_smelt_tmp_43.clone())]; smelt_list_items }));
-    _smelt_tmp_45 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnion15> = vec![SmeltUnion15::M0(1.0), SmeltUnion15::M1(_smelt_tmp_44.clone())]; smelt_list_items }));
-    nested = Into::<SmeltList<_>>::into(_smelt_tmp_45);
+    nested = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnion15> = vec![SmeltUnion15::M0(1.0), SmeltUnion15::M1(_smelt_tmp_44.clone())]; smelt_list_items }));
     _smelt_tmp_46 = Into::<SmeltList<_>>::into({ fn smelt_flat_values(values: Vec<SmeltUnknown>, smelt_remaining_depth: i64) -> Vec<SmeltUnknown> { if smelt_remaining_depth <= 0 { return values; } values.into_iter().flat_map(|value| match value { SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), smelt_remaining_depth - 1), value => vec![value] }).collect::<Vec<_>>() } let smelt_flat_depth = ((1.0_f64) as f64).max(0.0).floor() as i64; let smelt_flat_input = nested.clone().borrow().iter().map(|item| item.clone().into_smelt_unknown()).collect::<Vec<_>>(); smelt_flat_values(smelt_flat_input, smelt_flat_depth).into_iter().map(|value| SmeltUnion13::from_smelt_unknown(value)).collect::<Vec<_>>() });
     _smelt_tmp_47 = serde_json::to_string(&{ let smelt_l = _smelt_tmp_46; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| value.into_smelt_unknown()).collect::<Vec<_>>())) }).expect("JSON serialization failed");
     _smelt_tmp_48 = Into::<SmeltList<_>>::into({ fn smelt_flat_values(values: Vec<SmeltUnknown>, smelt_remaining_depth: i64) -> Vec<SmeltUnknown> { if smelt_remaining_depth <= 0 { return values; } values.into_iter().flat_map(|value| match value { SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), smelt_remaining_depth - 1), value => vec![value] }).collect::<Vec<_>>() } let smelt_flat_depth = ((2.0) as f64).max(0.0).floor() as i64; let smelt_flat_input = nested.clone().borrow().iter().map(|item| item.clone().into_smelt_unknown()).collect::<Vec<_>>(); smelt_flat_values(smelt_flat_input, smelt_flat_depth).into_iter().map(|value| SmeltUnion11::from_smelt_unknown(value)).collect::<Vec<_>>() });
@@ -3990,8 +3980,7 @@ pub(crate) fn chunk<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + '
     let mut _smelt_tmp_8: SmeltList<T>;
     let mut _smelt_tmp_9: f64;
     let mut _smelt_tmp_10: f64;
-    let _smelt_tmp_4: SmeltList<SmeltList<T>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<T>> = vec![]; smelt_list_items }));
-    let mut out: SmeltList<SmeltList<T>> = Into::<SmeltList<_>>::into(_smelt_tmp_4);
+    let mut out: SmeltList<SmeltList<T>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<T>> = vec![]; smelt_list_items }));
     let mut i: f64 = 0.0;
     loop {
     _smelt_tmp_5 = arr.len() as f64;
@@ -4019,8 +4008,7 @@ pub(crate) fn keep<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 's
     let mut _smelt_tmp_7: bool;
     let mut _smelt_tmp_8: bool;
     let mut _smelt_tmp_9: f64;
-    let _smelt_tmp_4: SmeltList<T> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<T> = vec![]; smelt_list_items }));
-    let mut kept: SmeltList<T> = Into::<SmeltList<_>>::into(_smelt_tmp_4);
+    let mut kept: SmeltList<T> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<T> = vec![]; smelt_list_items }));
     let mut _smelt_tmp_5: usize = 0;
     loop {
     _smelt_tmp_6 = items.len();

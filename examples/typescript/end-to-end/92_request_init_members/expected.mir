@@ -66,14 +66,12 @@ fn main (FuncId(1)) -> None
     %35 temp: String
     %36 temp: None
   bb0:
-    %2 = request_new input="https://a.test/one"
-    %0 = move %2
+    %0 = request_new input="https://a.test/one"
     %3 = call fn0(move %0) -> bb1
   bb1:
     %4 = call @console_log(move %3) -> bb2
   bb2:
-    %5 = request_new input="https://a.test/two" cache="no-store" credentials="include" integrity="sha256-abc" keepalive=true mode="same-origin" redirect="manual" referrer="https://c.test" referrer_policy="no-referrer"
-    %1 = move %5
+    %1 = request_new input="https://a.test/two" cache="no-store" credentials="include" integrity="sha256-abc" keepalive=true mode="same-origin" redirect="manual" referrer="https://c.test" referrer_policy="no-referrer"
     %6 = call fn0(copy %1) -> bb3
   bb3:
     %7 = call @console_log(move %6) -> bb4

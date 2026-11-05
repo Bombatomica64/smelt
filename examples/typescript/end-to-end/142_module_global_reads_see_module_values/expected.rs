@@ -3593,8 +3593,7 @@ pub(crate) fn zero() -> f64 {
 
 pub(crate) fn read_p(key: String) -> String {
     let _smelt_tmp_2: SmeltRecord<String, (f64, String)> = SMELT_GLOBAL_P_2.with(|value| value.borrow().clone());
-    let _smelt_tmp_3: Option<(f64, String)> = _smelt_tmp_2.get(&key.clone());
-    let entry: Option<(f64, String)> = _smelt_tmp_3;
+    let entry: Option<(f64, String)> = _smelt_tmp_2.get(&key.clone());
     let _smelt_tmp_4: (f64, String) = entry.clone().expect("optional value was absent after narrowing");
     let _smelt_tmp_5: f64 = _smelt_tmp_4.0.clone();
     let _smelt_tmp_6: String = "".to_owned() + &smelt_number_to_string(_smelt_tmp_5);

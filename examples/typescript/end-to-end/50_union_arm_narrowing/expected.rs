@@ -4486,12 +4486,10 @@ fn main() {
     let text: Option<SmeltUnion14>;
     let missing: Option<SmeltUnion14>;
     let mut value: SmeltUnion14;
-    let _smelt_tmp_19: SmeltFormData;
     let _smelt_tmp_20: SmeltList<String>;
     let _smelt_tmp_21: SmeltBlob;
     let _smelt_tmp_22: ();
     let _smelt_tmp_23: ();
-    let _smelt_tmp_24: Option<SmeltUnion14>;
     let _smelt_tmp_25: bool;
     let _smelt_tmp_26: SmeltUnion14;
     let _smelt_tmp_27: SmeltBlob;
@@ -4502,9 +4500,7 @@ fn main() {
     let _smelt_tmp_32: SmeltUnion14;
     let _smelt_tmp_33: SmeltBlob;
     let _smelt_tmp_34: f64;
-    let _smelt_tmp_37: Option<SmeltUnion14>;
     let _smelt_tmp_38: bool;
-    let _smelt_tmp_41: Option<SmeltUnion14>;
     let _smelt_tmp_42: bool;
     let _smelt_tmp_45: SmeltList<SmeltUnion14>;
     let mut _smelt_tmp_46: usize;
@@ -4528,14 +4524,12 @@ fn main() {
     chosen = _smelt_tmp_16;
     let _smelt_tmp_17: String = label(chosen);
     let _ = { println!("{}", _smelt_tmp_17); };
-    _smelt_tmp_19 = SmeltFormData::new();
-    form = _smelt_tmp_19;
+    form = SmeltFormData::new();
     _smelt_tmp_20 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["hi".to_owned()]; smelt_list_items }));
     _smelt_tmp_21 = SmeltBlob::from_string_parts((_smelt_tmp_20).clone().into(), ("text/plain".to_owned()).clone(), Some(("note.txt".to_owned()).clone()), None);
     _smelt_tmp_22 = form.clone().append(&"doc".to_owned(), smelt_form_data_file_value((_smelt_tmp_21).clone(), None));
     _smelt_tmp_23 = form.clone().append(&"text".to_owned(), SmeltFormDataValue::Text(("plain".to_owned()).clone()));
-    _smelt_tmp_24 = form.clone().get(&"doc".to_owned()).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion14::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion14::M1(smelt_file) });
-    entry = _smelt_tmp_24;
+    entry = form.clone().get(&"doc".to_owned()).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion14::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion14::M1(smelt_file) });
     _smelt_tmp_25 = matches!(entry.clone(), Some(SmeltUnion14::M1(_)));
     if _smelt_tmp_25 {
     _smelt_tmp_26 = entry.clone().expect("optional value was absent after narrowing");
@@ -4551,16 +4545,14 @@ fn main() {
     } else {
     let _ = { println!("{}", "not a file".to_owned()); };
     }
-    _smelt_tmp_37 = form.clone().get(&"text".to_owned()).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion14::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion14::M1(smelt_file) });
-    text = _smelt_tmp_37;
+    text = form.clone().get(&"text".to_owned()).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion14::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion14::M1(smelt_file) });
     _smelt_tmp_38 = matches!(text, Some(SmeltUnion14::M1(_)));
     if _smelt_tmp_38 {
     let _ = { println!("{}", "unexpectedly a file".to_owned()); };
     } else {
     let _ = { println!("{}", "not a file".to_owned()); };
     }
-    _smelt_tmp_41 = form.clone().get(&"absent".to_owned()).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion14::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion14::M1(smelt_file) });
-    missing = _smelt_tmp_41;
+    missing = form.clone().get(&"absent".to_owned()).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion14::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion14::M1(smelt_file) });
     _smelt_tmp_42 = matches!(missing, Some(SmeltUnion14::M1(_)));
     if _smelt_tmp_42 {
     let _ = { println!("{}", "unexpectedly a file".to_owned()); };

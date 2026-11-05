@@ -3581,13 +3581,10 @@ fn main() {
     let _smelt_tmp_25: bool;
     let mut _smelt_tmp_26: String;
     let _smelt_tmp_27: Shape;
-    let _smelt_tmp_4: Shape = Shape { plain: Some(1.0), camel_case: Some("a".to_owned()), snake_case: Some("b".to_owned()), a_very_long_camel_name: Some(41.0) };
-    let full: Shape = _smelt_tmp_4;
-    let _smelt_tmp_5: Shape = Shape { plain: None::<f64>, camel_case: Some("only".to_owned()), snake_case: None::<String>, a_very_long_camel_name: None::<f64> };
-    let partial: Shape = _smelt_tmp_5;
+    let full: Shape = Shape { plain: Some(1.0), camel_case: Some("a".to_owned()), snake_case: Some("b".to_owned()), a_very_long_camel_name: Some(41.0) };
+    let partial: Shape = Shape { plain: None::<f64>, camel_case: Some("only".to_owned()), snake_case: None::<String>, a_very_long_camel_name: None::<f64> };
     let _smelt_tmp_6: Shape = Shape { plain: Some(2.0), camel_case: Some("deep".to_owned()), snake_case: None::<String>, a_very_long_camel_name: None::<f64> };
-    let _smelt_tmp_7: Wrapper = Wrapper { inner_shape: Some(_smelt_tmp_6) };
-    let nested: Wrapper = _smelt_tmp_7;
+    let nested: Wrapper = Wrapper { inner_shape: Some(_smelt_tmp_6) };
     let _smelt_tmp_8: String = number_of(full.plain.clone());
     let _ = { println!("{}", _smelt_tmp_8); };
     let _smelt_tmp_10: String = text_of(full.camel_case.clone());

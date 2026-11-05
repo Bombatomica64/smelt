@@ -321,7 +321,8 @@ const isBlob = file instanceof Blob;
     // host-marker filters), so a negative string assertion would be testing the
     // prelude rather than the call site.
     assert!(source.contains(".is_file()"), "{source}");
-    assert!(source.contains("_smelt_tmp_6: bool = true;"), "{source}");
+    // The user binding holds the static answer directly (no temporary).
+    assert!(source.contains("let is_blob: bool = true;"), "{source}");
     // The erased record still carries both markers, for a blob that crosses a
     // dynamic boundary.
     assert!(source.contains("\"__smelt_file\".to_owned()"), "{source}");

@@ -51,13 +51,33 @@ emitter because their bodies are emitted inside it.
 ## Ratchet
 
 A program is no less typed than its record when, for values, reads and calls,
-`erased(now) <= erased(then)` and
-`typed(now) * total(then) >= typed(then) * total(now)`. The total is judged the
-same way. New programs are not judged; a measured program that is now refused is
-a regression. `--fail-on-regression` exits 1 listing each program and kind that
-got worse. `--update-baseline` rewrites the baseline taking only records that are
-no less typed (Bun's `AOT_PROGRAMS_UPDATE=1`), dropping programs that no longer
-exist.
+`erased(now) <= erased(then)`. The total is judged the same way. New programs
+are not judged; a measured program that is now refused is a regression.
+`--fail-on-regression` exits 1 listing each program and kind whose erased count
+rose. `--update-baseline` rewrites the baseline taking only records that are no
+less typed (Bun's `AOT_PROGRAMS_UPDATE=1`), dropping programs that no longer
+exist. The typed share `(concrete+generic)/total` is still reported per kind and
+in the change table, as information.
+
+### Why the share no longer judges
+
+- **Old requirement** (Bun's `isNoLessTyped`, used until the let-temp elision
+  pass): `erased(now) <= erased(then)` **and**
+  `typed(now) * total(then) >= typed(then) * total(now)`.
+- **New requirement**: `erased(now) <= erased(then)` only.
+- **Evidence**: counts are per MIR entry. MIR lowered every `let x = e` as
+  `%t = e; %x = move %t`, so each binding was counted twice. The let-temp
+  elision pass (`crates/smelt-mir/src/opt/let_temp_elision.rs`) removes the
+  redundant temp; on es-toolkit this lowered the typed share of 115 files while
+  no file's erased count rose. The generated Rust lost only a
+  `let _smelt_tmp_N = ...;` per binding, its types unchanged. Under the old
+  rule that improvement could not be snapshotted, and two records had already
+  needed hand edits for the same reason (`ts7-parity-phase2-round2-hono.md`).
+- **Why the guarantee is preserved**: the north star asks for as few erased
+  values as possible. A value, read or call that loses its type is classified
+  erased, so any type loss still raises an erased count and still blocks. What
+  the share additionally blocked was only the removal of typed entries, which is
+  not a typing regression.
 
 | Baseline | Corpus | CI |
 | --- | --- | --- |
@@ -68,7 +88,7 @@ exist.
 ## Limits
 
 - Counts are per MIR entry, not per source expression: an optimization that
-  removes temporaries changes totals (the share comparison absorbs most of
-  that, the erased count does not, by design).
+  removes temporaries changes totals and shares; the ratchet judges only the
+  erased count, which such an optimization can only keep or lower.
 - The measurement does not compile the Rust; it predicts it with the emitter's
   own type rendering.

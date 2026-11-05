@@ -21,8 +21,7 @@ fn match (FuncId(0)) -> List<String>
   bb0:
     %5 = this
     %3 = copy %5.field17
-    %6 = []
-    %4 = move %6
+    %4 = []
     %7 = closure ClosureId(0) [copy %3, copy %4]
     %2 = move %7
     %8 = this
@@ -62,8 +61,7 @@ fn add (FuncId(2)) -> None
     %13 temp: Float
   bb0:
     %5 = copy %1 + " "
-    %6 = move %5 + copy %2
-    %4 = move %6
+    %4 = move %5 + copy %2
     %7 = dict_contains_key copy %0.field17, copy %4, own
     %8 = !move %7
     switch move %8 ? bb1 : bb2
@@ -107,10 +105,8 @@ fn count (FuncId(3)) -> Float
     switch move %8 ? bb2 : bb4
   bb2:
     %3 = copy %1[copy %6]
-    %9 = tuple_index copy %3, 0
-    %4 = move %9
-    %10 = tuple_index move %3, 1
-    %5 = move %10
+    %4 = tuple_index copy %3, 0
+    %5 = tuple_index move %3, 1
     %11 = move %4 + move %5
     %12 = len move %11
     %13 = move %2 + move %12
@@ -198,8 +194,7 @@ fn new (FuncId(7)) -> App
     %0.field40 = move %3
     %4 = ["get", "post"]
     %5 = []
-    %6 = list_concat move %4, move %5
-    %1 = move %6
+    %1 = list_concat move %4, move %5
     %7 = 0
     goto bb1
   bb1:
@@ -401,8 +396,7 @@ fn main (FuncId(10)) -> None throws
     %56 = closure_call move %6()
     %57 = call @console_log(move %56) -> bb18
   bb18:
-    %58 = ["get", "post"]
-    %7 = move %58
+    %7 = ["get", "post"]
     %59 = call fn7() -> bb19
   bb19:
     %8 = move %59

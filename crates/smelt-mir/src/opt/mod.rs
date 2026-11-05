@@ -17,6 +17,7 @@ mod dict_entry_update;
 mod integer_range;
 mod local_use;
 pub use local_use::inline_absent_constant_temps;
+mod let_temp_elision;
 mod move_on_last_use;
 mod unobserved_receiver_bind;
 
@@ -24,6 +25,7 @@ pub use dict_default_insert_elision::DictDefaultInsertElision;
 pub use dict_entry_mutation::DictEntryInPlaceMutation;
 pub use dict_entry_update::DictEntryUpdate;
 pub use integer_range::IntegerRange;
+pub use let_temp_elision::LetTempElision;
 pub use move_on_last_use::MoveOnLastUse;
 pub use unobserved_receiver_bind::UnobservedReceiverBind;
 
@@ -120,6 +122,7 @@ pub fn default_passes() -> Vec<Box<dyn Pass>> {
     vec![
         Box::<CopyPropagation>::default(),
         Box::<MoveOnLastUse>::default(),
+        Box::<LetTempElision>::default(),
         Box::<DictEntryInPlaceMutation>::default(),
         Box::<DictEntryUpdate>::default(),
         Box::<DictDefaultInsertElision>::default(),

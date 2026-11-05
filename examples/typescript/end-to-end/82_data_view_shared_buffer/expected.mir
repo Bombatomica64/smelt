@@ -91,10 +91,8 @@ fn main (FuncId(0)) -> None throws
     %88 temp: Float
     %89 temp: None
   bb0:
-    %8 = typed_array_new SharedArrayBuffer 8.0
-    %0 = move %8
-    %9 = typed_array_new ArrayBuffer 8.0
-    %1 = move %9
+    %0 = typed_array_new SharedArrayBuffer 8.0
+    %1 = typed_array_new ArrayBuffer 8.0
     %10 = byte_array_byte_length copy %0
     %11 = byte_array_byte_length copy %1
     %12 = call @console_log(move %10, move %11) -> bb1
@@ -111,23 +109,19 @@ fn main (FuncId(0)) -> None throws
     %20 = primitive_cast_string move %1
     %21 = call @console_log(move %19, move %20) -> bb4
   bb4:
-    %22 = typed_array_new Uint8Array copy %0
-    %2 = move %22
+    %2 = typed_array_new Uint8Array copy %0
     %2[0.0] = 7.0
     %23 = byte_array_buffer copy %2
     %24 = instanceof move %23, class0
     %25 = call @console_log(copy %2[0.0], move %24) -> bb5
   bb5:
-    %26 = byte_array_slice copy %0 0.0 4.0
-    %3 = move %26
+    %3 = byte_array_slice copy %0 0.0 4.0
     %27 = byte_array_byte_length copy %3
     %28 = instanceof move %3, class0
     %29 = call @console_log(move %27, move %28) -> bb6
   bb6:
-    %30 = typed_array_new ArrayBuffer 16.0
-    %4 = move %30
-    %31 = typed_array_new DataView copy %4
-    %5 = move %31
+    %4 = typed_array_new ArrayBuffer 16.0
+    %5 = typed_array_new DataView copy %4
     %32 = byte_array_byte_length copy %5
     %33 = byte_array_byte_offset copy %5
     %34 = byte_array_buffer copy %5
@@ -182,8 +176,7 @@ fn main (FuncId(0)) -> None throws
   bb28:
     %62 = call @console_log(move %61) -> bb29
   bb29:
-    %63 = typed_array_new DataView move %4 8.0 4.0
-    %6 = move %63
+    %6 = typed_array_new DataView move %4 8.0 4.0
     %64 = byte_array_byte_offset copy %6
     %65 = byte_array_byte_length copy %6
     %66 = call @console_log(move %64, move %65) -> bb30
@@ -196,8 +189,7 @@ fn main (FuncId(0)) -> None throws
   bb33:
     %70 = call @console_log(move %68, move %69) -> bb34
   bb34:
-    %71 = typed_array_new DataView copy %0
-    %7 = move %71
+    %7 = typed_array_new DataView copy %0
     %72 = byte_array_buffer copy %7
     %73 = instanceof move %72, class0
     %74 = byte_array_byte_length copy %7

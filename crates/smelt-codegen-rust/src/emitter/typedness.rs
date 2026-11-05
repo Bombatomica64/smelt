@@ -10,7 +10,8 @@
 //! Measured on optimized MIR, per source file, for three kinds:
 //!
 //! - **values** — every local of every function and closure (parameters,
-//!   user bindings and temporaries);
+//!   user bindings and temporaries), except a temporary nothing defines or
+//!   reads: codegen never declares one, so it is not in the emitted program;
 //! - **reads** — every assignment whose value is a property or element read:
 //!   a `Use` of a field/index place, `OptionalField`, `OptionalIndex`,
 //!   `ListIndex`, `TupleIndex` and `DictGet`, classified by the type of the
@@ -45,7 +46,7 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Deserialize, Serialize};
 use smelt_hir::{Type, TypeId};
 use smelt_mir::{
-    BasicBlock, Callee, ClosureId, LocalDecl, Mir, Operand, Place, Rvalue, Statement,
+    BasicBlock, Callee, ClosureId, LocalDecl, LocalKind, Mir, Operand, Place, Rvalue, Statement,
     Terminator,
 };
 
@@ -210,8 +211,19 @@ fn measure_body(
             .and_then(|index| locals.get(index))
             .map(|decl| decl.ty)
     };
-    for decl in locals {
-        counts.values.add(emitter.typedness_of(decl.ty));
+    let referenced = referenced_locals(blocks);
+    for (index, decl) in locals.iter().enumerate() {
+        // A temporary nothing defines or reads is never declared in the
+        // emitted Rust (codegen writes a `let` at a local's definition), so it
+        // is not a value of the program. Optimization passes leave such
+        // declarations behind (`LetTempElision` retargets a temporary's
+        // definition to the binding it was moved into). User bindings and
+        // parameters are always counted.
+        let unreferenced_temp = decl.kind == LocalKind::Temp
+            && u32::try_from(index).is_ok_and(|id| !referenced.contains(&smelt_mir::LocalId(id)));
+        if !unreferenced_temp {
+            counts.values.add(emitter.typedness_of(decl.ty));
+        }
     }
     for block in blocks {
         let mut read = |operand: &Operand| {
@@ -290,6 +302,82 @@ fn measure_body(
             counts.calls.add(result.max(callee));
         }
     }
+}
+
+/// Every local a body defines or reads: statement and phi destinations,
+/// call and await results, exception bindings, and every local an operand or
+/// place mentions.
+fn referenced_locals(blocks: &[BasicBlock]) -> std::collections::HashSet<smelt_mir::LocalId> {
+    fn place(place: &Place, out: &mut std::collections::HashSet<smelt_mir::LocalId>) {
+        match place {
+            Place::Local(local) | Place::Field { base: local, .. } => {
+                out.insert(*local);
+            }
+            Place::Index { base, index, .. } => {
+                out.insert(*base);
+                operand(index, out);
+            }
+            Place::Global { .. } => {}
+        }
+    }
+    fn operand(value: &Operand, out: &mut std::collections::HashSet<smelt_mir::LocalId>) {
+        if let Operand::Copy(read) | Operand::Move(read) = value {
+            place(read, out);
+        }
+    }
+    let mut out = std::collections::HashSet::new();
+    for block in blocks {
+        for phi in &block.phis {
+            out.insert(phi.dest);
+            for (_, incoming) in &phi.incoming {
+                operand(incoming, &mut out);
+            }
+        }
+        for statement in &block.statements {
+            match statement {
+                Statement::Assign { dest, value } => {
+                    out.insert(*dest);
+                    value.for_each_operand(|read| operand(read, &mut out));
+                }
+                Statement::AssignPlace { place: target, value } => {
+                    place(target, &mut out);
+                    value.for_each_operand(|read| operand(read, &mut out));
+                }
+                Statement::DictEntryUpdate { base, index, default, current, value } => {
+                    out.insert(*base);
+                    out.insert(*current);
+                    operand(index, &mut out);
+                    operand(default, &mut out);
+                    value.for_each_operand(|read| operand(read, &mut out));
+                }
+                Statement::StorageLive(local) | Statement::StorageDead(local) => {
+                    out.insert(*local);
+                }
+            }
+        }
+        match &block.terminator {
+            Some(Terminator::Call { callee, args, dest, unwind, .. }) => {
+                out.insert(*dest);
+                if let Callee::Indirect(callee) = callee {
+                    operand(callee, &mut out);
+                }
+                for arg in args {
+                    operand(arg, &mut out);
+                }
+                out.extend(unwind.and_then(|handler| handler.exception_local));
+            }
+            Some(Terminator::Await { future, dest, unwind, .. }) => {
+                out.insert(*dest);
+                operand(future, &mut out);
+                out.extend(unwind.and_then(|handler| handler.exception_local));
+            }
+            Some(Terminator::Switch { cond: read, .. })
+            | Some(Terminator::Match { scrutinee: read, .. })
+            | Some(Terminator::Return(read) | Terminator::Throw(read)) => operand(read, &mut out),
+            Some(Terminator::Goto(_) | Terminator::Unreachable) | None => {}
+        }
+    }
+    out
 }
 
 /// The local an operand reads, when it reads a whole local.

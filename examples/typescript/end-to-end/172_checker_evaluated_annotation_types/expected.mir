@@ -37,11 +37,9 @@ fn main (FuncId(2)) -> None
     %15 temp: Float
     %16 temp: None
   bb0:
-    %4 = ["x", "y"]
-    %0 = move %4
+    %0 = ["x", "y"]
     %1 = 8080.0
-    %5 = ["a", "b", "c"]
-    %2 = move %5
+    %2 = ["a", "b", "c"]
     %6 = call fn1() -> bb1
   bb1:
     %7 = call fn0(move %6, "abcd") -> bb2

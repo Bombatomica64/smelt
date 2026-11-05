@@ -3671,10 +3671,8 @@ impl Default for SmeltUnion15 {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let checker: Checker;
-    let _smelt_tmp_3: Req = Req { kind: "req".to_owned(), url: "/home".to_owned() };
-    let plain_request: Req = _smelt_tmp_3;
-    let _smelt_tmp_4: RawReq = RawReq { kind: "raw".to_owned(), raw: 7.0 };
-    let raw_request: RawReq = _smelt_tmp_4;
+    let plain_request: Req = Req { kind: "req".to_owned(), url: "/home".to_owned() };
+    let raw_request: RawReq = RawReq { kind: "raw".to_owned(), raw: 7.0 };
     let _smelt_tmp_5: String = describe(SmeltUnion3::M0(plain_request.clone()));
     let _ = { println!("{}", _smelt_tmp_5); };
     let _smelt_tmp_7: String = describe(SmeltUnion3::M1(raw_request.clone()));

@@ -3641,7 +3641,6 @@ fn main() {
     let _smelt_tmp_5: String;
     let _smelt_tmp_7: (String, f64);
     let _smelt_tmp_8: (String, f64);
-    let _smelt_tmp_9: SmeltList<(String, f64)>;
     let _smelt_tmp_11: String;
     let _smelt_tmp_14: String;
     let _smelt_tmp_16: (f64, f64);
@@ -3659,8 +3658,7 @@ fn main() {
     let _ = { println!("{}", _smelt_tmp_5); };
     _smelt_tmp_7 = ("a".to_owned(), 1.0);
     _smelt_tmp_8 = ("b".to_owned(), 2.0);
-    _smelt_tmp_9 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, f64)> = vec![_smelt_tmp_7.clone(), _smelt_tmp_8.clone()]; smelt_list_items }));
-    pairs = Into::<SmeltList<_>>::into(_smelt_tmp_9);
+    pairs = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, f64)> = vec![_smelt_tmp_7.clone(), _smelt_tmp_8.clone()]; smelt_list_items }));
     let _smelt_tmp_10: String = describe(SmeltUnion4::M1(pairs));
     _smelt_tmp_11 = "bound: ".to_owned() + &_smelt_tmp_10;
     let _ = { println!("{}", _smelt_tmp_11); };

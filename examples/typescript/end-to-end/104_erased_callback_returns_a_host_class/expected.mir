@@ -14,8 +14,7 @@ fn describe (FuncId(0)) -> String
     switch move %2 ? bb1 : bb2
   bb1:
     %3 = unknown_cast copy %0 as t3
-    %4 = closure_call move %3(4.0)
-    %1 = move %4
+    %1 = closure_call move %3(4.0)
     %5 = byte_array_byte_length move %1
     %6 = "bytes=" + move %5
     return move %6

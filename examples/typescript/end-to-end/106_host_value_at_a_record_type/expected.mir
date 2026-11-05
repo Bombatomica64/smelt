@@ -61,10 +61,8 @@ fn main (FuncId(2)) -> None
     %11 temp: String
     %12 temp: None
   bb0:
-    %2 = response_new body="hi" status=201.0 status_text="Created"
-    %0 = move %2
-    %3 = response_new body="no" status=500.0 status_text="Boom"
-    %1 = move %3
+    %0 = response_new body="hi" status=201.0 status_text="Created"
+    %1 = response_new body="no" status=500.0 status_text="Boom"
     %4 = call fn0(move %0) -> bb1
   bb1:
     %5 = call @console_log(move %4) -> bb2

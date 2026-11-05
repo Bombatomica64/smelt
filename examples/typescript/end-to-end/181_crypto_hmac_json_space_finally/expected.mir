@@ -45,14 +45,12 @@ async fn run (FuncId(0)) -> None throws
   bb0:
     %2 = call fn5("macha", "secret lucky charm") -> bb1
   bb1:
-    %3 = await move %2
-    %0 = move %3
+    %0 = await move %2
     %4 = call @console_log(move %0) -> bb2
   bb2:
     %5 = call fn4("secret lucky charm") -> bb3
   bb3:
-    %6 = await move %5
-    %1 = move %6
+    %1 = await move %5
     %7 = call fn6("macha", "macha", copy %1) -> bb4
   bb4:
     %8 = await move %7
@@ -251,14 +249,12 @@ async fn sign__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_
   bb0:
     %4 = call fn4(copy %1) -> bb1
   bb1:
-    %5 = await move %4
-    %2 = move %5
+    %2 = await move %4
     %6 = {"name": "HMAC", "hash": "SHA-256"}
     %7 = text_encoder_new
     %8 = text_encoder_encode move %7 copy %0
     %9 = crypto_sign copy %6.field15, move %2, move %8
-    %10 = await move %9
-    %3 = move %10
+    %3 = await move %9
     %11 = typed_array_new Uint8Array move %3
     %12 = primitive_cast_from_char_codes move %11
     %13 = call @btoa(move %12) -> bb2
@@ -287,8 +283,7 @@ async fn verify__module_examples/typescript/end-to-end/181_crypto_hmac_json_spac
     %5 = text_encoder_new
     %6 = text_encoder_encode move %5 copy %1
     %7 = crypto_sign copy %4.field15, copy %2, move %6
-    %8 = await move %7
-    %3 = move %8
+    %3 = await move %7
     %9 = {"name": "HMAC", "hash": "SHA-256"}
     %10 = typed_array_new Uint8Array move %3
     %11 = text_encoder_new
@@ -306,8 +301,7 @@ async fn main (FuncId(7)) -> None throws
     %4 temp: Future<None>
     %5 temp: None
   bb0:
-    %1 = {"name": "HMAC", "hash": "SHA-256"}
-    %0 = move %1
+    %0 = {"name": "HMAC", "hash": "SHA-256"}
     %2 = call fn0() -> bb1
   bb1:
     %3 = async_spawn_local(move %2)

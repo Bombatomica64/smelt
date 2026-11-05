@@ -49,12 +49,10 @@ async fn main (FuncId(0)) -> None throws
     %44 temp: None
   bb0:
     %6 = closure ClosureId(0) []
-    %7 = http_create_server move %6
-    %0 = move %7
+    %0 = http_create_server move %6
     %8 = closure ClosureId(3) []
     %9 = http_server_listen copy %0 0.0 "127.0.0.1" move %8
-    %10 = http_server_address copy %0
-    %1 = move %10
+    %1 = http_server_address copy %0
     %11 = unknown_is Null copy %1
     %12 = !move %11
     switch move %12 ? bb1 : bb2
@@ -77,14 +75,12 @@ async fn main (FuncId(0)) -> None throws
     goto bb6
   bb6:
     %2 = move %16
-    %18 = "http://127.0.0.1:" + move %2
-    %3 = move %18
+    %3 = "http://127.0.0.1:" + move %2
     %19 = "" + copy %3
     %20 = move %19 + "/echo?q=1"
     %21 = request_new input=move %20 method="POST" body="hello body"
     %22 = async_http_fetch(move %21)
-    %23 = await move %22
-    %4 = move %23
+    %4 = await move %22
     %24 = response_status copy %4
     %25 = call @console_log(move %24) -> bb7
   bb7:
@@ -95,8 +91,7 @@ async fn main (FuncId(0)) -> None throws
     %29 = "" + move %3
     %30 = move %29 + "/again"
     %31 = async_http_fetch(move %30)
-    %32 = await move %31
-    %5 = move %32
+    %5 = await move %31
     %33 = response_status copy %5
     %34 = call @console_log(move %33) -> bb9
   bb9:

@@ -67,8 +67,7 @@ async fn main (FuncId(1)) -> None throws
   bb6:
     %9 = call fn0(false) -> bb7
   bb7:
-    %10 = await move %9
-    %1 = move %10
+    %1 = await move %9
     %11 = call @console_log(copy %1) -> bb8
   bb8:
     %12 = len move %1
@@ -93,8 +92,7 @@ async fn main (FuncId(1)) -> None throws
   bb15:
     %19 = call fn0(false) -> bb16
   bb16:
-    %20 = await move %19
-    %3 = move %20
+    %3 = await move %19
     %21 = len move %2
     %22 = call @console_log(move %3, move %21) -> bb17
   bb17:

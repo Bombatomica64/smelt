@@ -208,14 +208,11 @@ pub(crate) fn cluster(list: SmeltList<f64>, size: Option<f64>) -> SmeltList<Smel
     let mut _smelt_tmp_15: SmeltList<f64>;
     let mut _smelt_tmp_16: f64;
     let mut _smelt_tmp_17: f64;
-    let _smelt_tmp_6: f64 = size.clone().unwrap_or(2.0);
-    let size_1: f64 = _smelt_tmp_6;
+    let size_1: f64 = size.clone().unwrap_or(2.0);
     let _smelt_tmp_7: f64 = list.len() as f64;
     let _smelt_tmp_8: f64 = _smelt_tmp_7 / size_1;
-    let _smelt_tmp_9: f64 = _smelt_tmp_8.ceil();
-    let count: f64 = _smelt_tmp_9;
-    let _smelt_tmp_10: SmeltList<SmeltList<f64>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<f64>> = vec![]; smelt_list_items }));
-    let mut out: SmeltList<SmeltList<f64>> = Into::<SmeltList<_>>::into(_smelt_tmp_10);
+    let count: f64 = _smelt_tmp_8.ceil();
+    let mut out: SmeltList<SmeltList<f64>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<f64>> = vec![]; smelt_list_items }));
     let mut i: f64 = 0.0;
     loop {
     _smelt_tmp_11 = i < count;

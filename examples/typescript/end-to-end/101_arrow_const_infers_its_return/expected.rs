@@ -3814,8 +3814,7 @@ pub(crate) async fn boxed(text: SmeltFuture<String>) -> Result<String, Box<dyn s
     });
     let decorate = _smelt_tmp_3.clone();
     let _smelt_tmp_4: SmeltFuture<Wrapper> = { let smelt_promise_callback = (decorate).clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_value = text.await?; let smelt_callback_value = (smelt_promise_callback)(smelt_value); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) })) };
-    let _smelt_tmp_5: Wrapper = _smelt_tmp_4.await?;
-    let box_: Wrapper = _smelt_tmp_5;
+    let box_: Wrapper = _smelt_tmp_4.await?;
     return Ok(box_.label.clone());
 }
 

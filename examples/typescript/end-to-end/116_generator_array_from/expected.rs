@@ -3553,33 +3553,25 @@ fn main() {
     let spread_range: SmeltList<f64>;
     let names: SmeltList<String>;
     let again: SmeltList<f64>;
-    let _smelt_tmp_5: SmeltList<f64>;
     let _smelt_tmp_6: f64;
-    let _smelt_tmp_9: SmeltList<f64>;
     let _smelt_tmp_10: String;
-    let _smelt_tmp_13: SmeltList<String>;
     let _smelt_tmp_14: String;
-    let _smelt_tmp_17: SmeltList<f64>;
     let _smelt_tmp_18: f64;
     let _smelt_tmp_19: f64;
     let _smelt_tmp_4: SmeltGenerator<f64, (), ()> = range(1.0, 5.0, None::<f64>);
-    _smelt_tmp_5 = Into::<SmeltList<_>>::into(SmeltList::new((_smelt_tmp_4).collect_yields()));
-    from_range = Into::<SmeltList<_>>::into(_smelt_tmp_5);
+    from_range = Into::<SmeltList<_>>::into(SmeltList::new((_smelt_tmp_4).collect_yields()));
     _smelt_tmp_6 = from_range.len() as f64;
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_6), smelt_console_number(from_range.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0)), smelt_console_number(from_range.borrow().get({ let smelt_normalized = 4.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0))); };
     let _smelt_tmp_8: SmeltGenerator<f64, (), ()> = range(0.0, 10.0, Some(5.0));
-    _smelt_tmp_9 = Into::<SmeltList<_>>::into(SmeltList::new((_smelt_tmp_8).collect_yields()));
-    spread_range = Into::<SmeltList<_>>::into(_smelt_tmp_9);
+    spread_range = Into::<SmeltList<_>>::into(SmeltList::new((_smelt_tmp_8).collect_yields()));
     _smelt_tmp_10 = spread_range.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_10); };
     let _smelt_tmp_12: SmeltGenerator<String, (), ()> = labels(3.0);
-    _smelt_tmp_13 = Into::<SmeltList<_>>::into(SmeltList::new((_smelt_tmp_12).collect_yields()));
-    names = Into::<SmeltList<_>>::into(_smelt_tmp_13);
+    names = Into::<SmeltList<_>>::into(SmeltList::new((_smelt_tmp_12).collect_yields()));
     _smelt_tmp_14 = names.borrow().join(&" ".to_owned());
     let _ = { println!("{}", _smelt_tmp_14); };
     let _smelt_tmp_16: SmeltGenerator<f64, (), ()> = range(2.0, 3.0, None::<f64>);
-    _smelt_tmp_17 = Into::<SmeltList<_>>::into(SmeltList::new((_smelt_tmp_16).collect_yields()));
-    again = Into::<SmeltList<_>>::into(_smelt_tmp_17);
+    again = Into::<SmeltList<_>>::into(SmeltList::new((_smelt_tmp_16).collect_yields()));
     _smelt_tmp_18 = again.len() as f64;
     _smelt_tmp_19 = again.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) + again.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_18), smelt_console_number(_smelt_tmp_19)); };
@@ -3601,8 +3593,7 @@ pub(crate) fn range(start: f64, end: f64, step: Option<f64>) -> SmeltGenerator<f
     let mut _smelt_tmp_7: f64;
     let mut _smelt_tmp_8: ();
     let mut _smelt_tmp_9: f64;
-    let _smelt_tmp_5: f64 = step.clone().unwrap_or(1.0);
-    let step_1: f64 = _smelt_tmp_5;
+    let step_1: f64 = step.clone().unwrap_or(1.0);
     let mut i: f64 = start;
     loop {
     _smelt_tmp_6 = i <= end;
@@ -3623,7 +3614,6 @@ pub(crate) fn labels(count: f64) -> SmeltGenerator<String, (), ()> {
     let smelt_generator_producer_input = smelt_generator_input.clone();
     let smelt_generator = genawaiter::rc::Gen::new(move |co| { let smelt_generator_input = smelt_generator_producer_input; async move {
     let mut _smelt_tmp_2: bool;
-    let mut _smelt_tmp_3: String;
     let mut _smelt_tmp_4: String;
     let mut _smelt_tmp_5: ();
     let mut _smelt_tmp_6: f64;
@@ -3631,8 +3621,7 @@ pub(crate) fn labels(count: f64) -> SmeltGenerator<String, (), ()> {
     loop {
     _smelt_tmp_2 = i < count;
     if !(_smelt_tmp_2) { break; }
-    _smelt_tmp_3 = "item-".to_owned() + &smelt_number_to_string(i);
-    _smelt_tmp_4 = _smelt_tmp_3;
+    _smelt_tmp_4 = "item-".to_owned() + &smelt_number_to_string(i);
     _smelt_tmp_5 = { co.yield_(_smelt_tmp_4).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(value) => value, SmeltGeneratorCommand::Return(value) => return value, SmeltGeneratorCommand::Throw(error) => smelt_panic_throw(smelt_throw(error)) } };
     _smelt_tmp_6 = i + 1.0;
     i = _smelt_tmp_6;

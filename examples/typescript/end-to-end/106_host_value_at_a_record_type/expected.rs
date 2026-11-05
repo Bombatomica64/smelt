@@ -382,10 +382,8 @@ impl SmeltResponse {
 // @smelt:prelude-end — generated program below
 fn main() {
     let _smelt_tmp_10: Init;
-    let _smelt_tmp_2: SmeltResponse = SmeltResponse::from_parts(201.0, "Created".to_owned(), SmeltHeaders::new(), SmeltBody::from_text(&"hi".to_owned()));
-    let created: SmeltResponse = _smelt_tmp_2;
-    let _smelt_tmp_3: SmeltResponse = SmeltResponse::from_parts(500.0, "Boom".to_owned(), SmeltHeaders::new(), SmeltBody::from_text(&"no".to_owned()));
-    let failed: SmeltResponse = _smelt_tmp_3;
+    let created: SmeltResponse = SmeltResponse::from_parts(201.0, "Created".to_owned(), SmeltHeaders::new(), SmeltBody::from_text(&"hi".to_owned()));
+    let failed: SmeltResponse = SmeltResponse::from_parts(500.0, "Boom".to_owned(), SmeltHeaders::new(), SmeltBody::from_text(&"no".to_owned()));
     let _smelt_tmp_4: String = describe({ let smelt_host_value = created; Init { status: Some(smelt_host_value.status()), status_text: Some(smelt_host_value.status_text()), ok: Some(smelt_host_value.ok()), label: None } });
     let _ = { println!("{}", _smelt_tmp_4); };
     let _smelt_tmp_6: String = describe_maybe(Some({ let smelt_host_value = failed; Init { status: Some(smelt_host_value.status()), status_text: Some(smelt_host_value.status_text()), ok: Some(smelt_host_value.ok()), label: None } }));

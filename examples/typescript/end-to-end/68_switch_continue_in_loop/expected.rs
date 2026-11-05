@@ -168,7 +168,6 @@ pub(crate) fn escape_html(str: String) -> String {
     let mut replacement: String;
     let mut _smelt_tmp_6: usize;
     let mut _smelt_tmp_7: bool;
-    let mut _smelt_tmp_8: f64;
     let mut _smelt_tmp_9: String;
     let mut _smelt_tmp_10: String;
     let mut _smelt_tmp_11: String;
@@ -189,8 +188,7 @@ pub(crate) fn escape_html(str: String) -> String {
     _smelt_tmp_7 = i < _smelt_tmp_6;
     if !(_smelt_tmp_7) { break; }
     _smelt_tmp_17 = i as f64;
-    _smelt_tmp_8 = (|smelt_text: &str, smelt_index: usize| match smelt_text.as_bytes().get(..=smelt_index) { Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[smelt_index]), _ => smelt_text.chars().nth(smelt_index).map_or(f64::NAN, |ch| ch as u32 as f64) })(&str, _smelt_tmp_17 as usize);
-    code = _smelt_tmp_8;
+    code = (|smelt_text: &str, smelt_index: usize| match smelt_text.as_bytes().get(..=smelt_index) { Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[smelt_index]), _ => smelt_text.chars().nth(smelt_index).map_or(f64::NAN, |ch| ch as u32 as f64) })(&str, _smelt_tmp_17 as usize);
     replacement = "".to_owned();
     match code {
         34.0 => {

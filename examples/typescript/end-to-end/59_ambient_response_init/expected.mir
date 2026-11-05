@@ -13,8 +13,7 @@ fn status_of (FuncId(0)) -> String
     %8 temp: String
     %9 temp: String
   bb0:
-    %2 = response_new body="body" status=copy %0.field1 status_text=copy %0.field2 headers=copy %0.field4
-    %1 = move %2
+    %1 = response_new body="body" status=copy %0.field1 status_text=copy %0.field2 headers=copy %0.field4
     %3 = response_status copy %1
     %4 = "" + move %3
     %5 = move %4 + " "
@@ -78,8 +77,7 @@ fn main (FuncId(1)) -> None
     %0 = move %5
     %6 = {"x-a": "1"}
     %7 = {"status": 201.0, "statusText": "Created", "headers": move %6}
-    %8 = closure_call copy %0("hi", move %7)
-    %1 = move %8
+    %1 = closure_call copy %0("hi", move %7)
     %9 = response_status copy %1
     %10 = call @console_log(move %9) -> bb1
   bb1:
@@ -91,8 +89,7 @@ fn main (FuncId(1)) -> None
     %15 = move %14 ?? "none"
     %16 = call @console_log(move %15) -> bb3
   bb3:
-    %17 = closure_call move %0(none, none)
-    %2 = move %17
+    %2 = closure_call move %0(none, none)
     %18 = response_status copy %2
     %19 = call @console_log(move %18) -> bb4
   bb4:
@@ -108,8 +105,7 @@ fn main (FuncId(1)) -> None
     %27 = call @console_log(move %26) -> bb7
   bb7:
     %28 = ("content-type", "text/html")
-    %29 = [move %28]
-    %3 = move %29
+    %3 = [move %28]
     %30 = {"status": 203.0, "headers": move %3}
     %31 = call fn0(move %30) -> bb8
   bb8:
@@ -124,8 +120,7 @@ fn main (FuncId(1)) -> None
     %38 = call @console_log(move %37) -> bb11
   bb11:
     %39 = {"x-b": "2"}
-    %40 = request_new input="http://example.test/x" method="POST" headers=move %39 body="payload"
-    %4 = move %40
+    %4 = request_new input="http://example.test/x" method="POST" headers=move %39 body="payload"
     %41 = request_method copy %4
     %42 = call @console_log(move %41) -> bb12
   bb12:

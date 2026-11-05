@@ -174,8 +174,7 @@ pub(crate) fn hoisted_call(n: f64) -> f64 {
     _smelt_tmp_9
     });
     let combine = _smelt_tmp_3.clone();
-    let _smelt_tmp_4: f64 = (combine)(n, None, None);
-    let early: f64 = _smelt_tmp_4;
+    let early: f64 = (combine)(n, None, None);
     let _smelt_tmp_5: f64 = (combine)(n, Some("abc".to_owned()), Some(true));
     let _smelt_tmp_6: f64 = early + _smelt_tmp_5;
     return _smelt_tmp_6;
