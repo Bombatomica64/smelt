@@ -54,9 +54,9 @@ use smelt_codegen_rust::{KindCounts, TypednessCounts};
 
 use crate::{
     CliResult, config_parser, lowering,
-    manifest::{exclusion_base, manifest_relative_path},
     pipeline,
     report::{self, GatedOutcome, ReportFormat},
+    source_files::{exclusion_base, manifest_relative_path},
 };
 
 /// File name of the sidecar `smelt build` writes next to the generated `src/`.

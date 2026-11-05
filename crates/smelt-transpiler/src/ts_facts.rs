@@ -14,7 +14,7 @@
 
 use smelt_ts_model::TsTypeFacts;
 
-use crate::lowering::SourceLang;
+use crate::source_files::SourceLang;
 use crate::manifest::ManifestSource;
 
 /// Environment switch: `SMELT_TS7=0` lowers without checker facts (A/B runs).

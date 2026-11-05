@@ -62,6 +62,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     CliResult,
     report::{self, GatedOutcome, ReportFormat, bump, escape_cell},
+    source_files::discover_rust_files,
 };
 
 /// Options controlling one `SmeltUnknown` report run.
@@ -302,48 +303,6 @@ fn detect_regression(scan: &ScanResult, baseline: Option<&UnknownReport>) -> Opt
         delta,
         top_files,
     })
-}
-
-/// Expand the requested roots into a sorted, de-duplicated list of `.rs` files.
-///
-/// Directories are walked recursively. Sorting makes the first-seen example for
-/// each shape deterministic across runs and platforms.
-fn discover_rust_files(roots: &[PathBuf]) -> CliResult<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    for root in roots {
-        collect_rust_files(root, &mut files)?;
-    }
-    files.sort();
-    files.dedup();
-    Ok(files)
-}
-
-/// Recursively collect `.rs` files under `root` (or `root` itself when it is a
-/// single `.rs` file) into `out`.
-fn collect_rust_files(root: &Path, out: &mut Vec<PathBuf>) -> CliResult<()> {
-    let metadata = std::fs::metadata(root)
-        .map_err(|error| format!("failed to stat `{}`: {error}", root.display()))?;
-    if metadata.is_file() {
-        if root.extension().and_then(|ext| ext.to_str()) == Some("rs") {
-            out.push(root.to_path_buf());
-        }
-        return Ok(());
-    }
-    // Read directory entries in a stable order so the walk is deterministic.
-    let mut entries = std::fs::read_dir(root)
-        .map_err(|error| format!("failed to read directory `{}`: {error}", root.display()))?
-        .map(|dir_entry| dir_entry.map(|entry| entry.path()))
-        .collect::<Result<Vec<_>, _>>()?;
-    entries.sort();
-    for entry in entries {
-        // Skip Cargo build output; it duplicates generated sources and would
-        // double-count while making the scan non-deterministic across machines.
-        if entry.file_name().and_then(|name| name.to_str()) == Some("target") {
-            continue;
-        }
-        collect_rust_files(&entry, out)?;
-    }
-    Ok(())
 }
 
 /// Format a file path for report examples, relative to `base` when possible.

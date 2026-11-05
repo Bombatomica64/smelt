@@ -13,9 +13,11 @@ use std::{
 use oxc_resolver::{ResolveOptions, ResolverGeneric};
 
 use crate::{
-    lowering::SourceLang,
     sound::SoundSettings,
     sound_overlay::{SoundOverlay, TypedVersionOrigin},
+    source_files::{
+        RESOLVER_EXTENSIONS, SourceLang, exclusion_base, manifest_relative_path, path_matches_glob,
+    },
 };
 
 /// The TypeScript resolver the dependency collector uses: `oxc_resolver` over
@@ -92,65 +94,6 @@ struct ManifestGraphVisit<'a> {
     ordered: Vec<usize>,
     /// DFS colour of every source reached so far.
     marks: HashMap<usize, Mark>,
-}
-
-/// The manifest directory in the form `[sources] exclude` globs are matched
-/// against: absolute and canonical when the directory exists.
-///
-/// An exclude glob is written relative to the MANIFEST, and the paths it is
-/// matched against are produced by the module resolver, which canonicalizes
-/// them. Making the two comparable is this function's whole job, and it closes
-/// two traps that each silently disabled every exclude:
-///
-/// * `Path::new("Smelt.toml").parent()` is `Some("")`, not `None`, so the usual
-///   `.unwrap_or(Path::new("."))` never fired for a manifest named with no
-///   directory component — `smelt build` in a project root, or
-///   `--manifest-path Smelt.toml`. An empty prefix makes `strip_prefix` succeed
-///   while stripping nothing, so a canonical dependency path stayed ABSOLUTE
-///   and no manifest-relative glob could match it. Hono then lowered the
-///   `src/client/**` its manifest excludes.
-/// * A relative directory is relative to the process's working directory, which
-///   is not the manifest's directory in general.
-///
-/// It deliberately does NOT replace the manifest directory used to RESOLVE
-/// paths: a root or entry keeps the spelling the manifest gave it, because that
-/// spelling becomes the lowered module's path and is visible in HIR dumps, in
-/// generated file names and in diagnostics. Only the comparison is normalized.
-///
-/// Canonicalization is best-effort: a directory that does not exist on disk
-/// keeps its literal form rather than failing the build.
-pub(crate) fn exclusion_base(manifest_dir: &Path) -> PathBuf {
-    let base = if manifest_dir.as_os_str().is_empty() {
-        Path::new(".")
-    } else {
-        manifest_dir
-    };
-    base.canonicalize().unwrap_or_else(|_| base.to_path_buf())
-}
-
-/// Strip `base` off `path`, trying the canonical form of each first.
-///
-/// The two sides reach this from different directions — a manifest root is
-/// joined onto the manifest directory as written, while a resolved dependency
-/// is canonical — so neither form alone strips both. Returns the path unchanged
-/// when it lies outside the manifest directory, which is what
-/// `path_matches_glob` then declines to match.
-pub(crate) fn manifest_relative_path(path: &Path, base: &Path) -> PathBuf {
-    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    canonical
-        .strip_prefix(base)
-        .map(Path::to_path_buf)
-        .or_else(|_| path.strip_prefix(base).map(Path::to_path_buf))
-        .unwrap_or_else(|_| path.to_path_buf())
-}
-
-/// Resolves a path relative to the manifest directory, or returns it if absolute.
-pub(crate) fn resolve_manifest_path(manifest_dir: &Path, path: &Path) -> PathBuf {
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        manifest_dir.join(path)
-    }
 }
 
 /// Reads a manifest entry and collects imports for dependency sorting.
@@ -377,7 +320,7 @@ impl DependencyCollector {
         let relative = manifest_relative_path(path, &exclusion_base(&self.manifest_dir));
         self.excludes
             .iter()
-            .any(|pattern| crate::lowering::path_matches_glob(&relative, pattern))
+            .any(|pattern| path_matches_glob(&relative, pattern))
     }
 }
 
@@ -639,14 +582,7 @@ fn python_relative_base_dir(importer_dir: &Path, level: u32) -> PathBuf {
 /// the typed-version layer `overlay`.
 fn typescript_resolver(overlay: SoundOverlay) -> TypeScriptResolver {
     TypeScriptResolver::new_with_file_system(overlay, ResolveOptions {
-        extensions: vec![
-            ".ts".into(),
-            ".mts".into(),
-            ".cts".into(),
-            ".d.ts".into(),
-            ".py".into(),
-            ".pyi".into(),
-        ],
+        extensions: RESOLVER_EXTENSIONS.map(str::to_owned).to_vec(),
         main_files: vec!["index".into(), "__init__".into()],
         ..ResolveOptions::default()
     })

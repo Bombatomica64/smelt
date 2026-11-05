@@ -12,9 +12,9 @@ use crate::{
     cli_parser::{Args, Command, GateArgs, HirMode, MessageFormat, ReportArgs},
     config::Config,
     config_parser, diagnostics, erasure, list_escape_report, lowering,
-    lowering::SourceLang,
     pipeline, probe,
     report::{self, ReportFormat, write_report},
+    source_files::SourceLang,
     test_report, typedness_report, unknown_report,
 };
 #[cfg(feature = "ts7")]

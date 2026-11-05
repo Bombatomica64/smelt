@@ -21,6 +21,7 @@ use smelt_stdlib::DiagnosticCategory;
 
 use crate::config::Config;
 use crate::report::{ReportFormat, bump, escape_cell};
+use crate::source_files::{discover_source_files, names_source_file};
 use crate::{CliResult, lowering, pipeline, test_report};
 
 /// Options controlling a probe run.
@@ -203,7 +204,7 @@ fn run_probe(options: &ProbeOptions<'_>) -> CliResult<ProbeResult> {
     }
 
     // Recoverable manifest lowering enumerates every distinct blocker class.
-    let files = lowering::discover_source_files(options.config, manifest_dir)?;
+    let files = discover_source_files(options.config, manifest_dir)?;
     let ScanResult {
         occurrences,
         file_sets,
@@ -375,8 +376,7 @@ fn trailing_number(text: &str) -> Option<usize> {
 /// Pull the first `path.ts`/`path.py` out of a build error message.
 fn first_abort_file(message: &str) -> Option<String> {
     for token in message.split(['"', '\n', ' ', ':']) {
-        let extension = Path::new(token).extension().and_then(|ext| ext.to_str());
-        if matches!(extension, Some("ts" | "py")) {
+        if names_source_file(token) {
             let trimmed = token.trim_start_matches("./");
             return Some(trimmed.replace("/./", "/"));
         }

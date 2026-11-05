@@ -50,6 +50,7 @@ mod python;
 pub mod report;
 mod sound;
 mod sound_overlay;
+mod source_files;
 mod specialization;
 pub mod stubs;
 mod test_report;

@@ -12,7 +12,7 @@ use smelt_hir::format_compact;
 use crate::{
     config::{Allocator, Config, OutputKind, ReleaseProfile},
     erasure, lowering, typedness_report,
-    manifest::resolve_manifest_path,
+    source_files::resolve_manifest_path,
     stubs, timing,
 };
 

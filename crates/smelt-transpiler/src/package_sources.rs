@@ -62,7 +62,7 @@ impl ResolvedPackage {
         };
         self.excludes
             .iter()
-            .any(|pattern| crate::lowering::path_matches_glob(relative, pattern))
+            .any(|pattern| crate::source_files::path_matches_glob(relative, pattern))
     }
 }
 
