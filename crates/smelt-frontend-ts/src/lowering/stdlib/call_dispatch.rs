@@ -1335,7 +1335,9 @@ impl<'builder> ModuleBuilder<'builder> {
             .all(|property| match property {
                 oxc::ast::ast::ObjectPropertyKind::ObjectProperty(property) => {
                     !property.computed
-                        && property.key.static_name().is_some_and(|key| declares(&key))
+                        && property.key.static_name().is_some_and(|key| {
+                            declares(&crate::lowering::js_text::static_name_text(key))
+                        })
                 }
                 oxc::ast::ast::ObjectPropertyKind::SpreadProperty(_) => false,
             })
