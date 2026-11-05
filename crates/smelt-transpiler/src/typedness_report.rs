@@ -422,7 +422,7 @@ mod tests {
             "p.ts".to_owned(),
             Some(counts(1, 0, 2)),
         )]));
-        assert!(compare(&report, &baseline).is_empty());
+        assert_eq!(compare(&report, &baseline), Vec::new());
         assert_eq!(updated_baseline(&report, Some(&baseline)).programs["p.ts"], Some(counts(1, 0, 2)));
     }
 

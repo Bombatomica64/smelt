@@ -726,9 +726,7 @@ mod tests {
     #[test]
     fn missing_test_summary_is_an_error() {
         let manifest = Path::new("dist/Cargo.toml");
-        let error = test_outcome("# Generated Rust Test Report\n", manifest)
-            .err()
-            .expect("no summary");
+        let error = test_outcome("# Generated Rust Test Report\n", manifest).expect_err("no summary");
         assert!(error.to_string().contains("dist/Cargo.toml"), "{error}");
         let outcome = test_outcome("test result: ok. 3 passed; 1 failed;", manifest).expect("summary");
         assert_eq!((outcome.passed, outcome.failed), (3, 1));
