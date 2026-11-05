@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    Callee, LocalId, Mir, MirFunction, Operand, Place, ReadMut, Rvalue, Statement, Terminator,
+    LocalId, Mir, MirFunction, Operand, Place, ReadMut, Rvalue, Statement, Terminator,
 };
 use smelt_hir::Type;
 
@@ -143,7 +143,7 @@ pub fn optimize(mir: &mut Mir) {
 fn propagate_function(function: &mut MirFunction, types: &smelt_hir::TypeInterner) -> bool {
     let mut aliases = HashMap::new();
     let mutated = mutated_locals(function);
-    let assigned_counts = assigned_local_counts(function);
+    let assigned_counts = function.assignment_counts();
 
     for block in &function.blocks {
         for stmt in &block.statements {
@@ -154,7 +154,7 @@ fn propagate_function(function: &mut MirFunction, types: &smelt_hir::TypeInterne
                 && !mutated.contains(dest)
                 && !mutated.contains(source)
                 && assigned_counts.get(dest) == Some(&1)
-                && !is_temp_local(function, *source)
+                && !function.is_temp(*source)
                 && !is_function_local(function, types, *dest)
                 && !is_function_local(function, types, *source)
                 && locals_have_same_type(function, *dest, *source)
@@ -179,43 +179,6 @@ fn propagate_function(function: &mut MirFunction, types: &smelt_hir::TypeInterne
     }
 
     changed
-}
-
-/// Count direct assignments to each local across a function.
-fn assigned_local_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
-    let mut counts = HashMap::new();
-    for block in &function.blocks {
-        for stmt in &block.statements {
-            match stmt {
-                Statement::Assign { dest, .. } => {
-                    let count = counts.entry(*dest).or_insert(0usize);
-                    *count = count.saturating_add(1);
-                }
-                Statement::AssignPlace {
-                    place: Place::Local(local),
-                    ..
-                } => {
-                    let count = counts.entry(*local).or_insert(0usize);
-                    *count = count.saturating_add(1);
-                }
-                // Binding the entry's value to `current` is a definition.
-                Statement::DictEntryUpdate { current, .. } => {
-                    let count = counts.entry(*current).or_insert(0usize);
-                    *count = count.saturating_add(1);
-                }
-                Statement::AssignPlace { .. } => {}
-            }
-        }
-    }
-    counts
-}
-
-/// Return whether a local is a compiler-generated temporary.
-fn is_temp_local(function: &MirFunction, local: LocalId) -> bool {
-    function
-        .locals
-        .get(usize::try_from(local.0).unwrap_or(usize::MAX))
-        .is_some_and(|decl| matches!(decl.kind, crate::LocalKind::Temp))
 }
 
 /// Return whether copy propagation can preserve the assignment's type semantics.
@@ -290,7 +253,7 @@ fn resolve_alias(aliases: &HashMap<LocalId, LocalId>, local: LocalId) -> LocalId
 /// modified.
 ///
 /// A statement's own definition needs no exclusion here: an alias key is assigned
-/// exactly once, by the copy that created it, so no other statement defines it.
+/// exactly once, by the copy that created it, so nothing else defines it.
 fn rewrite_statement(statement: &mut Statement, aliases: &HashMap<LocalId, LocalId>) -> bool {
     let mut changed = false;
     statement.reads_mut(|read| match read {
@@ -306,48 +269,16 @@ fn rewrite_statement(statement: &mut Statement, aliases: &HashMap<LocalId, Local
 
 /// Rewrites operands in a terminator using alias mappings. Returns true if modified.
 fn rewrite_terminator(terminator: &mut Terminator, aliases: &HashMap<LocalId, LocalId>) -> bool {
-    match terminator {
-        Terminator::Goto(_) => false,
-        Terminator::Return(operand) | Terminator::Throw(operand) => {
-            rewrite_operand(operand, aliases)
-        }
-        Terminator::Switch { cond, .. } => rewrite_operand(cond, aliases),
-        Terminator::Match { scrutinee, .. } => rewrite_operand(scrutinee, aliases),
-        Terminator::Call {
-            callee, args, dest, ..
-        } => {
-            let mut changed = match callee {
-                Callee::Indirect(operand) => rewrite_operand(operand, aliases),
-                Callee::Static(_) | Callee::Builtin(_) | Callee::BaseInit(_) => false,
-            };
-            for arg in args {
-                changed |= rewrite_operand_except(arg, aliases, Some(*dest));
-            }
-            changed
-        }
-        Terminator::Await { future, dest, .. } => {
-            rewrite_operand_except(future, aliases, Some(*dest))
-        }
-    }
+    let mut changed = false;
+    terminator.reads_mut(|operand| changed |= rewrite_operand(operand, aliases));
+    changed
 }
 
 /// Rewrites an operand using alias mappings. Returns true if modified.
 fn rewrite_operand(operand: &mut Operand, aliases: &HashMap<LocalId, LocalId>) -> bool {
-    rewrite_operand_except(operand, aliases, None)
-}
-
-/// Rewrites an operand using alias mappings, except for a specific local ID. Returns true if modified.
-fn rewrite_operand_except(
-    operand: &mut Operand,
-    aliases: &HashMap<LocalId, LocalId>,
-    except: Option<LocalId>,
-) -> bool {
     let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand else {
         return false;
     };
-    if Some(*local) == except {
-        return false;
-    }
     let resolved = resolve_alias(aliases, *local);
     if resolved == *local {
         return false;

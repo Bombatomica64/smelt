@@ -106,10 +106,7 @@ use smelt_hir::{Type, TypeInterner, UnaryOp};
 use crate::{BasicBlock, BlockId, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement, Terminator};
 
 use super::Pass;
-use super::local_use::{
-    local_assignment_count, local_decl, local_is_temp, local_read_count, operand_local,
-    operand_place,
-};
+use super::local_use::local_decl;
 
 /// The dict entry a guard tests: the container local and the key it is indexed by.
 #[derive(Clone, Copy)]
@@ -191,7 +188,7 @@ fn elision_at(function: &MirFunction, types: &TypeInterner, guard: usize) -> Opt
     else {
         return None;
     };
-    let condition_local = operand_local(cond)?;
+    let condition_local = cond.local()?;
     let statement_count = block.statements.len();
     let not_index = statement_count.checked_sub(1)?;
     let contains_index = statement_count.checked_sub(2)?;
@@ -209,7 +206,7 @@ fn elision_at(function: &MirFunction, types: &TypeInterner, guard: usize) -> Opt
     if *not_dest != condition_local {
         return None;
     }
-    let contains_local = operand_local(not_operand)?;
+    let contains_local = not_operand.local()?;
     let Some(Statement::Assign {
         dest: contains_dest,
         value: Rvalue::DictContainsKey { dict, key, .. },
@@ -221,7 +218,7 @@ fn elision_at(function: &MirFunction, types: &TypeInterner, guard: usize) -> Opt
         return None;
     }
     // Condition 4: both temps are single-assignment and single-read.
-    if !single_use_temp(function, condition_local) || !single_use_temp(function, contains_local) {
+    if !function.is_single_use_temp(condition_local) || !function.is_single_use_temp(contains_local) {
         return None;
     }
     let shape = GuardShape {
@@ -229,8 +226,8 @@ fn elision_at(function: &MirFunction, types: &TypeInterner, guard: usize) -> Opt
         then_block: *then_block,
         join: *else_block,
         entry: Entry {
-            base: operand_local(dict)?,
-            key: operand_place(key)?,
+            base: dict.local()?,
+            key: key.place()?,
         },
     };
     // Conditions 5-7: the taken branch is nothing but the seeding store.
@@ -245,13 +242,6 @@ fn elision_at(function: &MirFunction, types: &TypeInterner, guard: usize) -> Opt
         guard,
         join: *else_block,
     })
-}
-
-/// Whether a local is a temporary that is assigned once and read once.
-fn single_use_temp(function: &MirFunction, local: LocalId) -> bool {
-    local_is_temp(function, local)
-        && local_assignment_count(function, local) == 1
-        && local_read_count(function, local) == 1
 }
 
 /// Whether `then_block` does nothing but store an empty list into `dict[key]`
@@ -296,10 +286,10 @@ fn then_block_only_seeds_default(
     if !operand_reads_place(store_index, shape.entry.key) {
         return false;
     }
-    if operand_local(store_source) != Some(*default_local) {
+    if store_source.local() != Some(*default_local) {
         return false;
     }
-    if !single_use_temp(function, *default_local) {
+    if !function.is_single_use_temp(*default_local) {
         return false;
     }
     // Condition 7.
@@ -342,7 +332,7 @@ fn join_creates_entry(function: &MirFunction, join: BlockId, entry: Entry<'_>) -
     else {
         return false;
     };
-    let Some(Place::Index { base, index, .. }) = operand_place(list) else {
+    let Some(Place::Index { base, index, .. }) = list.place() else {
         return false;
     };
     if *base != entry.base {
@@ -353,7 +343,7 @@ fn join_creates_entry(function: &MirFunction, join: BlockId, entry: Entry<'_>) -
 
 /// Whether an operand reads exactly `place`, whether by copy or by move.
 fn operand_reads_place(operand: &Operand, place: &Place) -> bool {
-    operand_place(operand) == Some(place)
+    operand.place() == Some(place)
 }
 
 /// The block with the given id, if the id is in range.

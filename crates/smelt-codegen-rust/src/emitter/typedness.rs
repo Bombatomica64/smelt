@@ -282,7 +282,7 @@ fn measure_body(
             {
                 let result =
                     local_ty(*dest).map_or(Typedness::Erased, |ty| emitter.typedness_of(ty));
-                let through = operand_local(receiver)
+                let through = receiver.local()
                     .and_then(local_ty)
                     .map_or(Typedness::Concrete, |ty| emitter.typedness_of(ty));
                 if matches!(value, Rvalue::BoundField { .. }) {
@@ -301,7 +301,7 @@ fn measure_body(
             {
                 let result =
                     local_ty(*dest).map_or(Typedness::Erased, |ty| emitter.typedness_of(ty));
-                let callee = operand_local(callee)
+                let callee = callee.local()
                     .and_then(local_ty)
                     .map(|ty| emitter.typedness_of(ty))
                     .or_else(|| projected_read(emitter, callee, &local_ty))
@@ -312,7 +312,7 @@ fn measure_body(
         if let Some(Terminator::Call { callee, dest, .. }) = &block.terminator {
             let result = local_ty(*dest).map_or(Typedness::Erased, |ty| emitter.typedness_of(ty));
             let callee = match callee {
-                Callee::Indirect(operand) => operand_local(operand)
+                Callee::Indirect(operand) => operand.local()
                     .and_then(local_ty)
                     .map_or(Typedness::Concrete, |ty| emitter.typedness_of(ty)),
                 Callee::Static(_) | Callee::Builtin(_) | Callee::BaseInit(_) => {
@@ -347,14 +347,6 @@ fn referenced_locals(blocks: &[BasicBlock]) -> std::collections::HashSet<smelt_m
         }
     }
     out
-}
-
-/// The local an operand reads, when it reads a whole local.
-fn operand_local(operand: &Operand) -> Option<smelt_mir::LocalId> {
-    match operand {
-        Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => Some(*local),
-        _ => None,
-    }
 }
 
 /// The typedness of an operand that reads a field or element of a local

@@ -226,7 +226,7 @@ impl FunctionEmitter<'_> {
         origin: LocalId,
         seen: &mut Vec<LocalId>,
     ) -> bool {
-        let Some(local) = operand_local(operand) else {
+        let Some(local) = operand.local() else {
             return false;
         };
         if local == origin {

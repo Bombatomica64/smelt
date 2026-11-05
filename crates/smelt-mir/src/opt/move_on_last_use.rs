@@ -33,9 +33,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    BasicBlock, Callee, GlobalProjection, LocalId, LocalKind, Mir, MirFunction, Operand, Place,
-    Rvalue, Statement,
-    Terminator,
+    BasicBlock, LocalId, LocalKind, Mir, MirFunction, Operand, Place, Rvalue, Statement, Terminator,
 };
 
 use super::Pass;
@@ -117,15 +115,9 @@ fn rewrite_block(
 
     for (stmt, live_after) in block.statements.iter_mut().zip(&live.after_statement) {
         let counts = statement_read_counts(stmt);
-        if let Some(value) = statement_value_mut(stmt) {
-            let mut local_changed = false;
-            value.reads_mut(|operand| {
-                if try_convert(operand, live_after, &counts, convertible) {
-                    local_changed = true;
-                }
-            });
-            changed |= local_changed;
-        }
+        stmt.value_mut().reads_mut(|operand| {
+            changed |= try_convert(operand, live_after, &counts, convertible);
+        });
     }
 
     if let Some(terminator) = &mut block.terminator {
@@ -158,44 +150,22 @@ fn try_convert(
 }
 
 /// Rewrite the operands directly held by a terminator. Returns true if modified.
+///
+/// `Switch`/`Match` scrutinees can move on last use: the Rust emitter's
+/// structured-loop reconstruction accepts both `switch copy %local` and
+/// `switch move %local` headers, and re-emits the condition via an explicit
+/// `Copy` when generating the loop.
 fn rewrite_terminator(
     terminator: &mut Terminator,
     live_after: &HashSet<LocalId>,
     read_counts: &HashMap<LocalId, usize>,
     convertible: &HashSet<LocalId>,
 ) -> bool {
-    match terminator {
-        Terminator::Goto(_) => false,
-        Terminator::Return(operand) | Terminator::Throw(operand) => {
-            try_convert(operand, live_after, read_counts, convertible)
-        }
-        // `Switch`/`Match` scrutinees can move on last use. The Rust emitter's
-        // structured-loop reconstruction accepts both `switch copy %local` and
-        // `switch move %local` headers (and re-emits the condition via an
-        // explicit `Copy` when generating the loop), so a moved scrutinee no
-        // longer flattens nested loops.
-        Terminator::Switch { cond, .. } => {
-            try_convert(cond, live_after, read_counts, convertible)
-        }
-        Terminator::Match { scrutinee, .. } => {
-            try_convert(scrutinee, live_after, read_counts, convertible)
-        }
-        Terminator::Await { future, .. } => {
-            try_convert(future, live_after, read_counts, convertible)
-        }
-        Terminator::Call { callee, args, .. } => {
-            let mut changed = match callee {
-                Callee::Indirect(operand) => {
-                    try_convert(operand, live_after, read_counts, convertible)
-                }
-                Callee::Static(_) | Callee::Builtin(_) | Callee::BaseInit(_) => false,
-            };
-            for arg in args.iter_mut() {
-                changed |= try_convert(arg, live_after, read_counts, convertible);
-            }
-            changed
-        }
-    }
+    let mut changed = false;
+    terminator.reads_mut(|operand| {
+        changed |= try_convert(operand, live_after, read_counts, convertible);
+    });
+    changed
 }
 
 /// Locals eligible for move conversion in this function.
@@ -210,14 +180,13 @@ fn convertible_locals(function: &MirFunction) -> HashSet<LocalId> {
         }
     }
 
-    let mut scratch = Vec::new();
     for block in &function.blocks {
         for stmt in &block.statements {
-            if let Some(Rvalue::Closure { captures, .. }) = statement_value(stmt) {
+            if let Rvalue::Closure { captures, .. } = stmt.value() {
                 for capture in captures {
-                    scratch.clear();
-                    collect_operand_reads(capture, &mut scratch);
-                    excluded.extend(scratch.iter().copied());
+                    capture.read_locals(&mut |local| {
+                        excluded.insert(local);
+                    });
                 }
             }
         }
@@ -288,149 +257,35 @@ fn transfer_block_backward(block: &BasicBlock, live: &mut HashSet<LocalId>) {
 
 /// Transfer a live set backward across one statement: `live = (live - def) + uses`.
 fn apply_statement_transfer(stmt: &Statement, live: &mut HashSet<LocalId>) {
-    if let Some(def) = statement_def(stmt) {
+    if let Some(def) = stmt.defs() {
         live.remove(&def);
     }
-    let mut reads = Vec::new();
-    statement_reads(stmt, &mut reads);
-    live.extend(reads);
+    stmt.read_locals(|local| {
+        live.insert(local);
+    });
 }
 
 /// Transfer a live set backward across the terminator: `live = (live - def) + uses`.
 fn apply_terminator_transfer(terminator: &Terminator, live: &mut HashSet<LocalId>) {
-    if let Some(def) = terminator_def(terminator) {
+    if let Some(def) = terminator.defs() {
         live.remove(&def);
     }
-    let mut reads = Vec::new();
-    terminator_reads(terminator, &mut reads);
-    live.extend(reads);
-}
-
-/// The local defined (overwritten) by a statement, if any.
-const fn statement_def(stmt: &Statement) -> Option<LocalId> {
-    match stmt {
-        Statement::Assign { dest, .. } => Some(*dest),
-        Statement::AssignPlace {
-            place: Place::Local(local),
-            ..
-        } => Some(*local),
-        // The fused entry update defines `current`, the local it binds the
-        // entry's value to.
-        Statement::DictEntryUpdate { current, .. } => Some(*current),
-        Statement::AssignPlace { .. } => None,
-    }
-}
-
-/// The local defined by a terminator (the destination of a call/await), if any.
-const fn terminator_def(terminator: &Terminator) -> Option<LocalId> {
-    match terminator {
-        Terminator::Call { dest, .. } | Terminator::Await { dest, .. } => Some(*dest),
-        Terminator::Goto(_)
-        | Terminator::Switch { .. }
-        | Terminator::Match { .. }
-        | Terminator::Return(_)
-        | Terminator::Throw(_)
-        => None,
-    }
-}
-
-/// Collect every local read by a statement (place projections included).
-///
-/// A `Field`/`Index` assignment target is a *read* of its base (the value is
-/// mutated in place and stays live), whereas a bare `Local` target is a pure
-/// definition and contributes no read.
-fn statement_reads(stmt: &Statement, out: &mut Vec<LocalId>) {
-    match stmt {
-        Statement::Assign { value, .. } => {
-            value.reads(|operand| collect_operand_reads(operand, out));
-        }
-        Statement::AssignPlace { place, value } => {
-            match place {
-                Place::Local(_) => {}
-                Place::Field { base, .. } => out.push(*base),
-                Place::Index { base, index, .. } => {
-                    out.push(*base);
-                    collect_operand_reads(index, out);
-                }
-                // No base local, but the index operand is still a read: if it
-                // were missed, this pass could move the local out before the
-                // global write consumes it.
-                Place::Global { projection, .. } => {
-                    if let GlobalProjection::Index { index, .. } = projection {
-                        collect_operand_reads(index, out);
-                    }
-                }
-            }
-            value.reads(|operand| collect_operand_reads(operand, out));
-        }
-        // The container is mutated in place and therefore stays live, exactly
-        // like an `Index` assignment target. The key, the seed and the stored
-        // rvalue's operands are ordinary reads.
-        Statement::DictEntryUpdate {
-            base,
-            index,
-            default,
-            current: _,
-            value,
-        } => {
-            out.push(*base);
-            collect_operand_reads(index, out);
-            collect_operand_reads(default, out);
-            value.reads(|operand| collect_operand_reads(operand, out));
-        }
-    }
-}
-
-/// Collect every local read by a terminator.
-fn terminator_reads(terminator: &Terminator, out: &mut Vec<LocalId>) {
-    match terminator {
-        Terminator::Goto(_) => {}
-        Terminator::Return(operand) | Terminator::Throw(operand) => {
-            collect_operand_reads(operand, out);
-        }
-        Terminator::Switch { cond, .. } => collect_operand_reads(cond, out),
-        Terminator::Match { scrutinee, .. } => collect_operand_reads(scrutinee, out),
-        Terminator::Await { future, .. } => collect_operand_reads(future, out),
-        Terminator::Call { callee, args, .. } => {
-            if let Callee::Indirect(operand) = callee {
-                collect_operand_reads(operand, out);
-            }
-            for arg in args {
-                collect_operand_reads(arg, out);
-            }
-        }
-    }
-}
-
-/// Decompose an operand into the locals it reads, recursing through places.
-fn collect_operand_reads(operand: &Operand, out: &mut Vec<LocalId>) {
-    match operand {
-        Operand::Const(_) => {}
-        Operand::Copy(place) | Operand::Move(place) => match place {
-            Place::Local(local) => out.push(*local),
-            Place::Field { base, .. } => out.push(*base),
-            Place::Index { base, index, .. } => {
-                out.push(*base);
-                collect_operand_reads(index, out);
-            }
-            // A global-rooted place is an assignment target, never an operand,
-            // so it contributes no operand reads.
-            Place::Global { .. } => {}
-        },
-    }
+    terminator.read_locals(|local| {
+        live.insert(local);
+    });
 }
 
 /// Count reads of each local within a statement.
 fn statement_read_counts(stmt: &Statement) -> HashMap<LocalId, usize> {
     let mut reads = Vec::new();
-    statement_reads(stmt, &mut reads);
+    stmt.read_locals(|local| reads.push(local));
     count(reads)
 }
 
 /// Count reads of each local within a terminator.
 fn terminator_read_counts(terminator: &Terminator) -> HashMap<LocalId, usize> {
     let mut reads = Vec::new();
-    terminator_reads(terminator, &mut reads);
+    terminator.read_locals(|local| reads.push(local));
     count(reads)
 }
 
@@ -442,24 +297,6 @@ fn count(reads: Vec<LocalId>) -> HashMap<LocalId, usize> {
         *entry = entry.saturating_add(1);
     }
     counts
-}
-
-/// The rvalue assigned by a statement, if it assigns one.
-const fn statement_value(stmt: &Statement) -> Option<&Rvalue> {
-    match stmt {
-        Statement::Assign { value, .. }
-        | Statement::AssignPlace { value, .. }
-        | Statement::DictEntryUpdate { value, .. } => Some(value),
-    }
-}
-
-/// The mutable rvalue assigned by a statement, if it assigns one.
-const fn statement_value_mut(stmt: &mut Statement) -> Option<&mut Rvalue> {
-    match stmt {
-        Statement::Assign { value, .. }
-        | Statement::AssignPlace { value, .. }
-        | Statement::DictEntryUpdate { value, .. } => Some(value),
-    }
 }
 
 /// Build a [`LocalId`] from a positional index.

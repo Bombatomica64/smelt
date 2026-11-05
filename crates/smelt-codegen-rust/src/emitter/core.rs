@@ -2,7 +2,6 @@
 
 use super::*;
 use crate::emitter::rendered_text_rewrite::cloned_value_text;
-use crate::emitter::literals::operand_local;
 use crate::emitter::typeof_str_locals;
 use smelt_hir::FunctionType;
 
@@ -3540,7 +3539,7 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Return the JavaScript `Function.length` represented by a function operand.
     pub(super) fn operand_function_length(&self, operand: &Operand) -> Result<usize, EmitError> {
-        if let Some(local) = operand_local(operand)
+        if let Some(local) = operand.local()
             && let Some(closure_id) = closure_definitions(self.function)?.get(&local).copied()
             && let Some(closure) = self
                 .mir
@@ -5225,7 +5224,7 @@ impl<'mir> FunctionEmitter<'mir> {
         &self,
         operand: &Operand,
     ) -> Result<Option<(usize, String)>, EmitError> {
-        let Some(local) = operand_local(operand) else {
+        let Some(local) = operand.local() else {
             return Ok(None);
         };
         let Some(closure_id) = closure_definitions(self.function)?.get(&local).copied() else {

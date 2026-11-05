@@ -749,7 +749,7 @@ impl<'a> BodyWalk<'a> {
             | Terminator::Match {
                 scrutinee: operand, ..
             } => {
-                if let Some(local) = operand_local(operand)
+                if let Some(local) = operand.local()
                     && self.is_list(local)
                 {
                     self.touch(local);
@@ -824,7 +824,7 @@ impl<'a> BodyWalk<'a> {
     /// Mirrors [`BodyWalk::escape_operand`]'s place handling: a projected read
     /// only touches the base, because the list being passed is not a local.
     fn read_operand(&mut self, operand: &Operand, mutated: bool) {
-        match operand_place(operand) {
+        match operand.place() {
             Some(&Place::Local(named)) if self.is_list(named) => {
                 self.touch(named);
                 if mutated {
@@ -842,7 +842,7 @@ impl<'a> BodyWalk<'a> {
 
     /// Note the operand a [`Terminator::Return`] hands back to the caller.
     fn return_operand(&mut self, operand: &Operand) {
-        match operand_place(operand) {
+        match operand.place() {
             Some(&Place::Local(named)) if self.is_list(named) => {
                 self.touch(named);
                 self.groups.escape_via_return(named.0);
@@ -877,7 +877,7 @@ impl<'a> BodyWalk<'a> {
 
     /// Mark every list local an operand names as escaping for `reason`.
     fn escape_operand(&mut self, operand: &Operand, reason: EscapeReason) {
-        match operand_place(operand) {
+        match operand.place() {
             Some(&Place::Local(named)) if self.is_list(named) => {
                 self.touch(named);
                 self.groups.escape(named.0, reason);
@@ -916,7 +916,7 @@ impl<'a> BodyWalk<'a> {
                     OperandRole::Escapes(EscapeReason::UnmodelledUse),
                     |(_, role)| *role,
                 );
-            match operand_place(operand) {
+            match operand.place() {
                 Some(Place::Local(local)) => {
                     if let OperandRole::ResultAlias { .. } = role {
                         alias_sources.push((*local, matches!(operand, Operand::Copy(_))));
@@ -1066,7 +1066,7 @@ impl<'a> BodyWalk<'a> {
                 _ => None,
             })
             .collect();
-        returned.iter().all(|operand| match operand_local(operand) {
+        returned.iter().all(|operand| match operand.local() {
             Some(local) if self.is_list(local) => {
                 let root = self.groups.find(local.0);
                 !self.groups.escaped_external.contains_key(&root)
@@ -1076,22 +1076,6 @@ impl<'a> BodyWalk<'a> {
             // provably minted here.
             _ => false,
         })
-    }
-}
-
-/// The place an operand reads, if it reads one.
-const fn operand_place(operand: &Operand) -> Option<&Place> {
-    match operand {
-        Operand::Copy(place) | Operand::Move(place) => Some(place),
-        Operand::Const(_) => None,
-    }
-}
-
-/// The local an operand names directly, ignoring projected reads.
-const fn operand_local(operand: &Operand) -> Option<LocalId> {
-    match operand_place(operand) {
-        Some(Place::Local(local)) => Some(*local),
-        Some(Place::Field { .. } | Place::Index { .. } | Place::Global { .. }) | None => None,
     }
 }
 

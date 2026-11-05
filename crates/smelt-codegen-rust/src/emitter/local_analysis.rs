@@ -103,7 +103,7 @@ impl FunctionEmitter<'_> {
                     .get(usize::try_from(function_id.0).unwrap_or(usize::MAX))
             {
                 for (arg, param) in args.iter().zip(&callee.params) {
-                    if let Some(local) = operand_local(arg)
+                    if let Some(local) = arg.local()
                         && self.parameter_needs_mutable_reference_in(callee, *param)
                     {
                         index.mutated.insert(local);
@@ -145,7 +145,7 @@ impl FunctionEmitter<'_> {
         }
         match value {
             Rvalue::DictAssign { target, .. } | Rvalue::ListCallback { list: target, .. } => {
-                if let Some(local) = operand_local(target)
+                if let Some(local) = target.local()
                     && self.rvalue_borrows_local_mutably(value, local)
                 {
                     locals.push(local);
@@ -542,7 +542,7 @@ impl FunctionEmitter<'_> {
     /// Returns whether rendering an rvalue needs a mutable borrow of `local`.
     pub(super) fn rvalue_borrows_local_mutably(&self, value: &Rvalue, local: LocalId) -> bool {
         match value {
-            Rvalue::DictAssign { target, .. } if operand_local(target) == Some(local) => {
+            Rvalue::DictAssign { target, .. } if target.local() == Some(local) => {
                 let Ok(target_ty) = self.operand_ty(target) else {
                     return false;
                 };
@@ -555,7 +555,7 @@ impl FunctionEmitter<'_> {
                 // representation therefore need a mutable Rust binding.
                 !self.dict_uses_smelt_record(*key_ty)
             }
-            Rvalue::ListCallback { list, .. } if operand_local(list) == Some(local) => {
+            Rvalue::ListCallback { list, .. } if list.local() == Some(local) => {
                 let Ok(list_ty) = self.operand_ty(list) else {
                     return false;
                 };

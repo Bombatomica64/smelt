@@ -75,13 +75,13 @@ impl Pass for UnobservedReceiverBind {
 /// once and read once, by a later call in the same block; anything else keeps
 /// the plain `Use` the caller installs.
 fn forward_bound_callees(function: &mut crate::MirFunction) -> bool {
-    use super::local_use::{local_assignment_count, local_is_temp, local_read_count, operand_local};
+    
     // Decide every forwarding first (the use counts read the whole function),
     // then apply them block by block.
     let forwardable = |body: &crate::MirFunction, dest: crate::LocalId| {
-        local_is_temp(body, dest)
-            && local_assignment_count(body, dest) == 1
-            && local_read_count(body, dest) == 1
+        body.is_temp(dest)
+            && body.assignment_count(dest) == 1
+            && body.read_count(dest) == 1
     };
     let candidates = function
         .blocks
@@ -121,7 +121,7 @@ fn forward_bound_callees(function: &mut crate::MirFunction) -> bool {
                     Statement::Assign {
                         value: Rvalue::ClosureCall { callee: call_callee, .. },
                         ..
-                    } if operand_local(call_callee) == Some(*bound) => Some(call_callee),
+                    } if call_callee.local() == Some(*bound) => Some(call_callee),
                     Statement::Assign { .. }
                     | Statement::AssignPlace { .. }
                     | Statement::DictEntryUpdate { .. } => None,

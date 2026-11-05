@@ -15,7 +15,12 @@
 //! passes, the validator and the emitter all ask through this module, so a new
 //! variant is described once and every analysis sees it.
 
-use crate::{Callee, GlobalProjection, LocalId, Operand, Place, Rvalue, Statement, Terminator};
+use std::collections::HashMap;
+
+use crate::{
+    Callee, GlobalProjection, LocalId, LocalKind, MirFunction, Operand, Place, Rvalue, Statement,
+    Terminator,
+};
 
 /// One thing a [`Statement`] reads.
 #[derive(Debug, Clone, Copy)]
@@ -1198,6 +1203,15 @@ impl Statement {
         }
     }
 
+    /// The rvalue this statement evaluates, in rewritable form.
+    pub const fn value_mut(&mut self) -> &mut Rvalue {
+        match self {
+            Self::Assign { value, .. }
+            | Self::AssignPlace { value, .. }
+            | Self::DictEntryUpdate { value, .. } => value,
+        }
+    }
+
     /// The local this statement defines, if any. A projected assignment target
     /// mutates its base without defining it.
     #[must_use]
@@ -1262,5 +1276,165 @@ impl Terminator {
         let mut found = false;
         self.reads(|operand| found |= operand.reads_local(local));
         found
+    }
+}
+
+impl MirFunction {
+    /// How many times each local is defined anywhere in this body: every
+    /// [`Statement::defs`] and [`Terminator::defs`]. This is the one answer to
+    /// "is this local assigned once".
+    #[must_use]
+    pub fn assignment_counts(&self) -> HashMap<LocalId, usize> {
+        let mut counts: HashMap<LocalId, usize> = HashMap::new();
+        for block in &self.blocks {
+            let statements = block.statements.iter().map(Statement::defs);
+            let terminator = block.terminator.as_ref().map(Terminator::defs);
+            for local in statements.chain(terminator).flatten() {
+                let count = counts.entry(local).or_default();
+                *count = count.saturating_add(1);
+            }
+        }
+        counts
+    }
+
+    /// How many times `local` is defined; see [`Self::assignment_counts`].
+    #[must_use]
+    pub fn assignment_count(&self, local: LocalId) -> usize {
+        self.blocks
+            .iter()
+            .map(|block| {
+                let statements = block.statements.iter().map(Statement::defs);
+                let terminator = block.terminator.as_ref().map(Terminator::defs);
+                statements
+                    .chain(terminator)
+                    .filter(|defined| *defined == Some(local))
+                    .count()
+            })
+            .fold(0, usize::saturating_add)
+    }
+
+    /// How many times `local` is read anywhere in this body.
+    #[must_use]
+    pub fn read_count(&self, local: LocalId) -> usize {
+        let mut count: usize = 0;
+        let mut tally = |read: LocalId| count = count.saturating_add(usize::from(read == local));
+        for block in &self.blocks {
+            for statement in &block.statements {
+                statement.read_locals(&mut tally);
+            }
+            if let Some(terminator) = &block.terminator {
+                terminator.read_locals(&mut tally);
+            }
+        }
+        count
+    }
+
+    /// Whether `local` is a compiler temporary.
+    #[must_use]
+    pub fn is_temp(&self, local: LocalId) -> bool {
+        self.locals
+            .get(usize::try_from(local.0).unwrap_or(usize::MAX))
+            .is_some_and(|decl| decl.kind == LocalKind::Temp)
+    }
+
+    /// Whether `local` is a temporary assigned once and read once.
+    #[must_use]
+    pub fn is_single_use_temp(&self, local: LocalId) -> bool {
+        self.is_temp(local) && self.assignment_count(local) == 1 && self.read_count(local) == 1
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::indexing_slicing, reason = "fixtures index their own one block")]
+mod tests {
+    //! The read/define contract every analysis relies on, over one function
+    //! with locals `%0`..`%2` and a single block.
+
+    use smelt_hir::{BodyId, FileId, Span, Symbol, TypeId};
+
+    use crate::{
+        BlockId, Callee, FuncId, HirOrigin, LocalDecl, LocalId, LocalKind, MirFunction, Operand,
+        Place, Rvalue, Statement, Terminator,
+    };
+
+    const A: LocalId = LocalId(0);
+    const B: LocalId = LocalId(1);
+    const C: LocalId = LocalId(2);
+
+    /// `copy %n`.
+    fn copy(local: LocalId) -> Operand {
+        Operand::Copy(Place::Local(local))
+    }
+
+    /// A body of temporaries running `statements` and ending in `terminator`.
+    fn function(statements: Vec<Statement>, terminator: Terminator) -> MirFunction {
+        let span = Span::new(FileId(0), 0, 0);
+        let mut function =
+            MirFunction::new(FuncId(0), Symbol(0), HirOrigin::Body(BodyId(0)), TypeId(0), span);
+        for _ in 0..3 {
+            function.push_local(LocalDecl { ty: TypeId(0), kind: LocalKind::Temp, span });
+        }
+        function.blocks[0].statements = statements;
+        function.blocks[0].terminator = Some(terminator);
+        function
+    }
+
+    /// `%dest = callee(args)` through an indirect callee.
+    fn indirect_call(callee: LocalId, args: Vec<Operand>, dest: LocalId) -> Terminator {
+        Terminator::Call {
+            callee: Callee::Indirect(copy(callee)),
+            args,
+            dest,
+            target: BlockId(0),
+            unwind: None,
+        }
+    }
+
+    /// A whole-local target is a definition; a projected one reads its base.
+    #[test]
+    fn whole_local_target_defines_and_projected_target_reads() {
+        let whole = Statement::AssignPlace {
+            place: Place::Local(A),
+            value: Rvalue::Use(copy(B)),
+        };
+        assert_eq!(whole.defs(), Some(A));
+        assert!(!whole.reads_local(A), "a whole-local write reads nothing of it");
+        assert!(whole.reads_local(B));
+
+        let projected = Statement::AssignPlace {
+            place: Place::Index {
+                base: A,
+                index: Box::new(copy(C)),
+                negative: crate::NegativeIndex::FromEnd,
+            },
+            value: Rvalue::Use(copy(B)),
+        };
+        assert_eq!(projected.defs(), None, "a projection mutates, it does not define");
+        for local in [A, B, C] {
+            assert!(projected.reads_local(local), "{local:?} is read");
+        }
+    }
+
+    /// An indirect callee is a read like any argument.
+    #[test]
+    fn read_count_includes_an_indirect_callee() {
+        let body = function(Vec::new(), indirect_call(A, vec![copy(A), copy(B)], C));
+        assert_eq!(body.read_count(A), 2, "once as callee, once as argument");
+        assert_eq!(body.read_count(B), 1);
+    }
+
+    /// Every kind of definition counts toward "assigned once".
+    #[test]
+    fn assignment_count_sees_every_definition() {
+        let body = function(
+            vec![
+                Statement::Assign { dest: A, value: Rvalue::Use(copy(B)) },
+                Statement::AssignPlace { place: Place::Local(A), value: Rvalue::Use(copy(B)) },
+            ],
+            indirect_call(B, Vec::new(), A),
+        );
+        assert_eq!(body.assignment_count(A), 3);
+        assert_eq!(body.assignment_counts().get(&A), Some(&3));
+        assert_eq!(body.assignment_count(B), 0);
     }
 }

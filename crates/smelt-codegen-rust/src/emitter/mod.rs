@@ -14,7 +14,7 @@ use crate::rust::RustType;
 use crate::type_substitution::{Resolved, TypeSubstitution};
 use render_scope::RenderScope;
 use crate::{EmitError, compact_index, id_index, sanitize_ident};
-use literals::{operand_local, operand_mutation_root};
+use literals::operand_mutation_root;
 use smelt_hir::{FileId, PropertyLookup, Span, Symbol, Type, TypeId};
 use smelt_mir::{
     AbsentSpelling, BasicBlock, BuiltinFn, Callee, Constant, FuncId, HirOrigin, LocalDecl,
@@ -811,7 +811,7 @@ fn compute_owned_callback_params(mir: &Mir) -> Result<HashSet<(FuncId, LocalId)>
                     {
                         continue;
                     }
-                    let Some(arg_local) = operand_local(arg) else {
+                    let Some(arg_local) = arg.local() else {
                         continue;
                     };
                     if function.params.contains(&arg_local)
@@ -1175,8 +1175,8 @@ fn statement_erases_callback_param(
             spreads,
         } => {
             dest_ty.is_some_and(|ty| type_erases_values(mir, ty))
-                && (operand_local(callable) == Some(local)
-                    || operand_local(callable)
+                && (callable.local() == Some(local)
+                    || callable.local()
                         .and_then(|callable_local| {
                             closure_source_for_local(
                                 function,
@@ -1197,14 +1197,14 @@ fn statement_erases_callback_param(
                         })
                     || props
                         .iter()
-                        .any(|(_, prop_value)| operand_local(prop_value) == Some(local))
+                        .any(|(_, prop_value)| prop_value.local() == Some(local))
                     || spreads
                         .iter()
-                        .any(|spread_value| operand_local(spread_value) == Some(local)))
+                        .any(|spread_value| spread_value.local() == Some(local)))
         }
         Rvalue::Use(operand) => {
             dest_ty.is_some_and(|ty| type_erases_values(mir, ty))
-                && operand_local(operand) == Some(local)
+                && operand.local() == Some(local)
         }
         _ => false,
     }
@@ -1285,10 +1285,10 @@ fn operand_refs_callback_param_or_capturing_closure(
     local: LocalId,
     closure_defs: Option<&HashMap<LocalId, smelt_mir::ClosureId>>,
 ) -> bool {
-    if operand_local(operand) == Some(local) {
+    if operand.local() == Some(local) {
         return true;
     }
-    operand_local(operand)
+    operand.local()
         .and_then(|operand_local| closure_source_for_local(function, operand_local, closure_defs))
         .and_then(|closure_id| {
             mir.closures
