@@ -944,7 +944,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 let Statement::Assign { dest, value } = statement else {
                     continue;
                 };
-                if !rvalue_uses_local(value, local) {
+                if !value.reads_local(local) {
                     continue;
                 }
                 let Some(target) = self.rvalue_use_target(value, *dest, local)? else {
@@ -955,7 +955,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 }
             }
             if let Some(terminator) = &block.terminator
-                && terminator_uses_local(terminator, local)
+                && terminator.reads_local(local)
             {
                 let Some(target) = self.terminator_use_target(terminator, local)? else {
                     return Ok(None);
@@ -981,7 +981,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::List(items) | Rvalue::Set(items) | Rvalue::Tuple(items) => {
                 if items
                     .iter()
-                    .filter(|item| operand_uses_local(item, local))
+                    .filter(|item| item.reads_local(local))
                     .count()
                     != 1
                 {
@@ -993,7 +993,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     Some(Type::Tuple(item_tys)) => {
                         let position = items
                             .iter()
-                            .position(|item| operand_uses_local(item, local));
+                            .position(|item| item.reads_local(local));
                         position.and_then(|index| item_tys.get(index).copied())
                     }
                     _ => None,
@@ -1008,7 +1008,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 if entries
                     .iter()
                     .filter(|(key, entry_value)| {
-                        operand_uses_local(key, local) || operand_uses_local(entry_value, local)
+                        key.reads_local(local) || entry_value.reads_local(local)
                     })
                     .count()
                     != 1
@@ -1017,11 +1017,11 @@ impl<'mir> FunctionEmitter<'mir> {
                 }
                 let Some((key, _)) = entries
                     .iter()
-                    .find(|(_, entry_value)| operand_uses_local(entry_value, local))
+                    .find(|(_, entry_value)| entry_value.reads_local(local))
                 else {
                     return Ok(None);
                 };
-                if operand_uses_local(key, local) {
+                if key.reads_local(local) {
                     return Ok(None);
                 }
                 let dest_ty = self.local_decl(dest)?.ty;
@@ -1031,7 +1031,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 };
                 Ok(value_ty)
             }
-            Rvalue::Use(operand) if operand_uses_local(operand, local) => {
+            Rvalue::Use(operand) if operand.reads_local(local) => {
                 Ok(Some(self.local_decl(dest)?.ty))
             }
             _ => Ok(None),
@@ -1046,7 +1046,7 @@ impl<'mir> FunctionEmitter<'mir> {
         local: LocalId,
     ) -> Result<Option<TypeId>, EmitError> {
         match terminator {
-            Terminator::Return(operand) if operand_uses_local(operand, local) => {
+            Terminator::Return(operand) if operand.reads_local(local) => {
                 Ok(Some(self.function.return_ty))
             }
             _ => Ok(None),
@@ -1063,31 +1063,51 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Returns whether a local is read anywhere in the function body.
     pub(super) fn local_has_uses(&self, local: LocalId) -> bool {
         self.function.blocks.iter().any(|block| {
-            block.statements.iter().any(|statement| match statement {
-                Statement::Assign { value, .. } => rvalue_uses_local(value, local),
-                Statement::AssignPlace { place, value } => {
-                    assignment_place_reads_local(place, local) || rvalue_uses_local(value, local)
-                }
-                // The container, the key, the seed and the stored rvalue's
-                // operands are all reads; `current` is the definition, so it is
-                // not counted here (matching the `Assign` arm above).
-                Statement::DictEntryUpdate {
-                    base,
-                    index,
-                    default,
-                    current: _,
-                    value,
-                } => {
-                    *base == local
-                        || operand_uses_local(index, local)
-                        || operand_uses_local(default, local)
-                        || rvalue_uses_local(value, local)
-                }
-            }) || block
-                .terminator
-                .as_ref()
-                .is_some_and(|terminator| terminator_uses_local(terminator, local))
+            block.statements.iter().any(|statement| statement.reads_local(local))
+                || block
+                    .terminator
+                    .as_ref()
+                    .is_some_and(|terminator| terminator.reads_local(local))
         })
+    }
+
+    /// Returns whether the emitted Rust names a closure local's binding.
+    ///
+    /// Stricter than [`Self::local_has_uses`], which answers for the MIR: a read
+    /// through [`inlined_callback_operands`] re-renders the closure's text at the
+    /// use site, so a binding for it would be dead. An optional-typed callback is
+    /// matched by name at runtime, so only a `Function`-typed local can skip it.
+    pub(super) fn closure_binding_is_read(&self, local: LocalId) -> Result<bool, EmitError> {
+        let is_function = matches!(
+            self.mir.types.get(self.local_decl(local)?.ty),
+            Some(Type::Function(_))
+        );
+        let statement_names_local = |statement: &Statement| {
+            let inlined = if is_function {
+                inlined_callback_operands(statement.value())
+            } else {
+                Vec::new()
+            };
+            let mut named = false;
+            statement.reads(|read| {
+                let skipped = matches!(
+                    read,
+                    Read::Operand(operand)
+                        if inlined.iter().any(|callback| std::ptr::eq(*callback, operand))
+                );
+                if !skipped {
+                    read.read_locals(&mut |candidate| named |= candidate == local);
+                }
+            });
+            named
+        };
+        Ok(self.function.blocks.iter().any(|block| {
+            block.statements.iter().any(statement_names_local)
+                || block
+                    .terminator
+                    .as_ref()
+                    .is_some_and(|terminator| terminator.reads_local(local))
+        }))
     }
 
     /// Returns the source operand for a single-assignment unknown cast local.
@@ -6275,281 +6295,26 @@ pub(crate) fn is_erased_unknown_rest_function_in(
     )
 }
 
-/// Return whether an operand reads a specific local.
-pub(super) fn operand_uses_local(operand: &Operand, local: LocalId) -> bool {
-    match operand {
-        Operand::Copy(place) | Operand::Move(place) => place_reads_local(place, local),
-        Operand::Const(_) => false,
-    }
-}
-
-/// Return whether reading a place observes a specific local.
-fn place_reads_local(place: &Place, local: LocalId) -> bool {
-    match place {
-        Place::Local(candidate)
-        | Place::Field {
-            base: candidate, ..
-        } => *candidate == local,
-        Place::Index { base, index, .. } => *base == local || operand_uses_local(index, local),
-        // No base local, but the index operand still observes one.
-        Place::Global { projection, .. } => global_projection_reads_local(projection, local),
-    }
-}
-
-/// Return whether an assignment place reads a local before writing.
-pub(super) fn assignment_place_reads_local(place: &Place, local: LocalId) -> bool {
-    match place {
-        Place::Local(_) => false,
-        Place::Field { base, .. } => *base == local,
-        Place::Index { base, index, .. } => *base == local || operand_uses_local(index, local),
-        Place::Global { projection, .. } => global_projection_reads_local(projection, local),
-    }
-}
-
-/// Return whether a mutable-global projection observes a specific local.
+/// The callback operands an rvalue renders by re-emitting the closure's text at
+/// the use site (`closure_operand_text` and its declared-type sibling) rather than
+/// by naming the closure's local.
 ///
-/// A field projection names a symbol and reads nothing; an index projection
-/// carries an operand that is evaluated before the cell is borrowed, and that
-/// operand can name a local. Answering `false` for it would let the emitter
-/// treat the local as dead at the write.
-fn global_projection_reads_local(
-    projection: &smelt_mir::GlobalProjection,
-    local: LocalId,
-) -> bool {
-    match projection {
-        smelt_mir::GlobalProjection::Field(_) => false,
-        smelt_mir::GlobalProjection::Index { index, .. } => operand_uses_local(index, local),
-    }
-}
-
-/// Return whether an rvalue may read a local.
-pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
+/// `ListCallback` inlines too, but is left out: its closures keep a binding.
+/// Anything not listed counts as naming the local, so a new callback rvalue costs
+/// at most a dead binding, never a missing one.
+fn inlined_callback_operands(value: &Rvalue) -> Vec<&Operand> {
     match value {
-        Rvalue::Use(operand)
-        | Rvalue::Len(operand)
-        | Rvalue::NumericAbs(operand)
-        | Rvalue::PrimitiveCast { operand, .. }
-        | Rvalue::StringCase { operand, .. }
-        | Rvalue::StringTrim { operand, .. }
-        | Rvalue::Await(operand) => operand_uses_local(operand, local),
-        Rvalue::List(items)
-        | Rvalue::Set(items)
-        | Rvalue::Tuple(items)
-        | Rvalue::Closure {
-            captures: items, ..
-        }
-        | Rvalue::NumericHypot { args: items }
-        | Rvalue::AsyncOp { args: items, .. } => items
-            .iter()
-            .any(|operand| operand_uses_local(operand, local)),
-        Rvalue::NumericExtrema { args, spread, .. } => {
-            args.iter().any(|operand| operand_uses_local(operand, local))
-                || spread
-                    .as_ref()
-                    .is_some_and(|operand| operand_uses_local(operand, local))
-        }
-        Rvalue::Dict(entries) => entries.iter().any(|(key, entry_value)| {
-            operand_uses_local(key, local) || operand_uses_local(entry_value, local)
-        }),
-        Rvalue::Binary { lhs, rhs, .. }
-        | Rvalue::NumericPow {
-            base: lhs,
-            exponent: rhs,
-        }
-        | Rvalue::NumericAtan2 { y: lhs, x: rhs }
-        | Rvalue::StringAffix {
-            haystack: lhs,
-            needle: rhs,
+        Rvalue::ListReduce { callback, .. }
+        | Rvalue::ListFromLengthMap { callback, .. }
+        | Rvalue::RegexReplaceCallback { callback, .. } => vec![callback],
+        Rvalue::ListSort { comparator, key, .. } => comparator.iter().chain(key).collect(),
+        Rvalue::ListSorted { key, .. } => key.iter().collect(),
+        Rvalue::FormDataOp {
+            op: smelt_hir::FormDataOp::ForEach,
+            args,
             ..
-        }
-        | Rvalue::StringSearch {
-            haystack: lhs,
-            needle: rhs,
-            ..
-        }
-        | Rvalue::DefineProperties {
-            target: lhs,
-            descriptors: rhs,
-        }
-        | Rvalue::StringContains {
-            haystack: lhs,
-            needle: rhs,
-            ..
-        }
-        | Rvalue::ListContains {
-            list: lhs,
-            item: rhs,
-        }
-        | Rvalue::SetContains {
-            set: lhs,
-            item: rhs,
-        }
-        | Rvalue::ListCallback {
-            list: lhs,
-            callback: rhs,
-            ..
-        }
-        | Rvalue::DictContainsKey {
-            dict: lhs,
-            key: rhs,
-            ..
-        }
-        | Rvalue::StringJoin {
-            items: lhs,
-            separator: rhs,
-        } => operand_uses_local(lhs, local) || operand_uses_local(rhs, local),
-        Rvalue::Unary { operand, .. }
-        | Rvalue::NumericRound { operand, .. }
-        | Rvalue::NumericPredicate { operand, .. }
-        | Rvalue::NumericUnaryFunc { operand, .. }
-        | Rvalue::UnknownIs { value: operand, .. }
-        | Rvalue::TypeofValue { value: operand }
-        | Rvalue::PrototypeSentinel { value: operand, .. }
-        | Rvalue::BoxPrimitive { value: operand }
-        | Rvalue::ObjectFromPrototype { prototype: operand }
-        | Rvalue::UnknownCast { value: operand, .. }
-        | Rvalue::DateFromValue { value: operand }
-        | Rvalue::InstanceOf { value: operand, .. } => operand_uses_local(operand, local),
-        Rvalue::FunctionTableLookup { key, cases } => {
-            operand_uses_local(key, local)
-                || cases
-                    .iter()
-                    .any(|(_, case)| operand_uses_local(case, local))
-        }
-        Rvalue::OptionalField { receiver, .. } | Rvalue::BoundField { receiver, .. } => {
-            operand_uses_local(receiver, local)
-        }
-        Rvalue::OptionalIndex { receiver, index } => {
-            operand_uses_local(receiver, local) || operand_uses_local(index, local)
-        }
-        Rvalue::OptionalMethod { receiver, args, .. }
-        | Rvalue::UnionMethod { receiver, args, .. }
-        | Rvalue::BoundMethod { receiver, args, .. } => {
-            operand_uses_local(receiver, local)
-                || args
-                    .iter()
-                    .any(|operand| operand_uses_local(operand, local))
-        }
-        Rvalue::OptionalCoalesce { optional, fallback } => {
-            operand_uses_local(optional, local) || operand_uses_local(fallback, local)
-        }
-        Rvalue::Struct { fields, .. } => fields
-            .iter()
-            .any(|(_, field_value)| operand_uses_local(field_value, local)),
-        Rvalue::CallableObjectAssign {
-            callable,
-            props,
-            spreads,
-        } => {
-            operand_uses_local(callable, local)
-                || props
-                    .iter()
-                    .any(|(_, field_value)| operand_uses_local(field_value, local))
-                || spreads
-                    .iter()
-                    .any(|spread_value| operand_uses_local(spread_value, local))
-        }
-        Rvalue::ExternalClassInstance { args, .. } => args
-            .iter()
-            .any(|operand| operand_uses_local(operand, local)),
-        Rvalue::ClosureCall { callee, args } => {
-            operand_uses_local(callee, local)
-                || args
-                    .iter()
-                    .any(|operand| operand_uses_local(operand, local))
-        }
-        Rvalue::ClosureCallSpread { callee, args } => {
-            operand_uses_local(callee, local) || operand_uses_local(args, local)
-        }
-        // A host-global override write reads its stored value operand; the read
-        // and presence probes take no operands. Missing this arm would let the
-        // `_ => false` fallthrough elide a closure whose only use is the write.
-        Rvalue::HostGlobalWrite { value: stored, .. } => operand_uses_local(stored, local),
-        // An `EventEmitter` operation reads its receiver and every argument. The
-        // listener argument of `on`/`once`/`off` is almost always a closure temp
-        // whose ONLY use is this rvalue, so without this arm the `_ => false`
-        // fallthrough elides the closure's own statement and the emitted code
-        // references an undeclared temporary.
-        Rvalue::EventEmitterOp { emitter, args, .. } => {
-            operand_uses_local(emitter, local)
-                || args
-                    .iter()
-                    .any(|operand| operand_uses_local(operand, local))
-        }
-        // The `node:http` operations, for the same reason: `createServer`'s
-        // handler and `listen`'s listening callback are closure temps whose
-        // ONLY use is the rvalue that consumes them.
-        Rvalue::HttpCreateServer { handler } => operand_uses_local(handler, local),
-        Rvalue::HttpCreateFetchServer { fetch } => operand_uses_local(fetch, local),
-        Rvalue::SqliteOpen { path } => operand_uses_local(path, local),
-        Rvalue::SqliteOp { receiver, args, .. } => {
-            operand_uses_local(receiver, local) || args.iter().any(|arg| operand_uses_local(arg, local))
-        }
-        Rvalue::HttpServerOp { server, args, .. } => {
-            operand_uses_local(server, local)
-                || args
-                    .iter()
-                    .any(|operand| operand_uses_local(operand, local))
-        }
-        Rvalue::IncomingMessageOp { message, .. } => operand_uses_local(message, local),
-        Rvalue::ServerResponseOp { response, args, .. } => {
-            operand_uses_local(response, local)
-                || args
-                    .iter()
-                    .any(|operand| operand_uses_local(operand, local))
-        }
-        // A Vitest mock construction reads its wrapped implementation (often a
-        // closure temp whose ONLY use is this rvalue — missing this arm elides
-        // that closure's declaration); the matcher queries read the mock and
-        // their expected operands.
-        Rvalue::VitestMockFn { implementation } => implementation
-            .as_ref()
-            .is_some_and(|implementation| operand_uses_local(implementation, local)),
-        Rvalue::VitestMockCalledTimes { mock, count } => {
-            operand_uses_local(mock, local) || operand_uses_local(count, local)
-        }
-        Rvalue::VitestMockCalledWith { mock, args, .. } => {
-            operand_uses_local(mock, local)
-                || args
-                    .iter()
-                    .any(|operand| operand_uses_local(operand, local))
-        }
-        Rvalue::VitestMockLastResolvedWith { mock, expected } => {
-            operand_uses_local(mock, local) || operand_uses_local(expected, local)
-        }
-        Rvalue::VitestAsymmetricEqual { actual, expected } => {
-            operand_uses_local(actual, local) || operand_uses_local(expected, local)
-        }
-        Rvalue::VitestSpyOn { target, name } => {
-            operand_uses_local(target, local) || operand_uses_local(name, local)
-        }
-        // A receiver bind reads BOTH the callable it wraps and the receiver it
-        // installs. The callee is very often a closure temp whose only use is
-        // this rvalue (`greeting.call(right)` on a module-level function item),
-        // so missing this arm let the `_ => false` fallthrough elide that
-        // closure's declaration and the bind referenced an undefined local.
-        // `Rvalue::ThisRead` genuinely reads no local and needs no arm.
-        Rvalue::BindThis { callee, receiver } => {
-            operand_uses_local(callee, local) || operand_uses_local(receiver, local)
-        }
-        _ => false,
-    }
-}
-
-/// Return whether a terminator may read a local.
-pub(super) fn terminator_uses_local(terminator: &Terminator, local: LocalId) -> bool {
-    match terminator {
-        Terminator::Goto(_) => false,
-        Terminator::Call { callee, args, .. } => {
-            matches!(callee, Callee::Indirect(operand) if operand_uses_local(operand, local))
-                || args.iter().any(|arg| operand_uses_local(arg, local))
-        }
-        Terminator::Await { future, .. } => operand_uses_local(future, local),
-        Terminator::Switch { cond, .. } => operand_uses_local(cond, local),
-        Terminator::Match { scrutinee, .. } => operand_uses_local(scrutinee, local),
-        Terminator::Return(operand) | Terminator::Throw(operand) => {
-            operand_uses_local(operand, local)
-        }
+        } => args.first().into_iter().collect(),
+        _ => Vec::new(),
     }
 }
 

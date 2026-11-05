@@ -2,10 +2,7 @@
 
 use super::*;
 use smelt_hir::FunctionType;
-use super::core::{
-    assignment_place_reads_local, operand_uses_local, rvalue_uses_local, terminator_successors,
-    terminator_uses_local,
-};
+use super::core::terminator_successors;
 
 impl FunctionEmitter<'_> {
     /// The function's [`LocalWriteIndex`], built on first use.
@@ -384,7 +381,7 @@ impl FunctionEmitter<'_> {
             for statement in &block.statements {
                 match statement {
                     Statement::Assign { dest, value } => {
-                        if rvalue_uses_local(value, local) {
+                        if value.reads_local(local) {
                             return true;
                         }
                         if *dest == local {
@@ -392,8 +389,8 @@ impl FunctionEmitter<'_> {
                         }
                     }
                     Statement::AssignPlace { place, value } => {
-                        if assignment_place_reads_local(place, local)
-                            || rvalue_uses_local(value, local)
+                        if place.target_reads_local(local)
+                            || value.reads_local(local)
                         {
                             return true;
                         }
@@ -411,15 +408,15 @@ impl FunctionEmitter<'_> {
                         value,
                     } => {
                         if *base == local
-                            || operand_uses_local(index, local)
-                            || operand_uses_local(default, local)
+                            || index.reads_local(local)
+                            || default.reads_local(local)
                         {
                             return true;
                         }
                         if *current == local {
                             return false;
                         }
-                        if rvalue_uses_local(value, local) {
+                        if value.reads_local(local) {
                             return true;
                         }
                     }
@@ -428,7 +425,7 @@ impl FunctionEmitter<'_> {
             if block
                 .terminator
                 .as_ref()
-                .is_some_and(|terminator| terminator_uses_local(terminator, local))
+                .is_some_and(|terminator| terminator.reads_local(local))
             {
                 return true;
             }
@@ -634,7 +631,7 @@ impl FunctionEmitter<'_> {
         for statement in &block.statements {
             match statement {
                 Statement::Assign { dest, value } => {
-                    if rvalue_uses_local(value, local) && !assigned {
+                    if value.reads_local(local) && !assigned {
                         return Ok(true);
                     }
                     if *dest == local {
@@ -642,10 +639,10 @@ impl FunctionEmitter<'_> {
                     }
                 }
                 Statement::AssignPlace { place, value } => {
-                    if assignment_place_reads_local(place, local) && !assigned {
+                    if place.target_reads_local(local) && !assigned {
                         return Ok(true);
                     }
-                    if rvalue_uses_local(value, local) && !assigned {
+                    if value.reads_local(local) && !assigned {
                         return Ok(true);
                     }
                     if matches!(place, Place::Local(candidate) if *candidate == local) {
@@ -660,8 +657,8 @@ impl FunctionEmitter<'_> {
                     value,
                 } => {
                     if (*base == local
-                        || operand_uses_local(index, local)
-                        || operand_uses_local(default, local))
+                        || index.reads_local(local)
+                        || default.reads_local(local))
                         && !assigned
                     {
                         return Ok(true);
@@ -669,7 +666,7 @@ impl FunctionEmitter<'_> {
                     if *current == local {
                         assigned = true;
                     }
-                    if rvalue_uses_local(value, local) && !assigned {
+                    if value.reads_local(local) && !assigned {
                         return Ok(true);
                     }
                 }
@@ -678,7 +675,7 @@ impl FunctionEmitter<'_> {
         let Some(terminator) = &block.terminator else {
             return Ok(false);
         };
-        if terminator_uses_local(terminator, local) && !assigned {
+        if terminator.reads_local(local) && !assigned {
             return Ok(true);
         }
         for successor in terminator_successors(terminator) {

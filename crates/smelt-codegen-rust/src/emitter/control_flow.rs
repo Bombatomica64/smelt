@@ -351,7 +351,7 @@ impl FunctionEmitter<'_> {
                 }
                 let local = self.local_decl(*dest)?;
                 let name = self.local_name(*dest)?;
-                if matches!(value, Rvalue::Closure { .. }) && !self.local_has_uses(*dest) {
+                if matches!(value, Rvalue::Closure { .. }) && !self.closure_binding_is_read(*dest)? {
                     return Ok(());
                 }
                 // A UNIT-typed slot read is a touch: it only forces the slot's

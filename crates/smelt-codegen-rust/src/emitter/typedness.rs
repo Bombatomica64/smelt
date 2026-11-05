@@ -328,64 +328,22 @@ fn measure_body(
 /// call and await results, exception bindings, and every local an operand or
 /// place mentions.
 fn referenced_locals(blocks: &[BasicBlock]) -> std::collections::HashSet<smelt_mir::LocalId> {
-    fn place(place: &Place, out: &mut std::collections::HashSet<smelt_mir::LocalId>) {
-        match place {
-            Place::Local(local) | Place::Field { base: local, .. } => {
-                out.insert(*local);
-            }
-            Place::Index { base, index, .. } => {
-                out.insert(*base);
-                operand(index, out);
-            }
-            Place::Global { .. } => {}
-        }
-    }
-    fn operand(value: &Operand, out: &mut std::collections::HashSet<smelt_mir::LocalId>) {
-        if let Operand::Copy(read) | Operand::Move(read) = value {
-            place(read, out);
-        }
-    }
     let mut out = std::collections::HashSet::new();
     for block in blocks {
         for statement in &block.statements {
-            match statement {
-                Statement::Assign { dest, value } => {
-                    out.insert(*dest);
-                    value.reads(|read| operand(read, &mut out));
-                }
-                Statement::AssignPlace { place: target, value } => {
-                    place(target, &mut out);
-                    value.reads(|read| operand(read, &mut out));
-                }
-                Statement::DictEntryUpdate { base, index, default, current, value } => {
-                    out.insert(*base);
-                    out.insert(*current);
-                    operand(index, &mut out);
-                    operand(default, &mut out);
-                    value.reads(|read| operand(read, &mut out));
-                }
-            }
+            out.extend(statement.defs());
+            statement.read_locals(|local| {
+                out.insert(local);
+            });
         }
-        match &block.terminator {
-            Some(Terminator::Call { callee, args, dest, unwind, .. }) => {
-                out.insert(*dest);
-                if let Callee::Indirect(callee) = callee {
-                    operand(callee, &mut out);
-                }
-                for arg in args {
-                    operand(arg, &mut out);
-                }
+        if let Some(terminator) = &block.terminator {
+            out.extend(terminator.defs());
+            terminator.read_locals(|local| {
+                out.insert(local);
+            });
+            if let Terminator::Call { unwind, .. } | Terminator::Await { unwind, .. } = terminator {
                 out.extend(unwind.and_then(|handler| handler.exception_local));
             }
-            Some(Terminator::Await { future, dest, unwind, .. }) => {
-                out.insert(*dest);
-                operand(future, &mut out);
-                out.extend(unwind.and_then(|handler| handler.exception_local));
-            }
-            Some(Terminator::Switch { cond: read, .. })
-            | Some(Terminator::Match { scrutinee: read, .. })
-            | Some(Terminator::Return(read) | Terminator::Throw(read)) => operand(read, &mut out),
-            Some(Terminator::Goto(_)) | None => {}
         }
     }
     out

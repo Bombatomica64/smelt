@@ -1188,6 +1188,16 @@ impl Statement {
         }
     }
 
+    /// The rvalue this statement evaluates.
+    #[must_use]
+    pub const fn value(&self) -> &Rvalue {
+        match self {
+            Self::Assign { value, .. }
+            | Self::AssignPlace { value, .. }
+            | Self::DictEntryUpdate { value, .. } => value,
+        }
+    }
+
     /// The local this statement defines, if any. A projected assignment target
     /// mutates its base without defining it.
     #[must_use]
