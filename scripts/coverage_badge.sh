@@ -103,7 +103,7 @@ branch_pct="$(percent "$brh" "$brf")"
 
 region_pct="$(python3 -c '
 import json, sys
-print(f"{json.load(open(sys.argv[1]))[\"data\"][0][\"totals\"][\"regions\"][\"percent\"]:.2f}")
+print("%.2f" % json.load(open(sys.argv[1]))["data"][0]["totals"]["regions"]["percent"])
 ' "$SUMMARY_FILE")"
 
 make_badge "coverage" "$line_pct" "$OUTPUT_BADGE"
