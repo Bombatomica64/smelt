@@ -43,9 +43,7 @@ impl Pass for UnobservedReceiverBind {
             .flat_map(|closure| closure.blocks.iter_mut());
         for block in function_blocks.chain(closure_blocks) {
             for statement in &mut block.statements {
-                let Some(value) = statement_rvalue_mut(statement) else {
-                    continue;
-                };
+                let value = statement.value_mut();
                 let Rvalue::BindThis { callee, .. } = value else {
                     continue;
                 };
@@ -132,15 +130,6 @@ fn forward_bound_callees(function: &mut crate::MirFunction) -> bool {
     changed
 }
 
-/// Returns the rvalue a statement evaluates, when it evaluates one.
-const fn statement_rvalue_mut(statement: &mut Statement) -> Option<&mut Rvalue> {
-    match statement {
-        Statement::Assign { value, .. }
-        | Statement::AssignPlace { value, .. }
-        | Statement::DictEntryUpdate { value, .. } => Some(value),
-    }
-}
-
 /// Returns whether any function or closure in the program reads `this`.
 fn program_reads_this(mir: &Mir) -> bool {
     let function_blocks = mir
@@ -151,9 +140,5 @@ fn program_reads_this(mir: &Mir) -> bool {
     function_blocks
         .chain(closure_blocks)
         .flat_map(|block| block.statements.iter())
-        .any(|statement| match statement {
-            Statement::Assign { value, .. }
-            | Statement::AssignPlace { value, .. }
-            | Statement::DictEntryUpdate { value, .. } => matches!(value, Rvalue::ThisRead),
-        })
+        .any(|statement| matches!(statement.value(), Rvalue::ThisRead))
 }

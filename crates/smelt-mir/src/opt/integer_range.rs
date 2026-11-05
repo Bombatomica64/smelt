@@ -1128,7 +1128,7 @@ impl Analysis<'_> {
                     Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
                         self.evaluate(value, &state)
                     }
-                    _ => None,
+                    Statement::DictEntryUpdate { .. } => None,
                 };
                 hull = join_value(hull, value);
             }
