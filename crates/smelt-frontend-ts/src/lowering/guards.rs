@@ -1149,7 +1149,22 @@ impl ModuleBuilder<'_> {
         if let Some(parsed) = self.json_parse_call_with_target(expression, target, span, body)? {
             return Ok(parsed);
         }
-        let value = self.expression_with_hint(expression, body, Some(target))?;
+        // A call asserted to `target` instantiates its callee's unbound type
+        // parameters from it (see `bind_from_asserted_return`).
+        let mut operand = expression;
+        while let Expression::ParenthesizedExpression(parenthesized) = operand {
+            operand = &parenthesized.expression;
+        }
+        let previous = std::mem::replace(
+            &mut self.asserted_call_return,
+            match operand {
+                Expression::CallExpression(call) => Some((call.span, target)),
+                _ => None,
+            },
+        );
+        let value = self.expression_with_hint(expression, body, Some(target));
+        self.asserted_call_return = previous;
+        let value = value?;
         if Self::expr_ty(body, value) == target {
             return Ok(value);
         }

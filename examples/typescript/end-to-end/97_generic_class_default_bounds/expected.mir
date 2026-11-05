@@ -9,11 +9,11 @@ fn new (FuncId(0)) -> Chain<T>
     %3 temp: fn() -> Chain<T>
   bb0:
     %0 = struct0 {}
-    %0.field3 = copy %1
+    %0.field4 = copy %1
     %2 = [copy %1]
-    %0.field4 = move %2
+    %0.field5 = move %2
     %3 = closure ClosureId(0) [copy %0]
-    %0.field5 = move %3
+    %0.field6 = move %3
     return move %0
 
 fn push (FuncId(1)) -> Chain<T>
@@ -23,10 +23,10 @@ fn push (FuncId(1)) -> Chain<T>
     %2 temp: List<T>
     %3 temp: Float
   bb0:
-    %2 = copy %0.field4
+    %2 = copy %0.field5
     %3 = list_push copy %2, copy %1
-    %0.field4 = move %2
-    %0.field3 = copy %1
+    %0.field5 = move %2
+    %0.field4 = copy %1
     return copy %0
 
 fn new (FuncId(2)) -> Track<T>
@@ -35,7 +35,7 @@ fn new (FuncId(2)) -> Track<T>
     %1 param chain: Chain<T>
   bb0:
     %0 = struct1 {}
-    %0.field10 = copy %1
+    %0.field11 = copy %1
     return move %0
 
 fn latest (FuncId(3)) -> T
@@ -43,8 +43,8 @@ fn latest (FuncId(3)) -> T
     %0 param this: Track<T>
     %1 temp: Chain<T>
   bb0:
-    %1 = copy %0.field10
-    return copy %1.field3
+    %1 = copy %0.field11
+    return copy %1.field4
 
 fn main (FuncId(4)) -> None throws
   locals
@@ -77,29 +77,29 @@ fn main (FuncId(4)) -> None throws
   bb2:
     %4 = call fn1(copy %0, 3.0) -> bb3
   bb3:
-    %5 = call @console_log(copy %0.field3) -> bb4
+    %5 = call @console_log(copy %0.field4) -> bb4
   bb4:
-    %6 = string_join copy %0.field4, ","
+    %6 = string_join copy %0.field5, ","
     %7 = call @console_log(move %6) -> bb5
   bb5:
-    %9 = closure_call copy %0.field5()
-    %10 = call @console_log(copy %9.field3) -> bb6
+    %9 = closure_call copy %0.field6()
+    %10 = call @console_log(copy %9.field4) -> bb6
   bb6:
     %11 = call fn0("a") -> bb7
   bb7:
     %12 = call fn2(move %11) -> bb8
   bb8:
     %1 = move %12
-    %13 = copy %1.field10
-    %14 = call fn1(copy %1.field10, "b") -> bb9
+    %13 = copy %1.field11
+    %14 = call fn1(copy %1.field11, "b") -> bb9
   bb9:
     %15 = call fn3(copy %1) -> bb10
   bb10:
     %16 = call @console_log(move %15) -> bb11
   bb11:
-    %17 = copy %1.field10
-    %19 = closure_call copy %17.field5()
-    %20 = call @console_log(copy %19.field3) -> bb12
+    %17 = copy %1.field11
+    %19 = closure_call copy %17.field6()
+    %20 = call @console_log(copy %19.field4) -> bb12
   bb12:
     return none
 
@@ -108,7 +108,7 @@ closure ClosureId(0) -> Chain<T>
     %0 user this: Chain<T>
     %1 temp: List<T>
   bb0:
-    %1 = copy %0.field4
-    %0.field3 = copy %1[0.0]
+    %1 = copy %0.field5
+    %0.field4 = copy %1[0.0]
     return copy %0
 

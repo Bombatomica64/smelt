@@ -1709,8 +1709,19 @@ impl FunctionEmitter<'_> {
                 // parameters live in the caller's world, not the callee's, so
                 // the callee bindings must not keep applying inside it.
                 Resolved::Substituted(bound) => {
-                    let rendered =
-                        self.rust_type(bound, allow_impl_trait, &substitution.without_bindings())?;
+                    // A bound that is itself one of the CALLER's real generics
+                    // (`inner(xs)` inside `outer<T>` binds `inner`'s parameter
+                    // to `outer`'s `T`) is spelled in the caller's own lexical
+                    // scope, which is where the call site is rendered.
+                    let caller_scope = self.current_function_type_params();
+                    let rendered = if matches!(
+                        self.mir.types.get(bound),
+                        Some(Type::TypeParam { name: bound_name }) if caller_scope.contains(bound_name)
+                    ) {
+                        self.rust_type(bound, allow_impl_trait, &TypeSubstitution::lexical(&caller_scope))?
+                    } else {
+                        self.rust_type(bound, allow_impl_trait, &substitution.without_bindings())?
+                    };
                     // Seam 5 (`emitter::seam_assertions`): the binding said
                     // Concrete, so the rendering must spell that type. The text
                     // is already built here, so the check renders nothing twice.

@@ -135,6 +135,43 @@ impl<'builder> ModuleBuilder<'builder> {
         self.call_expression(call, body)
     }
 
+    /// Bind the callee type parameters the arguments left unbound from the
+    /// type a type assertion gives the call spanning `span`
+    /// (`differenceBy(a, b, f) as T[]` instantiates the callee's element type
+    /// as the caller's `T`; see `ModuleBuilder::asserted_call_return`).
+    ///
+    /// Only an ASSERTION instantiates the call. The assertion converts the
+    /// call's value to its target whatever the call is typed as, so typing
+    /// the call at the asserted instantiation moves no conversion and claims
+    /// nothing the program did not already claim. An ordinary contextual
+    /// type (an annotated `const x: Record<string, number> = makeBag()`)
+    /// does not: there the call is what the definition returns and the
+    /// declaration converts it (`a_contextual_type_does_not_instantiate_the_call`).
+    ///
+    /// A parameter the arguments bound keeps its binding (bindings are
+    /// substituted before the match), except a binding to a type parameter
+    /// that is not in scope at the call site: that is an argument lowered
+    /// against the callee's uninstantiated declaration (an `any` value
+    /// coerced to the implementation's `ArrayLike<T>`), which names nothing
+    /// here, so the context replaces it.
+    fn bind_from_asserted_return(
+        &mut self,
+        type_params: &[TypeParamDef],
+        return_ty: smelt_hir::TypeId,
+        span: oxc::span::Span,
+        substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) {
+        let Some(hint) = self
+            .asserted_call_return
+            .filter(|(call_span, _)| *call_span == span)
+            .map(|(_, hint)| hint)
+        else {
+            return;
+        };
+        substitutions.retain(|_, bound| !self.type_param_is_out_of_scope(*bound));
+        let _ = self.infer_callee_type_bindings(type_params, return_ty, hint, substitutions);
+    }
+
     /// Lower `local?.method(..)` on an absent-able STRING or ARRAY local.
     ///
     /// The builtin method handlers are keyed on the receiver's static type, and
@@ -653,9 +690,27 @@ impl<'builder> ModuleBuilder<'builder> {
                 .take(function.params.len())
                 .map(|arg| self.argument(arg, body))
                 .collect::<Result<Vec<_>, _>>()?;
+            // A function item referenced as a value is the item itself or its
+            // typed closure view (`function_item`).
+            let callee_expr = usize::try_from(callee.0).ok().and_then(|index| body.exprs.get(index));
+            let item = match callee_expr.map(|expr| &expr.kind) {
+                Some(ExprKind::Item(item)) => Some(*item),
+                Some(ExprKind::Closure(closure)) => closure.function_item,
+                _ => None,
+            };
+            let ty = match item {
+                Some(item) => self.instantiated_item_value_call_result(
+                    item,
+                    &function,
+                    &args,
+                    call.span,
+                    body,
+                ),
+                None => function.return_ty,
+            };
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::ClosureCall { callee, args },
-                ty: function.return_ty,
+                ty,
                 span: self.span(call.span.start, call.span.end),
             }));
         }
@@ -1199,6 +1254,15 @@ impl<'builder> ModuleBuilder<'builder> {
                         &mut substitutions,
                     );
                 }
+                // What the arguments left unbound, a type assertion around
+                // the call may bind (`differenceBy(a, b, f) as T[]`); see
+                // `bind_from_asserted_return`.
+                self.bind_from_asserted_return(
+                    &callee_type_params,
+                    return_ty,
+                    call.span,
+                    &mut substitutions,
+                );
                 // Parameters no argument bound instantiate to `unknown`, the
                 // type the emitted definition returns for them, so the result
                 // never carries a raw callee `TypeParam` that would alias a
@@ -1251,6 +1315,14 @@ impl<'builder> ModuleBuilder<'builder> {
                             &mut substitutions,
                         );
                     }
+                    // An assertion around the call is evidence too, as for
+                    // the single-signature instantiation above.
+                    self.bind_from_asserted_return(
+                        &callee_type_params,
+                        implementation_return_ty,
+                        call.span,
+                        &mut substitutions,
+                    );
                     if substitutions.contains_key(&name) {
                         return_ty
                     } else {
@@ -4663,7 +4735,16 @@ impl<'builder> ModuleBuilder<'builder> {
                 }
             }
         }
-        if let Some((_, signature, substitutions)) = selected {
+        if let Some((_, signature, mut substitutions)) = selected {
+            // What the arguments left unbound, a type assertion around the
+            // call may bind; see `bind_from_asserted_return`.
+            let type_params = signature.type_params.clone();
+            self.bind_from_asserted_return(
+                &type_params,
+                signature.return_ty,
+                span,
+                &mut substitutions,
+            );
             return Ok(Some(
                 self.instantiate_overload_signature(signature, &substitutions),
             ));
@@ -5643,6 +5724,50 @@ impl<'builder> ModuleBuilder<'builder> {
         let substituted = self.substitute_type_params(return_ty, &substitutions);
         if self.renders_as_erased_function(substituted) {
             return_ty
+        } else {
+            substituted
+        }
+    }
+
+    /// The result type of calling a generic function ITEM through its value
+    /// (`(flatten as any)(array, depth)`), instantiated for these arguments.
+    ///
+    /// The value's type is the item's declared signature, spelled with the
+    /// item's own type parameters; those are in scope only inside the item,
+    /// so the result is instantiated as a direct call's is
+    /// (`call_expression_lowering`'s item arm): bound from the arguments,
+    /// then from a type assertion around the call
+    /// (`bind_from_asserted_return`), and a parameter neither binds becomes
+    /// `unknown`, the type the emitted definition yields for it. Without this
+    /// the caller would hold a value of the callee's `T[]`, a type that names
+    /// nothing at the call site.
+    fn instantiated_item_value_call_result(
+        &mut self,
+        item: smelt_hir::ItemId,
+        function: &FunctionType,
+        args: &[smelt_hir::ExprId],
+        call_span: oxc::span::Span,
+        body: &Body,
+    ) -> smelt_hir::TypeId {
+        let type_params = self.callee_own_type_params(item);
+        if type_params.is_empty()
+            || !self.overload_constraint_contains_unresolved_type_param(function.return_ty)
+        {
+            return function.return_ty;
+        }
+        let mut substitutions = HashMap::new();
+        for (param, arg) in function.params.iter().zip(args) {
+            let arg_ty = Self::expr_ty(body, *arg);
+            let _ = self.infer_callee_type_bindings(&type_params, *param, arg_ty, &mut substitutions);
+        }
+        // What the arguments left unbound, an assertion around the call may
+        // bind (`(flatten as any)(array, depth) as T[]` instantiates
+        // `flatten`'s `T` as the caller's `T`).
+        self.bind_from_asserted_return(&type_params, function.return_ty, call_span, &mut substitutions);
+        self.complete_callee_type_substitution(&type_params, &mut substitutions);
+        let substituted = self.substitute_type_params(function.return_ty, &substitutions);
+        if self.renders_as_erased_function(substituted) {
+            function.return_ty
         } else {
             substituted
         }

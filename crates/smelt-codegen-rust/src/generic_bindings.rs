@@ -238,15 +238,43 @@ pub(crate) fn collect_bindings_from_types(
     declared: &[TypeId],
     actual: &[Option<TypeId>],
 ) -> CalleeTypeParamBindings {
+    collect_bindings_from_types_in_scope(mir, type_params, declared, actual, &HashSet::new())
+}
+
+/// [`collect_bindings_from_types`] at a call site inside a function whose own
+/// real Rust generics are `caller_generics`.
+///
+/// An argument typed by one of those parameters is a genuine instantiation:
+/// `inner(xs)` inside `outer<T>` binds `inner`'s parameter to `outer`'s `T`,
+/// which rustc infers exactly. Every other type parameter is from a scope that
+/// erased it here and stays `Erased`. Before type parameters carried their
+/// declaration's identity this case was answered by accident: the two `T`s
+/// were one symbol, so the callee's parameter rendered as the caller's.
+pub(crate) fn collect_bindings_from_types_in_scope(
+    mir: &Mir,
+    type_params: &[Symbol],
+    declared: &[TypeId],
+    actual: &[Option<TypeId>],
+    caller_generics: &HashSet<Symbol>,
+) -> CalleeTypeParamBindings {
     let mut bindings = unbound_bindings(type_params);
     let own_params = type_params.iter().copied().collect::<HashSet<_>>();
+    let scope = MatchScope { own_params: &own_params, caller_generics };
     for (index, declared_ty) in declared.iter().enumerate() {
         let Some(Some(actual_ty)) = actual.get(index).copied() else {
             continue;
         };
-        match_types(mir, *declared_ty, actual_ty, &own_params, &mut bindings);
+        match_types_in(mir, *declared_ty, actual_ty, &scope, &mut bindings);
     }
     bindings
+}
+
+/// Whether `ty` mentions at least one type parameter and every type parameter
+/// it mentions is in `scope`.
+pub(crate) fn type_mentions_only_params(mir: &Mir, ty: TypeId, scope: &HashSet<Symbol>) -> bool {
+    let mut names = HashSet::new();
+    collect_type_param_occurrences(mir, ty, &mut names);
+    !names.is_empty() && names.iter().all(|name| scope.contains(name))
 }
 
 /// Bind a generic class's type parameters from a concrete receiver type.
@@ -628,7 +656,18 @@ pub(crate) fn actual_type_is_erased(mir: &Mir, actual: TypeId) -> bool {
     )
 }
 
-/// Directionally match a declared callee type against one actual caller type.
+/// The type parameters one binding pass distinguishes.
+struct MatchScope<'a> {
+    /// The callee's own parameters: the ones being bound.
+    own_params: &'a HashSet<Symbol>,
+    /// The caller's real Rust generics: an actual type that is one of them is
+    /// a genuine instantiation (`Concrete`), not an erased value.
+    caller_generics: &'a HashSet<Symbol>,
+}
+
+/// Directionally match a declared callee type against one actual caller type,
+/// with no caller generics in scope (see [`match_types_in`]).
+#[cfg(test)]
 fn match_types(
     mir: &Mir,
     declared: TypeId,
@@ -636,13 +675,28 @@ fn match_types(
     own_params: &HashSet<Symbol>,
     bindings: &mut CalleeTypeParamBindings,
 ) {
+    let caller_generics = HashSet::new();
+    let scope = MatchScope { own_params, caller_generics: &caller_generics };
+    match_types_in(mir, declared, actual, &scope, bindings);
+}
+
+/// Directionally match a declared callee type against one actual caller type.
+fn match_types_in(
+    mir: &Mir,
+    declared: TypeId,
+    actual: TypeId,
+    scope: &MatchScope<'_>,
+    bindings: &mut CalleeTypeParamBindings,
+) {
     let Some(declared_ty) = mir.types.get(declared) else {
         return;
     };
     if let Type::TypeParam { name } = declared_ty
-        && own_params.contains(name)
+        && scope.own_params.contains(name)
     {
-        let observation = if actual_type_is_erased(mir, actual) {
+        let caller_generic = matches!(mir.types.get(actual),
+            Some(Type::TypeParam { name: actual_name }) if scope.caller_generics.contains(actual_name));
+        let observation = if actual_type_is_erased(mir, actual) && !caller_generic {
             TypeParamBinding::Erased
         } else {
             TypeParamBinding::Concrete(actual)
@@ -664,15 +718,15 @@ fn match_types(
         | (Type::Set(left), Type::Set(right))
         | (Type::Optional(left), Type::Optional(right))
         | (Type::Future(left), Type::Future(right)) => {
-            match_types(mir, *left, *right, own_params, bindings);
+            match_types_in(mir, *left, *right, scope, bindings);
         }
         (Type::Dict(left_key, left_value), Type::Dict(right_key, right_value))
         | (Type::JsMap(left_key, left_value), Type::JsMap(right_key, right_value)) => {
-            match_types(mir, *left_key, *right_key, own_params, bindings);
-            match_types(mir, *left_value, *right_value, own_params, bindings);
+            match_types_in(mir, *left_key, *right_key, scope, bindings);
+            match_types_in(mir, *left_value, *right_value, scope, bindings);
         }
         (Type::Tuple(left), Type::Tuple(right)) if left.len() == right.len() => {
-            match_type_slices(mir, left, right, own_params, bindings);
+            match_type_slices(mir, left, right, scope, bindings);
         }
         (
             Type::Class {
@@ -684,10 +738,10 @@ fn match_types(
                 args: right,
             },
         ) if left_name == right_name && left.len() == right.len() => {
-            match_type_slices(mir, left, right, own_params, bindings);
+            match_type_slices(mir, left, right, scope, bindings);
         }
         (Type::Function(left), Type::Function(right)) => {
-            match_function_types(mir, left, right, own_params, bindings);
+            match_function_types(mir, left, right, scope, bindings);
         }
         (
             Type::Generator {
@@ -703,9 +757,9 @@ fn match_types(
                 next_ty: right_next,
             },
         ) if left_async == right_async => {
-            match_types(mir, *left_yield, *right_yield, own_params, bindings);
-            match_types(mir, *left_return, *right_return, own_params, bindings);
-            match_types(mir, *left_next, *right_next, own_params, bindings);
+            match_types_in(mir, *left_yield, *right_yield, scope, bindings);
+            match_types_in(mir, *left_return, *right_return, scope, bindings);
+            match_types_in(mir, *left_next, *right_next, scope, bindings);
         }
         (
             Type::GeneratorResult {
@@ -717,8 +771,8 @@ fn match_types(
                 return_ty: right_return,
             },
         ) => {
-            match_types(mir, *left_yield, *right_yield, own_params, bindings);
-            match_types(mir, *left_return, *right_return, own_params, bindings);
+            match_types_in(mir, *left_yield, *right_yield, scope, bindings);
+            match_types_in(mir, *left_return, *right_return, scope, bindings);
         }
         (Type::Union(_), _) | (_, Type::Union(_)) => bindings.observe_occurrences(
             mir,
@@ -739,11 +793,11 @@ fn match_type_slices(
     mir: &Mir,
     declared: &[TypeId],
     actual: &[TypeId],
-    own_params: &HashSet<Symbol>,
+    scope: &MatchScope<'_>,
     bindings: &mut CalleeTypeParamBindings,
 ) {
     for (declared_item, actual_item) in declared.iter().zip(actual) {
-        match_types(mir, *declared_item, *actual_item, own_params, bindings);
+        match_types_in(mir, *declared_item, *actual_item, scope, bindings);
     }
 }
 
@@ -754,22 +808,26 @@ fn match_type_slices(
 /// arguments and it ignores the trailing ones, so its leading parameters and
 /// its return are evidence for the slot's (`acc => acc + 'x'` for
 /// `(value: T, i: number) => T` pins `T = string`).
+///
+/// `required_params` (the JavaScript `Function.length` a closure reports) is
+/// not compared: it is runtime metadata, not part of either Rust signature,
+/// so `(date: Date, value: V) => boolean` and a method value of the same
+/// parameter types still bind `V` positionally.
 fn match_function_types(
     mir: &Mir,
     declared: &FunctionType,
     actual: &FunctionType,
-    own_params: &HashSet<Symbol>,
+    scope: &MatchScope<'_>,
     bindings: &mut CalleeTypeParamBindings,
 ) {
     if callback_accepts_fewer_params(declared, actual) {
         let used = declared.params.get(..actual.params.len()).unwrap_or_default();
-        match_type_slices(mir, used, &actual.params, own_params, bindings);
-        match_types(mir, declared.return_ty, actual.return_ty, own_params, bindings);
+        match_type_slices(mir, used, &actual.params, scope, bindings);
+        match_types_in(mir, declared.return_ty, actual.return_ty, scope, bindings);
         return;
     }
     if declared.params.len() != actual.params.len()
         || declared.rest != actual.rest
-        || declared.required_params != actual.required_params
         || declared.mutable_params != actual.mutable_params
         || declared.is_async != actual.is_async
         || declared.may_throw != actual.may_throw
@@ -788,14 +846,8 @@ fn match_function_types(
         );
         return;
     }
-    match_type_slices(mir, &declared.params, &actual.params, own_params, bindings);
-    match_types(
-        mir,
-        declared.return_ty,
-        actual.return_ty,
-        own_params,
-        bindings,
-    );
+    match_type_slices(mir, &declared.params, &actual.params, scope, bindings);
+    match_types_in(mir, declared.return_ty, actual.return_ty, scope, bindings);
 }
 
 /// Return whether `name` occurs anywhere inside `ty`.
@@ -856,7 +908,7 @@ pub(crate) fn type_param_occurs(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
 }
 
 /// Collect declared type-parameter names occurring anywhere inside a type.
-fn collect_type_param_occurrences(mir: &Mir, ty: TypeId, names: &mut HashSet<Symbol>) {
+pub(crate) fn collect_type_param_occurrences(mir: &Mir, ty: TypeId, names: &mut HashSet<Symbol>) {
     match mir.types.get(ty) {
         Some(Type::TypeParam { name }) => {
             names.insert(*name);

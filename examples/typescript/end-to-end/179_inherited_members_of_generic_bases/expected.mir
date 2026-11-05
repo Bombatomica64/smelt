@@ -20,15 +20,15 @@ fn push (FuncId(0)) -> Float
     %8 temp: Float
     %9 temp: Float
   bb0:
-    %3 = copy %0.field9
+    %3 = copy %0.field14
     %4 = list_push copy %3, copy %1
-    %0.field9 = move %3
+    %0.field14 = move %3
     %2 = {"value": copy %1}
     %6 = call fn1(copy %0, move %2) -> bb1
   bb1:
     switch move %6 ? bb2 : bb3
   bb2:
-    %8 = len copy %0.field9
+    %8 = len copy %0.field14
     %7 = move %8
     goto bb4
   bb3:
@@ -57,7 +57,7 @@ fn map (FuncId(2)) -> List<String>
     %3 temp: List<String>
   bb0:
     %2 = closure ClosureId(0) [copy %1]
-    %3 = list_map copy %0.field9, move %2
+    %3 = list_map copy %0.field14, move %2
     return move %3
 
 fn new (FuncId(3)) -> Base<T>
@@ -65,9 +65,9 @@ fn new (FuncId(3)) -> Base<T>
     %0 user this: Base<T>
     %1 temp: List<T>
   bb0:
-    %0 = struct7 {}
+    %0 = struct10 {}
     %1 = []
-    %0.field9 = move %1
+    %0.field14 = move %1
     return move %0
 
 fn total (FuncId(4)) -> Float
@@ -75,7 +75,7 @@ fn total (FuncId(4)) -> Float
     %0 param this: Middle<T>
     %1 temp: Float
   bb0:
-    %1 = len copy %0.field9
+    %1 = len copy %0.field14
     return move %1
 
 fn new (FuncId(5)) -> Middle<T>
@@ -83,7 +83,7 @@ fn new (FuncId(5)) -> Middle<T>
     %0 user this: Middle<T>
     %1 temp: Middle<T>
   bb0:
-    %0 = struct8 {}
+    %0 = struct12 {}
     %1 = call init fn3(move %0) -> bb1
   bb1:
     %0 = move %1
@@ -94,7 +94,7 @@ fn new (FuncId(6)) -> Leaf
     %0 user this: Leaf
     %1 temp: Leaf
   bb0:
-    %0 = struct4 {}
+    %0 = struct6 {}
     %1 = call init fn5(move %0) -> bb1
   bb1:
     %0 = move %1
@@ -105,7 +105,7 @@ fn new (FuncId(7)) -> Nums
     %0 user this: Nums
     %1 temp: Nums
   bb0:
-    %0 = struct5 {}
+    %0 = struct7 {}
     %1 = call init fn3(move %0) -> bb1
   bb1:
     %0 = move %1
@@ -118,14 +118,14 @@ fn run (FuncId(8)) -> T throws
     %2 user result: ParseResult<T>
     %3 temp: ParseResult<T>
   bb0:
-    %2 = closure_call copy %0.field25(copy %1)
+    %2 = closure_call copy %0.field30(copy %1)
     return copy %2.field2
 
 fn new (FuncId(9)) -> Parser<T>
   locals
     %0 user this: Parser<T>
   bb0:
-    %0 = struct6 {}
+    %0 = struct8 {}
     return move %0
 
 fn parse (FuncId(10)) -> ParseResult<Float>
@@ -146,7 +146,7 @@ fn new (FuncId(11)) -> YearParser
     %0 user this: YearParser
     %1 temp: YearParser
   bb0:
-    %0 = struct27 {}
+    %0 = struct32 {}
     %1 = call init fn9(move %0) -> bb1
   bb1:
     %0 = move %1
@@ -240,7 +240,7 @@ closure ClosureId(1) -> String
     %2 temp: String
     %3 temp: String
   bb0:
-    %1 = "" + copy %0.field17
+    %1 = "" + copy %0.field22
     %2 = copy %1 + ":"
     %3 = copy %2 + copy %0[0]
     return copy %3

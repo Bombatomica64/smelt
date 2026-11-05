@@ -3799,13 +3799,13 @@ impl Default for SmeltUnion15 {
 }
 
 #[derive(Clone)]
-pub enum SmeltUnion38 {
+pub enum SmeltUnion40 {
     M0(f64),
     M1(SmeltList<f64>),
     M2(SmeltList<SmeltUnion11>),
     M3(SmeltList<SmeltUnion13>),
 }
-impl IntoSmeltUnknown for SmeltUnion38 {
+impl IntoSmeltUnknown for SmeltUnion40 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
             Self::M0(value) => SmeltUnknown::Number(value as f64),
@@ -3815,7 +3815,7 @@ impl IntoSmeltUnknown for SmeltUnion38 {
         }
     }
 }
-impl SmeltUnion38 {
+impl SmeltUnion40 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if matches!(value, SmeltUnknown::Number(_)) { return Self::M0(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }); }
         if matches!(value, SmeltUnknown::Array(_)) { return Self::M1({ let smelt_src = value.clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(values) => { let smelt_list_id = values.id; let smelt_list = SmeltList::with_id(smelt_list_id, values.into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }).collect::<Vec<_>>()); smelt_array_props_adopt(smelt_list_id, &smelt_list.storage()); smelt_list }, SmeltUnknown::String(value) => SmeltList::new(value.chars().map(|ch| match (SmeltUnknown::String(ch.to_string().into())).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }).collect::<Vec<_>>()), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&value) { SmeltList::new(smelt_args.into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = value.get("__smelt_map") { SmeltList::new(pairs.into_vec().into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = value.get("__smelt_set") { SmeltList::new(members.into_vec().into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }).collect::<Vec<_>>()) } else { match value.get("__smelt_symbol_iterator") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }).collect::<Vec<_>>()), _ => panic!("unknown is not iterable") } }, _ => panic!("unknown is not iterable") } }); }
@@ -3823,24 +3823,24 @@ impl SmeltUnion38 {
         Self::M3({ let smelt_src = value.clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(values) => { let smelt_list_id = values.id; let smelt_list = SmeltList::with_id(smelt_list_id, values.into_iter().map(|value| SmeltUnion13::from_smelt_unknown((value).into_smelt_unknown())).collect::<Vec<_>>()); smelt_array_props_adopt(smelt_list_id, &smelt_list.storage()); smelt_list }, SmeltUnknown::String(value) => SmeltList::new(value.chars().map(|ch| SmeltUnion13::from_smelt_unknown((SmeltUnknown::String(ch.to_string().into())).into_smelt_unknown())).collect::<Vec<_>>()), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|value| SmeltUnion13::from_smelt_unknown((value).into_smelt_unknown())).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&value) { SmeltList::new(smelt_args.into_iter().map(|value| SmeltUnion13::from_smelt_unknown((value).into_smelt_unknown())).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = value.get("__smelt_map") { SmeltList::new(pairs.into_vec().into_iter().map(|value| SmeltUnion13::from_smelt_unknown((value).into_smelt_unknown())).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = value.get("__smelt_set") { SmeltList::new(members.into_vec().into_iter().map(|value| SmeltUnion13::from_smelt_unknown((value).into_smelt_unknown())).collect::<Vec<_>>()) } else { match value.get("__smelt_symbol_iterator") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| SmeltUnion13::from_smelt_unknown((value).into_smelt_unknown())).collect::<Vec<_>>()), _ => panic!("unknown is not iterable") } }, _ => panic!("unknown is not iterable") } })
     }
 }
-impl PartialEq for SmeltUnion38 {
+impl PartialEq for SmeltUnion40 {
     fn eq(&self, other: &Self) -> bool {
         self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
     }
 }
-impl SmeltFromUnknown for SmeltUnion38 {
+impl SmeltFromUnknown for SmeltUnion40 {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
 }
-impl SmeltJsKeyEq for SmeltUnion38 {
+impl SmeltJsKeyEq for SmeltUnion40 {
     fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
     fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
 }
-impl ::std::fmt::Debug for SmeltUnion38 {
+impl ::std::fmt::Debug for SmeltUnion40 {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
     }
 }
-impl Default for SmeltUnion38 {
+impl Default for SmeltUnion40 {
     fn default() -> Self {
         Self::M0(0.0)
     }
@@ -3882,7 +3882,7 @@ fn main() {
     let _smelt_tmp_47: String;
     let _smelt_tmp_48: SmeltList<SmeltUnion11>;
     let _smelt_tmp_49: String;
-    let _smelt_tmp_50: SmeltList<SmeltUnion38>;
+    let _smelt_tmp_50: SmeltList<SmeltUnion40>;
     let _smelt_tmp_51: f64;
     let _smelt_tmp_7: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0, 5.0]; smelt_list_items }));
     let _smelt_tmp_8: SmeltList<SmeltList<f64>> = chunk(_smelt_tmp_7, 2.0);
@@ -3966,7 +3966,7 @@ fn main() {
     _smelt_tmp_47 = serde_json::to_string(&{ let smelt_l = _smelt_tmp_46; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| value.into_smelt_unknown()).collect::<Vec<_>>())) }).expect("JSON serialization failed");
     _smelt_tmp_48 = Into::<SmeltList<_>>::into({ fn smelt_flat_values(values: Vec<SmeltUnknown>, smelt_remaining_depth: i64) -> Vec<SmeltUnknown> { if smelt_remaining_depth <= 0 { return values; } values.into_iter().flat_map(|value| match value { SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), smelt_remaining_depth - 1), value => vec![value] }).collect::<Vec<_>>() } let smelt_flat_depth = ((2.0) as f64).max(0.0).floor() as i64; let smelt_flat_input = nested.clone().borrow().iter().map(|item| item.clone().into_smelt_unknown()).collect::<Vec<_>>(); smelt_flat_values(smelt_flat_input, smelt_flat_depth).into_iter().map(|value| SmeltUnion11::from_smelt_unknown(value)).collect::<Vec<_>>() });
     _smelt_tmp_49 = serde_json::to_string(&{ let smelt_l = _smelt_tmp_48; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| value.into_smelt_unknown()).collect::<Vec<_>>())) }).expect("JSON serialization failed");
-    _smelt_tmp_50 = Into::<SmeltList<_>>::into({ fn smelt_flat_values(values: Vec<SmeltUnknown>, smelt_remaining_depth: i64) -> Vec<SmeltUnknown> { if smelt_remaining_depth <= 0 { return values; } values.into_iter().flat_map(|value| match value { SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), smelt_remaining_depth - 1), value => vec![value] }).collect::<Vec<_>>() } let smelt_flat_depth = ((f64::INFINITY) as f64).max(0.0).floor() as i64; let smelt_flat_input = nested.borrow().iter().map(|item| item.clone().into_smelt_unknown()).collect::<Vec<_>>(); smelt_flat_values(smelt_flat_input, smelt_flat_depth).into_iter().map(|value| SmeltUnion38::from_smelt_unknown(value)).collect::<Vec<_>>() });
+    _smelt_tmp_50 = Into::<SmeltList<_>>::into({ fn smelt_flat_values(values: Vec<SmeltUnknown>, smelt_remaining_depth: i64) -> Vec<SmeltUnknown> { if smelt_remaining_depth <= 0 { return values; } values.into_iter().flat_map(|value| match value { SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), smelt_remaining_depth - 1), value => vec![value] }).collect::<Vec<_>>() } let smelt_flat_depth = ((f64::INFINITY) as f64).max(0.0).floor() as i64; let smelt_flat_input = nested.borrow().iter().map(|item| item.clone().into_smelt_unknown()).collect::<Vec<_>>(); smelt_flat_values(smelt_flat_input, smelt_flat_depth).into_iter().map(|value| SmeltUnion40::from_smelt_unknown(value)).collect::<Vec<_>>() });
     _smelt_tmp_51 = _smelt_tmp_50.len() as f64;
     let _ = { println!("{} {} {}", _smelt_tmp_47, _smelt_tmp_49, smelt_console_number(_smelt_tmp_51)); };
     return;

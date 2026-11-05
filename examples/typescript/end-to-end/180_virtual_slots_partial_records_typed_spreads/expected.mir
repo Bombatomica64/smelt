@@ -46,9 +46,9 @@ fn merge (FuncId(2)) -> Options
   bb0:
     %1 = {"origin": "*", "maxAge": 5.0}
     %2 = copy %0
-    %4 = copy %2.field4 ?? copy %1.field4
-    %5 = copy %2.field5 ?? copy %1.field5
-    %6 = copy %2.field6 ?? copy %1.field6
+    %4 = copy %2.field5 ?? copy %1.field5
+    %5 = copy %2.field6 ?? copy %1.field6
+    %6 = copy %2.field7 ?? copy %1.field7
     %7 = {"origin": move %4, "credentials": move %5, "maxAge": move %6}
     return move %7
 
@@ -88,7 +88,7 @@ fn new (FuncId(6)) -> Shape
   locals
     %0 user this: Shape
   bb0:
-    %0 = struct19 {}
+    %0 = struct23 {}
     return move %0
 
 fn name (FuncId(7)) -> String
@@ -108,7 +108,7 @@ fn new (FuncId(9)) -> Square
     %0 user this: Square
     %1 temp: Square
   bb0:
-    %0 = struct25 {}
+    %0 = struct29 {}
     %1 = call init fn6(move %0) -> bb1
   bb1:
     %0 = move %1
@@ -119,7 +119,7 @@ fn new (FuncId(10)) -> Tile
     %0 user this: Tile
     %1 temp: Tile
   bb0:
-    %0 = struct26 {}
+    %0 = struct30 {}
     %1 = call init fn9(move %0) -> bb1
   bb1:
     %0 = move %1
@@ -136,13 +136,13 @@ fn push (FuncId(11)) -> Float throws
     %6 temp: Float
     %7 temp: Float
   bb0:
-    %2 = copy %0.field28
+    %2 = copy %0.field32
     %3 = list_push copy %2, copy %1
-    %0.field28 = move %2
-    %4 = closure_call copy %0.field30(copy %1)
+    %0.field32 = move %2
+    %4 = closure_call copy %0.field34(copy %1)
     switch move %4 ? bb1 : bb2
   bb1:
-    %6 = len copy %0.field28
+    %6 = len copy %0.field32
     %5 = move %6
     goto bb3
   bb2:
@@ -166,9 +166,9 @@ fn new (FuncId(13)) -> Counter
     %0 user this: Counter
     %1 temp: List<Float>
   bb0:
-    %0 = struct27 {}
+    %0 = struct31 {}
     %1 = []
-    %0.field28 = move %1
+    %0.field32 = move %1
     return move %0
 
 fn new (FuncId(14)) -> Plain
@@ -176,7 +176,7 @@ fn new (FuncId(14)) -> Plain
     %0 user this: Plain
     %1 temp: Plain
   bb0:
-    %0 = struct7 {}
+    %0 = struct8 {}
     %1 = call init fn13(move %0) -> bb1
   bb1:
     %0 = move %1
@@ -192,14 +192,14 @@ fn run (FuncId(15)) -> T throws
     %5 temp: T
     %6 temp: T
   bb0:
-    %2 = closure_call copy %0.field35(copy %1)
-    %4 = closure_call copy %0.field34(copy %2.field2)
+    %2 = closure_call copy %0.field39(copy %1)
+    %4 = closure_call copy %0.field38(copy %2.field2)
     switch move %4 ? bb1 : bb2
   bb1:
     %5 = copy %2.field2
     goto bb3
   bb2:
-    %6 = closure_call copy %0.field36()
+    %6 = closure_call copy %0.field40()
     %5 = move %6
     goto bb3
   bb3:
@@ -216,7 +216,7 @@ fn new (FuncId(17)) -> Parser<T>
   locals
     %0 user this: Parser<T>
   bb0:
-    %0 = struct8 {}
+    %0 = struct9 {}
     return move %0
 
 fn parse (FuncId(18)) -> Parsed<Float>
@@ -250,7 +250,7 @@ fn new (FuncId(21)) -> YearParser
     %0 user this: YearParser
     %1 temp: YearParser
   bb0:
-    %0 = struct38 {}
+    %0 = struct42 {}
     %1 = call init fn17(move %0) -> bb1
   bb1:
     %0 = move %1
@@ -270,7 +270,7 @@ fn new (FuncId(23)) -> StrictYear
     %0 user this: StrictYear
     %1 temp: StrictYear
   bb0:
-    %0 = struct39 {}
+    %0 = struct43 {}
     %1 = call init fn21(move %0) -> bb1
   bb1:
     %0 = move %1
@@ -284,7 +284,7 @@ fn map (FuncId(24)) -> List<String>
     %3 temp: List<String>
   bb0:
     %2 = closure ClosureId(1) [copy %1]
-    %3 = list_map copy %0.field28, move %2
+    %3 = list_map copy %0.field32, move %2
     return move %3
 
 fn new (FuncId(25)) -> Lists
@@ -294,11 +294,11 @@ fn new (FuncId(25)) -> Lists
     %2 temp: List<String>
     %3 temp: List<List<String>>
   bb0:
-    %0 = struct40 {}
+    %0 = struct44 {}
     %1 = ["a", "b"]
     %2 = ["c"]
     %3 = [move %1, move %2]
-    %0.field28 = move %3
+    %0.field32 = move %3
     return move %0
 
 fn main (FuncId(26)) -> None throws
@@ -408,9 +408,9 @@ fn main (FuncId(26)) -> None throws
   bb23:
     %33 = call fn0(1.0, 2.0) -> bb24
   bb24:
-    %2 = closure_call copy %33.field18()
-    %35 = closure_call copy %2.field18()
-    %36 = call @console_log(copy %2.field14, copy %2.field15, copy %35.field14) -> bb25
+    %2 = closure_call copy %33.field22()
+    %35 = closure_call copy %2.field22()
+    %36 = call @console_log(copy %2.field18, copy %2.field19, copy %35.field18) -> bb25
   bb25:
     %37 = closure ClosureId(2) []
     %38 = call fn1(move %37) -> bb26
@@ -428,18 +428,18 @@ fn main (FuncId(26)) -> None throws
     %46 = call fn2(move %45) -> bb30
   bb30:
     %4 = move %46
-    %47 = call @console_log(copy %4.field4, copy %4.field5, copy %4.field6) -> bb31
+    %47 = call @console_log(copy %4.field5, copy %4.field6, copy %4.field7) -> bb31
   bb31:
     %48 = {"origin": "a", "maxAge": 9.0}
     %49 = call fn2(move %48) -> bb32
   bb32:
     %5 = move %49
-    %50 = call @console_log(copy %5.field4, copy %5.field5, copy %5.field6) -> bb33
+    %50 = call @console_log(copy %5.field5, copy %5.field6, copy %5.field7) -> bb33
   bb33:
     %6 = move %3
     %7 = "b"
-    %8 = {"origin": move %7, "credentials": copy %6.field5, "maxAge": copy %6.field6}
-    %52 = call @console_log(copy %8.field4, copy %8.field6, copy %8.field5) -> bb34
+    %8 = {"origin": move %7, "credentials": copy %6.field6, "maxAge": copy %6.field7}
+    %52 = call @console_log(copy %8.field5, copy %8.field7, copy %8.field6) -> bb34
   bb34:
     return none
 

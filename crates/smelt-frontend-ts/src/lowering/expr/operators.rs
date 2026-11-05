@@ -4924,7 +4924,7 @@ impl ModuleBuilder<'_> {
             .filter(|first_ty| {
                 entries
                     .iter()
-                    .all(|(_, value)| Self::expr_ty(body, *value) == *first_ty)
+                    .all(|(_, value)| self.alpha_equivalent_types(Self::expr_ty(body, *value), *first_ty))
             })
             .unwrap_or_else(|| {
                 if entries.is_empty() {

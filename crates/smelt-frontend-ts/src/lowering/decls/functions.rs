@@ -163,7 +163,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         method: &oxc::ast::ast::MethodDefinition<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
-        self.with_type_parameter_scope(method.value.type_parameters.as_deref(), |this, _| {
+        self.with_method_type_parameter_scope(method.value.type_parameters.as_deref(), |this, _| {
             this.method_signature_function_type_in_scope(method)
         })
     }
@@ -3333,7 +3333,7 @@ impl ModuleBuilder<'_> {
                 "this-parameter abstract methods are not lowered yet",
             ));
         }
-        self.with_type_parameter_scope(method.value.type_parameters.as_deref(), |this, _| {
+        self.with_method_type_parameter_scope(method.value.type_parameters.as_deref(), |this, _| {
             this.abstract_class_method_sig_in_scope(method)
         })
     }
@@ -3586,7 +3586,7 @@ impl ModuleBuilder<'_> {
                     .intern(&format!("{prefix}{source_name}"))
             })
         };
-        let (method_type_params, return_ty, lowered) = self.with_type_parameter_scope(
+        let (method_type_params, return_ty, lowered) = self.with_method_type_parameter_scope(
             method.value.type_parameters.as_deref(),
             |this, method_type_params| {
                 let return_ty = if is_constructor {

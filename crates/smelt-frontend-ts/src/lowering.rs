@@ -17,6 +17,7 @@ mod int32;
 mod js_text;
 mod postfix_deferral;
 mod presence_tested_locals;
+mod type_param_owners;
 mod promise_resolution;
 mod specialization;
 pub(in crate::lowering) mod spread_arguments;
@@ -491,6 +492,7 @@ pub fn to_hir_with_options(
         options.excluded_modules.to_vec(),
     );
     builder.ts_facts = options.ts_facts.filter(|facts| facts.has_file(path));
+    builder.type_param_owners = type_param_owners::type_param_owners(&parsed.program);
     builder.program(&parsed.program)
 }
 
@@ -544,6 +546,7 @@ pub fn predeclare_type_declarations_with_path(
         None,
         Vec::new(),
     );
+    builder.type_param_owners = type_param_owners::type_param_owners(&parsed.program);
     // Import provenance first: every surface below may name an imported
     // ambiguous type, and only provenance lets it ask the rename map for the
     // exporting module's rendering (see `predeclare_import_provenance`).
@@ -939,6 +942,16 @@ struct ModuleBuilder<'ctx> {
     /// Arrow parameter lists (by source span) whose rest parameter is a
     /// fixed-width tuple, with that tuple type; see `lowering::tuple_rest`.
     tuple_rest_arrows: HashMap<(u32, u32), smelt_hir::TypeId>,
+    /// Owner path of every type parameter in this module, keyed by the
+    /// parameter's span start (see `type_param_owners`): a type parameter's
+    /// identity is its declaring item, not its declaration site.
+    type_param_owners: HashMap<u32, String>,
+    /// The type a TYPE ASSERTION gives the call it wraps
+    /// (`differenceBy(..) as T[]`), keyed by the call's span so only THAT
+    /// call (not one nested in its callee or arguments) reads it. A callee
+    /// type parameter the arguments leave unbound takes its instantiation
+    /// from it (see `bind_from_asserted_return`).
+    asserted_call_return: Option<(oxc::span::Span, smelt_hir::TypeId)>,
     /// Innermost source node being lowered, where an erasure decision is
     /// recorded when its site has no finer span; see `lowering::erasure`.
     erasure_anchor: Span,

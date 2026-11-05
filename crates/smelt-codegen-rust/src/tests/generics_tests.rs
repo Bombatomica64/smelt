@@ -1020,8 +1020,15 @@ export function outer<T>(items: T[]): number {
 ",
     );
 
-    assert!(source.contains("&|arg0: f64| Default::default()"));
-    assert!(!source.contains("-> T { Default::default() }"));
+    // Old requirement: the omitted callback rendered `&|arg0: f64|
+    // Default::default()`, left unannotated so it coerced to the callee's
+    // erased return. That only worked because the two `T`s were one symbol and
+    // `sink`'s `T` rendered as `outer`'s. Type parameters now carry their
+    // declaration's identity, so `sink`'s `T` is simply erased here and the
+    // default is the erased value itself — still never annotated with
+    // `outer`'s `T`, which is the property this test guards.
+    assert!(source.contains("&|arg0: f64| SmeltUnknown::Null"), "{source}");
+    assert!(!source.contains("-> T {"), "{source}");
 }
 
 #[test]
