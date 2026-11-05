@@ -2,6 +2,8 @@
 
 use clap::{ArgGroup, Args as ClapArgs, Parser, Subcommand, ValueEnum};
 
+use crate::report::ReportFormat;
+
 /// Top-level CLI arguments for the smelt command.
 #[derive(Parser, Debug)]
 #[command(
@@ -169,13 +171,9 @@ pub enum Command {
         #[arg(long = "run-tests")]
         run_tests: bool,
 
-        /// Report format: `md` (default) or `json`.
-        #[arg(long, value_enum, default_value_t = ReportFormat::Markdown, value_name = "FORMAT")]
-        format: ReportFormat,
-
-        /// Write the report to this file instead of stdout.
-        #[arg(long, value_name = "PATH")]
-        output: Option<String>,
+        /// Format and destination of the report.
+        #[command(flatten)]
+        report: ReportArgs,
     },
 
     /// Measure and gate `SmeltUnknown` usage in generated Rust output
@@ -199,28 +197,15 @@ pub enum Command {
         #[arg(value_name = "PATH", required = true)]
         roots: Vec<String>,
 
-        /// Report format: `md` (default) or `json` (also the baseline format).
-        #[arg(long, value_enum, default_value_t = ReportFormat::Markdown, value_name = "FORMAT")]
-        format: ReportFormat,
-
-        /// Prior JSON report to diff against for an advisory regression note.
-        #[arg(long, value_name = "PATH")]
-        baseline: Option<String>,
-
-        /// Exit nonzero when avoidable erasure rises above `--baseline`. Off by
-        /// default: the report stays advisory unless a gate opts in.
-        #[arg(long)]
-        fail_on_regression: bool,
+        /// Format, destination and baseline gate of the report.
+        #[command(flatten)]
+        gate: GateArgs,
 
         /// A `smelt-erasure.json` sidecar to explain avoidable erasure by
         /// reason and source line. Repeatable. A sidecar beside a scanned
         /// `src/` directory is read automatically.
         #[arg(long = "erasure", value_name = "PATH")]
         erasure: Vec<String>,
-
-        /// Write the report to this file instead of stdout.
-        #[arg(long, value_name = "PATH")]
-        output: Option<String>,
     },
 
     /// Compare Smelt's TypeScript types with the TypeScript 7 checker's
@@ -239,13 +224,9 @@ pub enum Command {
         #[arg(value_name = "PATH", required = true)]
         inputs: Vec<String>,
 
-        /// Report format: `md` (default) or `json`.
-        #[arg(long, value_enum, default_value_t = ReportFormat::Markdown, value_name = "FORMAT")]
-        format: ReportFormat,
-
-        /// Write the report to this file instead of stdout.
-        #[arg(long, value_name = "PATH")]
-        output: Option<String>,
+        /// Format and destination of the report.
+        #[command(flatten)]
+        report: ReportArgs,
     },
 
     /// Measure and ratchet how much of a program reaches Rust typed
@@ -266,26 +247,14 @@ pub enum Command {
         #[arg(value_name = "PATH", required = true)]
         paths: Vec<String>,
 
-        /// Report format: `md` (default) or `json` (also the baseline format).
-        #[arg(long, value_enum, default_value_t = ReportFormat::Markdown, value_name = "FORMAT")]
-        format: ReportFormat,
-
-        /// Baseline report to compare against.
-        #[arg(long, value_name = "PATH")]
-        baseline: Option<String>,
-
-        /// Exit nonzero when any program became less typed than the baseline.
-        #[arg(long)]
-        fail_on_regression: bool,
+        /// Format, destination and baseline gate of the report.
+        #[command(flatten)]
+        gate: GateArgs,
 
         /// Rewrite `--baseline`, taking each program's new record only when it
         /// is no less typed (a regression keeps its old record).
         #[arg(long)]
         update_baseline: bool,
-
-        /// Write the report to this file instead of stdout.
-        #[arg(long, value_name = "PATH")]
-        output: Option<String>,
     },
 
     /// Classify list-typed MIR locals as escaping, aliased, or frame-local
@@ -307,9 +276,9 @@ pub enum Command {
         #[arg(value_name = "PATH")]
         manifest: String,
 
-        /// Report format: `md` (default) or `json`.
-        #[arg(long, value_enum, default_value_t = ReportFormat::Markdown, value_name = "FORMAT")]
-        format: ReportFormat,
+        /// Format and destination of the report.
+        #[command(flatten)]
+        report: ReportArgs,
 
         /// Expand this function into a per-local table; repeat for several.
         #[arg(long, value_name = "NAME")]
@@ -318,10 +287,6 @@ pub enum Command {
         /// Rows kept in the "top bodies by confined list locals" table.
         #[arg(long, default_value_t = 25, value_name = "N")]
         top: usize,
-
-        /// Write the report to this file instead of stdout.
-        #[arg(long, value_name = "PATH")]
-        output: Option<String>,
     },
 
     /// Remove the output target directory (not implemented yet)
@@ -363,14 +328,37 @@ impl HirFlags {
     }
 }
 
-/// Output format of the report subcommands (`--format`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
-pub enum ReportFormat {
-    /// Human-readable Markdown.
-    #[value(name = "md", alias = "markdown")]
-    Markdown,
-    /// Machine-readable JSON.
-    Json,
+/// The `--format` and `--output` every report takes.
+#[derive(ClapArgs, Debug)]
+pub struct ReportArgs {
+    /// Report format: `md` (default) or `json`.
+    #[arg(long, value_enum, default_value_t = ReportFormat::Markdown, value_name = "FORMAT")]
+    pub format: ReportFormat,
+
+    /// Write the report to this file instead of stdout.
+    #[arg(long, value_name = "PATH")]
+    pub output: Option<String>,
+}
+
+/// The arguments of a report gated by a checked-in baseline.
+#[derive(ClapArgs, Debug)]
+pub struct GateArgs {
+    /// Report format: `md` (default) or `json` (also the baseline format).
+    #[arg(long, value_enum, default_value_t = ReportFormat::Markdown, value_name = "FORMAT")]
+    pub format: ReportFormat,
+
+    /// Prior JSON report to compare against.
+    #[arg(long, value_name = "PATH")]
+    pub baseline: Option<String>,
+
+    /// Exit nonzero on a regression against `--baseline`. Off by default: the
+    /// report stays advisory unless a gate opts in.
+    #[arg(long)]
+    pub fail_on_regression: bool,
+
+    /// Write the report to this file instead of stdout.
+    #[arg(long, value_name = "PATH")]
+    pub output: Option<String>,
 }
 
 /// Diagnostic output of `smelt check` (`--message-format`).
@@ -424,7 +412,7 @@ mod tests {
         {
             assert!(matches!(
                 parse(&["smelt", "probe", "--format", spelling]),
-                Command::Probe { format, .. } if format == expected
+                Command::Probe { report, .. } if report.format == expected
             ));
         }
         assert!(Args::try_parse_from(["smelt", "probe", "--format", "yaml"]).is_err());

@@ -35,14 +35,12 @@ use serde::Serialize;
 use smelt_hir::{Crate, FileId, Language};
 use smelt_ts_types::{SourceInput, TsDiagnosticCategory, TsTypeFacts};
 
+use crate::report::{ReportFormat, ratio_percent};
 use crate::ts7_parity::{self, Verdict};
 use crate::{CliResult, config_parser, lowering};
 
 /// Rows kept per grouped table.
 const TOP_GROUPS: usize = 30;
-
-/// Report output format; the `--format` value enum shared by every report.
-pub(crate) type ParityFormat = crate::cli_parser::ReportFormat;
 
 /// Command options.
 #[derive(Debug)]
@@ -50,7 +48,7 @@ pub(crate) struct ParityReportOptions<'input> {
     /// Manifests or `.ts` files to measure.
     pub(crate) inputs: &'input [PathBuf],
     /// Output format.
-    pub(crate) format: ParityFormat,
+    pub(crate) format: ReportFormat,
 }
 
 /// Verdict counts.
@@ -97,13 +95,6 @@ impl Counts {
         let typed = self.typed();
         (typed > 0).then(|| ratio_percent(self.agree, typed))
     }
-}
-
-/// `part / whole` as a percentage.
-fn ratio_percent(part: usize, whole: usize) -> f64 {
-    let numerator = u32::try_from(part).map_or(f64::from(u32::MAX), f64::from);
-    let denominator = u32::try_from(whole).map_or(f64::from(u32::MAX), f64::from);
-    numerator * 100.0_f64 / denominator
 }
 
 /// One grouped family of gaps.
@@ -198,15 +189,15 @@ pub(crate) fn ts7_parity_report(options: &ParityReportOptions<'_>) -> CliResult<
     report.wider = top_groups(groups.wider);
     report.mismatches = top_groups(groups.mismatches);
     match options.format {
-        ParityFormat::Json => Ok(serde_json::to_string_pretty(&report)?),
-        ParityFormat::Markdown => Ok(render_markdown(&report)),
+        ReportFormat::Json => Ok(serde_json::to_string_pretty(&report)?),
+        ReportFormat::Markdown => Ok(render_markdown(&report)),
     }
 }
 
 /// Lowers one input to HIR.
 fn lower_input(input: &Path) -> CliResult<Crate> {
     if input.file_name().is_some_and(|name| name == "Smelt.toml") {
-        let config = config_parser::parse(input.to_str().ok_or("manifest path contains invalid UTF-8")?)?;
+        let config = config_parser::parse_path(input)?;
         return Ok(lowering::lower_manifest_entries(&config, input)?.0);
     }
     let file = input.to_str().ok_or("input path contains invalid UTF-8")?;

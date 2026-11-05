@@ -430,10 +430,7 @@ pub(crate) fn write_sidecar(
 
 /// Load a sidecar from `path`.
 pub(crate) fn load_sidecar(path: &Path) -> Result<ErasureSidecar, String> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|error| format!("failed to read `{}`: {error}", path.display()))?;
-    serde_json::from_str(&text)
-        .map_err(|error| format!("failed to parse `{}`: {error}", path.display()))
+    crate::report::load_json(path, "")
 }
 
 /// Avoidable source lines listed in a report, most erased first.

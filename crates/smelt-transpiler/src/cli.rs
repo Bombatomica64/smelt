@@ -9,11 +9,13 @@ use clap::Parser as _;
 
 use crate::{
     CliResult,
-    cli_parser::{Args, Command, HirMode, MessageFormat, ReportFormat},
+    cli_parser::{Args, Command, GateArgs, HirMode, MessageFormat, ReportArgs},
     config::Config,
     config_parser, diagnostics, erasure, list_escape_report, lowering,
     lowering::SourceLang,
-    pipeline, probe, test_report, typedness_report, unknown_report,
+    pipeline, probe,
+    report::{self, ReportFormat, write_report},
+    test_report, typedness_report, unknown_report,
 };
 #[cfg(feature = "ts7")]
 use crate::ts7_parity_report;
@@ -64,7 +66,7 @@ pub fn run() -> CliResult<()> {
                 })?;
             write_report(output.as_deref(), &report)?;
         }
-        Command::ListEscapeReport { manifest, format, function, top, output } => {
+        Command::ListEscapeReport { manifest, report: ReportArgs { format, output }, function, top } => {
             let report = list_escape_report::list_escape_report(
                 &list_escape_report::ListEscapeReportOptions {
                     manifest: &PathBuf::from(manifest),
@@ -77,11 +79,8 @@ pub fn run() -> CliResult<()> {
         }
         Command::TypednessReport {
             paths,
-            format,
-            baseline,
-            fail_on_regression,
+            gate: GateArgs { format, baseline, fail_on_regression, output },
             update_baseline,
-            output,
         } => {
             let input_paths = paths.iter().map(PathBuf::from).collect::<Vec<_>>();
             let outcome =
@@ -91,21 +90,15 @@ pub fn run() -> CliResult<()> {
                     baseline: baseline.as_deref().map(PathBuf::from),
                     update_baseline,
                 })?;
-            write_report(output.as_deref(), &outcome.rendered)?;
-            if fail_on_regression {
-                return gate(typedness_regression(&outcome));
-            }
+            report::finish_gated(&outcome, output.as_deref(), fail_on_regression)?;
         }
-        Command::Ts7ParityReport { inputs, format, output } => {
+        Command::Ts7ParityReport { inputs, report: ReportArgs { format, output } } => {
             run_ts7_parity_report(&inputs, format, output.as_deref())?;
         }
         Command::SmeltUnknownReport {
             roots,
-            format,
-            baseline,
-            fail_on_regression,
+            gate: GateArgs { format, baseline, fail_on_regression, output },
             erasure: erasure_sidecars,
-            output,
         } => {
             let root_paths = roots.iter().map(PathBuf::from).collect::<Vec<_>>();
             let sidecar_paths = erasure_sidecars.iter().map(PathBuf::from).collect::<Vec<_>>();
@@ -113,12 +106,9 @@ pub fn run() -> CliResult<()> {
                 roots: &root_paths,
                 format,
                 baseline: baseline.as_deref().map(PathBuf::from),
-                fail_on_regression,
                 erasure_sidecars: &sidecar_paths,
             })?;
-            write_report(output.as_deref(), &outcome.rendered)?;
-            // `outcome.regression` is only set under `--fail-on-regression`.
-            return gate(outcome.regression.as_ref().map(unknown_regression_message));
+            report::finish_gated(&outcome, output.as_deref(), fail_on_regression)?;
         }
         Command::Check { message_format, erasure } => {
             let config = load_config(&manifest_path)?;
@@ -172,7 +162,7 @@ pub fn run() -> CliResult<()> {
                     .into());
             }
         },
-        Command::Probe { run_tests, format, output } => {
+        Command::Probe { run_tests, report: ReportArgs { format, output } } => {
             let config = load_config(&manifest_path)?;
             let report = probe::probe_report(&probe::ProbeOptions {
                 config: &config,
@@ -189,74 +179,7 @@ pub fn run() -> CliResult<()> {
 
 /// Parse the `Smelt.toml` at `path`.
 fn load_config(path: &std::path::Path) -> CliResult<Config> {
-    config_parser::parse(path.to_str().ok_or("manifest path contains invalid UTF-8")?)
-}
-
-/// Write a rendered report to `output`, or to stdout when none is given.
-fn write_report(output: Option<&str>, report: &str) -> CliResult<()> {
-    if let Some(output_path) = output {
-        std::fs::write(output_path, report)?;
-    } else {
-        write!(io::stdout().lock(), "{report}")?;
-    }
-    Ok(())
-}
-
-/// Finish a gated report: print a failing gate's message verbatim and exit 1.
-///
-/// Returning `Err` instead would route through the default `Termination`
-/// impl, which Debug-prints the string with escaped newlines — unreadable for
-/// a CI gate.
-#[expect(clippy::exit, reason = "a failing CI gate exits 1 with its message as written")]
-fn gate(failure: Option<String>) -> CliResult<()> {
-    if let Some(message) = failure {
-        writeln!(io::stderr().lock(), "{message}")?;
-        std::process::exit(1);
-    }
-    Ok(())
-}
-
-/// The typedness gate's failure message, when any program became less typed.
-fn typedness_regression(outcome: &typedness_report::TypednessOutcome) -> Option<String> {
-    use std::fmt::Write as _;
-    if outcome.worsened.is_empty() {
-        return None;
-    }
-    let mut message = format!(
-        "typedness regressed: {} program(s)/kind(s) became less typed than the baseline:",
-        outcome.worsened.len()
-    );
-    for worsening in &outcome.worsened {
-        let _ = write!(message, "\n  {}: {}", worsening.program, worsening.detail);
-    }
-    message.push_str(
-        "\nMake the program at least as typed again, or (only for a documented, \
-         justified boundary) re-snapshot with --update-baseline. See the \
-         `Typedness ratchet` policy in AGENTS.md.",
-    );
-    Some(message)
-}
-
-/// The `SmeltUnknown` gate's failure message: the delta and the files that
-/// contribute the most, so reviewers know where to look first.
-fn unknown_regression_message(regression: &unknown_report::Regression) -> String {
-    use std::fmt::Write as _;
-    let mut message = format!(
-        "avoidable erasure regressed: {} > {} (baseline), +{} occurrence(s)",
-        regression.current, regression.baseline, regression.delta,
-    );
-    if !regression.top_files.is_empty() {
-        message.push_str("\ntop offending files:");
-        for (file, count) in &regression.top_files {
-            let _ = write!(message, "\n  {count:>6}  {file}");
-        }
-    }
-    message.push_str(
-        "\nReclassify a genuine boundary (with a code comment + regression test) \
-         and re-snapshot the baseline, or reduce the erasure. See the \
-         `SmeltUnknown enforcement` policy in AGENTS.md.",
-    );
-    message
+    config_parser::parse_path(path)
 }
 
 /// Runs `smelt ts7-parity-report`.

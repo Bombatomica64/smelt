@@ -47,6 +47,7 @@ mod package_sources;
 mod pipeline;
 mod probe;
 mod python;
+pub mod report;
 mod sound;
 mod sound_overlay;
 mod specialization;

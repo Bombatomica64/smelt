@@ -59,10 +59,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::CliResult;
-
-/// Report output format; the `--format` value enum shared by every report.
-pub(crate) type UnknownReportFormat = crate::cli_parser::ReportFormat;
+use crate::{
+    CliResult,
+    report::{self, GatedOutcome, ReportFormat, bump, escape_cell},
+};
 
 /// Options controlling one `SmeltUnknown` report run.
 pub(crate) struct UnknownReportOptions<'a> {
@@ -70,16 +70,11 @@ pub(crate) struct UnknownReportOptions<'a> {
     /// walked recursively for `.rs` files.
     pub(crate) roots: &'a [PathBuf],
     /// Report serialization format.
-    pub(crate) format: UnknownReportFormat,
+    pub(crate) format: ReportFormat,
     /// Optional prior JSON report used to compute per-category deltas. Comparing
     /// against a baseline is advisory by default: it surfaces regressions without
     /// failing the command, so intentional boundary additions are never blocked.
     pub(crate) baseline: Option<PathBuf>,
-    /// When `true` and a `baseline` is provided, a rise in avoidable erasure above
-    /// the baseline is reported as a [`Regression`] so the caller can exit
-    /// nonzero. Defaults to `false`, preserving the historic advisory-only
-    /// behavior.
-    pub(crate) fail_on_regression: bool,
     /// Explicit `smelt-erasure.json` sidecars to read (`--erasure`). Besides
     /// these, a sidecar beside a scanned directory (`<root>/../smelt-erasure.json`,
     /// the layout `smelt build` writes next to `src/`) or inside it is read
@@ -101,16 +96,6 @@ pub(crate) struct Regression {
     /// The files contributing the most avoidable-erasure occurrences in the
     /// current scan, most first, capped to a readable count.
     pub(crate) top_files: Vec<(String, usize)>,
-}
-
-/// Outcome of a report run: the rendered text plus any regression the caller may
-/// want to act on.
-pub(crate) struct UnknownReportOutcome {
-    /// The report serialized in the requested format.
-    pub(crate) rendered: String,
-    /// Set only when `fail_on_regression` is requested, a baseline is present,
-    /// and avoidable erasure rose above it.
-    pub(crate) regression: Option<Regression>,
 }
 
 /// Classification of a single `SmeltUnknown` occurrence.
@@ -213,37 +198,31 @@ const TOP_OFFENDER_LIMIT: usize = 10;
 
 /// Run a `SmeltUnknown` scan and render the report in the requested format.
 ///
-/// The returned [`UnknownReportOutcome`] carries the rendered text and, when
-/// `fail_on_regression` is set and avoidable erasure rose above the baseline, a
-/// [`Regression`] the caller can turn into a nonzero exit. The rendered report is
-/// identical regardless of `fail_on_regression`; only the caller's exit behavior
-/// changes.
+/// The returned [`GatedOutcome`] carries the rendered text and, when avoidable
+/// erasure rose above the baseline, the message of the [`Regression`]; only
+/// `--fail-on-regression` turns that into a nonzero exit.
 pub(crate) fn unknown_report(
     options: &UnknownReportOptions<'_>,
-) -> CliResult<UnknownReportOutcome> {
+) -> CliResult<GatedOutcome> {
     let files = discover_rust_files(options.roots)?;
     let mut scan = scan_files(&files)?;
     let sidecars = discover_erasure_sidecars(options.roots, options.erasure_sidecars)?;
     if !sidecars.is_empty() {
         scan.report.erasure = Some(crate::erasure::breakdown(&sidecars));
     }
-    let report = &scan.report;
+    let scanned = &scan.report;
     let baseline = match &options.baseline {
-        Some(path) => Some(load_baseline(path)?),
+        Some(path) => Some(report::load_json::<UnknownReport>(path, "baseline ")?),
         None => None,
     };
     let rendered = match options.format {
-        UnknownReportFormat::Json => serde_json::to_string_pretty(report)?,
-        UnknownReportFormat::Markdown => render_markdown(report, baseline.as_ref()),
+        ReportFormat::Json => serde_json::to_string_pretty(scanned)?,
+        ReportFormat::Markdown => render_markdown(scanned, baseline.as_ref()),
     };
-    let regression = if options.fail_on_regression {
-        detect_regression(&scan, baseline.as_ref())
-    } else {
-        None
-    };
-    Ok(UnknownReportOutcome {
+    let regression = detect_regression(&scan, baseline.as_ref());
+    Ok(GatedOutcome {
         rendered,
-        regression,
+        regression: regression.as_ref().map(regression_message),
     })
 }
 
@@ -274,6 +253,27 @@ fn discover_erasure_sidecars(
         .collect()
 }
 
+/// The gate's failure message: the delta and the files that contribute the
+/// most, so reviewers know where to look first.
+fn regression_message(regression: &Regression) -> String {
+    let mut message = format!(
+        "avoidable erasure regressed: {} > {} (baseline), +{} occurrence(s)",
+        regression.current, regression.baseline, regression.delta,
+    );
+    if !regression.top_files.is_empty() {
+        message.push_str("\ntop offending files:");
+        for (file, count) in &regression.top_files {
+            let _ = write!(message, "\n  {count:>6}  {file}");
+        }
+    }
+    message.push_str(
+        "\nReclassify a genuine boundary (with a code comment + regression test) \
+         and re-snapshot the baseline, or reduce the erasure. See the \
+         `SmeltUnknown enforcement` policy in AGENTS.md.",
+    );
+    message
+}
+
 /// Compute an avoidable-erasure [`Regression`] versus `baseline`, if any.
 ///
 /// Returns `None` when there is no baseline, or when avoidable erasure did not
@@ -302,16 +302,6 @@ fn detect_regression(scan: &ScanResult, baseline: Option<&UnknownReport>) -> Opt
         delta,
         top_files,
     })
-}
-
-/// Load a prior JSON report to diff against, mapping IO/parse errors into the
-/// CLI error type with the offending path.
-fn load_baseline(path: &Path) -> CliResult<UnknownReport> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|error| format!("failed to read baseline `{}`: {error}", path.display()))?;
-    let report = serde_json::from_str::<UnknownReport>(&text)
-        .map_err(|error| format!("failed to parse baseline `{}`: {error}", path.display()))?;
-    Ok(report)
 }
 
 /// Expand the requested roots into a sorted, de-duplicated list of `.rs` files.
@@ -465,16 +455,6 @@ fn scan_files(files: &[PathBuf]) -> CliResult<ScanResult> {
         },
         avoidable_by_file,
     })
-}
-
-/// Add `amount` to the counter stored under `key`, inserting it if absent.
-///
-/// Saturating so a pathological corpus can never overflow the tally.
-fn bump<K: Ord>(counts: &mut BTreeMap<K, usize>, key: K, amount: usize) {
-    counts
-        .entry(key)
-        .and_modify(|count| *count = count.saturating_add(amount))
-        .or_insert(amount);
 }
 
 /// Count non-overlapping occurrences of `needle` in `haystack`.
@@ -1272,11 +1252,6 @@ fn render_shape_table(out: &mut String, report: &UnknownReport) {
         );
     }
     let _ = writeln!(out);
-}
-
-/// Escape Markdown table-cell metacharacters so a cell never breaks its row.
-fn escape_cell(text: &str) -> String {
-    text.replace('|', "\\|").replace(['\n', '\r'], " ")
 }
 
 #[cfg(test)]

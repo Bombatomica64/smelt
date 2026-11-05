@@ -20,10 +20,8 @@ use serde::Serialize;
 use smelt_stdlib::DiagnosticCategory;
 
 use crate::config::Config;
+use crate::report::{ReportFormat, bump, escape_cell};
 use crate::{CliResult, lowering, pipeline, test_report};
-
-/// Report output format; the `--format` value enum shared by every report.
-pub(crate) type ProbeFormat = crate::cli_parser::ReportFormat;
 
 /// Options controlling a probe run.
 pub(crate) struct ProbeOptions<'a> {
@@ -34,7 +32,7 @@ pub(crate) struct ProbeOptions<'a> {
     /// When the crate transpiles, also run the generated `cargo test` suite.
     pub(crate) run_tests: bool,
     /// Report serialization format.
-    pub(crate) format: ProbeFormat,
+    pub(crate) format: ReportFormat,
 }
 
 /// One blocker class: a category plus a normalized message shape, with counts.
@@ -176,8 +174,8 @@ struct ProbeResult {
 pub(crate) fn probe_report(options: &ProbeOptions<'_>) -> CliResult<String> {
     let result = run_probe(options)?;
     match options.format {
-        ProbeFormat::Json => Ok(serde_json::to_string_pretty(&result)?),
-        ProbeFormat::Markdown => Ok(render_markdown(&result)),
+        ReportFormat::Json => Ok(serde_json::to_string_pretty(&result)?),
+        ReportFormat::Markdown => Ok(render_markdown(&result)),
     }
 }
 
@@ -264,22 +262,6 @@ fn run_probe(options: &ProbeOptions<'_>) -> CliResult<ProbeResult> {
 /// Identity of a blocker class: category, code, and normalized message shape.
 type BlockerKey = (DiagnosticCategory, String, String);
 
-/// Increment a blocker-class counter by one (saturating).
-fn bump(counts: &mut BTreeMap<BlockerKey, usize>, key: BlockerKey) {
-    counts
-        .entry(key)
-        .and_modify(|count| *count = count.saturating_add(1))
-        .or_insert(1);
-}
-
-/// Increment a string-keyed counter by one (saturating).
-fn bump_str(counts: &mut BTreeMap<String, usize>, key: String) {
-    counts
-        .entry(key)
-        .and_modify(|count| *count = count.saturating_add(1))
-        .or_insert(1);
-}
-
 /// First-seen example of a blocker class, used to locate it and to recover the
 /// raw (un-normalized) message for the detail section.
 struct BlockerExample {
@@ -332,8 +314,8 @@ fn scan_files(
                 diagnostic.code.to_owned(),
                 normalize_message(&diagnostic.message),
             );
-            bump(&mut occurrences, key.clone());
-            bump_str(&mut category_counts, diagnostic.category.as_str().to_owned());
+            bump(&mut occurrences, key.clone(), 1);
+            bump(&mut category_counts, diagnostic.category.as_str().to_owned(), 1);
             examples.entry(key.clone()).or_insert_with(|| BlockerExample {
                 file: path.clone(),
                 message: diagnostic.message,
@@ -342,7 +324,7 @@ fn scan_files(
     }
     for keys in seen_by_file.into_values() {
         for key in keys {
-            bump(&mut file_sets, key);
+            bump(&mut file_sets, key, 1);
         }
     }
 
@@ -575,12 +557,6 @@ fn render_markdown(result: &ProbeResult) -> String {
         render_blocker_details(&mut out, &result.blockers);
     }
     out
-}
-
-/// Escape Markdown table-cell metacharacters so multi-line or pipe-containing
-/// text never breaks the surrounding table row.
-fn escape_cell(text: &str) -> String {
-    text.replace('|', "\\|").replace(['\n', '\r'], " ")
 }
 
 /// Render the collapsible detail section listing the full, un-normalized message

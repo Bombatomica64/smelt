@@ -23,17 +23,17 @@ use std::{
 
 use smelt_mir::{BodyKey, BodyListEscape, EscapeReason, ListLocalClass};
 
-use crate::{lowering, pipeline};
-
-/// Report output format; the `--format` value enum shared by every report.
-pub(crate) type ListEscapeReportFormat = crate::cli_parser::ReportFormat;
+use crate::{
+    lowering, pipeline,
+    report::{ReportFormat, count_share},
+};
 
 /// Inputs for one report run.
 pub(crate) struct ListEscapeReportOptions<'a> {
     /// Smelt manifest to lower.
     pub manifest: &'a Path,
     /// Rendering format.
-    pub format: ListEscapeReportFormat,
+    pub format: ReportFormat,
     /// Function names to expand into a per-local detail section. Matching is on
     /// the MIR function name, which is the `snake_case`d source name.
     pub functions: &'a [String],
@@ -76,37 +76,20 @@ impl ClassCounts {
     }
 }
 
-/// Render `count` as `n (p.p%)` against `total`, tolerating a zero total.
-fn share(count: usize, total: usize) -> String {
-    if total == 0 {
-        return format!("{count} (—)");
-    }
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "counts here are report percentages, far below f64's exact-integer range"
-    )]
-    let percent = (count as f64) * 100.0_f64 / (total as f64);
-    format!("{count} ({percent:.1}%)")
-}
-
 /// Lower `manifest` to optimized MIR and render the list-escape report.
 pub(crate) fn list_escape_report(
     options: &ListEscapeReportOptions<'_>,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let manifest_text = options
-        .manifest
-        .to_str()
-        .ok_or("manifest path contains invalid UTF-8")?;
-    let config = crate::config_parser::parse(manifest_text)?;
+    let config = crate::config_parser::parse_path(options.manifest)?;
     let (krate, _modules) = lowering::lower_manifest_entries(&config, options.manifest)?;
     let mir = pipeline::lower_to_optimized_mir(&krate)?;
     let bodies = smelt_mir::analyze_list_escapes(&mir);
 
     Ok(match options.format {
-        ListEscapeReportFormat::Markdown => {
+        ReportFormat::Markdown => {
             render_markdown(config.project_name(), &bodies, options)
         }
-        ListEscapeReportFormat::Json => render_json(config.project_name(), &bodies)?,
+        ReportFormat::Json => render_json(config.project_name(), &bodies)?,
     })
 }
 
@@ -207,9 +190,9 @@ fn render_markdown(
         let _ = writeln!(
             out,
             "| {label} | {} | {} | {} |",
-            share(pick.0, all.total()),
-            share(pick.1, functions.total()),
-            share(pick.2, closures.total()),
+            count_share(pick.0, all.total()),
+            count_share(pick.1, functions.total()),
+            count_share(pick.2, closures.total()),
         );
     }
     let _ = writeln!(
@@ -222,7 +205,7 @@ fn render_markdown(
     let _ = writeln!(
         out,
         "Confined (`local-*`, the tierable population): **{}** of {} list locals.\n",
-        share(all.confined(), all.total()),
+        count_share(all.confined(), all.total()),
         all.total()
     );
 
@@ -257,8 +240,8 @@ fn render_markdown(
         let _ = writeln!(
             out,
             "| {label} | {} | {} |",
-            share(everywhere, buffers.total()),
-            share(non_test, product_buffers.total()),
+            count_share(everywhere, buffers.total()),
+            count_share(non_test, product_buffers.total()),
         );
     }
     let _ = writeln!(
@@ -290,8 +273,8 @@ fn render_markdown(
         let _ = writeln!(
             out,
             "| {label} | {} | {} |",
-            share(non_test, product.total()),
-            share(test, tests.total()),
+            count_share(non_test, product.total()),
+            count_share(test, tests.total()),
         );
     }
     let _ = writeln!(
@@ -303,7 +286,7 @@ fn render_markdown(
     let _ = writeln!(
         out,
         "Confined outside tests: **{}** of {} non-test list locals.\n",
-        share(product.confined(), product.total()),
+        count_share(product.confined(), product.total()),
         product.total(),
     );
 

@@ -1,12 +1,9 @@
 //! Declaration stub emission for TypeScript and Python LSPs.
 
 use smelt_hir::{Crate, Function, Item, ModuleId, Type};
-use std::{fmt::Write as _, fs, path::Path};
+use std::{fs, path::Path};
 
-/// Append formatted text to a `String` buffer.
-fn push_fmt(out: &mut String, args: std::fmt::Arguments<'_>) {
-    let _ignored = out.write_fmt(args);
-}
+use crate::report::push_fmt;
 
 /// Emit `.d.ts` and `.pyi` files next to each lowered source module.
 ///

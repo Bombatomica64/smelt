@@ -1,6 +1,6 @@
 //! Configuration file parsing.
 
-use std::fs;
+use std::{fs, path::Path};
 
 use crate::config::Config;
 
@@ -22,6 +22,15 @@ pub fn parse(path: &str) -> ConfigResult<Config> {
         .map_err(|error| format!("failed to read manifest `{path}`: {error}"))?;
     toml::from_str(&source)
         .map_err(|error| format!("failed to parse manifest `{path}`: {error}").into())
+}
+
+/// Parse the manifest at `path`, as [`parse`] does for a `Path`.
+///
+/// # Errors
+///
+/// Returns an error when `path` is not valid UTF-8, or as [`parse`] does.
+pub fn parse_path(path: &Path) -> ConfigResult<Config> {
+    parse(path.to_str().ok_or("manifest path contains invalid UTF-8")?)
 }
 
 #[cfg(test)]
