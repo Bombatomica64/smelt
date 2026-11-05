@@ -442,7 +442,7 @@ jobs:
 
       - name: Generate badge
         run: |
-          bash scripts/coverage_badge.sh lcov.info coverage.svg
+          bash scripts/coverage_badge.sh lcov.info coverage.svg coverage-summary.json
 
       - name: Update README coverage tables
         run: |
@@ -456,9 +456,12 @@ jobs:
           git add README.md coverage-summary.json coverage.svg lcov.info coverage-functions.svg coverage-lines.svg coverage-regions.svg coverage-branches.svg
           git diff --quiet --cached && echo "No coverage updates to commit." || git commit -m "chore(ci): update coverage report"
 
+      # This job runs for many minutes, so main can move underneath it; replay
+      # the coverage commit on the current tip, as library-probes.yml does.
       - name: Push coverage updates
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
+          git pull --rebase --autostash origin "$GITHUB_REF_NAME"
           git push
 
       - name: Upload coverage artifact

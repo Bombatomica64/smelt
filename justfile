@@ -99,7 +99,7 @@ coverage:
 	@cargo install cargo-llvm-cov --locked || true
 	@cargo +nightly llvm-cov --workspace --branch --lcov --output-path lcov.info
 	@cargo +nightly llvm-cov report --branch --json --summary-only --output-path coverage-summary.json
-	@bash scripts/coverage_badge.sh lcov.info coverage.svg
+	@bash scripts/coverage_badge.sh lcov.info coverage.svg coverage-summary.json
 	@python3 scripts/update_readme_coverage.py coverage-summary.json README.md lcov.info
 	@echo "Coverage artifacts updated: lcov.info, coverage-summary.json, coverage*.svg, README.md"
 
@@ -110,7 +110,7 @@ coverage-crates:
 	@cargo install cargo-llvm-cov --locked || true
 	@mkdir -p coverage-by-crate
 	@for crate in $(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; d=json.load(sys.stdin); ids=set(d["workspace_members"]); print(" ".join(sorted(p["name"] for p in d["packages"] if p["id"] in ids)))'); do \
-	  echo "== coverage for $$crate =="; \
-	  cargo +nightly llvm-cov -p "$$crate" --branch --lcov --output-path "coverage-by-crate/$$crate.lcov.info"; \
+	  echo "== coverage for $crate =="; \
+	  cargo +nightly llvm-cov -p "$crate" --branch --lcov --output-path "coverage-by-crate/$crate.lcov.info"; \
 	done
 	@echo "Per-crate LCOV files written to coverage-by-crate/"

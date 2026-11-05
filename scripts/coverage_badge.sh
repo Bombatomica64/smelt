@@ -1,23 +1,31 @@
 #!/usr/bin/env bash
-# Render coverage SVG badges from an lcov tracefile.
+# Render coverage SVG badges from an lcov tracefile and an llvm-cov summary.
 #
-# Usage: coverage_badge.sh <lcov.info> <output.svg>
+# Usage: coverage_badge.sh <lcov.info> <output.svg> <coverage-summary.json>
 # Inputs:  <lcov.info>, the LCOV tracefile to summarise; <output.svg>, the badge
-#          path for the "coverage" (line coverage) badge.
+#          path for the "coverage" (line coverage) badge;
+#          <coverage-summary.json>, the `cargo llvm-cov report --json` summary,
+#          the only source of region coverage (LCOV has no region records).
 # Outputs: <output.svg>, plus coverage-functions.svg, coverage-lines.svg,
 #          coverage-regions.svg and coverage-branches.svg in the current directory.
 set -euo pipefail
 
-if [[ $# -lt 2 ]]; then
-  echo "usage: $0 <lcov.info> <output.svg>"
+if [[ $# -lt 3 ]]; then
+  echo "usage: $0 <lcov.info> <output.svg> <coverage-summary.json>"
   exit 1
 fi
 
 LCOV_FILE="$1"
 OUTPUT_BADGE="$2"
+SUMMARY_FILE="$3"
 
 if [[ ! -f "$LCOV_FILE" ]]; then
   echo "lcov file not found: $LCOV_FILE"
+  exit 1
+fi
+
+if [[ ! -f "$SUMMARY_FILE" ]]; then
+  echo "coverage summary not found: $SUMMARY_FILE"
   exit 1
 fi
 
@@ -93,7 +101,10 @@ line_pct="$(percent "$lh" "$lf")"
 fn_pct="$(percent "$fnh" "$fnf")"
 branch_pct="$(percent "$brh" "$brf")"
 
-region_pct="$line_pct"
+region_pct="$(python3 -c '
+import json, sys
+print(f"{json.load(open(sys.argv[1]))[\"data\"][0][\"totals\"][\"regions\"][\"percent\"]:.2f}")
+' "$SUMMARY_FILE")"
 
 make_badge "coverage" "$line_pct" "$OUTPUT_BADGE"
 make_badge "functions" "$fn_pct" "coverage-functions.svg"
