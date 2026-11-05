@@ -192,14 +192,8 @@ fn run (FuncId(15)) -> T throws
     %5 temp: T
     %6 temp: T
   bb0:
-<<<<<<< HEAD
-    %2 = closure_call copy %0.field35(copy %1)
-    %4 = closure_call copy %0.field34(copy %2.field2)
-=======
-    %3 = closure_call copy %0.field39(copy %1)
-    %2 = move %3
+    %2 = closure_call copy %0.field39(copy %1)
     %4 = closure_call copy %0.field38(copy %2.field2)
->>>>>>> feb29fa4 (feat(ts): a type parameter is identified by the item that declares it)
     switch move %4 ? bb1 : bb2
   bb1:
     %5 = copy %2.field2
@@ -414,16 +408,9 @@ fn main (FuncId(26)) -> None throws
   bb23:
     %33 = call fn0(1.0, 2.0) -> bb24
   bb24:
-<<<<<<< HEAD
-    %2 = closure_call copy %33.field18()
-    %35 = closure_call copy %2.field18()
-    %36 = call @console_log(copy %2.field14, copy %2.field15, copy %35.field14) -> bb25
-=======
-    %34 = closure_call copy %33.field22()
-    %2 = move %34
+    %2 = closure_call copy %33.field22()
     %35 = closure_call copy %2.field22()
     %36 = call @console_log(copy %2.field18, copy %2.field19, copy %35.field18) -> bb25
->>>>>>> feb29fa4 (feat(ts): a type parameter is identified by the item that declares it)
   bb25:
     %37 = closure ClosureId(2) []
     %38 = call fn1(move %37) -> bb26
@@ -451,14 +438,8 @@ fn main (FuncId(26)) -> None throws
   bb33:
     %6 = move %3
     %7 = "b"
-<<<<<<< HEAD
-    %8 = {"origin": move %7, "credentials": copy %6.field5, "maxAge": copy %6.field6}
-    %52 = call @console_log(copy %8.field4, copy %8.field6, copy %8.field5) -> bb34
-=======
-    %51 = {"origin": move %7, "credentials": copy %6.field6, "maxAge": copy %6.field7}
-    %8 = move %51
+    %8 = {"origin": move %7, "credentials": copy %6.field6, "maxAge": copy %6.field7}
     %52 = call @console_log(copy %8.field5, copy %8.field7, copy %8.field6) -> bb34
->>>>>>> feb29fa4 (feat(ts): a type parameter is identified by the item that declares it)
   bb34:
     return none
 
