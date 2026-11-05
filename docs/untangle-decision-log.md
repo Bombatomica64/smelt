@@ -103,4 +103,9 @@ Restating ~3-4%; 1,539 `///` lines emitted into every generated crate; history n
 ## Tests (chosen, done last)
 `thrown_tests.rs` contains-checks match the definition (39/72); `a_missing_runtime_item_is_an_error`; `detect_regression_requires_baseline` pins a vacuous gate; `hir_cli_*` silent `return Ok(())`; `part04_tests.rs:120,146,2389,6975` validate-only pins of stubs; 57 negative-only contains; harness copied into 79 files; `part_7_tests.rs` 15.5k lines.
 
+## Found while verifying
+- **Emitted output is nondeterministic.** `callbacks/dispatch.rs:1960` iterates `object_namespaces: HashMap<String, HashMap<..>>` into match arms, so std's per-process hash seed picks the arm order: unmodified `smelt-base` flips `"p"`/`"P"` in date-fns `format_index.rs` between runs. Arms are equivalent, but files rewrite and Cargo loses incremental reuse. `clippy::iter_over_hash_type` finds 20 `for` loops in `smelt-frontend-ts`; non-`for` uses (`dispatch.rs:2377` `.keys().collect()`) need a manual pass.
+- **ts-pattern lowering exceeds 12G** on its own (oom-kill at the cap, serial run, unmodified binary). The byte oracle covers es-toolkit, remeda, radash, hono, date-fns.
+
 ## Status
+- R2/R8/R9 first pass merged (`bbf5831d`): surplus, `smelt-transpiler` lib target, `report`, `source_files`, gates. Corpus oracle: only the two hash-order date-fns files differ, and base flips them too.
