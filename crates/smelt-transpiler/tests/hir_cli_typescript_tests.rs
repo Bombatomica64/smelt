@@ -2304,6 +2304,104 @@ console.log(grow(animal), animal.legs)
 }
 
 #[test]
+fn build_shares_a_date_between_aliases_and_compares_it_by_identity() -> TestResult {
+    // Bounded-generics plan, increment 4: `Date` is the shared handle
+    // `SmeltDate`, not an erased record. Behaviour (Node prints the three lines
+    // below): a setter through one alias is observed through the other
+    // (`bump(b)` moves `a` to 86400000), `===` and `==` compare identity (a
+    // copy made by `new Date(a)` or `new Date(a.getTime())` is a different
+    // date, and mutating the copy leaves `a` alone), `<` compares time values,
+    // and an Invalid Date stays invalid through a setter. Before this, the
+    // setter re-bound only the local, so Smelt printed `0 0 true ..`. Types: a
+    // `Date` parameter is `SmeltDate`, never `SmeltUnknown`.
+    let files: &[(&str, &str)] = &[(
+        "src/main.ts",
+        r"function bump(d: Date): void {
+  d.setDate(d.getDate() + 1)
+}
+
+const a: Date = new Date(0)
+const b = a
+bump(b)
+const copy = new Date(a)
+const sameTime = new Date(a.getTime())
+copy.setHours(5)
+console.log(a.getTime(), b.getTime(), a === b, a == b, a === copy, a === sameTime, sameTime.getTime())
+console.log(copy.getTime(), a < copy, a.toISOString())
+const bad = new Date(NaN)
+bad.setDate(3)
+console.log(isNaN(bad.getTime()), String(bad), bad === bad)
+",
+    )];
+    let (project, manifest) = multi_module_project("date-shared-handle", true, files)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let generated = generated_rust_text(project.path())?;
+    let signature = emitted_signature(&generated, "bump")?;
+    ensure(
+        signature.contains("d: SmeltDate") && !signature.contains(": SmeltUnknown"),
+        format!("a `Date` parameter must be the concrete handle, got `{signature}`"),
+    )?;
+    let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &stdout,
+        &"86400000 86400000 true true false false 86400000\n104400000 true 1970-01-02T00:00:00.000Z\ntrue Invalid Date true\n"
+            .to_owned(),
+        "unexpected stdout",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn build_lifts_a_date_bounded_generic_to_date_like() -> TestResult {
+    // `D extends Date` lifts to `D: DateLike` (increment 4): the setter mutates
+    // the caller's date in place and the function returns that same date
+    // (`start === moved`), an Invalid Date stays invalid through it. Node
+    // prints `172800000 172800000 true 1970-01-03T00:00:00.000Z` and
+    // `true false false`. Types: both functions declare `D: DateLike + ..` and
+    // read the date through its handle, not through an erased member lookup.
+    let files: &[(&str, &str)] = &[(
+        "src/main.ts",
+        r"function addDays<D extends Date>(date: D, amount: number): D {
+  date.setDate(date.getDate() + amount)
+  return date
+}
+function isValid<D extends Date>(date: D): boolean {
+  return !isNaN(date.getTime())
+}
+
+const start = new Date(0)
+const moved = addDays(start, 2)
+console.log(start.getTime(), moved.getTime(), start === moved, moved.toISOString())
+const invalid = new Date(NaN)
+console.log(isValid(start), isValid(invalid), isValid(addDays(invalid, 1)))
+",
+    )];
+    let (project, manifest) = multi_module_project("date-bound-trait", true, files)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let generated = generated_rust_text(project.path())?;
+    for name in ["add_days", "is_valid"] {
+        let signature = emitted_signature(&generated, name)?;
+        ensure(
+            signature.contains("<D: DateLike + ")
+                && !signature.contains(": SmeltUnknown")
+                && !signature.contains("-> SmeltUnknown"),
+            format!("`{name}` must lift with `DateLike`, got `{signature}`"),
+        )?;
+    }
+    ensure(
+        generated.contains(".smelt_date().get_time()"),
+        "a `D: DateLike` value is read through its date handle",
+    )?;
+    let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &stdout,
+        &"172800000 172800000 true 1970-01-03T00:00:00.000Z\ntrue false false\n".to_owned(),
+        "unexpected stdout",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn build_keeps_same_offset_unique_symbols_of_two_modules_distinct() -> TestResult {
     // `KEY_A` and `KEY_B` are `Symbol()` calls at the SAME byte offset of two
     // different modules. They are two symbols (Node prints `1 2 false`), so

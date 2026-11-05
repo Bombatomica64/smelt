@@ -174,26 +174,36 @@ export function first<T>(xs: T[]): T {
 
 #[test]
 fn erases_generic_free_function_with_bounded_type_param() {
-    // Issue #99 (deferred slice). Old requirement: ANY bounded type parameter
-    // erased, because a member access on it had no emitted dispatch. New
-    // requirement (bounded-generics plan, increments 1-3): a parameter bounded
-    // by a declared class or interface lifts with a generated trait bound (see
-    // `lifts_class_bounded_type_param_with_generated_trait`), but a BUILTIN
-    // bound such as `Date` names no class item and gets no trait, so it still
-    // falls back to full erasure exactly as before. Lifting `Date` is
-    // increment 4 (a `SmeltDate` newtype to hang `DateLike` on).
+    // Issue #99 (deferred slice). Requirement history:
+    // * originally: ANY bounded type parameter erased, because a member access
+    //   on it had no emitted dispatch;
+    // * increments 1-3: a declared class or interface bound lifts with its
+    //   generated trait, but `Date`, a builtin with no class item, still erased;
+    // * increment 4 (this one): `Date` is the concrete shared handle
+    //   `SmeltDate`, so `D extends Date` lifts to `D: DateLike` and reads its
+    //   time value through the handle, not through an erased member lookup.
+    // A builtin bound with no generic trait (`R extends RegExp`) still falls
+    // back to full erasure, which is the fallback this test keeps pinning.
     let source = source_for(
         r"
 export function invalid<D extends Date>(value: D): boolean {
   return isNaN(value.getTime());
 }
+export function flags<R extends RegExp>(value: R): string {
+  return value.flags;
+}
 ",
     );
 
-    // No real generic parameter is declared; the parameter is erased.
-    assert!(!source.contains("fn invalid<D"));
-    assert!(source.contains("fn invalid(value: SmeltUnknown) -> bool"));
-    assert!(!source.contains("DateLike"), "a builtin bound gets no trait:\n{source}");
+    assert!(
+        source.contains(
+            "fn invalid<D: DateLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(value: D) -> bool"
+        ),
+        "a `Date` bound lifts to `DateLike`:\n{source}"
+    );
+    assert!(source.contains(".smelt_date().get_time()"), "{source}");
+    assert!(!source.contains("fn flags<R"), "{source}");
+    assert!(source.contains("fn flags(value: SmeltUnknown) -> String"), "{source}");
 }
 
 #[test]

@@ -210,7 +210,8 @@ impl StdlibClass {
     pub const fn erases_through_adapter(self) -> bool {
         matches!(
             self,
-            Self::Headers
+            Self::Date
+                | Self::Headers
                 | Self::UrlSearchParams
                 | Self::Url
                 | Self::Response
@@ -247,8 +248,11 @@ impl StdlibClass {
     /// for one backed by a generated runtime type: the record would answer
     /// `instanceof` correctly and then silently fail every method called on it.
     ///
-    /// `Blob`/`File` and the byte family (`TypedArray`/`ArrayBuffer`) are the
-    /// exceptions among the runtime-typed classes, and deliberately: for each,
+    /// `Date`, `Blob`/`File` and the byte family (`TypedArray`/`ArrayBuffer`)
+    /// are the exceptions among the runtime-typed classes, and deliberately:
+    /// a `Date` erases to exactly the `{ __smelt_date }` marker record the
+    /// reflected constructor builds, and `SmeltDate`'s recovery accepts it. For
+    /// each of the others,
     /// the reflected constructor and the erasure adapter build the SAME record
     /// — `blob_prelude`'s `smelt_blob_record` for a blob, and
     /// `byte_buffer_prelude`'s `smelt_host_buffer_construct` for a view or its
@@ -266,7 +270,8 @@ impl StdlibClass {
         !self.erases_through_adapter()
             || matches!(
                 self,
-                Self::Blob
+                Self::Date
+                    | Self::Blob
                     | Self::File
                     | Self::TypedArray
                     | Self::ArrayBuffer

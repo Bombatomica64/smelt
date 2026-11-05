@@ -3,12 +3,43 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
+    /// Whether `ty` is the concrete `Date` class (`SmeltDate`, see
+    /// `date_prelude`), as opposed to an erased or user-declared class.
+    pub(super) fn is_concrete_date_type(&self, ty: TypeId) -> bool {
+        matches!(self.mir.types.get(ty), Some(Type::Class { name, .. })
+            if !self.is_erased_class_type(ty)
+                && self.stdlib_class_of_symbol(*name).ok().flatten()
+                    == Some(smelt_stdlib::StdlibClass::Date))
+    }
+
+    /// The `SmeltDate` handle behind a value of type `ty`, as Rust text: the
+    /// value itself for a concrete `Date`, and the `DateLike` view for a type
+    /// parameter bounded by `Date` that is a real generic here
+    /// (`D: DateLike`, see `date_prelude`). `None` for any other type, which
+    /// keeps the erased date paths.
+    pub(super) fn date_handle_text(&self, value_text: &str, ty: TypeId) -> Option<String> {
+        if self.is_concrete_date_type(ty) {
+            return Some(format!("({value_text})"));
+        }
+        let Some(Type::TypeParam { name }) = self.mir.types.get(ty) else {
+            return None;
+        };
+        (self.current_function_type_params().contains(name)
+            && crate::bound_traits::type_param_is_date_bounded(self.mir, self.function, *name))
+        .then(|| format!("({value_text}).smelt_date()"))
+    }
+
     /// Coerce an `i64` JavaScript timestamp expression into the destination type.
     pub(super) fn date_timestamp_result_text(
         &self,
         text: &str,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
+        // A fresh `Date`: a new handle on the time value (`TimeClip` folds the
+        // `i64::MIN` invalid sentinel and every non-finite value to `NaN`).
+        if self.is_concrete_date_type(dest_ty) {
+            return Ok(format!("SmeltDate::new(({text}) as f64)"));
+        }
         match self.mir.types.get(dest_ty) {
             Some(Type::Float) => Ok(format!(
                 "{{ let timestamp_ms = ({text}) as f64; if !timestamp_ms.is_finite() || timestamp_ms == i64::MIN as f64 {{ f64::NAN }} else {{ timestamp_ms }} }}"
@@ -23,6 +54,38 @@ impl FunctionEmitter<'_> {
             }
             _ => Ok(text.to_owned()),
         }
+    }
+
+    /// A setter's replacement timestamp `text`, stored back into the receiver.
+    ///
+    /// A concrete `Date` is a shared handle, so `d.setDate(1)` writes the new
+    /// time value into the SAME cell every alias reads, and answers that date
+    /// (MIR re-binds the receiver to the setter's result). Any other receiver or
+    /// destination keeps the erased path, which rebuilds the marker record and
+    /// copies its metadata (`__smelt_timezone`, subclass fields) across.
+    pub(super) fn date_setter_result_text(
+        &self,
+        text: &str,
+        dest_ty: TypeId,
+        receiver: &Operand,
+    ) -> Result<String, EmitError> {
+        let receiver_ty = self.operand_ty(receiver)?;
+        let receiver_text = self.operand_text(receiver)?;
+        if let Some(handle) = self.date_handle_text(&receiver_text, receiver_ty)
+            && self.date_handle_text("_", dest_ty).is_some()
+        {
+            // The setter answers its receiver: the same date for a concrete
+            // `Date`, the same `D` for a `D: DateLike` receiver.
+            let answer = if receiver_ty == dest_ty {
+                receiver_text.clone()
+            } else {
+                handle.clone()
+            };
+            return Ok(format!(
+                "{{ let smelt_time_ms = ({text}) as f64; {handle}.set_time(smelt_time_ms); {answer} }}"
+            ));
+        }
+        self.date_timestamp_result_preserving_receiver_text(text, dest_ty, receiver)
     }
 
     /// Wrap a replacement timestamp while preserving metadata from an erased Date receiver.
@@ -66,6 +129,9 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let ty = self.operand_ty(timestamp_ms)?;
         let value_text = self.operand_text(timestamp_ms)?;
+        if let Some(handle) = self.date_handle_text(&value_text, ty) {
+            return Ok(format!("{handle}.to_iso_string()"));
+        }
         if self.is_erased_class_type(ty)
             || matches!(
                 self.mir.types.get(ty),
@@ -145,6 +211,16 @@ impl FunctionEmitter<'_> {
 
     /// Converts rendered DateArg-compatible Rust value text to timestamp text.
     fn date_timestamp_value_text(&self, value_text: &str, ty: TypeId) -> Result<String, EmitError> {
+        if let Some(handle) = self.date_handle_text(value_text, ty) {
+            return Ok(format!("{handle}.get_time()"));
+        }
+        // A concrete union (`Date | number | string` once `Date` is concrete)
+        // is a generated enum; the erased arm below reads its erased value.
+        if self.concrete_union_members(ty).is_some() {
+            let erased = self.erase_value_text(value_text, ty)?;
+            let unknown_ty = self.type_id(Type::Unknown)?;
+            return self.date_timestamp_value_text(&erased, unknown_ty);
+        }
         match self.mir.types.get(ty) {
             Some(Type::Int | Type::Float) => Ok(value_text.to_owned()),
             Some(Type::Bool) => Ok(format!("if {value_text} {{ 1.0 }} else {{ 0.0 }}")),

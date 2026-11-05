@@ -708,11 +708,18 @@ fn preserves_erased_date_metadata_across_setters() {
     let source = source_for(
         r"
 declare const value: unknown;
-const date = new Date(value);
-date.setFullYear(2024);
-const iso = date.toISOString();
+function bump<D extends Date>(date: D): string {
+  date.setFullYear(2024);
+  return date.toISOString();
+}
+const iso = bump(value as any);
 ",
     );
+    // Old fixture: `new Date(value).setFullYear(..)` on an erased `value`. A
+    // `new Date(..)` is now a fresh concrete `SmeltDate` (as in JavaScript, it
+    // keeps none of its argument's other properties), so the erased receiver
+    // this test is about is a `D extends Date` parameter that stays erased
+    // because its call site passes an erased argument.
 
     assert!(
         source.contains("if key != \"__smelt_date\""),
@@ -3497,8 +3504,11 @@ const selected: unknown = value ? value : fallback;
     assert!(
         // The temp index is incidental (it moves with the fixture's own
         // statement count); the property is that the truthy arm yields the
-        // erased value UNCHANGED and only the `Date` fallback is re-tagged.
-        source.contains("{ value } else { match fallback"),
+        // erased value UNCHANGED and only the `Date` fallback is erased. Old
+        // requirement: the fallback was re-tagged by a marker `match`; new
+        // (`Date` is the concrete `SmeltDate`): it erases through the date's
+        // own boundary adapter, which stamps the same `__smelt_date` marker.
+        source.contains("{ value } else { fallback.clone().into_smelt_unknown() }"),
         "{source}"
     );
     assert!(
@@ -4442,8 +4452,12 @@ const result = format({ locale: customLocale });
 
     assert!(source.contains("preprocessor:"), "{source}");
     assert!(!source.contains(")(Default::default(),"), "{source}");
+    // Old requirement: the erased `Date` argument was re-tagged with a marker
+    // `match`. New (`Date` is the concrete `SmeltDate`): it crosses into the
+    // erased callable through the date's boundary adapter, whose record still
+    // carries the `__smelt_date` marker.
     assert!(
-        source.contains("smelt_call_args.push(match arg0.clone()"),
+        source.contains("smelt_call_args.push(arg0.clone().into_smelt_unknown())"),
         "{source}"
     );
     assert!(source.contains("\"__smelt_date\".to_owned()"), "{source}");
