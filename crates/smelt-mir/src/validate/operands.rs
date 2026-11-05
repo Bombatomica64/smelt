@@ -206,15 +206,6 @@ impl Rvalue {
                 visit(lhs);
                 visit(rhs);
             }
-            Self::Conditional {
-                cond,
-                then_operand,
-                else_operand,
-            } => {
-                visit(cond);
-                visit(then_operand);
-                visit(else_operand);
-            }
             Self::FunctionTableLookup { key, cases } => {
                 visit(key);
                 for (_, case) in cases {
@@ -438,10 +429,6 @@ impl Rvalue {
             }
             Self::ListFromLength { length } => {
                 visit(length);
-            }
-            Self::ListRepeat { value, count } => {
-                visit(value);
-                visit(count);
             }
             Self::ListFromLengthMap { length, callback } => {
                 visit(length);
@@ -721,9 +708,6 @@ impl Rvalue {
             }
             Self::JsonStringify { value: json_value } => {
                 visit(json_value);
-            }
-            Self::JsonParse { text } => {
-                visit(text);
             }
             Self::RegexIsMatch {
                 pattern, haystack, ..
@@ -1166,15 +1150,6 @@ impl Rvalue {
                 visit(lhs);
                 visit(rhs);
             }
-            Self::Conditional {
-                cond,
-                then_operand,
-                else_operand,
-            } => {
-                visit(cond);
-                visit(then_operand);
-                visit(else_operand);
-            }
             Self::FunctionTableLookup { key, cases } => {
                 visit(key);
                 for (_, case) in cases.iter_mut() {
@@ -1395,10 +1370,6 @@ impl Rvalue {
             }
             Self::ListFromLength { length } => {
                 visit(length);
-            }
-            Self::ListRepeat { value, count } => {
-                visit(value);
-                visit(count);
             }
             Self::ListFromLengthMap { length, callback } => {
                 visit(length);
@@ -1678,9 +1649,6 @@ impl Rvalue {
             }
             Self::JsonStringify { value: json_value } => {
                 visit(json_value);
-            }
-            Self::JsonParse { text } => {
-                visit(text);
             }
             Self::RegexIsMatch {
                 pattern, haystack, ..

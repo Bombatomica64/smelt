@@ -246,7 +246,6 @@ fn measure_body(
                     read(default);
                     value.for_each_operand(&mut read);
                 }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
         match &block.terminator {
@@ -262,7 +261,7 @@ fn measure_body(
                 scrutinee: operand, ..
             })
             | Some(Terminator::Return(operand) | Terminator::Throw(operand)) => read(operand),
-            Some(Terminator::Goto(_) | Terminator::Unreachable) | None => {}
+            Some(Terminator::Goto(_)) | None => {}
         }
         for statement in &block.statements {
             if let Statement::Assign { dest, value } = statement
@@ -325,7 +324,7 @@ fn measure_body(
     }
 }
 
-/// Every local a body defines or reads: statement and phi destinations,
+/// Every local a body defines or reads: statement destinations,
 /// call and await results, exception bindings, and every local an operand or
 /// place mentions.
 fn referenced_locals(blocks: &[BasicBlock]) -> std::collections::HashSet<smelt_mir::LocalId> {
@@ -348,12 +347,6 @@ fn referenced_locals(blocks: &[BasicBlock]) -> std::collections::HashSet<smelt_m
     }
     let mut out = std::collections::HashSet::new();
     for block in blocks {
-        for phi in &block.phis {
-            out.insert(phi.dest);
-            for (_, incoming) in &phi.incoming {
-                operand(incoming, &mut out);
-            }
-        }
         for statement in &block.statements {
             match statement {
                 Statement::Assign { dest, value } => {
@@ -370,9 +363,6 @@ fn referenced_locals(blocks: &[BasicBlock]) -> std::collections::HashSet<smelt_m
                     operand(index, &mut out);
                     operand(default, &mut out);
                     value.for_each_operand(|read| operand(read, &mut out));
-                }
-                Statement::StorageLive(local) | Statement::StorageDead(local) => {
-                    out.insert(*local);
                 }
             }
         }
@@ -395,7 +385,7 @@ fn referenced_locals(blocks: &[BasicBlock]) -> std::collections::HashSet<smelt_m
             Some(Terminator::Switch { cond: read, .. })
             | Some(Terminator::Match { scrutinee: read, .. })
             | Some(Terminator::Return(read) | Terminator::Throw(read)) => operand(read, &mut out),
-            Some(Terminator::Goto(_) | Terminator::Unreachable) | None => {}
+            Some(Terminator::Goto(_)) | None => {}
         }
     }
     out

@@ -1063,11 +1063,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Returns whether a local is read anywhere in the function body.
     pub(super) fn local_has_uses(&self, local: LocalId) -> bool {
         self.function.blocks.iter().any(|block| {
-            block.phis.iter().any(|phi| {
-                phi.incoming
-                    .iter()
-                    .any(|(_, operand)| operand_uses_local(operand, local))
-            }) || block.statements.iter().any(|statement| match statement {
+            block.statements.iter().any(|statement| match statement {
                 Statement::Assign { value, .. } => rvalue_uses_local(value, local),
                 Statement::AssignPlace { place, value } => {
                     assignment_place_reads_local(place, local) || rvalue_uses_local(value, local)
@@ -1087,7 +1083,6 @@ impl<'mir> FunctionEmitter<'mir> {
                         || operand_uses_local(default, local)
                         || rvalue_uses_local(value, local)
                 }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => false,
             }) || block
                 .terminator
                 .as_ref()
@@ -6415,15 +6410,6 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         | Rvalue::UnknownCast { value: operand, .. }
         | Rvalue::DateFromValue { value: operand }
         | Rvalue::InstanceOf { value: operand, .. } => operand_uses_local(operand, local),
-        Rvalue::Conditional {
-            cond,
-            then_operand,
-            else_operand,
-        } => {
-            operand_uses_local(cond, local)
-                || operand_uses_local(then_operand, local)
-                || operand_uses_local(else_operand, local)
-        }
         Rvalue::FunctionTableLookup { key, cases } => {
             operand_uses_local(key, local)
                 || cases
@@ -6553,7 +6539,7 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
 /// Return whether a terminator may read a local.
 pub(super) fn terminator_uses_local(terminator: &Terminator, local: LocalId) -> bool {
     match terminator {
-        Terminator::Goto(_) | Terminator::Unreachable => false,
+        Terminator::Goto(_) => false,
         Terminator::Call { callee, args, .. } => {
             matches!(callee, Callee::Indirect(operand) if operand_uses_local(operand, local))
                 || args.iter().any(|arg| operand_uses_local(arg, local))
@@ -6588,7 +6574,7 @@ pub(super) fn terminator_successors(terminator: &Terminator) -> Vec<smelt_mir::B
             .map(|arm| arm.target)
             .chain(default.iter().copied())
             .collect(),
-        Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable => Vec::new(),
+        Terminator::Return(_) | Terminator::Throw(_) => Vec::new(),
     }
 }
 

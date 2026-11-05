@@ -871,10 +871,6 @@ pub enum ExprKind {
     ListFromLength {
         length: ExprId,
     },
-    ListRepeat {
-        value: ExprId,
-        count: ExprId,
-    },
     ListFromLengthMap {
         length: ExprId,
         callback: ExprId,

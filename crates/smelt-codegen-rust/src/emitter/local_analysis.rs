@@ -18,9 +18,6 @@ impl FunctionEmitter<'_> {
     fn build_local_write_index(&self) -> LocalWriteIndex {
         let mut index = LocalWriteIndex::default();
         for block in &self.function.blocks {
-            for phi in &block.phis {
-                bump_u32(&mut index.writes, phi.dest);
-            }
             for statement in &block.statements {
                 match statement {
                     Statement::Assign { dest, value } => {
@@ -82,7 +79,6 @@ impl FunctionEmitter<'_> {
                             index.mutated.insert(*base);
                         }
                     }
-                    Statement::StorageLive(_) | Statement::StorageDead(_) => {}
                 }
             }
             if let Some(
@@ -385,18 +381,6 @@ impl FunctionEmitter<'_> {
     /// Returns whether the first MIR access to a local reads the previous value.
     pub(super) fn local_first_access_is_read(&self, local: LocalId) -> bool {
         for block in &self.function.blocks {
-            for phi in &block.phis {
-                if phi
-                    .incoming
-                    .iter()
-                    .any(|(_, operand)| operand_uses_local(operand, local))
-                {
-                    return true;
-                }
-                if phi.dest == local {
-                    return false;
-                }
-            }
             for statement in &block.statements {
                 match statement {
                     Statement::Assign { dest, value } => {
@@ -439,7 +423,6 @@ impl FunctionEmitter<'_> {
                             return true;
                         }
                     }
-                    Statement::StorageLive(_) | Statement::StorageDead(_) => {}
                 }
             }
             if block
@@ -458,7 +441,7 @@ impl FunctionEmitter<'_> {
     /// branches, but any second assignment on one path requires `mut`.
     pub(super) fn local_may_be_assigned_after_assignment(&self, local: LocalId) -> bool {
         // The walk below can only answer `true` at a write, so a local with no
-        // phi or statement write (a call destination, say) is answered from
+        // statement write (a call destination, say) is answered from
         // the index without walking every path of the function.
         if !self.local_write_index().writes.contains_key(&local) {
             return false;
@@ -486,14 +469,6 @@ impl FunctionEmitter<'_> {
         let Some(block) = self.block(block_id).ok() else {
             return true;
         };
-        for phi in &block.phis {
-            if phi.dest == local {
-                if assigned {
-                    return true;
-                }
-                assigned = true;
-            }
-        }
         for statement in &block.statements {
             let writes_local = match statement {
                 Statement::Assign { dest, .. } => *dest == local,
@@ -502,9 +477,7 @@ impl FunctionEmitter<'_> {
                     ..
                 } => *candidate == local,
                 Statement::DictEntryUpdate { current, .. } => *current == local,
-                Statement::AssignPlace { .. }
-                | Statement::StorageLive(_)
-                | Statement::StorageDead(_) => false,
+                Statement::AssignPlace { .. } => false,
             };
             if writes_local {
                 if assigned {
@@ -658,19 +631,6 @@ impl FunctionEmitter<'_> {
             return Ok(false);
         }
         let block = self.block(block_id)?;
-        for phi in &block.phis {
-            if phi
-                .incoming
-                .iter()
-                .any(|(_, operand)| operand_uses_local(operand, local))
-                && !assigned
-            {
-                return Ok(true);
-            }
-            if phi.dest == local {
-                assigned = true;
-            }
-        }
         for statement in &block.statements {
             match statement {
                 Statement::Assign { dest, value } => {
@@ -713,7 +673,6 @@ impl FunctionEmitter<'_> {
                         return Ok(true);
                     }
                 }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
         let Some(terminator) = &block.terminator else {
@@ -751,11 +710,11 @@ impl FunctionEmitter<'_> {
 /// index answers the same questions from one scan.
 #[derive(Debug, Default)]
 pub(super) struct LocalWriteIndex {
-    /// Writes per local: phi destinations, `Assign` destinations, whole-local
+    /// Writes per local: `Assign` destinations, whole-local
     /// `AssignPlace` targets and `DictEntryUpdate` bindings. A local absent
-    /// here is never written by a statement or phi.
+    /// here is never written by a statement.
     writes: HashMap<LocalId, u32>,
-    /// Direct assignments per local (the writes above, minus phis).
+    /// Direct assignments per local.
     assignments: HashMap<LocalId, usize>,
     /// Blocks holding an `Assign` to the local or a `DictEntryUpdate` binding
     /// it, for the predeclared-in-a-loop rule.

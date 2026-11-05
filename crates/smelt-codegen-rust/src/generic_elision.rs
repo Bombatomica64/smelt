@@ -447,18 +447,15 @@ fn scan_type(
 
 /// Collects the types a body's blocks name directly, and the closures it builds.
 ///
-/// Only two rvalues carry a type the emitted Rust spells on its own: a phi's
-/// result type and an `UnknownCast` target. Everything else a block names is
-/// already the type of a local.
+/// Only one rvalue carries a type the emitted Rust spells on its own: an
+/// `UnknownCast` target. Everything else a block names is already the type of a
+/// local.
 fn collect_block_types(
     blocks: &[BasicBlock],
     types: &mut Vec<TypeId>,
     closures: &mut Vec<ClosureId>,
 ) {
     for block in blocks {
-        for phi in &block.phis {
-            types.push(phi.ty);
-        }
         for statement in &block.statements {
             match statement {
                 Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {

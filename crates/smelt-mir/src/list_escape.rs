@@ -88,9 +88,8 @@
 //! * **container reads** — a list read out of a field, index, `DictGet`,
 //!   `ListPop`/`ListShift`/`ListNext`, or a `find`-shaped search is by
 //!   construction a handle on a buffer that also lives inside the container;
-//! * **`Phi` destinations** and copy destinations — these are recorded as alias
-//!   edges, so the *group* survives, but a group whose members are merged by a
-//!   phi from an unproven source escapes with the source;
+//! * **copy destinations** — these are recorded as alias edges, so the *group*
+//!   survives, but a group merged with an unproven source escapes with it;
 //! * **closure capture targets** — the local inside a closure body that
 //!   receives a capture is treated exactly like a parameter;
 //! * **globals read back** ([`Rvalue::GlobalGet`]) and any other rvalue not in
@@ -650,36 +649,10 @@ impl<'a> BodyWalk<'a> {
         }
 
         for block in self.body.blocks {
-            for phi in &block.phis {
-                self.visit_phi(phi);
-            }
             for statement in &block.statements {
                 self.visit_statement(statement);
             }
             self.visit_terminator(block.terminator.as_ref());
-        }
-    }
-
-    /// A phi merges its incoming names onto one destination buffer.
-    fn visit_phi(&mut self, phi: &crate::Phi) {
-        if !self.is_list(phi.dest) {
-            return;
-        }
-        self.touch(phi.dest);
-        for (_, incoming) in &phi.incoming {
-            match operand_local(incoming) {
-                // Both arms of the merge name the buffer the destination will
-                // name, so they share one group.
-                Some(source) if self.is_list(source) => {
-                    self.touch(source);
-                    self.groups
-                        .union(phi.dest.0, source.0, matches!(incoming, Operand::Copy(_)));
-                }
-                // A constant or a projected read cannot be proven fresh.
-                _ => self
-                    .groups
-                    .escape(phi.dest.0, EscapeReason::UnprovenDefinition),
-            }
         }
     }
 
@@ -746,7 +719,6 @@ impl<'a> BodyWalk<'a> {
                 self.escape_operand(default, EscapeReason::StoredInContainer);
                 self.visit_rvalue(value, None);
             }
-            Statement::StorageLive(_) | Statement::StorageDead(_) => {}
         }
     }
 
@@ -783,7 +755,7 @@ impl<'a> BodyWalk<'a> {
                     self.touch(local);
                 }
             }
-            Terminator::Goto(_) | Terminator::Unreachable => {}
+            Terminator::Goto(_) => {}
         }
     }
 
@@ -1149,7 +1121,6 @@ pub const fn rvalue_mints_fresh_list(value: &Rvalue) -> bool {
         | Rvalue::ListWith { .. }
         | Rvalue::ListFlat { .. }
         | Rvalue::ListFromLength { .. }
-        | Rvalue::ListRepeat { .. }
         | Rvalue::ListFromLengthMap { .. }
         // `splice` returns the removed elements as a new array; `toSpliced`
         // (`mutate: false`) returns a new array outright. Both are fresh.
@@ -1211,11 +1182,6 @@ fn operand_roles(value: &Rvalue) -> Vec<(&Operand, OperandRole)> {
         // Plain propagation: the destination names the source's buffer.
         Rvalue::Use(operand) => vec![(operand, ALIAS)],
         // Both arms may become the result.
-        Rvalue::Conditional {
-            cond,
-            then_operand,
-            else_operand,
-        } => vec![(cond, READ), (then_operand, ALIAS), (else_operand, ALIAS)],
         Rvalue::OptionalCoalesce { optional, fallback } => {
             vec![(optional, ALIAS), (fallback, ALIAS)]
         }
@@ -1354,7 +1320,6 @@ fn operand_roles(value: &Rvalue) -> Vec<(&Operand, OperandRole)> {
         }
         Rvalue::ListFromLength { length } => vec![(length, READ)],
         // The repeated value ends up inside the produced list.
-        Rvalue::ListRepeat { value: item, count } => vec![(item, STORED), (count, READ)],
         Rvalue::ListRange { start, end, step } => {
             vec![(start, READ), (end, READ), (step, READ)]
         }

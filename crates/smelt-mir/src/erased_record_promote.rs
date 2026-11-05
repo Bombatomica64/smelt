@@ -140,7 +140,6 @@ fn promote_body(
                 Statement::DictEntryUpdate { base, .. } => {
                     mutated.insert(*base);
                 }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
         if let Some(Terminator::Call { callee, args, .. }) = &block.terminator

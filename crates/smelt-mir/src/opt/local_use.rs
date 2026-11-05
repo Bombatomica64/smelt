@@ -2,7 +2,7 @@
 //!
 //! Several passes are only sound when a local they are about to delete is a
 //! compiler temporary with exactly one definition and a known number of readers.
-//! Answering that question means walking every phi, statement and terminator of
+//! Answering that question means walking every statement and terminator of
 //! a function, so the walk lives here once instead of being re-derived (and
 //! re-diverged) inside each pass.
 
@@ -54,17 +54,14 @@ pub(super) fn local_assignment_count(function: &MirFunction, local: LocalId) -> 
                     // `current`; that binding is a definition, so a pass asking
                     // "is this local assigned exactly once?" must see it.
                     Statement::DictEntryUpdate { current, .. } => *current == local,
-                    Statement::AssignPlace { .. }
-                    | Statement::StorageLive(_)
-                    | Statement::StorageDead(_) => false,
+                    Statement::AssignPlace { .. } => false,
                 })
                 .count();
-            let phis = block.phis.iter().filter(|phi| phi.dest == local).count();
             let terminator = usize::from(matches!(
                 &block.terminator,
                 Some(Terminator::Call { dest, .. } | Terminator::Await { dest, .. }) if *dest == local
             ));
-            statements.saturating_add(phis).saturating_add(terminator)
+            statements.saturating_add(terminator)
         })
         .fold(0, usize::saturating_add)
 }
@@ -75,19 +72,13 @@ pub(super) fn local_read_count(function: &MirFunction, local: LocalId) -> usize 
         .blocks
         .iter()
         .map(|block| {
-            let phis = block
-                .phis
-                .iter()
-                .flat_map(|phi| phi.incoming.iter())
-                .filter(|(_, operand)| operand_reads_local(operand, local))
-                .count();
             let statements = block
                 .statements
                 .iter()
                 .map(|statement| statement_read_count(statement, local))
                 .fold(0, usize::saturating_add);
             let terminator = terminator_read_count(block.terminator.as_ref(), local);
-            phis.saturating_add(statements).saturating_add(terminator)
+            statements.saturating_add(terminator)
         })
         .fold(0, usize::saturating_add)
 }
@@ -114,7 +105,6 @@ fn statement_read_count(statement: &Statement, local: LocalId) -> usize {
             .saturating_add(usize::from(operand_reads_local(index, local)))
             .saturating_add(usize::from(operand_reads_local(default, local)))
             .saturating_add(rvalue_read_count(value, local)),
-        Statement::StorageLive(_) | Statement::StorageDead(_) => 0,
     }
 }
 
@@ -144,7 +134,7 @@ fn terminator_read_count(terminator: Option<&Terminator>, local: LocalId) -> usi
         }
         | Terminator::Return(operand)
         | Terminator::Throw(operand) => usize::from(operand_reads_local(operand, local)),
-        Terminator::Goto(_) | Terminator::Unreachable => 0,
+        Terminator::Goto(_) => 0,
     }
 }
 
@@ -180,7 +170,7 @@ pub(super) fn place_reads_local(place: &Place, local: LocalId) -> bool {
 /// `classes::substituted_inherited_member`), a concrete `f64` cannot hold
 /// `undefined`, and the spill would read as `0.0`. Inlining restores the
 /// concrete spelling. A temp read anywhere other than a statement's rvalue
-/// (a phi, a terminator, a projected place) is left alone.
+/// (a terminator, a projected place) is left alone.
 pub fn inline_absent_constant_temps(function: &mut MirFunction, candidates: &[LocalId]) {
     for &local in candidates {
         if !local_is_temp(function, local) || local_assignment_count(function, local) != 1 {

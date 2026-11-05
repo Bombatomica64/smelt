@@ -8,7 +8,7 @@ impl FunctionEmitter<'_> {
     /// Two strategies handle the arm bodies:
     ///
     /// * When every arm target's *direct* terminator is either a `Goto` to one
-    ///   shared block or a diverging terminator (`Return`/`Throw`/`Unreachable`),
+    ///   shared block or a diverging terminator (`Return`/`Throw`),
     ///   the arms are straight-line and truly converge on a single continuation.
     ///   That continuation (the "join") is emitted once after the `match`, and
     ///   each arm drops its trailing `Goto` to it (see [`Self::emit_block_as_match_arm`]).
@@ -199,7 +199,7 @@ impl FunctionEmitter<'_> {
                     }
                 }
                 // A diverging arm imposes no join constraint.
-                Some(Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable) => {}
+                Some(Terminator::Return(_) | Terminator::Throw(_)) => {}
                 // An arm ending in a branch/loop/call reaches its continuation
                 // only transitively, so no single block can be hoisted.
                 _ => return Ok(None),

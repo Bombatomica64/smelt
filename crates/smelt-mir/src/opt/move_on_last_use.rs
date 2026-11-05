@@ -25,9 +25,8 @@
 //! * `x` is read exactly once in the containing statement/terminator. This
 //!   sidesteps within-statement use ordering (e.g. `x + x`) conservatively.
 //! * `x` is convertible: not a parameter (their ABI is handled by a later
-//!   borrow pass and receivers may be references), not involved in any `Phi`
-//!   (edge-precise phi liveness is deferred), and not captured by any closure
-//!   (a by-reference capture keeps the local live past its textual use).
+//!   borrow pass and receivers may be references), and not captured by any
+//!   closure (a by-reference capture keeps the local live past its textual use).
 //!
 //! These guards are intentionally conservative; later passes relax them.
 
@@ -166,7 +165,7 @@ fn rewrite_terminator(
     convertible: &HashSet<LocalId>,
 ) -> bool {
     match terminator {
-        Terminator::Goto(_) | Terminator::Unreachable => false,
+        Terminator::Goto(_) => false,
         Terminator::Return(operand) | Terminator::Throw(operand) => {
             try_convert(operand, live_after, read_counts, convertible)
         }
@@ -201,8 +200,7 @@ fn rewrite_terminator(
 
 /// Locals eligible for move conversion in this function.
 ///
-/// Excludes parameters, anything touched by a `Phi`, and any closure capture
-/// source — see the module docs for why each guard is required.
+/// Excludes parameters and any closure capture source — see the module docs for why each guard is required.
 fn convertible_locals(function: &MirFunction) -> HashSet<LocalId> {
     let mut excluded = HashSet::new();
 
@@ -214,14 +212,6 @@ fn convertible_locals(function: &MirFunction) -> HashSet<LocalId> {
 
     let mut scratch = Vec::new();
     for block in &function.blocks {
-        for phi in &block.phis {
-            excluded.insert(phi.dest);
-            for (_, operand) in &phi.incoming {
-                scratch.clear();
-                collect_operand_reads(operand, &mut scratch);
-                excluded.extend(scratch.iter().copied());
-            }
-        }
         for stmt in &block.statements {
             if let Some(Rvalue::Closure { captures, .. }) = statement_value(stmt) {
                 for capture in captures {
@@ -250,9 +240,6 @@ fn compute_block_live_out(function: &MirFunction) -> Vec<HashSet<LocalId>> {
     let mut live_in = vec![HashSet::new(); block_count];
     let mut live_out = vec![HashSet::new(); block_count];
 
-    // Phi edges are intentionally ignored: phi operands and phi destinations are
-    // excluded from conversion (see `convertible_locals`), so their liveness is
-    // approximated but never acted on. The converted locals are not phi-related.
     let mut changed = true;
     while changed {
         changed = false;
@@ -330,9 +317,7 @@ const fn statement_def(stmt: &Statement) -> Option<LocalId> {
         // The fused entry update defines `current`, the local it binds the
         // entry's value to.
         Statement::DictEntryUpdate { current, .. } => Some(*current),
-        Statement::AssignPlace { .. }
-        | Statement::StorageLive(_)
-        | Statement::StorageDead(_) => None,
+        Statement::AssignPlace { .. } => None,
     }
 }
 
@@ -345,7 +330,7 @@ const fn terminator_def(terminator: &Terminator) -> Option<LocalId> {
         | Terminator::Match { .. }
         | Terminator::Return(_)
         | Terminator::Throw(_)
-        | Terminator::Unreachable => None,
+        => None,
     }
 }
 
@@ -393,14 +378,13 @@ fn statement_reads(stmt: &Statement, out: &mut Vec<LocalId>) {
             collect_operand_reads(default, out);
             value.for_each_operand(|operand| collect_operand_reads(operand, out));
         }
-        Statement::StorageLive(_) | Statement::StorageDead(_) => {}
     }
 }
 
 /// Collect every local read by a terminator.
 fn terminator_reads(terminator: &Terminator, out: &mut Vec<LocalId>) {
     match terminator {
-        Terminator::Goto(_) | Terminator::Unreachable => {}
+        Terminator::Goto(_) => {}
         Terminator::Return(operand) | Terminator::Throw(operand) => {
             collect_operand_reads(operand, out);
         }
@@ -466,7 +450,6 @@ const fn statement_value(stmt: &Statement) -> Option<&Rvalue> {
         Statement::Assign { value, .. }
         | Statement::AssignPlace { value, .. }
         | Statement::DictEntryUpdate { value, .. } => Some(value),
-        Statement::StorageLive(_) | Statement::StorageDead(_) => None,
     }
 }
 
@@ -476,7 +459,6 @@ const fn statement_value_mut(stmt: &mut Statement) -> Option<&mut Rvalue> {
         Statement::Assign { value, .. }
         | Statement::AssignPlace { value, .. }
         | Statement::DictEntryUpdate { value, .. } => Some(value),
-        Statement::StorageLive(_) | Statement::StorageDead(_) => None,
     }
 }
 

@@ -94,9 +94,7 @@ fn forward_bound_callees(function: &mut crate::MirFunction) -> bool {
             } => Some(*dest),
             Statement::Assign { .. }
             | Statement::AssignPlace { .. }
-            | Statement::DictEntryUpdate { .. }
-            | Statement::StorageLive(_)
-            | Statement::StorageDead(_) => None,
+            | Statement::DictEntryUpdate { .. } => None,
         })
         .filter(|dest| forwardable(function, *dest))
         .collect::<Vec<_>>();
@@ -126,9 +124,7 @@ fn forward_bound_callees(function: &mut crate::MirFunction) -> bool {
                     } if operand_local(call_callee) == Some(*bound) => Some(call_callee),
                     Statement::Assign { .. }
                     | Statement::AssignPlace { .. }
-                    | Statement::DictEntryUpdate { .. }
-                    | Statement::StorageLive(_)
-                    | Statement::StorageDead(_) => None,
+                    | Statement::DictEntryUpdate { .. } => None,
                 });
             let Some(call_callee) = call else {
                 continue;
@@ -147,7 +143,6 @@ const fn statement_rvalue_mut(statement: &mut Statement) -> Option<&mut Rvalue> 
         Statement::Assign { value, .. }
         | Statement::AssignPlace { value, .. }
         | Statement::DictEntryUpdate { value, .. } => Some(value),
-        Statement::StorageLive(_) | Statement::StorageDead(_) => None,
     }
 }
 
@@ -165,6 +160,5 @@ fn program_reads_this(mir: &Mir) -> bool {
             Statement::Assign { value, .. }
             | Statement::AssignPlace { value, .. }
             | Statement::DictEntryUpdate { value, .. } => matches!(value, Rvalue::ThisRead),
-            Statement::StorageLive(_) | Statement::StorageDead(_) => false,
         })
 }

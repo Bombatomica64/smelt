@@ -350,6 +350,6 @@ fn terminator_can_throw(terminator: &Terminator, throwing: &[bool]) -> bool {
         | Terminator::Switch { .. }
         | Terminator::Match { .. }
         | Terminator::Return(_)
-        | Terminator::Unreachable => false,
+        => false,
     }
 }

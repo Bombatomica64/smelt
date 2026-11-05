@@ -894,9 +894,6 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ListFromLength { length } => {
             format!("list_from_length {}", expr_ref(*length))
         }
-        ExprKind::ListRepeat { value, count } => {
-            format!("list_repeat {}, {}", expr_ref(*value), expr_ref(*count))
-        }
         ExprKind::ListFromLengthMap { length, callback } => format!(
             "list_from_length_map {}, {}",
             expr_ref(*length),

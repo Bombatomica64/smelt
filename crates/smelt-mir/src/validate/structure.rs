@@ -41,7 +41,7 @@ fn validate_entry(function: &MirFunction, errors: &mut Vec<ValidationError>) {
     }
 }
 
-/// Check one basic block's id, terminator presence, phis, statements, and
+/// Check one basic block's id, terminator presence, statements, and
 /// terminator references.
 fn validate_block(
     mir: &Mir,
@@ -63,13 +63,6 @@ fn validate_block(
         )));
     }
 
-    for phi in &block.phis {
-        validate_type(mir, phi.ty, errors);
-        validate_local_exists(function, phi.dest, errors);
-        for (_, operand) in &phi.incoming {
-            validate_operand_exists(function, operand, errors);
-        }
-    }
 
     for stmt in &block.statements {
         validate_statement(mir, function, stmt, errors);
@@ -119,9 +112,6 @@ fn validate_statement(
             validate_operand_exists(function, default, errors);
             validate_local_exists(function, *current, errors);
             validate_rvalue_exists(mir, function, value, errors);
-        }
-        Statement::StorageLive(local) | Statement::StorageDead(local) => {
-            validate_local_exists(function, *local, errors);
         }
     }
 }
@@ -197,7 +187,6 @@ fn validate_terminator(
         Terminator::Return(operand) | Terminator::Throw(operand) => {
             validate_operand_exists(function, operand, errors);
         }
-        Terminator::Unreachable => {}
     }
 }
 

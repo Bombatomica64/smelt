@@ -46,9 +46,6 @@ fn normalize_function(mir: &mut Mir, function: &mut MirFunction) {
         local.ty = normalize(mir, local.ty);
     }
     for block in &mut function.blocks {
-        for phi in &mut block.phis {
-            phi.ty = normalize(mir, phi.ty);
-        }
         for statement in &mut block.statements {
             normalize_statement(mir, statement);
         }
@@ -65,9 +62,6 @@ fn normalize_closure(mir: &mut Mir, closure: &mut MirClosure) {
         capture.ty = normalize(mir, capture.ty);
     }
     for block in &mut closure.blocks {
-        for phi in &mut block.phis {
-            phi.ty = normalize(mir, phi.ty);
-        }
         for statement in &mut block.statements {
             normalize_statement(mir, statement);
         }

@@ -162,8 +162,7 @@ fn is_foldable_payload_rvalue(value: &Rvalue) -> bool {
 /// Count every read of every local in a function body.
 ///
 /// Reads are counted through the canonical [`Rvalue::for_each_operand`] walk so
-/// the tally cannot silently miss an rvalue variant, plus the phi incoming
-/// operands, the place bases an assignment reads before writing, and the
+/// the tally cannot silently miss an rvalue variant, plus the place bases an assignment reads before writing, and the
 /// terminator operands.
 fn local_read_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
     fn count_place(counts: &mut HashMap<LocalId, usize>, place: &Place) {
@@ -192,11 +191,6 @@ fn local_read_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
 
     let mut counts: HashMap<LocalId, usize> = HashMap::new();
     for block in &function.blocks {
-        for phi in &block.phis {
-            for (_, operand) in &phi.incoming {
-                count_operand(&mut counts, operand);
-            }
-        }
         for statement in &block.statements {
             match statement {
                 Statement::Assign { value, .. } => {
@@ -232,14 +226,13 @@ fn local_read_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
                     count_operand(&mut counts, default);
                     value.for_each_operand(|operand| count_operand(&mut counts, operand));
                 }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
         let Some(terminator) = &block.terminator else {
             continue;
         };
         match terminator {
-            Terminator::Goto(_) | Terminator::Unreachable => {}
+            Terminator::Goto(_) => {}
             Terminator::Call { callee, args, .. } => {
                 if let Callee::Indirect(operand) = callee {
                     count_operand(&mut counts, operand);
@@ -357,9 +350,6 @@ pub(super) fn folded_throw_payload_locals(mir: &Mir, function: &MirFunction) -> 
                 }
                 _ => {}
             }
-        }
-        for phi in &block.phis {
-            *assign_counts.entry(phi.dest).or_default() += 1;
         }
     }
     // A local captured by a closure is read through the closure environment

@@ -483,7 +483,6 @@ fn statement_destination_mentions(
         },
         // The container the entry update writes through is its destination.
         Statement::DictEntryUpdate { base, .. } => *base,
-        Statement::StorageLive(_) | Statement::StorageDead(_) => return false,
     };
     local_mentions(local)
 }
@@ -514,9 +513,6 @@ fn rvalue_preserves_opacity(rvalue: &Rvalue) -> bool {
             | Rvalue::Tuple(_)
             | Rvalue::ListPush { .. }
             | Rvalue::ListExtend { .. }
-            // Selecting between two operands: the condition is a `bool` and the
-            // arms are moved into the result.
-            | Rvalue::Conditional { .. }
             // Capturing into a closure environment.
             | Rvalue::Closure { .. }
             // Container-level queries read the *container*, never an element, so
@@ -2008,7 +2004,7 @@ pub(crate) fn inherited_member_substitution(
 /// scope, or `None` when nothing needs rewriting.
 ///
 /// The copy is emitted inside `owner`'s `impl`, which does not declare the
-/// declaring base's type parameters, so every local, phi and cast target is
+/// declaring base's type parameters, so every local and cast target is
 /// substituted (MIR's `inherited_types` pass interned the results). Emitting
 /// from the substituted clone keeps every emitter rule that inspects a
 /// `Type::TypeParam` seeing the concrete type the subclass binds.

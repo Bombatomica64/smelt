@@ -1139,43 +1139,4 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a JSON parse operation to Rust text.
-    ///
-    /// Serde stays behind this helper so future backend changes do not affect
-    /// the frontend lowering shape.
-    pub(super) fn json_parse_text(
-        &self,
-        text: &Operand,
-        dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
-        if !matches!(
-            self.mir.types.get(self.operand_ty(text)?),
-            Some(Type::String)
-        ) {
-            return Err(EmitError::new("JSON parse input must be a string"));
-        }
-        if !self.is_json_serializable_type(dest_ty) {
-            return Err(EmitError::new(
-                "JSON parse destination must be JSON-compatible",
-            ));
-        }
-        // `JSON.parse` yields a dynamic JS value. Record/map destinations lower
-        // to `SmeltRecord`/`SmeltJsMap`, which do not implement `Deserialize`,
-        // so deserializing directly into them fails (was E0277 in `isJSON`).
-        // Parse into the erased `SmeltUnknown` (which is `Deserialize`) and then
-        // run the ordinary coercion into the concrete destination.
-        if matches!(self.mir.types.get(dest_ty), Some(Type::Dict(_, _) | Type::JsMap(_, _))) {
-            let parsed = format!(
-                "serde_json::from_str::<SmeltUnknown>(&{}).expect(\"JSON parse failed\")",
-                self.operand_text(text)?
-            );
-            return self.extract_value_text(&parsed, dest_ty, &self.render_scope());
-        }
-        Ok(format!(
-            "serde_json::from_str::<{}>(&{}).expect(\"JSON parse failed\")",
-            self.type_text(dest_ty)?,
-            self.operand_text(text)?
-        ))
-    }
-
 }

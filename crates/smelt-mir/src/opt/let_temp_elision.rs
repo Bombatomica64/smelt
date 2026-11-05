@@ -31,7 +31,6 @@
 //! * Neither is function-typed: callable locals carry ABI decisions
 //!   (`Rc<dyn Fn>` vs. borrowed callbacks) that copy propagation also leaves
 //!   alone.
-//! * `t` appears in no `StorageLive`/`StorageDead` marker.
 //!
 //! Behaviour requirement: unchanged (the same value reaches the same local).
 //! Type-preservation requirement: unchanged types; the generated Rust has one
@@ -133,9 +132,6 @@ fn elidable_pair(
         value.for_each_operand(|operand| reads |= super::local_use::operand_reads_local(operand, user));
         reads
     };
-    let has_storage_marker = function.blocks.iter().flat_map(|block| &block.statements).any(|statement| {
-        matches!(statement, Statement::StorageLive(local) | Statement::StorageDead(local) if *local == temp)
-    });
     let is_function = |ty| matches!(types.get(ty), Some(Type::Function(_)));
     (local_is_temp(function, temp)
         && local_assignment_count(function, temp) == 1
@@ -143,8 +139,7 @@ fn elidable_pair(
         && local_assignment_count(function, user) == 1
         && !reads_user
         && temp_decl.ty == user_decl.ty
-        && !is_function(temp_decl.ty)
-        && !has_storage_marker)
+        && !is_function(temp_decl.ty))
         .then_some(user)
 }
 
@@ -365,14 +360,6 @@ mod tests {
             }));
             mir.functions[0].locals[1].ty = callable;
             mir.functions[0].locals[2].ty = callable;
-        });
-    }
-
-    /// A storage marker on `t` scopes its lifetime; leave it alone.
-    #[test]
-    fn declines_when_temp_has_storage_marker() {
-        assert_declined(|mir| {
-            mir.functions[0].blocks[0].statements.push(Statement::StorageDead(TEMP));
         });
     }
 

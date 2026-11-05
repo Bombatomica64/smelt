@@ -397,9 +397,6 @@ fn retype_body(
         return false;
     };
     let float = TypeId(u32::try_from(float).unwrap_or(u32::MAX));
-    if blocks.iter().any(|block| !block.phis.is_empty()) {
-        return false;
-    }
     collect_escaping_locals(blocks, &mut excluded);
     let initial: Vec<LocalId> = locals
         .iter()
@@ -526,7 +523,6 @@ fn useful_locals(
                         }
                     });
                 }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
         let terminator_operands: Vec<&Operand> = match &block.terminator {
@@ -624,7 +620,6 @@ fn collect_escaping_locals(blocks: &[BasicBlock], excluded: &mut HashSet<LocalId
                         excluded.extend(captures.iter().filter_map(operand_local));
                     }
                 }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
         if let Some(Terminator::Call { dest, unwind, .. } | Terminator::Await { dest, unwind, .. }) =
@@ -1476,7 +1471,6 @@ impl Rewriter<'_> {
                 self.rewrite_number_operand(default, prelude);
                 self.rewrite_rvalue(value, prelude);
             }
-            Statement::StorageLive(_) | Statement::StorageDead(_) => {}
         }
     }
 
@@ -1575,7 +1569,7 @@ impl Rewriter<'_> {
             }
             | Terminator::Return(operand)
             | Terminator::Throw(operand) => self.rewrite_number_operand(operand, prelude),
-            Terminator::Goto(_) | Terminator::Unreachable => {}
+            Terminator::Goto(_) => {}
         }
     }
 

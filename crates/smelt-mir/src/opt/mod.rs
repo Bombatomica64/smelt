@@ -171,11 +171,6 @@ fn propagate_function(function: &mut MirFunction, types: &smelt_hir::TypeInterne
 
     let mut changed = false;
     for block in &mut function.blocks {
-        for phi in &mut block.phis {
-            for (_, operand) in &mut phi.incoming {
-                changed |= rewrite_operand(operand, &aliases);
-            }
-        }
         for stmt in &mut block.statements {
             match stmt {
                 Statement::Assign { dest, value } => {
@@ -204,7 +199,6 @@ fn propagate_function(function: &mut MirFunction, types: &smelt_hir::TypeInterne
                     changed |= rewrite_operand(default, &aliases);
                     changed |= rewrite_rvalue(value, &aliases, Some(*current));
                 }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
         if let Some(terminator) = &mut block.terminator {
@@ -237,9 +231,7 @@ fn assigned_local_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
                     let count = counts.entry(*current).or_insert(0usize);
                     *count = count.saturating_add(1);
                 }
-                Statement::AssignPlace { .. }
-                | Statement::StorageLive(_)
-                | Statement::StorageDead(_) => {}
+                Statement::AssignPlace { .. } => {}
             }
         }
     }
@@ -302,9 +294,7 @@ fn mutated_locals(function: &MirFunction) -> HashSet<LocalId> {
                 Statement::DictEntryUpdate { base, .. } => {
                     locals.insert(*base);
                 }
-                Statement::Assign { .. }
-                | Statement::StorageLive(_)
-                | Statement::StorageDead(_) => {}
+                Statement::Assign { .. } => {}
             }
         }
     }
@@ -385,15 +375,6 @@ fn rewrite_rvalue(
         }
         Rvalue::Binary { lhs, rhs, .. } => {
             rewrite_operand_except(lhs, aliases, dest) | rewrite_operand_except(rhs, aliases, dest)
-        }
-        Rvalue::Conditional {
-            cond,
-            then_operand,
-            else_operand,
-        } => {
-            rewrite_operand_except(cond, aliases, dest)
-                | rewrite_operand_except(then_operand, aliases, dest)
-                | rewrite_operand_except(else_operand, aliases, dest)
         }
         Rvalue::FunctionTableLookup { key, cases } => cases.iter_mut().fold(
             rewrite_operand_except(key, aliases, dest),
@@ -779,13 +760,6 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(callback, aliases, dest)
         }
         Rvalue::ListFromLength { length } => rewrite_operand_except(length, aliases, dest),
-        Rvalue::ListRepeat {
-            value: repeat_value,
-            count,
-        } => {
-            rewrite_operand_except(repeat_value, aliases, dest)
-                | rewrite_operand_except(count, aliases, dest)
-        }
         Rvalue::ListFromLengthMap { length, callback } => {
             rewrite_operand_except(length, aliases, dest)
                 | rewrite_operand_except(callback, aliases, dest)
@@ -1011,7 +985,6 @@ fn rewrite_rvalue(
         Rvalue::JsonStringify { value: json_value } => {
             rewrite_operand_except(json_value, aliases, dest)
         }
-        Rvalue::JsonParse { text } => rewrite_operand_except(text, aliases, dest),
         Rvalue::RegexIsMatch {
             pattern, haystack, ..
         } => {
@@ -1206,7 +1179,7 @@ fn rewrite_rvalue(
 /// Rewrites operands in a terminator using alias mappings. Returns true if modified.
 fn rewrite_terminator(terminator: &mut Terminator, aliases: &HashMap<LocalId, LocalId>) -> bool {
     match terminator {
-        Terminator::Goto(_) | Terminator::Unreachable => false,
+        Terminator::Goto(_) => false,
         Terminator::Return(operand) | Terminator::Throw(operand) => {
             rewrite_operand(operand, aliases)
         }

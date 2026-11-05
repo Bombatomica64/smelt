@@ -1326,16 +1326,6 @@ impl FunctionEmitter<'_> {
                     }
                 }
             },
-            Rvalue::Conditional {
-                cond,
-                then_operand,
-                else_operand,
-            } => Ok(format!(
-                "if {} {{ {} }} else {{ {} }}",
-                self.operand_text(cond)?,
-                self.value_at_type(then_operand, dest_ty)?,
-                self.value_at_type(else_operand, dest_ty)?
-            )),
             Rvalue::FunctionTableLookup { key, cases } => {
                 self.function_table_lookup_text(key, cases, dest_ty)
             }
@@ -2207,10 +2197,6 @@ impl FunctionEmitter<'_> {
                 self.list_callback_text(*op, list, callback, dest_ty)
             }
             Rvalue::ListFromLength { length } => self.list_from_length_text(length, dest_ty),
-            Rvalue::ListRepeat {
-                value: repeat_value,
-                count,
-            } => self.list_repeat_text(repeat_value, count, dest_ty),
             Rvalue::ListFromLengthMap { length, callback } => {
                 self.list_from_length_map_text(length, callback, dest_ty)
             }
@@ -2341,7 +2327,6 @@ impl FunctionEmitter<'_> {
             Rvalue::JsonStringify { value: json_value } => {
                 self.json_stringify_text(json_value, dest_ty)
             }
-            Rvalue::JsonParse { text } => self.json_parse_text(text, dest_ty),
             Rvalue::HttpGetText { url } => self.http_get_text(url),
             Rvalue::GlobalGet { global } => self.global_get_text(*global),
             Rvalue::GlobalSet { global, value: stored } => {

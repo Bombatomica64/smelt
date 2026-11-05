@@ -738,10 +738,6 @@ impl ExprKind {
                 callback: f(callback)?,
             },
             Self::ListFromLength { length } => Self::ListFromLength { length: f(length)? },
-            Self::ListRepeat { value, count } => Self::ListRepeat {
-                value: f(value)?,
-                count: f(count)?,
-            },
             Self::ListFromLengthMap { length, callback } => Self::ListFromLengthMap {
                 length: f(length)?,
                 callback: f(callback)?,

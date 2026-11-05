@@ -73,7 +73,7 @@
 //!    the untaken successor, so the two paths differ only by the seeding store.
 //!    The single predecessor is what makes leaving the block behind harmless:
 //!    once the guard's terminator no longer names it, nothing reaches it.
-//! 6. The `then_block` carries no phis and exactly two statements: a temp `%t`
+//! 6. The `then_block` carries exactly two statements: a temp `%t`
 //!    assigned the value type's default aggregate, then an
 //!    [`Statement::AssignPlace`] storing `%t` into `dict[key]`, where the base
 //!    and index read the same place as the [`Rvalue::DictContainsKey`]'s `dict`
@@ -100,10 +100,6 @@
 //!    the dict or the key. Conditions 2 and 3 already force those three to be
 //!    the last three items of the guard block, back to back, so there is no
 //!    statement in between to check.
-//!
-//! The join block is required to carry no phis: the edge from `then_block` goes
-//! dead, and a phi would need its incoming entry for that edge dropped rather
-//! than left dangling.
 
 use smelt_hir::{Type, TypeInterner, UnaryOp};
 
@@ -276,9 +272,6 @@ fn then_block_only_seeds_default(
         return false;
     }
     // Condition 6.
-    if !block.phis.is_empty() {
-        return false;
-    }
     let [
         Statement::Assign {
             dest: default_local,
@@ -342,9 +335,6 @@ fn join_creates_entry(function: &MirFunction, join: BlockId, entry: Entry<'_>) -
     let Some(block) = block_at(function, join) else {
         return false;
     };
-    if !block.phis.is_empty() {
-        return false;
-    }
     let Some(Statement::Assign {
         value: Rvalue::ListPush { list, .. },
         ..

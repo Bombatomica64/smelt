@@ -80,9 +80,6 @@ fn definition_candidates(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> 
         }
     };
     for block in &function.blocks {
-        for phi in &block.phis {
-            disqualified.insert(phi.dest);
-        }
         for statement in &block.statements {
             match statement {
                 Statement::Assign { dest, value } => {
@@ -111,7 +108,6 @@ fn definition_candidates(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> 
                 Statement::DictEntryUpdate { current, .. } => {
                     disqualified.insert(*current);
                 }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
         if let Some(Terminator::Call { dest, .. } | Terminator::Await { dest, .. }) =
@@ -162,11 +158,6 @@ fn every_read_is_supported(
         }
     };
     for block in &function.blocks {
-        for phi in &block.phis {
-            for (_, operand) in &phi.incoming {
-                count(&mut total, operand);
-            }
-        }
         for statement in &block.statements {
             match statement {
                 Statement::Assign { value, .. } => {
@@ -199,11 +190,10 @@ fn every_read_is_supported(
                     count(&mut total, default);
                     value.for_each_operand(|operand| count(&mut total, operand));
                 }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
         match &block.terminator {
-            None | Some(Terminator::Goto(_) | Terminator::Unreachable) => {}
+            None | Some(Terminator::Goto(_)) => {}
             Some(Terminator::Call { callee, args, .. }) => {
                 if let Callee::Indirect(operand) = callee {
                     count(&mut total, operand);

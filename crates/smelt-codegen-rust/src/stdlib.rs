@@ -127,7 +127,6 @@ pub(crate) fn rvalues(mir: &Mir) -> impl Iterator<Item = &Rvalue> {
                     Statement::Assign { value, .. }
                     | Statement::AssignPlace { value, .. }
                     | Statement::DictEntryUpdate { value, .. } => Some(value),
-                    Statement::StorageLive(_) | Statement::StorageDead(_) => None,
                 })
         })
     });
@@ -140,7 +139,6 @@ pub(crate) fn rvalues(mir: &Mir) -> impl Iterator<Item = &Rvalue> {
                     Statement::Assign { value, .. }
                     | Statement::AssignPlace { value, .. }
                     | Statement::DictEntryUpdate { value, .. } => Some(value),
-                    Statement::StorageLive(_) | Statement::StorageDead(_) => None,
                 })
         })
     });
@@ -1077,10 +1075,7 @@ fn needs_bigint_json_stringify(mir: &Mir) -> bool {
 
 /// Returns true when a MIR rvalue uses Serde JSON APIs.
 fn rvalue_needs_serde_json(rvalue: &Rvalue) -> bool {
-    matches!(
-        rvalue,
-        Rvalue::JsonStringify { .. } | Rvalue::JsonParse { .. }
-    )
+    matches!(rvalue, Rvalue::JsonStringify { .. })
 }
 
 /// Returns true when a MIR rvalue uses Reqwest APIs.

@@ -335,7 +335,6 @@ fn listener_registrations(blocks: &[BasicBlock]) -> Vec<(ClosureId, LocalId)> {
                     rvalue_uses_local(value, *dest)
                 }
                 Statement::DictEntryUpdate { value, .. } => rvalue_uses_local(value, *dest),
-                Statement::StorageLive(_) | Statement::StorageDead(_) => false,
             })
             .count()
             .saturating_add(
@@ -414,7 +413,6 @@ fn only_use_is_field_store(
                         uses = uses.saturating_add(1);
                     }
                 }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
         if block

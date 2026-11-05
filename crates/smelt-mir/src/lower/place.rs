@@ -421,7 +421,6 @@ impl LoweringCtx<'_> {
             | ExprKind::ListSearch { .. }
             | ExprKind::ListCallback { .. }
             | ExprKind::ListFromLength { .. }
-            | ExprKind::ListRepeat { .. }
             | ExprKind::ListFromLengthMap { .. }
             | ExprKind::ListReduce { .. }
             | ExprKind::ListSlice { .. }

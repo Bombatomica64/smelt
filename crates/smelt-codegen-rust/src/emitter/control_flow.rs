@@ -479,7 +479,6 @@ impl FunctionEmitter<'_> {
                 current,
                 value,
             } => self.emit_dict_entry_update_statement(*base, index, default, *current, value, out),
-            Statement::StorageLive(_) | Statement::StorageDead(_) => Ok(()),
         }
     }
 
@@ -1092,11 +1091,6 @@ impl FunctionEmitter<'_> {
                 // Shared with the closure-body emitter so the two throw paths
                 // cannot drift; see `emitter::throw`.
                 out.push_str(&self.throw_terminator_text(operand)?);
-                self.flow.record(Flow::Diverges);
-                Ok(())
-            }
-            Terminator::Unreachable => {
-                out.push_str("    unreachable!();\n");
                 self.flow.record(Flow::Diverges);
                 Ok(())
             }
@@ -2142,7 +2136,7 @@ impl FunctionEmitter<'_> {
 
         let block = self.block(block_id)?;
         let result = match &block.terminator {
-            Some(Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable) => true,
+            Some(Terminator::Return(_) | Terminator::Throw(_)) => true,
             Some(Terminator::Goto(target)) => {
                 self.block_eventually_terminates(*target, visiting)?
             }
@@ -2304,7 +2298,7 @@ impl FunctionEmitter<'_> {
         }
         let block = self.block(block_id)?;
         let result = match &block.terminator {
-            Some(Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable) => true,
+            Some(Terminator::Return(_) | Terminator::Throw(_)) => true,
             Some(Terminator::Goto(target)) => self.block_diverges_before(*target, stop, visiting)?,
             // A call with an unwind edge forks the region; both successors
             // must diverge.
@@ -2373,7 +2367,7 @@ impl FunctionEmitter<'_> {
         }
         let block = self.block(block_id)?;
         let result = match &block.terminator {
-            Some(Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable) => true,
+            Some(Terminator::Return(_) | Terminator::Throw(_)) => true,
             Some(
                 Terminator::Goto(target)
                 | Terminator::Call { target, .. }
@@ -2638,7 +2632,7 @@ impl FunctionEmitter<'_> {
                 }
                 Ok(all_exit)
             }
-            Some(Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable) => {
+            Some(Terminator::Return(_) | Terminator::Throw(_)) => {
                 Ok(true)
             }
             _ => Ok(false),
@@ -3839,6 +3833,6 @@ pub(super) fn control_flow_successors(terminator: &Terminator) -> Vec<smelt_mir:
             }
             successors
         }
-        Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable => Vec::new(),
+        Terminator::Return(_) | Terminator::Throw(_) => Vec::new(),
     }
 }
