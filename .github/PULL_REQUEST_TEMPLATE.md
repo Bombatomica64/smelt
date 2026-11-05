@@ -19,7 +19,7 @@ Add the label if you touched any of:
 | HIR / MIR | `crates/smelt-hir`, `crates/smelt-mir` |
 | Specializer | `crates/smelt-specialize` |
 | Rust emitter / codegen | `crates/smelt-codegen-rust` |
-| Runtime / stdlib | `crates/smelt-runtime`, `crates/smelt-stdlib`, `crates/smelt-asyncio` |
+| Runtime / stdlib | `crates/smelt-runtime`, `crates/smelt-stdlib` |
 
 Without the label these gates are simply absent — not passing. `main` is not
 branch-protected, so a green check on an unlabelled codegen PR is not evidence

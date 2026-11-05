@@ -120,8 +120,8 @@ impl ModuleBuilder<'_> {
         }
 
         let span = self.span(call.range());
-        match smelt_asyncio::classify_attr(attr.attr.as_str()) {
-            smelt_asyncio::AsyncioApi::Gather => {
+        match classify_asyncio_attr(attr.attr.as_str()) {
+            AsyncioApi::Gather => {
                 let args = call
                     .arguments
                     .args
@@ -151,7 +151,7 @@ impl ModuleBuilder<'_> {
                     span,
                 })))
             }
-            smelt_asyncio::AsyncioApi::Sleep => {
+            AsyncioApi::Sleep => {
                 if call.arguments.args.len() != 1 {
                     return Err(SmeltError::unsupported(
                         span,
@@ -176,7 +176,7 @@ impl ModuleBuilder<'_> {
                     span,
                 })))
             }
-            smelt_asyncio::AsyncioApi::CreateTask => {
+            AsyncioApi::CreateTask => {
                 if call.arguments.args.len() != 1 {
                     return Err(SmeltError::unsupported(
                         span,
@@ -208,7 +208,7 @@ impl ModuleBuilder<'_> {
                     span,
                 })))
             }
-            smelt_asyncio::AsyncioApi::WaitFor => {
+            AsyncioApi::WaitFor => {
                 if call.arguments.args.len() < 2 {
                     return Err(SmeltError::unsupported(
                         span,
@@ -241,7 +241,7 @@ impl ModuleBuilder<'_> {
                     span,
                 })))
             }
-            smelt_asyncio::AsyncioApi::Queue | smelt_asyncio::AsyncioApi::Lock => {
+            AsyncioApi::Queue | AsyncioApi::Lock => {
                 Err(SmeltError::unsupported(
                     span,
                     format!(
@@ -250,20 +250,16 @@ impl ModuleBuilder<'_> {
                     ),
                 ))
             }
-            smelt_asyncio::AsyncioApi::LowerLevelLoop => Err(SmeltError::unsupported(
+            AsyncioApi::LowerLevelLoop => Err(SmeltError::unsupported(
                 span,
                 format!(
                     "asyncio.{} is a lower-level event-loop API and is not supported",
                     attr.attr
                 ),
             )),
-            smelt_asyncio::AsyncioApi::Unknown => Err(SmeltError::unsupported(
+            AsyncioApi::Unknown => Err(SmeltError::unsupported(
                 span,
                 format!("asyncio.{} is not lowered yet", attr.attr),
-            )),
-            _ => Err(SmeltError::unsupported(
-                span,
-                format!("asyncio.{} is not recognized by this frontend", attr.attr),
             )),
         }
     }
@@ -357,4 +353,39 @@ impl ModuleBuilder<'_> {
     }
 
     // Member lowering continues in `member.rs`.
+}
+
+/// Classification for an `asyncio.<name>` call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AsyncioApi {
+    /// `asyncio.create_task`.
+    CreateTask,
+    /// `asyncio.gather`.
+    Gather,
+    /// `asyncio.sleep`.
+    Sleep,
+    /// `asyncio.wait_for`.
+    WaitFor,
+    /// `asyncio.Queue`.
+    Queue,
+    /// `asyncio.Lock`.
+    Lock,
+    /// Lower-level event-loop API rejected in the first async slice.
+    LowerLevelLoop,
+    /// Unknown `asyncio` API.
+    Unknown,
+}
+
+/// Classify an attribute name from `asyncio.<name>`.
+fn classify_asyncio_attr(name: &str) -> AsyncioApi {
+    match name {
+        "create_task" => AsyncioApi::CreateTask,
+        "gather" => AsyncioApi::Gather,
+        "sleep" => AsyncioApi::Sleep,
+        "wait_for" => AsyncioApi::WaitFor,
+        "Queue" => AsyncioApi::Queue,
+        "Lock" => AsyncioApi::Lock,
+        "get_event_loop" | "get_running_loop" | "call_soon" => AsyncioApi::LowerLevelLoop,
+        _ => AsyncioApi::Unknown,
+    }
 }

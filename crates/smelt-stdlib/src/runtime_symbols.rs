@@ -121,13 +121,6 @@ pub mod strings {
     /// structure.
     pub const ENCODE_URI_COMPONENT: &str = "smelt_encode_uri_component";
 
-    /// The shared percent-decoder both decoders call
-    /// (`smelt_decode_uri` / `smelt_decode_uri_component`).
-    ///
-    /// Parameterized by the character set to leave escaped, and returns `None`
-    /// for exactly the input ECMA-262 rejects with a `URIError`.
-    pub const DECODE_URI_OCTETS: &str = "smelt_decode_uri_octets";
-
     /// Percent-decodes a full URI; backs `decodeURI(value)`
     /// (`UriTranscodeOp::Decode`). Leaves the URI reserved separators escaped.
     pub const DECODE_URI: &str = "smelt_decode_uri";

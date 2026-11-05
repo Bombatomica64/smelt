@@ -47,8 +47,6 @@
 //! flip that export's [`HostSurface`] to [`HostSurface::Modeled`] in the same
 //! commit as the implementation and its tests.
 
-use crate::BackendDependency;
-
 /// Whether a host-module export is implemented or only declared.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -128,9 +126,6 @@ pub struct HostModule {
     pub specifiers: &'static [&'static str],
     /// The exports Smelt knows about, implemented or declared.
     pub exports: &'static [HostExport],
-    /// Cargo dependencies the generated crate needs *only* when this module is
-    /// actually used, so a crate that never touches it pays nothing.
-    pub dependencies: &'static [BackendDependency],
 }
 
 /// Build a modeled export usable as a value.
@@ -257,13 +252,11 @@ pub const HOST_MODULES: &[HostModule] = &[
                 "the @date-fns/tz TZDate class is not implemented yet",
             ),
         ],
-        dependencies: &[BackendDependency::Chrono, BackendDependency::ChronoTz],
     },
     HostModule {
         id: HostModuleId::Buffer,
         specifiers: &["node:buffer", "buffer"],
         exports: &[modeled_class("Buffer")],
-        dependencies: &[],
     },
     HostModule {
         id: HostModuleId::Crypto,
@@ -290,10 +283,6 @@ pub const HOST_MODULES: &[HostModule] = &[
             declared_value("sign", CRYPTO_KEY_REASON),
             declared_value("verify", CRYPTO_KEY_REASON),
         ],
-        // The three modeled members each pull their own crate, and each is
-        // reported by its own rule (`RuleId::backend_dependency`) so a program
-        // that only calls `randomUUID` gets `uuid` and neither hash crate.
-        dependencies: &[],
     },
     HostModule {
         id: HostModuleId::Events,
@@ -302,7 +291,6 @@ pub const HOST_MODULES: &[HostModule] = &[
             modeled_class("EventEmitter"),
             modeled_value("default"),
         ],
-        dependencies: &[],
     },
     HostModule {
         id: HostModuleId::Http,
@@ -322,7 +310,6 @@ pub const HOST_MODULES: &[HostModule] = &[
                 "import { createServer } from 'node:http' rather than the default export",
             ),
         ],
-        dependencies: &[BackendDependency::Hyper],
     },
     // `@hono/node-server` is the Node adapter of fetch-handler frameworks
     // (Hono, and anything with a `fetch(request)` entry point). Its source
@@ -339,13 +326,11 @@ pub const HOST_MODULES: &[HostModule] = &[
             declared_value("getRequestListener", HONO_NODE_SERVER_REASON),
             declared_class("RequestError", HONO_NODE_SERVER_REASON),
         ],
-        dependencies: &[BackendDependency::Hyper],
     },
     HostModule {
         id: HostModuleId::Path,
         specifiers: &["node:path", "path", "node:path/posix", "path/posix"],
         exports: PATH_EXPORTS,
-        dependencies: &[],
     },
     HostModule {
         id: HostModuleId::Sqlite,
@@ -362,13 +347,11 @@ pub const HOST_MODULES: &[HostModule] = &[
             declared_value("backup", SQLITE_REASON),
             declared_value("constants", SQLITE_REASON),
         ],
-        dependencies: &[BackendDependency::Rusqlite],
     },
     HostModule {
         id: HostModuleId::Url,
         specifiers: &["node:url", "url"],
         exports: &[modeled_class("URL"), modeled_class("URLSearchParams")],
-        dependencies: &[BackendDependency::Url],
     },
 ];
 
@@ -462,12 +445,6 @@ pub const fn unmodeled_package_use_blocks() -> bool {
     true
 }
 
-/// Return the Cargo dependencies a host module's generated code needs.
-#[must_use]
-pub fn host_module_dependencies(specifier: &str) -> &'static [BackendDependency] {
-    host_module(specifier).map_or(&[], |module| module.dependencies)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -542,13 +519,6 @@ mod tests {
         assert!(host_value_blocker("node:crypto", "createHash").is_none());
         assert!(host_value_blocker("crypto", "Hash").is_none());
         assert!(host_value_blocker("node:crypto", "randomBytes").is_some());
-    }
-
-    /// Dependencies are declared per module so use stays pay-for-use.
-    #[test]
-    fn modules_declare_their_dependencies() {
-        assert!(host_module_dependencies("node:url").contains(&BackendDependency::Url));
-        assert_eq!(host_module_dependencies("express"), &[]);
     }
 
     /// Every registry entry declares at least one specifier and export.

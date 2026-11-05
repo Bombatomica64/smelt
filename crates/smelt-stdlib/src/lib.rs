@@ -8,7 +8,6 @@ pub mod builtin_members;
 pub mod category;
 pub mod classes;
 pub mod deps;
-pub mod diagnostics;
 pub mod erased_prototype_methods;
 pub mod fields;
 pub mod globals;
@@ -31,7 +30,6 @@ pub use classes::{
     is_typed_array_class_name, stdlib_class_instance_has_property, typescript_stdlib_class,
 };
 pub use deps::BackendDependency;
-pub use diagnostics::{StdlibDiagnostic, UnsupportedForm};
 pub use erased_prototype_methods::{
     ERASED_ARRAY_PROTOTYPE_METHODS, ERASED_STRING_PROTOTYPE_METHODS,
     erased_array_prototype_method, erased_string_prototype_method, is_erased_prototype_call, is_erased_prototype_method,
@@ -45,7 +43,7 @@ pub use globals::{
 };
 pub use host_modules::{
     HOST_MODULES, HostExport, HostExportKind, HostModule, HostModuleId, HostSurface, host_module,
-    host_module_dependencies, host_module_export, host_module_id, host_value_blocker,
+    host_module_export, host_module_id, host_value_blocker,
     is_host_module,
     unmodeled_package_use_blocks,
 };
@@ -59,7 +57,5 @@ pub use recognition::{
     CallRecognition, MethodRecognition, TYPESCRIPT_CALLS, TYPESCRIPT_METHODS,
     TypeScriptReceiverKind, typescript_call_rule, typescript_method_rule,
 };
-pub use rules::{
-    ApiNamespace, ApiShape, ArgShape, EffectKind, ReceiverKind, ReturnShape, RuleId, SourceLanguage,
-};
+pub use rules::RuleId;
 

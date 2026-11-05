@@ -36,7 +36,6 @@ CRATES=(
   smelt-hir
   smelt-stdlib
   smelt-runtime
-  smelt-asyncio
   smelt-test
   smelt-specialize
   smelt-ts-model
@@ -46,7 +45,6 @@ CRATES=(
   smelt-codegen-rust
   smelt-frontend-ts
   smelt-transpiler
-  smelt-gui
 )
 
 # Returns 0 if <crate> already has VERSION on crates.io (so a resumed run can
@@ -72,8 +70,7 @@ for crate in "${CRATES[@]}"; do
   if [[ "$EXECUTE" -eq 1 ]]; then
     cargo publish -p "$crate" --no-default-features --allow-dirty
   elif { [[ "$crate" == "smelt-frontend-py" ]] && ! already_published smelt-py-types; } \
-    || { [[ "$crate" == "smelt-transpiler" || "$crate" == "smelt-gui" ]] \
-      && ! already_published smelt-frontend-py; }; then
+    || { [[ "$crate" == "smelt-transpiler" ]] && ! already_published smelt-frontend-py; }; then
     # Cargo insists that every versioned dependency already exist in the
     # registry even with --no-verify. On the first release, validate the staged
     # file set now; a full package dry run becomes available as soon as the

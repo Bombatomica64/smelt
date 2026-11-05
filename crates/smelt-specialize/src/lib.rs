@@ -11,7 +11,6 @@
     reason = "the manifest is a versioned interchange schema whose variants must be explicit"
 )]
 
-mod adapter;
 mod artifact;
 mod cache_key;
 mod detection;
@@ -21,10 +20,7 @@ pub mod prereq;
 mod python;
 mod sandbox;
 
-pub use adapter::{NativeAdapter, NativeAdapterRegistry};
-pub use artifact::{
-    ArtifactError, LoadOrComputeError, SpecializationArtifact, SpecializationArtifactStore,
-};
+pub use artifact::{ArtifactError, SpecializationArtifact, SpecializationArtifactStore};
 pub use cache_key::{CacheKeyInput, SpecializationCacheKey};
 pub use detection::{DetectionReason, ModuleDetection, ModuleInput, detect_specialization_modules};
 pub use manifest::{

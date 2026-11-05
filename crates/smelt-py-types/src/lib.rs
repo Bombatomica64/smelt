@@ -123,18 +123,6 @@ impl ResolvedModuleTypes {
     pub fn param_type_at(&self, offset: u32) -> Option<&str> {
         self.param_types.get(&offset).map(String::as_str)
     }
-
-    /// Number of resolved return types (used by tests / diagnostics).
-    #[must_use]
-    pub fn resolved_return_count(&self) -> usize {
-        self.return_types.len()
-    }
-
-    /// Number of resolved parameter types (used by tests / diagnostics).
-    #[must_use]
-    pub fn resolved_param_count(&self) -> usize {
-        self.param_types.len()
-    }
 }
 
 /// Resolve, via `ty`, the return and parameter types of every function/method
