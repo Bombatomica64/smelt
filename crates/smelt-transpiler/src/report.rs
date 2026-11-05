@@ -103,6 +103,7 @@ pub(crate) fn bump<K: Ord>(counts: &mut BTreeMap<K, usize>, key: K, amount: usiz
 }
 
 /// `part / whole` as a percentage.
+#[cfg(feature = "ts7")]
 pub(crate) fn ratio_percent(part: usize, whole: usize) -> f64 {
     let numerator = u32::try_from(part).map_or(f64::from(u32::MAX), f64::from);
     let denominator = u32::try_from(whole).map_or(f64::from(u32::MAX), f64::from);
@@ -146,6 +147,11 @@ mod tests {
         assert_eq!(count_share(1, 0), "1 (—)");
         assert_eq!(truncated_share(2, 3), "66.6%");
         assert_eq!(truncated_share(0, 0), "-");
+    }
+
+    #[cfg(feature = "ts7")]
+    #[test]
+    fn parity_ratio_keeps_its_format() {
         assert_eq!(format!("{:.1}%", ratio_percent(2, 3)), "66.7%");
     }
 
