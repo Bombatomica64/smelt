@@ -140,7 +140,7 @@ impl FunctionEmitter<'_> {
     /// into a closure that needs shared access to them.
     fn rvalue_mutable_locals(&self, value: &Rvalue) -> Vec<LocalId> {
         let mut locals = Vec::new();
-        if let Some(root) = rvalue_mutation_target(value).and_then(operand_mutation_root) {
+        if let Some(root) = mutated_binding_root(value) {
             locals.push(root);
         }
         match value {
@@ -495,46 +495,25 @@ impl FunctionEmitter<'_> {
 
     /// Returns whether evaluating `value` mutates `local` in-place.
     ///
-    /// The receiver is [`rvalue_mutation_target`]'s operand.
-    ///
     /// The receiver may be an index place rather than a bare local
     /// (`base[key].push(x)`, the form `smelt_mir::opt::DictEntryInPlaceMutation`
     /// produces): that mutates the CONTAINER in place, so the container is the
     /// local whose binding must be mutable.
     pub(super) fn rvalue_mutates_local(&self, value: &Rvalue, local: LocalId) -> bool {
-        rvalue_mutation_target(value).and_then(operand_mutation_root) == Some(local)
+        mutated_binding_root(value) == Some(local)
     }
 }
 
-/// The container operand an rvalue mutates in place, if it is a mutating
-/// collection operation.
-fn rvalue_mutation_target(value: &Rvalue) -> Option<&Operand> {
-        let mutated = match value {
-            Rvalue::ListPush { list, .. }
-            | Rvalue::ListExtend { list, .. }
-            | Rvalue::ListInsert { list, .. }
-            | Rvalue::ListSplice { list, .. }
-            | Rvalue::ListReverse { list }
-            | Rvalue::ListFill { list, .. }
-            | Rvalue::ListCopyWithin { list, .. }
-            | Rvalue::ListClear { list }
-            | Rvalue::ListRemove { list, .. }
-            | Rvalue::ListSort { list, .. }
-            | Rvalue::ListPop { list }
-            | Rvalue::ListShift { list }
-            | Rvalue::ListNext { list }
-            | Rvalue::SetAdd { set: list, .. }
-            | Rvalue::SetRemove { set: list, .. }
-            | Rvalue::SetClear { set: list }
-            | Rvalue::DictClear { dict: list }
-            | Rvalue::DictPop { dict: list, .. }
-            | Rvalue::DictSet { dict: list, .. }
-            | Rvalue::DictRemoveKey { dict: list, .. }
-            | Rvalue::DictSetDefault { dict: list, .. }
-            | Rvalue::DictUpdate { dict: list, .. } => list,
-            _ => return None,
-        };
-        Some(mutated)
+/// The local whose Rust binding an in-place mutation makes `mut`: the root of
+/// [`Rvalue::mutated_receiver`], except where the receiver's representation
+/// decides. `DictAssign` is settled per representation by
+/// `rvalue_borrows_local_mutably`, and `ListUnshift` writes through the list's
+/// shared `borrow_mut` handle, so the binding itself stays immutable.
+fn mutated_binding_root(value: &Rvalue) -> Option<LocalId> {
+    match value {
+        Rvalue::DictAssign { .. } | Rvalue::ListUnshift { .. } => None,
+        other => other.mutated_receiver().and_then(operand_mutation_root),
+    }
 }
 
 impl FunctionEmitter<'_> {

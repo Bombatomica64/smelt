@@ -1091,6 +1091,44 @@ impl Rvalue {
         walk_rvalue_operands!(self, visit, mut);
     }
 
+    /// The collection operand this rvalue mutates in place, if any.
+    ///
+    /// This is the one list of receiver-mutating operations; copies and
+    /// non-mutating projections (`DictCopy`, `SetCopy`, a non-mutating
+    /// `ListSplice`) answer `None`.
+    #[must_use]
+    pub const fn mutated_receiver(&self) -> Option<&Operand> {
+        match self {
+            Self::ListPush { list, .. }
+            | Self::ListExtend { list, .. }
+            | Self::ListInsert { list, .. }
+            | Self::ListUnshift { list, .. }
+            | Self::ListReverse { list }
+            | Self::ListSplice {
+                list, mutate: true, ..
+            }
+            | Self::ListFill { list, .. }
+            | Self::ListCopyWithin { list, .. }
+            | Self::ListClear { list }
+            | Self::ListRemove { list, .. }
+            | Self::ListSort { list, .. }
+            | Self::ListPop { list }
+            | Self::ListShift { list }
+            | Self::ListNext { list } => Some(list),
+            Self::SetAdd { set, .. } | Self::SetRemove { set, .. } | Self::SetClear { set } => {
+                Some(set)
+            }
+            Self::DictClear { dict }
+            | Self::DictPop { dict, .. }
+            | Self::DictSet { dict, .. }
+            | Self::DictRemoveKey { dict, .. }
+            | Self::DictSetDefault { dict, .. }
+            | Self::DictUpdate { dict, .. } => Some(dict),
+            Self::DictAssign { target, .. } => Some(target),
+            _ => None,
+        }
+    }
+
     /// Visit every local this rvalue reads, through any projection.
     pub fn read_locals(&self, mut visit: impl FnMut(LocalId)) {
         self.reads(|operand| operand.read_locals(&mut visit));
@@ -1421,6 +1459,23 @@ mod tests {
         let body = function(Vec::new(), indirect_call(A, vec![copy(A), copy(B)], C));
         assert_eq!(body.read_count(A), 2, "once as callee, once as argument");
         assert_eq!(body.read_count(B), 1);
+    }
+
+    /// `splice` mutates its receiver; a non-mutating splice is a copy.
+    #[test]
+    fn mutated_receiver_follows_the_splice_mutate_flag() {
+        let splice = |mutate| Rvalue::ListSplice {
+            list: copy(A),
+            start: copy(B),
+            delete_count: None,
+            items: Vec::new(),
+            mutate,
+        };
+        assert_eq!(splice(true).mutated_receiver().and_then(Operand::local), Some(A));
+        assert!(splice(false).mutated_receiver().is_none());
+        let unshift = Rvalue::ListUnshift { list: copy(A), items: Vec::new() };
+        assert_eq!(unshift.mutated_receiver().and_then(Operand::local), Some(A));
+        assert!(Rvalue::Use(copy(A)).mutated_receiver().is_none());
     }
 
     /// Every kind of definition counts toward "assigned once".

@@ -58,42 +58,6 @@ use std::collections::HashSet;
 use smelt_hir::{Symbol, Type};
 use smelt_mir::{HirOrigin, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement};
 
-/// Return the collection operand an rvalue mutates in place, if any.
-///
-/// Several MIR rvalues model JavaScript collection methods that mutate their
-/// receiver in place (`map.set(...)`, `set.add(...)`, `arr.push(...)`, ...).
-/// The generated Rust for these calls a `&mut`-taking method on the receiver,
-/// so when the receiver is a class instance field (`this.<field>`) the owning
-/// method must obtain mutable access to that field. Returning the mutated
-/// receiver operand lets the reference-class classifier treat such a call the
-/// same as a direct `this.<field> = …` write. Non-mutating projections
-/// (`DictCopy`, `SetCopy`, a non-mutating `ListSplice`) return `None`.
-fn mutated_collection_operand(rvalue: &Rvalue) -> Option<&Operand> {
-    match rvalue {
-        Rvalue::DictSet { dict, .. }
-        | Rvalue::DictRemoveKey { dict, .. }
-        | Rvalue::DictSetDefault { dict, .. }
-        | Rvalue::DictClear { dict }
-        | Rvalue::DictPop { dict, .. }
-        | Rvalue::DictUpdate { dict, .. } => Some(dict),
-        Rvalue::DictAssign { target, .. } => Some(target),
-        Rvalue::SetAdd { set, .. }
-        | Rvalue::SetRemove { set, .. }
-        | Rvalue::SetClear { set } => Some(set),
-        Rvalue::ListPush { list, .. }
-        | Rvalue::ListExtend { list, .. }
-        | Rvalue::ListInsert { list, .. }
-        | Rvalue::ListUnshift { list, .. }
-        | Rvalue::ListPop { list }
-        | Rvalue::ListShift { list }
-        | Rvalue::ListFill { list, .. } => Some(list),
-        Rvalue::ListSplice {
-            list, mutate: true, ..
-        } => Some(list),
-        _ => None,
-    }
-}
-
 /// Compute the set of class symbols that must be emitted as reference classes.
 ///
 /// Scans every MIR function for the V1 classification triggers documented on
@@ -424,7 +388,7 @@ fn collect_field_mutation_triggers(
             let Statement::Assign { value, .. } = statement else {
                 continue;
             };
-            let Some(mutated) = mutated_collection_operand(value) else {
+            let Some(mutated) = value.mutated_receiver() else {
                 continue;
             };
             // Only an in-place mutation of an instance *field* matters; a

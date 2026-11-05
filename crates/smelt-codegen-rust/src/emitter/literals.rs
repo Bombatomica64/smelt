@@ -65,36 +65,8 @@ pub(super) fn assigned_locals(
             {
                 locals.insert(local);
             }
-            if let Statement::Assign {
-                value:
-                    Rvalue::ListPush { list, .. }
-                    | Rvalue::ListExtend { list, .. }
-                    | Rvalue::ListInsert { list, .. }
-                    | Rvalue::ListUnshift { list, .. }
-                    | Rvalue::ListReverse { list }
-                    | Rvalue::ListSplice {
-                        list, mutate: true, ..
-                    }
-                    | Rvalue::ListFill { list, .. }
-                    | Rvalue::ListCopyWithin { list, .. }
-                    | Rvalue::ListClear { list }
-                    | Rvalue::ListRemove { list, .. }
-                    | Rvalue::ListSort { list, .. }
-                    | Rvalue::ListPop { list }
-                    | Rvalue::ListShift { list }
-                    | Rvalue::ListNext { list }
-                    | Rvalue::SetAdd { set: list, .. }
-                    | Rvalue::SetRemove { set: list, .. }
-                    | Rvalue::SetClear { set: list }
-                    | Rvalue::DictClear { dict: list }
-                    | Rvalue::DictPop { dict: list, .. }
-                    | Rvalue::DictSet { dict: list, .. }
-                    | Rvalue::DictRemoveKey { dict: list, .. }
-                    | Rvalue::DictSetDefault { dict: list, .. }
-                    | Rvalue::DictUpdate { dict: list, .. },
-                ..
-            } = statement
-                && let Some(local) = operand_mutation_root(list)
+            if let Statement::Assign { value, .. } = statement
+                && let Some(local) = value.mutated_receiver().and_then(operand_mutation_root)
             {
                 locals.insert(local);
             }
