@@ -357,7 +357,7 @@ fn is_integer_definition(value: &Rvalue, candidates: &Candidates) -> bool {
             lhs,
             rhs,
         } => is_integer_operand(lhs, candidates) && is_integer_operand(rhs, candidates),
-        Rvalue::Len(_) => true,
+        Rvalue::Len { .. } => true,
         _ => false,
     }
 }
@@ -867,7 +867,7 @@ impl Analysis<'_> {
                 self.operand_interval(lhs, state)?
                     .sub(self.operand_interval(rhs, state)?),
             ),
-            Rvalue::Len(_) => Some(Interval::new(Some(0), Some(MAX_LENGTH))),
+            Rvalue::Len { .. } => Some(Interval::new(Some(0), Some(MAX_LENGTH))),
             _ => Some(Interval {
                 lo: None,
                 hi: None,
@@ -1209,7 +1209,7 @@ fn accepted_locals(
                     let mut reads_rejected = false;
                     if let Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } =
                         &blocks[definition.block].statements[definition.statement]
-                        && !matches!(value, Rvalue::Len(_))
+                        && !matches!(value, Rvalue::Len { .. })
                     {
                         value.reads(|operand| {
                             if let Some(read) = operand.local() {
@@ -1279,7 +1279,7 @@ fn choose_widths(
                 _ => continue,
             };
             if accepted.contains(&dest) {
-                if !matches!(value, Rvalue::Len(_)) {
+                if !matches!(value, Rvalue::Len { .. }) {
                     value.reads(|operand| {
                         if let Some(read) = operand.local() {
                             union(&mut parents, dest, read);
@@ -1428,7 +1428,7 @@ impl Rewriter<'_> {
                 value,
             } if self.is_retyped(*dest) => {
                 let width = self.widths[dest];
-                if matches!(value, Rvalue::Len(_)) {
+                if matches!(value, Rvalue::Len { .. }) {
                     // The measured value is a container, but it may be an
                     // element read whose index needs the usual treatment.
                     self.rewrite_rvalue(value, prelude);

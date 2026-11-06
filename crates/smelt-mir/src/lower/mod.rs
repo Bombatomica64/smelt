@@ -45,6 +45,8 @@ mod place;
 mod stmt;
 /// The lexical control-scope stack (loops, `try` regions) and block cursor.
 mod scope;
+/// Lowering of the operations the op table transcribes.
+mod transcribe;
 
 /// Closure ABI ownership: construction, escape analysis, and throwing widening.
 mod closures;

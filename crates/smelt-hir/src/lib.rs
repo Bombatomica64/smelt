@@ -47,6 +47,8 @@ mod expr;
 mod format;
 /// Typed ID newtypes and source span primitives.
 pub mod ids;
+/// The one table of operations HIR and MIR share.
+pub mod op_table;
 /// HIR top-level items (functions, classes, interfaces).
 mod item;
 /// Crate/module metadata and imports.

@@ -1234,7 +1234,7 @@ fn operand_roles(value: &Rvalue) -> Vec<(&Operand, OperandRole)> {
 
         // Read-only list operations: the receiver is inspected and the result is
         // fresh or scalar.
-        Rvalue::Len(list)
+        Rvalue::Len { operand: list }
         | Rvalue::ListCopy { list }
         | Rvalue::ListSum { list }
         | Rvalue::ListToSet { list }

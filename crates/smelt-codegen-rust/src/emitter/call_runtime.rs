@@ -645,13 +645,13 @@ impl FunctionEmitter<'_> {
                     .transpose()?
                     .unwrap_or_else(|| "Default::default()".to_owned());
                 let command = match kind {
-                    smelt_mir::GeneratorResumeKind::Next => {
+                    smelt_hir::GeneratorResumeKind::Next => {
                         format!("SmeltGeneratorCommand::Next({raw_value})")
                     }
-                    smelt_mir::GeneratorResumeKind::Return => {
+                    smelt_hir::GeneratorResumeKind::Return => {
                         format!("SmeltGeneratorCommand::Return({raw_value})")
                     }
-                    smelt_mir::GeneratorResumeKind::Throw => {
+                    smelt_hir::GeneratorResumeKind::Throw => {
                         let thrown = if let Some(value) = value {
                             let unknown_ty = self.type_id(Type::Unknown)?;
                             self.value_at_type(value, unknown_ty)?
@@ -1580,8 +1580,8 @@ impl FunctionEmitter<'_> {
                     Ok(text)
                 }
             }
-            Rvalue::Len(operand) => self.len_text(operand, dest_ty),
-            Rvalue::NumericAbs(operand) => self.numeric_abs_text(operand),
+            Rvalue::Len { operand } => self.len_text(operand, dest_ty),
+            Rvalue::NumericAbs { operand } => self.numeric_abs_text(operand),
             Rvalue::NumericRound { op, operand } => self.numeric_round_text(*op, operand, dest_ty),
             Rvalue::NumericExtrema { op, args, spread } => {
                 self.numeric_extrema_text(*op, args, spread.as_ref(), dest_ty)

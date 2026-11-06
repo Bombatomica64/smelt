@@ -11,6 +11,9 @@ mod map;
 mod ops;
 mod types;
 
+/// `dump` spellings of the operation selectors.
+mod op_text;
+
 pub use call::{
     CaptureMode, ClosureCapture, ClosureExpr,
 };

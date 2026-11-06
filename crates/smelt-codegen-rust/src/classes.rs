@@ -479,7 +479,7 @@ fn rvalue_preserves_opacity(rvalue: &Rvalue) -> bool {
             // Container-level queries read the *container*, never an element, so
             // a `SmeltList<T>` operand leaves `T` opaque even though the result
             // (a length) drops it.
-            | Rvalue::Len(_)
+            | Rvalue::Len { .. }
             // Handing a `T` to a callback moves it into the callee. Whether that
             // callee's signature can carry `T` is a separate question, answered
             // by `callback_occurrences_are_liftable`. `ListCallback` is the

@@ -565,7 +565,9 @@ impl LoweringCtx<'_> {
         let len = self.push_temp(float_ty, self.block()?.span);
         self.block_mut()?.statements.push(Statement::Assign {
             dest: len,
-            value: Rvalue::Len(Operand::Copy(Place::Local(iter_local))),
+            value: Rvalue::Len {
+                    operand: Operand::Copy(Place::Local(iter_local)),
+                },
         });
         let cond = self.push_temp(bool_ty, self.block()?.span);
         self.block_mut()?.statements.push(Statement::Assign {
