@@ -168,6 +168,14 @@ impl ModuleBuilder<'_> {
         Ok(item)
     }
 
+    /// Whether an interface member is an index signature over `number`.
+    fn is_numeric_index_signature(member: &TSSignature<'_>) -> bool {
+        matches!(member, TSSignature::TSIndexSignature(index) if matches!(
+            index.parameter.type_annotation.type_annotation,
+            oxc::ast::ast::TSType::TSNumberKeyword(_)
+        ))
+    }
+
     /// Lower a TypeScript interface declaration to HIR.
     pub(in crate::lowering) fn interface_declaration(
         &mut self,
@@ -176,6 +184,9 @@ impl ModuleBuilder<'_> {
         let local_name_text = interface.id.name.as_str();
         let name_text = self.types.qualify(local_name_text);
         let name = self.declared_type_name_symbol(local_name_text, &name_text);
+        if interface.body.body.iter().any(Self::is_numeric_index_signature) {
+            self.classes.mark_array_like(name);
+        }
         let type_params = self.push_type_parameter_scope(interface.type_parameters.as_deref())?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();

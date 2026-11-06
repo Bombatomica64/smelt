@@ -148,6 +148,12 @@ fn string_key_on_erased_receiver() -> TestResult {
     verify_node_parity("string_key_on_erased_receiver")
 }
 
+/// An interface with a numeric index signature admits a list.
+#[test]
+fn array_like_interface() -> TestResult {
+    verify_node_parity("array_like_interface")
+}
+
 /// Array-valued ternary arms join instead of one adopting the other's type.
 #[test]
 fn conditional_list_arms() -> TestResult {

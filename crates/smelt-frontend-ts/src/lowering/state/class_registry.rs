@@ -92,6 +92,8 @@ pub(in crate::lowering) struct ClassRegistry {
     shadows: Vec<ClassScopeSnapshot>,
     /// How many function and closure bodies enclose the code being lowered.
     body_depth: usize,
+    /// Interfaces declaring a numeric index signature.
+    array_like: HashSet<Symbol>,
     /// Fields for each class, keyed by emitted class name.
     fields: HashMap<String, Vec<Field>>,
     /// Method signatures for classes that are visible before their item is
@@ -344,6 +346,16 @@ impl ClassRegistry {
     /// The registered items by name.
     fn items_by_name(&self) -> HashMap<String, ItemId> {
         self.entries().map(|(name, item)| (name.clone(), item)).collect()
+    }
+
+    /// Record that the interface `name` declares a numeric index signature.
+    pub(in crate::lowering) fn mark_array_like(&mut self, name: Symbol) {
+        self.array_like.insert(name);
+    }
+
+    /// Whether `name` is an interface with a numeric index signature.
+    pub(in crate::lowering) fn is_array_like(&self, name: Symbol) -> bool {
+        self.array_like.contains(&name)
     }
 
     /// Whether lowering is inside a function or closure body.
