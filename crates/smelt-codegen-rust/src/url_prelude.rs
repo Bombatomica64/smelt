@@ -66,7 +66,7 @@ const COMPONENTS: &[(&str, Option<&str>)] = &[
 /// Emit the `SmeltUrl` runtime type.
 ///
 /// Requires `SmeltUrlSearchParams` (its `searchParams`), which the gate in
-/// `stdlib::needs_url_search_params_runtime` guarantees, and
+/// `Need::UrlSearchParams` guarantees, and
 /// `smelt_next_object_id`.
 pub(crate) fn emit(writer: &mut CodeWriter, needs_unknown: bool) {
     emit_struct(writer);

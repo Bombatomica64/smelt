@@ -15100,7 +15100,7 @@ export function build(label: string, flag: boolean): Triple | null {
 /// `type table does not contain literal operand type Unknown at
 /// emitter/types.rs:<line>`, naming a line of the COMPILER rather than the read
 /// in the user's program. The obvious repair is rejected on purpose: interning
-/// `Unknown` there would flip `stdlib::needs_unknown_type` for the whole crate
+/// `Unknown` there would flip `Need::Unknown` for the whole crate
 /// and emit the entire erased prelude for a program that has no erased value.
 ///
 /// This is a SHAPE GUARD, not a reproduction: the shape recorded for H14 (a

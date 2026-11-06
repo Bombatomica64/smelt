@@ -817,7 +817,7 @@ impl FunctionEmitter<'_> {
                 // `Blob` arm. Both branches name a pay-for-use prelude type, so
                 // each is emitted only where that type is, keyed on the same
                 // gate that decides whether it exists at all.
-                let byte_arm = if crate::stdlib::needs_byte_array_runtime(self.mir) {
+                let byte_arm = if self.context.demand().has(Need::ByteArray) {
                     format!(
                         "SmeltUnknown::Object(value) if {elements}(&SmeltUnknown::Object(value.clone())).is_some() => SmeltBody::from_bytes(SmeltTypedArray::smelt_from_unknown(SmeltUnknown::Object(value)).to_bytes()), ",
                         elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
@@ -825,7 +825,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     String::new()
                 };
-                let blob_arm = if crate::stdlib::needs_blob_runtime(self.mir) {
+                let blob_arm = if self.context.demand().has(Need::Blob) {
                     "SmeltUnknown::Object(value) if value.contains_key(\"__smelt_blob\") => { let smelt_blob = <SmeltBlob as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)); SmeltBody::from_blob(smelt_blob.to_bytes(), smelt_blob.blob_type()) }, "
                 } else {
                     ""
@@ -834,12 +834,12 @@ impl FunctionEmitter<'_> {
                 // marker across the boundary; each takes the same extraction
                 // its typed arm above uses (query string / multipart), so an
                 // erased form body keeps its bytes AND its content type.
-                let search_params_arm = if crate::stdlib::needs_url_search_params_runtime(self.mir) {
+                let search_params_arm = if self.context.demand().has(Need::UrlSearchParams) {
                     "SmeltUnknown::Object(value) if value.contains_key(\"__smelt_urlsearchparams\") => SmeltBody::from_blob(<SmeltUrlSearchParams as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)).to_text().into_bytes(), \"application/x-www-form-urlencoded;charset=UTF-8\".to_owned()), "
                 } else {
                     ""
                 };
-                let form_data_arm = if crate::stdlib::needs_form_data_runtime(self.mir) {
+                let form_data_arm = if self.context.demand().has(Need::FormData) {
                     "SmeltUnknown::Object(value) if value.contains_key(\"__smelt_formdata\") => { let smelt_boundary = smelt_multipart_boundary(); SmeltBody::from_blob(<SmeltFormData as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)).to_multipart(&smelt_boundary), format!(\"multipart/form-data; boundary={smelt_boundary}\")) }, "
                 } else {
                     ""

@@ -5720,7 +5720,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// original object identity for Map/Set keys. `SmeltRecord` preserves that
     /// identity while keeping structural equality for assertions.
     pub(super) fn dict_uses_smelt_record(&self, key_ty: TypeId) -> bool {
-        crate::stdlib::needs_unknown_type(self.mir)
+        self.context.demand().has(Need::Unknown)
             && self.mir.types.get(key_ty) == Some(&Type::String)
     }
 

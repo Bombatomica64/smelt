@@ -606,7 +606,7 @@ impl FunctionEmitter<'_> {
                     // unconditionally made `raw[key]()` (Hono's request body
                     // cache) call nothing.
                     Some(Type::Class { .. }) if self.mir.types.get(self.operand_ty(index)?) == Some(&Type::String)
-                        && crate::stdlib::needs_unknown_type(self.mir) =>
+                        && self.context.demand().has(Need::Unknown) =>
                     {
                         let base_text =
                             format!("({}).clone().into_smelt_unknown()", self.local_value_text(*base)?);

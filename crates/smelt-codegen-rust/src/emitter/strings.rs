@@ -792,14 +792,14 @@ impl FunctionEmitter<'_> {
         // else its own pairs) and answers `to_text()`, so the encoding rule
         // lives in one place. Gated on the params prelude being emitted at all:
         // the fetch types are pay-for-use, and this match is not.
-        let params_arm = if crate::stdlib::needs_url_search_params_runtime(self.mir) {
+        let params_arm = if self.context.demand().has(Need::UrlSearchParams) {
             "SmeltUnknown::Object(value) if value.contains_key(\"__smelt_urlsearchparams\") => <SmeltUrlSearchParams as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)).to_text(),"
         } else {
             ""
         };
         // A `URL` overrides `toString` the same way: it is the `href`, which
         // the erased record carries as a data property.
-        let url_arm = if crate::stdlib::needs_url_runtime(self.mir) {
+        let url_arm = if self.context.demand().has(Need::Url) {
             "SmeltUnknown::Object(value) if value.contains_key(\"__smelt_url\") => <SmeltUrl as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)).href(),"
         } else {
             ""
@@ -812,7 +812,7 @@ impl FunctionEmitter<'_> {
         // value. Byte STORAGE has no elements and is deliberately not here.
         // Gated on the byte prelude being emitted at all, like the params arm
         // above.
-        let byte_view_arm = if crate::stdlib::needs_unknown_type(self.mir) {
+        let byte_view_arm = if self.context.demand().has(Need::Unknown) {
             format!(
                 "SmeltUnknown::Object(value) if {is_view}(&SmeltUnknown::Object(value.clone())) => {elements}(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element {{ SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }}).collect::<Vec<_>>().join(\",\"),",
                 is_view = smelt_stdlib::runtime_symbols::byte_buffer::IS_VIEW,

@@ -28,7 +28,7 @@
 //! every other rvalue-level throw uses.
 //!
 //! Emitted only when the crate's type table contains a bigint (see
-//! `stdlib::needs_bigint_runtime`), and then inside the `SmeltUnknown` block,
+//! `Need::BigInt`), and then inside the `SmeltUnknown` block,
 //! because every throw payload is an erased error record.
 
 #![expect(

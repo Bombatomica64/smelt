@@ -10,6 +10,7 @@
 
 use crate::classes::{NominalStorage, type_holds_function};
 use crate::generic_bindings::CalleeTypeParamBindings;
+use crate::runtime_demand::{Need, RuntimeDemand};
 use crate::rust::RustType;
 use crate::type_substitution::{Resolved, TypeSubstitution};
 use render_scope::RenderScope;
@@ -194,6 +195,8 @@ struct TestRuntimeResets {
 pub(crate) struct EmitContext {
     /// The type ID of the None type.
     pub(crate) none_ty: TypeId,
+    /// What this program demands of the runtime, computed once.
+    demand: RuntimeDemand,
     /// The generated traits of class- and interface-bounded type parameters
     /// (see [`crate::bound_traits`]).
     pub(crate) bound_traits: crate::bound_traits::BoundTraitPlan,
@@ -317,7 +320,7 @@ pub(crate) struct EmitContext {
     /// [`receiver_bound_slot`]).
     program_reads_this: bool,
     /// Whether the crate carries a JavaScript `bigint` (see
-    /// `stdlib::needs_bigint_runtime`). The `SmeltUnknown::BigInt` tag only
+    /// `Need::BigInt`). The `SmeltUnknown::BigInt` tag only
     /// exists in such a crate, so an exhaustive match over the erased carrier
     /// names that arm only when this is set.
     needs_bigint: bool,
@@ -472,13 +475,14 @@ impl EmitContext {
             function_names.insert(function.id, rust_name);
         }
         let owned_callback_params = compute_owned_callback_params(mir)?;
+        let demand = RuntimeDemand::of(mir);
 
         Ok(Self {
             none_ty,
             bound_traits: crate::bound_traits::BoundTraitPlan::compute(mir),
             test_runtime_resets: TestRuntimeResets {
-                date_now: crate::stdlib::needs_date_now_runtime(mir),
-                timers: crate::needs_timer_helpers(mir),
+                date_now: demand.has(Need::DateNow),
+                timers: demand.has(Need::Timers),
             },
             function_names,
             function_param_types,
@@ -500,11 +504,17 @@ impl EmitContext {
             reference_classes: crate::classify::reference_classes(mir),
             type_param_elision: crate::generic_elision::compute(mir),
             erased_view_write_through: view_write_through::program_writes_erased_fields(mir),
-            program_reads_this: receiver_bound_slot::program_reads_this(mir),
-            needs_bigint: crate::stdlib::needs_bigint_runtime(mir),
+            program_reads_this: demand.has(Need::ThisRead),
+            needs_bigint: demand.has(Need::BigInt),
+            demand,
             console_inspect_used: ::std::cell::Cell::new(false),
             backend_erasures: RefCell::new(Vec::new()),
         })
+    }
+
+    /// What this program demands of the runtime.
+    pub(crate) const fn demand(&self) -> &RuntimeDemand {
+        &self.demand
     }
 
     /// Capture everything a body render writes into this shared context, so a

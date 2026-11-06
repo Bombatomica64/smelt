@@ -71,6 +71,7 @@ fn emitted_function_body<'a>(source: &'a str, signature: &str) -> &'a str {
     rest.get(..end).unwrap_or(rest)
 }
 
+mod runtime_demand_tests;
 mod part_1_tests;
 mod part_2_tests;
 mod part_3_tests;

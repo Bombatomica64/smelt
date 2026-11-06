@@ -23,7 +23,7 @@
 //!   numbers (an INTEGER beyond the safe range throws, as Node does without
 //!   `readBigInts`), TEXT as a string, NULL as `null`, and a BLOB as a
 //!   `Uint8Array` (the byte-view family's erased face, which is why a program
-//!   using `node:sqlite` always carries that family: `stdlib::needs_byte_array_runtime`).
+//!   using `node:sqlite` always carries that family: `Need::ByteArray`).
 
 #![expect(
     clippy::redundant_pub_crate,

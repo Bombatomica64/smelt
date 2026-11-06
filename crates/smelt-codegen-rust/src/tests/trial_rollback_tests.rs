@@ -41,7 +41,7 @@ export function use1(ns: number[]): number[] {
 }
 ",
     );
-    let Ok((source, erasures)) = emit_source_with_free_function_router(
+    let Ok(crate::EmittedRoot { source, erasures, .. }) = crate::emit_root(
         &mir,
         GeneratedAllocator::System,
         |_function, _context, source| Ok(Some(source)),

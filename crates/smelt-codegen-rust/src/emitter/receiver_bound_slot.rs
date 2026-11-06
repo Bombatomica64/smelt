@@ -29,19 +29,10 @@
 //! indistinguishable.
 
 use smelt_hir::{Type, TypeId};
-use smelt_mir::{Mir, MirField, Rvalue};
+use smelt_mir::MirField;
 
 use super::render_scope::RenderScope;
 use super::{EmitError, FunctionEmitter, sanitize_ident};
-
-/// Return whether any function or closure body reads the dynamically scoped
-/// `this` receiver (`Rvalue::ThisRead`).
-///
-/// Installing a receiver is only observable through such a read, so the
-/// receiver-bound interface slots below are emitted only when this holds.
-pub(crate) fn program_reads_this(mir: &Mir) -> bool {
-    crate::stdlib::rvalues(mir).any(|rvalue| matches!(rvalue, Rvalue::ThisRead))
-}
 
 impl FunctionEmitter<'_> {
     /// Emit an interface record slot filled by a class instance's callable

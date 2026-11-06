@@ -79,8 +79,8 @@ use std::{
 
 use crate::classes::{NominalStorage, type_holds_function};
 use crate::{rust::erased_string, type_substitution::TypeSubstitution};
-use smelt_hir::{AsyncOp, BodyId, Type, TypeId};
-use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, MirGlobalInit, Rvalue};
+use smelt_hir::{BodyId, Type, TypeId};
+use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, MirGlobalInit};
 
 mod asymmetric_matcher_prelude;
 mod builtin_member_prelude;
@@ -121,13 +121,17 @@ mod sqlite_prelude;
 pub(crate) mod generic_bindings;
 pub(crate) mod generic_elision;
 mod reflection_prelude;
+pub(crate) mod runtime_demand;
 pub(crate) mod runtime_prelude;
+#[cfg(any(debug_assertions, test))]
+mod runtime_symbols_check;
 pub mod rust;
 pub(crate) mod stdlib;
 pub(crate) mod thrown;
 pub(crate) mod type_substitution;
 
 use deps::GeneratedDep;
+use runtime_demand::{Need, RuntimeDemand};
 mod emitter;
 use classes::{
     class_impl_generics_text, class_name_text, class_type_args_text, class_type_params_text,
@@ -482,20 +486,18 @@ pub fn emit_crate(
     let src_dir = output_dir.join("src");
     fs::create_dir_all(&src_dir)?;
     let allocator = options.effective_allocator();
+    let root = emit_root(mir, allocator, |_function, _context, source| Ok(Some(source)))?;
+    assert_runtime_symbols_defined([root.source.as_str()])?;
     write_if_changed(
         output_dir.join("Cargo.toml"),
         &deps::cargo_toml(
             &options.crate_name,
-            &generated_deps(mir),
+            &root.dependencies,
             allocator,
             options.release_profile,
         ),
     )?;
-    write_crate_root(
-        &src_dir,
-        options.crate_kind,
-        &emit_source_with_allocator(mir, allocator)?,
-    )?;
+    write_crate_root(&src_dir, options.crate_kind, &root.source)?;
     Ok(())
 }
 
@@ -532,17 +534,19 @@ pub fn emit_crate_with_modules_reporting(
     let src_dir = output_dir.join("src");
     fs::create_dir_all(&src_dir)?;
     let allocator = options.effective_allocator();
+    let mapped = emit_mapped_sources(mir, krate, modules, allocator)?;
+    assert_runtime_symbols_defined(
+        std::iter::once(mapped.root.as_str()).chain(mapped.modules.iter().map(|module| module.source.as_str())),
+    )?;
     write_if_changed(
         output_dir.join("Cargo.toml"),
         &deps::cargo_toml(
             &options.crate_name,
-            &generated_deps(mir),
+            &mapped.dependencies,
             allocator,
             options.release_profile,
         ),
     )?;
-
-    let mapped = emit_mapped_sources(mir, krate, modules, allocator)?;
     write_crate_root(&src_dir, options.crate_kind, &mapped.root)?;
     for module in mapped.modules {
         let module_path = src_dir.join(format!("{}.rs", module.name));
@@ -588,90 +592,6 @@ fn write_if_changed(
     Ok(())
 }
 
-/// Returns whether generated Rust rounds a float with JavaScript `Math.round`.
-///
-/// Scans function *and* closure rvalues, like `needs_timer_helpers`: the op can
-/// sit inside a synthesized closure body and the prelude must still define the
-/// helper for it. The other three rounding ops (`floor`, `ceil`, `trunc`) agree
-/// between the two languages and map straight to their `f64` methods, so only
-/// `Round` pulls the helper in.
-fn needs_math_round(mir: &Mir) -> bool {
-    stdlib::rvalues(mir).any(|value| {
-        matches!(
-            value,
-            Rvalue::NumericRound {
-                op: smelt_hir::NumericRoundOp::Round,
-                ..
-            }
-        )
-    })
-}
-
-/// Returns whether generated Rust uses JavaScript timer helpers.
-///
-/// Scans function *and* closure rvalues: a timer op can live inside a
-/// synthesized closure body (e.g. the first-class `setTimeout` value form),
-/// and the prelude must still define the timer queue for it.
-fn needs_timer_helpers(mir: &Mir) -> bool {
-    // An async module body ends by running the event loop to idle, which is the
-    // timer helpers' own run-until-idle entry, so a program whose top level is
-    // async needs them even when it arms no timer of its own -- for instance a
-    // top-level `await fetch(..)`, whose op is not in the list below.
-    if mir.functions.iter().any(|function| {
-        function.is_async
-            && !function.is_test
-            && mir.symbols.get(function.name) == Some("main")
-    }) {
-        return true;
-    }
-    // A `node:http` server registers a live handle with the exit drain, which
-    // is emitted with the timer helpers. The handle accounting has to exist
-    // wherever the server does, whether or not the program also has a timer.
-    if stdlib::needs_http_server_runtime(mir) {
-        return true;
-    }
-    stdlib::rvalues(mir).any(|value| {
-        // `AbortSignal.timeout(ms)` is the one non-`AsyncOp` that arms a timer:
-        // it schedules its own abort on the promise-task queue
-        // (`smelt_spawn_promise_task` + `smelt_sleep_ms`). Its result type is a
-        // signal and mentions nothing async, so a program whose only timer is a
-        // timeout signal emitted both calls against a prelude that defined
-        // neither — E0425 twice, in a crate that otherwise compiled.
-        if matches!(
-            value,
-            Rvalue::AbortSignalOp {
-                op: smelt_hir::AbortSignalOp::Timeout,
-                ..
-            }
-        ) {
-            return true;
-        }
-        matches!(
-            value,
-            Rvalue::AsyncOp {
-                op: AsyncOp::Sleep
-                    | AsyncOp::ExitDrain
-                    | AsyncOp::Resolve
-                    | AsyncOp::Reject
-                    | AsyncOp::SetTimeout
-                    | AsyncOp::ClearTimeout
-                    | AsyncOp::SetInterval
-                    | AsyncOp::ClearInterval
-                    | AsyncOp::Promise
-                    | AsyncOp::Then
-                    | AsyncOp::Catch
-                    | AsyncOp::Finally
-                    // `Promise.race` is backed by `smelt_promise_race`, which
-                    // lives with the timer helpers because it drives the same
-                    // cooperative promise-task queue.
-                    | AsyncOp::Race
-                    | AsyncOp::SpawnLocal,
-                ..
-            }
-        )
-    })
-}
-
 /// Emits Rust source code from the given MIR.
 ///
 /// Returns a string containing the complete source code for the MIR, including
@@ -689,10 +609,9 @@ pub fn emit_source_with_allocator(
     mir: &Mir,
     allocator: GeneratedAllocator,
 ) -> Result<String, EmitError> {
-    emit_source_with_free_function_router(mir, allocator, |_function, _context, source| {
-        Ok(Some(source))
-    })
-    .map(|(source, _erasures)| source)
+    let root = emit_root(mir, allocator, |_function, _context, source| Ok(Some(source)))?;
+    assert_runtime_symbols_defined([root.source.as_str()])?;
+    Ok(root.source)
 }
 
 /// Emits Rust source code while allowing callers to route free functions.
@@ -700,7 +619,7 @@ pub fn emit_source_with_allocator(
 /// The router receives each already-emitted free function exactly once. Returning
 /// `Some(source)` keeps the function in the crate root; returning `None` lets the
 /// caller store it elsewhere, such as in source-shaped sibling modules.
-fn emit_source_with_free_function_router(
+fn emit_root(
     mir: &Mir,
     allocator: GeneratedAllocator,
     mut route_free_function: impl FnMut(
@@ -708,7 +627,7 @@ fn emit_source_with_free_function_router(
         &EmitContext,
         String,
     ) -> Result<Option<String>, EmitError>,
-) -> Result<(String, Vec<smelt_hir::ErasureRecord>), EmitError> {
+) -> Result<EmittedRoot, EmitError> {
     let context = EmitContext::new(mir)?;
     // Decide, once, which free functions emit real Rust generics (signature
     // safety plus a body-cleanliness trial) so the definition and every call
@@ -725,12 +644,55 @@ fn emit_source_with_free_function_router(
     krate.flush_hoisted_items();
     krate.splice_console_inspect()?;
     krate.emit_main_fallback()?;
-    Ok(krate.finish())
+    let (source, erasures) = krate.finish();
+    Ok(EmittedRoot {
+        source,
+        erasures,
+        dependencies: generated_deps(context.demand()),
+    })
+}
+
+/// A finished crate root and what its manifest and report need from it.
+struct EmittedRoot {
+    /// The crate root's text.
+    source: String,
+    /// The erasures the backend decided while rendering types.
+    erasures: Vec<smelt_hir::ErasureRecord>,
+    /// The crates the emitted runtime links.
+    dependencies: Vec<GeneratedDep>,
+}
+
+/// Fails the build, in debug builds only, when a crate's sources name a runtime
+/// symbol nothing defines.
+///
+/// That is a missing edge in the `requires` graph of [`runtime_demand`], and
+/// failing here names it where it was made rather than as an E0425 in the
+/// generated crate.
+#[cfg(debug_assertions)]
+fn assert_runtime_symbols_defined<'a>(sources: impl IntoIterator<Item = &'a str>) -> Result<(), EmitError> {
+    let undefined = runtime_symbols_check::undefined_runtime_symbols(sources);
+    if undefined.is_empty() {
+        return Ok(());
+    }
+    Err(EmitError::new(format!(
+        "generated crate names runtime symbols with no definition: {}",
+        undefined.join(", ")
+    )))
+}
+
+/// Release builds trust the `requires` graph.
+#[cfg(not(debug_assertions))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "shares its signature with the debug build's check"
+)]
+fn assert_runtime_symbols_defined<'a>(_sources: impl IntoIterator<Item = &'a str>) -> Result<(), EmitError> {
+    Ok(())
 }
 
 /// The crate root under construction, phase by phase.
 ///
-/// [`emit_source_with_free_function_router`] runs the phases in order:
+/// [`emit_root`] runs the phases in order:
 /// generic decision (before any body is rendered), runtime prelude ending in
 /// [`PRELUDE_END_MARKER`], module globals, free functions, class `impl`s,
 /// the hoisted items those bodies minted, the `util.inspect` runtime spliced in
@@ -1073,102 +1035,51 @@ fn emit_runtime_prelude(
     allocator: GeneratedAllocator,
 ) -> Result<(String, bool), EmitError> {
     let mut writer = CodeWriter::new();
-    let needs_serde_json =
-        stdlib::backend_dependencies(mir).contains(&smelt_stdlib::BackendDependency::SerdeJson);
-    let needs_regex =
-        stdlib::backend_dependencies(mir).contains(&smelt_stdlib::BackendDependency::Regex);
-    let needs_unknown = stdlib::needs_unknown_type(mir);
-    // A JavaScript `bigint` is pay-for-use: its `num-bigint` runtime and the
-    // `SmeltUnknown::BigInt` tag exist only in a crate that holds one, and
-    // every exhaustive match over the erased carrier names that arm only then.
-    let needs_bigint = stdlib::needs_bigint_runtime(mir);
-    // The fetch types are pay-for-use: a crate that never mentions `Headers`
-    // carries none of `SmeltHeaders`.
-    let needs_headers = stdlib::needs_headers_runtime(mir);
-    let needs_url_search_params = stdlib::needs_url_search_params_runtime(mir);
-    let needs_url = stdlib::needs_url_runtime(mir);
-    let needs_date = stdlib::needs_date_runtime(mir);
-    let needs_crypto_random_values = stdlib::needs_crypto_random_values_runtime(mir);
-    let needs_crypto_digest = stdlib::needs_crypto_digest_runtime(mir);
-    let needs_crypto_key = stdlib::needs_crypto_key_runtime(mir);
-    let needs_form_data = stdlib::needs_form_data_runtime(mir);
-    let needs_response = stdlib::needs_response_runtime(mir);
-    let needs_request = stdlib::needs_request_runtime(mir);
-    let needs_event_emitter = stdlib::needs_event_emitter_runtime(mir);
-    let needs_http_server = stdlib::needs_http_server_runtime(mir);
-    let needs_body = stdlib::needs_body_runtime(mir);
-    let needs_text_encoder = stdlib::needs_text_encoder_runtime(mir);
-    let needs_text_decoder = stdlib::needs_text_decoder_runtime(mir);
-    let needs_node_path = stdlib::needs_node_path_runtime(mir);
-    let needs_node_hash = stdlib::needs_node_hash_runtime(mir);
-    let needs_byte_array = stdlib::needs_byte_array_runtime(mir);
-    let needs_data_view = stdlib::needs_data_view_runtime(mir);
-    let needs_blob = stdlib::needs_blob_runtime(mir);
-    let needs_smelt_list = stdlib::needs_smelt_list(mir);
-    let needs_erased_list_alias = erased_list_alias::needed(mir);
-    let needs_prim_set = stdlib::needs_prim_set(mir);
-    let needs_erased_function = needs_erased_function_runtime(mir);
-    // Host values whose erasure retains the live value in the erased record's
-    // origin slot (see `smelt_with_host_origin`).
-    let needs_host_origins = needs_text_encoder
-        || needs_text_decoder
-        || needs_node_hash
-        || needs_event_emitter
-        || needs_http_server
-        || needs_headers
-        || needs_url_search_params
-        || needs_url
-        || needs_date
-        || needs_form_data
-        || needs_byte_array
-        || stdlib::needs_sqlite_runtime(mir);
-    let needs_date_now = stdlib::needs_date_now_runtime(mir);
-    let needs_date_timezone_offset = stdlib::needs_date_timezone_offset_runtime(mir);
-    let needs_vitest_mock = stdlib::needs_vitest_mock_runtime(mir);
-    let needs_structured_clone = stdlib::rvalues(mir)
-        .any(|rvalue| matches!(rvalue, Rvalue::StructuredClone { .. }));
-    // Only crates that lower a `typeof` at all carry the shared tag-to-spelling
-    // helper. A `typeof` over a concrete union is decided per member at compile
-    // time and stays inline at its site, so in a crate whose ONLY `typeof` is
-    // that shape the helper is emitted unused -- inert under the generated
-    // crate's `#![allow(dead_code)]`, and not worth a second walk over every
-    // operand's type to tell the two shapes apart here.
-    let needs_typeof = stdlib::rvalues(mir).any(|rvalue| matches!(rvalue, Rvalue::TypeofValue { .. }));
-    // Only crates that actually concatenate an erased argument need the
-    // `IsConcatSpreadable` helper, so it stays out of every other prelude.
-    let needs_concat_spread =
-        stdlib::rvalues(mir).any(|rvalue| matches!(rvalue, Rvalue::ConcatSpread { .. }));
-    // Only crates that actually define properties through the `Object` statics
-    // carry the descriptor-installation helper.
-    let needs_define_properties =
-        stdlib::rvalues(mir).any(|rvalue| matches!(rvalue, Rvalue::DefineProperties { .. }));
-    // The dynamically scoped `this` channel is only reachable from the two
-    // rvalues that read and install it, so a program that never mentions `this`
-    // (and never binds a receiver) carries none of it.
-    // `Rvalue::Construct` runs its callee with the freshly allocated object
-    // installed as the receiver, so JS `new f()` needs the channel too even in a
-    // program that never spells `this`.
-    let needs_this_channel = stdlib::rvalues(mir).any(|rvalue| {
-        matches!(
-            rvalue,
-            Rvalue::ThisRead | Rvalue::BindThis { .. } | Rvalue::Construct { .. }
-        )
-    });
-    // JavaScript `[[Construct]]` and the `instanceof` prototype-chain walk are
-    // each reachable from exactly one rvalue, so a program that constructs
-    // nothing through a function value carries neither helper.
-    let needs_construct =
-        stdlib::rvalues(mir).any(|rvalue| matches!(rvalue, Rvalue::Construct { .. }));
-    let needs_instance_of_value =
-        stdlib::rvalues(mir).any(|rvalue| matches!(rvalue, Rvalue::InstanceOfValue { .. }));
-    let needs_host_override = stdlib::needs_host_override_runtime(mir);
-    let needs_shared_captures = mir
-        .closures
-        .iter()
-        .any(|closure| !closure.captures.is_empty());
-    let needs_generator = mir_uses_generators(mir);
-    let needs_timer_helpers = needs_timer_helpers(mir);
-    let needs_math_round = needs_math_round(mir);
+    let demand = context.demand();
+    let needs_serde_json = demand.has(Need::DepSerdeJson);
+    let needs_regex = demand.has(Need::DepRegex);
+    let needs_unknown = demand.has(Need::Unknown);
+    let needs_bigint = demand.has(Need::BigInt);
+    let needs_headers = demand.has(Need::Headers);
+    let needs_url_search_params = demand.has(Need::UrlSearchParams);
+    let needs_url = demand.has(Need::Url);
+    let needs_date = demand.has(Need::Date);
+    let needs_crypto_random_values = demand.has(Need::CryptoRandomValues);
+    let needs_crypto_digest = demand.has(Need::CryptoDigest);
+    let needs_crypto_key = demand.has(Need::CryptoKey);
+    let needs_form_data = demand.has(Need::FormData);
+    let needs_response = demand.has(Need::Response);
+    let needs_request = demand.has(Need::Request);
+    let needs_event_emitter = demand.has(Need::EventEmitter);
+    let needs_http_server = demand.has(Need::HttpServer);
+    let needs_body = demand.has(Need::Body);
+    let needs_text_encoder = demand.has(Need::TextEncoder);
+    let needs_text_decoder = demand.has(Need::TextDecoder);
+    let needs_node_path = demand.has(Need::NodePath);
+    let needs_node_hash = demand.has(Need::NodeHash);
+    let needs_byte_array = demand.has(Need::ByteArray);
+    let needs_data_view = demand.has(Need::DataView);
+    let needs_blob = demand.has(Need::Blob);
+    let needs_smelt_list = demand.has(Need::SmeltList);
+    let needs_erased_list_alias = demand.has(Need::ErasedListAlias);
+    let needs_prim_set = demand.has(Need::PrimSet);
+    let needs_erased_function = demand.has(Need::ErasedFunction);
+    let needs_host_origins = demand.has(Need::HostOrigins);
+    let needs_date_now = demand.has(Need::DateNow);
+    let needs_date_timezone_offset = demand.has(Need::DateTimezoneOffset);
+    let needs_vitest_mock = demand.has(Need::VitestMock);
+    let needs_structured_clone = demand.has(Need::StructuredClone);
+    let needs_typeof = demand.has(Need::Typeof);
+    let needs_concat_spread = demand.has(Need::ConcatSpread);
+    let needs_define_properties = demand.has(Need::DefineProperties);
+    let needs_this_channel = demand.has(Need::ThisChannel);
+    let needs_construct = demand.has(Need::Construct);
+    let needs_instance_of_value = demand.has(Need::InstanceOfValue);
+    let needs_host_override = demand.has(Need::HostOverride);
+    let needs_shared_captures = demand.has(Need::SharedCaptures);
+    let needs_generator = demand.has(Need::Generator);
+    let needs_timer_helpers = demand.has(Need::Timers);
+    let needs_math_round = demand.has(Need::MathRound);
     writer.line("// @generated by smelt. Do not edit by hand.");
     writer.line("#![allow(dead_code, non_snake_case, unused_imports, unused_variables)]");
     writer.blank_line();
@@ -1187,14 +1098,10 @@ fn emit_runtime_prelude(
     // reach it, so it leads the prelude rather than sitting behind a gate that
     // would have to name all of them.
     number_format_prelude::emit(&mut writer);
-    if accessor_prelude::needed(mir) {
+    if demand.has(Need::Accessors) {
         accessor_prelude::emit_prelude(&mut writer, needs_unknown);
     }
-    if mir
-        .functions
-        .iter()
-        .any(|function| function.absent == smelt_mir::AbsentSpelling::None)
-    {
+    if demand.has(Need::PythonNumberFormat) {
         number_format_prelude::emit_python(&mut writer);
     }
     // Its inverse, `StringToNumber`, for the same reason: `Number(s)`, `+s`,
@@ -1205,8 +1112,8 @@ fn emit_runtime_prelude(
     // propagate a `Result`, and both of its ends -- the throw adapter and the
     // `catch_unwind` recovery helpers -- are needed wherever a `try` or a
     // non-propagating fallible call is emitted. One predicate covers both; see
-    // `stdlib::needs_panic_route`.
-    if stdlib::needs_panic_route(mir) {
+    // `Need::PanicRoute`.
+    if demand.has(Need::PanicRoute) {
         thrown::emit_panic_route_support(&mut writer, needs_unknown);
     }
     if needs_date_now {
@@ -1343,49 +1250,18 @@ fn emit_runtime_prelude(
     if needs_shared_captures {
         emit_runtime_gate(&mut writer, PreludeGate::SharedCaptures)?;
     }
-    if stdlib::needs_uri_encode_runtime(mir) {
+    if demand.has(Need::UriEncode) {
         emit_runtime_gate(&mut writer, PreludeGate::UriEncode)?;
     }
-    if stdlib::needs_json_indent_runtime(mir) {
+    if demand.has(Need::JsonIndent) {
         emit_json_indent_helper(&mut writer);
     }
-    if stdlib::needs_locale_compare_runtime(mir) {
+    if demand.has(Need::LocaleCompare) {
         emit_runtime_gate(&mut writer, PreludeGate::LocaleCompare)?;
     }
-    // `smelt_next_object_id` mints fresh JavaScript object reference ids. It is
-    // emitted in the `needs_smelt_list` block below (a list mints ids), but a
-    // regex/match program without any list still needs it for
-    // `SmeltMatch::from_captures` (a match carries an id so it keeps a stable
-    // identity when later erased to `SmeltUnknown`). Emit it standalone only in
-    // that regex-without-list case so list-using programs keep byte-identical
-    // output. `needs_smelt_list` already subsumes `needs_unknown`.
-    // The text codecs join that list: each of the three types carries a JS
-    // reference identity, so a program that only encodes a string still mints
-    // ids.
-    // Every runtime type below carries a JavaScript reference identity and mints
-    // it with `smelt_next_object_id` in its own constructor, so naming one of
-    // them is what demands the counter. The list is the demand side of the gate
-    // and must hold EVERY id-minting block emitted outside `needs_smelt_list`:
-    // a missing entry emits a constructor calling a function the crate never
-    // declares (E0425), which is how a program whose only container was a
-    // primitive-keyed `Set` (`SmeltPrimSet::new`) failed to compile.
-    let mints_object_ids = needs_regex
-        || needs_date
-        || needs_node_hash
-        || needs_headers
-        || needs_url_search_params
-        || needs_form_data
-        || needs_byte_array
-        || needs_text_encoder
-        || needs_text_decoder
-        || needs_blob
-        || needs_prim_set
-        || needs_event_emitter
-        || needs_http_server
-        || needs_request
-        || needs_response
-        || needs_body;
-    if mints_object_ids && !needs_smelt_list {
+    // Every identity-bearing runtime type mints from this counter, and the list
+    // re-lists it, so it stands alone only for a program with no list.
+    if demand.has(Need::ObjectIds) && !needs_smelt_list {
         emit_runtime_gate(&mut writer, PreludeGate::ObjectIdentity)?;
     }
     if needs_smelt_list {
@@ -2632,7 +2508,7 @@ fn emit_runtime_prelude(
         writer.line(format!("fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool {{ record.store.borrow().has_internal_keys() && {host_marker_array}.iter().any(|marker| record.contains_key(*marker)) }}"));
         // The concrete typed-array family's presence decides whether the
         // erased index write has a live value to write through to.
-        byte_buffer_prelude::emit(&mut writer, stdlib::needs_byte_array_runtime(mir));
+        byte_buffer_prelude::emit(&mut writer, demand.has(Need::ByteArray));
         // The `arguments` exotic object. Its indexed elements are enumerable own
         // properties but its `length` is not, which is what makes
         // `isEqual(toArgs([1, 2, 3]), { 0: 1, 1: 2, 2: 3 })` hold: both sides
@@ -3245,10 +3121,7 @@ fn emit_runtime_prelude(
         }
         // Pay-for-use: only a program whose type table holds `Optional<Unknown>`
         // can read one at `Unknown`, so only such a program carries the helper.
-        let unknown_ty = mir.types.all().iter().position(|ty| matches!(ty, Type::Unknown));
-        let needs_optional_unknown_read = unknown_ty.is_some_and(|unknown| {
-            mir.types.all().iter().any(|ty| matches!(ty, Type::Optional(inner) if usize::try_from(inner.0).ok() == Some(unknown)))
-        });
+        let needs_optional_unknown_read = demand.has(Need::OptionalUnknownRead);
         if needs_optional_unknown_read {
         writer.line("/// An optional erased value read at the erased carrier: absence is `undefined`.");
         writer.line("#[inline]");
@@ -3824,7 +3697,7 @@ fn emit_runtime_prelude(
         // resolver, and only when its prelude is emitted at all: the fetch
         // types are pay-for-use, so a crate that never mentions `Headers`
         // carries neither `SmeltHeaders` nor its resolver.
-        let needs_body_host_method = stdlib::needs_body_host_method(mir);
+        let needs_body_host_method = demand.has(Need::BodyHostMethod);
         if needs_body_host_method {
             emit_body_host_method(&mut writer, needs_request, needs_response);
         }
@@ -5493,45 +5366,45 @@ fn emit_runtime_prelude(
         // The exception-payload ABI sits right after `Display for SmeltUnknown`
         // because `SmeltThrown`'s own `Display` falls back to it for non-error
         // payloads.
-        thrown::emit_thrown_payload_support(&mut writer, stdlib::needs_panic_route(mir));
+        thrown::emit_thrown_payload_support(&mut writer, demand.has(Need::PanicRoute));
         // The fallible `JSON.parse` adapter reports through that same channel,
         // so it follows the ABI it depends on.
-        if needs_serde_json && stdlib::needs_json_parse_runtime(mir) {
+        if needs_serde_json && demand.has(Need::JsonParse) {
             thrown::emit_json_parse_support(&mut writer);
         }
         // The URI decoders report through the same channel, so they follow the
         // same ABI dependency. They need no Serde, only the payload support
         // emitted just above.
-        if stdlib::needs_uri_decode_runtime(mir) {
+        if demand.has(Need::UriDecode) {
             thrown::emit_uri_decode_support(&mut writer);
         }
         // The `DataView` accessors, same channel and same ABI dependency. They
         // name `SmeltDataView` and `SmeltTypedArrayKind`, both emitted with the
         // byte family above, so they come after it.
-        if stdlib::needs_data_view_access_runtime(mir) {
+        if demand.has(Need::DataViewAccess) {
             thrown::emit_data_view_access_support(&mut writer, needs_bigint);
         }
         // The base64 codec, same channel and same ABI dependency. Both
         // directions throw, so both adapters are emitted together.
-        if stdlib::needs_base64_runtime(mir) {
+        if demand.has(Need::Base64) {
             thrown::emit_base64_support(&mut writer);
         }
         // The global object is an erased record, so it lives in this block.
-        if stdlib::needs_global_object_runtime(mir) {
+        if demand.has(Need::GlobalObject) {
             thrown::emit_global_object_support(&mut writer);
         }
-        if stdlib::needs_unknown_assign_runtime(mir) {
+        if demand.has(Need::UnknownAssign) {
             thrown::emit_unknown_assign_support(&mut writer);
         }
         // The run-time RegExp compiler, same channel and same ABI dependency.
         // It names `SmeltRegExp`, which the regex prelude emits because the
         // call's result type is the interned `RegExp` class.
-        if stdlib::needs_regexp_compile_runtime(mir) {
+        if demand.has(Need::RegExpCompile) {
             thrown::emit_regexp_compile_support(&mut writer);
         }
         // The throwing `URL` adapters, same channel and same ABI dependency.
         // They name `SmeltUrl`, whose prelude the same calls demand.
-        if stdlib::needs_url_throwing_runtime(mir) {
+        if demand.has(Need::UrlThrowing) {
             url_prelude::emit_throwing_support(&mut writer);
         }
         writer.blank_line();
@@ -6539,10 +6412,10 @@ fn emit_runtime_prelude(
     if needs_http_server {
         http_server_prelude::emit(&mut writer);
     }
-    if stdlib::needs_fetch_server_runtime(mir) {
+    if demand.has(Need::FetchServer) {
         http_server_prelude::emit_fetch_server(&mut writer);
     }
-    if stdlib::needs_sqlite_runtime(mir) {
+    if demand.has(Need::Sqlite) {
         sqlite_prelude::emit(&mut writer);
     }
     if !context.weak_receivers().is_empty() {
@@ -6813,6 +6686,8 @@ fn emit_runtime_prelude(
 
 /// Rust sources split by original source module.
 struct MappedSources {
+    /// The crates the emitted runtime links.
+    dependencies: Vec<GeneratedDep>,
     /// Crate root source.
     root: String,
     /// Erasures the backend decided while emitting; see
@@ -6850,8 +6725,11 @@ fn emit_mapped_sources(
     let mut module_chunks = HashMap::<String, Vec<String>>::new();
     let mut module_paths = HashMap::<String, String>::new();
 
-    let (mut root, erasures) =
-        emit_source_with_free_function_router(mir, allocator, |function, context, function_source| {
+    let EmittedRoot {
+        source: mut root,
+        erasures,
+        dependencies,
+    } = emit_root(mir, allocator, |function, context, function_source| {
             let HirOrigin::Body(body) = function.origin else {
                 return Ok(Some(function_source));
             };
@@ -6906,6 +6784,7 @@ fn emit_mapped_sources(
     Ok(MappedSources {
         root,
         erasures,
+        dependencies,
         modules: mapped_modules,
     })
 }
@@ -8917,7 +8796,7 @@ pub(crate) fn record_field_from_unknown_text(
 /// match, in front of the first occurrence of `anchor`.
 ///
 /// The bigint tag only exists in a crate that carries a bigint (see
-/// `stdlib::needs_bigint_runtime`): a crate without one keeps its prelude
+/// `Need::BigInt`): a crate without one keeps its prelude
 /// byte-for-byte, and a crate with one gains the arm in every match that names
 /// all of the carrier's tags. `anchor` is the arm the bigint arm is placed in
 /// front of, and it must occur in `line` -- a missing anchor is a codegen bug,
@@ -9180,63 +9059,17 @@ fn has_main_function(mir: &Mir) -> Result<bool, EmitError> {
     }))
 }
 
-/// Return whether generated code needs the first-class erased callback runtime.
-fn needs_erased_function_runtime(mir: &Mir) -> bool {
-    mir.types.all().iter().any(|ty| {
-        let Type::Function(function) = ty else {
-            return false;
-        };
-        if function.is_async || matches!(mir.types.get(function.return_ty), Some(Type::Future(_))) {
-            return false;
-        }
-        let Some(0) = function.rest else {
-            return false;
-        };
-        let [param] = function.params.as_slice() else {
-            return false;
-        };
-        matches!(
-            mir.types.get(*param),
-            Some(Type::List(item))
-                if matches!(
-                    mir.types.get(*item),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Never)
-                )
-        )
-    })
-}
-
-/// Reports whether the crate emits any generator state machine.
-///
-/// This gates both the genawaiter runtime prelude (`SmeltGenerator`,
-/// `SmeltGeneratorResult`, `SmeltGeneratorCommand`) and the `genawaiter`
-/// dependency. Emission is driven by a function's or closure's `is_generator`
-/// flag, so a `Type::Generator` in the types table is not a reliable signal:
-/// an erased or interop generator (e.g. es-toolkit's `isFunction` spec) still
-/// emits `genawaiter::rc::Gen` bodies while its generator type is erased. A
-/// mismatch here produced generated crates that referenced `genawaiter` and
-/// `SmeltGeneratorResult` without declaring or defining them.
-fn mir_uses_generators(mir: &Mir) -> bool {
-    mir.functions.iter().any(|function| function.is_generator)
-        || mir.closures.iter().any(|closure| closure.is_generator)
-        || mir
-            .types
-            .all()
-            .iter()
-            .any(|ty| matches!(ty, Type::Generator { .. }))
-}
-
 /// Collects the dependency list required by generated Rust code.
-fn generated_deps(mir: &Mir) -> Vec<GeneratedDep> {
+fn generated_deps(demand: &RuntimeDemand) -> Vec<GeneratedDep> {
     let mut deps = Vec::new();
-    if stdlib::needs_tokio(mir) || stdlib::needs_unknown_type(mir) {
+    if demand.has(Need::DepTokio) {
         deps.push(GeneratedDep::Tokio);
     }
-    if mir_uses_generators(mir) {
+    if demand.has(Need::DepGenawaiter) {
         deps.push(GeneratedDep::Genawaiter);
     }
     deps.extend(
-        stdlib::backend_dependencies(mir)
+        runtime_demand::backend_dependencies(demand)
             .into_iter()
             .map(GeneratedDep::Stdlib),
     );

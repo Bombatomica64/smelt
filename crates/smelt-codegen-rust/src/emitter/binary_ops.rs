@@ -962,7 +962,7 @@ impl FunctionEmitter<'_> {
         // `SmeltUnknown` runtime. A program without that runtime has no erased
         // callables to link, so pointer identity of the shared `Rc` is the
         // whole answer.
-        let compare = if crate::stdlib::needs_unknown_type(self.mir) {
+        let compare = if self.context.demand().has(Need::Unknown) {
             "smelt_same_function_identity"
         } else {
             "::std::rc::Rc::ptr_eq"

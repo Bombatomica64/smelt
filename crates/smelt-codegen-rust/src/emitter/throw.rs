@@ -7,7 +7,7 @@
 //! error channel as a `SmeltUnknown`.
 
 use super::*;
-use crate::{stdlib, thrown};
+use crate::thrown;
 use smelt_mir::ClosureId;
 
 impl FunctionEmitter<'_> {
@@ -52,7 +52,7 @@ impl FunctionEmitter<'_> {
     /// through `smelt_throw`, and a program with no erased values keeps the plain
     /// string `std::io::Error` form.
     pub(super) fn thrown_payload_text(&self, operand: &Operand) -> Result<String, EmitError> {
-        if !stdlib::needs_unknown_type(self.mir) {
+        if !self.context.demand().has(Need::Unknown) {
             return Ok(format!(
                 "std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into()",
                 self.operand_text(operand)?
@@ -71,7 +71,7 @@ impl FunctionEmitter<'_> {
     /// Renders the payload for a rejection with no reason (`Promise.reject()`),
     /// which JavaScript settles with `undefined`.
     pub(super) fn undefined_thrown_payload_text(&self) -> String {
-        if stdlib::needs_unknown_type(self.mir) {
+        if self.context.demand().has(Need::Unknown) {
             return thrown::throw_expr("SmeltUnknown::Undefined");
         }
         "std::io::Error::new(std::io::ErrorKind::Other, \"undefined\").into()".to_owned()

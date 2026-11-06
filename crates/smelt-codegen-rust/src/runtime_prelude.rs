@@ -46,7 +46,7 @@ pub(crate) enum PreludeGate {
     VirtualClock,
     /// Shared mutable closure captures (`needs_shared_captures`).
     SharedCaptures,
-    /// `encodeURI` (`stdlib::needs_uri_encode_runtime`).
+    /// `encodeURI` (`Need::UriEncode`).
     UriEncode,
     /// The `smelt_locale_compare` string-collation helper backing
     /// `String.prototype.localeCompare`.

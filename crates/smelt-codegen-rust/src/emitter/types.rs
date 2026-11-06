@@ -1259,7 +1259,7 @@ impl FunctionEmitter<'_> {
     /// (H14).
     ///
     /// The obvious repair is rejected on purpose: interning `Unknown` here would
-    /// flip `stdlib::needs_unknown_type` for the whole crate and emit the entire
+    /// flip `Need::Unknown` for the whole crate and emit the entire
     /// erased prelude for a program that has no erased value, so a typing
     /// fallback would change what every other decision in the crate answers.
     ///

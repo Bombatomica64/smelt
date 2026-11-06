@@ -40,11 +40,6 @@ use crate::rust::CodeWriter;
 /// The generated accessor storage type.
 pub(crate) const ACCESSOR_TYPE: &str = "SmeltAccessor";
 
-/// Whether any record field is stored as an accessor.
-pub(crate) fn needed(mir: &Mir) -> bool {
-    !mir.accessor_fields.is_empty()
-}
-
 /// Whether field `field` of the record named `owner` is stored as an accessor.
 pub(crate) fn is_accessor_field(mir: &Mir, owner: Symbol, field: Symbol) -> bool {
     mir.accessor_fields.contains(&(owner, field))

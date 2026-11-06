@@ -514,7 +514,7 @@ pub(crate) struct InspectContainers {
     /// The erased carrier family is emitted (`needs_unknown`).
     pub unknown: bool,
     /// The crate carries a JavaScript `bigint`, so `num_bigint::BigInt` and
-    /// the `SmeltUnknown::BigInt` tag exist (`needs_bigint_runtime`).
+    /// the `SmeltUnknown::BigInt` tag exist (`Need::BigInt`).
     pub bigint: bool,
 }
 
