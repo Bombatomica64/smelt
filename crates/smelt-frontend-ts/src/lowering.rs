@@ -53,12 +53,11 @@ use oxc::parser::{ParseOptions, Parser};
 use oxc::span::SourceType;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
 use smelt_hir::{
-    AsyncOp, BinOp, Body, CaptureMode, Class,
-    ClosureCapture, ConstItem, DictProjectionOp, Expr, ExprKind, Field, FileId, Function,
-    FunctionOwner, FunctionType, Item, Language, ListCallbackOp, ListSearchOp, Literal, LocalDecl,
-    MethodSig, Module, ModuleId, Param, ParamSig, Pattern, PrimitiveCastOp, SetProjectionOp,
-    SourceFile, Span, Stmt, StringPadOp, Type, UnaryOp, UnknownKind,
-    Visibility,
+    BinOp, Body, CaptureMode, Class, ClosureCapture, ConstItem, DictProjectionOp, Expr, ExprKind,
+    Field, FileId, Function, FunctionOwner, FunctionType, Item, Language, ListCallbackOp,
+    ListSearchOp, Literal, LocalDecl, MethodSig, Module, ModuleId, Param, ParamSig, Pattern,
+    PrimitiveCastOp, SetProjectionOp, SourceFile, Span, Stmt, StringPadOp, Type, UnaryOp,
+    UnknownKind, Visibility,
 };
 
 /// Vitest expectation matchers that can lower to direct HIR checks.

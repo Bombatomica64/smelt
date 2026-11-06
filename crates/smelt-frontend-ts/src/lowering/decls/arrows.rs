@@ -7,7 +7,7 @@ use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::support::{
     const_literal_from_item, single_arg, two_args,
 };
-use crate::lowering::stdlib::call_dispatch;
+use crate::lowering::stdlib::symbols;
 use crate::lowering::{
     ConstLiteral,
     ModuleBuilder, RestParam, ambient_globals, stdlib_dispatch,
@@ -1062,7 +1062,7 @@ return_ty,
     ) -> Result<ConstLiteral, SmeltError> {
         if let Some(description) = Self::symbol_for_call_description(call) {
             return Ok(ConstLiteral {
-                literal: Literal::Symbol(call_dispatch::registry_symbol_spelling(&description)),
+                literal: Literal::Symbol(symbols::registry_symbol_spelling(&description)),
                 ty: self.erase(ErasureReason::UnmodeledType),
             });
         }
@@ -1081,7 +1081,7 @@ return_ty,
                 _ => Cow::Borrowed(""),
             };
             return Ok(ConstLiteral {
-                literal: Literal::Symbol(call_dispatch::unique_symbol_spelling(
+                literal: Literal::Symbol(symbols::unique_symbol_spelling(
                     &description,
                     self.span(call.span.start, call.span.end),
                 )),
