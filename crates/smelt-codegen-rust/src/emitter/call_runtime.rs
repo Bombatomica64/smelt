@@ -1961,6 +1961,7 @@ impl FunctionEmitter<'_> {
                             } else {
                                 self.closure_value_argument_text(arg, *param)?
                             };
+                            self.note_type_erasures(*param)?;
                             Ok(text)
                         })
                         .collect::<Result<Vec<_>, _>>()?;

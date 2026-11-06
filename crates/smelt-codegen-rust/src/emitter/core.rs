@@ -4227,6 +4227,7 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             format!("({callback_text})({args})")
         };
+        self.note_type_erasures(self.operand_ty(operand)?)?;
         let source_returns_future = source.is_async
             || matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)));
         let source_async_output_may_throw =
@@ -4712,6 +4713,7 @@ impl<'mir> FunctionEmitter<'mir> {
         // that effective form. Computing it after the forwarding, as this used to,
         // left the zero-copy arm handing an owned value to a callback declared to
         // take a reference (E0308).
+        self.note_type_erasures(self.operand_ty(operand)?)?;
         let body_is_static_future = source.is_async
             || matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)))
             || matches!(self.mir.types.get(target_return_ty), Some(Type::Future(_)));
@@ -4899,6 +4901,7 @@ impl<'mir> FunctionEmitter<'mir> {
             )
         };
         let uses_adapted_callback = callback_prelude.is_some();
+        self.note_type_erasures(self.operand_ty(operand)?)?;
         let source_returns_future = source.is_async
             || matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)));
         let source_async_output_may_throw =
