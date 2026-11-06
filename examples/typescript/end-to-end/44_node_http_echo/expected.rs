@@ -5528,7 +5528,6 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_9: SmeltServerResponse;
     let _smelt_tmp_10: String;
     let _smelt_tmp_11: String;
-    let _smelt_tmp_12: String;
     let _smelt_tmp_13: f64;
     let _smelt_tmp_14: String;
     let _smelt_tmp_15: Option<String>;
@@ -5550,14 +5549,13 @@ smelt_local.block_on(&smelt_runtime, async move {
     }
     _smelt_tmp_10 = smelt_weak_closure_arg_0.smelt_emitter().clone().method();
     _smelt_tmp_11 = smelt_weak_closure_arg_0.smelt_emitter().clone().url();
-    _smelt_tmp_12 = (*smelt_capture_received.borrow()).clone();
     _smelt_tmp_13 = closure_arg_1.clone().status_code();
     _smelt_tmp_14 = "".to_owned() + &smelt_number_to_string(_smelt_tmp_13);
     _smelt_tmp_15 = closure_arg_1.clone().get_header(&"content-type".to_owned());
     _smelt_tmp_16 = _smelt_tmp_15.clone().unwrap_or("".to_owned());
     _smelt_tmp_17 = closure_arg_1.clone().get_header(&"x-set-first".to_owned());
     _smelt_tmp_18 = _smelt_tmp_17.clone().unwrap_or("".to_owned());
-    _smelt_tmp_19 = SmeltRecord::from([("method".to_owned(), _smelt_tmp_10.clone()), ("url".to_owned(), _smelt_tmp_11.clone()), ("body".to_owned(), _smelt_tmp_12.clone()), ("status".to_owned(), _smelt_tmp_14.clone()), ("sentType".to_owned(), _smelt_tmp_16.clone()), ("kept".to_owned(), _smelt_tmp_18.clone())]);
+    _smelt_tmp_19 = SmeltRecord::from([("method".to_owned(), _smelt_tmp_10.clone()), ("url".to_owned(), _smelt_tmp_11.clone()), ("body".to_owned(), (*smelt_capture_received.borrow()).clone()), ("status".to_owned(), _smelt_tmp_14.clone()), ("sentType".to_owned(), _smelt_tmp_16.clone()), ("kept".to_owned(), _smelt_tmp_18.clone())]);
     _smelt_tmp_20 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_19.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) }).expect("JSON serialization failed");
     _smelt_tmp_21 = closure_arg_1.clone().end(Some(_smelt_tmp_20.clone()));
     ()

@@ -37,9 +37,8 @@
 //!   `s`: not by definition, not through a field or index, and not as the
 //!   receiver of an in-place collection operation. Including the consumer keeps
 //!   `xs.push(xs)` from reading its receiver through a live mutable borrow.
-//! * When `s` is [shared](super::shared_locals), every statement in between is a
-//!   plain copy of a local or a constant. Anything else can run a closure that
-//!   writes `s`.
+//! * When `s` is [shared](super::shared_locals), no statement in between can run
+//!   source code: it would be free to run a closure that writes `s`.
 //! * The consumer does not mutate `t` and is not a closure construction, which
 //!   snapshots `t` where forwarding would capture the cell of `s`.
 //!
@@ -163,7 +162,7 @@ fn forwardable(
     let between = block.statements.get(after..end)?;
     let is_shared = shared.contains(&from);
     let quiet = |statement: &Statement| {
-        !writes(statement, from) && (!is_shared || is_plain_copy(statement))
+        !writes(statement, from) && (!is_shared || !may_run_code(statement, body, types))
     };
     if !between.iter().all(quiet) {
         return None;
@@ -210,12 +209,35 @@ fn writes(statement: &Statement, local: LocalId) -> bool {
     }
 }
 
-/// Whether `statement` only copies a local or a constant, running no other code.
-const fn is_plain_copy(statement: &Statement) -> bool {
-    let Statement::Assign { value: Rvalue::Use(operand), .. } = statement else {
-        return false;
+/// Whether `statement` can run source code: it calls, constructs or suspends, or
+/// it is handed a function it can call.
+fn may_run_code(statement: &Statement, body: Body<'_>, types: &TypeInterner) -> bool {
+    let value = match statement {
+        Statement::Assign { value, .. }
+        | Statement::AssignPlace { value, .. }
+        | Statement::DictEntryUpdate { value, .. } => value,
     };
-    matches!(operand, Operand::Const(_)) || operand.local().is_some()
+    if matches!(value, Rvalue::Closure { .. }) {
+        return false;
+    }
+    if matches!(
+        value,
+        Rvalue::ClosureCall { .. }
+            | Rvalue::ClosureCallSpread { .. }
+            | Rvalue::Construct { .. }
+            | Rvalue::Await { .. }
+            | Rvalue::GeneratorYield { .. }
+    ) {
+        return true;
+    }
+    let mut takes_function = false;
+    value.reads(|operand| {
+        takes_function |= operand
+            .local()
+            .and_then(|local| body.local_decl(local))
+            .is_some_and(|decl| matches!(types.get(decl.ty), Some(Type::Function(_))));
+    });
+    takes_function
 }
 
 /// Whether `statement` reads `temp` as a bare operand it does not mutate, in a
@@ -511,7 +533,7 @@ mod tests {
         assert_declined(mir);
     }
 
-    /// A plain copy runs no code, so a shared source survives it.
+    /// A statement that runs no code leaves a shared source alone.
     #[test]
     fn forwards_a_shared_source_across_a_plain_copy() {
         let plain = Statement::Assign { dest: OTHER, value: Rvalue::Use(copy(OTHER)) };

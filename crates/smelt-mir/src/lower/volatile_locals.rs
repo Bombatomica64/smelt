@@ -216,11 +216,15 @@ fn assigned_locals(body: &Body) -> HashSet<LocalId> {
     body.stmts.iter().filter_map(|stmt| assigned_local(body, stmt)).collect()
 }
 
-/// The locals a statement of an expression-level block assigns.
+/// The locals assigned by a block that is an operand of another expression.
+///
+/// A block with no parent expression is a whole statement, `x = 1;`, with no
+/// sibling to be read around.
 fn written_in_expression(body: &Body) -> HashSet<LocalId> {
-    body.exprs
-        .iter()
-        .filter_map(|expr| match expr.kind {
+    let operands: HashSet<ExprId> = body.exprs.iter().flat_map(|expr| children(&expr.kind)).collect();
+    operands
+        .into_iter()
+        .filter_map(|id| match expr_kind(body, id)? {
             ExprKind::Block(block) => body.blocks.get(usize::try_from(block.0).ok()?),
             _ => None,
         })

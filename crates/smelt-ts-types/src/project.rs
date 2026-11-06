@@ -29,6 +29,40 @@ use crate::TsTypesError;
 /// Virtual directory holding the analysed sources and the generated `tsconfig.json`.
 pub(crate) const ROOT: &str = "/smelt";
 
+/// Path of the declaration of the test frameworks Smelt models itself.
+const TEST_FRAMEWORK_DECLARATIONS: &str = "/smelt/__smelt_test_frameworks.d.ts";
+
+/// The test-framework surface Smelt lowers natively, as the checker sees it.
+///
+/// The program holds only the project's own sources, so `vitest` would resolve to
+/// nothing and `vi.fn(impl)` would be `any`, losing the signature of every mock:
+/// `memoize(vi.fn((a: number[]) => 0), { getCacheKey: (x) => x.join() })` could
+/// not type `x`. `vi.fn` keeps the implementation's type. Everything else stays
+/// `any`, which is what an unresolved import answers.
+const TEST_FRAMEWORK_TEXT: &str = r#"
+type SmeltMock<F> = F & { mock: any; [member: string]: any };
+interface SmeltVi {
+  fn<F extends (...args: any[]) => any>(implementation: F): SmeltMock<F>;
+  fn(): SmeltMock<(...args: any[]) => any>;
+  [member: string]: any;
+}
+declare module "vitest" {
+  export const vi: SmeltVi;
+  export const describe: any, it: any, test: any, expect: any, expectTypeOf: any, assertType: any;
+  export const beforeAll: any, beforeEach: any, afterAll: any, afterEach: any;
+}
+declare module "@effect/vitest" {
+  export const vi: SmeltVi;
+  export const describe: any, it: any, test: any, expect: any, expectTypeOf: any, assertType: any;
+  export const beforeAll: any, beforeEach: any, afterAll: any, afterEach: any;
+}
+declare module "@fast-check/vitest" {
+  export const vi: SmeltVi;
+  export const describe: any, it: any, test: any, expect: any, expectTypeOf: any, assertType: any;
+  export const beforeAll: any, beforeEach: any, afterAll: any, afterEach: any;
+}
+"#;
+
 /// One source file to analyse.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -117,12 +151,9 @@ impl ParseConfigHost for ConfigHost {
 /// `moduleDetection: force` because Smelt treats every file as a module (an
 /// import-free file is not a global script whose declarations collide).
 fn tsconfig_json(inputs: &[SourceInput]) -> String {
-    let mut files = String::new();
-    for (index, input) in inputs.iter().enumerate() {
-        if index > 0 {
-            files.push(',');
-        }
-        let _ = write!(files, "\"{}\"", input.root_relative_path().replace('"', "\\\""));
+    let mut files = format!("\"{}\"", TEST_FRAMEWORK_DECLARATIONS.trim_start_matches("/smelt/"));
+    for input in inputs {
+        let _ = write!(files, ",\"{}\"", input.root_relative_path().replace('"', "\\\""));
     }
     format!(
         r#"{{
@@ -157,6 +188,7 @@ pub(crate) fn build_program(inputs: &[SourceInput]) -> Result<&'static Program, 
     let config_path = format!("{ROOT}/tsconfig.json");
     let mut files: Vec<(String, String)> =
         inputs.iter().map(|input| (input.program_path(), input.text.clone())).collect();
+    files.push((TEST_FRAMEWORK_DECLARATIONS.to_owned(), TEST_FRAMEWORK_TEXT.to_owned()));
     files.push((config_path.clone(), tsconfig_json(inputs)));
     let fs: Arc<dyn FS> = Arc::new(bundled::wrap_fs(vfstest::from_map(files, true)));
     let config_host: &'static ConfigHost =

@@ -47,108 +47,107 @@ fn main (FuncId(1)) -> None
     %33 temp: String
     %34 temp: String
     %35 temp: String
-    %36 temp: Float
+    %36 temp: String
     %37 temp: String
-    %38 temp: String
-    %39 temp: None
-    %40 temp: Dict<String, Float>
+    %38 temp: None
+    %39 temp: Dict<String, Float>
+    %40 temp: String
     %41 temp: String
     %42 temp: String
     %43 temp: String
     %44 temp: String
-    %45 temp: String
-    %46 temp: None
-    %47 temp: Dict<String, Float>
+    %45 temp: None
+    %46 temp: Dict<String, Float>
+    %47 temp: String
     %48 temp: String
     %49 temp: String
-    %50 temp: String
-    %51 temp: List<String>
+    %50 temp: List<String>
+    %51 temp: String
     %52 temp: String
     %53 temp: String
     %54 temp: String
     %55 temp: String
-    %56 temp: String
-    %57 temp: None
+    %56 temp: None
+    %57 temp: Bool
     %58 temp: Bool
-    %59 temp: Bool
+    %59 temp: String
     %60 temp: String
     %61 temp: String
     %62 temp: String
     %63 temp: String
-    %64 temp: String
-    %65 temp: None
-    %66 temp: Dict<String, Float>
+    %64 temp: None
+    %65 temp: Dict<String, Float>
+    %66 temp: Bool
     %67 temp: Bool
-    %68 temp: Bool
+    %68 temp: String
     %69 temp: String
     %70 temp: String
     %71 temp: String
     %72 temp: String
-    %73 temp: String
-    %74 temp: None
-    %75 temp: Dict<String, Leaf>
-    %76 temp: Optional<Leaf>
+    %73 temp: None
+    %74 temp: Dict<String, Leaf>
+    %75 temp: Optional<Leaf>
+    %76 temp: Bool
     %77 temp: Bool
-    %78 temp: Bool
-    %79 temp: Leaf
-    %80 temp: Optional<Leaf>
-    %81 temp: Optional<String>
+    %78 temp: Leaf
+    %79 temp: Optional<Leaf>
+    %80 temp: Optional<String>
+    %81 temp: String
     %82 temp: String
-    %83 temp: String
-    %84 temp: List<String>
+    %83 temp: List<String>
+    %84 temp: String
     %85 temp: String
-    %86 temp: String
-    %87 temp: None
-    %88 temp: Optional<Leaf>
+    %86 temp: None
+    %87 temp: Optional<Leaf>
+    %88 temp: Bool
     %89 temp: Bool
-    %90 temp: Bool
-    %91 temp: Leaf
-    %92 temp: Optional<Leaf>
-    %93 temp: Optional<String>
+    %90 temp: Leaf
+    %91 temp: Optional<Leaf>
+    %92 temp: Optional<String>
+    %93 temp: String
     %94 temp: String
-    %95 temp: String
-    %96 temp: List<String>
+    %95 temp: List<String>
+    %96 temp: String
     %97 temp: String
-    %98 temp: String
-    %99 temp: None
-    %100 temp: Dict<String, Float>
-    %101 temp: Optional<Float>
-    %102 temp: Bool
-    %103 temp: List<String>
+    %98 temp: None
+    %99 temp: Dict<String, Float>
+    %100 temp: Optional<Float>
+    %101 temp: Bool
+    %102 temp: List<String>
+    %103 temp: String
     %104 temp: String
     %105 temp: String
     %106 temp: String
     %107 temp: String
-    %108 temp: String
-    %109 temp: None
-    %110 temp: Dict<String, Float>
-    %111 temp: Optional<Float>
-    %112 temp: Bool
-    %113 temp: List<String>
-    %114 temp: Float
+    %108 temp: None
+    %109 temp: Dict<String, Float>
+    %110 temp: Optional<Float>
+    %111 temp: Bool
+    %112 temp: List<String>
+    %113 temp: Float
+    %114 temp: String
     %115 temp: String
-    %116 temp: String
-    %117 temp: None
-    %118 temp: Dict<String, Float>
-    %119 temp: Optional<Float>
-    %120 temp: Bool
+    %116 temp: None
+    %117 temp: Dict<String, Float>
+    %118 temp: Optional<Float>
+    %119 temp: Bool
+    %120 temp: String
     %121 temp: String
-    %122 temp: String
-    %123 temp: None
-    %124 temp: Bool
+    %122 temp: None
+    %123 temp: Bool
+    %124 temp: String
     %125 temp: String
-    %126 temp: String
-    %127 temp: None
-    %128 temp: Dict<String, Optional<Float>>
-    %129 temp: Bool
+    %126 temp: None
+    %127 temp: Dict<String, Optional<Float>>
+    %128 temp: Bool
+    %129 temp: String
     %130 temp: String
-    %131 temp: String
-    %132 temp: None
+    %131 temp: None
+    %132 temp: Bool
     %133 temp: Bool
-    %134 temp: Bool
+    %134 temp: String
     %135 temp: String
-    %136 temp: String
-    %137 temp: None
+    %136 temp: None
   bb0:
     %0 = 0.0
     %0 = 5.0
@@ -156,39 +155,39 @@ fn main (FuncId(1)) -> None
     %33 = primitive_cast_string move %1
     %34 = "local: " + move %33
     %35 = move %34 + " "
-    %37 = primitive_cast_string move %0
-    %38 = move %35 + move %37
-    %39 = call @console_log(move %38) -> bb1
+    %36 = primitive_cast_string move %0
+    %37 = move %35 + move %36
+    %38 = call @console_log(move %37) -> bb1
   bb1:
     %2 = {"field": 0.0}
     %2.field0 = 5.0
     %3 = 5.0
-    %41 = primitive_cast_string move %3
-    %42 = "field: " + move %41
-    %43 = move %42 + " "
-    %44 = primitive_cast_string copy %2.field0
-    %45 = move %43 + move %44
-    %46 = call @console_log(move %45) -> bb2
+    %40 = primitive_cast_string move %3
+    %41 = "field: " + move %40
+    %42 = move %41 + " "
+    %43 = primitive_cast_string copy %2.field0
+    %44 = move %42 + move %43
+    %45 = call @console_log(move %44) -> bb2
   bb2:
     %4 = {}
     %4["a"] = 5.0
     %5 = 5.0
-    %48 = primitive_cast_string move %5
-    %49 = "element: " + move %48
-    %50 = move %49 + " "
-    %51 = dict_keys copy %4
-    %52 = string_join move %51, ","
-    %53 = move %50 + move %52
-    %54 = move %53 + " "
-    %55 = primitive_cast_string copy %4["a"]
-    %56 = move %54 + move %55
-    %57 = call @console_log(move %56) -> bb3
+    %47 = primitive_cast_string move %5
+    %48 = "element: " + move %47
+    %49 = move %48 + " "
+    %50 = dict_keys copy %4
+    %51 = string_join move %50, ","
+    %52 = move %49 + move %51
+    %53 = move %52 + " "
+    %54 = primitive_cast_string copy %4["a"]
+    %55 = move %53 + move %54
+    %56 = call @console_log(move %55) -> bb3
   bb3:
     %6 = 0.0
     %7 = undefined
-    %58 = copy %6 != 0.0
-    %59 = !move %58
-    switch move %59 ? bb4 : bb5
+    %57 = copy %6 != 0.0
+    %58 = !move %57
+    switch move %58 ? bb4 : bb5
   bb4:
     %8 = 7.0
     %6 = copy %8
@@ -199,18 +198,18 @@ fn main (FuncId(1)) -> None
     goto bb6
   bb6:
     %9 = move %7
-    %60 = primitive_cast_string move %9
-    %61 = "or local: " + move %60
-    %62 = move %61 + " "
-    %63 = primitive_cast_string move %6
-    %64 = move %62 + move %63
-    %65 = call @console_log(move %64) -> bb7
+    %59 = primitive_cast_string move %9
+    %60 = "or local: " + move %59
+    %61 = move %60 + " "
+    %62 = primitive_cast_string move %6
+    %63 = move %61 + move %62
+    %64 = call @console_log(move %63) -> bb7
   bb7:
     %10 = {"field": 0.0}
     %11 = undefined
-    %67 = copy %10.field0 != 0.0
-    %68 = !move %67
-    switch move %68 ? bb8 : bb9
+    %66 = copy %10.field0 != 0.0
+    %67 = !move %66
+    switch move %67 ? bb8 : bb9
   bb8:
     %12 = 7.0
     %10.field0 = copy %12
@@ -221,147 +220,147 @@ fn main (FuncId(1)) -> None
     goto bb10
   bb10:
     %13 = move %11
-    %69 = primitive_cast_string move %13
-    %70 = "or field: " + move %69
-    %71 = move %70 + " "
-    %72 = primitive_cast_string copy %10.field0
-    %73 = move %71 + move %72
-    %74 = call @console_log(move %73) -> bb11
+    %68 = primitive_cast_string move %13
+    %69 = "or field: " + move %68
+    %70 = move %69 + " "
+    %71 = primitive_cast_string copy %10.field0
+    %72 = move %70 + move %71
+    %73 = call @console_log(move %72) -> bb11
   bb11:
     %14 = {}
     %15 = undefined
-    %76 = copy %14?.["a"]
-    %77 = move %76 != none
-    %78 = !move %77
-    switch move %78 ? bb12 : bb13
+    %75 = copy %14?.["a"]
+    %76 = move %75 != none
+    %77 = !move %76
+    switch move %77 ? bb12 : bb13
   bb12:
-    %79 = call fn0("first") -> bb14
+    %78 = call fn0("first") -> bb14
   bb13:
-    %80 = copy %14?.["a"]
-    %15 = move %80
+    %79 = copy %14?.["a"]
+    %15 = move %79
     goto bb15
   bb14:
-    %16 = move %79
+    %16 = move %78
     %14["a"] = copy %16
     %15 = move %16
     goto bb15
   bb15:
     %17 = move %15
-    %81 = move %17?.field4
-    %82 = "or element: " + move %81
-    %83 = move %82 + " "
-    %84 = dict_keys copy %14
-    %85 = string_join move %84, ","
-    %86 = move %83 + move %85
-    %87 = call @console_log(move %86) -> bb16
+    %80 = move %17?.field4
+    %81 = "or element: " + move %80
+    %82 = move %81 + " "
+    %83 = dict_keys copy %14
+    %84 = string_join move %83, ","
+    %85 = move %82 + move %84
+    %86 = call @console_log(move %85) -> bb16
   bb16:
     %18 = undefined
-    %88 = copy %14?.["a"]
-    %89 = move %88 != none
-    %90 = !move %89
-    switch move %90 ? bb17 : bb18
+    %87 = copy %14?.["a"]
+    %88 = move %87 != none
+    %89 = !move %88
+    switch move %89 ? bb17 : bb18
   bb17:
-    %91 = call fn0("second") -> bb19
+    %90 = call fn0("second") -> bb19
   bb18:
-    %92 = copy %14?.["a"]
-    %18 = move %92
+    %91 = copy %14?.["a"]
+    %18 = move %91
     goto bb20
   bb19:
-    %19 = move %91
+    %19 = move %90
     %14["a"] = copy %19
     %18 = move %19
     goto bb20
   bb20:
     %20 = move %18
-    %93 = move %20?.field4
-    %94 = "or element again: " + move %93
-    %95 = move %94 + " "
-    %96 = dict_keys move %14
-    %97 = string_join move %96, ","
-    %98 = move %95 + move %97
-    %99 = call @console_log(move %98) -> bb21
+    %92 = move %20?.field4
+    %93 = "or element again: " + move %92
+    %94 = move %93 + " "
+    %95 = dict_keys move %14
+    %96 = string_join move %95, ","
+    %97 = move %94 + move %96
+    %98 = call @console_log(move %97) -> bb21
   bb21:
     %21 = {}
-    %101 = copy %21?.["a"]
-    %102 = move %101 == none
-    switch move %102 ? bb22 : bb23
+    %100 = copy %21?.["a"]
+    %101 = move %100 == none
+    switch move %101 ? bb22 : bb23
   bb22:
     %22 = 2.0
     %21["a"] = move %22
     goto bb23
   bb23:
-    %103 = dict_keys copy %21
-    %104 = string_join move %103, ","
-    %105 = "nullish absent: " + move %104
-    %106 = move %105 + " "
-    %107 = primitive_cast_string copy %21["a"]
-    %108 = move %106 + move %107
-    %109 = call @console_log(move %108) -> bb24
+    %102 = dict_keys copy %21
+    %103 = string_join move %102, ","
+    %104 = "nullish absent: " + move %103
+    %105 = move %104 + " "
+    %106 = primitive_cast_string copy %21["a"]
+    %107 = move %105 + move %106
+    %108 = call @console_log(move %107) -> bb24
   bb24:
     %23 = {}
-    %111 = copy %23?.["a"]
-    %112 = primitive_cast_bool move %111
-    switch move %112 ? bb25 : bb26
+    %110 = copy %23?.["a"]
+    %111 = primitive_cast_bool move %110
+    switch move %111 ? bb25 : bb26
   bb25:
     %24 = 9.0
     %23["a"] = move %24
     goto bb26
   bb26:
-    %113 = dict_keys move %23
-    %114 = len move %113
-    %115 = primitive_cast_string move %114
-    %116 = "and absent: " + move %115
-    %117 = call @console_log(move %116) -> bb27
+    %112 = dict_keys move %23
+    %113 = len move %112
+    %114 = primitive_cast_string move %113
+    %115 = "and absent: " + move %114
+    %116 = call @console_log(move %115) -> bb27
   bb27:
     %25 = {"a": 3.0}
-    %119 = copy %25?.["a"]
-    %120 = primitive_cast_bool move %119
-    switch move %120 ? bb28 : bb29
+    %118 = copy %25?.["a"]
+    %119 = primitive_cast_bool move %118
+    switch move %119 ? bb28 : bb29
   bb28:
     %26 = 9.0
     %25["a"] = move %26
     goto bb29
   bb29:
-    %121 = primitive_cast_string copy %25["a"]
-    %122 = "and present: " + move %121
-    %123 = call @console_log(move %122) -> bb30
+    %120 = primitive_cast_string copy %25["a"]
+    %121 = "and present: " + move %120
+    %122 = call @console_log(move %121) -> bb30
   bb30:
     %27 = undefined
-    %124 = copy %27 == none
-    switch move %124 ? bb31 : bb32
+    %123 = copy %27 == none
+    switch move %123 ? bb31 : bb32
   bb31:
     %28 = 4.0
     %27 = move %28
     goto bb32
   bb32:
-    %125 = primitive_cast_string move %27
-    %126 = "nullish local: " + move %125
-    %127 = call @console_log(move %126) -> bb33
+    %124 = primitive_cast_string move %27
+    %125 = "nullish local: " + move %124
+    %126 = call @console_log(move %125) -> bb33
   bb33:
     %29 = {}
-    %129 = copy %29.field0 == none
-    switch move %129 ? bb34 : bb35
+    %128 = copy %29.field0 == none
+    switch move %128 ? bb34 : bb35
   bb34:
     %30 = 4.0
     %29.field0 = move %30
     goto bb35
   bb35:
-    %130 = primitive_cast_string copy %29.field0
-    %131 = "nullish field: " + move %130
-    %132 = call @console_log(move %131) -> bb36
+    %129 = primitive_cast_string copy %29.field0
+    %130 = "nullish field: " + move %129
+    %131 = call @console_log(move %130) -> bb36
   bb36:
     %31 = 1.0
-    %133 = copy %31 != 0.0
-    %134 = !move %133
-    switch move %134 ? bb37 : bb38
+    %132 = copy %31 != 0.0
+    %133 = !move %132
+    switch move %133 ? bb37 : bb38
   bb37:
     %32 = 8.0
     %31 = move %32
     goto bb38
   bb38:
-    %135 = primitive_cast_string move %31
-    %136 = "or truthy: " + move %135
-    %137 = call @console_log(move %136) -> bb39
+    %134 = primitive_cast_string move %31
+    %135 = "or truthy: " + move %134
+    %136 = call @console_log(move %135) -> bb39
   bb39:
     return none
 
