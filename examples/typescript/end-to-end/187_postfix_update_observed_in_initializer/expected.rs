@@ -170,34 +170,34 @@ struct Echo {
 
 fn main() {
     let top: f64;
-    let _smelt_tmp_22: f64;
-    let _smelt_tmp_23: f64;
-    let _smelt_tmp_24: f64;
+    let _smelt_tmp_26: f64;
+    let _smelt_tmp_27: f64;
+    let _smelt_tmp_28: f64;
     let mut g: usize = 5;
     let __smelt_update_tmp: usize = g;
-    let _smelt_tmp_3: usize = g + 1;
-    g = _smelt_tmp_3;
-    let _smelt_tmp_4: Echo = Echo::new();
-    _smelt_tmp_22 = g as f64;
-    let _smelt_tmp_5: f64 = _smelt_tmp_4.m(_smelt_tmp_22);
-    _smelt_tmp_23 = __smelt_update_tmp as f64;
-    top = _smelt_tmp_23 + _smelt_tmp_5;
-    let _smelt_tmp_7: f64 = later_call_argument(5.0);
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_7)); };
-    let _smelt_tmp_9: f64 = later_read(5.0);
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_9)); };
-    let _smelt_tmp_11: f64 = two_updates(5.0);
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_11)); };
-    let _smelt_tmp_13: f64 = callee_reads_captured_variable(5.0);
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_13)); };
-    let _smelt_tmp_15: f64 = indexed_read(1.0);
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_15)); };
-    let _smelt_tmp_17: f64 = later_element_read(5.0);
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_17)); };
-    let _smelt_tmp_19: f64 = trailing_update_still_defers(5.0);
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_19)); };
-    _smelt_tmp_24 = g as f64;
-    let _ = { println!("{} {}", smelt_console_number(top), smelt_console_number(_smelt_tmp_24)); };
+    let _smelt_tmp_5: usize = g + 1;
+    g = _smelt_tmp_5;
+    let _smelt_tmp_6: Echo = Echo::new();
+    _smelt_tmp_26 = g as f64;
+    let _smelt_tmp_8: f64 = _smelt_tmp_6.m(_smelt_tmp_26);
+    _smelt_tmp_27 = __smelt_update_tmp as f64;
+    top = _smelt_tmp_27 + _smelt_tmp_8;
+    let _smelt_tmp_10: f64 = later_call_argument(5.0);
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_10)); };
+    let _smelt_tmp_12: f64 = later_read(5.0);
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_12)); };
+    let _smelt_tmp_14: f64 = two_updates(5.0);
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_14)); };
+    let _smelt_tmp_16: f64 = callee_reads_captured_variable(5.0);
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_16)); };
+    let _smelt_tmp_18: f64 = indexed_read(1.0);
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_18)); };
+    let _smelt_tmp_20: f64 = later_element_read(5.0);
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_20)); };
+    let _smelt_tmp_22: f64 = trailing_update_still_defers(5.0);
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_22)); };
+    _smelt_tmp_28 = g as f64;
+    let _ = { println!("{} {}", smelt_console_number(top), smelt_console_number(_smelt_tmp_28)); };
     return;
 }
 
@@ -220,44 +220,44 @@ use super::*;
 
 pub(crate) fn later_call_argument(n: f64) -> f64 {
     let v: f64;
-    let _smelt_tmp_8: f64;
-    let _smelt_tmp_9: f64;
+    let _smelt_tmp_11: f64;
+    let _smelt_tmp_13: f64;
     let mut i: f64 = n;
     let __smelt_update_tmp: f64 = i;
-    let _smelt_tmp_4: f64 = i + 1.0;
-    i = _smelt_tmp_4;
-    let _smelt_tmp_5: Echo = Echo::new();
-    let _smelt_tmp_6: f64 = _smelt_tmp_5.m(i);
-    v = __smelt_update_tmp + _smelt_tmp_6;
-    _smelt_tmp_8 = v * 100.0;
-    _smelt_tmp_9 = _smelt_tmp_8 + i;
-    return _smelt_tmp_9;
+    let _smelt_tmp_6: f64 = i + 1.0;
+    i = _smelt_tmp_6;
+    let _smelt_tmp_7: Echo = Echo::new();
+    let _smelt_tmp_9: f64 = _smelt_tmp_7.m(i);
+    v = __smelt_update_tmp + _smelt_tmp_9;
+    _smelt_tmp_11 = v * 100.0;
+    _smelt_tmp_13 = _smelt_tmp_11 + i;
+    return _smelt_tmp_13;
 }
 
 pub(crate) fn later_read(n: f64) -> f64 {
     let mut i: f64 = n;
     let __smelt_update_tmp: f64 = i;
-    let _smelt_tmp_4: f64 = i + 1.0;
-    i = _smelt_tmp_4;
+    let _smelt_tmp_6: f64 = i + 1.0;
+    i = _smelt_tmp_6;
     let v: f64 = __smelt_update_tmp + i;
-    let _smelt_tmp_6: f64 = v * 100.0;
-    let _smelt_tmp_7: f64 = _smelt_tmp_6 + i;
-    return _smelt_tmp_7;
+    let _smelt_tmp_9: f64 = v * 100.0;
+    let _smelt_tmp_11: f64 = _smelt_tmp_9 + i;
+    return _smelt_tmp_11;
 }
 
 pub(crate) fn two_updates(n: f64) -> f64 {
     let mut i: f64 = n;
     let __smelt_update_tmp: f64 = i;
-    let _smelt_tmp_5: f64 = i + 1.0;
-    i = _smelt_tmp_5;
+    let _smelt_tmp_7: f64 = i + 1.0;
+    i = _smelt_tmp_7;
+    let _smelt_tmp_8: f64 = __smelt_update_tmp * 10.0;
     let __smelt_update_tmp_1: f64 = i;
-    let _smelt_tmp_6: f64 = i + 1.0;
-    i = _smelt_tmp_6;
-    let _smelt_tmp_7: f64 = __smelt_update_tmp * 10.0;
-    let v: f64 = _smelt_tmp_7 + __smelt_update_tmp_1;
-    let _smelt_tmp_9: f64 = v * 100.0;
-    let _smelt_tmp_10: f64 = _smelt_tmp_9 + i;
-    return _smelt_tmp_10;
+    let _smelt_tmp_11: f64 = i + 1.0;
+    i = _smelt_tmp_11;
+    let v: f64 = _smelt_tmp_8 + __smelt_update_tmp_1;
+    let _smelt_tmp_13: f64 = v * 100.0;
+    let _smelt_tmp_15: f64 = _smelt_tmp_13 + i;
+    return _smelt_tmp_15;
 }
 
 pub(crate) fn callee_reads_captured_variable(n: f64) -> f64 {
@@ -270,39 +270,40 @@ pub(crate) fn callee_reads_captured_variable(n: f64) -> f64 {
 });
     let peek = _smelt_tmp_5.clone();
     let __smelt_update_tmp: f64 = (*smelt_capture_i.borrow());
-    let _smelt_tmp_6: f64 = (*smelt_capture_i.borrow()) + 1.0;
-    (*smelt_capture_i.borrow_mut()) = _smelt_tmp_6;
-    let _smelt_tmp_7: f64 = __smelt_update_tmp * 10.0;
-    let _smelt_tmp_8: f64 = (peek)();
-    let v: f64 = _smelt_tmp_7 + _smelt_tmp_8;
-    let _smelt_tmp_10: f64 = v * 100.0;
-    let _smelt_tmp_11: f64 = _smelt_tmp_10 + (*smelt_capture_i.borrow());
-    return _smelt_tmp_11;
+    let _smelt_tmp_8: f64 = (*smelt_capture_i.borrow()) + 1.0;
+    (*smelt_capture_i.borrow_mut()) = _smelt_tmp_8;
+    let _smelt_tmp_9: f64 = __smelt_update_tmp * 10.0;
+    let _smelt_tmp_10: f64 = (peek)();
+    let v: f64 = _smelt_tmp_9 + _smelt_tmp_10;
+    let _smelt_tmp_12: f64 = v * 100.0;
+    let _smelt_tmp_14: f64 = _smelt_tmp_12 + (*smelt_capture_i.borrow());
+    return _smelt_tmp_14;
 }
 
 pub(crate) fn indexed_read(n: f64) -> f64 {
     let values: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![10.0, 20.0, 30.0, 40.0]; smelt_list_items }));
     let mut i: f64 = n;
     let __smelt_update_tmp: f64 = i;
-    let _smelt_tmp_6: f64 = i + 1.0;
-    i = _smelt_tmp_6;
-    let v: f64 = values.borrow().get({ let smelt_normalized = __smelt_update_tmp as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) + values.borrow().get({ let smelt_normalized = i as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
-    let _smelt_tmp_8: f64 = v * 100.0;
-    let _smelt_tmp_9: f64 = _smelt_tmp_8 + i;
-    return _smelt_tmp_9;
+    let _smelt_tmp_8: f64 = i + 1.0;
+    i = _smelt_tmp_8;
+    let _smelt_tmp_9: f64 = i;
+    let v: f64 = values.borrow().get({ let smelt_normalized = __smelt_update_tmp as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) + values.borrow().get({ let smelt_normalized = _smelt_tmp_9 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    let _smelt_tmp_11: f64 = v * 100.0;
+    let _smelt_tmp_13: f64 = _smelt_tmp_11 + i;
+    return _smelt_tmp_13;
 }
 
 pub(crate) fn later_element_read(n: f64) -> f64 {
     let mut i: f64 = n;
     let __smelt_update_tmp: f64 = i;
-    let _smelt_tmp_4: f64 = i + 1.0;
-    i = _smelt_tmp_4;
+    let _smelt_tmp_6: f64 = i + 1.0;
+    i = _smelt_tmp_6;
     let pair: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![__smelt_update_tmp, i]; smelt_list_items }));
-    let _smelt_tmp_6: f64 = pair.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) * 100.0;
-    let _smelt_tmp_7: f64 = pair.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) * 10.0;
-    let _smelt_tmp_8: f64 = _smelt_tmp_6 + _smelt_tmp_7;
-    let _smelt_tmp_9: f64 = _smelt_tmp_8 + i;
-    return _smelt_tmp_9;
+    let _smelt_tmp_9: f64 = pair.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) * 100.0;
+    let _smelt_tmp_10: f64 = pair.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) * 10.0;
+    let _smelt_tmp_11: f64 = _smelt_tmp_9 + _smelt_tmp_10;
+    let _smelt_tmp_13: f64 = _smelt_tmp_11 + i;
+    return _smelt_tmp_13;
 }
 
 pub(crate) fn trailing_update_still_defers(n: f64) -> f64 {

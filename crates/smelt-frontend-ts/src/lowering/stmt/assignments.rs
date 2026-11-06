@@ -154,6 +154,8 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             }));
         }
+        let type_params = self.callee_own_type_params(item);
+        let call_ty = self.instantiated_call_return(&type_params, &params, &args, return_ty, call, body)?;
         let callee = body.push_expr(Expr {
             kind: ExprKind::Item(item),
             ty: self.ctx.krate.types.intern(Type::Function(FunctionType {
@@ -169,7 +171,7 @@ impl ModuleBuilder<'_> {
         });
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Call { callee, args },
-            ty: return_ty,
+            ty: call_ty,
             span: self.span(call.span.start, call.span.end),
         })))
     }
@@ -3020,13 +3022,37 @@ impl ModuleBuilder<'_> {
             target,
             value: store_value,
         };
-        self.push_stmt_to_sink(body, let_stmt);
-        self.push_stmt_to_sink(body, assign_stmt);
-        Ok(body.push_expr(Expr {
+        let result = body.push_expr(Expr {
             kind: ExprKind::Local(temp_local),
             ty: result_ty,
             span,
-        }))
+        });
+        Ok(self.evaluated_in_place(body, span, [let_stmt, assign_stmt], result))
+    }
+
+    /// `statements` then `value`, as one expression evaluated where it stands.
+    ///
+    /// A store inside an expression runs between its siblings: in `f(a, a++)` the
+    /// first argument reads `a` before the store. The statement sink runs ahead of
+    /// the whole enclosing statement, which would put the store before that read.
+    pub(in crate::lowering) fn evaluated_in_place(
+        &mut self,
+        body: &mut Body,
+        span: Span,
+        statements: impl IntoIterator<Item = Stmt>,
+        value: smelt_hir::ExprId,
+    ) -> smelt_hir::ExprId {
+        let block = body.push_block(span);
+        self.with_stmt_block(block, |this| {
+            for statement in statements {
+                this.push_stmt_to_sink(body, statement);
+            }
+        });
+        if let Some(entry) = usize::try_from(block.0).ok().and_then(|index| body.blocks.get_mut(index)) {
+            entry.tail = Some(value);
+        }
+        let ty = Self::expr_ty(body, value);
+        body.push_expr(Expr { kind: ExprKind::Block(block), ty, span })
     }
 
     /// Whether an assignment operator is one of the three LOGICAL assignments,
@@ -3347,9 +3373,9 @@ impl ModuleBuilder<'_> {
         // result: MIR lowers an expression once into its own temporary, so this
         // neither re-evaluates the right-hand side nor needs a temporary of its
         // own here.
+        let span = self.span(assign.span.start, assign.span.end);
         let assign_stmt = Stmt::Assign { target, value };
-        self.push_stmt_to_sink(body, assign_stmt);
-        Ok(value)
+        Ok(self.evaluated_in_place(body, span, [assign_stmt], value))
     }
 
     /// Convert assignment target to expression.

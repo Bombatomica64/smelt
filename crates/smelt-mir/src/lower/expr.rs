@@ -31,25 +31,12 @@ impl LoweringCtx<'_> {
         let operand = match &expr.kind {
             ExprKind::Literal(literal) => Operand::Const(lower_literal(literal)),
             ExprKind::Local(local) => {
-                let local_id = self.locals.get(local).copied().ok_or_else(|| {
-                    self.error(
-                        "local expression references an unknown local",
-                        Some(expr.span),
-                    )
-                })?;
-                let operand = Operand::Copy(Place::Local(local_id));
-                let local_ty = self.mir_local(local_id)?.ty;
-                if matches!(self.krate.types.get(local_ty), Some(Type::Optional(inner)) if *inner == expr.ty)
-                {
-                    let dest = self.push_temp(expr.ty, expr.span);
-                    self.block_mut()?.statements.push(Statement::Assign {
-                        dest,
-                        value: Rvalue::Use(operand),
-                    });
-                    Operand::Copy(Place::Local(dest))
-                } else {
-                    operand
+                if self.volatile_locals.contains(self.body.id, *local) {
+                    // Not cached: each evaluation is its own read.
+                    let read = self.local_read(*local, &expr)?;
+                    return self.assign_temp(expr.ty, expr.span, Rvalue::Use(read));
                 }
+                self.local_read(*local, &expr)?
             }
             ExprKind::Call { callee, args } => {
                 let callee_id = self.lower_callee(*callee)?;
@@ -3145,7 +3132,33 @@ impl LoweringCtx<'_> {
             }
         };
 
+        // A place operand is read by whatever consumes it, after every sibling.
+        let operand = if matches!(operand.place(), Some(Place::Field { .. } | Place::Index { .. }))
+            && self.volatile_locals.is_early_read(self.body.id, expr_id)
+        {
+            self.assign_temp(expr.ty, expr.span, Rvalue::Use(operand))?
+        } else {
+            operand
+        };
         self.exprs.insert(expr_id, operand.clone());
+        Ok(operand)
+    }
+
+    /// The operand reading HIR local `local` at the type of `expr`.
+    fn local_read(&mut self, local: smelt_hir::LocalId, expr: &smelt_hir::Expr) -> Result<Operand, LowerError> {
+        let local_id = self.locals.get(&local).copied().ok_or_else(|| {
+            self.error("local expression references an unknown local", Some(expr.span))
+        })?;
+        let operand = Operand::Copy(Place::Local(local_id));
+        let local_ty = self.mir_local(local_id)?.ty;
+        if matches!(self.krate.types.get(local_ty), Some(Type::Optional(inner)) if *inner == expr.ty) {
+            let dest = self.push_temp(expr.ty, expr.span);
+            self.block_mut()?.statements.push(Statement::Assign {
+                dest,
+                value: Rvalue::Use(operand),
+            });
+            return Ok(Operand::Copy(Place::Local(dest)));
+        }
         Ok(operand)
     }
 
@@ -3610,6 +3623,10 @@ impl LoweringCtx<'_> {
         expr_id: ExprId,
     ) -> Result<LoweredMutationReceiver, LowerError> {
         let expr = self.hir_expr(expr_id)?.clone();
+        // The mutation has to reach the local, so this is no read to snapshot.
+        if let ExprKind::Local(local) = expr.kind {
+            return Ok((self.local_read(local, &expr)?, None));
+        }
         if !matches!(
             expr.kind,
             ExprKind::Field { .. }

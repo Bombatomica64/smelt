@@ -121,13 +121,26 @@ impl K {
     return this;
     }
     fn get(&self, mut a: f64, x: Option<f64>) -> f64 {
-    let __smelt_update_tmp: f64 = a;
-    let _smelt_tmp_5: f64 = a + 1.0;
-    a = _smelt_tmp_5;
-    let x_1: f64 = x.clone().unwrap_or(__smelt_update_tmp);
-    let _smelt_tmp_7: f64 = a + x_1;
-    let _smelt_tmp_8: f64 = _smelt_tmp_7 + self.v;
-    return _smelt_tmp_8;
+    let __smelt_update_tmp: f64;
+    let x_1: f64;
+    let mut _smelt_tmp_6: f64;
+    let _smelt_tmp_9: f64;
+    let _smelt_tmp_11: f64;
+    let _smelt_tmp_12: f64;
+    let _smelt_tmp_5: bool = x.clone().is_none();
+    let mut _smelt_tmp_6: f64 = 0.0;
+    if _smelt_tmp_5 {
+    __smelt_update_tmp = a;
+    _smelt_tmp_9 = a + 1.0;
+    a = _smelt_tmp_9;
+    _smelt_tmp_6 = x.clone().unwrap_or(__smelt_update_tmp);
+    } else {
+    _smelt_tmp_6 = x.clone().expect("optional value was absent after narrowing");
+    }
+    x_1 = _smelt_tmp_6;
+    _smelt_tmp_11 = a + x_1;
+    _smelt_tmp_12 = _smelt_tmp_11 + self.v;
+    return _smelt_tmp_12;
     }
 }
 
@@ -149,13 +162,26 @@ impl Scaled {
     return this;
     }
     fn get(&self, mut a: f64, x: Option<f64>) -> f64 {
-    let __smelt_update_tmp: f64 = a;
-    let _smelt_tmp_5: f64 = a + 1.0;
-    a = _smelt_tmp_5;
-    let x_1: f64 = x.clone().unwrap_or(__smelt_update_tmp);
-    let _smelt_tmp_7: f64 = a * 10.0;
-    let _smelt_tmp_8: f64 = _smelt_tmp_7 + x_1;
-    return _smelt_tmp_8;
+    let __smelt_update_tmp: f64;
+    let x_1: f64;
+    let mut _smelt_tmp_6: f64;
+    let _smelt_tmp_9: f64;
+    let _smelt_tmp_11: f64;
+    let _smelt_tmp_12: f64;
+    let _smelt_tmp_5: bool = x.clone().is_none();
+    let mut _smelt_tmp_6: f64 = 0.0;
+    if _smelt_tmp_5 {
+    __smelt_update_tmp = a;
+    _smelt_tmp_9 = a + 1.0;
+    a = _smelt_tmp_9;
+    _smelt_tmp_6 = x.clone().unwrap_or(__smelt_update_tmp);
+    } else {
+    _smelt_tmp_6 = x.clone().expect("optional value was absent after narrowing");
+    }
+    x_1 = _smelt_tmp_6;
+    _smelt_tmp_11 = a * 10.0;
+    _smelt_tmp_12 = _smelt_tmp_11 + x_1;
+    return _smelt_tmp_12;
     }
 }
 
@@ -165,26 +191,52 @@ impl C {
     return this;
     }
     fn m(&self, mut a: f64, x: Option<f64>) -> f64 {
-    let __smelt_update_tmp: f64 = a;
-    let _smelt_tmp_5: f64 = a + 1.0;
-    a = _smelt_tmp_5;
-    let x_1: f64 = x.clone().unwrap_or(__smelt_update_tmp);
-    let _smelt_tmp_7: f64 = a * 10.0;
-    let _smelt_tmp_8: f64 = _smelt_tmp_7 + x_1;
-    return _smelt_tmp_8;
+    let __smelt_update_tmp: f64;
+    let x_1: f64;
+    let mut _smelt_tmp_6: f64;
+    let _smelt_tmp_9: f64;
+    let _smelt_tmp_11: f64;
+    let _smelt_tmp_12: f64;
+    let _smelt_tmp_5: bool = x.clone().is_none();
+    let mut _smelt_tmp_6: f64 = 0.0;
+    if _smelt_tmp_5 {
+    __smelt_update_tmp = a;
+    _smelt_tmp_9 = a + 1.0;
+    a = _smelt_tmp_9;
+    _smelt_tmp_6 = x.clone().unwrap_or(__smelt_update_tmp);
+    } else {
+    _smelt_tmp_6 = x.clone().expect("optional value was absent after narrowing");
+    }
+    x_1 = _smelt_tmp_6;
+    _smelt_tmp_11 = a * 10.0;
+    _smelt_tmp_12 = _smelt_tmp_11 + x_1;
+    return _smelt_tmp_12;
     }
 }
 
 impl Pair {
     fn new(mut a: f64, x: Option<f64>) -> Self {
+    let __smelt_update_tmp: f64;
+    let x_1: f64;
+    let mut _smelt_tmp_6: f64;
+    let _smelt_tmp_9: f64;
+    let _smelt_tmp_11: f64;
+    let _smelt_tmp_12: f64;
     let mut this: Self = Pair { v: 0.0 };
-    let __smelt_update_tmp: f64 = a;
-    let _smelt_tmp_5: f64 = a + 1.0;
-    a = _smelt_tmp_5;
-    let x_1: f64 = x.clone().unwrap_or(__smelt_update_tmp);
-    let _smelt_tmp_7: f64 = a * 10.0;
-    let _smelt_tmp_8: f64 = _smelt_tmp_7 + x_1;
-    this.v = _smelt_tmp_8;
+    let _smelt_tmp_5: bool = x.clone().is_none();
+    let mut _smelt_tmp_6: f64 = 0.0;
+    if _smelt_tmp_5 {
+    __smelt_update_tmp = a;
+    _smelt_tmp_9 = a + 1.0;
+    a = _smelt_tmp_9;
+    _smelt_tmp_6 = x.clone().unwrap_or(__smelt_update_tmp);
+    } else {
+    _smelt_tmp_6 = x.clone().expect("optional value was absent after narrowing");
+    }
+    x_1 = _smelt_tmp_6;
+    _smelt_tmp_11 = a * 10.0;
+    _smelt_tmp_12 = _smelt_tmp_11 + x_1;
+    this.v = _smelt_tmp_12;
     return this;
     }
 }

@@ -501,20 +501,22 @@ impl Bag {
     let __smelt_logical_value_4: SmeltHeaders;
     let headers: Option<SmeltHeaders>;
     let mut _smelt_tmp_7: Option<SmeltHeaders>;
-    let _smelt_tmp_8: bool;
-    let _smelt_tmp_10: SmeltHeaders;
-    let _smelt_tmp_11: ();
+    let _smelt_tmp_8: Option<SmeltHeaders>;
+    let _smelt_tmp_9: bool;
+    let _smelt_tmp_11: SmeltHeaders;
+    let _smelt_tmp_12: ();
     let _smelt_tmp_6: bool = !(self.0.borrow().current.clone().is_none());
     if _smelt_tmp_6 {
-    _smelt_tmp_7 = self.0.borrow().current.clone();
+    _smelt_tmp_8 = self.0.borrow().current.clone();
+    _smelt_tmp_7 = _smelt_tmp_8;
     headers = _smelt_tmp_7;
-    _smelt_tmp_10 = headers.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_11 = _smelt_tmp_10.set(&name.clone(), &value.clone());
+    _smelt_tmp_11 = headers.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_12 = _smelt_tmp_11.set(&name.clone(), &value.clone());
     return;
     } else {
     __smelt_logical_3 = SmeltHeaders::new();
-    _smelt_tmp_8 = self.0.borrow().prepared.clone().is_none();
-    if _smelt_tmp_8 {
+    _smelt_tmp_9 = self.0.borrow().prepared.clone().is_none();
+    if _smelt_tmp_9 {
     __smelt_logical_value_4 = SmeltHeaders::new();
     self.0.borrow_mut().prepared = Some(__smelt_logical_value_4.clone());
     __smelt_logical_3 = __smelt_logical_value_4;
@@ -523,8 +525,8 @@ impl Bag {
     }
     _smelt_tmp_7 = Some(__smelt_logical_3);
     headers = _smelt_tmp_7;
-    _smelt_tmp_10 = headers.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_11 = _smelt_tmp_10.set(&name.clone(), &value.clone());
+    _smelt_tmp_11 = headers.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_12 = _smelt_tmp_11.set(&name.clone(), &value.clone());
     return;
     }
     }

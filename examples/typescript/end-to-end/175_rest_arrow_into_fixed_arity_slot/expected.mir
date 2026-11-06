@@ -121,8 +121,7 @@ closure ClosureId(0) -> String
     %5 temp: (String, String | Float)
     %6 temp: String
   bb0:
-    %5 = (copy %0, copy %1)
-    %2 = copy %5
+    %2 = (copy %0, copy %1)
     %4 = copy %2
     %6 = call fn0(copy %3, copy %4[0], copy %4[1]) -> bb1
   bb1:

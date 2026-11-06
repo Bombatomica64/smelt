@@ -172,9 +172,7 @@ pub(crate) fn trim(label: String) -> String {
     let _smelt_tmp_8: f64;
     let _smelt_tmp_9: String;
     let _smelt_tmp_10: String;
-    let _smelt_tmp_3: String = closure_arg_0.clone();
-    let _smelt_tmp_4: String = suffix.clone();
-    let _smelt_tmp_5: bool = _smelt_tmp_3.clone().ends_with(&_smelt_tmp_4.clone());
+    let _smelt_tmp_5: bool = closure_arg_0.clone().ends_with(&suffix.clone());
     let _smelt_tmp_6: bool = !(_smelt_tmp_5);
     if _smelt_tmp_6 {
     closure_arg_0.clone()

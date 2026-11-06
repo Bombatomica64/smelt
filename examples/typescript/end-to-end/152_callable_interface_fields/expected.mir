@@ -195,8 +195,7 @@ closure ClosureId(2) -> None
     %6 = dict_remove_key copy %3.field11, copy %0
     return none
   bb2:
-    %7 = dict_get copy %3.field11, copy %0, _
-    %4 = copy %7
+    %4 = dict_get copy %3.field11, copy %0, _
     %8 = copy %2?.field6
     %9 = primitive_cast_bool copy %8
     switch copy %9 ? bb3 : bb4

@@ -114,9 +114,7 @@ closure ClosureId(2) -> String
     %9 temp: String
     %10 temp: String
   bb0:
-    %3 = copy %0
-    %4 = copy %2
-    %5 = string_ends_with copy %3, copy %4
+    %5 = string_ends_with copy %0, copy %2
     %6 = !copy %5
     switch copy %6 ? bb1 : bb2
   bb1:

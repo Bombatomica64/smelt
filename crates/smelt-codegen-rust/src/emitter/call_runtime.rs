@@ -1920,7 +1920,9 @@ impl FunctionEmitter<'_> {
                 {
                     rest_args
                 } else {
-                    let mut rendered_args = args
+                    let packed_rest = self.packed_rest_arg_text(args, rest_function)?;
+                    let positional_args = packed_rest.as_ref().and_then(|(index, _)| args.get(..*index)).unwrap_or(args);
+                    let mut rendered_args = positional_args
                         .iter()
                         .zip(params.iter())
                         .enumerate()
@@ -1956,13 +1958,18 @@ impl FunctionEmitter<'_> {
                             Ok(text)
                         })
                         .collect::<Result<Vec<_>, _>>()?;
+                    if let (Some((index, list)), Some(function)) = (packed_rest, rest_function)
+                        && let Some(param) = function.params.get(index)
+                    {
+                        rendered_args.push(self.callback_call_arg_text(function, index, *param, list));
+                    }
                     // A padded argument is a fresh temporary, so a
                     // by-shared-reference parameter borrows it in place. Without
                     // this the padding is the one argument in the ladder that
                     // ignores the callee's ABI (E0308) — es-toolkit's
                     // `isEqualWith` calls a six-parameter comparator with two
                     // required arguments and four padded ones.
-                    for (index, param) in params.iter().enumerate().skip(args.len()) {
+                    for (index, param) in params.iter().enumerate().skip(rendered_args.len()) {
                         let default_text = self.closure_value_padding_text(*param)?;
                         rendered_args.push(match (abi_function.as_ref(), rest_function) {
                             (Some(function), _) => match function.params.get(index) {
@@ -2611,41 +2618,55 @@ impl FunctionEmitter<'_> {
 
 
 
-    /// Packs scalar callback call arguments for an erased rest-vector callback ABI.
+    /// Packs a call's arguments into the single list a rest-only callee takes.
     pub(super) fn rest_vector_call_args_text(
         &self,
         args: &[Operand],
         function: Option<&FunctionType>,
     ) -> Result<Option<Vec<String>>, EmitError> {
+        Ok(self.packed_rest_arg_text(args, function)?.and_then(|(index, list)| (index == 0).then(|| vec![list])))
+    }
+
+    /// The rest parameter's index and its packed list, for a call whose operands
+    /// past the positional parameters are the rest arguments.
+    ///
+    /// A `ClosureCall` carries one operand per source argument. `None` when the
+    /// callee has no list-typed rest, when no operand reaches it (the padding fills
+    /// an empty list), or when a single operand there already has the list type.
+    pub(super) fn packed_rest_arg_text(
+        &self,
+        args: &[Operand],
+        function: Option<&FunctionType>,
+    ) -> Result<Option<(usize, String)>, EmitError> {
         let Some(function_ty) = function else {
             return Ok(None);
         };
-        let Some(0) = function_ty.rest else {
+        let Some(index) = function_ty.rest else {
             return Ok(None);
         };
-        let [param] = function_ty.params.as_slice() else {
+        let Some(param) = function_ty.params.get(index).copied() else {
             return Ok(None);
         };
-        let Some(Type::List(item)) = self.mir.types.get(*param) else {
-            return Ok(None);
-        };
-        if self.mir.types.get(*item) != Some(&Type::Unknown) {
+        if function_ty.params.len() != index.saturating_add(1) {
             return Ok(None);
         }
-        if args.is_empty() {
+        let Some(Type::List(item)) = self.mir.types.get(param) else {
             return Ok(None);
-        }
-        if let [single_arg] = args
-            && self.operand_ty(single_arg)? == *param
+        };
+        let Some(rest_args) = args.get(index..).filter(|rest| !rest.is_empty()) else {
+            return Ok(None);
+        };
+        if let [single_arg] = rest_args
+            && self.operand_ty(single_arg)? == param
         {
             return Ok(None);
         }
-        let items = args
+        let items = rest_args
             .iter()
             .map(|arg| self.value_at_type(arg, *item))
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
-        Ok(Some(vec![format!("SmeltList::from(vec![{items}])")]))
+        Ok(Some((index, format!("SmeltList::from(vec![{items}])"))))
     }
 
     /// Render call-argument text for a spread across a leading-positional + rest

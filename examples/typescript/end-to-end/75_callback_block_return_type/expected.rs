@@ -3592,13 +3592,11 @@ fn main() {
     let _ = { println!("{}", _smelt_tmp_36); };
     _smelt_tmp_38 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
     _smelt_tmp_39 = ::std::rc::Rc::new(|closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
-    let _smelt_tmp_2: f64 = closure_arg_0 * 2.0;
-    let step: f64 = _smelt_tmp_2;
+    let step: f64 = closure_arg_0 * 2.0;
     step
     });
     seventh = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
-    let _smelt_tmp_2: f64 = closure_arg_0 * 2.0;
-    let step: f64 = _smelt_tmp_2;
+    let step: f64 = closure_arg_0 * 2.0;
     step
     }); let smelt_array = _smelt_tmp_38; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     _smelt_tmp_42 = seventh.borrow().iter().enumerate().fold(0.0, |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &seventh; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, _arg0: i64, _arg1: &SmeltList<f64>| {

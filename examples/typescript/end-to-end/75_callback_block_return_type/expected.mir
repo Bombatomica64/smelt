@@ -273,8 +273,7 @@ closure ClosureId(7) -> Float
     %1 user step: Float
     %2 temp: Float
   bb0:
-    %2 = copy %0 * 2.0
-    %1 = copy %2
+    %1 = copy %0 * 2.0
     return copy %1
 
 closure ClosureId(8) -> Float

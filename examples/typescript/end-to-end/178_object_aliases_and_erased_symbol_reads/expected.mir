@@ -169,7 +169,6 @@ closure ClosureId(0) -> String
     %1 user path: String
     %2 temp: String
   bb0:
-    %2 = tuple_index copy %0, 1
-    %1 = copy %2
+    %1 = tuple_index copy %0, 1
     return copy %1
 

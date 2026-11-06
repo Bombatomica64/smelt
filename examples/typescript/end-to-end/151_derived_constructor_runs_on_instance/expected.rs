@@ -4734,8 +4734,7 @@ impl AppBase {
     let mut _smelt_tmp_5: String;
     let _smelt_tmp_6: String;
     let _smelt_tmp_7: String;
-    let _smelt_tmp_3: String = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix.clone().clone() + &closure_arg_0.clone();
-    let full: String = _smelt_tmp_3.clone();
+    let full: String = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix.clone().clone() + &closure_arg_0.clone();
     let _smelt_tmp_4: bool = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes.clone().borrow().contains(&full.clone());
     if _smelt_tmp_4 {
     _smelt_tmp_6 = "hit ".to_owned() + &full.clone();
@@ -4787,8 +4786,7 @@ impl App {
     let mut _smelt_tmp_5: String;
     let _smelt_tmp_6: String;
     let _smelt_tmp_7: String;
-    let _smelt_tmp_3: String = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix.clone().clone() + &closure_arg_0.clone();
-    let full: String = _smelt_tmp_3.clone();
+    let full: String = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix.clone().clone() + &closure_arg_0.clone();
     let _smelt_tmp_4: bool = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes.clone().borrow().contains(&full.clone());
     if _smelt_tmp_4 {
     _smelt_tmp_6 = "hit ".to_owned() + &full.clone();
@@ -4840,8 +4838,7 @@ impl PlainApp {
     let mut _smelt_tmp_5: String;
     let _smelt_tmp_6: String;
     let _smelt_tmp_7: String;
-    let _smelt_tmp_3: String = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix.clone().clone() + &closure_arg_0.clone();
-    let full: String = _smelt_tmp_3.clone();
+    let full: String = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix.clone().clone() + &closure_arg_0.clone();
     let _smelt_tmp_4: bool = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes.clone().borrow().contains(&full.clone());
     if _smelt_tmp_4 {
     _smelt_tmp_6 = "hit ".to_owned() + &full.clone();

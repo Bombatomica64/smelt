@@ -3640,8 +3640,8 @@ pub(crate) fn make_counter() -> Counter {
     let _smelt_tmp_7 = ::std::rc::Rc::new({
     let smelt_capture_count = smelt_capture_count.clone();
     move || {
-    let _smelt_tmp_1: f64 = (*smelt_capture_count.borrow()) + 1.0;
-    (*smelt_capture_count.borrow_mut()) = _smelt_tmp_1;
+    let _smelt_tmp_2: f64 = (*smelt_capture_count.borrow()) + 1.0;
+    (*smelt_capture_count.borrow_mut()) = _smelt_tmp_2;
     (*smelt_capture_count.borrow())
     }
 });

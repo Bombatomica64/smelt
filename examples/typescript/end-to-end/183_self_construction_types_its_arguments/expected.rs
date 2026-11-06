@@ -3863,18 +3863,19 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> ListRou
 
 impl<E: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> App<E> {
     fn new(options: Options<E>) -> Self {
-    let _smelt_tmp_3: Option<Router<String>>;
-    let _smelt_tmp_4: ::std::rc::Rc<dyn Fn(String) -> String>;
-    let _smelt_tmp_5: ::std::rc::Rc<dyn Fn(String, Option<SmeltRecord<String, Option<E>>>) -> String>;
+    let _smelt_tmp_4: Option<Router<String>>;
+    let _smelt_tmp_5: ::std::rc::Rc<dyn Fn(String) -> String>;
+    let _smelt_tmp_6: ::std::rc::Rc<dyn Fn(String, Option<SmeltRecord<String, Option<E>>>) -> String>;
     let mut this: Self = App { router: Default::default(), get_path: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, Option<SmeltRecord<String, Option<E>>>) -> String> = ::std::rc::Rc::new(move |arg0: String, arg1: Option<SmeltRecord<String, Option<E>>>| -> String { String::new() }); smelt_default_callback }, _smelt_phantom: ::std::marker::PhantomData };
-    let _smelt_tmp_2: ListRouter<String> = ListRouter::new();
-    _smelt_tmp_3 = Some(options.router.clone().unwrap_or({ let smelt_struct_value = _smelt_tmp_2.clone(); Router { name: smelt_struct_value.0.borrow().name.clone(), add: { let smelt_slot_callback = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(String, String, String) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: String, arg2: String| -> () { let mut smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.add(arg0.clone(), arg1.clone(), arg2.clone()) }); smelt_virtual_method }; let smelt_slot_adapted: ::std::rc::Rc<dyn Fn(String, String, &String) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: String, arg2: &String| (smelt_slot_callback)(arg0, arg1, arg2.clone())); smelt_slot_adapted }, match_: { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = ::std::rc::Rc::new(move |arg0: String, arg1: String| -> SmeltList<String> { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.match_(arg0.clone(), arg1.clone()) }); smelt_virtual_method }, _smelt_phantom: ::std::marker::PhantomData } }));
-    this.router = _smelt_tmp_3.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_4 = ::std::rc::Rc::new(|closure_arg_0: String| {
+    let _smelt_tmp_2: Option<Router<String>> = options.router.clone();
+    let _smelt_tmp_3: ListRouter<String> = ListRouter::new();
+    _smelt_tmp_4 = Some(_smelt_tmp_2.clone().unwrap_or({ let smelt_struct_value = _smelt_tmp_3.clone(); Router { name: smelt_struct_value.0.borrow().name.clone(), add: { let smelt_slot_callback = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(String, String, String) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: String, arg2: String| -> () { let mut smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.add(arg0.clone(), arg1.clone(), arg2.clone()) }); smelt_virtual_method }; let smelt_slot_adapted: ::std::rc::Rc<dyn Fn(String, String, &String) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: String, arg2: &String| (smelt_slot_callback)(arg0, arg1, arg2.clone())); smelt_slot_adapted }, match_: { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = ::std::rc::Rc::new(move |arg0: String, arg1: String| -> SmeltList<String> { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.match_(arg0.clone(), arg1.clone()) }); smelt_virtual_method }, _smelt_phantom: ::std::marker::PhantomData } }));
+    this.router = _smelt_tmp_4.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_5 = ::std::rc::Rc::new(|closure_arg_0: String| {
     closure_arg_0.clone()
     });
-    _smelt_tmp_5 = options.get_path.clone().unwrap_or(::std::rc::Rc::new({ let _smelt_adapted_callback = _smelt_tmp_4.clone(); move |arg0: String, arg1: Option<SmeltRecord<String, Option<E>>>| (_smelt_adapted_callback)(arg0) }));
-    this.get_path = _smelt_tmp_5.clone();
+    _smelt_tmp_6 = options.get_path.clone().unwrap_or(::std::rc::Rc::new({ let _smelt_adapted_callback = _smelt_tmp_5.clone(); move |arg0: String, arg1: Option<SmeltRecord<String, Option<E>>>| (_smelt_adapted_callback)(arg0) }));
+    this.get_path = _smelt_tmp_6.clone();
     return this;
     }
     fn clone(&self) -> App<E> {

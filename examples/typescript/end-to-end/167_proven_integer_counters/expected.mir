@@ -280,6 +280,7 @@ fn captured (FuncId(8)) -> Float
     %5 temp: fn(Float, Int, List<Float>) -> None
     %6 temp: None
     %7 temp: usize
+    %8 temp: Float
   bb0:
     %1 = 0.0
     %2 = 0
@@ -562,8 +563,9 @@ closure ClosureId(0) -> None
   locals
     %0 user seen: Float
     %1 temp: Float
+    %2 temp: Float
   bb0:
-    %1 = copy %0 + 1.0
-    %0 = copy %1
+    %2 = copy %0 + 1.0
+    %0 = copy %2
     return none
 

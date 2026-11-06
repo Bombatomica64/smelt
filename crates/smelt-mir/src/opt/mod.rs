@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     LocalId, Mir, MirFunction, Operand, Place, ReadMut, Rvalue, Statement, Terminator,
 };
+use shared_locals::SharedLocals;
 use smelt_hir::Type;
 
 mod dict_default_insert_elision;
@@ -18,6 +19,8 @@ mod local_use;
 pub use local_use::inline_absent_constant_temps;
 mod let_temp_elision;
 mod move_on_last_use;
+mod shared_locals;
+mod temp_copy_forwarding;
 mod unobserved_receiver_bind;
 
 pub use dict_default_insert_elision::DictDefaultInsertElision;
@@ -26,6 +29,7 @@ pub use dict_entry_update::DictEntryUpdate;
 pub use integer_range::IntegerRange;
 pub use let_temp_elision::LetTempElision;
 pub use move_on_last_use::MoveOnLastUse;
+pub use temp_copy_forwarding::TempCopyForwarding;
 pub use unobserved_receiver_bind::UnobservedReceiverBind;
 
 /// A MIR optimization pass that transforms the MIR.
@@ -46,9 +50,12 @@ pub struct CopyPropagation;
 impl Pass for CopyPropagation {
     /// Applies the pass to `mir`, returning true if it was modified.
     fn run(&self, mir: &mut Mir) -> bool {
+        let facts = SharedLocals::of(mir);
+        let empty = HashSet::new();
         let mut changed = false;
-        for function in &mut mir.functions {
-            changed |= propagate_function(function, &mir.types);
+        for (index, function) in mir.functions.iter_mut().enumerate() {
+            let shared = facts.of_function(index).unwrap_or(&empty);
+            changed |= propagate_function(function, shared, &mir.types);
         }
         changed
     }
@@ -60,6 +67,7 @@ fn fixpoint_passes() -> Vec<Box<dyn Pass>> {
         Box::<CopyPropagation>::default(),
         Box::<MoveOnLastUse>::default(),
         Box::<LetTempElision>::default(),
+        Box::<TempCopyForwarding>::default(),
         Box::<DictEntryInPlaceMutation>::default(),
         Box::<DictEntryUpdate>::default(),
         Box::<DictDefaultInsertElision>::default(),
@@ -90,7 +98,14 @@ pub fn optimize(mir: &mut Mir) {
 }
 
 /// Propagates copies within a function. Returns true if the function was modified.
-fn propagate_function(function: &mut MirFunction, types: &smelt_hir::TypeInterner) -> bool {
+///
+/// `shared` are the locals a closure can write: a copy of one is a snapshot, not an
+/// alias, since the source can change at any later call.
+fn propagate_function(
+    function: &mut MirFunction,
+    shared: &HashSet<LocalId>,
+    types: &smelt_hir::TypeInterner,
+) -> bool {
     let mut aliases = HashMap::new();
     let mutated = mutated_locals(function);
     let assigned_counts = function.assignment_counts();
@@ -103,6 +118,7 @@ fn propagate_function(function: &mut MirFunction, types: &smelt_hir::TypeInterne
             } = stmt
                 && !mutated.contains(dest)
                 && !mutated.contains(source)
+                && !shared.contains(source)
                 && assigned_counts.get(dest) == Some(&1)
                 && !function.is_temp(*source)
                 && !is_function_local(function, types, *dest)

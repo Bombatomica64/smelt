@@ -423,8 +423,7 @@ closure ClosureId(2) -> String
     %6 temp: String
     %7 temp: String
   bb0:
-    %3 = copy %1.field26 + copy %0
-    %2 = copy %3
+    %2 = copy %1.field26 + copy %0
     %4 = list_contains copy %1.field25, copy %2
     switch copy %4 ? bb1 : bb2
   bb1:

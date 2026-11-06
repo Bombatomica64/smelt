@@ -1638,7 +1638,7 @@ export function firstA(names: string[]): string | undefined {
     );
 
     assert!(
-        source.contains("let _smelt_tmp_3: bool = _smelt_tmp_1.clone().starts_with("),
+        source.contains("let _smelt_tmp_3: bool = closure_arg_0.clone().starts_with("),
         "{source}"
     );
     // Scoped to the source from `fn first_a(` onward: the runtime prelude
@@ -9981,7 +9981,7 @@ export function callback(): () => Promise<number> {
         source.contains(": f64 = _smelt_tmp_0.await?;")
             || source.contains(": f64 = _smelt_tmp_1.await?;")
             || source.contains(": f64 = _smelt_tmp_2.await?;")
-            || source.contains("_smelt_tmp_2 = _smelt_tmp_1.await?;"),
+            || source.contains("value = _smelt_tmp_1.await?;"),
         "{source}"
     );
 }

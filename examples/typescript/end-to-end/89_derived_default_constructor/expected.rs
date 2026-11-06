@@ -115,6 +115,12 @@ fn main() {
     let derived: Derived;
     let point: Point3;
     let deeper: Deeper;
+    let _smelt_tmp_10: String;
+    let _smelt_tmp_12: String;
+    let _smelt_tmp_16: f64;
+    let _smelt_tmp_17: f64;
+    let _smelt_tmp_18: f64;
+    let _smelt_tmp_19: f64;
     let _smelt_tmp_3: Derived = Derived::new();
     derived = _smelt_tmp_3;
     let _smelt_tmp_4: String = derived.describe();
@@ -124,13 +130,19 @@ fn main() {
     let _smelt_tmp_7: f64 = point.sum();
     let _ = { println!("{} {} {} {}", smelt_console_number(_smelt_tmp_7), smelt_console_number(point.x), smelt_console_number(point.y), smelt_console_number(point.z)); };
     let _smelt_tmp_9: Labelled = Labelled::new(None::<String>);
-    let _smelt_tmp_10: Labelled = Labelled::new(Some("here".to_owned()));
-    let _smelt_tmp_11: Labelled = Labelled::new(None::<String>);
-    let _ = { println!("{} {} {}", _smelt_tmp_9.tag.clone(), _smelt_tmp_10.tag.clone(), _smelt_tmp_11.seen); };
-    let _smelt_tmp_13: Deeper = Deeper::new(5.0, 6.0);
-    deeper = _smelt_tmp_13;
-    let _smelt_tmp_14: f64 = deeper.sum();
-    let _ = { println!("{} {} {} {} {}", smelt_console_number(deeper.x), smelt_console_number(deeper.y), smelt_console_number(deeper.z), smelt_console_number(deeper.w), smelt_console_number(_smelt_tmp_14)); };
+    _smelt_tmp_10 = _smelt_tmp_9.tag.clone();
+    let _smelt_tmp_11: Labelled = Labelled::new(Some("here".to_owned()));
+    _smelt_tmp_12 = _smelt_tmp_11.tag.clone();
+    let _smelt_tmp_13: Labelled = Labelled::new(None::<String>);
+    let _ = { println!("{} {} {}", _smelt_tmp_10, _smelt_tmp_12, _smelt_tmp_13.seen); };
+    let _smelt_tmp_15: Deeper = Deeper::new(5.0, 6.0);
+    deeper = _smelt_tmp_15;
+    _smelt_tmp_16 = deeper.x;
+    _smelt_tmp_17 = deeper.y;
+    _smelt_tmp_18 = deeper.z;
+    _smelt_tmp_19 = deeper.w;
+    let _smelt_tmp_20: f64 = deeper.sum();
+    let _ = { println!("{} {} {} {} {}", smelt_console_number(_smelt_tmp_16), smelt_console_number(_smelt_tmp_17), smelt_console_number(_smelt_tmp_18), smelt_console_number(_smelt_tmp_19), smelt_console_number(_smelt_tmp_20)); };
     return;
 }
 

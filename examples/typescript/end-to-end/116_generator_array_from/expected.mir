@@ -18,8 +18,7 @@ fn range (FuncId(0)) -> Generator<Float, None, None>
     %6 = copy %4 <= copy %1
     switch move %6 ? bb2 : bb4
   bb2:
-    %7 = copy %4
-    %8 = yield move %7
+    %8 = yield copy %4
     goto bb3
   bb3:
     %9 = move %4 + copy %3

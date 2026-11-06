@@ -106,7 +106,6 @@ use smelt_hir::{Type, TypeInterner, UnaryOp};
 use crate::{BasicBlock, BlockId, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement, Terminator};
 
 use super::Pass;
-use super::local_use::local_decl;
 
 /// The dict entry a guard tests: the container local and the key it is indexed by.
 #[derive(Clone, Copy)]
@@ -302,10 +301,10 @@ fn dict_value_is_default_type(
     base: LocalId,
     default_local: LocalId,
 ) -> bool {
-    let Some(base_decl) = local_decl(function, base) else {
+    let Some(base_decl) = function.body().local_decl(base) else {
         return false;
     };
-    let Some(default_decl) = local_decl(function, default_local) else {
+    let Some(default_decl) = function.body().local_decl(default_local) else {
         return false;
     };
     if !matches!(types.get(default_decl.ty), Some(Type::List(_))) {

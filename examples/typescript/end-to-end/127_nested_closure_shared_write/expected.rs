@@ -203,8 +203,8 @@ pub(crate) fn defer(body: &dyn Fn(::std::rc::Rc<dyn Fn(::std::rc::Rc<dyn Fn() ->
 }
 
 pub(crate) fn run() -> f64 {
-    let _smelt_tmp_4: f64;
     let _smelt_tmp_5: f64;
+    let _smelt_tmp_7: f64;
     let smelt_capture_val: ::std::rc::Rc<::std::cell::RefCell<f64>> = ::std::rc::Rc::new(::std::cell::RefCell::new(0.0));
     let smelt_capture_calls: ::std::rc::Rc<::std::cell::RefCell<f64>> = ::std::rc::Rc::new(::std::cell::RefCell::new(0.0));
     let _smelt_tmp_2 = ::std::rc::Rc::new({
@@ -216,8 +216,8 @@ pub(crate) fn run() -> f64 {
     let smelt_capture_val = smelt_capture_val.clone();
     move || {
     (*smelt_capture_val.borrow_mut()) = 1.0;
-    let _smelt_tmp_2: f64 = (*smelt_capture_calls.borrow()) + 1.0;
-    (*smelt_capture_calls.borrow_mut()) = _smelt_tmp_2;
+    let _smelt_tmp_3: f64 = (*smelt_capture_calls.borrow()) + 1.0;
+    (*smelt_capture_calls.borrow_mut()) = _smelt_tmp_3;
     ()
     }
 });
@@ -225,8 +225,8 @@ pub(crate) fn run() -> f64 {
     let _smelt_tmp_5 = ::std::rc::Rc::new({
     let smelt_capture_calls = smelt_capture_calls.clone();
     move || {
-    let _smelt_tmp_1: f64 = (*smelt_capture_calls.borrow()) + 1.0;
-    (*smelt_capture_calls.borrow_mut()) = _smelt_tmp_1;
+    let _smelt_tmp_2: f64 = (*smelt_capture_calls.borrow()) + 1.0;
+    (*smelt_capture_calls.borrow_mut()) = _smelt_tmp_2;
     ()
     }
 });
@@ -235,7 +235,7 @@ pub(crate) fn run() -> f64 {
     }
 });
     let _ = defer(&*_smelt_tmp_2);
-    _smelt_tmp_4 = (*smelt_capture_val.borrow()) * 10.0;
-    _smelt_tmp_5 = _smelt_tmp_4 + (*smelt_capture_calls.borrow());
-    return _smelt_tmp_5;
+    _smelt_tmp_5 = (*smelt_capture_val.borrow()) * 10.0;
+    _smelt_tmp_7 = _smelt_tmp_5 + (*smelt_capture_calls.borrow());
+    return _smelt_tmp_7;
 }

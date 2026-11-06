@@ -368,10 +368,8 @@ closure ClosureId(0) -> String
     %6 temp: String
     %7 temp: String
   bb0:
-    %3 = tuple_index copy %0, 0
-    %1 = copy %3
-    %4 = tuple_index copy %0, 1
-    %2 = copy %4
+    %1 = tuple_index copy %0, 0
+    %2 = tuple_index copy %0, 1
     %5 = "" + copy %1
     %6 = copy %5 + "="
     %7 = copy %6 + copy %2

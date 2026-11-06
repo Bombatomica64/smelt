@@ -390,6 +390,7 @@ impl ModuleBuilder<'_> {
         } else {
             ClosureBodyKind::Statements(arrow_block_statements(arrow))
         };
+        let declares_erased_return = self.declares_erased_return(arrow.return_type.as_deref(), return_ty)?;
         self.closure_body_expr_from_parts(
             &arrow.params,
             body_kind,
@@ -398,6 +399,7 @@ impl ModuleBuilder<'_> {
             span,
             param_tys,
             return_ty,
+            declares_erased_return,
             outer_body,
         )
     }
@@ -425,6 +427,7 @@ impl ModuleBuilder<'_> {
                 "function expression callbacks must have a body",
             ));
         };
+        let declares_erased_return = self.declares_erased_return(function.return_type.as_deref(), return_ty)?;
         self.closure_body_expr_from_parts(
             &function.params,
             ClosureBodyKind::Statements(&function_body.statements),
@@ -433,8 +436,30 @@ impl ModuleBuilder<'_> {
             span,
             param_tys,
             return_ty,
+            declares_erased_return,
             outer_body,
         )
+    }
+
+    /// Whether the source itself declares `any`/`unknown` as this closure's return.
+    ///
+    /// `Unknown` is also closure-body lowering's "no hint" sentinel, which asks it
+    /// to infer the return from the body. A declared return is the source's answer
+    /// and is not inferred over: `(v: any): any => null` hands its caller the value
+    /// `null` at an erased type, where inference would type it `void`.
+    fn declares_erased_return(
+        &mut self,
+        annotation: Option<&oxc::ast::ast::TSTypeAnnotation<'_>>,
+        return_ty: smelt_hir::TypeId,
+    ) -> Result<bool, SmeltError> {
+        let Some(annotation) = annotation else {
+            return Ok(false);
+        };
+        if self.ctx.krate.types.get(return_ty) != Some(&Type::Unknown) {
+            return Ok(false);
+        }
+        let declared = self.ts_type_to_hir(&annotation.type_annotation)?;
+        Ok(self.ctx.krate.types.get(declared) == Some(&Type::Unknown))
     }
 
     /// The default a closure parameter applies when its argument is omitted.
@@ -503,6 +528,7 @@ impl ModuleBuilder<'_> {
         span: Span,
         param_tys: &[smelt_hir::TypeId],
         return_ty: smelt_hir::TypeId,
+        declares_erased_return: bool,
         outer_body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let is_expression_body = matches!(body_kind, ClosureBodyKind::ArrowExpression(_));
@@ -729,6 +755,7 @@ impl ModuleBuilder<'_> {
         }
 
         let infer_expression_return = is_expression_body
+            && !declares_erased_return
             && matches!(self.ctx.krate.types.get(return_ty), Some(Type::Unknown));
         // The same inference for a BLOCK-bodied callback.
         //
@@ -770,6 +797,7 @@ impl ModuleBuilder<'_> {
         };
         let infer_block_return = !is_expression_body
             && body_always_returns
+            && !declares_erased_return
             && matches!(self.ctx.krate.types.get(return_ty), Some(Type::Unknown));
         // A return HINT of `Unknown` erases the returned value on the way out
         // (`return_statement_value_hint`), which would make the inference below

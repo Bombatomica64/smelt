@@ -3728,8 +3728,7 @@ fn main() {
     let _smelt_tmp_25: ::std::rc::Rc<dyn Fn(String, Option<f64>, Option<String>) -> String>;
     let _smelt_tmp_26: String;
     let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: f64, closure_arg_2: bool| {
-    let _smelt_tmp_4: (String, f64, bool) = (closure_arg_0.clone(), closure_arg_1, closure_arg_2);
-    let args: (String, f64, bool) = _smelt_tmp_4.clone();
+    let args: (String, f64, bool) = (closure_arg_0.clone(), closure_arg_1, closure_arg_2);
     let _smelt_tmp_5: String = args.clone().0.clone();
     let _smelt_tmp_6: String = "".to_owned() + &_smelt_tmp_5.clone();
     let _smelt_tmp_7: f64 = args.clone().1.clone();
@@ -3740,16 +3739,14 @@ fn main() {
     });
     let triple = _smelt_tmp_6.clone();
     let _smelt_tmp_7 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: f64| {
-    let _smelt_tmp_4: (String, f64) = (closure_arg_0.clone(), closure_arg_1);
-    let args: (String, f64) = _smelt_tmp_4.clone();
+    let args: (String, f64) = (closure_arg_0.clone(), closure_arg_1);
     let __smelt_spread: (String, f64) = args.clone();
     let _smelt_tmp_5: String = pair(__smelt_spread.0.clone(), Some(__smelt_spread.1));
     _smelt_tmp_5.clone()
     });
     let handler = _smelt_tmp_7.clone();
     let _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: f64| {
-    let _smelt_tmp_3: (String, f64) = (closure_arg_0.clone(), closure_arg_1);
-    let args: (String, f64) = _smelt_tmp_3.clone();
+    let args: (String, f64) = (closure_arg_0.clone(), closure_arg_1);
     let _smelt_tmp_4: f64 = 2 as f64;
     let _smelt_tmp_5: String = "".to_owned() + &smelt_number_to_string(_smelt_tmp_4);
     let _smelt_tmp_6: String = _smelt_tmp_5.clone() + &":".to_owned();
@@ -3826,8 +3823,7 @@ impl Ctx {
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let smelt_self = self.clone();
     move |closure_arg_0: String, closure_arg_1: Option<f64>, closure_arg_2: Option<String>| {
-    let _smelt_tmp_6: (String, Option<f64>, Option<String>) = (closure_arg_0.clone(), closure_arg_1.clone(), closure_arg_2.clone());
-    let args: (String, Option<f64>, Option<String>) = _smelt_tmp_6.clone();
+    let args: (String, Option<f64>, Option<String>) = (closure_arg_0.clone(), closure_arg_1.clone(), closure_arg_2.clone());
     let __smelt_spread: (String, Option<f64>, Option<String>) = args.clone();
     let _smelt_tmp_7: Option<f64> = __smelt_spread.clone().1.clone();
     let _smelt_tmp_8: Option<String> = __smelt_spread.clone().2.clone();

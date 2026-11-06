@@ -63,6 +63,37 @@ clone-strategy = "aggressive"
     ensure_eq(&stdout, &expected, format!("{name}: generated Rust stdout"))
 }
 
+/// A copy keeps its value when a closure writes the source afterwards, whether the
+/// copy sits in a function or a closure and however deep the writing closure is.
+#[test]
+fn copy_before_write() -> TestResult {
+    verify_node_parity("copy_before_write")
+}
+
+/// An operand keeps the value it had where it was evaluated.
+#[test]
+fn evaluation_order() -> TestResult {
+    verify_node_parity("evaluation_order")
+}
+
+/// Rest arguments are packed on every kind of callee.
+#[test]
+fn rest_arguments() -> TestResult {
+    verify_node_parity("rest_arguments")
+}
+
+/// Array-valued ternary arms join instead of one adopting the other's type.
+#[test]
+fn conditional_list_arms() -> TestResult {
+    verify_node_parity("conditional_list_arms")
+}
+
+/// A declared `any` return is not inferred over.
+#[test]
+fn declared_erased_return() -> TestResult {
+    verify_node_parity("declared_erased_return")
+}
+
 /// `DOMException` is an `Error`, `File` a `Blob`, a `TypeError` an `Error`, and a
 /// union arm answers for its base classes.
 #[test]
