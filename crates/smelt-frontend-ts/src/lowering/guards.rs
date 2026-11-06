@@ -235,7 +235,10 @@ impl ModuleBuilder<'_> {
                 format!("TypeScript instanceof target `{class_text}` is not a lowered class"),
             ));
         }
-        let class = self.intern_type_name(class_text);
+        let class = self
+            .classes
+            .scoped_type_name(class_text)
+            .unwrap_or_else(|| self.intern_type_name(class_text));
         let ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(body.push_expr(Expr {
             kind: ExprKind::InstanceOf { value, class },

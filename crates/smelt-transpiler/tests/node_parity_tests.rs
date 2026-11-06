@@ -136,6 +136,12 @@ fn erased_set_order() -> TestResult {
     verify_node_parity("erased_set_order")
 }
 
+/// Same-named classes in different scopes stay different classes.
+#[test]
+fn block_local_classes() -> TestResult {
+    verify_node_parity("block_local_classes")
+}
+
 /// Array-valued ternary arms join instead of one adopting the other's type.
 #[test]
 fn conditional_list_arms() -> TestResult {
