@@ -225,6 +225,9 @@ pub(crate) struct GenericsDecided(());
 pub(crate) struct EmitContext {
     /// The type ID of the None type.
     pub(crate) none_ty: TypeId,
+    /// Whether each union asked about so far is stored as a generated enum; a
+    /// pure function of the MIR that every read of a union member asks.
+    pub(crate) concrete_unions: std::cell::RefCell<HashMap<TypeId, bool>>,
     /// What this program demands of the runtime, computed once.
     demand: RuntimeDemand,
     /// Whether the render under trial touched the erased carrier; see
@@ -526,6 +529,7 @@ impl EmitContext {
             function_param_types,
             function_return_types,
             owned_callback_params,
+            concrete_unions: ::std::cell::RefCell::default(),
             function_item_accessors: ::std::cell::RefCell::new(
                 ::std::collections::BTreeMap::new(),
             ),

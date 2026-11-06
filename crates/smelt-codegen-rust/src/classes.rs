@@ -176,7 +176,7 @@ fn class_type_param_used_as_map_key(mir: &Mir, class: &MirClass, name: Symbol) -
 
 /// The class declared under `name`.
 pub(crate) fn find_class(mir: &Mir, name: Symbol) -> Option<&MirClass> {
-    mir.classes.iter().find(|class| class.name == name)
+    mir.class_named(name)
 }
 
 /// Return whether `name` occurs in a `Dict` key position anywhere within `ty`.
@@ -575,8 +575,8 @@ pub(crate) fn class_name_renders_erased(mir: &Mir, name: Symbol) -> bool {
     }) {
         return false;
     }
-    !mir.classes.iter().any(|class| class.name == name)
-        && !mir.interfaces.iter().any(|interface| interface.name == name)
+    !mir.has_class(name)
+        && !mir.has_interface(name)
 }
 
 /// Return the flattened method set for a class: its own methods plus every

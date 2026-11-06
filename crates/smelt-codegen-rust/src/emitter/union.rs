@@ -196,11 +196,14 @@ impl FunctionEmitter<'_> {
         let Type::Union(items) = self.mir.types.get(ty)? else {
             return None;
         };
-        (items.len() >= 2
-            && items
-                .iter()
-                .all(|item| self.union_member_is_concrete(*item)))
-        .then_some(items)
+        let concrete = self.context.concrete_unions.borrow().get(&ty).copied();
+        let concrete = concrete.unwrap_or_else(|| {
+            let concrete = items.len() >= 2
+                && items.iter().all(|item| self.union_member_is_concrete(*item));
+            self.context.concrete_unions.borrow_mut().insert(ty, concrete);
+            concrete
+        });
+        concrete.then_some(items)
     }
 
     /// Determine whether a union member can be stored without runtime erasure.
@@ -963,7 +966,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(member) else {
             return None;
         };
-        if let Some(interface) = self.mir.interfaces.iter().find(|interface| interface.name == *name) {
+        if let Some(interface) = self.mir.interface_named(*name) {
             return self.interface_member_structural_guard(interface, &siblings);
         }
         let fields = crate::classes::find_class(self.mir, *name)
@@ -1059,7 +1062,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name: owner, .. }) = self.mir.types.get(ty) else {
             return false;
         };
-        if let Some(interface) = self.mir.interfaces.iter().find(|interface| interface.name == *owner) {
+        if let Some(interface) = self.mir.interface_named(*owner) {
             return crate::classes::effective_interface_fields(self.mir, interface)
                 .iter()
                 .any(|field| field.name == name);
@@ -1076,7 +1079,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name: owner, .. }) = self.mir.types.get(ty) else {
             return None;
         };
-        let interface = self.mir.interfaces.iter().find(|interface| interface.name == *owner)?;
+        let interface = self.mir.interface_named(*owner)?;
         interface
             .decode_facts
             .iter()

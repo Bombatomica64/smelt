@@ -3680,7 +3680,7 @@ impl FunctionEmitter<'_> {
         value_ty: TypeId,
         class: Symbol,
     ) -> Result<Option<RustExpr>, EmitError> {
-        if !self.mir.classes.iter().any(|item| item.name == class) {
+        if !self.mir.has_class(class) {
             return Ok(None);
         }
         let optional = match self.mir.types.get(value_ty) {

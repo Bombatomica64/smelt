@@ -1860,7 +1860,7 @@ impl FunctionEmitter<'_> {
                 } {
                     return Ok(RustType::raw(http_type));
                 }
-                if !self.mir.classes.iter().any(|class| class.name == *name)
+                if !self.mir.has_class(*name)
                     && !self
                         .mir
                         .interfaces

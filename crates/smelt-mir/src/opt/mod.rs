@@ -95,6 +95,7 @@ pub fn optimize(mir: &mut Mir) {
         }
     }
     IntegerRange.run(mir);
+    mir.clear_index();
 }
 
 /// Propagates copies within a function. Returns true if the function was modified.

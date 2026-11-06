@@ -840,7 +840,7 @@ pub(crate) fn bound_forwarding_callers(mir: &Mir, function: &MirFunction) -> Vec
         })
         .collect();
     let mut found = Vec::new();
-    for caller in &mir.functions {
+    for caller in mir.static_callers(function.id) {
         if caller.id == function.id {
             continue;
         }
@@ -907,7 +907,7 @@ fn called_with_erased_type_param_argument(mir: &Mir, function: &MirFunction) -> 
         return false;
     }
 
-    for caller in &mir.functions {
+    for caller in mir.static_callers(function.id) {
         for block in &caller.blocks {
             let Some(Terminator::Call {
                 callee: smelt_mir::Callee::Static(target),

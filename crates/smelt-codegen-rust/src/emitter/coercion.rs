@@ -2886,7 +2886,7 @@ impl FunctionEmitter<'_> {
         };
         let fields = if let Some(class) = crate::classes::find_class(self.mir, *name) {
             class.fields.clone()
-        } else if let Some(interface) = self.mir.interfaces.iter().find(|interface| interface.name == *name) {
+        } else if let Some(interface) = self.mir.interface_named(*name) {
             crate::classes::effective_interface_fields(self.mir, interface)
         } else {
             return Ok(None);

@@ -174,8 +174,8 @@ pub(crate) fn type_supports_from_unknown(
         Some(Type::Class { name, .. }) => {
             let name = *name;
             !context.is_reference_class(name)
-                && (mir.classes.iter().any(|class| class.name == name)
-                    || mir.interfaces.iter().any(|item| item.name == name))
+                && (mir.has_class(name)
+                    || mir.has_interface(name))
         }
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
             type_supports_from_unknown(mir, context, *item)

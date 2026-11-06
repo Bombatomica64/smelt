@@ -130,7 +130,7 @@ fn collect_thrown_class_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
                 continue;
             };
             if let Some(Type::Class { name, .. }) = mir.types.get(decl.ty)
-                && mir.classes.iter().any(|class| class.name == *name)
+                && mir.has_class(*name)
             {
                 references.insert(*name);
             }
@@ -180,7 +180,7 @@ fn close_over_heritage(mir: &Mir, references: &mut HashSet<Symbol>) {
                 changed = true;
             }
             if references.contains(&class.name)
-                && mir.classes.iter().any(|candidate| candidate.name == base)
+                && mir.has_class(base)
                 && references.insert(base)
             {
                 changed = true;
@@ -279,7 +279,7 @@ fn collect_bound_receiver_triggers(mir: &Mir, references: &mut HashSet<Symbol>) 
                 continue;
             };
             if let Some(Type::Class { name, .. }) = mir.types.get(decl.ty)
-                && mir.classes.iter().any(|class| class.name == *name)
+                && mir.has_class(*name)
             {
                 references.insert(*name);
             }
@@ -357,7 +357,7 @@ fn collect_identity_comparison_triggers(mir: &Mir, references: &mut HashSet<Symb
 /// Whether `name` is a record type this crate declares: a class, or an object
 /// shape (`interface` / lowered type literal). See [`class_name_of_local`].
 fn is_record_type_symbol(mir: &Mir, name: Symbol) -> bool {
-    mir.classes.iter().any(|class| class.name == name)
+    mir.has_class(name)
         || mir
             .interfaces
             .iter()

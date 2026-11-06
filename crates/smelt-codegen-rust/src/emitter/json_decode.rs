@@ -218,7 +218,7 @@ impl FunctionEmitter<'_> {
         if !args.is_empty() || self.is_erased_class_type(ty) {
             return None;
         }
-        if self.mir.classes.iter().any(|class| class.name == *name) {
+        if self.mir.has_class(*name) {
             return None;
         }
         self.mir

@@ -63,7 +63,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(source) else {
             return Ok(None);
         };
-        if !self.mir.classes.iter().any(|class| class.name == *name) {
+        if !self.mir.has_class(*name) {
             return Ok(None);
         }
         let Some(Type::Function(slot_fn)) = self.mir.types.get(target_field.ty).cloned() else {

@@ -285,7 +285,7 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         if !self.is_interface_record_type(dest_ty)
-            && self.mir.classes.iter().all(|class| class.name != *name)
+            && !self.mir.has_class(*name)
         {
             return Ok(None);
         }
@@ -2845,7 +2845,7 @@ impl FunctionEmitter<'_> {
         let type_symbol = *name;
         let type_args = args.clone();
         if !self.is_interface_record_type(dest_ty)
-            && self.mir.classes.iter().all(|class| class.name != type_symbol)
+            && !self.mir.has_class(type_symbol)
         {
             return Ok(None);
         }
@@ -2967,7 +2967,7 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         // A source class of the same name is that class, with its own members.
-        if self.mir.classes.iter().any(|class| class.name == *name) {
+        if self.mir.has_class(*name) {
             return Ok(None);
         }
         let Some(class) = smelt_stdlib::typescript_stdlib_class(self.symbol_name(*name)?) else {
