@@ -5,7 +5,7 @@ description = "radash Smelt probe"
 
 [sources]
 roots = ["src"]
-test-prefix = ["tests/**/*.test.ts"]
+test-globs = ["tests/**/*.test.ts"]
 entries = ["src/index.ts"]
 
 [output]

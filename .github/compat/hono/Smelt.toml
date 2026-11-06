@@ -10,7 +10,7 @@ entries = ["src/index.ts"]
 # here), so this must not repeat the root's own name; `src/**/*.test.ts`
 # silently matched nothing. `smelt build`/`probe` now warns about a glob that
 # matches no file at all.
-test-prefix = ["**/*.test.ts"]
+test-globs = ["**/*.test.ts"]
 # Excludes are justified one line at a time: each entry names the host surface
 # or language feature Smelt's non-DOM Node profile deliberately does not model.
 # Remove an entry once Smelt models what it names — never to make a build pass.

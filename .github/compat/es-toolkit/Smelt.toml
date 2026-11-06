@@ -5,7 +5,7 @@ description = "es-toolkit Smelt probe"
 
 [sources]
 roots = ["src"]
-test-prefix = ["array/**/*.spec.ts", "function/**/*.spec.ts", "math/**/*.spec.ts", "object/**/*.spec.ts", "predicate/**/*.spec.ts", "promise/**/*.spec.ts", "string/**/*.spec.ts", "util/**/*.spec.ts", "error/**/*.spec.ts"]
+test-globs = ["array/**/*.spec.ts", "function/**/*.spec.ts", "math/**/*.spec.ts", "object/**/*.spec.ts", "predicate/**/*.spec.ts", "promise/**/*.spec.ts", "string/**/*.spec.ts", "util/**/*.spec.ts", "error/**/*.spec.ts"]
 entries = ["src/index.ts"]
 # Spec files excluded from the whole-crate build because they depend on host
 # globals Smelt's non-DOM profile deliberately does not model, or hit a known

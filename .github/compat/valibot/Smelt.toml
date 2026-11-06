@@ -5,7 +5,7 @@ description = "valibot Smelt probe"
 
 [sources]
 roots = ["library/src"]
-test-prefix = ["**/*.test.ts"]
+test-globs = ["**/*.test.ts"]
 entries = ["library/src/index.ts"]
 
 [output]

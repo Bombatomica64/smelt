@@ -215,7 +215,7 @@ pub(crate) fn discover_test_paths(
     Ok(paths)
 }
 
-/// Formats the warning for `test-prefix` globs that matched no file at all.
+/// Formats the warning for `test-globs` globs that matched no file at all.
 ///
 /// Returns `None` when every configured glob matched at least one file under
 /// some source root. The message names each dead glob and the roots the globs
@@ -240,7 +240,7 @@ fn empty_test_glob_warning(
         .collect::<Vec<_>>()
         .join(", ");
     Some(format!(
-        "warning: [sources] test-prefix glob{plural} {globs} matched no files under {where_}; globs are matched against paths relative to each source root, so a glob must not repeat the root's own path",
+        "warning: [sources] test-globs glob{plural} {globs} matched no files under {where_}; globs are matched against paths relative to each source root, so a glob must not repeat the root's own path",
         plural = if dead.len() == 1 { "" } else { "s" },
         globs = dead.join(", "),
         where_ = if root_list.is_empty() {

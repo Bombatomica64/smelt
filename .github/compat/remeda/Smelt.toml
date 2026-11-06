@@ -5,7 +5,7 @@ description = "Remeda v2.34.1 full Smelt build probe"
 
 [sources]
 roots = ["packages/remeda/src"]
-test-prefix = ["**/*.test.ts"]
+test-globs = ["**/*.test.ts"]
 entries = [
   "packages/remeda/src/index.ts",
 ]

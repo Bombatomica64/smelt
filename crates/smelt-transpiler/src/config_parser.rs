@@ -15,13 +15,18 @@ type ConfigResult<T> = Result<T, Box<dyn std::error::Error>>;
 ///
 /// # Errors
 ///
-/// Returns an error when the file cannot be read (with the path quoted) or when
-/// TOML deserialization fails (with the path and the underlying TOML error).
+/// Returns an error when the file cannot be read (with the path quoted), when
+/// TOML deserialization fails (with the path and the underlying TOML error), or
+/// when the manifest breaks a rule of `specs/cli.md`.
 pub fn parse(path: &str) -> ConfigResult<Config> {
     let source = fs::read_to_string(path)
         .map_err(|error| format!("failed to read manifest `{path}`: {error}"))?;
-    toml::from_str(&source)
-        .map_err(|error| format!("failed to parse manifest `{path}`: {error}").into())
+    let config: Config = toml::from_str(&source)
+        .map_err(|error| format!("failed to parse manifest `{path}`: {error}"))?;
+    config.violation().map_or_else(
+        || Ok(config),
+        |message| Err(format!("{path}: error[smelt::manifest]: {message}").into()),
+    )
 }
 
 /// Parse the manifest at `path`, as [`parse`] does for a `Path`.
@@ -52,6 +57,66 @@ mod tests {
             error.contains("failed to read manifest"),
             "error should describe the read failure, got: {error}"
         );
+    }
+
+    /// Parse a one-file manifest with `extra` appended, through the real parser.
+    fn parse_with(extra: &str) -> ConfigResult<Config> {
+        let directory = std::env::temp_dir().join(format!(
+            "smelt-config-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        fs::create_dir_all(&directory)?;
+        let path = directory.join("Smelt.toml");
+        fs::write(
+            &path,
+            format!(
+                "[project]\nname = \"p\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"src/main.ts\"]\n\n[output]\ntarget = \"./dist\"\n\n{extra}\n"
+            ),
+        )?;
+        let parsed = parse_path(&path);
+        fs::remove_dir_all(&directory)?;
+        parsed
+    }
+
+    /// `[strict]` and `[runtime]` are optional, and default to what v1.0 supports.
+    #[test]
+    fn strict_and_runtime_default_when_absent() {
+        parse_with("").expect("a manifest without them parses");
+        parse_with("[strict]\ntypescript = true\npython = true\n\n[runtime]\nclone-strategy = \"aggressive\"")
+            .expect("the supported values parse");
+    }
+
+    /// Anything else is a hard error in the spelling `specs/cli.md` gives.
+    #[test]
+    fn unsupported_settings_are_manifest_errors() {
+        for (extra, expected) in [
+            ("[strict]\ntypescript = false", "error[smelt::manifest]: strict.typescript=false is not supported in v1.0"),
+            ("[strict]\npython = false", "error[smelt::manifest]: strict.python=false is not supported in v1.0"),
+            ("[runtime]\nclone-strategy = \"never\"", "error[smelt::manifest]: runtime.clone-strategy=\"never\" is not supported in v1.0"),
+            ("[runtime]\nclone-strategy = \"always\"", "error[smelt::manifest]: runtime.clone-strategy=\"always\" is not supported in v1.0"),
+            ("[rust]\nedition = \"2099\"", "error[smelt::manifest]: rust.edition=\"2099\" is not a Rust edition"),
+        ] {
+            let error = parse_with(extra).expect_err(extra).to_string();
+            assert!(error.contains(expected), "{extra}: {error}");
+        }
+    }
+
+    /// A misspelt key is an error, in a table and at the top level.
+    #[test]
+    fn unknown_keys_are_rejected() {
+        for extra in ["[rust]\neditoin = \"2021\"", "[runtim]\nclone-strategy = \"aggressive\"", "[strict]\ntypescrpt = true"] {
+            let error = parse_with(extra).expect_err(extra).to_string();
+            assert!(error.contains("unknown"), "{extra}: {error}");
+        }
+    }
+
+    /// `test-prefix` stays an alias of `test-globs`.
+    #[test]
+    fn test_prefix_is_an_alias_of_test_globs() {
+        let source = "[project]\nname = \"p\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"a.ts\"]\ntest-prefix = [\"**/*.test.ts\"]\n\n[output]\ntarget = \"./dist\"\n";
+        let config: Config = toml::from_str(source).expect("the alias parses");
+        assert_eq!(config.test_globs(), ["**/*.test.ts".to_owned()]);
     }
 
     /// Parse a manifest whose only interesting part is `[packages.utility]`.

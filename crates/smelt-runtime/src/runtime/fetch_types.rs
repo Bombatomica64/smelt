@@ -612,9 +612,9 @@ impl SmeltResponse {
     /// step, which is why `new Response('hi').headers.get('content-type')`
     /// is `text/plain;charset=UTF-8` and not `null`.
     pub fn from_parts(status: f64, status_text: String, headers: SmeltHeaders, body: SmeltBody) -> Self {
-        if let Some(content_type) = body.content_type() && !headers.has("content-type") {
+        if let Some(content_type) = body.content_type() { if !headers.has("content-type") {
             headers.append("content-type", &content_type);
-        }
+        } }
         Self { id: smelt_next_object_id(), status, status_text, headers, body }
     }
     /// JS reference identity of this response.
@@ -845,9 +845,9 @@ impl SmeltRequest {
     /// The assembly both constructors share, over an already-shared `init`.
     fn assemble(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody, init: ::std::rc::Rc<SmeltRequestInit>) -> Self {
         let url = if input == "about:blank" || smelt_url_is_serialized_http(input) { input.to_owned() } else { ::url::Url::parse(input).map_or_else(|_| input.to_owned(), |parsed| parsed.to_string()) };
-        if let Some(content_type) = body.content_type() && !headers.has("content-type") {
+        if let Some(content_type) = body.content_type() { if !headers.has("content-type") {
             headers.append("content-type", &content_type);
-        }
+        } }
         Self { id: smelt_next_object_id(), url, method: Self::normalize_method(&method), headers, body, init }
     }
     /// The spec's method normalization.

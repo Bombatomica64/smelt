@@ -195,6 +195,30 @@ pub struct EmitOptions {
     pub allocator: GeneratedAllocator,
     /// The `[profile.release]` the generated crate carries.
     pub release_profile: ReleaseProfile,
+    /// The generated crate's `[package]` metadata.
+    pub package: PackageMetadata,
+    /// Dependencies the project declares, as `(name, TOML value text)`. An entry
+    /// replaces what Smelt would add for that crate, and is otherwise appended.
+    pub dependencies: Vec<(String, String)>,
+}
+
+/// What the generated crate's `[package]` table says beyond its name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PackageMetadata {
+    /// Crate version.
+    pub version: String,
+    /// Rust edition.
+    pub edition: String,
+    /// Description, as TOML string text with its quotes.
+    pub description: Option<String>,
+}
+
+impl Default for PackageMetadata {
+    /// Version 0.1.0, edition 2024, no description.
+    fn default() -> Self {
+        Self { version: "0.1.0".to_owned(), edition: "2024".to_owned(), description: None }
+    }
 }
 
 impl Default for EmitOptions {
@@ -205,6 +229,8 @@ impl Default for EmitOptions {
             crate_kind: CrateKind::Program,
             allocator: GeneratedAllocator::default(),
             release_profile: ReleaseProfile::default(),
+            package: PackageMetadata::default(),
+            dependencies: Vec::new(),
         }
     }
 }
@@ -222,6 +248,20 @@ impl EmitOptions {
     #[must_use]
     pub fn with_crate_kind(mut self, crate_kind: CrateKind) -> Self {
         self.crate_kind = crate_kind;
+        self
+    }
+
+    /// Sets the generated crate's `[package]` metadata.
+    #[must_use]
+    pub fn with_package(mut self, package: PackageMetadata) -> Self {
+        self.package = package;
+        self
+    }
+
+    /// Sets the dependencies the project declares; see [`Self::dependencies`].
+    #[must_use]
+    pub fn with_dependencies(mut self, dependencies: Vec<(String, String)>) -> Self {
+        self.dependencies = dependencies;
         self
     }
 
@@ -456,7 +496,7 @@ pub fn emit_crate(
             &options.crate_name,
             &root.dependencies,
             allocator,
-            options.release_profile,
+            options,
         ),
     )?;
     write_crate_root(&src_dir, options.crate_kind, &source)?;
@@ -506,7 +546,7 @@ pub fn emit_crate_with_modules_reporting(
             &options.crate_name,
             &mapped.dependencies,
             allocator,
-            options.release_profile,
+            options,
         ),
     )?;
     write_crate_root(&src_dir, options.crate_kind, &mapped.root)?;

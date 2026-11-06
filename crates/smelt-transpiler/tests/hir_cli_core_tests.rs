@@ -5,8 +5,8 @@ mod common;
 use std::fs;
 
 use common::{
-    TempProject, TestResult, cargo_test_manifest, ensure, ensure_eq, smelt, smelt_in,
-    utf8_path,
+    TempProject, TestResult, cargo_run_manifest, cargo_test_manifest, ensure, ensure_eq, smelt,
+    smelt_in, utf8_path,
 };
 
 #[test]
@@ -862,4 +862,55 @@ fn dump_hir_reports_a_dependency_that_fails_to_lower() -> TestResult {
     fs::write(root.join("main.ts"), "import { b } from './dep';\nconsole.log(b);\n")?;
     let error = smelt_in(root, &["dump-hir", "main.ts"]).err().ok_or("dump-hir accepted a rejected dependency")?;
     ensure(error.to_string().contains("dep.ts"), format!("the error must name the dependency: {error}"))
+}
+
+/// `[project]`, `[rust] edition` and `[rust.dependencies]` reach the generated crate,
+/// and it builds and runs under them. A declared crate replaces what Smelt would
+/// add for that name, so `Cargo.toml` never holds a key twice.
+#[test]
+fn generated_crate_takes_the_manifest_package_edition_and_dependencies() -> TestResult {
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root.join("src"))?;
+    fs::write(root.join("src/main.ts"), "console.log(JSON.stringify({ a: 1 }));\n")?;
+    fs::write(
+        root.join("Smelt.toml"),
+        r#"[project]
+name = "packaged"
+version = "1.2.3"
+description = "says \"hi\""
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+build = false
+
+[rust]
+edition = "2021"
+
+[rust.dependencies]
+itoa = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+"#,
+    )?;
+    smelt_in(root, &["build"])?;
+    let manifest = fs::read_to_string(root.join("dist/Cargo.toml"))?;
+    for line in [
+        "version = \"1.2.3\"",
+        "edition = \"2021\"",
+        "itoa = \"1\"",
+        "serde_json = { features = [\"preserve_order\"], version = \"1\" }",
+    ] {
+        ensure(manifest.contains(line), format!("`{line}` is missing from:\n{manifest}"))?;
+    }
+    ensure(manifest.contains("description = "), format!("no description in:\n{manifest}"))?;
+    ensure_eq(
+        &manifest.matches("serde_json =").count(),
+        &1,
+        format!("a declared crate appears once:\n{manifest}"),
+    )?;
+    let stdout = cargo_run_manifest(&root.join("dist/Cargo.toml"))?;
+    ensure_eq(&stdout, &"{\"a\":1}\n".to_owned(), "the crate runs under the declared edition")
 }

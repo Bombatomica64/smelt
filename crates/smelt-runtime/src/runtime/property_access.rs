@@ -90,7 +90,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     //~ recorded argument arrays; `results` mirrors the recorded return
     //~ values, so `mockFn.mock.calls.length` flows through the ordinary
     //~ array-length path.
-    if field == "mock" && let Some(state) = smelt_vitest_mock_state(&SmeltUnknown::Object(map.clone())) { let state = state.borrow(); let calls = state.calls.iter().map(|call| SmeltUnknown::Array(call.clone().into())).collect::<Vec<_>>(); let results = state.results.clone(); let mock = SmeltObject::new(Vec::new()); mock.insert("calls".to_owned(), SmeltUnknown::Array(calls.into())); mock.insert("results".to_owned(), SmeltUnknown::Array(results.into())); return SmeltUnknown::Object(mock); }
+    if field == "mock" { if let Some(state) = smelt_vitest_mock_state(&SmeltUnknown::Object(map.clone())) { let state = state.borrow(); let calls = state.calls.iter().map(|call| SmeltUnknown::Array(call.clone().into())).collect::<Vec<_>>(); let results = state.results.clone(); let mock = SmeltObject::new(Vec::new()); mock.insert("calls".to_owned(), SmeltUnknown::Array(calls.into())); mock.insert("results".to_owned(), SmeltUnknown::Array(results.into())); return SmeltUnknown::Object(mock); } }
 // @smelt:end
 // @smelt:if unknown
     //~ An erased `Map` is a marker object `{ __smelt_map: [[k, v], ...] }`.
@@ -104,12 +104,12 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     //~ inherit `name` from their prototype, so synthesize it when absent — from
     //~ the class name the marker records, which is what makes
     //~ `new TypeError('t').name` read `"TypeError"` rather than `"Error"`.
-    if field == "name" && !map.contains_key("name") && let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_error") { return SmeltUnknown::String(class_name); }
+    if field == "name" && !map.contains_key("name") { if let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_error") { return SmeltUnknown::String(class_name); } }
     //~ A class instance answers `.constructor` with its interned per-class value.
     //~ An own `constructor` field still wins (source code can assign one), and a
     //~ plain object keeps `undefined` — which is what lets two plain objects pass
     //~ the `isPlainObject(a) && isPlainObject(b)` arm instead.
-    if field == "constructor" && !map.contains_key("constructor") && let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_class") { return smelt_class_constructor(class_name.to_string()); }
+    if field == "constructor" && !map.contains_key("constructor") { if let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_class") { return smelt_class_constructor(class_name.to_string()); } }
     //~ Byte-backed host objects (`ArrayBuffer`, `Buffer`, `DataView`, ...) hold
     //~ their storage in a `bytes` list, so an indexed read (`buffer[1]`, and the
     //~ `a[i]` walk es-toolkit's `isEqualWith` runs over a typed-array-tagged
@@ -123,7 +123,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     //~ `constructor` field still wins (source code can assign one), and an
     //~ unmarked record keeps `undefined`, which is what makes two plain objects
     //~ compare as equal instances.
-    if field == "constructor" && !map.contains_key("constructor") && let Some(class) = smelt_marker_constructor_class(map) { return smelt_builtin_namespace(class); }
+    if field == "constructor" && !map.contains_key("constructor") { if let Some(class) = smelt_marker_constructor_class(map) { return smelt_builtin_namespace(class); } }
     //~ The ambient global object's properties ARE the modeled JavaScript
     //~ globals. `globalThis.Error` already resolved to the modeled
     //~ constructor through the static-member normalization in the frontend,
@@ -145,7 +145,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     //~ synthesized on read, exactly like the erased `Map`'s `.size` below. An
     //~ own field still wins, and the payload's *methods* stay on the
     //~ prototype rather than becoming own members.
-    if !map.contains_key(field) && let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and(map.get("value")) { if field == "length" { return SmeltUnknown::Number(text.chars().count() as f64); } if let Ok(index) = field.parse::<usize>() { return text.chars().nth(index).map_or(SmeltUnknown::Undefined, |character| SmeltUnknown::String(character.to_string().into())); } }
+    if !map.contains_key(field) { if let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and(map.get("value")) { if field == "length" { return SmeltUnknown::Number(text.chars().count() as f64); } if let Ok(index) = field.parse::<usize>() { return text.chars().nth(index).map_or(SmeltUnknown::Undefined, |character| SmeltUnknown::String(character.to_string().into())); } } }
     //~ A builtin read as a value is a marker record (`smelt_builtin_namespace`),
     //~ and JavaScript answers property reads on it: `Array.prototype` is the
     //~ builtin's prototype object and `Array.isArray` is a function value. Both
@@ -153,13 +153,13 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     //~ of a member and its call spelling agree. An own field still wins, and an
     //~ unmodeled member stays `undefined` rather than becoming a callable that
     //~ cannot run.
-    if !map.contains_key(field) && let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_namespace").and(map.get("name")) { if field == "prototype" { return smelt_builtin_prototype_object(&class); } if let Some(member) = smelt_builtin_member_value(&class, "static", field) { return member; } }
-    if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_prototype") && let Some(member) = smelt_builtin_member_value(&class, "prototype", field) { return member; }
-    if field == "size" && let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") { return SmeltUnknown::Number(pairs.len() as f64); }
+    if !map.contains_key(field) { if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_namespace").and(map.get("name")) { if field == "prototype" { return smelt_builtin_prototype_object(&class); } if let Some(member) = smelt_builtin_member_value(&class, "static", field) { return member; } } }
+    if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_prototype") { if let Some(member) = smelt_builtin_member_value(&class, "prototype", field) { return member; } }
+    if field == "size" { if let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") { return SmeltUnknown::Number(pairs.len() as f64); } }
     //~ Same synthesis for an erased `Set` (`{ __smelt_set: [members...] }`):
     //~ real Sets expose `.size` through `Set.prototype`, absent from the marker
     //~ object's own fields, so derive it from the member count.
-    if field == "size" && let Some(SmeltUnknown::Array(members)) = map.get("__smelt_set") { return SmeltUnknown::Number(members.len() as f64); }
+    if field == "size" { if let Some(SmeltUnknown::Array(members)) = map.get("__smelt_set") { return SmeltUnknown::Number(members.len() as f64); } }
     //~ Erased `Map` prototype methods, the exact counterpart of the erased-Set
     //~ block below. Only `.size` used to be synthesized, so every other
     //~ `Map.prototype` read on an erased Map answered `undefined` — and a

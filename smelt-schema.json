@@ -29,15 +29,8 @@
       "$ref": "#/$defs/Build"
     },
     "strict": {
-      "description": "Optional strict mode configuration.",
-      "anyOf": [
-        {
-          "$ref": "#/$defs/Strict"
-        },
-        {
-          "type": "null"
-        }
-      ]
+      "description": "Strict mode configuration.",
+      "$ref": "#/$defs/Strict"
     },
     "packages": {
       "description": "TypeScript sources for dependencies imported by bare specifier.",
@@ -58,11 +51,11 @@
       ]
     }
   },
+  "additionalProperties": false,
   "required": [
     "project",
     "sources",
-    "output",
-    "runtime"
+    "output"
   ],
   "$defs": {
     "Project": {
@@ -85,6 +78,7 @@
           ]
         }
       },
+      "additionalProperties": false,
       "required": [
         "name",
         "version"
@@ -132,6 +126,7 @@
           }
         }
       },
+      "additionalProperties": false,
       "required": [
         "entries"
       ]
@@ -163,6 +158,7 @@
           ]
         }
       },
+      "additionalProperties": false,
       "required": [
         "target"
       ]
@@ -187,38 +183,32 @@
       "type": "object",
       "properties": {
         "clone-strategy": {
-          "description": "Cloning strategy for generated code.",
-          "$ref": "#/$defs/CloneStrategy"
+          "description": "Cloning strategy for generated code; v1.0 supports only `\"aggressive\"`,\nwhich is also the default.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
-      "required": [
-        "clone-strategy"
-      ]
-    },
-    "CloneStrategy": {
-      "description": "Strategy for cloning values in generated code.",
-      "oneOf": [
-        {
-          "description": "Always clone values.",
-          "type": "string",
-          "const": "always"
-        },
-        {
-          "description": "Aggressively clone when beneficial.",
-          "type": "string",
-          "const": "aggressive"
-        },
-        {
-          "description": "Never clone values.",
-          "type": "string",
-          "const": "never"
-        }
-      ]
+      "additionalProperties": false
     },
     "Rust": {
       "description": "Generated-Rust configuration from the [rust] section.",
       "type": "object",
       "properties": {
+        "edition": {
+          "description": "Rust edition of the generated crate; 2024 when absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dependencies": {
+          "description": "Added to the generated crate's `[dependencies]` verbatim. Same syntax as\nCargo's table, and an entry here replaces what Smelt would add for that crate.",
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
+        },
         "allocator": {
           "description": "Global allocator a generated program installs.",
           "$ref": "#/$defs/Allocator"
@@ -227,7 +217,8 @@
           "description": "`[profile.release]` the generated crate carries.",
           "$ref": "#/$defs/ReleaseProfile"
         }
-      }
+      },
+      "additionalProperties": false
     },
     "Allocator": {
       "description": "Global allocator a generated program installs.\n\nGenerated code allocates far more than hand-written Rust does — every\nJavaScript array, object and string is a separate heap value with reference\nsemantics — so the allocator is a larger share of the profile than any single\nemitter decision. See `smelt_codegen_rust::GeneratedAllocator`.",
@@ -276,10 +267,11 @@
           },
           "default": {}
         }
-      }
+      },
+      "additionalProperties": false
     },
     "Strict": {
-      "description": "Strict mode configuration from the [strict] section.",
+      "description": "Strict mode configuration from the [strict] section. v1.0 is always strict, so\neach flag is `true` or absent.",
       "type": "object",
       "properties": {
         "typescript": {
@@ -296,7 +288,8 @@
             "null"
           ]
         }
-      }
+      },
+      "additionalProperties": false
     },
     "PackageSource": {
       "description": "Where the TypeScript sources of one dependency live: `[packages.<name>]`.\n\nA package published to npm usually ships compiled JavaScript and `.d.ts`\ndeclarations only, and Smelt lowers TypeScript SOURCE, so a bare import of\nit (`import { Hono } from 'hono'`) has nothing to resolve to in\n`node_modules`. This section names the sources instead: a local directory\n(`path`) or a repository pinned to a revision (`git` + `rev`), the way a\nCargo dependency is pinned. Exactly one of `path` and `git` is given.",

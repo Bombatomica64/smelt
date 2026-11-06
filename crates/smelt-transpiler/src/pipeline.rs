@@ -111,7 +111,9 @@ pub(crate) fn build_rust_crate_with_erasure(
             &smelt_codegen_rust::EmitOptions::new(crate_name)
                 .with_crate_kind(codegen_crate_kind(config.output_kind()))
                 .with_allocator(codegen_allocator(config.rust_allocator()))
-                .with_release_profile(codegen_release_profile(config.rust_release_profile())),
+                .with_release_profile(codegen_release_profile(config.rust_release_profile()))
+                .with_package(generated_package(config))
+                .with_dependencies(config.rust_dependencies()),
         )
     })?;
     let erasures = erasure::resolve(&krate, &backend_erasures, manifest_dir, settings);
@@ -154,6 +156,17 @@ pub(crate) fn check_manifest(
         return Err(erasure::denied_error(denied));
     }
     Ok(())
+}
+
+/// The generated crate's `[package]` metadata, from `[project]` and `[rust]`.
+fn generated_package(config: &Config) -> smelt_codegen_rust::PackageMetadata {
+    let mut package = smelt_codegen_rust::PackageMetadata::default();
+    config.project_version().clone_into(&mut package.version);
+    config.rust_edition().clone_into(&mut package.edition);
+    package.description = config
+        .project_description()
+        .map(|text| toml::Value::String(text.to_owned()).to_string());
+    package
 }
 
 /// Converts manifest output kind to the Rust codegen crate kind.
