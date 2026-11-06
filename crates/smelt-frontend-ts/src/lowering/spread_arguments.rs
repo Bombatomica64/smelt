@@ -9,9 +9,10 @@
 //! instead of five.
 
 use crate::SmeltError;
-use crate::lowering::ModuleBuilder;
-use oxc::ast::ast::Argument;
-use smelt_hir::{BinOp, Body, Expr, ExprKind, Literal, Span, Stmt, Type};
+use crate::lowering::{ModuleBuilder, RestParam};
+use oxc::ast::ast::{Argument, Expression};
+use oxc::span::GetSpan;
+use smelt_hir::{BinOp, Body, Expr, ExprKind, FunctionType, Literal, Span, Stmt, Type};
 
 /// One argument of a call, after spreads have been interpreted.
 ///
@@ -366,5 +367,376 @@ impl ModuleBuilder<'_> {
             else_block: None,
         };
         self.push_stmt_to_sink(body, stmt);
+    }
+
+    /// Expand a JavaScript spread call into fixed function parameters plus rest.
+    pub(in crate::lowering) fn spread_closure_call_arguments(
+        &mut self,
+        function: &FunctionType,
+        rest: Option<RestParam>,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Vec<smelt_hir::ExprId>, SmeltError> {
+        let rest = rest.ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "spread closure calls require a rest-like list parameter",
+            )
+        })?;
+        let fixed_param_count = rest.index;
+        let mut args = Vec::new();
+        let rest_ty = self.ctx.krate.types.intern(Type::List(rest.item_ty));
+        let mut rest_items = Vec::new();
+        let mut rest_list = None;
+        let mut fixed_index = 0;
+        for argument in &call.arguments {
+            if fixed_index < fixed_param_count {
+                let Argument::SpreadElement(spread) = argument else {
+                    args.push(self.argument(argument, body)?);
+                    fixed_index += 1;
+                    continue;
+                };
+                // The fixed parameters read the list as written: only what lands in
+                // the rest takes the rest's element type, and `predicate` of
+                // `f(...args)` is not an element of `(n, predicate, ...rest: number[])`.
+                let written = self.expression(&spread.argument, body)?;
+                let spread_list = if matches!(self.ctx.krate.types.get(Self::expr_ty(body, written)), Some(Type::List(_))) {
+                    written
+                } else {
+                    self.rest_spread_list_value(written, rest_ty, spread.span, body)
+                };
+                let consumed = fixed_param_count - fixed_index;
+                for offset in 0..consumed {
+                    let index = self.usize_float_literal(
+                        offset,
+                        self.span(spread.span.start, spread.span.end),
+                        body,
+                    )?;
+                    let ty = function
+                        .params
+                        .get(fixed_index + offset)
+                        .copied()
+                        .unwrap_or_else(|| {
+                            self.index_type(Self::expr_ty(body, spread_list))
+                                .unwrap_or(rest.item_ty)
+                        });
+                    let kind = if matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
+                        ExprKind::OptionalIndex {
+                            receiver: spread_list,
+                            index,
+                        }
+                    } else {
+                        ExprKind::Index {
+                            receiver: spread_list,
+                            index,
+                        }
+                    };
+                    args.push(body.push_expr(Expr {
+                        kind,
+                        ty,
+                        span: self.span(spread.span.start, spread.span.end),
+                    }));
+                }
+                fixed_index = fixed_param_count;
+                let spread_rest = if consumed == 0 {
+                    self.rest_spread_list_value(spread_list, rest_ty, spread.span, body)
+                } else {
+                    let start = self.usize_float_literal(
+                        consumed,
+                        self.span(spread.span.start, spread.span.end),
+                        body,
+                    )?;
+                    let tail = body.push_expr(Expr {
+                        kind: ExprKind::ListSlice {
+                            list: spread_list,
+                            start: Some(start),
+                            end: None,
+                        },
+                        ty: Self::expr_ty(body, spread_list),
+                        span: self.span(spread.span.start, spread.span.end),
+                    });
+                    self.rest_spread_list_value(tail, rest_ty, spread.span, body)
+                };
+                rest_list = Some(rest_list.map_or(spread_rest, |left| {
+                    body.push_expr(Expr {
+                        kind: ExprKind::ListConcat {
+                            left,
+                            right: spread_rest,
+                        },
+                        ty: rest_ty,
+                        span: self.span(spread.span.start, spread.span.end),
+                    })
+                }));
+                continue;
+            }
+            match argument {
+                Argument::SpreadElement(spread) => {
+                    Self::flush_rest_items(
+                        &mut rest_items,
+                        &mut rest_list,
+                        rest_ty,
+                        body,
+                        self.span(spread.span.start, spread.span.end),
+                    );
+                    let spread_list =
+                        self.rest_spread_list_expression(&spread.argument, rest_ty, spread.span, body)?;
+                    rest_list = Some(rest_list.map_or(spread_list, |left| {
+                        body.push_expr(Expr {
+                            kind: ExprKind::ListConcat {
+                                left,
+                                right: spread_list,
+                            },
+                            ty: rest_ty,
+                            span: self.span(spread.span.start, spread.span.end),
+                        })
+                    }));
+                }
+                _ => rest_items.push(self.argument(argument, body)?),
+            }
+        }
+        if fixed_index < fixed_param_count {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "spread closure call does not provide enough fixed parameters",
+            ));
+        }
+        Self::flush_rest_items(
+            &mut rest_items,
+            &mut rest_list,
+            rest_ty,
+            body,
+            self.span(call.span.start, call.span.end),
+        );
+        args.push(rest_list.unwrap_or_else(|| {
+            body.push_expr(Expr {
+                kind: ExprKind::ListLit(Vec::new()),
+                ty: rest_ty,
+                span: self.span(call.span.start, call.span.end),
+            })
+        }));
+        Ok(args)
+    }
+
+    /// Convert an array spread argument to the statically required rest-list type.
+    ///
+    /// Generic array parameters are represented as erased runtime values even
+    /// when their source constraint is an array. A rest call still needs their
+    /// array payload for concatenation, so extract that payload before building
+    /// the packed argument vector.
+    pub(in crate::lowering) fn rest_spread_list_expression(
+        &mut self,
+        expression: &Expression<'_>,
+        rest_ty: smelt_hir::TypeId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let value = self.expression(expression, body)?;
+        Ok(self.rest_spread_list_value(value, rest_ty, span, body))
+    }
+
+    /// [`Self::rest_spread_list_expression`] for an already lowered `value`.
+    fn rest_spread_list_value(
+        &self,
+        value: smelt_hir::ExprId,
+        rest_ty: smelt_hir::TypeId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let value_ty = Self::expr_ty(body, value);
+        if value_ty == rest_ty {
+            return value;
+        }
+        if self.type_contains_unknown(value_ty)
+            || matches!(
+                self.ctx.krate.types.get(value_ty),
+                Some(Type::TypeParam { .. } | Type::Union(_))
+            )
+        {
+            return body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value,
+                    target: rest_ty,
+                },
+                ty: rest_ty,
+                span: self.span(span.start, span.end),
+            });
+        }
+        // A concrete list converts element by element: `g(...numbers)` into
+        // `(...args: any[])` is a `List<Float>` for a `List<Unknown>` slot, and
+        // the emitter reads a lone operand of another type as one element of the
+        // rest, not all of it.
+        body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value },
+            ty: rest_ty,
+            span: self.span(span.start, span.end),
+        })
+    }
+
+    /// Lower a small positional index as the numeric literal used by JS indexing.
+    pub(in crate::lowering) fn usize_float_literal(
+        &mut self,
+        value: usize,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let value = value.to_string().parse::<f64>().map_err(|err| {
+            SmeltError::unsupported(span, format!("spread index cannot be represented: {err}"))
+        })?;
+        let ty = self.ctx.krate.types.intern(Type::Float);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Float(value)),
+            ty,
+            span,
+        }))
+    }
+
+    /// Append queued rest items to the accumulated rest list expression.
+    pub(in crate::lowering) fn flush_rest_items(
+        rest_items: &mut Vec<smelt_hir::ExprId>,
+        rest_list: &mut Option<smelt_hir::ExprId>,
+        rest_ty: smelt_hir::TypeId,
+        body: &mut Body,
+        span: Span,
+    ) {
+        if rest_items.is_empty() {
+            return;
+        }
+        let right = body.push_expr(Expr {
+            kind: ExprKind::ListLit(std::mem::take(rest_items)),
+            ty: rest_ty,
+            span,
+        });
+        *rest_list = Some(rest_list.map_or(right, |left| {
+            body.push_expr(Expr {
+                kind: ExprKind::ListConcat { left, right },
+                ty: rest_ty,
+                span,
+            })
+        }));
+    }
+
+    /// Pack JavaScript spread call arguments into one variadic list argument.
+    pub(in crate::lowering) fn packed_spread_call_arguments(
+        &mut self,
+        item_ty: smelt_hir::TypeId,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(call.span.start, call.span.end);
+        self.packed_spread_arguments(item_ty, &call.arguments, span, body)
+    }
+
+    /// Pack an argument slice (call or `new` expression) into one variadic list.
+    pub(in crate::lowering) fn packed_spread_arguments(
+        &mut self,
+        item_ty: smelt_hir::TypeId,
+        arguments: &[Argument<'_>],
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+        let mut current_items = Vec::new();
+        let mut packed = None;
+        for arg in arguments {
+            match arg {
+                Argument::SpreadElement(spread) => {
+                    if !current_items.is_empty() {
+                        let left = body.push_expr(Expr {
+                            kind: ExprKind::ListLit(std::mem::take(&mut current_items)),
+                            ty: list_ty,
+                            span,
+                        });
+                        packed = Some(packed.map_or(left, |existing| {
+                            body.push_expr(Expr {
+                                kind: ExprKind::ListConcat {
+                                    left: existing,
+                                    right: left,
+                                },
+                                ty: list_ty,
+                                span,
+                            })
+                        }));
+                    }
+                    let spread_expr = self.expression(&spread.argument, body)?;
+                    packed = Some(packed.map_or(spread_expr, |existing| {
+                        body.push_expr(Expr {
+                            kind: ExprKind::ListConcat {
+                                left: existing,
+                                right: spread_expr,
+                            },
+                            ty: list_ty,
+                            span,
+                        })
+                    }));
+                }
+                other => current_items.push(self.argument(other, body)?),
+            }
+        }
+        if !current_items.is_empty() {
+            let right = body.push_expr(Expr {
+                kind: ExprKind::ListLit(current_items),
+                ty: list_ty,
+                span,
+            });
+            packed = Some(packed.map_or(right, |existing| {
+                body.push_expr(Expr {
+                    kind: ExprKind::ListConcat {
+                        left: existing,
+                        right,
+                    },
+                    ty: list_ty,
+                    span,
+                })
+            }));
+        }
+        packed.ok_or_else(|| {
+            SmeltError::unsupported(
+                span,
+                "spread call requires at least one argument",
+            )
+        })
+    }
+
+    /// Return whether a call uses JavaScript spread arguments.
+    pub(in crate::lowering) fn call_has_spread_arguments(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
+        call.arguments
+            .iter()
+            .any(|argument| matches!(argument, Argument::SpreadElement(_)))
+    }
+
+    /// Return whether a call contains JavaScript spread syntax.
+    ///
+    /// Some parser surfaces can preserve the argument expression while hiding
+    /// the spread wrapper after TypeScript-specific normalization. The source
+    /// span probe keeps spread-call lowering tied to source syntax instead of
+    /// treating the argument as an ordinary array value.
+    pub(in crate::lowering) fn call_has_spread_arguments_or_source_spread(
+        &self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> bool {
+        Self::call_has_spread_arguments(call)
+            || self
+                .source
+                .get(
+                    usize::try_from(call.span.start).unwrap_or(0)
+                        ..usize::try_from(call.span.end).unwrap_or(0),
+                )
+                .is_some_and(|text| text.contains("..."))
+            || call.arguments.iter().any(|argument| {
+                let span = argument.span();
+                let start = usize::try_from(call.span.start).unwrap_or(0);
+                let argument_start = usize::try_from(span.start).unwrap_or(start);
+                if self
+                    .source
+                    .get(argument_start..)
+                    .is_some_and(|suffix| suffix.starts_with("..."))
+                {
+                    return true;
+                }
+                let end = argument_start;
+                self.source
+                    .get(start..end)
+                    .is_some_and(|prefix| prefix.trim_end().ends_with("..."))
+            })
     }
 }

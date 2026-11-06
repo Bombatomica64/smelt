@@ -143,7 +143,7 @@ impl ModuleBuilder<'_> {
             return Ok(false);
         };
         let name_text = identifier.name.as_str();
-        if let Some(param_ty) = self.type_parameter_type(name_text) {
+        if let Some(param_ty) = self.types.param_type(name_text) {
             let constraint = self.type_param_constraint_or_self(param_ty);
             let Some(Type::Function(signature)) = self.ctx.krate.types.get(constraint) else {
                 return Ok(false);
@@ -257,17 +257,17 @@ impl ModuleBuilder<'_> {
             construct_signatures: construct_signatures.clone(),
             index_value_ty,
         });
-        self.ctx.interface_extends.insert(name, Vec::new());
+        self.ctx.interface_extends.write().insert(name, Vec::new());
         self.ctx
             .interface_call_signatures
-            .insert(name, call_signatures);
+            .write().insert(name, call_signatures);
         if !construct_signatures.is_empty() {
             self.ctx
                 .interface_construct_signatures
-                .insert(name, construct_signatures);
+                .write().insert(name, construct_signatures);
         }
         if let Some(index_value_ty) = index_value_ty {
-            self.ctx.interface_index_values.insert(name, index_value_ty);
+            self.ctx.interface_index_values.write().insert(name, index_value_ty);
         }
         item
     }

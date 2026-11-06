@@ -24,17 +24,17 @@
 //! receiver's lowered type being the modeled `Headers` class, which is exactly
 //! how the `Map`/`Set` collection dispatch works.
 
+use crate::lowering::support::source_spelling;
 use crate::SmeltError;
-use crate::lowering::js_text::{js_str_text, static_name_text};
 use crate::lowering::ModuleBuilder;
+use crate::lowering::js_text::static_name_text;
 use oxc::ast::ast::Expression;
 use oxc::span::GetSpan;
 use smelt_hir::{
-    Body, ErasureReason, EventEmitterOp, Expr, ExprKind, HeadersOp, RequestInitMember, RequestOp, ResponseOp,
-    Type,
+    AsyncOp, Body, ErasureReason, Expr, ExprKind, HeadersOp, RequestInitMember, RequestOp,
+    ResponseOp, Type,
 };
 use smelt_stdlib::{FetchInitKey, REQUEST_INIT_KEYS, RESPONSE_INIT_KEYS, RuleId};
-
 
 /// The spellings of a fetch init key table, in table order.
 fn init_key_names(table: &[FetchInitKey]) -> Vec<&'static str> {
@@ -77,11 +77,34 @@ impl InitFields {
     }
 
     /// Take `key`'s operand, when the init supplied one.
-    fn take(&self, key: &str) -> Option<smelt_hir::ExprId> {
+    pub(in crate::lowering) fn take(&self, key: &str) -> Option<smelt_hir::ExprId> {
         self.entries
             .iter()
             .find(|(existing, _)| existing == key)
             .map(|(_, value)| *value)
+    }
+}
+
+/// The global name that rebinding in source hides modeled class `class`, or `None`
+/// when no source declaration can stand for the class.
+const fn modeled_class_global(class: smelt_stdlib::StdlibClass) -> Option<&'static str> {
+    use smelt_stdlib::StdlibClass;
+    match class {
+        StdlibClass::ArrayBuffer => Some("ArrayBuffer"),
+        StdlibClass::DataView => Some("DataView"),
+        StdlibClass::FormData => Some("FormData"),
+        StdlibClass::Headers => Some("Headers"),
+        StdlibClass::HttpServer => Some("Server"),
+        StdlibClass::IncomingMessage => Some("IncomingMessage"),
+        StdlibClass::NodeHash => Some("Hash"),
+        StdlibClass::Request => Some("Request"),
+        StdlibClass::Response => Some("Response"),
+        StdlibClass::ServerResponse => Some("ServerResponse"),
+        StdlibClass::TextDecoder => Some("TextDecoder"),
+        StdlibClass::TextEncoder => Some("TextEncoder"),
+        StdlibClass::Url => Some("URL"),
+        StdlibClass::UrlSearchParams => Some("URLSearchParams"),
+        _ => None,
     }
 }
 
@@ -150,7 +173,7 @@ impl ModuleBuilder<'_> {
         // METHOD as a field (E0615).
         let (receiver, receiver_ty) =
             self.present_receiver(receiver, self.span(call.span.start, call.span.end), body);
-        if !self.is_headers_type(receiver_ty) {
+        if !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::Headers) {
             return Ok(None);
         }
         let Some(op) = Self::headers_method_op(rule, member_name) else {
@@ -208,7 +231,7 @@ impl ModuleBuilder<'_> {
         // reason: the two are one rule about modeled receivers.
         let (receiver, receiver_ty) =
             self.present_receiver(receiver, self.span(call.span.start, call.span.end), body);
-        if !self.is_url_search_params_type(receiver_ty) {
+        if !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::UrlSearchParams) {
             return Ok(None);
         }
         let Some(op) = Self::url_search_params_method_op(rule, member_name) else {
@@ -246,12 +269,6 @@ impl ModuleBuilder<'_> {
             name,
             args: Vec::new(),
         })
-    }
-
-    /// Return whether a lowered type is the modeled `URLSearchParams` class.
-    pub(in crate::lowering) fn is_url_search_params_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::UrlSearchParams)
-            && !self.source_shadows_global("URLSearchParams")
     }
 
     /// Whether this module's own source binds a global type or class `name`.
@@ -344,7 +361,7 @@ impl ModuleBuilder<'_> {
         &self,
         ty: smelt_hir::TypeId,
     ) -> bool {
-        self.is_url_search_params_type(ty)
+        self.is_modeled_class(ty, smelt_stdlib::StdlibClass::UrlSearchParams)
     }
 
     /// Resolve a call receiver's modeled class WITHOUT lowering it.
@@ -387,13 +404,18 @@ impl ModuleBuilder<'_> {
         let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(ty) else {
             return None;
         };
-        let class_name = self
-            .ctx
-            .krate
-            .names
-            .get(*name)
-            .or_else(|| self.ctx.krate.symbols.get(*name))?;
-        smelt_stdlib::typescript_stdlib_class(class_name)
+        self.stdlib_class_of_symbol(*name)
+    }
+
+    /// Whether a lowered type is modeled class `class`, and this module's source
+    /// has not rebound that class's global name.
+    pub(in crate::lowering) fn is_modeled_class(
+        &self,
+        ty: smelt_hir::TypeId,
+        class: smelt_stdlib::StdlibClass,
+    ) -> bool {
+        self.stdlib_class_of_type(ty) == Some(class)
+            && modeled_class_global(class).is_none_or(|name| !self.source_shadows_global(name))
     }
 
     /// The type of a modeled host class's primitive data property read off a
@@ -414,12 +436,7 @@ impl ModuleBuilder<'_> {
         let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver_ty) else {
             return None;
         };
-        let class_name = self
-            .ctx
-            .krate
-            .names
-            .get(*name)
-            .or_else(|| self.ctx.krate.symbols.get(*name))?
+        let class_name = source_spelling(&self.ctx.krate, *name)?
             .to_owned();
         if self.source_shadows_global(&class_name) {
             return None;
@@ -468,12 +485,6 @@ impl ModuleBuilder<'_> {
             name,
             args: Vec::new(),
         })
-    }
-
-    /// Return whether a lowered type is the modeled `Headers` class.
-    pub(in crate::lowering) fn is_headers_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::Headers)
-            && !self.source_shadows_global("Headers")
     }
 
     /// Map a recognized rule and member spelling to its header operation.
@@ -616,7 +627,7 @@ impl ModuleBuilder<'_> {
         } else {
             self.present_receiver(receiver, span, body)
         };
-        if !self.is_response_type(receiver_ty) {
+        if !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::Response) {
             return Ok(None);
         }
         // One rule covers both body readers, because they ARE one reader in
@@ -721,7 +732,7 @@ impl ModuleBuilder<'_> {
         } else {
             self.present_receiver(receiver, span, body)
         };
-        if !self.is_response_type(receiver_ty) {
+        if !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::Response) {
             return Ok(None);
         }
         // Every remaining name in the match above resolves to an operation;
@@ -746,12 +757,6 @@ impl ModuleBuilder<'_> {
             name,
             args: Vec::new(),
         })
-    }
-
-    /// Return whether a lowered type is the modeled `Response` class.
-    pub(in crate::lowering) fn is_response_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::Response)
-            && !self.source_shadows_global("Response")
     }
 
     /// The modeled `ReadableStream` class: a body HANDLE.
@@ -939,7 +944,7 @@ impl ModuleBuilder<'_> {
         } else {
             self.present_receiver(receiver, span, body)
         };
-        if !self.is_request_type(receiver_ty) {
+        if !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::Request) {
             return Ok(None);
         }
         let op = match rule {
@@ -1005,7 +1010,7 @@ impl ModuleBuilder<'_> {
         } else {
             self.present_receiver(receiver, span, body)
         };
-        if !self.is_request_type(receiver_ty) {
+        if !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::Request) {
             return Ok(None);
         }
         // Every remaining name in the match above resolves to an operation;
@@ -1030,12 +1035,6 @@ impl ModuleBuilder<'_> {
             name,
             args: Vec::new(),
         })
-    }
-
-    /// Return whether a lowered type is the modeled `Request` class.
-    pub(in crate::lowering) fn is_request_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::Request)
-            && !self.source_shadows_global("Request")
     }
 
     /// The HIR type a `Request` operation answers.
@@ -1176,13 +1175,13 @@ impl ModuleBuilder<'_> {
         // and body are copied into the new request. Its members are modeled
         // operations rather than struct fields, so they are read through those
         // rather than through the field path below.
-        if self.is_request_type(source_ty) {
+        if self.is_modeled_class(source_ty, smelt_stdlib::StdlibClass::Request) {
             return self.request_init_fields(source, keys, span, fields, body);
         }
         // Symmetrically, a `Response` is allowed at the `ResponseInit` position:
         // WebIDL converts the object to the dictionary by reading its own
         // `status`, `statusText` and `headers` properties.
-        if self.is_response_type(source_ty) {
+        if self.is_modeled_class(source_ty, smelt_stdlib::StdlibClass::Response) {
             return self.response_init_fields(source, keys, span, fields, body);
         }
         if matches!(self.ctx.krate.types.get(source_ty), Some(Type::Unknown)) {
@@ -1425,223 +1424,101 @@ impl ModuleBuilder<'_> {
         self.class_by_symbol(name).is_none() && self.find_interface(name).is_none()
     }
 
-    /// Lower `new EventEmitter()` into a concrete emitter.
-    ///
-    /// The constructor's only option is `{ captureRejections }`, which changes
-    /// how a rejected promise returned by a listener is reported. Nothing here
-    /// can observe that yet, so passing it is a named blocker rather than an
-    /// argument that is accepted and ignored.
-    pub(in crate::lowering) fn event_emitter_constructor_expression(
-        &mut self,
-        new_expr: &oxc::ast::ast::NewExpression<'_>,
-        body: &mut Body,
-    ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if !new_expr.arguments.is_empty() {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "EventEmitter options are not modeled yet",
-            ));
-        }
-        let ty = self.event_emitter_type();
-        Ok(body.push_expr(Expr {
-            kind: ExprKind::EventEmitterNew,
-            ty,
-            span: self.span(new_expr.span.start, new_expr.span.end),
-        }))
-    }
-
-    /// Dispatch a modeled `EventEmitter` method on a concrete receiver.
-    pub(in crate::lowering) fn dispatch_event_emitter_method(
+    /// Lower TypeScript `fetch(url[, options])` into an async HTTP fetch.
+    pub(in crate::lowering) fn fetch_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::StaticMemberExpression(member) = &call.callee else {
-            return Ok(None);
-        };
-        let member_name = member.property.name.as_str();
-        if smelt_stdlib::typescript_method_rule(
-            smelt_stdlib::TypeScriptReceiverKind::EventEmitter,
-            member_name,
-        )
-        .is_none()
-        {
+        if self.recognized_call(call) != Some(RuleId::TsFetch) {
             return Ok(None);
         }
-        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
-            return Ok(None);
-        };
-        let receiver_ty = Self::expr_ty(body, receiver);
-        if !self.is_event_emitter_type(receiver_ty) {
-            return Ok(None);
-        }
-        // The member spelling picks the operation: `on` and `addListener` are
-        // the same operation under two names, as are `off` and
-        // `removeListener`.
-        let op = match member_name {
-            "on" | "addListener" => EventEmitterOp::On,
-            "once" => EventEmitterOp::Once,
-            "off" | "removeListener" => EventEmitterOp::Off,
-            "removeAllListeners" => EventEmitterOp::RemoveAll,
-            "emit" => EventEmitterOp::Emit,
-            "listenerCount" => EventEmitterOp::ListenerCount,
-            _ => return Ok(None),
-        };
-        let required = match op {
-            EventEmitterOp::On | EventEmitterOp::Once | EventEmitterOp::Off => 2,
-            _ => 1,
-        };
-        if call.arguments.len() < required {
+        if !(1..=2).contains(&call.arguments.len()) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                format!("`EventEmitter.{member_name}` requires {required} argument(s)"),
+                "fetch lowering supports fetch(url[, options])",
             ));
         }
-        // `emit` forwards its whole tail to every listener, so every argument is
-        // lowered; the others take exactly the arguments they model.
-        let taken = if matches!(op, EventEmitterOp::Emit) {
-            call.arguments.len()
-        } else {
-            required
+        let Some(url_argument) = call.arguments.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "fetch lowering supports fetch(url[, options])",
+            ));
         };
-        // A modeled receiver publishes a schema for its own events, so the
-        // listener can be lowered at a REAL signature instead of an erased one.
-        // `req.on('data', (chunk) => ..)` types `chunk` as a string, which is
-        // what `node:http` says it carries; only the registration adapter still
-        // erases, and that adapter is the emitter's documented boundary either
-        // way. Without this the source's own closure took a `SmeltUnknown` and
-        // coerced it by hand at every use — avoidable erasure inside program
-        // code, which is precisely what the metric exists to remove.
-        let listener_hint = self.modeled_listener_hint(op, receiver_ty, call);
-        let args = call
-            .arguments
-            .iter()
-            .take(taken)
-            .enumerate()
-            .map(|(index, argument)| match listener_hint {
-                Some(hint) if index == 1 => self.argument_with_hint(argument, body, Some(hint)),
-                _ => self.argument(argument, body),
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let ty = self.event_emitter_op_result_type(op, receiver_ty);
+        let mut url = self.argument(url_argument, body)?;
+        // A `URL` input is fetched by its `href`, as `new Request(url)` reads it.
+        let url_span = self.span(url_argument.span().start, url_argument.span().end);
+        if let Some(href) = self.url_href_of(url, url_span, body) {
+            url = href;
+        }
+        // `fetch(url, init)` IS `fetch(new Request(url, init))` — that is the
+        // spec's own definition, not a convenience — so the init goes through
+        // the very same reader the `Request` constructor uses and the operand
+        // becomes a request.
+        //
+        // Until now the init was lowered and then DISCARDED, which made
+        // `fetch(url, { method: "POST", body })` silently issue a GET with no
+        // body: a false green of exactly the kind that survives every compile
+        // step and only shows up against a real server.
+        if let Some(init_argument) = call.arguments.get(1) {
+            let request = self.fetch_request_from_init(url, init_argument, body)?;
+            let response_ty = self.response_type();
+            let ty = self.ctx.krate.types.intern(Type::Future(response_ty));
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::AsyncOp {
+                    op: AsyncOp::HttpFetch,
+                    args: vec![request],
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
+        let url_ty = Self::expr_ty(body, url);
+        // `fetch(request)`: the spec's other input form, and now that the
+        // transport can carry a method, headers and a body it is the same
+        // operand the two-argument form builds.
+        if self.is_modeled_class(url_ty, smelt_stdlib::StdlibClass::Request) {
+            let response_ty = self.response_type();
+            let ty = self.ctx.krate.types.intern(Type::Future(response_ty));
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::AsyncOp {
+                    op: AsyncOp::HttpFetch,
+                    args: vec![url],
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
+        if self.ctx.krate.types.get(url_ty) != Some(&Type::String) {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            if self.is_string_compatible_type(url_ty) || self.type_contains_unknown(url_ty) {
+                url = body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: url,
+                        target: string_ty,
+                    },
+                    ty: string_ty,
+                    span: self.span(url_argument.span().start, url_argument.span().end),
+                });
+            } else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "fetch requires a string-compatible URL argument",
+                ));
+            }
+        }
+        // `fetch` resolves to a `Response`, not to the body text: the caller
+        // reads `status`, `ok`, `headers` and the body separately, and a
+        // `Promise<string>` threw all but one of those away.
+        let response_ty = self.response_type();
+        let ty = self.ctx.krate.types.intern(Type::Future(response_ty));
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::EventEmitterOp {
-                op,
-                emitter: receiver,
-                args,
+            kind: ExprKind::AsyncOp {
+                op: AsyncOp::HttpFetch,
+                args: vec![url],
             },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
     }
-
-    /// The listener signature a modeled receiver's event schema publishes.
-    ///
-    /// Answers `None` — leaving the listener erased, as it has always been —
-    /// unless all three of these hold: the operation registers or removes a
-    /// listener, the receiver is a modeled class rather than a plain
-    /// `EventEmitter`, and the event name is a literal the class publishes a
-    /// schema for. Anything else is the open case the emitter's erased store
-    /// exists for: a name computed at run time cannot select a signature.
-    fn modeled_listener_hint(
-        &mut self,
-        op: EventEmitterOp,
-        receiver_ty: smelt_hir::TypeId,
-        call: &oxc::ast::ast::CallExpression<'_>,
-    ) -> Option<smelt_hir::TypeId> {
-        if !matches!(
-            op,
-            EventEmitterOp::On | EventEmitterOp::Once | EventEmitterOp::Off
-        ) {
-            return None;
-        }
-        let class = self.stdlib_class_of_type(receiver_ty)?;
-        let Some(oxc::ast::ast::Argument::StringLiteral(event)) = call.arguments.first() else {
-            return None;
-        };
-        let params = class.event_listener_string_params(&js_str_text(event.value))?;
-        let string_ty = self.ctx.krate.types.intern(Type::String);
-        let none_ty = self.ctx.krate.types.intern(Type::None);
-        Some(
-            self.ctx
-                .krate
-                .types
-                .intern(Type::Function(smelt_hir::FunctionType {
-                    params: vec![string_ty; params],
-                    rest: None,
-                    required_params: Some(params),
-                    mutable_params: Vec::new(),
-                    return_ty: none_ty,
-                    is_async: false,
-                    // A listener that throws leaves through the emitting call,
-                    // which is what `statement_can_throw` already reports for
-                    // `emit`; the signature has to agree with that.
-                    may_throw: true,
-                })),
-        )
-    }
-
-    /// Return the modeled `EventEmitter` class type.
-    pub(in crate::lowering) fn event_emitter_type(&mut self) -> smelt_hir::TypeId {
-        let name = self.intern_type_name("EventEmitter");
-        self.ctx.krate.types.intern(Type::Class {
-            name,
-            args: Vec::new(),
-        })
-    }
-
-    /// Return whether a lowered type HAS a `node:events` listener list.
-    ///
-    /// Not "is the `EventEmitter` class". Node's `IncomingMessage` extends
-    /// `EventEmitter`, and `req.on('data', ..)` is how a request body is read,
-    /// so the test that gates the emitter operations has to admit every class
-    /// that carries a listener list. The registry answers which those are
-    /// (`StdlibClass::has_event_emitter`), and the generated types make the
-    /// answer true by COMPOSITION — a `SmeltIncomingMessage` holds a
-    /// `SmeltEventEmitter` and forwards the same five methods to it — so one
-    /// listener-list implementation serves both receivers and they cannot drift
-    /// apart on ordering or on `once` removal.
-    ///
-    /// The shadow test follows the class the type actually names, so a user
-    /// class called `EventEmitter` still shadows the emitter without affecting
-    /// `IncomingMessage`, and vice versa.
-    pub(in crate::lowering) fn is_event_emitter_type(&self, ty: smelt_hir::TypeId) -> bool {
-        let Some(class) = self.stdlib_class_of_type(ty) else {
-            return false;
-        };
-        if !class.has_event_emitter() {
-            return false;
-        }
-        match class {
-            smelt_stdlib::StdlibClass::EventEmitter => !self.source_shadows_global("EventEmitter"),
-            smelt_stdlib::StdlibClass::IncomingMessage => {
-                !self.source_shadows_global("IncomingMessage")
-            }
-            _ => false,
-        }
-    }
-
-    /// The HIR type an `EventEmitter` operation answers.
-    ///
-    /// Every registration and removal answers the RECEIVER, which is what makes
-    /// `e.on(..).on(..)` chain as it does in Node. The receiver, not the
-    /// emitter class: `req.on('data', ..)` answers the request in Node, so a
-    /// chained `req.on(..).on(..)` must keep the `IncomingMessage` type or the
-    /// second call would look for `on` on an emitter that has no `url`.
-    /// `emit` answers whether a listener ran, and `listenerCount` a number.
-    fn event_emitter_op_result_type(
-        &mut self,
-        op: EventEmitterOp,
-        receiver_ty: smelt_hir::TypeId,
-    ) -> smelt_hir::TypeId {
-        match op {
-            EventEmitterOp::On
-            | EventEmitterOp::Once
-            | EventEmitterOp::Off
-            | EventEmitterOp::RemoveAll => receiver_ty,
-            EventEmitterOp::Emit => self.ctx.krate.types.intern(Type::Bool),
-            EventEmitterOp::ListenerCount => self.ctx.krate.types.intern(Type::Float),
-        }
-    }
-
 }

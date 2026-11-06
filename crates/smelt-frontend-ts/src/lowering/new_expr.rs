@@ -3,6 +3,8 @@
 //! Lowers `new ...` expressions, including standard-library container
 //! constructors and user class construction, into typed HIR.
 
+use crate::lowering::body_arena::BodyArena;
+use crate::lowering::peel::{Wrappers, peel};
 use std::collections::HashMap;
 use super::ModuleBuilder;
 use crate::SmeltError;
@@ -262,7 +264,7 @@ impl ModuleBuilder<'_> {
         // The numeric typed-array views are byte-backed host objects. The family
         // dispatch above routes them to `typed_array_constructor_expression`, so
         // this branch is not the live path for them.
-        if Self::is_numeric_typed_array_constructor(callee.name.as_str())
+        if smelt_stdlib::is_typed_array_class_name(callee.name.as_str())
             && !self.classes.contains(callee.name.as_str())
         {
             return self.byte_buffer_constructor_expression(new_expr, callee.name.as_str(), body);
@@ -1064,19 +1066,6 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Return whether a global constructor creates a JavaScript typed array.
-    ///
-    /// Delegates to the shared `smelt_stdlib` recognizer so all eleven typed
-    /// array names — including the BigInt-backed `BigInt64Array` /
-    /// `BigUint64Array`, which the previous inline `matches!` omitted and which
-    /// therefore aborted the es-toolkit build as an "unresolved class" — are
-    /// recognized from one registry. Every view is a byte-backed host object with
-    /// its own element type; the family dispatch builds them through
-    /// `typed_array_constructor_expression`.
-    pub(super) fn is_numeric_typed_array_constructor(name: &str) -> bool {
-        smelt_stdlib::is_typed_array_class_name(name)
-    }
-
     /// Lower `new URLSearchParams(init?)` into a concrete parameter list.
     ///
     /// This used to fabricate an erased record carrying only a `size` field, so
@@ -1608,12 +1597,10 @@ impl ModuleBuilder<'_> {
         // `List<Unknown>`; retype it as string parts rather than erasing an
         // array that carries nothing.
         if matches!(self.ctx.krate.types.get(parts_ty), Some(Type::List(_)))
-            && usize::try_from(parts.0).is_ok_and(|index| {
-                matches!(
-                    body.exprs.get(index).map(|expr| &expr.kind),
-                    Some(ExprKind::ListLit(items)) if items.is_empty()
-                )
-            })
+            && matches!(
+                body.expr_at(parts).map(|expr| &expr.kind),
+                Some(ExprKind::ListLit(items)) if items.is_empty()
+            )
         {
             let list_ty = self.ctx.krate.types.intern(Type::List(string_ty));
             return Ok(body.push_expr(Expr {
@@ -2038,30 +2025,6 @@ impl ModuleBuilder<'_> {
             ty: unknown_ty,
             span,
         }))
-    }
-
-    /// Lower a thrown expression, preserving the operand as an ordinary value.
-    ///
-    /// `throw` in JavaScript is value-preserving for *any* operand:
-    /// `throw new TypeError(x)`, `throw 'a string'`, `throw {code: 1}` and
-    /// `throw someCaughtValue` all deliver exactly the value that was written to
-    /// the `catch`. This function therefore does nothing more than lower the
-    /// operand through the normal expression path, which already gives
-    /// `new Error(..)` its erased `{ __smelt_error, message, cause?, errors? }`
-    /// record (see `error_object_constructor_expression`).
-    ///
-    /// It previously narrowed a thrown `new Error(msg)` to `msg` alone, so the
-    /// error object was destroyed at the throw site: every `catch` saw a bare
-    /// `SmeltUnknown::String`, which made `error instanceof Error` false,
-    /// `error.message` `undefined`, and `error.name` unreadable. Only the throw
-    /// *statement* narrowed -- the same construction used as a value already kept
-    /// the record -- so the two spellings disagreed about what an `Error` is.
-    pub(super) fn throw_operand_expression(
-        &mut self,
-        argument: &Expression<'_>,
-        body: &mut Body,
-    ) -> Result<smelt_hir::ExprId, SmeltError> {
-        self.expression(argument, body)
     }
 
     /// Lower the positional pieces of a builtin Error construction exactly once.
@@ -2508,7 +2471,7 @@ impl ModuleBuilder<'_> {
                 // the logical operand as a condition.
                 if unary.operator == UnaryOperator::LogicalNot
                     && matches!(
-                        Self::unparenthesized_expression(&unary.argument),
+                        peel(&unary.argument, Wrappers::Parens),
                         Expression::LogicalExpression(_)
                     )
                 {
@@ -2603,9 +2566,7 @@ impl ModuleBuilder<'_> {
                 // when it has one, exactly as the `new Array(n)` spelling does
                 // below; the two forms must stay in lockstep.
                 let value = self.adopt_contextual_list_allocation_type(value, type_hint, body);
-                let statically_callable = body
-                    .exprs
-                    .get(usize::try_from(value.0).unwrap_or(usize::MAX))
+                let statically_callable = body.expr_at(value)
                     .and_then(|lowered_expr| match &lowered_expr.kind {
                         ExprKind::Call { callee, .. } | ExprKind::ClosureCall { callee, .. } => {
                             Some(*callee)
@@ -2625,9 +2586,7 @@ impl ModuleBuilder<'_> {
                         self.ctx.krate.types.get(Self::expr_ty(body, value)),
                         Some(Type::None | Type::Unknown)
                     )
-                    && let Some(contextual_expr) = body
-                        .exprs
-                        .get_mut(usize::try_from(value.0).unwrap_or(usize::MAX))
+                    && let Some(contextual_expr) = body.expr_at_mut(value)
                 {
                     // Validated contextual future typing recovers an unresolved
                     // conditional/generic call result without changing the call.
@@ -2912,7 +2871,7 @@ impl ModuleBuilder<'_> {
         // `[1]` as `string[]`. The arms join below instead.
         let then_ty = Self::expr_ty(body, then_expr);
         let alternate_has_own_shape = matches!(
-            Self::unparenthesized_expression(&conditional.alternate),
+            peel(&conditional.alternate, Wrappers::Parens),
             Expression::ArrayExpression(array) if !array.elements.is_empty()
         );
         let branch_hint = if self.ctx.krate.types.get(then_ty) == Some(&Type::None)
@@ -3442,7 +3401,7 @@ impl ModuleBuilder<'_> {
     /// Return true when an expression is an uninhabited empty array literal.
     pub(super) fn is_empty_list_expr(body: &Body, expr: smelt_hir::ExprId) -> bool {
         matches!(
-            body.exprs.get(usize::try_from(expr.0).unwrap_or(usize::MAX)),
+            body.expr_at(expr),
             Some(Expr {
                 kind: ExprKind::ListLit(items),
                 ..
@@ -3467,7 +3426,7 @@ impl ModuleBuilder<'_> {
         // operand's truthiness, which distributes over the operator, so lower
         // the condition form directly to a boolean instead of building a union
         // value just to test it.
-        if let Expression::LogicalExpression(logical) = Self::unparenthesized_expression(expression)
+        if let Expression::LogicalExpression(logical) = peel(expression, Wrappers::Parens)
             && let Some(cond) = self.logical_condition_expression(logical, body)?
         {
             return Ok(cond);
@@ -3790,16 +3749,12 @@ impl ModuleBuilder<'_> {
             return None;
         }
         let mut read = cond;
-        while let Some(ExprKind::TypeAssert { value }) = usize::try_from(read.0)
-            .ok()
-            .and_then(|index| body.exprs.get(index))
+        while let Some(ExprKind::TypeAssert { value }) = body.expr_at(read)
             .map(|expr| expr.kind.clone())
         {
             read = value;
         }
-        let Some(ExprKind::Index { receiver, index }) = usize::try_from(read.0)
-            .ok()
-            .and_then(|position| body.exprs.get(position))
+        let Some(ExprKind::Index { receiver, index }) = body.expr_at(read)
             .map(|expr| expr.kind.clone())
         else {
             return None;
@@ -3840,16 +3795,12 @@ impl ModuleBuilder<'_> {
             return None;
         }
         let mut inner = read;
-        while let Some(ExprKind::TypeAssert { value }) = usize::try_from(inner.0)
-            .ok()
-            .and_then(|index| body.exprs.get(index))
+        while let Some(ExprKind::TypeAssert { value }) = body.expr_at(inner)
             .map(|expr| expr.kind.clone())
         {
             inner = value;
         }
-        let Some(ExprKind::Index { receiver, index }) = usize::try_from(inner.0)
-            .ok()
-            .and_then(|position| body.exprs.get(position))
+        let Some(ExprKind::Index { receiver, index }) = body.expr_at(inner)
             .map(|expr| expr.kind.clone())
         else {
             return None;
@@ -3904,9 +3855,7 @@ impl ModuleBuilder<'_> {
         if read_ty != slot_value || self.is_nullishable_type(read_ty) {
             return read;
         }
-        let Some(ExprKind::Index { receiver, .. }) = usize::try_from(read.0)
-            .ok()
-            .and_then(|index| body.exprs.get(index))
+        let Some(ExprKind::Index { receiver, .. }) = body.expr_at(read)
             .map(|expr| expr.kind.clone())
         else {
             return read;
@@ -3917,9 +3866,7 @@ impl ModuleBuilder<'_> {
         ) {
             return read;
         }
-        if let Some(expr) = usize::try_from(read.0)
-            .ok()
-            .and_then(|index| body.exprs.get_mut(index))
+        if let Some(expr) = body.expr_at_mut(read)
         {
             expr.ty = hint;
         }

@@ -263,7 +263,7 @@ impl ModuleBuilder<'_> {
         let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
-        if !self.is_node_hash_type(Self::expr_ty(body, receiver)) {
+        if !self.is_modeled_class(Self::expr_ty(body, receiver), smelt_stdlib::StdlibClass::NodeHash) {
             return Ok(None);
         }
         let span = self.span(call.span.start, call.span.end);
@@ -467,9 +467,71 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Return whether a lowered type is the modeled `Hash` class.
-    pub(in crate::lowering) fn is_node_hash_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::NodeHash)
-            && !self.source_shadows_global("Hash")
+    /// Lower `new Intl.<Constructor>(...)` to a marker-only host-object record.
+    ///
+    /// ECMA-402 defines the `Intl` namespace constructors (`Intl.Locale`,
+    /// `Intl.Collator`, `Intl.NumberFormat`, ...). Source code in scope
+    /// constructs them only to probe host identity (e.g.
+    /// `isPlainObject(new Intl.Locale('en')) === false`), so each lowers to a
+    /// marker-bearing record through the shared host-object registry (keyed by
+    /// the full qualified `Intl.<Constructor>` path, per the qualified-type
+    /// rule). Arguments are lowered for their effects and discarded. Unmodeled
+    /// `Intl` members fall through to the ordinary member-callee path and keep
+    /// their honest blocker.
+    pub(in crate::lowering) fn intl_namespace_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &new_expr.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        // A local binding named `Intl` shadows the global namespace.
+        if object.name != "Intl" || self.scope.is_bound("Intl") {
+            return Ok(None);
+        }
+        let qualified = format!("Intl.{}", member.property.name.as_str());
+        if smelt_stdlib::UNMODELED_HOST_CONSTRUCTORS.contains(&qualified.as_str()) {
+            return Err(SmeltError::missing_stdlib(
+                self.span(new_expr.span.start, new_expr.span.end),
+                format!("`{qualified}` is not modeled"),
+            ));
+        }
+        let Some(marker) = smelt_stdlib::host_object_marker(&qualified) else {
+            return Ok(None);
+        };
+        self.marker_only_builtin_constructor_expression(new_expr, body, marker)
+            .map(Some)
+    }
+
+    /// Report a call on a host namespace global whose member nothing modeled.
+    ///
+    /// `process` and `Intl` are ambient objects, so a member no handler claimed
+    /// would otherwise lower as a field read of the erased global: a runtime
+    /// `undefined` call in place of the host behaviour the source asked for.
+    pub(in crate::lowering) fn unmodeled_host_namespace_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        _body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        let name = object.name.as_str();
+        if !smelt_stdlib::UNMODELED_CALL_NAMESPACES.contains(&name)
+            || self.builtin_call_identifier_is_shadowed(name)
+        {
+            return Ok(None);
+        }
+        Err(SmeltError::missing_stdlib(
+            self.span(call.span.start, call.span.end),
+            format!("`{name}.{}` is not modeled", member.property.name),
+        ))
     }
 }

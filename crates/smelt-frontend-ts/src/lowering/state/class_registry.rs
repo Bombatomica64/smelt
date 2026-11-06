@@ -35,6 +35,7 @@
 //! the lexical class scopes of test suites and test cases, so rolling a scope
 //! back can never forget that the module declares a name.
 
+use crate::context::Published;
 use std::collections::{HashMap, HashSet};
 
 use smelt_hir::{Field, ItemId, MethodSig, Symbol, TypeId};
@@ -111,7 +112,7 @@ pub(in crate::lowering) struct ClassRegistry {
     ///
     /// Member and computed access fall back to it when no declared named field
     /// or method matches.
-    index_values: HashMap<Symbol, TypeId>,
+    index_values: Published<HashMap<Symbol, TypeId>>,
     /// Lexically scoped class type symbols keyed by their source binding name.
     ///
     /// Test suites are flattened into one Rust module, so sibling suites may
@@ -131,7 +132,7 @@ impl ClassRegistry {
     /// filled by [`Self::declare_module_scope`].
     pub(in crate::lowering) fn new(
         visible: HashMap<String, ItemId>,
-        index_values: HashMap<Symbol, TypeId>,
+        index_values: Published<HashMap<Symbol, TypeId>>,
     ) -> Self {
         Self {
             names: visible
@@ -323,7 +324,7 @@ impl ClassRegistry {
 
     /// Record the index-signature value type of the class symbol `name`.
     pub(in crate::lowering) fn set_index_value(&mut self, name: Symbol, value_ty: TypeId) {
-        self.index_values.insert(name, value_ty);
+        self.index_values.write().insert(name, value_ty);
     }
 
     /// Return the lexically scoped type symbol bound to the source name `name`.
@@ -435,7 +436,7 @@ pub(in crate::lowering) struct ClassScopeSnapshot {
     /// Lexically scoped class type symbols visible before the suite body.
     scoped_type_names: HashMap<String, Symbol>,
     /// Class index-signature value types visible before the suite body.
-    index_values: HashMap<Symbol, TypeId>,
+    index_values: Published<HashMap<Symbol, TypeId>>,
 }
 
 /// Registered class names captured before lowering one test case.
@@ -532,7 +533,7 @@ mod tests {
     fn restoring_a_scope_restores_items_only() {
         let mut registry = ClassRegistry::new(
             std::collections::HashMap::from([("Imported".to_owned(), ItemId(5))]),
-            std::collections::HashMap::new(),
+            crate::context::Published::default(),
         );
         registry.declare_module_scope(names(&["Declared"]), HashSet::new());
         let scope = registry.snapshot_scope();

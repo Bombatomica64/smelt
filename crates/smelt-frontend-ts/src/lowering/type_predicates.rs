@@ -24,6 +24,7 @@
 //! a generated union is read through the existing narrowing cast, which the
 //! emitter lowers to a `match` that unwraps the member — never an erasure.
 
+use crate::lowering::support::source_spelling;
 use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::{
     Argument, BindingPattern, CallExpression, ClassElement, Expression, FormalParameters,
@@ -268,12 +269,7 @@ impl ModuleBuilder<'_> {
         let Some(Type::Class { name: symbol, .. }) = self.ctx.krate.types.get(ty) else {
             return None;
         };
-        let class_name = self
-            .ctx
-            .krate
-            .names
-            .get(*symbol)
-            .or_else(|| self.ctx.krate.symbols.get(*symbol))?;
+        let class_name = source_spelling(&self.ctx.krate, *symbol)?;
         Some((class_name.to_owned(), false))
     }
 

@@ -2,6 +2,7 @@
 //! narrowing, param-pattern binding and inference, arrow closure bodies,
 //! throw analysis, and capture-name collection over expressions/statements.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::{
@@ -724,9 +725,7 @@ impl ModuleBuilder<'_> {
             else {
                 continue;
             };
-            let Some(source_decl) = usize::try_from(source_local.0)
-                .ok()
-                .and_then(|index| outer_body.locals.get(index))
+            let Some(source_decl) = outer_body.local_at(source_local)
             else {
                 continue;
             };
@@ -982,16 +981,12 @@ impl ModuleBuilder<'_> {
 
     /// Returns whether a HIR block contains a throw not protected by catch.
     pub(in crate::lowering) fn block_contains_uncaught_throw(body: &Body, block: smelt_hir::BlockId) -> bool {
-        let Some(block_data) = usize::try_from(block.0)
-            .ok()
-            .and_then(|index| body.blocks.get(index))
+        let Some(block_data) = body.block_at(block)
         else {
             return false;
         };
         block_data.stmts.iter().any(|stmt_id| {
-            let Some(stmt) = usize::try_from(stmt_id.0)
-                .ok()
-                .and_then(|index| body.stmts.get(index))
+            let Some(stmt) = body.stmt_at(*stmt_id)
             else {
                 return false;
             };

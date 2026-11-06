@@ -1,5 +1,7 @@
 //! Identifier, constant-expression, and source-location lowering helpers.
 
+use crate::lowering::body_arena::BodyArena;
+use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::{ConstCollectionItem, ConstCollectionValue, ModuleBuilder, ambient_globals};
 use crate::{SmeltError, camel_to_snake};
 use oxc::ast::ast::{Expression, Statement};
@@ -356,10 +358,7 @@ impl ModuleBuilder<'_> {
                 format!("unresolved identifier `{name}`"),
             ));
         };
-        if usize::try_from(local.0)
-            .ok()
-            .is_none_or(|index| index >= body.locals.len())
-        {
+        if body.local_at(local).is_none() {
             // A stale local entry from another body must not hide a lifted
             // mutable global: the read still resolves through `GlobalGet`.
             if let Some(item) = self.mutable_global_item(name) {
@@ -470,9 +469,7 @@ impl ModuleBuilder<'_> {
         receiver: smelt_hir::ExprId,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
-        let Some((local, ty, span)) = usize::try_from(receiver.0)
-            .ok()
-            .and_then(|index| body.exprs.get(index))
+        let Some((local, ty, span)) = body.expr_at(receiver)
             .and_then(|expr| match expr.kind {
                 ExprKind::Local(local) => Some((local, expr.ty, expr.span)),
                 _ => None,
@@ -1199,7 +1196,7 @@ impl ModuleBuilder<'_> {
         &self,
         expression: &Expression<'_>,
     ) -> bool {
-        match Self::unparenthesized_expression(expression) {
+        match peel(expression, Wrappers::Parens) {
             Expression::LogicalExpression(logical) if logical.operator == LogicalOperator::Or => {
                 self.or_chain_resolves_to_global(&logical.left)
                     || self.clause_is_present_global_guard(&logical.right)
@@ -1222,7 +1219,7 @@ impl ModuleBuilder<'_> {
         &self,
         expression: &Expression<'_>,
     ) -> bool {
-        match Self::unparenthesized_expression(expression) {
+        match peel(expression, Wrappers::Parens) {
             Expression::LogicalExpression(logical) if logical.operator == LogicalOperator::Or => {
                 // `(left) || (right)`: a present global anywhere in the spine wins.
                 self.or_chain_resolves_to_global(&logical.left)
@@ -1243,7 +1240,7 @@ impl ModuleBuilder<'_> {
         &self,
         expression: &Expression<'_>,
     ) -> bool {
-        let Expression::LogicalExpression(clause) = Self::unparenthesized_expression(expression)
+        let Expression::LogicalExpression(clause) = peel(expression, Wrappers::Parens)
         else {
             return false;
         };
@@ -1251,11 +1248,11 @@ impl ModuleBuilder<'_> {
             return false;
         }
         // Right operand must be a bare alias identifier.
-        let Expression::Identifier(value) = Self::unparenthesized_expression(&clause.right) else {
+        let Expression::Identifier(value) = peel(&clause.right, Wrappers::Parens) else {
             return false;
         };
         // Left operand must be `typeof <same-alias> === 'object'`.
-        let Expression::BinaryExpression(guard) = Self::unparenthesized_expression(&clause.left)
+        let Expression::BinaryExpression(guard) = peel(&clause.left, Wrappers::Parens)
         else {
             return false;
         };
@@ -2116,15 +2113,11 @@ impl ModuleBuilder<'_> {
         expr_id: smelt_hir::ExprId,
         target_body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let expr = source_body
-            .exprs
-            .get(usize::try_from(expr_id.0).unwrap_or(usize::MAX))
+        let expr = source_body.expr_at(expr_id)
             .cloned()
             .ok_or_else(|| {
                 SmeltError::unsupported(
-                    source_body
-                        .blocks
-                        .get(usize::try_from(source_body.root.0).unwrap_or(usize::MAX))
+                    source_body.block_at(source_body.root)
                         .map_or(Span::new(FileId(0), 0, 0), |block| block.span),
                     "const expression is missing",
                 )

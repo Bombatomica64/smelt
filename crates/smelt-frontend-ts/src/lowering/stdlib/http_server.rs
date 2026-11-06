@@ -232,7 +232,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let receiver_ty = Self::expr_ty(body, receiver);
-        if !self.is_http_server_type(receiver_ty) {
+        if !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::HttpServer) {
             return Ok(None);
         }
         let span = self.span(call.span.start, call.span.end);
@@ -361,7 +361,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let receiver_ty = Self::expr_ty(body, receiver);
-        if !self.is_server_response_type(receiver_ty) {
+        if !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::ServerResponse) {
             return Ok(None);
         }
         let span = self.span(call.span.start, call.span.end);
@@ -426,7 +426,7 @@ impl ModuleBuilder<'_> {
         };
         let receiver_ty = Self::expr_ty(body, receiver);
         let span = self.span(member.span.start, member.span.end);
-        if self.is_incoming_message_type(receiver_ty) {
+        if self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::IncomingMessage) {
             let op = match property {
                 "method" => IncomingMessageOp::Method,
                 "url" => IncomingMessageOp::Url,
@@ -443,7 +443,7 @@ impl ModuleBuilder<'_> {
                 span,
             })));
         }
-        if self.is_server_response_type(receiver_ty) && property == "statusCode" {
+        if self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::ServerResponse) && property == "statusCode" {
             let ty = self.ctx.krate.types.intern(Type::Float);
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::ServerResponseOp {
@@ -479,7 +479,7 @@ impl ModuleBuilder<'_> {
         let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
-        if !self.is_server_response_type(Self::expr_ty(body, receiver)) {
+        if !self.is_modeled_class(Self::expr_ty(body, receiver), smelt_stdlib::StdlibClass::ServerResponse) {
             return Ok(None);
         }
         let span = self.span(assign.span.start, assign.span.end);
@@ -574,24 +574,6 @@ impl ModuleBuilder<'_> {
                 is_async: false,
                 may_throw: true,
             }))
-    }
-
-    /// Return whether a lowered type is the modeled `Server` class.
-    pub(in crate::lowering) fn is_http_server_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::HttpServer)
-            && !self.source_shadows_global("Server")
-    }
-
-    /// Return whether a lowered type is the modeled `IncomingMessage` class.
-    pub(in crate::lowering) fn is_incoming_message_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::IncomingMessage)
-            && !self.source_shadows_global("IncomingMessage")
-    }
-
-    /// Return whether a lowered type is the modeled `ServerResponse` class.
-    pub(in crate::lowering) fn is_server_response_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::ServerResponse)
-            && !self.source_shadows_global("ServerResponse")
     }
 
     /// The HIR type a `Server` operation answers.

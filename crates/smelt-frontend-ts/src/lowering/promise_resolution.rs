@@ -29,6 +29,7 @@
 //! `resolve` handed on as a value (`emitter.once('done', resolve)`) is not a
 //! call here; its value comes from the slot it is passed to, and it keeps rule 3.
 
+use crate::lowering::body_arena::BodyArena;
 use smelt_hir::{Body, Expr, ExprId, ExprKind, Literal, LocalId, TypeId};
 
 /// How deeply nested closures are followed while looking for `resolve` calls.
@@ -122,7 +123,7 @@ fn uncast_argument(body: &Body, id: ExprId) -> Option<&Expr> {
 
 /// The expression `id` names in `body`, if it is in range.
 fn expr_at(body: &Body, id: ExprId) -> Option<&Expr> {
-    body.exprs.get(usize::try_from(id.0).ok()?)
+    body.expr_at(id)
 }
 
 /// Whether `expr` in `body` is a plain read of `local`.

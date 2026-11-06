@@ -16,6 +16,7 @@
 //!   name, so aliasing an import can no longer carry the literal across while
 //!   dropping the object or the collection.
 
+use crate::context::Published;
 use std::collections::HashMap;
 
 use smelt_hir::TypeId;
@@ -38,15 +39,15 @@ pub(in crate::lowering) struct ConstRegistry {
     ///
     /// Lets `EnumName.Member` reads and `case EnumName.Member:` labels inline
     /// the member's constant literal.
-    enum_members: HashMap<String, HashMap<String, ConstLiteral>>,
+    enum_members: Published<HashMap<String, HashMap<String, ConstLiteral>>>,
     /// `RegExp` literal constants visible from nested function bodies.
     regexps: HashMap<String, ConstRegexp>,
     /// Object literal constants visible from current and already-lowered modules.
-    objects: HashMap<String, ObjectConst>,
+    objects: Published<HashMap<String, ObjectConst>>,
     /// Array/set constants visible from nested function bodies.
-    collections: HashMap<String, ConstCollection>,
+    collections: Published<HashMap<String, ConstCollection>>,
     /// Object constants whose values can be projected by `Object.values`.
-    object_value_collections: HashMap<String, ConstCollection>,
+    object_value_collections: Published<HashMap<String, ConstCollection>>,
 }
 
 impl ConstRegistry {
@@ -54,10 +55,10 @@ impl ConstRegistry {
     /// published by earlier modules.
     pub(in crate::lowering) fn new(
         literals: HashMap<String, ConstLiteral>,
-        enum_members: HashMap<String, HashMap<String, ConstLiteral>>,
-        objects: HashMap<String, ObjectConst>,
-        collections: HashMap<String, ConstCollection>,
-        object_value_collections: HashMap<String, ConstCollection>,
+        enum_members: Published<HashMap<String, HashMap<String, ConstLiteral>>>,
+        objects: Published<HashMap<String, ObjectConst>>,
+        collections: Published<HashMap<String, ConstCollection>>,
+        object_value_collections: Published<HashMap<String, ConstCollection>>,
     ) -> Self {
         Self {
             literals,
@@ -88,10 +89,10 @@ impl ConstRegistry {
             self.literals.insert(local.to_owned(), value);
         }
         if let Some(value) = self.objects.get(imported).cloned() {
-            self.objects.insert(local.to_owned(), value);
+            self.objects.write().insert(local.to_owned(), value);
         }
         if let Some(value) = self.collections.get(imported).cloned() {
-            self.collections.insert(local.to_owned(), value);
+            self.collections.write().insert(local.to_owned(), value);
         }
     }
 
@@ -127,7 +128,7 @@ impl ConstRegistry {
         enum_name: String,
         members: HashMap<String, ConstLiteral>,
     ) {
-        self.enum_members.insert(enum_name, members);
+        self.enum_members.write().insert(enum_name, members);
     }
 
     /// Return the `RegExp` literal constant named `name`.
@@ -152,7 +153,7 @@ impl ConstRegistry {
 
     /// Record an object constant.
     pub(in crate::lowering) fn set_object(&mut self, name: String, value: ObjectConst) {
-        self.objects.insert(name, value);
+        self.objects.write().insert(name, value);
     }
 
     /// Return the array/set constant named `name`.
@@ -162,7 +163,7 @@ impl ConstRegistry {
 
     /// Record an array/set constant.
     pub(in crate::lowering) fn set_collection(&mut self, name: String, value: ConstCollection) {
-        self.collections.insert(name, value);
+        self.collections.write().insert(name, value);
     }
 
     /// Drop the folded array/set value of `name`, returning whether one existed.
@@ -170,7 +171,7 @@ impl ConstRegistry {
     /// A binding the module mutates is not a constant: once it is lifted to a
     /// module slot its folded elements would describe only its initial value.
     pub(in crate::lowering) fn forget_collection(&mut self, name: &str) -> bool {
-        self.collections.remove(name).is_some()
+        self.collections.write().remove(name).is_some()
     }
 
     /// Return the `Object.values` projection of the object constant `name`.
@@ -187,7 +188,7 @@ impl ConstRegistry {
         name: String,
         value: ConstCollection,
     ) {
-        self.object_value_collections.insert(name, value);
+        self.object_value_collections.write().insert(name, value);
     }
 }
 
