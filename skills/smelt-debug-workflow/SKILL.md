@@ -34,8 +34,9 @@ cargo run --bin smelt -- rust-test-report \
   --full \
   --diagnostics \
   --suppress-warnings \
-  --baseline-report blocker-logs/before.md \
-  --output blocker-logs/after.md
+  --baseline-report blocker-logs/before.json \
+  --output blocker-logs/after.md \
+  --json-output blocker-logs/after.json
 ```
 
 Omit `--baseline-report` for the first measurement. Repeat `--focus` and

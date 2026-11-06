@@ -343,7 +343,7 @@ fn measure_tests(config: &Config, manifest_dir: &Path) -> CliResult<TestOutcome>
     let cargo_manifest = manifest_dir
         .join(config.output_target())
         .join("Cargo.toml");
-    let report = test_report::rust_test_report_markdown(&test_report::RustTestReportOptions {
+    let report = test_report::rust_test_report(&test_report::RustTestReportOptions {
         cargo_manifest: &cargo_manifest,
         focus: &[],
         guard: &[],
@@ -352,37 +352,20 @@ fn measure_tests(config: &Config, manifest_dir: &Path) -> CliResult<TestOutcome>
         include_diagnostics: false,
         suppress_warnings: true,
     })?;
-    test_outcome(&report, &cargo_manifest)
+    test_outcome(report.full.and_then(|suite| suite.run.counts), &cargo_manifest)
 }
 
-/// The counts of a generated test report; a report without them means the suite
-/// never ran, which must not read as zero failures.
-fn test_outcome(report: &str, cargo_manifest: &Path) -> CliResult<TestOutcome> {
-    let (passed, failed) = parse_test_counts(report).ok_or_else(|| {
+/// The counts of a generated test run; a run without them means the suite never
+/// ran, which must not read as zero failures.
+fn test_outcome(counts: Option<test_report::TestCounts>, cargo_manifest: &Path) -> CliResult<TestOutcome> {
+    let counts = counts.ok_or_else(|| {
         format!(
             "the generated test suite of `{}` reported no `N passed; M failed` summary, \
              so it did not run",
             cargo_manifest.display()
         )
     })?;
-    Ok(TestOutcome { passed, failed })
-}
-
-/// Extract `N passed; M failed` from a generated test report, if present.
-fn parse_test_counts(report: &str) -> Option<(usize, usize)> {
-    let (before_passed, after_passed) = report.split_once(" passed;")?;
-    let passed = trailing_number(before_passed)?;
-    let (before_failed, _) = after_passed.split_once(" failed")?;
-    let failed = trailing_number(before_failed)?;
-    Some((passed, failed))
-}
-
-/// Parse the last run of ASCII digits in `text`.
-fn trailing_number(text: &str) -> Option<usize> {
-    text.rsplit(|c: char| !c.is_ascii_digit())
-        .find(|run| !run.is_empty())?
-        .parse()
-        .ok()
+    Ok(TestOutcome { passed: counts.passed, failed: counts.failed })
 }
 
 /// Pull the first `path.ts`/`path.py` out of a build error message.
@@ -719,16 +702,17 @@ mod tests {
     #[test]
     fn parses_test_counts() {
         let line = "test result: FAILED. 1768 passed; 21 failed; 0 ignored";
-        assert_eq!(parse_test_counts(line), Some((1768, 21)));
+        assert_eq!(test_report::parse_test_counts(line), Some(test_report::TestCounts { passed: 1768, failed: 21 }));
     }
 
     /// A suite that never reported a summary is an error, not zero failures.
     #[test]
     fn missing_test_summary_is_an_error() {
         let manifest = Path::new("dist/Cargo.toml");
-        let error = test_outcome("# Generated Rust Test Report\n", manifest).expect_err("no summary");
+        let error = test_outcome(None, manifest).expect_err("no summary");
         assert!(error.to_string().contains("dist/Cargo.toml"), "{error}");
-        let outcome = test_outcome("test result: ok. 3 passed; 1 failed;", manifest).expect("summary");
+        let counts = test_report::TestCounts { passed: 3, failed: 1 };
+        let outcome = test_outcome(Some(counts), manifest).expect("summary");
         assert_eq!((outcome.passed, outcome.failed), (3, 1));
     }
 

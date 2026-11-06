@@ -142,7 +142,8 @@ pub enum Command {
         #[arg(long)]
         full: bool,
 
-        /// Previous Markdown report used to compute resolved and newly failing tests.
+        /// Previous JSON report (`--json-output`) used to compute resolved and
+        /// newly failing tests.
         #[arg(long = "baseline-report", value_name = "PATH")]
         baseline_report: Option<String>,
 
@@ -154,9 +155,13 @@ pub enum Command {
         #[arg(long)]
         suppress_warnings: bool,
 
-        /// Write the Markdown report to this file instead of stdout.
-        #[arg(long, value_name = "PATH")]
-        output: Option<String>,
+        /// Format and destination of the report.
+        #[command(flatten)]
+        report: ReportArgs,
+
+        /// Also write the report as JSON to this file, from the same run.
+        #[arg(long = "json-output", value_name = "PATH")]
+        json_output: Option<String>,
     },
 
     /// Probe how far a manifest transpiles and enumerate blockers by category

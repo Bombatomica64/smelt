@@ -107,7 +107,8 @@ jobs:
             --full \
             --diagnostics \
             --suppress-warnings \
-            --output "target/compat-reports/${{ matrix.name }}.md"
+            --output "target/compat-reports/${{ matrix.name }}.md" \
+            --json-output "target/compat-reports/${{ matrix.name }}.json"
 
       - name: Write compatibility metadata
         if: always()
@@ -116,6 +117,9 @@ jobs:
           mkdir -p "$result_dir"
           if [ -f "target/compat-reports/${{ matrix.name }}.md" ]; then
             cp "target/compat-reports/${{ matrix.name }}.md" "$result_dir/report.md"
+          fi
+          if [ -f "target/compat-reports/${{ matrix.name }}.json" ]; then
+            cp "target/compat-reports/${{ matrix.name }}.json" "$result_dir/report.json"
           fi
           {
             echo "name=${{ matrix.name }}"
@@ -165,7 +169,7 @@ jobs:
               --url "$url" \
               --ref "$ref" \
               --run-url "$run_url" \
-              --report "$result_dir/report.md" \
+              --report "$result_dir/report.json" \
               --status "$status"
           done < <(find target/compat-results -name metadata.env | sort)
           if [ "$found" -eq 0 ]; then

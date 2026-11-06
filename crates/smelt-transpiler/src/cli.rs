@@ -48,24 +48,32 @@ pub fn run() -> CliResult<()> {
             baseline_report,
             diagnostics: include_diagnostics,
             suppress_warnings,
-            output,
+            report: ReportArgs { format, output },
+            json_output,
         } => {
             if let Some(source_manifest) = build_manifest {
                 let path = PathBuf::from(source_manifest);
                 let config = load_config(&path)?;
                 pipeline::build_rust_crate(&config, &path)?;
             }
-            let report =
-                test_report::rust_test_report_markdown(&test_report::RustTestReportOptions {
-                    cargo_manifest: &PathBuf::from(cargo_manifest),
-                    focus: &focus,
-                    guard: &guard,
-                    full,
-                    baseline_report: baseline_report.as_deref().map(PathBuf::from),
-                    include_diagnostics,
-                    suppress_warnings,
-                })?;
-            write_report(output.as_deref(), &report)?;
+            let report = test_report::rust_test_report(&test_report::RustTestReportOptions {
+                cargo_manifest: &PathBuf::from(cargo_manifest),
+                focus: &focus,
+                guard: &guard,
+                full,
+                baseline_report: baseline_report.as_deref().map(PathBuf::from),
+                include_diagnostics,
+                suppress_warnings,
+            })?;
+            let json = serde_json::to_string_pretty(&report)?;
+            if let Some(path) = json_output {
+                write_report(Some(&path), &json)?;
+            }
+            let rendered = match format {
+                ReportFormat::Markdown => test_report::render_markdown(&report),
+                ReportFormat::Json => json,
+            };
+            write_report(output.as_deref(), &rendered)?;
         }
         Command::ListEscapeReport { manifest, define, report: ReportArgs { format, output }, function, top } => {
             let report = list_escape_report::list_escape_report(
