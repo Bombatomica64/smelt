@@ -3195,149 +3195,6 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct Parsed<T> {
-    value: T,
-    _smelt_phantom: ::std::marker::PhantomData<(T)>,
-}
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for Parsed<T> {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("value".to_owned(), (self.value).into_smelt_unknown()),
-        ])))
-    }
-}
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFromUnknown for Parsed<T> {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("value") {
-                result.value = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-struct Options {
-    origin: String,
-    credentials: Option<bool>,
-    max_age: Option<f64>,
-}
-impl IntoSmeltUnknown for Options {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        let smelt_absent_keys: [&str; 2] = ["credentials", "maxAge"];
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("origin".to_owned(), SmeltUnknown::String(self.origin.into())),
-        ("credentials".to_owned(), self.credentials.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Bool(value))),
-        ("maxAge".to_owned(), self.max_age.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
-        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
-    }
-}
-impl SmeltFromUnknown for Options {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("origin") {
-                result.origin = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("credentials") {
-                result.credentials = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("maxAge") {
-                result.max_age = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-struct PartialOptions {
-    origin: Option<String>,
-    credentials: Option<bool>,
-    max_age: Option<f64>,
-}
-impl IntoSmeltUnknown for PartialOptions {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        let smelt_absent_keys: [&str; 3] = ["origin", "credentials", "maxAge"];
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("origin".to_owned(), self.origin.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
-        ("credentials".to_owned(), self.credentials.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Bool(value))),
-        ("maxAge".to_owned(), self.max_age.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
-        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
-    }
-}
-impl SmeltFromUnknown for PartialOptions {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("origin") {
-                result.origin = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("credentials") {
-                result.credentials = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("maxAge") {
-                result.max_age = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
-#[derive(Clone)]
-#[allow(dead_code)]
-struct Pair<T> {
-    left: T,
-    right: T,
-    swap: ::std::rc::Rc<dyn Fn() -> Pair<T>>,
-    _smelt_phantom: ::std::marker::PhantomData<(T)>,
-}
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Pair<T> where T: Default {
-    fn default() -> Self {
-        Self {
-            left: Default::default(),
-            right: Default::default(),
-            swap: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> Pair<T>> = ::std::rc::Rc::new(move || -> Pair<T> { Default::default() }); smelt_default_callback },
-            _smelt_phantom: ::std::marker::PhantomData,
-        }
-    }
-}
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> ::std::fmt::Debug for Pair<T> {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        formatter.debug_struct("Pair").finish_non_exhaustive()
-    }
-}
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for Pair<T> {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("left".to_owned(), (self.left).into_smelt_unknown()),
-        ("right".to_owned(), (self.right).into_smelt_unknown()),
-        ("swap".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn() -> Pair<T>> = self.swap.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)()).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
-        ])))
-    }
-}
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFromUnknown for Pair<T> {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("left") {
-                result.left = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("right") {
-                result.right = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("swap") {
-                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn() -> Pair<T>>>(&smelt_function)) { result.swap = smelt_origin; }
-            }
-        }
-        result
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -3754,6 +3611,151 @@ impl SmeltFromUnknown for SmeltMatch {
             }
             _ => Self::default(),
         }
+    }
+}
+
+// @smelt:prelude-end — generated program below
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Parsed<T> {
+    value: T,
+    _smelt_phantom: ::std::marker::PhantomData<(T)>,
+}
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for Parsed<T> {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("value".to_owned(), (self.value).into_smelt_unknown()),
+        ])))
+    }
+}
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFromUnknown for Parsed<T> {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("value") {
+                result.value = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Options {
+    origin: String,
+    credentials: Option<bool>,
+    max_age: Option<f64>,
+}
+impl IntoSmeltUnknown for Options {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let smelt_absent_keys: [&str; 2] = ["credentials", "maxAge"];
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("origin".to_owned(), SmeltUnknown::String(self.origin.into())),
+        ("credentials".to_owned(), self.credentials.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Bool(value))),
+        ("maxAge".to_owned(), self.max_age.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
+        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
+    }
+}
+impl SmeltFromUnknown for Options {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("origin") {
+                result.origin = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("credentials") {
+                result.credentials = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("maxAge") {
+                result.max_age = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct PartialOptions {
+    origin: Option<String>,
+    credentials: Option<bool>,
+    max_age: Option<f64>,
+}
+impl IntoSmeltUnknown for PartialOptions {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let smelt_absent_keys: [&str; 3] = ["origin", "credentials", "maxAge"];
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("origin".to_owned(), self.origin.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
+        ("credentials".to_owned(), self.credentials.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Bool(value))),
+        ("maxAge".to_owned(), self.max_age.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
+        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
+    }
+}
+impl SmeltFromUnknown for PartialOptions {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("origin") {
+                result.origin = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("credentials") {
+                result.credentials = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("maxAge") {
+                result.max_age = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+struct Pair<T> {
+    left: T,
+    right: T,
+    swap: ::std::rc::Rc<dyn Fn() -> Pair<T>>,
+    _smelt_phantom: ::std::marker::PhantomData<(T)>,
+}
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Pair<T> where T: Default {
+    fn default() -> Self {
+        Self {
+            left: Default::default(),
+            right: Default::default(),
+            swap: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> Pair<T>> = ::std::rc::Rc::new(move || -> Pair<T> { Default::default() }); smelt_default_callback },
+            _smelt_phantom: ::std::marker::PhantomData,
+        }
+    }
+}
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> ::std::fmt::Debug for Pair<T> {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.debug_struct("Pair").finish_non_exhaustive()
+    }
+}
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for Pair<T> {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("left".to_owned(), (self.left).into_smelt_unknown()),
+        ("right".to_owned(), (self.right).into_smelt_unknown()),
+        ("swap".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn() -> Pair<T>> = self.swap.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)()).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ])))
+    }
+}
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFromUnknown for Pair<T> {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("left") {
+                result.left = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("right") {
+                result.right = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("swap") {
+                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn() -> Pair<T>>>(&smelt_function)) { result.swap = smelt_origin; }
+            }
+        }
+        result
     }
 }
 
@@ -4304,8 +4306,6 @@ impl SmeltFromUnknown for Lists {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let plain: Plain;

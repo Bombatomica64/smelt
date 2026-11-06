@@ -66,6 +66,8 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Base {
     label: String,
@@ -108,8 +110,6 @@ struct Deeper {
     z: f64,
     w: f64,
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let derived: Derived;

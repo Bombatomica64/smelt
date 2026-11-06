@@ -3334,49 +3334,6 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-#[derive(Clone)]
-#[allow(dead_code)]
-struct Job {
-    run: ::std::rc::Rc<dyn Fn(String) -> SmeltFuture<String>>,
-    label: String,
-}
-impl Default for Job {
-    fn default() -> Self {
-        Self {
-            run: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> SmeltFuture<String>> = ::std::rc::Rc::new(move |arg0: String| -> SmeltFuture<String> { SmeltFuture::resolved(String::new()) }); smelt_default_callback },
-            label: String::new(),
-        }
-    }
-}
-impl ::std::fmt::Debug for Job {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        formatter.debug_struct("Job").finish_non_exhaustive()
-    }
-}
-impl IntoSmeltUnknown for Job {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("run".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String) -> SmeltFuture<String>> = self.run.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
-        ("label".to_owned(), SmeltUnknown::String(self.label.into())),
-        ])))
-    }
-}
-impl SmeltFromUnknown for Job {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("run") {
-                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String) -> SmeltFuture<String>>>(&smelt_function)) { result.run = smelt_origin; }
-            }
-            if let Some(field) = object.get("label") {
-                result.label = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -3797,6 +3754,49 @@ impl SmeltFromUnknown for SmeltMatch {
 }
 
 // @smelt:prelude-end — generated program below
+
+#[derive(Clone)]
+#[allow(dead_code)]
+struct Job {
+    run: ::std::rc::Rc<dyn Fn(String) -> SmeltFuture<String>>,
+    label: String,
+}
+impl Default for Job {
+    fn default() -> Self {
+        Self {
+            run: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> SmeltFuture<String>> = ::std::rc::Rc::new(move |arg0: String| -> SmeltFuture<String> { SmeltFuture::resolved(String::new()) }); smelt_default_callback },
+            label: String::new(),
+        }
+    }
+}
+impl ::std::fmt::Debug for Job {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.debug_struct("Job").finish_non_exhaustive()
+    }
+}
+impl IntoSmeltUnknown for Job {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("run".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String) -> SmeltFuture<String>> = self.run.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ("label".to_owned(), SmeltUnknown::String(self.label.into())),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Job {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("run") {
+                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String) -> SmeltFuture<String>>>(&smelt_function)) { result.run = smelt_origin; }
+            }
+            if let Some(field) = object.get("label") {
+                result.label = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();

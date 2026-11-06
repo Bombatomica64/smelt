@@ -3579,6 +3579,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone)]
 pub enum SmeltUnion3 {
     M0(f64),
@@ -3623,8 +3625,6 @@ impl Default for SmeltUnion3 {
         Self::M0(0.0)
     }
 }
-
-// @smelt:prelude-end — generated program below
 fn main() {
     let counts: SmeltRecord<String, f64>;
     let ratios: SmeltList<f64>;

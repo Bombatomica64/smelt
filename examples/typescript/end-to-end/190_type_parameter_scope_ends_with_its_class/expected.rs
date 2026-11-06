@@ -3732,6 +3732,8 @@ fn smelt_keep_receiver_alive<H: SmeltReferenceHandle>(erased: SmeltUnknown, rece
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltReferenceHandle for Holder<T> { type Cell = ::std::cell::RefCell<HolderInner<T>>; fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell> { &self.0 } fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self { Self(cell) } }
 impl<T> Drop for Holder<T> { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let shared = self.0.try_borrow().map_or(true, |inner| inner.read.smelt_closure_shared()); if shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
 
@@ -3799,8 +3801,6 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_2: String;

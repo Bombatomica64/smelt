@@ -3510,6 +3510,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone)]
 pub enum SmeltUnion3 {
     M0(String),
@@ -3551,8 +3553,6 @@ impl Default for SmeltUnion3 {
         Self::M0(String::new())
     }
 }
-
-// @smelt:prelude-end — generated program below
 fn main() {
     let _smelt_tmp_2: Option<String> = ::std::env::var("PORT").ok();
     let _smelt_tmp_3: SmeltUnion3 = _smelt_tmp_2.map_or_else(|| SmeltUnion3::M1(3000.0), |value| SmeltUnion3::M0(value));

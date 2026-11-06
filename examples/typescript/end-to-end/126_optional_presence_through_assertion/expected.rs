@@ -3163,89 +3163,6 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct HandlerSet {
-    handler: String,
-    score: f64,
-}
-impl IntoSmeltUnknown for HandlerSet {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("handler".to_owned(), SmeltUnknown::String(self.handler.into())),
-        ("score".to_owned(), SmeltUnknown::Number(self.score as f64)),
-        ])))
-    }
-}
-impl SmeltFromUnknown for HandlerSet {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("handler") {
-                result.handler = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("score") {
-                result.score = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
-#[allow(dead_code)]
-struct HandlerParamsSet(::std::rc::Rc<::std::cell::RefCell<HandlerParamsSetInner>>);
-#[derive(Debug, Default)]
-#[allow(dead_code)]
-struct HandlerParamsSetInner {
-    handler: String,
-    score: f64,
-    params: SmeltRecord<String, String>,
-}
-impl Clone for HandlerParamsSet {
-    fn clone(&self) -> Self {
-        HandlerParamsSet(::std::rc::Rc::clone(&self.0))
-    }
-}
-impl PartialEq for HandlerParamsSet {
-    fn eq(&self, other: &Self) -> bool {
-        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
-    }
-}
-impl Default for HandlerParamsSet {
-    fn default() -> Self {
-        HandlerParamsSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerParamsSetInner::default())))
-    }
-}
-impl ::std::fmt::Debug for HandlerParamsSet {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
-    }
-}
-impl IntoSmeltUnknown for HandlerParamsSet {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        let __smelt_id = smelt_reference_object_identity(&self.0);
-        let __smelt_inner = self.0.borrow();
-        let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
-        ("handler".to_owned(), SmeltUnknown::String((__smelt_inner.handler.clone()).into())),
-        ("score".to_owned(), SmeltUnknown::Number(__smelt_inner.score.clone() as f64)),
-        ("params".to_owned(), SmeltUnknown::Object(SmeltObject::new(__smelt_inner.params.clone().into_iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect()))),
-        ]);
-        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
-    }
-}
-/// Recover this reference record from an erased value: the live instance
-/// when the value is an erasure of one, else a fresh object rebuilt from it.
-impl SmeltFromUnknown for HandlerParamsSet {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let SmeltUnknown::Object(object) = value else { return Self::default() };
-        if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
-        let result = Self::default();
-        if let Some(field) = object.get("handler") { result.0.borrow_mut().handler = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("score") { result.0.borrow_mut().score = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("params") { result.0.borrow_mut().params = SmeltFromUnknown::smelt_from_unknown(field); }
-        result
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -3665,6 +3582,91 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct HandlerSet {
+    handler: String,
+    score: f64,
+}
+impl IntoSmeltUnknown for HandlerSet {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("handler".to_owned(), SmeltUnknown::String(self.handler.into())),
+        ("score".to_owned(), SmeltUnknown::Number(self.score as f64)),
+        ])))
+    }
+}
+impl SmeltFromUnknown for HandlerSet {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("handler") {
+                result.handler = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("score") {
+                result.score = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
+#[allow(dead_code)]
+struct HandlerParamsSet(::std::rc::Rc<::std::cell::RefCell<HandlerParamsSetInner>>);
+#[derive(Debug, Default)]
+#[allow(dead_code)]
+struct HandlerParamsSetInner {
+    handler: String,
+    score: f64,
+    params: SmeltRecord<String, String>,
+}
+impl Clone for HandlerParamsSet {
+    fn clone(&self) -> Self {
+        HandlerParamsSet(::std::rc::Rc::clone(&self.0))
+    }
+}
+impl PartialEq for HandlerParamsSet {
+    fn eq(&self, other: &Self) -> bool {
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Default for HandlerParamsSet {
+    fn default() -> Self {
+        HandlerParamsSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerParamsSetInner::default())))
+    }
+}
+impl ::std::fmt::Debug for HandlerParamsSet {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
+    }
+}
+impl IntoSmeltUnknown for HandlerParamsSet {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let __smelt_id = smelt_reference_object_identity(&self.0);
+        let __smelt_inner = self.0.borrow();
+        let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
+        ("handler".to_owned(), SmeltUnknown::String((__smelt_inner.handler.clone()).into())),
+        ("score".to_owned(), SmeltUnknown::Number(__smelt_inner.score.clone() as f64)),
+        ("params".to_owned(), SmeltUnknown::Object(SmeltObject::new(__smelt_inner.params.clone().into_iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect()))),
+        ]);
+        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
+    }
+}
+/// Recover this reference record from an erased value: the live instance
+/// when the value is an erasure of one, else a fresh object rebuilt from it.
+impl SmeltFromUnknown for HandlerParamsSet {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let SmeltUnknown::Object(object) = value else { return Self::default() };
+        if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
+        let result = Self::default();
+        if let Some(field) = object.get("handler") { result.0.borrow_mut().handler = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(field) = object.get("score") { result.0.borrow_mut().score = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(field) = object.get("params") { result.0.borrow_mut().params = SmeltFromUnknown::smelt_from_unknown(field); }
+        result
+    }
+}
+
 #[allow(dead_code)]
 struct Table(::std::rc::Rc<::std::cell::RefCell<TableInner>>);
 #[derive(Debug, Default)]
@@ -3715,8 +3717,6 @@ impl SmeltFromUnknown for Table {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let table: Table;

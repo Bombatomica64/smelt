@@ -5,14 +5,6 @@
 //! fact of its own. Each entry is emitted when its own `when` expression holds;
 //! see [`crate::source`] for the marker language.
 
-/// A point in the emitted runtime that the program, not the runtime, fills.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Slot {
-    /// The program's interface types.
-    ProgramInterfaces,
-}
-
 /// One step of emitting the runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -24,8 +16,6 @@ pub enum Entry {
     /// Item text carries its own trailing blank lines. These are the blanks that
     /// separate items even when the item before them is not emitted.
     Blank(&'static str),
-    /// Control returns to the emitter.
-    Slot(Slot),
 }
 
 /// Every runtime item, in emission order.
@@ -164,7 +154,6 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("IntoSmeltUnknown"),
     Entry::Item("impl_serde_Serialize_for_SmeltUnknown"),
     Entry::Item("impl_serde_Deserialize_de_for_SmeltUnknown"),
-    Entry::Slot(Slot::ProgramInterfaces),
     Entry::Item("SMELT_REGEX_CACHE"),
     Entry::Item("impl_IntoSmeltUnknown_for_SmeltRegExp"),
     Entry::Item("impl_Default_for_SmeltRegExp"),

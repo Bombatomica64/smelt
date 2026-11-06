@@ -4023,6 +4023,8 @@ fn smelt_typed_array_write_origin(record: &SmeltObject, offset: usize, encoded: 
     if let Some(storage) = record.smelt_origin::<SmeltArrayBuffer>() { storage.write_bytes_at(offset, &bytes); }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone)]
 pub enum SmeltUnion4 {
     M0(bool),
@@ -4064,8 +4066,6 @@ impl Default for SmeltUnion4 {
         Self::M0(false)
     }
 }
-
-// @smelt:prelude-end — generated program below
 fn main() {
     let _smelt_tmp_5: ::std::rc::Rc<dyn Fn(f64) -> SmeltArrayBuffer>;
     let _smelt_tmp_0 = __smelt_fn_typed_6_0();

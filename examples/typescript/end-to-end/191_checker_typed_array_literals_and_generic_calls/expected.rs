@@ -3585,6 +3585,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone)]
 pub enum SmeltUnion4 {
     M0(f64),
@@ -3845,8 +3847,6 @@ impl Default for SmeltUnion40 {
         Self::M0(0.0)
     }
 }
-
-// @smelt:prelude-end — generated program below
 fn main() {
     let numbers: SmeltList<SmeltList<f64>>;
     let words: SmeltList<SmeltList<String>>;

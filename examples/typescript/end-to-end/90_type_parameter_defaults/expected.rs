@@ -3521,6 +3521,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[allow(dead_code)]
 struct Slot<T, U, V> {
     first: T,
@@ -3721,8 +3723,6 @@ impl<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, B: Clon
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let holder: Holder;

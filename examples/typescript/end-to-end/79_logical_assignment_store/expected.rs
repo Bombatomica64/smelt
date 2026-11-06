@@ -3510,6 +3510,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Leaf {
     tag: String,
@@ -3532,8 +3534,6 @@ impl SmeltFromUnknown for Leaf {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let mut holder: SmeltRecord<String, f64>;

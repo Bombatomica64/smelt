@@ -3587,6 +3587,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[allow(dead_code)]
 struct App(::std::rc::Rc<::std::cell::RefCell<AppInner>>);
 #[allow(dead_code)]
@@ -3648,8 +3650,6 @@ impl SmeltFromUnknown for App {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let a: App;

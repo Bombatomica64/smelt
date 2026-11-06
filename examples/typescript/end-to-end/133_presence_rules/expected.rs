@@ -4156,6 +4156,8 @@ impl SmeltFromUnknown for SmeltRequest {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[allow(dead_code)]
 struct Wrapper(::std::rc::Rc<::std::cell::RefCell<WrapperInner>>);
 #[derive(Debug, Default)]
@@ -4293,8 +4295,6 @@ impl Default for SmeltUnion15 {
         Self::M0(false)
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let _smelt_tmp_8: bool;

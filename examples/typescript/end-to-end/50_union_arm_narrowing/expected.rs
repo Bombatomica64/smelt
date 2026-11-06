@@ -4376,6 +4376,8 @@ impl SmeltFromUnknown for SmeltBlob {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Doc {
     name: String,
@@ -4482,8 +4484,6 @@ impl Default for SmeltUnion14 {
         Self::M0(String::new())
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let chosen: SmeltUnion2;

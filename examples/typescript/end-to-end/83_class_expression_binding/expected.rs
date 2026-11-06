@@ -3588,6 +3588,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[allow(dead_code)]
 struct __smelt_anon_class_1394<T>(::std::rc::Rc<::std::cell::RefCell<__smelt_anon_class_1394Inner<T>>>);
 #[allow(dead_code)]
@@ -3862,8 +3864,6 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let reporting: Reporting;

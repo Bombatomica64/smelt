@@ -80,14 +80,6 @@ fn smelt_next_object_id() -> usize {
     SMELT_NEXT_OBJECT_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id })
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct Init {
-    status: Option<f64>,
-    status_text: Option<String>,
-    ok: Option<bool>,
-    label: Option<String>,
-}
-
 /// A WHATWG `Headers` list: ordered name/value pairs, case-insensitive
 /// names, comma-joined reads, and the `Set-Cookie` carve-out.
 #[derive(Clone)]
@@ -380,6 +372,14 @@ impl SmeltResponse {
 }
 
 // @smelt:prelude-end — generated program below
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Init {
+    status: Option<f64>,
+    status_text: Option<String>,
+    ok: Option<bool>,
+    label: Option<String>,
+}
 fn main() {
     let _smelt_tmp_10: Init;
     let created: SmeltResponse = SmeltResponse::from_parts(201.0, "Created".to_owned(), SmeltHeaders::new(), SmeltBody::from_text(&"hi".to_owned()));

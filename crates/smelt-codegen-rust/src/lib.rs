@@ -719,6 +719,12 @@ impl<'a> CrateBuilder<'a> {
         }
         let prelude_end = out.len();
         out.push_str(&format!("\n\n{PRELUDE_END_MARKER}\n"));
+        let program_types = emit_program_types(mir, context)?;
+        if !program_types.is_empty() {
+            out.push('\n');
+            out.push_str(program_types.trim_end());
+            out.push('\n');
+        }
         Ok(Self {
             mir,
             context,
@@ -1022,7 +1028,6 @@ fn emit_runtime_prelude(
 ) -> Result<(String, bool), EmitError> {
     let mut writer = CodeWriter::new();
     let demand = context.demand();
-    let needs_serde_json = demand.has(Need::DepSerdeJson);
     let needs_unknown = demand.has(Need::Unknown);
     for line in CRATE_HEADER.lines() {
         writer.line(line);
@@ -1036,8 +1041,22 @@ fn emit_runtime_prelude(
         writer.line("static SMELT_GLOBAL_ALLOCATOR: ::mimalloc::MiMalloc = ::mimalloc::MiMalloc;");
         writer.blank_line();
     }
-    let (before_interfaces, after_interfaces) = runtime_prelude::split_at_interfaces();
-    runtime_prelude::emit_entries(&mut writer, before_interfaces, mir, context)?;
+    runtime_prelude::emit_entries(&mut writer, smelt_runtime::order::ORDER, mir, context)?;
+    if !context.weak_receivers().is_empty() {
+        emitter::weak_receiver::emit_prelude(&mut writer, needs_unknown, context.demand().has(Need::ErasedFunction));
+    }
+    Ok((writer.finish(), needs_unknown))
+}
+
+/// Emit the program's own types: interfaces, classes, unions and JSON decoders.
+///
+/// These are written after [`PRELUDE_END_MARKER`], because the report that reads
+/// the marker counts everything above it as runtime, and a user's type is not.
+fn emit_program_types(mir: &Mir, context: &EmitContext) -> Result<String, EmitError> {
+    let mut writer = CodeWriter::new();
+    let demand = context.demand();
+    let needs_serde_json = demand.has(Need::DepSerdeJson);
+    let needs_unknown = demand.has(Need::Unknown);
     let mut emitted_class_names = HashSet::new();
     for interface in &mir.interfaces {
         let name = RustIdent::new(
@@ -1211,10 +1230,6 @@ fn emit_runtime_prelude(
             )?;
         }
         writer.blank_line();
-    }
-    runtime_prelude::emit_entries(&mut writer, after_interfaces, mir, context)?;
-    if !context.weak_receivers().is_empty() {
-        emitter::weak_receiver::emit_prelude(&mut writer, needs_unknown, context.demand().has(Need::ErasedFunction));
     }
     for class in &mir.classes {
         let name = class_name_text(mir, class)?;
@@ -1476,7 +1491,7 @@ fn emit_runtime_prelude(
         }
     }
 
-    Ok((writer.finish(), needs_unknown))
+    Ok(writer.finish())
 }
 
 /// Rust sources split by original source module.

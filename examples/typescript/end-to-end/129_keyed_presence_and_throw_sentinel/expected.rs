@@ -3651,6 +3651,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[allow(dead_code)]
 struct UnsupportedPathError(::std::rc::Rc<::std::cell::RefCell<UnsupportedPathErrorInner>>);
 #[derive(Debug, Default)]
@@ -3817,8 +3819,6 @@ impl SmeltFromUnknown for Router {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let router: Router;

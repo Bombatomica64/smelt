@@ -3825,6 +3825,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[allow(dead_code)]
 struct Context(::std::rc::Rc<::std::cell::RefCell<ContextInner>>);
 #[derive(Debug, Default)]
@@ -3933,8 +3935,6 @@ impl SmeltFromUnknown for Point {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;

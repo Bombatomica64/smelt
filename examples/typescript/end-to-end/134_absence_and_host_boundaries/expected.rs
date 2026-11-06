@@ -4511,6 +4511,8 @@ fn smelt_crypto_digest(algorithm: &str, data: &[u8]) -> Result<SmeltArrayBuffer,
     Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("NotSupportedError".into())), ("message".to_owned(), SmeltUnknown::String("Unrecognized algorithm name".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])))))
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone)]
 pub enum SmeltUnion8 {
     M0(String),
@@ -4815,8 +4817,6 @@ impl Default for SmeltUnion41 {
         Self::M0(SmeltTypedArray::new())
     }
 }
-
-// @smelt:prelude-end — generated program below
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();

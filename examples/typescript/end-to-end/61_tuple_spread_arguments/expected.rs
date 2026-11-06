@@ -139,11 +139,11 @@ impl<T: ::std::hash::Hash> ::std::hash::Hash for SmeltList<T> { fn hash<H: ::std
 impl<T> Default for SmeltList<T> { fn default() -> Self { Self::new(Vec::new()) } }
 impl<T: Clone> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Self { list.into_vec() } }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Sink {
 }
-
-// @smelt:prelude-end — generated program below
 
 thread_local! {
     static SMELT_GLOBAL_EVALUATIONS_0: ::std::cell::Cell<f64> = const { ::std::cell::Cell::new(0.0) };

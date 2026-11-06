@@ -4529,6 +4529,8 @@ fn smelt_hash_digest_text(hash: &SmeltHash, encoding: &str) -> Result<String, Bo
 /// erased value back hands out the SAME object rather than a copy.
 impl IntoSmeltUnknown for SmeltHash { fn into_smelt_unknown(self) -> SmeltUnknown { let smelt_id = self.id; let smelt_host_origin = self.clone(); smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(smelt_id, Vec::from([("__smelt_hash".to_owned(), SmeltUnknown::Bool(true))]))), smelt_host_origin) } }
 
+// @smelt:prelude-end — generated program below
+
 #[allow(dead_code)]
 struct UnsupportedPathError(::std::rc::Rc<::std::cell::RefCell<UnsupportedPathErrorInner>>);
 #[derive(Debug, Default)]
@@ -4586,8 +4588,6 @@ impl SmeltFromUnknown for UnsupportedPathError {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let literal: SmeltRegExp;

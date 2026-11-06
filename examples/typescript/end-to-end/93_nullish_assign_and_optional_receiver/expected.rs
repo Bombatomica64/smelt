@@ -366,6 +366,8 @@ impl SmeltResponse {
     pub fn tee(&self) -> Self { Self::from_parts(self.status, self.status_text.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee()) }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[allow(dead_code)]
 struct Bag(::std::rc::Rc<::std::cell::RefCell<BagInner>>);
 #[derive(Debug, Default)]
@@ -394,8 +396,6 @@ impl ::std::fmt::Debug for Bag {
         ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let bag: Bag;

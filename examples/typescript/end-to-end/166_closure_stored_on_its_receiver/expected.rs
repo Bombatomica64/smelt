@@ -3732,6 +3732,8 @@ fn smelt_keep_receiver_alive<H: SmeltReferenceHandle>(erased: SmeltUnknown, rece
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 impl SmeltReferenceHandle for Ctx { type Cell = ::std::cell::RefCell<CtxInner>; fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell> { &self.0 } fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self { Self(cell) } }
 impl Drop for Ctx { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let shared = self.0.try_borrow().map_or(true, |inner| inner.json.smelt_closure_shared() || inner.later.smelt_closure_shared()); if shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
 
@@ -3873,8 +3875,6 @@ impl SmeltFromUnknown for Sub {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut field: ::std::rc::Rc<dyn Fn(String) -> String>;

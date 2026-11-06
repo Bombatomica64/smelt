@@ -22,23 +22,14 @@
 )]
 
 use smelt_mir::Mir;
-use smelt_runtime::order::{Entry, ORDER, Slot};
+use smelt_runtime::order::Entry;
+#[cfg(test)]
+use smelt_runtime::order::ORDER;
 use smelt_runtime::source::{RenderedLine, holds, item_enabled, render_item};
 
 use crate::emitter::EmitContext;
 use crate::runtime_demand::Need;
 use crate::{EmitError, rust::CodeWriter, stdlib};
-
-/// Splits [`ORDER`] around the program's interface types, which the runtime
-/// emitted after them is written against and the runtime before them is not.
-pub(crate) fn split_at_interfaces() -> (&'static [Entry], &'static [Entry]) {
-    let at = ORDER
-        .iter()
-        .position(|entry| *entry == Entry::Slot(Slot::ProgramInterfaces))
-        .unwrap_or(ORDER.len());
-    let (before, after) = ORDER.split_at(at);
-    (before, after.get(1..).unwrap_or_default())
-}
 
 /// Writes `entries` under the program's flags.
 ///

@@ -3579,6 +3579,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone)]
 pub enum SmeltUnion10 {
     M0(String),
@@ -3620,8 +3622,6 @@ impl Default for SmeltUnion10 {
         Self::M0(String::new())
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 thread_local! {
     static SMELT_GLOBAL_CACHE_0: ::std::cell::RefCell<SmeltRecord<String, (String, String, bool)>> = ::std::cell::RefCell::new(smelt_global_init__cache__4());

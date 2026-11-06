@@ -4591,6 +4591,8 @@ fn smelt_crypto_verify(algorithm: &str, key: &SmeltCryptoKey, signature: &[u8], 
     Ok(expected.len() == signature.len() && expected.iter().zip(signature).fold(0_u8, |acc, (left, right)| acc | (left ^ right)) == 0)
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone)]
 pub enum SmeltUnion6 {
     M0(SmeltTypedArray),
@@ -4689,8 +4691,6 @@ impl Default for SmeltUnion7 {
         Self::M0(String::new())
     }
 }
-
-// @smelt:prelude-end — generated program below
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();

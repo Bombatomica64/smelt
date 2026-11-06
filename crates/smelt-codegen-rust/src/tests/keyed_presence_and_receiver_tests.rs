@@ -380,8 +380,10 @@ export function add(into: (string | File)[], value: FormDataEntryValue): number 
 }
 ",
     );
-    let program = program_part(&source);
-    assert!(!program.contains("SmeltBlob as SmeltFromUnknown"), "{program}");
+    // The union's own definition converts into its `File` arm, which is correct;
+    // the function must not.
+    let body = emitted_function_body(&source, "fn add");
+    assert!(!body.contains("SmeltBlob as SmeltFromUnknown"), "{body}");
 }
 
 /// A program that only constructs a `RegExp` and reads its `source` still

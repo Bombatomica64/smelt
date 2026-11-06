@@ -139,13 +139,13 @@ impl<T: ::std::hash::Hash> ::std::hash::Hash for SmeltList<T> { fn hash<H: ::std
 impl<T> Default for SmeltList<T> { fn default() -> Self { Self::new(Vec::new()) } }
 impl<T: Clone> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Self { list.into_vec() } }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Opts {
     status: Option<f64>,
     label: Option<String>,
 }
-
-// @smelt:prelude-end — generated program below
 fn main() {
     let total: ::std::rc::Rc<dyn Fn(&SmeltList<Opts>) -> f64>;
     let _smelt_tmp_7: Opts;

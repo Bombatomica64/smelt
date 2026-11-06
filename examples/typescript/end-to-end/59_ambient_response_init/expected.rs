@@ -3190,36 +3190,6 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct globalThis_ResponseInit {
-    status: Option<f64>,
-    status_text: Option<String>,
-    headers: Option<SmeltUnion9>,
-}
-impl IntoSmeltUnknown for globalThis_ResponseInit {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("status".to_owned(), self.status.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
-        ("statusText".to_owned(), self.status_text.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
-        ("headers".to_owned(), self.headers.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
-        ])))
-    }
-}
-impl SmeltFromUnknown for globalThis_ResponseInit {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("status") {
-                result.status = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("statusText") {
-                result.status_text = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -4225,6 +4195,38 @@ impl SmeltFromUnknown for SmeltRequest {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct globalThis_ResponseInit {
+    status: Option<f64>,
+    status_text: Option<String>,
+    headers: Option<SmeltUnion9>,
+}
+impl IntoSmeltUnknown for globalThis_ResponseInit {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("status".to_owned(), self.status.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
+        ("statusText".to_owned(), self.status_text.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
+        ("headers".to_owned(), self.headers.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
+        ])))
+    }
+}
+impl SmeltFromUnknown for globalThis_ResponseInit {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("status") {
+                result.status = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("statusText") {
+                result.status_text = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
 #[derive(Clone)]
 pub enum SmeltUnion9 {
     M0(SmeltList<(String, String)>),
@@ -4270,8 +4272,6 @@ impl Default for SmeltUnion9 {
         Self::M0(SmeltList::new(Vec::<(String, String)>::new()))
     }
 }
-
-// @smelt:prelude-end — generated program below
 fn main() {
     let bare: SmeltResponse;
     let pairs: SmeltList<(String, String)>;

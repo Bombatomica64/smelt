@@ -4371,6 +4371,8 @@ impl SmeltFromUnknown for SmeltBlob {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone)]
 pub enum SmeltUnion7 {
     M0(String),
@@ -4412,8 +4414,6 @@ impl Default for SmeltUnion7 {
         Self::M0(String::new())
     }
 }
-
-// @smelt:prelude-end — generated program below
 fn main() {
     let mut __for_each_entry: (String, SmeltUnion7);
     let mut value: SmeltUnion7;

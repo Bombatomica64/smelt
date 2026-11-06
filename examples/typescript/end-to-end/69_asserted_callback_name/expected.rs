@@ -3538,6 +3538,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Checker {
 }
@@ -3555,8 +3557,6 @@ impl SmeltFromUnknown for Checker {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let lengths: SmeltList<f64>;

@@ -3748,6 +3748,8 @@ impl SmeltFromUnknown for SmeltHeaders {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone)]
 pub enum SmeltUnion8 {
     M0(SmeltList<(String, String)>),
@@ -3793,8 +3795,6 @@ impl Default for SmeltUnion8 {
         Self::M0(SmeltList::new(Vec::<(String, String)>::new()))
     }
 }
-
-// @smelt:prelude-end — generated program below
 fn main() {
     let _smelt_tmp_6: (String, String);
     let _smelt_tmp_7: SmeltList<(String, String)>;

@@ -3515,6 +3515,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Ex {
     code: f64,
@@ -3579,8 +3581,6 @@ impl Default for SmeltUnion4 {
         Self::M0(Default::default())
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let e500: ::std::rc::Rc<dyn Fn(String) -> Ex>;

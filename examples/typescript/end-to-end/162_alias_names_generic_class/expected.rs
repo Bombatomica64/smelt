@@ -3515,6 +3515,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[allow(dead_code)]
 struct GCtx<P> {
     path: P,
@@ -3564,8 +3566,6 @@ impl<P: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let _smelt_tmp_0: GCtx<String> = GCtx::new("/b".to_owned());

@@ -3605,6 +3605,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[allow(dead_code)]
 struct Index(::std::rc::Rc<::std::cell::RefCell<IndexInner>>);
 #[derive(Debug, Default)]
@@ -3653,8 +3655,6 @@ impl SmeltFromUnknown for Index {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let index: Index;

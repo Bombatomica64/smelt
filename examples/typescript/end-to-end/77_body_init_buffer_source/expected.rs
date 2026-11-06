@@ -5336,6 +5336,8 @@ impl SmeltFromUnknown for SmeltBlob {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone)]
 pub enum SmeltUnion20 {
     M0(String),
@@ -5377,8 +5379,6 @@ impl Default for SmeltUnion20 {
         Self::M0(String::new())
     }
 }
-
-// @smelt:prelude-end — generated program below
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();

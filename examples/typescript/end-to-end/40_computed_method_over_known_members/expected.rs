@@ -71,6 +71,8 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone)]
 #[allow(dead_code)]
 struct Reader {
@@ -98,8 +100,6 @@ struct Body {
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Counter {
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let body: Body;

@@ -3582,6 +3582,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[allow(dead_code)]
 struct Router(::std::rc::Rc<::std::cell::RefCell<RouterInner>>);
 #[allow(dead_code)]
@@ -3646,8 +3648,6 @@ impl SmeltFromUnknown for Router {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let router: Router;

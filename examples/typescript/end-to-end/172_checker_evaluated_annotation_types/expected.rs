@@ -3091,39 +3091,6 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct Config {
-    port: f64,
-    host: String,
-    tags: SmeltList<String>,
-}
-impl IntoSmeltUnknown for Config {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("port".to_owned(), SmeltUnknown::Number(self.port as f64)),
-        ("host".to_owned(), SmeltUnknown::String(self.host.into())),
-        ("tags".to_owned(), SmeltUnknown::Array(self.tags.into_iter().map(|value| SmeltUnknown::String(value.into())).collect())),
-        ])))
-    }
-}
-impl SmeltFromUnknown for Config {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("port") {
-                result.port = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("host") {
-                result.host = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("tags") {
-                result.tags = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -3543,6 +3510,41 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Config {
+    port: f64,
+    host: String,
+    tags: SmeltList<String>,
+}
+impl IntoSmeltUnknown for Config {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("port".to_owned(), SmeltUnknown::Number(self.port as f64)),
+        ("host".to_owned(), SmeltUnknown::String(self.host.into())),
+        ("tags".to_owned(), SmeltUnknown::Array(self.tags.into_iter().map(|value| SmeltUnknown::String(value.into())).collect())),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Config {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("port") {
+                result.port = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("host") {
+                result.host = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("tags") {
+                result.tags = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Store {
 }
@@ -3560,8 +3562,6 @@ impl SmeltFromUnknown for Store {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let got: f64;

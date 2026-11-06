@@ -3610,6 +3610,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Bag {
     items: SmeltList<f64>,
@@ -3703,8 +3705,6 @@ impl SmeltFromUnknown for Holder {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 thread_local! {
     static SMELT_GLOBAL_S_0: ::std::cell::RefCell<Stack> = ::std::cell::RefCell::new(smelt_global_init__s__0());

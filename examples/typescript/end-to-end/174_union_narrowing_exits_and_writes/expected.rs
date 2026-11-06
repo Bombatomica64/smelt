@@ -3846,6 +3846,8 @@ impl SmeltFromUnknown for SmeltUrl {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Circle {
     radius: f64,
@@ -4107,8 +4109,6 @@ impl Default for SmeltUnion17 {
         Self::M0(0.0)
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_0: Circle = Circle::new(2.0);
