@@ -5090,6 +5090,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
                             referrer_spans.push((declarator.span.start, declarator.span.end));
                             note_self_recursive(binding, &declarator.init);
                         }
+                        // An object or array constant is rebuilt at each read,
+                        // inside item bodies too, so an arrow it names must be
+                        // an item that body can reach.
+                        if matches!(
+                            declarator.init,
+                            Some(Expression::ObjectExpression(_) | Expression::ArrayExpression(_))
+                        ) {
+                            referrer_spans.push((declarator.span.start, declarator.span.end));
+                        }
                     }
                 }
                 Statement::FunctionDeclaration(function) => {

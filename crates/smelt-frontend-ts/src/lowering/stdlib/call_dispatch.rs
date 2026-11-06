@@ -714,6 +714,14 @@ impl<'builder> ModuleBuilder<'builder> {
                 });
                 callee_ty = inner;
             }
+            // A callee asserted out of a wider type (`(x as Fn)(..)` over a union)
+            // is the assertion's type, so the cast itself is the callee.
+            if !matches!(self.ctx.krate.types.get(callee_ty), Some(Type::Function(_)))
+                && !self.callable_through_erased_abi(callee_ty)
+            {
+                callee = self.expression(&call.callee, body)?;
+                callee_ty = Self::expr_ty(body, callee);
+            }
             let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned()
             else {
                 if self.callable_through_erased_abi(callee_ty) {

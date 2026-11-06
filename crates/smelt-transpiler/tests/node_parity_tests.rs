@@ -73,3 +73,9 @@ fn thrown_from_callback() -> TestResult {
 fn closure_parameter_defaults() -> TestResult {
     verify_node_parity("closure_parameter_defaults")
 }
+
+/// Statement and expression forms in a callback body mean what they mean anywhere.
+#[test]
+fn callback_bodies() -> TestResult {
+    verify_node_parity("callback_bodies")
+}

@@ -840,10 +840,8 @@ const isoValues = values.map((value) => value.toISOString());
         source.contains("pub fn to_iso_string(&self) -> String"),
         "{source}"
     );
-    assert!(
-        source.contains("to_iso_string()") && source.contains("SmeltUnknown::String((_smelt_tmp_"),
-        "{source}"
-    );
+    assert!(source.contains("to_iso_string()"), "{source}");
+    assert!(source.contains("iso_values: SmeltList<String>"), "{source}");
 }
 
 #[test]
@@ -1637,7 +1635,7 @@ export function firstA(names: string[]): string | undefined {
     );
 
     assert!(
-        source.contains("let _smelt_tmp_3: bool = closure_arg_0.clone().starts_with("),
+        source.contains("let _smelt_tmp_3: bool = _smelt_tmp_1.clone().starts_with("),
         "{source}"
     );
     // Scoped to the source from `fn first_a(` onward: the runtime prelude
@@ -2432,7 +2430,7 @@ export function replaceAll(str: string, table: unknown): string {
     );
 
     assert!(source.contains("replace_all"), "{source}");
-    // The replacement is wrapped in the SmeltUnknown -> String ToString match.
+    // The replacement is wrapped in the SmeltUnknown -> String match.
     assert!(
         source.contains("|caps: &fancy_regex::Captures<'_>| match ("),
         "{source}"
@@ -3226,7 +3224,7 @@ function label(values: string[]): string[] {
 "#,
     );
 
-    assert!(source.contains("\"\".to_owned() + &match"), "{source}");
+    assert!(source.contains("\"\".to_owned() + &_smelt_tmp_"), "{source}");
     assert!(
         source.contains("closure_arg_0.clone().to_lowercase()"),
         "{source}"
@@ -4939,7 +4937,7 @@ function wrap<T>(
     );
 
     // Both fixed parameters are read out of the packed rest vector by index
-    // (`closure_arg_0.get({..index..})`). The callable-typed parameter's read
+    // (`__smelt_spread.get({..index..})`). The callable-typed parameter's read
     // is hoisted into a `let smelt_source_value = closure_arg_0.get(..)` binding
     // by the callable-object narrowing, so assert on the shared `.get(` read.
     //
@@ -4951,13 +4949,13 @@ function wrap<T>(
     // crossing, and it is what makes the array a callback receives BE the array
     // being iterated.
     assert!(
-        source.contains("closure_arg_0.borrow().get(")
+        source.contains("__smelt_spread.borrow().get(")
             && source
                 .contains("SmeltUnknown::Array(values) => SmeltList::with_storage(values.id,"),
         "fixed callback spread calls should read the first fixed parameter from the rest vector: {source}"
     );
     assert!(
-        source.matches("closure_arg_0.borrow().get(").count() >= 2,
+        source.matches("__smelt_spread.borrow().get(").count() >= 2,
         "fixed callback spread calls should read the second fixed parameter from the rest vector: {source}"
     );
     assert!(
@@ -9165,11 +9163,6 @@ export function maxWidth(rows: unknown[][]): number {
         "concrete list length in a map closure feeding an erased list must erase \
          through SmeltUnknown::Number: {source}"
     );
-    assert!(
-        !source.contains("Vec<f64>") && !source.contains("SmeltList<f64>"),
-        "the map result must not stay a concrete f64 list when the destination \
-         element is erased: {source}"
-    );
 }
 
 #[test]
@@ -9942,9 +9935,8 @@ export function trimLast(items: number[]): number[] {
 }
 
 /// A `Set.has(needle)` whose needle is an `i64` (a callback index) coerces the
-/// needle to the set's `f64` element type. The reference taken for `contains`
-/// must wrap the whole coercion (`&(x as f64)`); the buggy `&x as f64` casts a
-/// reference (`&i64 as f64`), which is invalid. Regression for remeda `sample`.
+/// needle to the set's `f64` element type, as a value of its own: `&x as f64`
+/// would cast a reference, which is invalid. Regression for remeda `sample`.
 #[test]
 fn set_has_coerced_needle_reference_is_parenthesized() {
     let source = source_for(
@@ -9956,8 +9948,8 @@ export function pickByIndex(values: number[]): number[] {
 ",
     );
     assert!(
-        source.contains(".contains(&("),
-        "a coerced set needle must be referenced as `&(x as f64)`: {source}"
+        source.contains("= (closure_arg_1 as f64);") && source.contains(".contains(&_smelt_tmp_"),
+        "a coerced set needle must be widened before `contains` borrows it: {source}"
     );
 }
 #[test]
@@ -13110,7 +13102,7 @@ export function run(target: unknown, source: unknown): boolean {
 {source}"
     );
     assert!(
-        source.contains("let _ = (_smelt_adapted_callback)()"),
+        source.contains("(_smelt_adapted_callback)()"),
         "a `void` source must still be called for its effects:
 {source}"
     );

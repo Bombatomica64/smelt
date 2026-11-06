@@ -111,12 +111,15 @@ impl ModuleBuilder<'_> {
                 RegexReplaceArg::Position => float_ty,
             })
             .collect();
+        // not a new erasure: "no return hint", so the replacer keeps the type its
+        // body answers and the replacement applies `ToString` to it.
+        let return_ty = self.unknown_type();
         self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
             rest: None,
             required_params: None,
             mutable_params: Vec::new(),
-            return_ty: string_ty,
+            return_ty,
             is_async: false,
             may_throw: false,
         }))
