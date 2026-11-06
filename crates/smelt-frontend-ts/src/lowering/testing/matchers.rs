@@ -632,6 +632,29 @@ impl ModuleBuilder<'_> {
             (None, Some(actual_arg)) => self.argument(actual_arg, body)?,
             (None, None) => return Ok(false),
         };
+        // `toBeInstanceOf` asks what `actual instanceof Ctor` asks; the constructor
+        // is a name to resolve, not a value to compare against.
+        if matcher == TestMatcher::BeInstanceOf {
+            let target = expected_arg.as_expression().ok_or_else(|| {
+                SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "expect(...).toBeInstanceOf(...) requires a constructor",
+                )
+            })?;
+            let holds = self.instanceof_test(actual, call.span, target, call.span, body)?;
+            let failed = if inverted {
+                holds
+            } else {
+                self.unary_bool_expr(UnaryOp::Not, holds, call.span, body)
+            };
+            self.push_test_failure_if(
+                failed,
+                &format!("expect(...).{}(...) failed", matcher.source_name()),
+                call.span,
+                body,
+            );
+            return Ok(true);
+        }
         // Contextually type the expected value from the actual's type for
         // deep-equality matchers. An expected literal such as
         // `[[1, 'a'], [2, 'b']]` in `expect(zip(...)).toEqual([...])` would
@@ -1774,15 +1797,10 @@ impl ModuleBuilder<'_> {
                 };
                 Ok(self.unary_bool_expr(UnaryOp::Not, holds, span, body))
             }
-            TestMatcher::BeInstanceOf => {
-                let _ = expected;
-                let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-                Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::Bool(false)),
-                    ty: bool_ty,
-                    span: self.span(span.start, span.end),
-                }))
-            }
+            TestMatcher::BeInstanceOf => Err(SmeltError::unsupported(
+                self.span(span.start, span.end),
+                "toBeInstanceOf lowers through the instanceof rule, not a value comparison",
+            )),
         }
     }
 

@@ -1638,3 +1638,49 @@ describe("sample", () => {
     );
     Ok(())
 }
+
+/// `toBeInstanceOf` is the `instanceof` test, so it can fail, and `.not` inverts it.
+#[test]
+fn to_be_instance_of_asserts_the_instanceof_test() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { expect, it } from "vitest";
+class Person {}
+class Robot {}
+it("checks", () => {
+  expect(new Person()).toBeInstanceOf(Person);
+  expect(new Person()).not.toBeInstanceOf(Robot);
+});
+"#),
+        &mut ctx,
+    )?;
+    let tests = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| &body.exprs)
+        .filter(|expr| matches!(expr.kind, ExprKind::InstanceOf { .. }))
+        .count();
+    ensure_eq!(tests, 2);
+    Ok(())
+}
+
+/// An async call's result is a `Promise`, so the assertion holds statically: the
+/// failure branch's condition folds to `false`, not `true`.
+#[test]
+fn a_future_is_an_instance_of_promise() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+async function run(): Promise<void> {}
+export function check(): boolean { return run() instanceof Promise; }
+"#),
+        &mut ctx,
+    )?;
+    ensure!(ctx.krate.bodies.iter().flat_map(|body| &body.exprs).any(|expr| matches!(
+        expr.kind,
+        ExprKind::Literal(Literal::Bool(true))
+    )));
+    Ok(())
+}
