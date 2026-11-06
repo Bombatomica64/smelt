@@ -142,6 +142,12 @@ fn block_local_classes() -> TestResult {
     verify_node_parity("block_local_classes")
 }
 
+/// A string key is a property name on whatever the erased receiver holds.
+#[test]
+fn string_key_on_erased_receiver() -> TestResult {
+    verify_node_parity("string_key_on_erased_receiver")
+}
+
 /// Array-valued ternary arms join instead of one adopting the other's type.
 #[test]
 fn conditional_list_arms() -> TestResult {
