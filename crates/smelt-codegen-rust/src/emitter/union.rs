@@ -1946,6 +1946,8 @@ pub(crate) fn emit_union_definitions(
         }
         output.push_str("        }\n    }\n}\n");
         output.push_str(&format!("impl{impl_generics} {target} {{\n"));
+        // Genuine dynamic boundary: recovering a union from an erased value is
+        // the adapter's whole job, and `smelt-unknown-report` counts it as one.
         output.push_str("    fn from_smelt_unknown(value: SmeltUnknown) -> Self {\n");
         output.push_str(
             &emitter.union_from_smelt_unknown_body_in_scope(members, &member_scope)?,

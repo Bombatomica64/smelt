@@ -2083,6 +2083,8 @@ fn emit_reference_class_into_smelt_unknown_impl(
     has_field_setter: bool,
     has_live_reads: bool,
 ) -> Result<(), EmitError> {
+    // Genuine dynamic boundary: this impl IS the typed-to-erased crossing, so
+    // `smelt-unknown-report` counts its body as a boundary, not as erasure.
     writer.block(
         format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
         |impl_writer| {
@@ -2592,6 +2594,8 @@ fn emit_record_into_smelt_unknown_impl(
     fields: &[smelt_mir::MirField],
     decode_facts: &[smelt_hir::FieldDecodeFacts],
 ) -> Result<(), EmitError> {
+    // Genuine dynamic boundary: this impl IS the typed-to-erased crossing, so
+    // `smelt-unknown-report` counts its body as a boundary, not as erasure.
     writer.block(
         format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
         |impl_writer| {

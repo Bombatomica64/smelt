@@ -374,14 +374,19 @@ fn scan_files(files: &[PathBuf]) -> CliResult<ScanResult> {
         // Track which shapes appeared in this file to count distinct files.
         let mut seen_here: std::collections::BTreeSet<ShapeKey> = std::collections::BTreeSet::new();
         let mut boundary = PreludeBoundary::of(&text);
+        let mut adapter = AdapterBody::default();
         for (index, line) in text.lines().enumerate() {
             let site = boundary.advance(index, line);
+            let in_adapter = adapter.advance(line);
             let count = count_value_erasures(line);
             if count == 0 {
                 continue;
             }
             let category = match site {
                 LineSite::Prelude => Category::RuntimePrelude,
+                LineSite::Program { in_prelude_helper: false } if in_adapter => {
+                    Category::LegitimateBoundary
+                }
                 LineSite::Program { in_prelude_helper } => classify_line(line, in_prelude_helper),
             };
             let shape = normalize_line(line);
@@ -549,6 +554,57 @@ impl PreludeBoundary {
             }
         }
     }
+}
+
+/// Tracks whether the scan is inside a generated boundary adapter.
+///
+/// An adapter converts one program type to or from the erased form, so its body
+/// is the sanctioned typed-to-erased crossing itself: `SmeltUnknown` there is
+/// the adapter's purpose, not a value that lost its type. Classifying by the
+/// enclosing item keeps the rule narrow: erasure in a program field, signature
+/// or method still reads as avoidable, even beside an adapter in the same
+/// `impl`.
+#[derive(Debug, Clone, Copy, Default)]
+struct AdapterBody {
+    /// The exact line that closes the open adapter, while inside one.
+    closing: Option<&'static str>,
+}
+
+impl AdapterBody {
+    /// Whether `line` belongs to an adapter, advancing past it.
+    fn advance(&mut self, line: &str) -> bool {
+        if let Some(closing) = self.closing {
+            if line == closing {
+                self.closing = None;
+            }
+            return true;
+        }
+        let Some(closing) = adapter_item_closing(line) else {
+            return false;
+        };
+        if opens_more_braces_than_it_closes(line) {
+            self.closing = Some(closing);
+        }
+        true
+    }
+}
+
+/// The line closing the adapter that `line` opens, if it opens one.
+///
+/// Trait impls are matched by the trait they implement: a generic bound such
+/// as `impl<T: IntoSmeltUnknown> Default for Cell<T>` names the trait too, and
+/// is not an adapter. `from_smelt_unknown` is matched as a method because its
+/// `impl` block also holds the program's own methods.
+fn adapter_item_closing(line: &str) -> Option<&'static str> {
+    let implements_adapter = line.starts_with("impl")
+        && (line.contains(" IntoSmeltUnknown for ") || line.contains(" SmeltFromUnknown for "));
+    if implements_adapter
+        || line.starts_with("fn __smelt_from_unknown_record_")
+        || line.starts_with("fn smelt_decode_")
+    {
+        return Some("}");
+    }
+    line.starts_with("    fn from_smelt_unknown(").then_some("    }")
 }
 
 /// Update whether we are inside a `smelt_*` runtime prelude helper definition.
@@ -1976,6 +2032,47 @@ mod tests {
             normalize_line("SmeltUnknown::String(\"hello\".to_owned())"),
             "SmeltUnknown::String(\"S\".to_owned())"
         );
+    }
+
+    /// Whether each line of `text` reads as inside a generated adapter.
+    fn adapter_lines(text: &str) -> Vec<bool> {
+        let mut adapter = AdapterBody::default();
+        text.lines().map(|line| adapter.advance(line)).collect()
+    }
+
+    /// Adapter bodies are boundary code, and the rule stops at their closing
+    /// brace: a program type has no concrete form for `SmeltUnknown::Object`,
+    /// because producing the erased object is what the adapter is for.
+    #[test]
+    fn adapter_bodies_are_boundary_and_end_at_their_brace() {
+        let text = "impl IntoSmeltUnknown for Route {\n    fn into_smelt_unknown(self) -> SmeltUnknown {\n        SmeltUnknown::Object(object)\n    }\n}\nfn program() -> SmeltUnknown {\n}\n";
+        assert_eq!(adapter_lines(text), [true, true, true, true, true, false, false]);
+    }
+
+    /// Program methods beside `from_smelt_unknown` in one `impl` stay judged,
+    /// so erasure in them still counts as avoidable.
+    #[test]
+    fn program_methods_beside_an_adapter_method_stay_avoidable() {
+        let text = "impl Route {\n    fn from_smelt_unknown(value: SmeltUnknown) -> Self {\n        Self::default()\n    }\n    fn path(&self) -> SmeltUnknown {\n        SmeltUnknown::Null\n    }\n}\n";
+        assert_eq!(
+            adapter_lines(text),
+            [false, true, true, true, false, false, false, false]
+        );
+    }
+
+    /// Naming the trait in a bound does not make an item an adapter.
+    #[test]
+    fn a_generic_bound_is_not_an_adapter() {
+        let text = "impl<T: Clone + IntoSmeltUnknown + SmeltFromUnknown> Default for Cell<T> {\n    fn default() -> Self {\n    }\n}\n";
+        assert_eq!(adapter_lines(text), [false, false, false, false]);
+    }
+
+    /// Record recovery and JSON decoders are adapters; a one-line item closes
+    /// on its own line rather than swallowing what follows.
+    #[test]
+    fn decoders_are_adapters_and_one_liners_close_themselves() {
+        let text = "fn smelt_decode_6(value: &SmeltUnknown) -> bool { true }\nfn program(value: SmeltUnknown) {\n}\nfn __smelt_from_unknown_record_1(smelt_value: SmeltUnknown) -> Raw {\n    decode(smelt_value)\n}\n";
+        assert_eq!(adapter_lines(text), [true, false, false, true, true, true]);
     }
 
     /// A full scan groups by shape, tallies categories, and stays deterministic.
