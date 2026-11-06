@@ -9,7 +9,7 @@
 //!    file lowers, so no answer depends on lowering order.
 //! 2. [`SeededLowering`]: one TypeScript [`smelt_frontend_ts::HirCtx`] carrying
 //!    the seed plus empty Python accumulators; nothing is predeclared yet.
-//! 3. [`ManifestLowering`]: type declarations predeclared; files lower one by
+//! 3. [`PredeclaredLowering`]: type declarations predeclared; files lower one by
 //!    one into the same context.
 //!
 //! The TypeScript context is kept alive across every file instead of being
@@ -52,15 +52,18 @@ pub(super) struct ManifestSeed {
 impl ManifestSeed {
     /// Scan the ordered manifest sources for every seed-once fact.
     ///
-    /// `outside_crate` is computed by the caller because it needs the
-    /// manifest configuration, not just the lowered sources; a driver that
-    /// does not resolve it (the diagnostics probe) passes an empty set.
-    pub(super) fn scan(sources: &[&ManifestSource], outside_crate: HashSet<String>) -> Self {
+    /// `module_names` and `outside_crate` are the caller's: the first decides the
+    /// entry module, the second needs the manifest configuration.
+    pub(super) fn scan(
+        sources: &[&ManifestSource],
+        module_names: &[String],
+        outside_crate: HashSet<String>,
+    ) -> Self {
         Self {
             written_host_globals: scan_written_host_globals(sources),
             project_sources_outside_crate: outside_crate,
             type_renames: manifest_type_renames(sources),
-            module_identities: manifest_module_identities(sources),
+            module_identities: manifest_module_identities(sources, module_names),
         }
     }
 }
@@ -102,27 +105,28 @@ impl SeededLowering {
     pub(super) fn predeclare(
         mut self,
         sources: &[&ManifestSource],
-    ) -> Result<ManifestLowering, Box<dyn std::error::Error>> {
+        file_ids: &[FileId],
+    ) -> Result<PredeclaredLowering, Box<dyn std::error::Error>> {
         // Unique-symbol consts first, for EVERY source: a class surface below
         // may key a member by a symbol another module (possibly one ordered
         // later in an import cycle) declares.
-        for (idx, source) in sources.iter().enumerate() {
+        for (source, file_id) in sources.iter().zip(file_ids) {
             let path = source.path.display().to_string();
             if SourceLang::from_path(&path).is_ok_and(SourceLang::is_typescript) {
                 smelt_frontend_ts::predeclare_unique_symbol_consts_with_path(
                     &source.source,
-                    file_id(idx),
+                    *file_id,
                     &path,
                     &mut self.ts,
                 );
             }
         }
-        for (idx, source) in sources.iter().enumerate() {
+        for (source, file_id) in sources.iter().zip(file_ids) {
             if source.lang.is_typescript() {
                 let path = source.path.display().to_string();
                 smelt_frontend_ts::predeclare_type_declarations_with_path(
                     &source.source,
-                    file_id(idx),
+                    *file_id,
                     &path,
                     &mut self.ts,
                 )
@@ -134,7 +138,7 @@ impl SeededLowering {
                 })?;
             }
         }
-        Ok(ManifestLowering { ts: self.ts, py: PyLoweringState::default() })
+        Ok(PredeclaredLowering { ts: self.ts, py: PyLoweringState::default() })
     }
 }
 
@@ -148,14 +152,14 @@ pub(super) struct ModuleInputs<'input> {
 }
 
 /// A predeclared lowering context that lowers manifest files one at a time.
-pub(super) struct ManifestLowering {
+pub(super) struct PredeclaredLowering {
     /// TypeScript frontend context; owns the shared HIR crate between files.
     ts: smelt_frontend_ts::HirCtx,
     /// Python cross-file accumulators.
     py: PyLoweringState,
 }
 
-impl ManifestLowering {
+impl PredeclaredLowering {
     /// The HIR crate lowered so far.
     pub(super) const fn krate(&self) -> &smelt_hir::Crate {
         &self.ts.krate
@@ -182,11 +186,10 @@ impl ManifestLowering {
     pub(super) fn lower_source(
         &mut self,
         source: &ManifestSource,
-        idx: usize,
+        file_id: FileId,
         inputs: ModuleInputs<'_>,
     ) -> Result<ModuleId, Vec<ManifestDiagnostic>> {
         let file_string = source.path.display().to_string();
-        let file_id = file_id(idx);
         match source.lang {
             SourceLang::TypeScript | SourceLang::TypeScriptDeclaration => {
                 smelt_frontend_ts::to_hir_with_options(
@@ -239,7 +242,7 @@ impl ManifestLowering {
 /// The recoverable (diagnostics-collecting) driver's state between files.
 pub(super) enum RecoverableLowering {
     /// Lowering continues; the context is consistent.
-    Lowering(Box<ManifestLowering>),
+    Lowering(Box<PredeclaredLowering>),
     /// A frontend panic unwound through the context mid-file; its crate and
     /// accumulators may be half-updated, so nothing further is lowered or read.
     Poisoned,
@@ -247,7 +250,7 @@ pub(super) enum RecoverableLowering {
 
 impl RecoverableLowering {
     /// Start recoverable lowering from a predeclared context.
-    pub(super) fn new(lowering: ManifestLowering) -> Self {
+    pub(super) fn new(lowering: PredeclaredLowering) -> Self {
         Self::Lowering(Box::new(lowering))
     }
 
@@ -258,14 +261,14 @@ impl RecoverableLowering {
     pub(super) fn lower_source(
         &mut self,
         source: &ManifestSource,
-        idx: usize,
+        file_id: FileId,
         inputs: ModuleInputs<'_>,
     ) -> Option<Result<ModuleId, Vec<ManifestDiagnostic>>> {
         let Self::Lowering(lowering) = self else {
             return None;
         };
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            lowering.lower_source(source, idx, inputs)
+            lowering.lower_source(source, file_id, inputs)
         }));
         match outcome {
             Ok(lowered) => Some(lowered),
@@ -283,9 +286,4 @@ impl RecoverableLowering {
             Self::Poisoned => None,
         }
     }
-}
-
-/// The frontend file id of the manifest source at `idx`.
-fn file_id(idx: usize) -> FileId {
-    FileId(u32::try_from(idx).unwrap_or(u32::MAX))
 }

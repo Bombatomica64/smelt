@@ -1,10 +1,15 @@
-//! Frontend lowering helpers for single files and mixed-language manifests.
+//! The one lowering driver, for manifests and for single files.
 //!
-//! This module owns the HIR lowering entrypoints used by CLI commands and
-//! manifest-driven builds.
+//! [`ManifestLowering`] resolves what a run lowers: the dependency closure, read
+//! once, in dependency order, with its module names and file ids. `build`,
+//! `check`, `probe`, `dump-hir`, `dump-mir` and every report go through it, so a
+//! program lowers the same way whichever command asked. A single file is a
+//! project of one entry: it has no manifest, so no excludes, packages, typed
+//! versions or specialization, and its target is named `main` as a project's
+//! `src/main.ts` is.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs, io,
     path::{Path, PathBuf},
 };
@@ -16,11 +21,13 @@ use smelt_stdlib::DiagnosticCategory;
 use crate::manifest::{
     ManifestSource, dependency_closure, order_manifest_sources, read_manifest_source,
 };
+use crate::config::Config;
 use crate::sound::SoundSettings;
 use crate::source_files::{
     SourceLang, discover_source_files, discover_test_paths, resolve_manifest_path,
     retain_included_paths,
 };
+use crate::specialization::PreparedSpecialization;
 use crate::timing;
 
 mod driver;
@@ -30,194 +37,205 @@ use driver::{ManifestSeed, ModuleInputs, RecoverableLowering, SeededLowering};
 /// Represents a lowered crate with its modules.
 pub(crate) type LoweredCrate = (smelt_hir::Crate, Vec<(String, ModuleId)>);
 
-/// Lowers TypeScript source files to HIR.
-pub(crate) fn lower_typescript_files(
-    files: &[String],
-) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
-    let mut ctx = smelt_frontend_ts::HirCtx::new();
-    let mut modules = Vec::new();
+/// One lowering run, resolved and ready; see the module docs.
+pub(crate) struct ManifestLowering {
+    /// Every source of the run, in dependency order.
+    sources: Vec<ManifestSource>,
+    /// Frontend file id of each source.
+    file_ids: Vec<FileId>,
+    /// Rust-facing module body name of each source.
+    module_names: Vec<String>,
+    /// Materialized specialization data.
+    specialization: PreparedSpecialization,
+    /// Project sources the dependency closure did not reach.
+    outside_crate: HashSet<String>,
+    /// Directory paths in erasure records are relative to.
+    project_dir: PathBuf,
+    /// The source a single-file command prints, by position in `sources`.
+    focus: Option<usize>,
+}
 
-    // Crate-level host-global override pre-pass: scan every source for
-    // `globalThis.<Name> =` writes before any file lowers.
-    for file in files {
-        if let Ok(source) = fs::read_to_string(file) {
-            ctx.written_host_globals
-                .extend(smelt_frontend_ts::scan_written_host_globals(&source, file));
-        }
-    }
-
-    let ts_facts = crate::ts_facts::analyze_files(
-        files.iter().filter_map(|file| fs::read_to_string(file).ok().map(|source| (file.clone(), source))).collect(),
-    );
-    for (idx, file) in files.iter().enumerate() {
-        let source = fs::read_to_string(file)?;
-        let file_id = u32::try_from(idx).map_err(|error| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("too many source files: {error}"),
+impl ManifestLowering {
+    /// Resolves the entries of the manifest at `manifest_path`.
+    pub(crate) fn for_manifest(
+        config: &Config,
+        manifest_path: &Path,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+        let root_sources = timing::measure("manifest.read_roots", || {
+            manifest_root_paths(config, manifest_dir)?
+                .into_iter()
+                .map(read_manifest_source)
+                .collect::<Result<Vec<_>, _>>()
+        })?;
+        let sources = timing::measure("manifest.dependency_closure", || {
+            let packages = crate::package_sources::resolve_packages(config, manifest_dir)?;
+            dependency_closure(
+                root_sources,
+                config.source_excludes(),
+                manifest_dir,
+                &packages,
+                Some(sound_settings(config, manifest_dir)),
             )
         })?;
-        let options = smelt_frontend_ts::FrontendOptions {
-            ts_facts: ts_facts.as_ref(),
-            ..smelt_frontend_ts::FrontendOptions::default()
-        };
-        let module = smelt_frontend_ts::to_hir_with_options(&source, FileId(file_id), file, &mut ctx, options)
-            .map_err(|errors| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("{}:\n{errors:#?}", Path::new(file).display()),
-                )
-            })?;
-        modules.push((file.clone(), module));
+        // Ordering cannot fail (import cycles are cut deliberately).
+        let Ok(sources) = timing::measure("manifest.order_sources", || {
+            Ok::<_, std::convert::Infallible>(in_dependency_order(sources))
+        });
+        if sources.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "manifest has no source entries to lower",
+            )
+            .into());
+        }
+        let ordered = sources.iter().collect::<Vec<_>>();
+        let specialization = timing::measure("manifest.specialize", || {
+            crate::specialization::prepare(config, manifest_path, &ordered)
+        })?;
+        let outside_crate = sources_outside_crate(config, manifest_dir, &ordered);
+        let module_names = manifest_module_names(&ordered, |source| manifest_module_name(&source.path));
+        let file_ids = file_ids(sources.len())?;
+        Ok(Self {
+            sources,
+            file_ids,
+            module_names,
+            specialization,
+            outside_crate,
+            project_dir: manifest_dir.to_path_buf(),
+            focus: None,
+        })
     }
 
-    Ok((ctx.krate, modules))
-}
-
-/// Dispatches one source file to the matching frontend.
-///
-/// TypeScript targets are lowered together with their local relative-import
-/// dependencies (see [`lower_typescript_file_with_dependencies`]) so cross-file
-/// constants, classes, and interfaces resolve exactly as they do in a full
-/// manifest build. This keeps `dump-hir`/`dump-mir` from reporting isolation-only
-/// blockers — e.g. a `switch case <importedTag>:` label whose value lives in a
-/// sibling module — while still focusing the printed output on the target file.
-pub(crate) fn lower_single_file(file: &str) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
-    match SourceLang::from_path(file)? {
-        SourceLang::TypeScript | SourceLang::TypeScriptDeclaration => {
-            lower_typescript_file_with_dependencies(file)
-        }
-        SourceLang::Python | SourceLang::PythonDeclaration => {
-            crate::python::lower_files(&[file.to_owned()])
-        }
-    }
-}
-
-/// Lower a single TypeScript file after first lowering its local dependencies.
-///
-/// Single-file commands (`dump-hir`, `dump-mir`) historically lowered the target
-/// in isolation, so any value imported from a sibling module — a folded string
-/// tag used as a `switch` case label, an exported base class, an interface — was
-/// unresolvable and surfaced as a spurious lowering blocker. This resolves the
-/// target's relative-import closure (reusing the same manifest graph helpers a
-/// real build uses), lowers every dependency in dependency-first order into one
-/// shared [`smelt_frontend_ts::HirCtx`], and lowers the target last so its
-/// imports fold against the already-lowered modules.
-///
-/// Dependencies are lowered best-effort: a dependency that itself fails to lower
-/// (for example because of an unrelated unsupported feature) is skipped rather
-/// than aborting, since the target only needs the exported metadata a partially
-/// lowered dependency still records. Only the target file's own lowering errors
-/// are reported, and only the target module is returned so the printed HIR/MIR
-/// stays focused on the requested file while the shared crate still carries the
-/// dependency items the target references.
-fn lower_typescript_file_with_dependencies(
-    file: &str,
-) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
-    let target_path = PathBuf::from(file);
-    let target_key = target_path.canonicalize().unwrap_or(target_path.clone());
-
-    // Build the dependency-first order of the target and its local imports. Any
-    // failure to scan/resolve dependencies degrades gracefully to lowering the
-    // target alone, preserving the previous isolated behavior for odd inputs.
-    let ordered_paths = ordered_dependency_paths(target_path.clone()).unwrap_or_default();
-
-    let mut ctx = smelt_frontend_ts::HirCtx::new();
-    let mut target_module: Option<(String, ModuleId)> = None;
-
-    // Crate-level host-global override pre-pass over the target's dependency
-    // closure, so single-file `dump-hir`/`dump-mir` see the same written-name
-    // set a full build does.
-    for path in &ordered_paths {
-        let path_string = path.display().to_string();
-        if SourceLang::from_path(&path_string).is_ok_and(SourceLang::is_typescript)
-            && let Ok(source) = fs::read_to_string(path)
-        {
-            ctx.written_host_globals.extend(
-                smelt_frontend_ts::scan_written_host_globals(&source, &path_string),
-            );
-        }
+    /// Resolves `file` and its local imports.
+    ///
+    /// Only the target module is reported as lowered, so printed HIR stays on the
+    /// requested file, while the crate carries every dependency it references.
+    pub(crate) fn for_file(file: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let target = PathBuf::from(file);
+        let root = read_manifest_source(target.clone())?;
+        let sources = in_dependency_order(dependency_closure(vec![root], &[], Path::new("."), &[], None)?);
+        let focus = sources.iter().position(|source| source.path == target);
+        let ordered = sources.iter().collect::<Vec<_>>();
+        let module_names = manifest_module_names(&ordered, |source| {
+            if source.path == target {
+                ENTRY_MODULE_NAME.to_owned()
+            } else {
+                manifest_module_name(&source.path)
+            }
+        });
+        let file_ids = file_ids(sources.len())?;
+        Ok(Self {
+            sources,
+            file_ids,
+            module_names,
+            specialization: PreparedSpecialization::none(),
+            outside_crate: HashSet::new(),
+            project_dir: PathBuf::from("."),
+            focus,
+        })
     }
 
-    let ts_files: Vec<(String, String)> = ordered_paths
-        .iter()
-        .map(|path| path.display().to_string())
-        .filter(|path_string| SourceLang::from_path(path_string).is_ok_and(SourceLang::is_typescript))
-        .filter_map(|path_string| fs::read_to_string(&path_string).ok().map(|source| (path_string, source)))
-        .collect();
-    let ts_facts = crate::ts_facts::analyze_files(ts_files);
+    /// Lowers every source into one crate; the first file that fails stops it.
+    pub(crate) fn lower(self) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
+        timing::measure("manifest.frontend_lower", || {
+            let ordered = self.sources.iter().collect::<Vec<_>>();
+            let ts_facts = crate::ts_facts::analyze_sources(&ordered);
+            let inputs = ModuleInputs { specialization: &self.specialization, ts_facts: ts_facts.as_ref() };
+            let seed = ManifestSeed::scan(&ordered, &self.module_names, self.outside_crate.clone());
+            let mut lowering = SeededLowering::new(seed).predeclare(&ordered, &self.file_ids)?;
+            let mut modules = Vec::new();
+            for ((source, file_id), name) in ordered.iter().zip(&self.file_ids).zip(&self.module_names) {
+                let module = lowering
+                    .lower_source(source, *file_id, inputs)
+                    .map_err(|diagnostics| manifest_source_error(source, &diagnostics))?;
+                if let Ok(module_idx) = usize::try_from(module.0)
+                    && let Some(module_value) = lowering.krate_mut().modules.get_mut(module_idx)
+                {
+                    module_value.name.clone_from(name);
+                }
+                modules.push((source.path.display().to_string(), module));
+            }
+            let modules = match self.focus {
+                Some(index) => modules.into_iter().skip(index).take(1).collect(),
+                None => modules,
+            };
+            Ok((lowering.into_crate(), modules))
+        })
+    }
 
-    for (idx, path) in ordered_paths.iter().enumerate() {
-        let Ok(source) = fs::read_to_string(path) else {
-            continue;
-        };
-        let path_string = path.display().to_string();
-        // A dependency file that is not TypeScript (a Python sibling reached
-        // through a mixed graph) is not lowered by this frontend path.
-        if !SourceLang::from_path(&path_string).is_ok_and(SourceLang::is_typescript) {
-            continue;
-        }
-        let file_id = FileId(u32::try_from(idx).unwrap_or(u32::MAX));
-        let is_target = path.canonicalize().unwrap_or_else(|_| path.clone()) == target_key
-            || path == &target_path;
-        let outcome = smelt_frontend_ts::to_hir_with_options(
-            &source,
-            file_id,
-            &path_string,
-            &mut ctx,
-            smelt_frontend_ts::FrontendOptions { ts_facts: ts_facts.as_ref(), ..smelt_frontend_ts::FrontendOptions::default() },
-        );
-        match outcome {
-            Ok(module) => {
-                if is_target {
-                    target_module = Some((file.to_owned(), module));
+    /// Lowers every source, recovering from per-file failures so one pass
+    /// enumerates the blockers of the whole crate.
+    ///
+    /// A file that fails does not stop the run: imports into already-lowered
+    /// modules still resolve. A frontend panic is reported as an `internal`
+    /// diagnostic and stops the pass, since the shared crate cannot be recovered.
+    ///
+    /// With `erasure` settings, every frontend erasure they mark `warn`/`deny` is
+    /// appended as an `erasure` diagnostic carrying its severity; `None` (the
+    /// probe) reports lowering blockers only.
+    pub(crate) fn diagnostics(
+        self,
+        erasure: Option<&crate::erasure::ErasureSettings>,
+    ) -> Result<Vec<ManifestDiagnostic>, Box<dyn std::error::Error>> {
+        let _quiet = QuietPanics::install();
+        let ordered = self.sources.iter().collect::<Vec<_>>();
+        let ts_facts = crate::ts_facts::analyze_sources(&ordered);
+        let inputs = ModuleInputs { specialization: &self.specialization, ts_facts: ts_facts.as_ref() };
+        let seed = ManifestSeed::scan(&ordered, &self.module_names, self.outside_crate.clone());
+        let mut lowering =
+            RecoverableLowering::new(SeededLowering::new(seed).predeclare(&ordered, &self.file_ids)?);
+        let mut diagnostics = Vec::new();
+        for (source, file_id) in ordered.iter().zip(&self.file_ids) {
+            match lowering.lower_source(source, *file_id, inputs) {
+                Some(Ok(_module)) => {}
+                Some(Err(file_diagnostics)) => diagnostics.extend(file_diagnostics),
+                None => {
+                    diagnostics.push(ManifestDiagnostic {
+                        file: source.path.display().to_string(),
+                        category: DiagnosticCategory::Internal,
+                        code: "smelt::frontend-panic",
+                        message: "frontend panicked while lowering this file; \
+                                  remaining modules were not scanned"
+                            .to_owned(),
+                        line: None,
+                        column: None,
+                        severity: None,
+                    });
+                    break;
                 }
             }
-            Err(errors) => {
-                // Surface the target's own errors; a dependency's unrelated
-                // failure is swallowed so it cannot mask the target result.
-                if is_target {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("{}:\n{errors:#?}", target_path.display()),
-                    )
-                    .into());
-                }
-            }
         }
-    }
-
-    // Fall back to lowering the target directly when the dependency walk never
-    // produced it (empty order, canonicalization mismatch, or a non-TypeScript
-    // classification of the target itself).
-    if let Some(module) = target_module {
-        Ok((ctx.krate, vec![module]))
-    } else {
-        lower_typescript_files(&[file.to_owned()])
+        // A poisoned crate has no erasure records worth reading.
+        if let (Some(settings), Some(krate)) = (erasure, lowering.krate()) {
+            diagnostics.extend(erasure_diagnostics(krate, &self.project_dir, settings));
+        }
+        Ok(diagnostics)
     }
 }
 
-/// Return the target file and its local dependency closure in dependency-first
-/// order (dependencies before importers, target last).
-///
-/// Reuses the manifest module-graph helpers so single-file lowering resolves the
-/// same relative imports a full build does. Returns `None` if the target cannot
-/// be read or its import graph cannot be ordered, letting the caller fall back to
-/// isolated lowering.
-fn ordered_dependency_paths(target: PathBuf) -> Option<Vec<PathBuf>> {
-    let root = read_manifest_source(target).ok()?;
-    // No manifest is in scope here (this is the single-file fallback path),
-    // so there are no exclude globs to apply.
-    // Typed versions of packages are a manifest-build feature: they are looked
-    // up from the project root, which a single-file command does not have.
-    let sources = dependency_closure(vec![root], &[], Path::new("."), &[], None).ok()?;
-    let ordered = order_manifest_sources(&sources);
-    Some(
-        ordered
-            .into_iter()
-            .filter_map(|idx| sources.get(idx).map(|source| source.path.clone()))
-            .collect(),
-    )
+/// The name of the module a program enters through.
+const ENTRY_MODULE_NAME: &str = "main";
+
+/// `sources` reordered dependency-first (see [`order_manifest_sources`]).
+fn in_dependency_order(sources: Vec<ManifestSource>) -> Vec<ManifestSource> {
+    let order = order_manifest_sources(&sources);
+    let mut slots = sources.into_iter().map(Some).collect::<Vec<_>>();
+    order
+        .into_iter()
+        .filter_map(|index| slots.get_mut(index).and_then(Option::take))
+        .collect()
+}
+
+/// One frontend file id per source, or an error when they do not fit.
+fn file_ids(count: usize) -> Result<Vec<FileId>, io::Error> {
+    (0..count)
+        .map(|index| {
+            u32::try_from(index).map(FileId).map_err(|error| {
+                io::Error::new(io::ErrorKind::InvalidInput, format!("too many source files: {error}"))
+            })
+        })
+        .collect()
 }
 
 /// One categorized diagnostic from a whole-crate recoverable lowering, tagged
@@ -325,59 +343,6 @@ fn sound_settings(config: &crate::config::Config, manifest_dir: &Path) -> SoundS
     }
 }
 
-/// Lowers manifest entries in dependency order using one shared HIR crate.
-pub(crate) fn lower_manifest_entries(
-    config: &crate::config::Config,
-    manifest_path: &Path,
-) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
-    let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    let root_sources = timing::measure("manifest.read_roots", || {
-        manifest_root_paths(config, manifest_dir)?
-            .into_iter()
-            .map(read_manifest_source)
-            .collect::<Result<Vec<_>, _>>()
-    })?;
-    let sources = timing::measure("manifest.dependency_closure", || {
-        let packages = crate::package_sources::resolve_packages(config, manifest_dir)?;
-        dependency_closure(
-            root_sources,
-            config.source_excludes(),
-            manifest_dir,
-            &packages,
-            Some(sound_settings(config, manifest_dir)),
-        )
-    })?;
-
-    // Ordering cannot fail (import cycles are cut deliberately).
-    let Ok(ordered_sources) = timing::measure("manifest.order_sources", || {
-        Ok::<_, std::convert::Infallible>(
-            order_manifest_sources(&sources)
-                .into_iter()
-                .filter_map(|idx| sources.get(idx))
-                .collect::<Vec<_>>(),
-        )
-    });
-
-    if ordered_sources.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "manifest has no source entries to lower",
-        )
-        .into());
-    }
-
-    let specialization = timing::measure("manifest.specialize", || {
-        crate::specialization::prepare(config, manifest_path, &ordered_sources)
-    })?;
-    // Which of this project's own sources the crate does NOT have. Computed
-    // here because it needs both halves: the manifest's declared source roots
-    // (minus excludes) and the dependency closure that was actually lowered.
-    let outside_crate = sources_outside_crate(config, manifest_dir, &ordered_sources);
-    timing::measure("manifest.frontend_lower", || {
-        lower_ordered_manifest_sources(&ordered_sources, &specialization, outside_crate)
-    })
-}
-
 /// Returns explicitly listed entries plus test files discovered by glob.
 ///
 /// Any root source whose manifest-relative path matches a `[sources] exclude`
@@ -425,11 +390,11 @@ fn scan_written_host_globals(sources: &[&ManifestSource]) -> std::collections::H
 /// [`manifest_module_names`] already computes for module BODIES, so a
 /// module-private item's qualified Rust name depends on the module's place in
 /// the crate rather than on the absolute path the compiler was handed (H55).
-fn manifest_module_identities(sources: &[&ManifestSource]) -> HashMap<String, String> {
-    manifest_module_names(sources)
-        .into_iter()
+fn manifest_module_identities(sources: &[&ManifestSource], names: &[String]) -> HashMap<String, String> {
+    names
+        .iter()
         .zip(sources.iter())
-        .map(|(name, source)| (source.path.display().to_string(), name))
+        .map(|(name, source)| (source.path.display().to_string(), name.clone()))
         .collect()
 }
 
@@ -549,39 +514,6 @@ fn sources_outside_crate(
         .collect()
 }
 
-/// Lowers the manifest sources, in manifest order, into one HIR crate, seeding
-/// host-global write scanning and applying prepared specialization results.
-fn lower_ordered_manifest_sources(
-    sources: &[&ManifestSource],
-    specialization: &crate::specialization::PreparedSpecialization,
-    outside_crate: std::collections::HashSet<String>,
-) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
-    let ts_facts = crate::ts_facts::analyze_sources(sources);
-    let inputs = ModuleInputs { specialization, ts_facts: ts_facts.as_ref() };
-    let mut lowering =
-        SeededLowering::new(ManifestSeed::scan(sources, outside_crate)).predeclare(sources)?;
-    let mut modules = Vec::new();
-    let module_names = manifest_module_names(sources);
-
-    for (idx, source) in sources.iter().enumerate() {
-        let module = lowering
-            .lower_source(source, idx, inputs)
-            .map_err(|diagnostics| manifest_source_error(source, &diagnostics))?;
-        let file = &source.path;
-        if let Ok(module_idx) = usize::try_from(module.0)
-            && let Some(module_value) = lowering.krate_mut().modules.get_mut(module_idx)
-        {
-            module_value.name = module_names
-                .get(idx)
-                .cloned()
-                .unwrap_or_else(|| manifest_module_name(file));
-        }
-        modules.push((file.display().to_string(), module));
-    }
-
-    Ok((lowering.into_crate(), modules))
-}
-
 /// The build error for a manifest source the frontend rejected.
 ///
 /// A project source reports its path and diagnostics as it always has. A file
@@ -613,78 +545,6 @@ fn manifest_source_error(source: &ManifestSource, diagnostics: &[ManifestDiagnos
             plural = if diagnostics.len() == 1 { "" } else { "s" },
         ),
     )
-}
-
-/// Lower all manifest sources in dependency order, recovering from per-file
-/// lowering failures so one pass enumerates blockers across the whole crate.
-///
-/// Unlike [`lower_manifest_entries`], a file that fails to lower does not abort
-/// the run: its categorized diagnostics are collected and lowering continues
-/// with the remaining modules (imports into already-lowered modules still
-/// resolve). A frontend panic on a file is reported as an `internal` diagnostic
-/// and stops the pass, since the shared crate cannot be recovered past a panic.
-///
-/// With `erasure` settings, every frontend erasure they mark `warn`/`deny` is
-/// appended as an `erasure` diagnostic carrying its severity; `None` (the
-/// probe) reports lowering blockers only.
-pub(crate) fn collect_manifest_diagnostics(
-    config: &crate::config::Config,
-    manifest_path: &Path,
-    erasure: Option<&crate::erasure::ErasureSettings>,
-) -> Result<Vec<ManifestDiagnostic>, Box<dyn std::error::Error>> {
-    let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    let root_sources = manifest_root_paths(config, manifest_dir)?
-        .into_iter()
-        .map(read_manifest_source)
-        .collect::<Result<Vec<_>, _>>()?;
-    let packages = crate::package_sources::resolve_packages(config, manifest_dir)?;
-    let sources = dependency_closure(
-        root_sources,
-        config.source_excludes(),
-        manifest_dir,
-        &packages,
-        Some(sound_settings(config, manifest_dir)),
-    )?;
-    let ordered_sources = order_manifest_sources(&sources)
-        .into_iter()
-        .filter_map(|idx| sources.get(idx))
-        .collect::<Vec<_>>();
-    let specialization = crate::specialization::prepare(config, manifest_path, &ordered_sources)?;
-
-    let _quiet = QuietPanics::install();
-    let ts_facts = crate::ts_facts::analyze_sources(&ordered_sources);
-    let inputs = ModuleInputs { specialization: &specialization, ts_facts: ts_facts.as_ref() };
-    // The probe does not resolve which project sources the crate lacks, so the
-    // seed carries an empty set (see `sources_outside_crate`).
-    let seed = ManifestSeed::scan(&ordered_sources, std::collections::HashSet::new());
-    let mut lowering =
-        RecoverableLowering::new(SeededLowering::new(seed).predeclare(&ordered_sources)?);
-    let mut diagnostics = Vec::new();
-    for (idx, source) in ordered_sources.iter().enumerate() {
-        match lowering.lower_source(source, idx, inputs) {
-            Some(Ok(_module)) => {}
-            Some(Err(file_diagnostics)) => diagnostics.extend(file_diagnostics),
-            None => {
-                diagnostics.push(ManifestDiagnostic {
-                    file: source.path.display().to_string(),
-                    category: DiagnosticCategory::Internal,
-                    code: "smelt::frontend-panic",
-                    message: "frontend panicked while lowering this file; \
-                              remaining modules were not scanned"
-                        .to_owned(),
-                    line: None,
-                    column: None,
-                    severity: None,
-                });
-                break;
-            }
-        }
-    }
-    // A poisoned crate has no erasure records worth reading.
-    if let (Some(settings), Some(krate)) = (erasure, lowering.krate()) {
-        diagnostics.extend(erasure_diagnostics(krate, manifest_dir, settings));
-    }
-    Ok(diagnostics)
 }
 
 /// The frontend erasures `settings` marks `warn`/`deny`, as diagnostics.
@@ -775,11 +635,11 @@ fn manifest_module_name(path: &Path) -> String {
 /// colliding module body under the plain name so an entry file named `main`
 /// still emits the executable `fn main()`, while earlier collisions receive a
 /// stable ordinal suffix.
-fn manifest_module_names(sources: &[&ManifestSource]) -> Vec<String> {
-    let bases = sources
-        .iter()
-        .map(|source| manifest_module_name(&source.path))
-        .collect::<Vec<_>>();
+fn manifest_module_names(
+    sources: &[&ManifestSource],
+    base_name: impl Fn(&ManifestSource) -> String,
+) -> Vec<String> {
+    let bases = sources.iter().map(|source| base_name(source)).collect::<Vec<_>>();
     let mut totals = HashMap::<String, usize>::new();
     for base in &bases {
         let total = totals.entry(base.clone()).or_insert(0);

@@ -37,7 +37,7 @@ pub(crate) fn analyze_sources(sources: &[&ManifestSource]) -> Option<TsTypeFacts
 /// frontend lowers the file under), while the file is placed in the program
 /// at its absolute location so relative imports resolve as on disk.
 #[cfg(feature = "ts7")]
-pub(crate) fn analyze_files(files: Vec<(String, String)>) -> Option<TsTypeFacts> {
+fn analyze_files(files: Vec<(String, String)>) -> Option<TsTypeFacts> {
     if files.is_empty() || std::env::var(DISABLE_VAR).is_ok_and(|value| value == "0") {
         return None;
     }
@@ -57,7 +57,7 @@ pub(crate) fn analyze_files(files: Vec<(String, String)>) -> Option<TsTypeFacts>
 
 /// Without the `ts7` feature there is no checker: lowering uses annotations only.
 #[cfg(not(feature = "ts7"))]
-pub(crate) fn analyze_files(_files: Vec<(String, String)>) -> Option<TsTypeFacts> {
+fn analyze_files(_files: Vec<(String, String)>) -> Option<TsTypeFacts> {
     let _ = DISABLE_VAR;
     None
 }

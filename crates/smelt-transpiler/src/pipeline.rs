@@ -85,7 +85,7 @@ pub(crate) fn build_rust_crate_with_erasure(
     settings: &erasure::ErasureSettings,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (krate, modules) = timing::measure("manifest.lower", || {
-        lowering::lower_manifest_entries(config, manifest_path)
+        lowering::ManifestLowering::for_manifest(config, manifest_path)?.lower()
     })?;
     timing::measure("stubs.emit", || {
         stubs::emit_type_declarations(&krate, &modules)
@@ -142,7 +142,7 @@ pub(crate) fn check_manifest(
     settings: &erasure::ErasureSettings,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (krate, modules) = timing::measure("manifest.lower", || {
-        lowering::lower_manifest_entries(config, manifest_path)
+        lowering::ManifestLowering::for_manifest(config, manifest_path)?.lower()
     })?;
     timing::measure("stubs.emit", || {
         stubs::emit_type_declarations(&krate, &modules)

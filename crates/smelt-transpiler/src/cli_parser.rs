@@ -36,13 +36,9 @@ pub enum Command {
         #[command(flatten)]
         hir: HirFlags,
 
-        /// Define a build-time value, like Bun's `--define`: `KEY=VALUE` where
-        /// VALUE is JSON text, e.g. `--define 'process.env.NODE_ENV="production"'`.
-        /// Repeatable; overrides `[build] define` in Smelt.toml. Smelt consults
-        /// defines only to decide whether a package's typed version
-        /// (`.sound/`, `@sound/*`) applies; it does not substitute them.
-        #[arg(long = "define", value_name = "KEY=VALUE", value_parser = parse_define)]
-        define: Vec<(String, String)>,
+        /// `--define KEY=VALUE`.
+        #[command(flatten)]
+        define: DefineArgs,
 
         /// Set an erasure reason's severity: `<reason>[:<glob>]=<allow|warn|deny>`
         /// (`all` for every reason). Repeatable; overrides `[erasure]`.
@@ -58,6 +54,10 @@ pub enum Command {
         /// every module's categorized diagnostics in one recoverable pass).
         #[arg(long = "message-format", value_enum, default_value_t = MessageFormat::Human)]
         message_format: MessageFormat,
+
+        /// `--define KEY=VALUE`.
+        #[command(flatten)]
+        define: DefineArgs,
 
         /// Set an erasure reason's severity: `<reason>[:<glob>]=<allow|warn|deny>`
         /// (`all` for every reason). Repeatable; overrides `[erasure]`.
@@ -171,6 +171,10 @@ pub enum Command {
         #[arg(long = "run-tests")]
         run_tests: bool,
 
+        /// `--define KEY=VALUE`.
+        #[command(flatten)]
+        define: DefineArgs,
+
         /// Format and destination of the report.
         #[command(flatten)]
         report: ReportArgs,
@@ -224,6 +228,10 @@ pub enum Command {
         #[arg(value_name = "PATH", required = true)]
         inputs: Vec<String>,
 
+        /// `--define KEY=VALUE`.
+        #[command(flatten)]
+        define: DefineArgs,
+
         /// Format and destination of the report.
         #[command(flatten)]
         report: ReportArgs,
@@ -246,6 +254,10 @@ pub enum Command {
         /// Sidecars, directories, manifests or source files to measure.
         #[arg(value_name = "PATH", required = true)]
         paths: Vec<String>,
+
+        /// `--define KEY=VALUE`.
+        #[command(flatten)]
+        define: DefineArgs,
 
         /// Format, destination and baseline gate of the report.
         #[command(flatten)]
@@ -270,6 +282,10 @@ pub enum Command {
         /// Smelt manifest to lower (`Smelt.toml`).
         #[arg(value_name = "PATH")]
         manifest: String,
+
+        /// `--define KEY=VALUE`.
+        #[command(flatten)]
+        define: DefineArgs,
 
         /// Format and destination of the report.
         #[command(flatten)]
@@ -368,6 +384,18 @@ pub enum MessageFormat {
     Human,
     /// Collect every module's categorized diagnostics as JSON.
     Json,
+}
+
+/// `--define`, on every command that lowers a manifest.
+#[derive(ClapArgs, Debug, Clone, Default)]
+pub struct DefineArgs {
+    /// Define a build-time value, like Bun's `--define`: `KEY=VALUE` where
+    /// VALUE is JSON text, e.g. `--define 'process.env.NODE_ENV="production"'`.
+    /// Repeatable; overrides `[build] define` in Smelt.toml. Smelt consults
+    /// defines only to decide whether a package's typed version
+    /// (`.sound/`, `@sound/*`) applies; it does not substitute them.
+    #[arg(long = "define", value_name = "KEY=VALUE", value_parser = parse_define)]
+    pub values: Vec<(String, String)>,
 }
 
 /// Parse one `--define KEY=VALUE` argument, splitting at the first `=`.

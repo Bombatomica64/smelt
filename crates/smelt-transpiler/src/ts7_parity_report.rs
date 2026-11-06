@@ -47,6 +47,8 @@ const TOP_GROUPS: usize = 30;
 pub(crate) struct ParityReportOptions<'input> {
     /// Manifests or `.ts` files to measure.
     pub(crate) inputs: &'input [PathBuf],
+    /// Command-line defines, over a manifest's.
+    pub(crate) defines: &'input [(String, String)],
     /// Output format.
     pub(crate) format: ReportFormat,
 }
@@ -160,7 +162,7 @@ pub(crate) fn ts7_parity_report(options: &ParityReportOptions<'_>) -> CliResult<
         report.inputs.push(input.display().to_string());
         // An input Smelt cannot lower has no HIR to compare: record it (that is
         // itself the parity answer for it) and keep measuring the others.
-        let krate = match lower_input(input) {
+        let krate = match lower_input(input, options.defines) {
             Ok(krate) => krate,
             Err(error) => {
                 let first_line: String = error.to_string().lines().take(12).collect::<Vec<_>>().join(" ");
@@ -195,13 +197,14 @@ pub(crate) fn ts7_parity_report(options: &ParityReportOptions<'_>) -> CliResult<
 }
 
 /// Lowers one input to HIR.
-fn lower_input(input: &Path) -> CliResult<Crate> {
+fn lower_input(input: &Path, defines: &[(String, String)]) -> CliResult<Crate> {
     if input.file_name().is_some_and(|name| name == "Smelt.toml") {
-        let config = config_parser::parse_path(input)?;
-        return Ok(lowering::lower_manifest_entries(&config, input)?.0);
+        let mut config = config_parser::parse_path(input)?;
+        config.extend_defines(defines.iter().cloned());
+        return Ok(lowering::ManifestLowering::for_manifest(&config, input)?.lower()?.0);
     }
     let file = input.to_str().ok_or("input path contains invalid UTF-8")?;
-    Ok(lowering::lower_single_file(file)?.0)
+    Ok(lowering::ManifestLowering::for_file(file)?.lower()?.0)
 }
 
 /// One TypeScript source of the lowered crate.
