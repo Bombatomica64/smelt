@@ -591,18 +591,6 @@ pub(crate) fn capture_prelude_text(name: &str, source: &str, shared: bool) -> St
     }
 }
 
-/// How a weak-receiver capture named `name` is read inside the closure body.
-///
-/// The shape of a shared capture (`(*smelt_capture_x.borrow_mut())`), so
-/// nested closures and the rendered-text rewrites treat it as one; see
-/// `rendered_text_rewrite::WEAK_RECEIVER_UPGRADE`.
-pub(crate) fn capture_access_text(name: &str) -> String {
-    format!(
-        "(*smelt_capture_{name}{}.borrow_mut())",
-        super::rendered_text_rewrite::WEAK_RECEIVER_UPGRADE
-    )
-}
-
 impl super::FunctionEmitter<'_> {
     /// Whether `capture` of closure `closure` is the weak capture of the
     /// emitter the closure is registered on (see [`listener_registrations`]).

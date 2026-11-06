@@ -120,6 +120,7 @@ mod core;
 mod dict_entry_update;
 pub(crate) mod emit_role;
 mod flow_state;
+mod local_binding;
 mod helper_reservation;
 mod blob;
 mod fetch_types;
@@ -1424,8 +1425,10 @@ pub(crate) struct FunctionEmitter<'mir> {
     context: &'mir EmitContext,
     /// The function being emitted.
     function: &'mir MirFunction,
-    /// Mapping from local IDs to variable names.
-    names: HashMap<LocalId, String>,
+    /// How each local is bound in the generated Rust scope.
+    bindings: HashMap<LocalId, local_binding::LocalBinding>,
+    /// Binding uses recorded while this body and its nested closures render.
+    binding_uses: local_binding::SharedBindingUses,
     /// Set of locals that are mutated.
     mutable_locals: HashSet<LocalId>,
     /// Locals that have already been introduced in the generated Rust scope.

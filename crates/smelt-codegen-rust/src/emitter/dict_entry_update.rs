@@ -99,7 +99,7 @@ impl FunctionEmitter<'_> {
         } else {
             "let smelt_slot"
         };
-        let current_name = self.local_name(current)?.to_owned();
+        let current_name = self.local_name(current)?.into_owned();
         let current_ty = self.type_text_with_impl_trait(self.local_decl(current)?.ty, false)?;
         let stored = self.rvalue_text_for_dest(value, entry_ty)?;
         out.push_str(&format!(

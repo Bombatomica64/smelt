@@ -2,7 +2,9 @@
 
 use super::*;
 use crate::emitter::rendered_text_rewrite::cloned_value_text;
+use crate::emitter::local_binding::{CellUpgrade, LocalBinding, SELF_OWNED_NAME, SharedCell};
 use crate::emitter::typeof_str_locals;
+use std::borrow::Cow;
 use smelt_hir::FunctionType;
 
 /// How the emitted Rust value for a callee is invoked.
@@ -43,7 +45,7 @@ impl<'mir> FunctionEmitter<'mir> {
             })
             .transpose()?
             .unwrap_or(none_ty);
-        let names = Self::local_names(mir, function)?;
+        let bindings = Self::local_bindings(mir, function)?;
         let declared_locals = function.params.iter().copied().collect();
         let folded_throw_payloads = throw::folded_throw_payload_locals(mir, function);
         let predeclared_locals = predeclared_locals_for_function(mir, function)
@@ -51,7 +53,7 @@ impl<'mir> FunctionEmitter<'mir> {
             .copied()
             .collect();
         Ok(Self {
-            names,
+            bindings,
             mutable_locals: assigned_locals(mir, context, function),
             declared_locals: RefCell::new(declared_locals),
             predeclared_locals,
@@ -79,7 +81,8 @@ impl<'mir> FunctionEmitter<'mir> {
             mir,
             context,
             function,
-            names: HashMap::new(),
+            bindings: HashMap::new(),
+            binding_uses: local_binding::SharedBindingUses::default(),
             mutable_locals: HashSet::new(),
             declared_locals: RefCell::new(HashSet::new()),
             predeclared_locals: HashSet::new(),
@@ -229,6 +232,7 @@ impl<'mir> FunctionEmitter<'mir> {
         };
         let mut child = FunctionEmitter::new(self.mir, self.context, function)?;
         child.role = emit_role::EmitRole::Closure(scope);
+        child.binding_uses = self.binding_uses.clone();
         Ok(child)
     }
 
@@ -289,12 +293,12 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
-    /// Builds stable Rust names for every MIR local in a function.
-    fn local_names(
+    /// Builds a stable Rust binding for every MIR local in a function.
+    fn local_bindings(
         mir: &'mir Mir,
         function: &'mir MirFunction,
-    ) -> Result<HashMap<LocalId, String>, EmitError> {
-        let mut names = HashMap::new();
+    ) -> Result<HashMap<LocalId, LocalBinding>, EmitError> {
+        let mut bindings = HashMap::new();
         let mut used = HashSet::new();
         let mut next_arg = 0usize;
 
@@ -311,12 +315,14 @@ impl<'mir> FunctionEmitter<'mir> {
                         // cannot borrow `&self`, so the receiver is cloned once
                         // into an owned `self_owned` handle and every body
                         // reference renders through that name instead of `self`.
-                        if function.is_async || function.is_generator
-                        {
-                            "self_owned".to_owned()
+                        let binding = if function.is_async || function.is_generator {
+                            LocalBinding::SelfOwned
                         } else {
-                            "self".to_owned()
-                        }
+                            LocalBinding::Receiver
+                        };
+                        used.insert(binding.text().into_owned());
+                        bindings.insert(local_id, binding);
+                        continue;
                     } else if let Some(name) = symbol
                         .and_then(|param_symbol| mir.symbols.get(param_symbol))
                         .map(sanitize_ident)
@@ -346,10 +352,10 @@ impl<'mir> FunctionEmitter<'mir> {
                 }
             };
             let name = unique_local_name(base_name, &mut used);
-            names.insert(local_id, name);
+            bindings.insert(local_id, LocalBinding::Plain(name));
         }
 
-        Ok(names)
+        Ok(bindings)
     }
 
     /// The closing text of an async `main`'s runtime scope.
@@ -843,7 +849,8 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Returns whether a predeclared local should keep a concrete default.
     pub(super) fn predeclared_local_needs_default(&self, local: LocalId) -> Result<bool, EmitError> {
         let decl = self.local_decl(local)?;
-        let name = self.local_name(local)?;
+        let binding = self.local_binding(local)?.text();
+        let name = binding.as_ref();
         let is_callable = matches!(self.mir.types.get(decl.ty), Some(Type::Function(_)))
             || self
                 .type_text_with_impl_trait(decl.ty, false)?
@@ -1194,15 +1201,25 @@ impl<'mir> FunctionEmitter<'mir> {
     /// borrows a shared capture and evaluates a call. See the regression test
     /// `shared_capture_borrow_never_spans_a_sibling_closure_call`.
     pub(super) fn local_value_text(&self, local: LocalId) -> Result<String, EmitError> {
-        let name = self.local_name(local)?;
-        if name.starts_with("(*smelt_capture_") {
-            return Ok(name.replace(".borrow_mut()", ".borrow()"));
+        match self.local_shared_cell(local)? {
+            Some(cell) => Ok(cell.read_text()),
+            None => Ok(self.local_name(local)?.into_owned()),
+        }
+    }
+
+    /// The shared cell a local is read and written through, when it has one.
+    ///
+    /// A capture of an enclosing shared cell carries the cell in its binding; a
+    /// local of this frame that lives in shared storage reaches its own cell once
+    /// that cell is declared.
+    pub(super) fn local_shared_cell(&self, local: LocalId) -> Result<Option<SharedCell>, EmitError> {
+        if let Some(cell) = self.local_binding(local)?.shared_cell() {
+            return Ok(Some(cell.clone()));
         }
         if self.local_uses_shared_capture_storage(local) && self.is_local_declared(local) {
-            Ok(format!("(*smelt_capture_{name}.borrow())"))
-        } else {
-            Ok(name.to_owned())
+            return Ok(Some(SharedCell::named(&self.local_name(local)?, CellUpgrade::Strong)));
         }
+        Ok(None)
     }
 
     /// Renders a mutable receiver or assignment through shared closure storage.
@@ -1219,14 +1236,12 @@ impl<'mir> FunctionEmitter<'mir> {
     /// call. Callers must not construct a single statement that both takes this
     /// mutable borrow and evaluates a call.
     pub(super) fn local_mut_value_text(&self, local: LocalId) -> Result<String, EmitError> {
-        let name = self.local_name(local)?;
-        if name.starts_with("(*smelt_capture_") {
-            return Ok(name.to_owned());
-        }
-        if self.local_uses_shared_capture_storage(local) && self.is_local_declared(local) {
-            Ok(format!("(*smelt_capture_{name}.borrow_mut())"))
-        } else {
-            Ok(name.to_owned())
+        match self.local_shared_cell(local)? {
+            Some(cell) => {
+                self.binding_uses.record_mut_borrow(&cell);
+                Ok(cell.write_text())
+            }
+            None => Ok(self.local_name(local)?.into_owned()),
         }
     }
 
@@ -2907,12 +2922,13 @@ impl<'mir> FunctionEmitter<'mir> {
         let is_generator = self.function.is_generator;
         if is_generator {
             let mut body = String::new();
+            self.binding_uses.reset_self_owned();
             if self.method_owner_is_reference_class() {
                 self.emit_shared_parameter_preludes(&mut body)?;
             }
             self.emit_block(self.entry_block()?, &mut body)?;
-            if body.contains("self_owned") {
-                out.push_str("    let self_owned = self.clone();\n");
+            if self.binding_uses.self_owned_used() {
+                out.push_str(&format!("    let {SELF_OWNED_NAME} = self.clone();\n"));
             }
             out.push_str("    let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));\n");
             out.push_str("    let smelt_generator_producer_input = smelt_generator_input.clone();\n");
@@ -3013,12 +3029,13 @@ impl<'mir> FunctionEmitter<'mir> {
         out: &mut String,
     ) -> Result<(), EmitError> {
         let mut body = String::new();
+        self.binding_uses.reset_self_owned();
         if self.method_owner_is_reference_class() {
             self.emit_shared_parameter_preludes(&mut body)?;
         }
         self.emit_block(self.entry_block()?, &mut body)?;
-        if body.contains("self_owned") {
-            out.push_str("    let self_owned = self.clone();\n");
+        if self.binding_uses.self_owned_used() {
+            out.push_str(&format!("    let {SELF_OWNED_NAME} = self.clone();\n"));
         }
         // A genuine async-method body: prime it so its synchronous prefix runs
         // at call time (JS eager-async-prefix semantics; see `from_future_primed`).
@@ -3571,7 +3588,7 @@ impl<'mir> FunctionEmitter<'mir> {
             return Ok(false);
         };
         let local_decl = self.local_decl(*local_id)?;
-        if self.local_name(*local_id)?.starts_with("closure_arg_") {
+        if matches!(self.local_binding(*local_id)?, LocalBinding::ClosureArg(_)) {
             return Ok(false);
         }
         Ok(matches!(local_decl.kind, LocalKind::Param { .. })
@@ -3620,13 +3637,10 @@ impl<'mir> FunctionEmitter<'mir> {
     /// emitted Rust type is still `&dyn Fn`, so calls must use direct
     /// callable syntax instead of the `Rc<RefCell<_>>` handle path.
     pub(super) fn is_function_parameter_name(&self, name: &str) -> Result<bool, EmitError> {
-        if name.starts_with("closure_arg_") {
-            return Ok(false);
-        }
         Ok(self.function.params.iter().any(|param| {
-            self.local_name(*param)
-                .is_ok_and(|param_name| param_name == name)
-                && self.local_decl(*param).is_ok_and(|local| {
+            self.local_binding(*param).is_ok_and(|binding| {
+                !matches!(binding, LocalBinding::ClosureArg(_)) && binding.text() == name
+            }) && self.local_decl(*param).is_ok_and(|local| {
                     matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
                 })
                 && !self
@@ -3654,12 +3668,12 @@ impl<'mir> FunctionEmitter<'mir> {
         local: LocalId,
     ) -> Result<bool, EmitError> {
         let decl = self.local_decl(local)?;
-        let local_name = self.local_name(local)?.to_owned();
+        let local_name = self.local_binding(local)?.text();
         Ok(
             matches!(self.mir.types.get(decl.ty), Some(Type::Function(_)))
                 && self.function.params.iter().any(|param| {
-                    self.local_name(*param)
-                        .is_ok_and(|param_name| param_name == local_name)
+                    self.local_binding(*param)
+                        .is_ok_and(|binding| binding.text() == local_name)
                         && self
                             .function_parameter_requires_owned(*param)
                             .is_ok_and(|requires_owned| !requires_owned)
@@ -3678,8 +3692,8 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         let capture_name = self.symbol_name(symbol)?;
         Ok(self.function.params.iter().any(|param| {
-            self.local_name(*param)
-                .is_ok_and(|param_name| param_name == capture_name)
+            self.local_binding(*param)
+                .is_ok_and(|binding| binding.text() == capture_name)
                 && self
                     .function_parameter_requires_owned(*param)
                     .is_ok_and(|requires_owned| !requires_owned)
@@ -6186,12 +6200,23 @@ impl<'mir> FunctionEmitter<'mir> {
             .ok_or_else(|| EmitError::new("callee local reference out of bounds"))
     }
 
-    /// Gets the generated variable name for a local.
-    pub(super) fn local_name(&self, local: LocalId) -> Result<&str, EmitError> {
-        self.names
+    /// How a local is bound in the generated Rust scope.
+    pub(super) fn local_binding(&self, local: LocalId) -> Result<&LocalBinding, EmitError> {
+        self.bindings
             .get(&local)
-            .map(String::as_str)
-            .map_or(Ok("SmeltUnknown::Null"), Ok)
+            .ok_or_else(|| EmitError::new(format!("local {} has no Rust binding", local.0)))
+    }
+
+    /// The Rust text of a local's binding, for output that names it.
+    ///
+    /// Rendering is what counts as a use (see [`BindingUses`]); a question about
+    /// the binding asks [`Self::local_binding`] instead.
+    ///
+    /// [`BindingUses`]: local_binding::BindingUses
+    pub(super) fn local_name(&self, local: LocalId) -> Result<Cow<'_, str>, EmitError> {
+        let binding = self.local_binding(local)?;
+        self.binding_uses.record(binding);
+        Ok(binding.text())
     }
 
     /// How the source language of the body being emitted spells an absent value.

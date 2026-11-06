@@ -407,10 +407,6 @@ impl FunctionEmitter<'_> {
                     } else {
                         raw_rendered_value
                     };
-                if name == "SmeltUnknown::Null" {
-                    out.push_str(&format!("    let _ = {rendered_value};\n"));
-                    return Ok(());
-                }
                 if self.deferred_capture_cells.borrow().contains(dest) {
                     // The cell was declared without a value; its one
                     // assignment creates it (see `capture_cell_created_at_assignment`).
@@ -633,7 +629,7 @@ impl FunctionEmitter<'_> {
                     // immutably while it is mutably borrowed (E0502). This mirrors the
                     // `Index` erased-object path below. Non-self-referential values
                     // keep the simpler inline form to avoid churn.
-                    let base_name = self.local_name(*base)?.to_owned();
+                    let base_name = self.local_name(*base)?.into_owned();
                     // A write through an erased reference-class VIEW also lands
                     // on the instance the view stands for; see
                     // `view_write_through`. The value is bound once so the view
@@ -855,7 +851,9 @@ impl FunctionEmitter<'_> {
             Place::Local(_) => {}
         }
 
+        self.binding_uses.take_mut_borrows();
         let rendered_value = self.rvalue_text_for_dest(value, self.place_ty(place)?)?;
+        let value_mut_borrows = self.binding_uses.take_mut_borrows();
         if let Place::Local(local) = place
             && (!self.is_local_declared(*local)
                 || (matches!(self.local_decl(*local)?.kind, LocalKind::Temp)
@@ -882,12 +880,14 @@ impl FunctionEmitter<'_> {
             self.mark_local_declared(*local);
             return Ok(());
         }
-        let assignment = self.assignment_place_text(place)?;
-        if assignment == "SmeltUnknown::Null" {
-            out.push_str(&format!("    let _ = {rendered_value};\n"));
-            return Ok(());
-        }
-        if assignment.starts_with("(*smelt_capture_") && rendered_value.contains(&assignment) {
+        let target = self.assignment_place_target(place)?;
+        let assignment = target.text();
+        // The target's guard is taken after the value is evaluated, so a value
+        // that holds its own guard on the same cell has to finish first.
+        if target
+            .guarded_cell()
+            .is_some_and(|cell| value_mut_borrows.contains(&cell.cell))
+        {
             out.push_str(&format!(
                 "    {{ let smelt_next_value = {rendered_value}; {assignment} = smelt_next_value; }}\n"
             ));
@@ -1404,7 +1404,7 @@ impl FunctionEmitter<'_> {
                     }
                     _ => self.default_value(exception_decl.ty)?,
                 };
-                out.push_str(&self.exception_binding_text(exception_local, exception_name, &value));
+                out.push_str(&self.exception_binding_text(exception_local, &exception_name, &value));
                 self.mark_local_declared(exception_local);
             }
             self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -1472,7 +1472,7 @@ impl FunctionEmitter<'_> {
             // value a panic-routed throw parked in `SMELT_PANIC_VALUE`, and a
             // class-and-message record only for a panic with no parked value.)
             let value = self.caught_error_value_text(exception_decl.ty, "__smelt_error")?;
-            out.push_str(&self.exception_binding_text(exception_local, exception_name, &value));
+            out.push_str(&self.exception_binding_text(exception_local, &exception_name, &value));
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -1497,7 +1497,7 @@ impl FunctionEmitter<'_> {
                 }
                 _ => self.default_value(exception_decl.ty)?,
             };
-            out.push_str(&self.exception_binding_text(exception_local, exception_name, &value));
+            out.push_str(&self.exception_binding_text(exception_local, &exception_name, &value));
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -1602,7 +1602,7 @@ impl FunctionEmitter<'_> {
             let exception_name = self.local_name(exception_local)?;
             let exception_decl = self.local_decl(exception_local)?;
             let value = self.caught_error_value_text(exception_decl.ty, "__smelt_error")?;
-            out.push_str(&self.exception_binding_text(exception_local, exception_name, &value));
+            out.push_str(&self.exception_binding_text(exception_local, &exception_name, &value));
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;

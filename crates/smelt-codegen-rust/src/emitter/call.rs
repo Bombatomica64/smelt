@@ -5,7 +5,6 @@ use crate::generic_bindings::{
     CalleeTypeParamBindings, bind_class_type_params, collect_bindings_from_types,
     substituted_type_id, substitution_matches, type_param_occurs,
 };
-use rendered_text_rewrite::shared_capture_cell_name;
 use smelt_hir::FunctionType;
 
 /// The concrete instantiation one static call site pins on a generic callee.
@@ -2611,7 +2610,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(MutListPlaceStorage::Reference);
         }
-        if shared_capture_cell_name(&self.place_text(&Place::Local(local))?).is_some() {
+        if self.local_shared_cell(local)?.is_some() {
             return Ok(MutListPlaceStorage::SharedCapture);
         }
         Ok(MutListPlaceStorage::Owned)
@@ -2659,9 +2658,10 @@ impl FunctionEmitter<'_> {
                 mut_borrow: Some(format!("*{text}")),
             }),
             MutListPlaceStorage::SharedCapture => {
-                let cell = shared_capture_cell_name(&text).ok_or_else(|| {
-                    EmitError::new("shared-capture place lost its cell binding")
-                })?;
+                let cell = self
+                    .local_shared_cell(*local)?
+                    .ok_or_else(|| EmitError::new("shared-capture place lost its cell binding"))?
+                    .cell;
                 Ok(MutListPlaceAccess {
                     // `text` is already `(*smelt_capture_x.borrow())`, so the read
                     // clones through the shared borrow; the write needs its own

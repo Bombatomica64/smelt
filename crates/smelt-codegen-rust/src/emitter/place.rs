@@ -1,6 +1,7 @@
 //! Place emission helpers.
 
 use super::*;
+use crate::emitter::local_binding::PlaceTarget;
 use crate::emitter::rendered_text_rewrite::cloned_value_text;
 
 impl FunctionEmitter<'_> {
@@ -877,8 +878,27 @@ impl FunctionEmitter<'_> {
 
     /// Converts a place to its Rust text representation for assignment.
     pub(super) fn assignment_place_text(&self, place: &Place) -> Result<String, EmitError> {
+        match self.assignment_place_target(place)? {
+            PlaceTarget::Direct(text) | PlaceTarget::SharedCell { text, .. } => Ok(text),
+        }
+    }
+
+    /// `text`, which writes through `base`, as a target behind `base`'s cell guard
+    /// when `base` lives in a shared cell.
+    fn place_target_through(&self, base: LocalId, text: String) -> Result<PlaceTarget, EmitError> {
+        Ok(match self.local_shared_cell(base)? {
+            Some(cell) => PlaceTarget::SharedCell { cell, text },
+            None => PlaceTarget::Direct(text),
+        })
+    }
+
+    /// The left-hand side an assignment to `place` writes.
+    pub(super) fn assignment_place_target(&self, place: &Place) -> Result<PlaceTarget, EmitError> {
         match place {
-            Place::Local(local) => self.local_mut_value_text(*local),
+            Place::Local(local) => {
+                let text = self.local_mut_value_text(*local)?;
+                self.place_target_through(*local, text)
+            }
             // A write through a mutable global is emitted as one whole
             // statement (`global_place_assign_text`) because the cell borrow
             // has to scope the mutation. There is no lvalue FRAGMENT that
@@ -908,7 +928,7 @@ impl FunctionEmitter<'_> {
                         let base_read = self.local_value_text(*base)?;
                         let index_text =
                             self.normalized_index_text(&format!("{base_read}.len()"), index, *negative)?;
-                        Ok(format!("{base_mut}[{index_text}]"))
+                        self.place_target_through(*base, format!("{base_mut}[{index_text}]"))
                     }
                     Some(Type::Dict(key_ty, _)) => {
                         let key_text = if self.mir.types.get(*key_ty) == Some(&Type::String) {
@@ -918,17 +938,15 @@ impl FunctionEmitter<'_> {
                         } else {
                             self.value_at_type(index, *key_ty)?
                         };
-                        Ok(format!(
+                        Ok(PlaceTarget::Direct(format!(
                             "*{}.get_mut(&{key_text}).expect(\"index out of bounds\")",
                             self.local_mut_value_text(*base)?
-                        ))
+                        )))
                     }
                     Some(Type::Tuple(items)) => {
                         let tuple_index = self.tuple_index(index, items.len())?;
-                        Ok(format!(
-                            "{}.{tuple_index}",
-                            self.local_mut_value_text(*base)?
-                        ))
+                        let text = format!("{}.{tuple_index}", self.local_mut_value_text(*base)?);
+                        self.place_target_through(*base, text)
                     }
                     _ => Err(EmitError::new(
                         "index assignment codegen is only implemented for lists, dicts, and tuples",
@@ -973,18 +991,19 @@ impl FunctionEmitter<'_> {
                 if self.is_reference_class_type(base_ty)
                     && self.class_has_named_field(base_ty, *field)
                 {
-                    return Ok(format!(
+                    return Ok(PlaceTarget::Direct(format!(
                         "{base_read_text}.0.borrow_mut().{}",
                         sanitize_ident(self.symbol_name(*field)?)
-                    ));
+                    )));
                 }
                 if self.structural_record_fields(base_ty).is_some() {
-                    return Ok(format!(
+                    let text = format!(
                         "{base_write_text}.{}",
                         sanitize_ident(self.symbol_name(*field)?)
-                    ));
+                    );
+                    return self.place_target_through(*base, text);
                 }
-                self.place_text(place)
+                Ok(PlaceTarget::Direct(self.place_text(place)?))
             }
         }
     }
