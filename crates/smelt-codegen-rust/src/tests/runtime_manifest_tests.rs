@@ -102,3 +102,42 @@ fn runtime_manifest_symbol_names_match() {
         "the emitted encodeURI helper must define `{encode_uri}`"
     );
 }
+
+/// Every `__smelt_*` key of the runtime text is on the one list, and every entry
+/// of the list is used.
+///
+/// The runtime spells keys literally because it is real Rust. This is what keeps
+/// the literal spelling and the emitter's constants from drifting apart.
+#[test]
+fn every_runtime_marker_is_registered() {
+    use smelt_stdlib::runtime_symbols::markers::ALL;
+    let mut seen = std::collections::BTreeSet::new();
+    for module in smelt_runtime::source::modules() {
+        let mut rest = module.source;
+        while let Some(at) = rest.find("__smelt_") {
+            let tail = rest.get(at..).unwrap_or_default();
+            let end = tail
+                .find(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
+                .unwrap_or(tail.len());
+            let name = tail.get(..end).unwrap_or_default();
+            if !name.ends_with('_') {
+                seen.insert(name);
+            }
+            rest = tail.get(end..).unwrap_or_default();
+        }
+    }
+    let unregistered: Vec<_> = seen.iter().filter(|name| !ALL.contains(name)).collect();
+    assert!(unregistered.is_empty(), "markers with no constant: {unregistered:?}");
+    let unused: Vec<_> = ALL.iter().filter(|name| !seen.contains(*name)).collect();
+    assert!(unused.is_empty(), "constants no runtime text uses: {unused:?}");
+}
+
+/// The host registry's markers are real keys of the runtime.
+#[test]
+fn every_host_object_marker_is_a_runtime_marker() {
+    use smelt_stdlib::runtime_symbols::markers::ALL;
+    let missing: Vec<_> = smelt_stdlib::host_object_markers()
+        .filter(|marker| !ALL.contains(marker))
+        .collect();
+    assert!(missing.is_empty(), "registry markers the runtime never spells: {missing:?}");
+}

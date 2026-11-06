@@ -11,6 +11,7 @@
 use crate::classes::{NominalStorage, type_holds_function};
 use crate::generic_bindings::CalleeTypeParamBindings;
 use crate::runtime_demand::{Need, RuntimeDemand};
+use smelt_stdlib::runtime_symbols::markers::*;
 use crate::rust::RustType;
 use crate::type_substitution::{Resolved, TypeSubstitution};
 use render_scope::RenderScope;
@@ -192,6 +193,25 @@ struct TestRuntimeResets {
 }
 
 /// Precomputed crate-level codegen facts shared by all function emitters.
+/// The visibility a free function's definition is written with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FreeFunctionVisibility {
+    /// Private to its module: the crate root, where every call can see it.
+    Private,
+    /// Visible to the crate root, which re-exports a sibling module's functions.
+    Crate,
+}
+
+impl FreeFunctionVisibility {
+    /// The text in front of `fn`.
+    const fn text(self) -> &'static str {
+        match self {
+            Self::Private => "",
+            Self::Crate => "pub(crate) ",
+        }
+    }
+}
+
 pub(crate) struct EmitContext {
     /// The type ID of the None type.
     pub(crate) none_ty: TypeId,

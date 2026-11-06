@@ -57,6 +57,7 @@
 //! different object. Those are not proven cycle-only, so correctness wins and
 //! they keep leaking as before.
 
+use smelt_stdlib::runtime_symbols::markers::SMELT_CALL;
 use std::collections::{HashMap, HashSet};
 
 use smelt_hir::Symbol;
@@ -205,7 +206,7 @@ pub(crate) fn closure_slot(mir: &Mir, ty: smelt_hir::TypeId) -> Option<&'static 
                 mir.names
                     .get(field.name)
                     .or_else(|| mir.symbols.get(field.name))
-                    == Some("__smelt_call")
+                    == Some(SMELT_CALL)
             };
             let has_call = mir
                 .interfaces

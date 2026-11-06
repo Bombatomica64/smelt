@@ -28,6 +28,7 @@
 //! that union named. Private (`#name`) fields are not reachable by a computed
 //! key and are never candidates.
 
+use smelt_stdlib::runtime_symbols::markers::SMELT_CALL;
 use smelt_hir::{Type, TypeId};
 use smelt_mir::{LocalId, Operand, Rvalue};
 
@@ -108,7 +109,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { .. }) => self.structural_record_fields(ty).is_some_and(|fields| {
                 fields.iter().any(|field| {
                     self.symbol_source_name(field.name)
-                        .is_ok_and(|name| name == "__smelt_call")
+                        .is_ok_and(|name| name == SMELT_CALL)
                 })
             }),
             _ => false,

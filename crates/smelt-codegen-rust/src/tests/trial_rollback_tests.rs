@@ -41,13 +41,15 @@ export function use1(ns: number[]): number[] {
 }
 ",
     );
-    let Ok(crate::EmittedRoot { source, erasures, .. }) = crate::emit_root(
+    let Ok(root) = crate::emit_root(
         &mir,
         GeneratedAllocator::System,
-        |_function, _context, source| Ok(Some(source)),
+        |_function, _context| crate::FreeFunctionHome::Root,
     ) else {
         panic!("emission failed");
     };
+    let source = root.source();
+    let erasures = root.erasures;
     // Both functions really are emitted generic …
     assert!(source.contains("fn inner<T: "), "{source}");
     assert!(source.contains("fn outer<T: "), "{source}");

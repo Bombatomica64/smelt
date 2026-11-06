@@ -137,7 +137,7 @@ impl FunctionEmitter<'_> {
                         // `rest(func)` — whose default split point is
                         // `func.length - 1` — reshaped every call wrongly.
                         return Ok(format!(
-                            "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), value @ SmeltUnknown::Function(_) => SmeltUnknown::Number({function_length}(&value)), SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"length\") {{ SmeltUnknown::Undefined | SmeltUnknown::Null if map.contains_key(\"__smelt_call\") => SmeltUnknown::Number({function_length}(&SmeltUnknown::Object(map))), value => value }}, _ => SmeltUnknown::Null }}",
+                            "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), value @ SmeltUnknown::Function(_) => SmeltUnknown::Number({function_length}(&value)), SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"length\") {{ SmeltUnknown::Undefined | SmeltUnknown::Null if map.contains_key(\"{SMELT_CALL}\") => SmeltUnknown::Number({function_length}(&SmeltUnknown::Object(map))), value => value }}, _ => SmeltUnknown::Null }}",
                             function_length =
                                 smelt_stdlib::runtime_symbols::function_length::READ,
                         ));
@@ -337,7 +337,7 @@ impl FunctionEmitter<'_> {
                 if matches!(self.symbol_source_name(*field)?, "apply" | "call" | "bind")
                     && let Some(call_ty) = self.callable_interface_call_field_ty(base_ty)
                 {
-                    let call_field = format!("{}.__smelt_call.clone()", self.local_value_text(*base)?);
+                    let call_field = format!("{}.{SMELT_CALL}.clone()", self.local_value_text(*base)?);
                     return self.erase_value_text(&call_field, call_ty);
                 }
                 if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
@@ -421,7 +421,7 @@ impl FunctionEmitter<'_> {
                 {
                     let base_text = self.local_value_text(*base)?;
                     let key = self.symbol_source_name(*field)?;
-                    return Ok(format!("{base_text}.__smelt_call.smelt_property({key:?})"));
+                    return Ok(format!("{base_text}.{SMELT_CALL}.smelt_property({key:?})"));
                 }
                 // A declared field of a reference class lives inside the shared
                 // cell. Read it through a narrow `borrow()` and clone the value

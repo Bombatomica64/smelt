@@ -401,15 +401,21 @@ impl<'mir> FunctionEmitter<'mir> {
     /// that reports only a shape (`list unshift item must match the list
     /// element type`) is unfindable in a corpus the size of Hono, which cost
     /// two rounds of bisecting a manifest's `exclude` list.
-    pub(crate) fn emit(&mut self, out: &mut String) -> Result<(), EmitError> {
+    pub(crate) fn emit(&mut self, out: &mut String, visibility: FreeFunctionVisibility) -> Result<(), EmitError> {
         self.apply_crate_generic_decision();
-        let emitted = self.emit_free_function(out);
+        let emitted = self.emit_free_function(out, visibility);
         emitted.map_err(|error| error.with_site(|| self.current_function_site()))
     }
 
     /// Emits a free function definition.
-    fn emit_free_function(&mut self, out: &mut String) -> Result<(), EmitError> {
+    fn emit_free_function(&mut self, out: &mut String, visibility: FreeFunctionVisibility) -> Result<(), EmitError> {
         let name = self.symbol_name(self.function.name)?;
+        // A `#[tokio::test]` is found by the harness and never re-exported.
+        let visibility = if self.function.is_test && self.function.is_async {
+            ""
+        } else {
+            visibility.text()
+        };
         if self.function.is_test {
             if self.function.is_async {
                 out.push_str("#[tokio::test]\n");
@@ -429,9 +435,9 @@ impl<'mir> FunctionEmitter<'mir> {
             // attribute; it now builds its own runtime inside the body, so the
             // two questions are answered separately.
             if self.function.can_throw {
-                out.push_str("fn main() -> Result<(), Box<dyn std::error::Error>> {\n");
+                out.push_str(&format!("{visibility}fn main() -> Result<(), Box<dyn std::error::Error>> {{\n"));
             } else {
-                out.push_str("fn main() {\n");
+                out.push_str(&format!("{visibility}fn main() {{\n"));
             }
             if self.function.is_async {
                 out.push_str(&Self::async_main_runtime_prologue(self.function.can_throw));
@@ -496,7 +502,7 @@ impl<'mir> FunctionEmitter<'mir> {
             }
         };
         out.push_str(&format!(
-            "{}fn {}{generics}({fn_params}) -> {} {{\n",
+            "{visibility}{}fn {}{generics}({fn_params}) -> {} {{\n",
             if self.function.is_async && !self.function.is_generator {
                 "async "
             } else {
@@ -1440,7 +1446,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 // property back off a `CurriedFunction1`). The erased callable
                 // carries a property bag for exactly this, so hand the dropped
                 // properties to it instead of losing them at the seam.
-                if self.symbol_source_name(target_field.name)? == "__smelt_call" {
+                if self.symbol_source_name(target_field.name)? == SMELT_CALL {
                     self.callable_object_carried_properties_text(&adapted, source, target)?
                 } else {
                     adapted
@@ -1640,7 +1646,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let mut entries = Vec::new();
         for source_field in &source_fields {
             let name = self.symbol_source_name(source_field.name)?;
-            if name == "__smelt_call" {
+            if name == SMELT_CALL {
                 continue;
             }
             if target_fields.iter().any(|target_field| {
@@ -2214,7 +2220,7 @@ impl<'mir> FunctionEmitter<'mir> {
             let prototype_fallback = if source_is_erased {
                 format!(
                     ".or_else(|| smelt_record_map.get({proto_key:?})).or_else(|| smelt_record_map.get({method_key:?}))",
-                    proto_key = format!("__smelt_proto:{field_key}"),
+                    proto_key = format!("{SMELT_PROTO}:{field_key}"),
                     method_key = format!(
                         "{prefix}{field_key}",
                         prefix = crate::class_proto::METHOD_KEY_PREFIX,
@@ -2892,7 +2898,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     self.return_type_text(self.function.return_ty)?
                 ));
             }
-            HirOrigin::Body(_) => return self.emit(out),
+            HirOrigin::Body(_) => return self.emit(out, FreeFunctionVisibility::Private),
         }
         // Reference-class methods may capture `self` into an escaping closure;
         // that receiver must be bound once as a cloned handle before the body.
@@ -5875,7 +5881,7 @@ impl<'mir> FunctionEmitter<'mir> {
         fields.iter().find_map(|candidate| {
             self.symbol_source_name(candidate.name)
                 .ok()
-                .filter(|source| *source == "__smelt_call")
+                .filter(|source| *source == SMELT_CALL)
                 .map(|_| candidate.ty)
         })
     }

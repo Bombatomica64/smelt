@@ -391,3 +391,363 @@ pub mod math {
     /// then `0`, so the value passes through unchanged.
     pub const ROUND: &str = "smelt_math_round";
 }
+
+/// Marker keys the runtime reads and writes on erased records.
+///
+/// A record's `__smelt_*` keys are how erased values carry what a type would say
+/// statically: which host class a record is, the callable behind an object, a
+/// `Date`'s time value. The runtime's text spells them literally, because it is
+/// real Rust; the emitter names them here, and `every_runtime_marker_is_registered`
+/// in `smelt-codegen-rust` holds the two to one list.
+pub mod markers {
+    /// `__smelt_abort_follows`.
+    pub const SMELT_ABORT_FOLLOWS: &str = "__smelt_abort_follows";
+    /// `__smelt_abort_listeners`.
+    pub const SMELT_ABORT_LISTENERS: &str = "__smelt_abort_listeners";
+    /// `__smelt_abortcontroller`.
+    pub const SMELT_ABORTCONTROLLER: &str = "__smelt_abortcontroller";
+    /// `__smelt_abortsignal`.
+    pub const SMELT_ABORTSIGNAL: &str = "__smelt_abortsignal";
+    /// `__smelt_arguments`.
+    pub const SMELT_ARGUMENTS: &str = "__smelt_arguments";
+    /// `__smelt_arraybuffer`.
+    pub const SMELT_ARRAYBUFFER: &str = "__smelt_arraybuffer";
+    /// `__smelt_asymmetric`.
+    pub const SMELT_ASYMMETRIC: &str = "__smelt_asymmetric";
+    /// `__smelt_bigint64array`.
+    pub const SMELT_BIGINT64ARRAY: &str = "__smelt_bigint64array";
+    /// `__smelt_biguint64array`.
+    pub const SMELT_BIGUINT64ARRAY: &str = "__smelt_biguint64array";
+    /// `__smelt_blob`.
+    pub const SMELT_BLOB: &str = "__smelt_blob";
+    /// `__smelt_blob_bytes`.
+    pub const SMELT_BLOB_BYTES: &str = "__smelt_blob_bytes";
+    /// `__smelt_boolean`.
+    pub const SMELT_BOOLEAN: &str = "__smelt_boolean";
+    /// `__smelt_buffer`.
+    pub const SMELT_BUFFER: &str = "__smelt_buffer";
+    /// `__smelt_builtin_namespace`.
+    pub const SMELT_BUILTIN_NAMESPACE: &str = "__smelt_builtin_namespace";
+    /// `__smelt_builtin_prototype`.
+    pub const SMELT_BUILTIN_PROTOTYPE: &str = "__smelt_builtin_prototype";
+    /// `__smelt_call`.
+    pub const SMELT_CALL: &str = "__smelt_call";
+    /// `__smelt_class`.
+    pub const SMELT_CLASS: &str = "__smelt_class";
+    /// `__smelt_crypto_key`.
+    pub const SMELT_CRYPTO_KEY: &str = "__smelt_crypto_key";
+    /// `__smelt_databasesync`.
+    pub const SMELT_DATABASESYNC: &str = "__smelt_databasesync";
+    /// `__smelt_dataview`.
+    pub const SMELT_DATAVIEW: &str = "__smelt_dataview";
+    /// `__smelt_date`.
+    pub const SMELT_DATE: &str = "__smelt_date";
+    /// `__smelt_domexception`.
+    pub const SMELT_DOMEXCEPTION: &str = "__smelt_domexception";
+    /// `__smelt_error`.
+    pub const SMELT_ERROR: &str = "__smelt_error";
+    /// `__smelt_eventemitter`.
+    pub const SMELT_EVENTEMITTER: &str = "__smelt_eventemitter";
+    /// `__smelt_file`.
+    pub const SMELT_FILE: &str = "__smelt_file";
+    /// `__smelt_float32array`.
+    pub const SMELT_FLOAT32ARRAY: &str = "__smelt_float32array";
+    /// `__smelt_float64array`.
+    pub const SMELT_FLOAT64ARRAY: &str = "__smelt_float64array";
+    /// `__smelt_formdata`.
+    pub const SMELT_FORMDATA: &str = "__smelt_formdata";
+    /// `__smelt_generator`.
+    pub const SMELT_GENERATOR: &str = "__smelt_generator";
+    /// `__smelt_get`.
+    pub const SMELT_GET: &str = "__smelt_get";
+    /// `__smelt_get_callable_field`.
+    pub const SMELT_GET_CALLABLE_FIELD: &str = "__smelt_get_callable_field";
+    /// `__smelt_global_object`.
+    pub const SMELT_GLOBAL_OBJECT: &str = "__smelt_global_object";
+    /// `__smelt_hash`.
+    pub const SMELT_HASH: &str = "__smelt_hash";
+    /// `__smelt_headers`.
+    pub const SMELT_HEADERS: &str = "__smelt_headers";
+    /// `__smelt_httpserver`.
+    pub const SMELT_HTTPSERVER: &str = "__smelt_httpserver";
+    /// `__smelt_incomingmessage`.
+    pub const SMELT_INCOMINGMESSAGE: &str = "__smelt_incomingmessage";
+    /// `__smelt_int16array`.
+    pub const SMELT_INT16ARRAY: &str = "__smelt_int16array";
+    /// `__smelt_int32array`.
+    pub const SMELT_INT32ARRAY: &str = "__smelt_int32array";
+    /// `__smelt_int8array`.
+    pub const SMELT_INT8ARRAY: &str = "__smelt_int8array";
+    /// `__smelt_intl_collator`.
+    pub const SMELT_INTL_COLLATOR: &str = "__smelt_intl_collator";
+    /// `__smelt_intl_displaynames`.
+    pub const SMELT_INTL_DISPLAYNAMES: &str = "__smelt_intl_displaynames";
+    /// `__smelt_intl_durationformat`.
+    pub const SMELT_INTL_DURATIONFORMAT: &str = "__smelt_intl_durationformat";
+    /// `__smelt_intl_listformat`.
+    pub const SMELT_INTL_LISTFORMAT: &str = "__smelt_intl_listformat";
+    /// `__smelt_intl_locale`.
+    pub const SMELT_INTL_LOCALE: &str = "__smelt_intl_locale";
+    /// `__smelt_intl_numberformat`.
+    pub const SMELT_INTL_NUMBERFORMAT: &str = "__smelt_intl_numberformat";
+    /// `__smelt_intl_pluralrules`.
+    pub const SMELT_INTL_PLURALRULES: &str = "__smelt_intl_pluralrules";
+    /// `__smelt_intl_segmenter`.
+    pub const SMELT_INTL_SEGMENTER: &str = "__smelt_intl_segmenter";
+    /// `__smelt_map`.
+    pub const SMELT_MAP: &str = "__smelt_map";
+    /// `__smelt_method`.
+    pub const SMELT_METHOD: &str = "__smelt_method";
+    /// `__smelt_native_ctor`.
+    pub const SMELT_NATIVE_CTOR: &str = "__smelt_native_ctor";
+    /// `__smelt_number`.
+    pub const SMELT_NUMBER: &str = "__smelt_number";
+    /// `__smelt_proto`.
+    pub const SMELT_PROTO: &str = "__smelt_proto";
+    /// `__smelt_readablestream`.
+    pub const SMELT_READABLESTREAM: &str = "__smelt_readablestream";
+    /// `__smelt_regexp`.
+    pub const SMELT_REGEXP: &str = "__smelt_regexp";
+    /// `__smelt_request`.
+    pub const SMELT_REQUEST: &str = "__smelt_request";
+    /// `__smelt_response`.
+    pub const SMELT_RESPONSE: &str = "__smelt_response";
+    /// `__smelt_serverresponse`.
+    pub const SMELT_SERVERRESPONSE: &str = "__smelt_serverresponse";
+    /// `__smelt_set`.
+    pub const SMELT_SET: &str = "__smelt_set";
+    /// `__smelt_set_field`.
+    pub const SMELT_SET_FIELD: &str = "__smelt_set_field";
+    /// `__smelt_sharedarraybuffer`.
+    pub const SMELT_SHAREDARRAYBUFFER: &str = "__smelt_sharedarraybuffer";
+    /// `__smelt_statementsync`.
+    pub const SMELT_STATEMENTSYNC: &str = "__smelt_statementsync";
+    /// `__smelt_string`.
+    pub const SMELT_STRING: &str = "__smelt_string";
+    /// `__smelt_symbol`.
+    pub const SMELT_SYMBOL: &str = "__smelt_symbol";
+    /// `__smelt_symbol_async_iterator`.
+    pub const SMELT_SYMBOL_ASYNC_ITERATOR: &str = "__smelt_symbol_async_iterator";
+    /// `__smelt_symbol_has_instance`.
+    pub const SMELT_SYMBOL_HAS_INSTANCE: &str = "__smelt_symbol_has_instance";
+    /// `__smelt_symbol_is_concat_spreadable`.
+    pub const SMELT_SYMBOL_IS_CONCAT_SPREADABLE: &str = "__smelt_symbol_is_concat_spreadable";
+    /// `__smelt_symbol_iterator`.
+    pub const SMELT_SYMBOL_ITERATOR: &str = "__smelt_symbol_iterator";
+    /// `__smelt_symbol_match`.
+    pub const SMELT_SYMBOL_MATCH: &str = "__smelt_symbol_match";
+    /// `__smelt_symbol_match_all`.
+    pub const SMELT_SYMBOL_MATCH_ALL: &str = "__smelt_symbol_match_all";
+    /// `__smelt_symbol_replace`.
+    pub const SMELT_SYMBOL_REPLACE: &str = "__smelt_symbol_replace";
+    /// `__smelt_symbol_search`.
+    pub const SMELT_SYMBOL_SEARCH: &str = "__smelt_symbol_search";
+    /// `__smelt_symbol_species`.
+    pub const SMELT_SYMBOL_SPECIES: &str = "__smelt_symbol_species";
+    /// `__smelt_symbol_split`.
+    pub const SMELT_SYMBOL_SPLIT: &str = "__smelt_symbol_split";
+    /// `__smelt_symbol_to_primitive`.
+    pub const SMELT_SYMBOL_TO_PRIMITIVE: &str = "__smelt_symbol_to_primitive";
+    /// `__smelt_symbol_to_string_tag`.
+    pub const SMELT_SYMBOL_TO_STRING_TAG: &str = "__smelt_symbol_to_string_tag";
+    /// `__smelt_symbol_unscopables`.
+    pub const SMELT_SYMBOL_UNSCOPABLES: &str = "__smelt_symbol_unscopables";
+    /// `__smelt_textdecoder`.
+    pub const SMELT_TEXTDECODER: &str = "__smelt_textdecoder";
+    /// `__smelt_textencoder`.
+    pub const SMELT_TEXTENCODER: &str = "__smelt_textencoder";
+    /// `__smelt_timezone`.
+    pub const SMELT_TIMEZONE: &str = "__smelt_timezone";
+    /// `__smelt_uint16array`.
+    pub const SMELT_UINT16ARRAY: &str = "__smelt_uint16array";
+    /// `__smelt_uint32array`.
+    pub const SMELT_UINT32ARRAY: &str = "__smelt_uint32array";
+    /// `__smelt_uint8array`.
+    pub const SMELT_UINT8ARRAY: &str = "__smelt_uint8array";
+    /// `__smelt_uint8clampedarray`.
+    pub const SMELT_UINT8CLAMPEDARRAY: &str = "__smelt_uint8clampedarray";
+    /// `__smelt_url`.
+    pub const SMELT_URL: &str = "__smelt_url";
+    /// `__smelt_urlsearchparams`.
+    pub const SMELT_URLSEARCHPARAMS: &str = "__smelt_urlsearchparams";
+    /// `__smelt_vitest_mock`.
+    pub const SMELT_VITEST_MOCK: &str = "__smelt_vitest_mock";
+    /// `__smelt_weakmap`.
+    pub const SMELT_WEAKMAP: &str = "__smelt_weakmap";
+    /// `__smelt_weakset`.
+    pub const SMELT_WEAKSET: &str = "__smelt_weakset";
+
+    /// Every key above.
+    pub const ALL: &[&str] = &[
+        SMELT_ABORT_FOLLOWS,
+        SMELT_ABORT_LISTENERS,
+        SMELT_ABORTCONTROLLER,
+        SMELT_ABORTSIGNAL,
+        SMELT_ARGUMENTS,
+        SMELT_ARRAYBUFFER,
+        SMELT_ASYMMETRIC,
+        SMELT_BIGINT64ARRAY,
+        SMELT_BIGUINT64ARRAY,
+        SMELT_BLOB,
+        SMELT_BLOB_BYTES,
+        SMELT_BOOLEAN,
+        SMELT_BUFFER,
+        SMELT_BUILTIN_NAMESPACE,
+        SMELT_BUILTIN_PROTOTYPE,
+        SMELT_CALL,
+        SMELT_CLASS,
+        SMELT_CRYPTO_KEY,
+        SMELT_DATABASESYNC,
+        SMELT_DATAVIEW,
+        SMELT_DATE,
+        SMELT_DOMEXCEPTION,
+        SMELT_ERROR,
+        SMELT_EVENTEMITTER,
+        SMELT_FILE,
+        SMELT_FLOAT32ARRAY,
+        SMELT_FLOAT64ARRAY,
+        SMELT_FORMDATA,
+        SMELT_GENERATOR,
+        SMELT_GET,
+        SMELT_GET_CALLABLE_FIELD,
+        SMELT_GLOBAL_OBJECT,
+        SMELT_HASH,
+        SMELT_HEADERS,
+        SMELT_HTTPSERVER,
+        SMELT_INCOMINGMESSAGE,
+        SMELT_INT16ARRAY,
+        SMELT_INT32ARRAY,
+        SMELT_INT8ARRAY,
+        SMELT_INTL_COLLATOR,
+        SMELT_INTL_DISPLAYNAMES,
+        SMELT_INTL_DURATIONFORMAT,
+        SMELT_INTL_LISTFORMAT,
+        SMELT_INTL_LOCALE,
+        SMELT_INTL_NUMBERFORMAT,
+        SMELT_INTL_PLURALRULES,
+        SMELT_INTL_SEGMENTER,
+        SMELT_MAP,
+        SMELT_METHOD,
+        SMELT_NATIVE_CTOR,
+        SMELT_NUMBER,
+        SMELT_PROTO,
+        SMELT_READABLESTREAM,
+        SMELT_REGEXP,
+        SMELT_REQUEST,
+        SMELT_RESPONSE,
+        SMELT_SERVERRESPONSE,
+        SMELT_SET,
+        SMELT_SET_FIELD,
+        SMELT_SHAREDARRAYBUFFER,
+        SMELT_STATEMENTSYNC,
+        SMELT_STRING,
+        SMELT_SYMBOL,
+        SMELT_SYMBOL_ASYNC_ITERATOR,
+        SMELT_SYMBOL_HAS_INSTANCE,
+        SMELT_SYMBOL_IS_CONCAT_SPREADABLE,
+        SMELT_SYMBOL_ITERATOR,
+        SMELT_SYMBOL_MATCH,
+        SMELT_SYMBOL_MATCH_ALL,
+        SMELT_SYMBOL_REPLACE,
+        SMELT_SYMBOL_SEARCH,
+        SMELT_SYMBOL_SPECIES,
+        SMELT_SYMBOL_SPLIT,
+        SMELT_SYMBOL_TO_PRIMITIVE,
+        SMELT_SYMBOL_TO_STRING_TAG,
+        SMELT_SYMBOL_UNSCOPABLES,
+        SMELT_TEXTDECODER,
+        SMELT_TEXTENCODER,
+        SMELT_TIMEZONE,
+        SMELT_UINT16ARRAY,
+        SMELT_UINT32ARRAY,
+        SMELT_UINT8ARRAY,
+        SMELT_UINT8CLAMPEDARRAY,
+        SMELT_URL,
+        SMELT_URLSEARCHPARAMS,
+        SMELT_VITEST_MOCK,
+        SMELT_WEAKMAP,
+        SMELT_WEAKSET,
+    ];
+}
+
+/// The spellings `smelt smelt-unknown-report` treats as a genuine dynamic boundary.
+///
+/// A generated line holding one of these is classified as a legitimate use of the
+/// erased carrier. Why each one is a real boundary, and the test proving a concrete
+/// type cannot replace it, is recorded where the report lists them. They live here
+/// because the report reads text the emitter writes and the runtime defines, and a
+/// rename on either side must not silently change what the report counts.
+pub mod boundary {
+    /// An erased callable.
+    pub const FUNCTION_TAG: &str = "SmeltUnknown::Function";
+    /// An erased promise.
+    pub const PROMISE_TAG: &str = "SmeltUnknown::Promise";
+    /// An erased symbol value.
+    pub const SYMBOL_TAG: &str = "SmeltUnknown::Symbol";
+    /// A symbol recovered from its property key.
+    pub const OWN_SYMBOL_KEY_VALUE: &str = "smelt_own_symbol_key_value";
+    /// `JSON.parse`.
+    pub const JSON_PARSE_CALL: &str = "smelt_json_parse(";
+    /// A `node:sqlite` multi-row read.
+    pub const SQLITE_ALL_CALL: &str = "smelt_sqlite_all(";
+    /// A `node:sqlite` single-row read.
+    pub const SQLITE_GET_CALL: &str = "smelt_sqlite_get(";
+    /// The erasure trait.
+    pub const INTO_TRAIT: &str = "IntoSmeltUnknown";
+    /// The erasure trait's method.
+    pub const INTO_METHOD: &str = "into_smelt_unknown";
+    /// The by-reference erasure method.
+    pub const TO_METHOD: &str = "to_smelt_unknown";
+    /// The `typeof` type-test method.
+    pub const JS_TYPEOF: &str = "js_typeof";
+    /// The `typeof` helper.
+    pub const TYPEOF_CALL: &str = "smelt_typeof(";
+    /// A runtime tag narrowing.
+    pub const TAG_CHECK: &str = "tag_check";
+    /// The `smelt_unknown_is_*` tag predicates.
+    pub const UNKNOWN_IS_PREFIX: &str = "smelt_unknown_is_";
+    /// A throw.
+    pub const THROW_CALL: &str = "smelt_throw(";
+    /// A caught value.
+    pub const THROWN_VALUE_CALL: &str = "smelt_thrown_value(";
+    /// A thrown string.
+    pub const THROWN_STRING: &str = "SmeltUnknown::String(__smelt_error";
+    /// An erased slice value.
+    pub const SLICE_VALUE: &str = "smelt_slice_value";
+    /// A callable object's slot.
+    pub const CALL_SLOT: &str = "__smelt_call";
+    /// Installing a dynamic `this`.
+    pub const PUSH_THIS_CALL: &str = "smelt_push_this(";
+    /// Installing a lazily built dynamic `this`.
+    pub const PUSH_THIS_LAZY_CALL: &str = "smelt_push_this_lazy(";
+    /// Reading the dynamic `this`.
+    pub const THIS_CALL: &str = "smelt_this()";
+    /// Binding a receiver.
+    pub const BIND_THIS_CALL: &str = "smelt_bind_this(";
+    /// A class's prototype entries, as the generated local.
+    pub const PROTO_ENTRIES_LOCAL: &str = "__smelt_proto_entries";
+    /// A class's prototype entries.
+    pub const PROTO_ENTRIES: &str = "smelt_proto_entries";
+    /// An erased member read.
+    pub const GET_UNKNOWN_FIELD_CALL: &str = "smelt_get_unknown_field(";
+    /// `globalThis`.
+    pub const GLOBAL_OBJECT_CALL: &str = "smelt_global_object(";
+    /// A write through an erased target.
+    pub const UNKNOWN_ASSIGN_CALL: &str = "smelt_unknown_assign(";
+    /// An erased `Error.cause` field.
+    pub const ERROR_CAUSE_FIELD: &str = "cause: SmeltUnknown";
+    /// `JSON.stringify` through the carrier.
+    pub const JSON_TO_STRING: &str = "serde_json::to_string(&";
+    /// A generated conversion testing for a marker.
+    pub const MARKER_TEST: &str = "if value.contains_key(\"__smelt_";
+    /// A generated conversion testing an error brand.
+    pub const ERROR_BRAND_TEST: &str = "if matches!(value.get(\"__smelt_error\")";
+    /// A generated conversion testing a class brand.
+    pub const CLASS_BRAND_TEST: &str = "if matches!(value.get(\"__smelt_class\")";
+    /// A class's generated keyed field write.
+    pub const SET_FIELD_FN: &str = "fn __smelt_set_field(";
+    /// A class's generated keyed callable read.
+    pub const GET_CALLABLE_FIELD_FN: &str = "fn __smelt_get_callable_field(";
+    /// A live member read off an erased view.
+    pub const LIVE_MEMBER_CALL: &str = "smelt_live_member(";
+}

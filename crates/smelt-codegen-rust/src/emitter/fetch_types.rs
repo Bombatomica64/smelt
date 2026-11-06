@@ -481,7 +481,7 @@ impl FunctionEmitter<'_> {
                 self.js_string_coercion_match_text("smelt_input", self.absent_spelling());
             format!(
                 "match {erased} {{ \
-                 SmeltUnknown::Object(value) if value.contains_key(\"__smelt_request\") => {{ \
+                 SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_REQUEST}\") => {{ \
                  let smelt_input_request = <SmeltRequest as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)); \
                  {source_request} }}, \
                  smelt_input => {{ let smelt_input_url = {coerced}; {source_url} }} }}"

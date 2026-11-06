@@ -772,7 +772,7 @@ impl FunctionEmitter<'_> {
         let Some(_guard) = self.enter_type_expansion(source, target) else {
             return Ok(None);
         };
-        let slot_text = format!("{value_text}.__smelt_call.clone()");
+        let slot_text = format!("{value_text}.{SMELT_CALL}.clone()");
         Ok(Some(self.value_at_type_text(&slot_text, call_ty, target, scope)?))
     }
 
@@ -849,7 +849,7 @@ impl FunctionEmitter<'_> {
         };
         let mut call_slot = None;
         for field in &fields {
-            if self.symbol_name(field.name)? == "__smelt_call" {
+            if self.symbol_name(field.name)? == SMELT_CALL {
                 call_slot = Some(field.ty);
             } else if !matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
                 return Ok(None);
@@ -861,7 +861,7 @@ impl FunctionEmitter<'_> {
         let mut field_text = Vec::new();
         for field in &fields {
             let raw_name = self.symbol_name(field.name)?;
-            let value = if raw_name == "__smelt_call" {
+            let value = if raw_name == SMELT_CALL {
                 self.callable_interface_slot_value_text(value_text, source, call_slot_ty, scope)?
             } else {
                 self.default_value(field.ty)?
@@ -2465,7 +2465,7 @@ impl FunctionEmitter<'_> {
         // it reads), so take an owned copy rather than deep-copying it a second time.
         let smelt_owned_value = cloned_value_text(value_text);
         format!(
-            "match {smelt_owned_value} {{ SmeltUnknown::Object(value) if value.contains_key(\"__smelt_date\") => SmeltUnknown::Object(value), SmeltUnknown::Number(value) => SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_date\".to_owned(), SmeltUnknown::Number(value))]))), value => value }}"
+            "match {smelt_owned_value} {{ SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_DATE}\") => SmeltUnknown::Object(value), SmeltUnknown::Number(value) => SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"{SMELT_DATE}\".to_owned(), SmeltUnknown::Number(value))]))), value => value }}"
         )
     }
 
@@ -2659,7 +2659,7 @@ impl FunctionEmitter<'_> {
         } else {
             let class_name = self.symbol_source_name(*name)?;
             format!(
-                "smelt_object_entries.push((\"__smelt_class\".to_owned(), SmeltUnknown::String({class_name:?}.into()))); "
+                "smelt_object_entries.push((\"{SMELT_CLASS}\".to_owned(), SmeltUnknown::String({class_name:?}.into()))); "
             )
         };
         // A reference record's JS identity is its shared cell, so every erasure
@@ -2784,7 +2784,7 @@ impl FunctionEmitter<'_> {
             }
             if smelt_stdlib::is_error_class_name(base_name) {
                 markers.push((
-                    "__smelt_error",
+                    SMELT_ERROR,
                     format!("SmeltUnknown::String({base_name:?}.into())"),
                 ));
                 break;
@@ -3230,7 +3230,7 @@ impl FunctionEmitter<'_> {
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!(
-                    " smelt_function_value @ SmeltUnknown::Function(_) => {{ let smelt_record_map = SmeltRecord::from_iter([(\"__smelt_call\".to_owned(), smelt_function_value.clone()), {entries}].into_iter().filter(|(_, value)| !matches!(value, SmeltUnknown::Undefined))); {adapter} }},"
+                    " smelt_function_value @ SmeltUnknown::Function(_) => {{ let smelt_record_map = SmeltRecord::from_iter([(\"{SMELT_CALL}\".to_owned(), smelt_function_value.clone()), {entries}].into_iter().filter(|(_, value)| !matches!(value, SmeltUnknown::Undefined))); {adapter} }},"
                 )
             } else {
                 String::new()
@@ -3260,7 +3260,7 @@ impl FunctionEmitter<'_> {
         let mut keys = Vec::new();
         for field in &fields {
             let key = self.symbol_source_name(field.name)?;
-            if key == "__smelt_call" {
+            if key == SMELT_CALL {
                 has_call = true;
             } else {
                 keys.push(key.to_owned());
@@ -3383,10 +3383,10 @@ impl FunctionEmitter<'_> {
                 "match {smelt_owned_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), {smelt_bigint_arm}SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => !::num_traits::Zero::is_zero(&value),")
             )),
             Some(Type::Float) => Ok(format!(
-                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
+                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
             )),
             Some(Type::Int) => Ok(format!(
-                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => smelt_string_to_number(&value) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value) as i64,")
+                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => smelt_string_to_number(&value) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value) as i64,")
             )),
             // Reading an erased value out into a `String` slot is not the JS
             // `String(x)` CONVERSION -- nothing in the source asked for one; the
@@ -3445,7 +3445,7 @@ impl FunctionEmitter<'_> {
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
                 Ok(format!(
-                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => value.smelt_shared_record(), SmeltUnknown::Array(values) => values.own_entries().into_iter().collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string().into()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"__smelt_call\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }}"
+                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => value.smelt_shared_record(), SmeltUnknown::Array(values) => values.own_entries().into_iter().collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string().into()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"{SMELT_CALL}\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }}"
                 ))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
@@ -3631,7 +3631,7 @@ impl FunctionEmitter<'_> {
                         .unwrap_or_else(|| function.rest.unwrap_or(function.params.len()));
                     let default_callback = self.default_value(target)?;
                     return Ok(format!(
-                        "{{ let smelt_value = {smelt_owned_text}; let smelt_function = match smelt_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ SmeltErasedFunction {{ callback: ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| (smelt_function)(smelt_args).unwrap_or_else(|error| smelt_panic_throw(error))), length: {length}.0, object: match smelt_value {{ SmeltUnknown::Object(object) => Some(object), _ => None }} }} }} else {{ {default_callback} }} }}"
+                        "{{ let smelt_value = {smelt_owned_text}; let smelt_function = match smelt_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ SmeltErasedFunction {{ callback: ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| (smelt_function)(smelt_args).unwrap_or_else(|error| smelt_panic_throw(error))), length: {length}.0, object: match smelt_value {{ SmeltUnknown::Object(object) => Some(object), _ => None }} }} }} else {{ {default_callback} }} }}"
                     ));
                 }
                 // The callback slot and its return type render in `scope`, the
@@ -3702,7 +3702,7 @@ impl FunctionEmitter<'_> {
                     .collect::<Vec<_>>()
                     .join(", ");
                 Ok(format!(
-                    "{{ let smelt_source_value = {smelt_owned_text}; let smelt_function = match smelt_source_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: {target_text} = if let Some(smelt_original) = smelt_restore_function_origin::<{target_text}>(&smelt_function) {{ if matches!(smelt_source_value, SmeltUnknown::Object(_)) {{ ::std::rc::Rc::new(move |{params}| (smelt_original)({forwarded_args})) }} else {{ smelt_original }} }} else {{ ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }}) }}; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback }} else {{ {default_callback} }} }}"
+                    "{{ let smelt_source_value = {smelt_owned_text}; let smelt_function = match smelt_source_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: {target_text} = if let Some(smelt_original) = smelt_restore_function_origin::<{target_text}>(&smelt_function) {{ if matches!(smelt_source_value, SmeltUnknown::Object(_)) {{ ::std::rc::Rc::new(move |{params}| (smelt_original)({forwarded_args})) }} else {{ smelt_original }} }} else {{ ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }}) }}; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback }} else {{ {default_callback} }} }}"
                 ))
             }
             // An already-erased `SmeltUnknown` at a `Type::Future` position is a
@@ -4009,9 +4009,9 @@ fn erased_to_list_text(text: &str, item_text: Option<&str>, char_text: &str) -> 
          SmeltUnknown::Object(value) => \
          if let Some(smelt_bytes) = {byte_buffer_elements}(&SmeltUnknown::Object(value.clone())) {{ {bytes_arm} }} \
          else if let Some(smelt_args) = {arguments_elements}(&value) {{ {arguments_arm} }} \
-         else if let Some(SmeltUnknown::Array(pairs)) = value.get(\"__smelt_map\") {{ {map_arm} }} \
-         else if let Some(SmeltUnknown::Array(members)) = value.get(\"__smelt_set\") {{ {set_arm} }} \
-         else {{ match value.get(\"__smelt_symbol_iterator\") {{ \
+         else if let Some(SmeltUnknown::Array(pairs)) = value.get(\"{SMELT_MAP}\") {{ {map_arm} }} \
+         else if let Some(SmeltUnknown::Array(members)) = value.get(\"{SMELT_SET}\") {{ {set_arm} }} \
+         else {{ match value.get(\"{SMELT_SYMBOL_ITERATOR}\") {{ \
          Some(SmeltUnknown::Function(iterator)) => {iterator_arm}, \
          _ => panic!(\"unknown is not iterable\") }} }}, \
          _ => panic!(\"unknown is not iterable\") }} }}"

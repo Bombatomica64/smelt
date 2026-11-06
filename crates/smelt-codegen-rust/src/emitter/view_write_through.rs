@@ -22,6 +22,7 @@
 //! of it, so a program that never writes a property through an erased value
 //! is emitted exactly as before.
 
+use smelt_stdlib::runtime_symbols::markers::{SMELT_GET_CALLABLE_FIELD, SMELT_SET_FIELD};
 use smelt_hir::Type;
 use smelt_mir::{Mir, Place, Statement};
 
@@ -31,14 +32,14 @@ use super::{EmitError, FunctionEmitter};
 pub(crate) const SET_FIELD_KEY: &str = "__smelt_method:__smelt_set_field";
 
 /// Name of the generated per-class field setter method.
-pub(crate) const SET_FIELD_METHOD: &str = "__smelt_set_field";
+pub(crate) const SET_FIELD_METHOD: &str = SMELT_SET_FIELD;
 
 /// Erased-view key of the live callable-member read hook (see
 /// [`LIVE_MEMBER_PRELUDE`]).
 pub(crate) const GET_CALLABLE_KEY: &str = "__smelt_method:__smelt_get_callable_field";
 
 /// Name of the generated per-class live callable-field getter method.
-pub(crate) const GET_CALLABLE_METHOD: &str = "__smelt_get_callable_field";
+pub(crate) const GET_CALLABLE_METHOD: &str = SMELT_GET_CALLABLE_FIELD;
 
 /// Return whether any function or closure writes a named property through an
 /// erased (`unknown`, type-parameter, or union) value.

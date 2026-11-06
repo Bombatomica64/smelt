@@ -43,11 +43,11 @@ impl FunctionEmitter<'_> {
         // `indirect_call_text` applies to a plain function-typed field.
         let slot_text = if self.operand_reads_through_ref_cell(callee) {
             format!(
-                "{{ let smelt_callable_slot = {}.__smelt_call.clone(); smelt_callable_slot }}",
+                "{{ let smelt_callable_slot = {}.{SMELT_CALL}.clone(); smelt_callable_slot }}",
                 self.operand_text(callee)?
             )
         } else {
-            format!("{}.__smelt_call.clone()", self.operand_text(callee)?)
+            format!("{}.{SMELT_CALL}.clone()", self.operand_text(callee)?)
         };
         let (call_text, source_ty) =
             if self.is_erased_unknown_rest_function(&function) && !function.may_throw {
@@ -148,7 +148,7 @@ impl FunctionEmitter<'_> {
         // deep-copying it a second time.
         let callee_text = &cloned_value_text(callee_text);
         format!(
-            "{{ let smelt_function_value = {callee_text}; let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_expr}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| smelt_panic_throw(error)) }} else {{ {fallback} }} }}",
+            "{{ let smelt_function_value = {callee_text}; let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_expr}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| smelt_panic_throw(error)) }} else {{ {fallback} }} }}",
             fallback = not_callable.map_or_else(
                 || "SmeltUnknown::Null".to_owned(),
                 |description| format!("smelt_throw_not_callable({description:?})")
@@ -2412,7 +2412,7 @@ impl FunctionEmitter<'_> {
                 self.value_at_type(expected, self.type_id(Type::Unknown)?)?
             )),
             Rvalue::DateTimezoneContext { timezone } => Ok(format!(
-                "{{ let smelt_timezone_name = {}; let smelt_timezone: chrono_tz::Tz = smelt_timezone_name.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(move |value: SmeltUnknown| -> SmeltUnknown {{ let timestamp_ms = match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}; let local_timestamp_ms = if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map_or(f64::NAN, |date| date.with_timezone(&smelt_timezone).naive_local().and_utc().timestamp_millis() as f64) }} else {{ f64::NAN }}; SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_date\".to_owned(), SmeltUnknown::Number(local_timestamp_ms)), (\"__smelt_timezone\".to_owned(), SmeltUnknown::String(smelt_timezone_name.clone().into()))]))) }}) }}",
+                "{{ let smelt_timezone_name = {}; let smelt_timezone: chrono_tz::Tz = smelt_timezone_name.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(move |value: SmeltUnknown| -> SmeltUnknown {{ let timestamp_ms = match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}; let local_timestamp_ms = if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map_or(f64::NAN, |date| date.with_timezone(&smelt_timezone).naive_local().and_utc().timestamp_millis() as f64) }} else {{ f64::NAN }}; SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"{SMELT_DATE}\".to_owned(), SmeltUnknown::Number(local_timestamp_ms)), (\"{SMELT_TIMEZONE}\".to_owned(), SmeltUnknown::String(smelt_timezone_name.clone().into()))]))) }}) }}",
                 self.operand_text(timezone)?,
                 self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
             )),
@@ -2778,7 +2778,7 @@ impl FunctionEmitter<'_> {
         {
             let callable_text = self.erase(callable)?;
             let mut entries = vec![format!(
-                "smelt_object.push((\"__smelt_call\".to_owned(), {callable_text}));"
+                "smelt_object.push((\"{SMELT_CALL}\".to_owned(), {callable_text}));"
             )];
             for (key, value) in props {
                 let key_text = self.symbol_source_name(*key)?;
@@ -2795,7 +2795,7 @@ impl FunctionEmitter<'_> {
             for spread in spreads {
                 let spread_text = self.erase(spread)?;
                 entries.push(format!(
-                    "if let SmeltUnknown::Object(smelt_spread) = {spread_text} {{ for (smelt_key, smelt_value) in smelt_spread.iter() {{ if smelt_key != \"__smelt_call\" {{ smelt_object.push((smelt_key, smelt_value)); }} }} }}"
+                    "if let SmeltUnknown::Object(smelt_spread) = {spread_text} {{ for (smelt_key, smelt_value) in smelt_spread.iter() {{ if smelt_key != \"{SMELT_CALL}\" {{ smelt_object.push((smelt_key, smelt_value)); }} }} }}"
                 ));
             }
             return Ok(format!(
@@ -2871,7 +2871,7 @@ impl FunctionEmitter<'_> {
         // destination is left to the ordinary record path.
         if !fields
             .iter()
-            .any(|field| self.symbol_name(field.name) == Ok("__smelt_call"))
+            .any(|field| self.symbol_name(field.name) == Ok(SMELT_CALL))
         {
             return Ok(None);
         }
@@ -2889,7 +2889,7 @@ impl FunctionEmitter<'_> {
         for field in &fields {
             let raw_name = self.symbol_name(field.name)?;
             let field_name = sanitize_ident(raw_name);
-            let value = if raw_name == "__smelt_call" {
+            let value = if raw_name == SMELT_CALL {
                 self.value_at_type(callable, field.ty)?
             } else if let Some(entry_value) = prop_values.get(&field_name) {
                 self.value_at_type(entry_value, field.ty)?
@@ -3066,7 +3066,7 @@ impl FunctionEmitter<'_> {
                     | "throwIfAborted"
             ) {
                 return Ok(format!(
-                    "match {scrutinee} {{ SmeltUnknown::Object(map) if smelt_host_method(&map, {field_name:?}).is_some() => smelt_host_method(&map, {field_name:?}).unwrap_or(SmeltUnknown::Undefined), SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
+                    "match {scrutinee} {{ SmeltUnknown::Object(map) if smelt_host_method(&map, {field_name:?}).is_some() => smelt_host_method(&map, {field_name:?}).unwrap_or(SmeltUnknown::Undefined), SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"{SMELT_GET}\") => match getter.remove(\"{SMELT_GET}\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
                 ));
             }
             // Every receiver shape through the ONE prelude read chain

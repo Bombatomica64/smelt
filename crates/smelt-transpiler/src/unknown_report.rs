@@ -637,9 +637,10 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
+    use smelt_stdlib::runtime_symbols::boundary;
     const BOUNDARY_MARKERS: [&str; 41] = [
-        "SmeltUnknown::Function",
-        "SmeltUnknown::Promise",
+        boundary::FUNCTION_TAG,
+        boundary::PROMISE_TAG,
         // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
         // meaning is a unique runtime identity with no static counterpart:
         // there is no struct, no generated union arm and no scoped generic that
@@ -651,7 +652,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // `computed_key_symbols::unique_symbol_key`). What stays erased is only
         // the symbol as a first-class VALUE. Proven in
         // `symbol_value_is_a_boundary` below.
-        "SmeltUnknown::Symbol",
+        boundary::SYMBOL_TAG,
         // Recovering a symbol VALUE from the property key it indexed:
         // `Object.getOwnPropertySymbols` and erased-Map enumeration hand a
         // stored key back to the program AS A SYMBOL through the emitted
@@ -666,7 +667,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // the call site needs its own marker to keep the classification it had
         // when the same conversion was spelled inline. Proven in
         // `symbol_key_inverse_is_a_boundary` below.
-        "smelt_own_symbol_key_value",
+        boundary::OWN_SYMBOL_KEY_VALUE,
         // Aliasing an erased generic array into another erased slot
         // (`crates/smelt-codegen-rust/src/erased_list_alias.rs`). A `T[]` whose
         // `T` is out of scope is rendered under the erased-generic ABI as
@@ -729,7 +730,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // names. A source that knows the shape writes `JSON.parse<T>` or
         // `as T`, which lower to a typed target and never reach this adapter
         // with an erased result. Proven in `untyped_json_parse_is_a_boundary`.
-        "smelt_json_parse(",
+        boundary::JSON_PARSE_CALL,
         // A `node:sqlite` ROW read (`statement.all(..)` / `statement.get(..)`):
         // the row's columns are whatever the SQL text selects, decided when the
         // statement runs — `SELECT *` over a table another program altered
@@ -739,12 +740,12 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // this list: they bind at their own Rust types (`SmeltSqliteBind`), so
         // an erased parameter still counts as avoidable. Proven in
         // `sqlite_row_read_is_a_boundary`.
-        "smelt_sqlite_all(",
-        "smelt_sqlite_get(",
-        "IntoSmeltUnknown",
-        "into_smelt_unknown",
-        "to_smelt_unknown",
-        "js_typeof",
+        boundary::SQLITE_ALL_CALL,
+        boundary::SQLITE_GET_CALL,
+        boundary::INTO_TRAIT,
+        boundary::INTO_METHOD,
+        boundary::TO_METHOD,
+        boundary::JS_TYPEOF,
         // `typeof` over an erased value reads that value's runtime tag: the same
         // runtime-narrowing boundary `js_typeof`/`tag_check` name, just factored
         // into one prelude helper instead of an inlined `match` per site (see
@@ -754,9 +755,9 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // comparable across a baseline diff. `typeof` over a CONCRETE union does
         // not reach this marker -- it stays an inline per-member match and names
         // no `SmeltUnknown` at all. Proven in `erased_typeof_call_is_a_boundary`.
-        "smelt_typeof(",
-        "tag_check",
-        "smelt_unknown_is_",
+        boundary::TYPEOF_CALL,
+        boundary::TAG_CHECK,
+        boundary::UNKNOWN_IS_PREFIX,
         // The exception-payload ABI (`crates/smelt-codegen-rust/src/thrown.rs`).
         // `throw` accepts any JavaScript value, a `catch` binding has no static
         // type, and every fallible generated function shares one error channel
@@ -770,8 +771,8 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // field-bearing record and a bare string through one function's channel on
         // a run-time branch and recovers both at a single `catch`: no concrete
         // type, generated union arm, or scoped generic can express that.
-        "smelt_throw(",
-        "smelt_thrown_value(",
+        boundary::THROW_CALL,
+        boundary::THROWN_VALUE_CALL,
         // The value a `finally` holds while its clause runs on an exceptional
         // exit (`smelt_mir::PENDING_THROWN_LOCAL`, see `lower_try_catch`): the
         // same exception payload as the two adapters above, parked between
@@ -796,14 +797,14 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // this to the recovery site: an ordinary `new Error(msg)` record built
         // from program values is unaffected and stays classified as it was.
         // Proven in `panic_recovery_payload_is_a_boundary` below.
-        "SmeltUnknown::String(__smelt_error",
+        boundary::THROWN_STRING,
         // `.slice()` on an erased receiver (a generic `T` / `unknown` value that
         // may be an array, string, or a typed-array/array-buffer marker at
         // runtime) emits a `smelt_slice_value` tag match that dispatches on the
         // `SmeltUnknown` variant — a genuine runtime-narrowing boundary. A
         // concrete type is unavailable precisely because the receiver is erased,
         // so this is a boundary adapter, not avoidable program-storage erasure.
-        "smelt_slice_value",
+        boundary::SLICE_VALUE,
         // The erased callable-object ABI. A TypeScript interface with call
         // signatures lowers to a record whose synthetic `__smelt_call` slot
         // holds the underlying callable; when the interface declares several
@@ -821,7 +822,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // (`ambiguous_same_arity_call_signatures_answer_the_erased_call_result`,
         // `call_beyond_every_declared_overload_arity_keeps_its_arguments`,
         // `same_arity_call_signatures_are_selected_by_argument_type`).
-        "__smelt_call",
+        boundary::CALL_SLOT,
         // The JavaScript `this` receiver channel
         // (`smelt_push_this`/`smelt_this`/`smelt_bind_this`, emitted for
         // `ExprKind::ThisRead` and `ExprKind::BindThis`). `this` is supplied by
@@ -838,10 +839,10 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // receiver types at runtime, and the callable's Rust signature is fixed
         // when it is created, before any of them is known. Proven in
         // `this_receiver_channel_is_a_boundary` below.
-        "smelt_push_this(",
-        "smelt_push_this_lazy(",
-        "smelt_this()",
-        "smelt_bind_this(",
+        boundary::PUSH_THIS_CALL,
+        boundary::PUSH_THIS_LAZY_CALL,
+        boundary::THIS_CALL,
+        boundary::BIND_THIS_CALL,
         // The erased class-prototype slot
         // (`crates/smelt-codegen-rust/src/class_proto.rs`). A generated class
         // keeps its concrete struct and its precisely typed inherent methods;
@@ -858,8 +859,8 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // middle, an erased result out. Proven in
         // `erased_class_prototype_slot_is_a_boundary` below and executed by
         // `crates/smelt-codegen-rust/tests/erased_class_method_runtime.rs`.
-        "__smelt_proto_entries",
-        "smelt_proto_entries",
+        boundary::PROTO_ENTRIES_LOCAL,
+        boundary::PROTO_ENTRIES,
         // The canonical erased property read
         // (`crates/smelt-codegen-rust/src/lib.rs`, `smelt_get_unknown_field`):
         // a member looked up by STRING NAME on a value whose static type is
@@ -874,7 +875,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // `match` whose `SmeltUnknown::Function(smelt_getter)` getter arm carried
         // the classification; the helper call is the same boundary, now spelled
         // once. Proven in `erased_property_read_is_a_boundary` below.
-        "smelt_get_unknown_field(",
+        boundary::GET_UNKNOWN_FIELD_CALL,
         // The ambient global object (`crates/smelt-codegen-rust/src/thrown.rs`,
         // `emit_global_object_support`). JavaScript's global object is an open
         // property bag that the program AND its host write to
@@ -885,8 +886,8 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // erased record, and `smelt_unknown_assign` is the in-place
         // `Object.assign` onto it. Proven in
         // `global_object_members_are_run_time_facts` below.
-        "smelt_global_object(",
-        "smelt_unknown_assign(",
+        boundary::GLOBAL_OBJECT_CALL,
+        boundary::UNKNOWN_ASSIGN_CALL,
         // An error record's `cause` slot. ES2022 types it `cause?: unknown`,
         // and that spelling is the canonical source-level dynamic boundary: the
         // value is whatever the program chose to attach to the error, so it is
@@ -908,7 +909,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // never remove (the injected slot in each constructor's `this`
         // literal), which kept `Error` subclasses out of the zero-erasure
         // examples corpus.
-        "cause: SmeltUnknown",
+        boundary::ERROR_CAUSE_FIELD,
         // Handing a value to the JSON serializer. `JSON.stringify` is specified
         // by ECMA-262, not by serde: an integral number has no fraction, a
         // non-finite number is `null`, an `undefined`/function/symbol property
@@ -925,7 +926,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // data. The marker is the adapter call itself (`serde_json::to_string(&`),
         // so a `Vec<SmeltUnknown>` or an erased local NEXT to it stays
         // avoidable — proven by `json_serializer_argument_is_a_boundary`.
-        "serde_json::to_string(&",
+        boundary::JSON_TO_STRING,
         // `instanceof HostClass` against a DYNAMIC or erased-class operand
         // (`crates/smelt-codegen-rust/src/emitter/call.rs`, the
         // `host_instance_markers` arm). Every modeled host object whose
@@ -960,7 +961,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // reach here at all: it folds to a `true`/`false` literal naming no
         // `SmeltUnknown`. Proven by
         // `host_brand_instanceof_guard_is_a_boundary` below.
-        "if value.contains_key(\"__smelt_",
+        boundary::MARKER_TEST,
         // `instanceof ErrorClass` against an erased operand — the sibling of
         // the rule directly above, and the case a `catch` binding IS. A
         // JavaScript error value carries its class in the `__smelt_error` brand
@@ -983,7 +984,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // beside it stays avoidable, and an `instanceof` over a concrete class
         // receiver folds to a literal that names no `SmeltUnknown` at all.
         // Proven by `error_brand_instanceof_guard_is_a_boundary` below.
-        "if matches!(value.get(\"__smelt_error\")",
+        boundary::ERROR_BRAND_TEST,
         // `instanceof UserClass` against an erased operand — the same guard for
         // a SOURCE class. An erased class instance records its class in the
         // hidden `__smelt_class` provenance marker (stamped by the struct
@@ -997,7 +998,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // thrown value of a class the catch site does not name. Narrow like its
         // siblings: the marker is the probe inside the guard's own `value`
         // binding. Proven by `user_class_instanceof_guard_is_a_boundary`.
-        "if matches!(value.get(\"__smelt_class\")",
+        boundary::CLASS_BRAND_TEST,
         // The write-through setter of a reference class's erased view
         // (`crates/smelt-codegen-rust/src/emitter/view_write_through.rs`). Its
         // `SmeltUnknown` parameter is the value an ERASED property write
@@ -1009,7 +1010,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // generic can carry "whatever an erased write stored under this key",
         // since one view receives writes for every field through one entry.
         // Proven by `view_write_through_setter_is_a_boundary`.
-        "fn __smelt_set_field(",
+        boundary::SET_FIELD_FN,
         // The read mirror of the setter above
         // (`view_write_through::reference_callable_field_getter_method_text`):
         // the CURRENT value of a callable own field, erased, for a member read
@@ -1021,10 +1022,10 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // no concrete type, union arm, or scoped generic can carry the result;
         // it is the `into_smelt_unknown` of one field on demand. Proven by
         // `live_callable_field_getter_is_a_boundary`.
-        "fn __smelt_get_callable_field(",
+        boundary::GET_CALLABLE_FIELD_FN,
         // The live member read that asks that getter first (the prelude's
         // `smelt_live_member`), called from a receiver-bound record slot.
-        "smelt_live_member(",
+        boundary::LIVE_MEMBER_CALL,
     ];
 
     // A JavaScript update-expression (`x++`/`++x`) used as a value snapshots its

@@ -50,6 +50,8 @@
     reason = "crate-visible helpers are shared with the parent module and the emitter shards"
 )]
 
+use smelt_stdlib::runtime_symbols::markers::SMELT_ERROR;
+
 
 /// Name of the generated adapter that enters the error channel.
 ///
@@ -96,7 +98,7 @@ pub(crate) fn error_payload_record_expr(class: &str, message_text: &str) -> Stri
 /// spelling of the same record.
 pub(crate) fn error_payload_record_expr_dyn(class_text: &str, message_text: &str) -> String {
     format!(
-        "SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String({class_text}.into())), (\"message\".to_owned(), SmeltUnknown::String({message_text}.into())), (\"stack\".to_owned(), SmeltUnknown::Undefined), (\"cause\".to_owned(), SmeltUnknown::Undefined)])))"
+        "SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"{SMELT_ERROR}\".to_owned(), SmeltUnknown::String({class_text}.into())), (\"message\".to_owned(), SmeltUnknown::String({message_text}.into())), (\"stack\".to_owned(), SmeltUnknown::Undefined), (\"cause\".to_owned(), SmeltUnknown::Undefined)])))"
     )
 }
 

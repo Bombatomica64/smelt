@@ -130,10 +130,10 @@ fn host_instance_markers(class_name: &str) -> Option<Vec<&'static str>> {
     // answers for them and their internal keys are hidden from `for...in` like
     // every other host record's.
     let subsystem = match class_name {
-        "Date" => "__smelt_date",
-        "RegExp" => "__smelt_regexp",
-        "Map" => "__smelt_map",
-        "Set" => "__smelt_set",
+        "Date" => SMELT_DATE,
+        "RegExp" => SMELT_REGEXP,
+        "Map" => SMELT_MAP,
+        "Set" => SMELT_SET,
         _ => return None,
     };
     Some(vec![subsystem])
@@ -677,7 +677,7 @@ impl FunctionEmitter<'_> {
         // binds through `get`, which yields a reference, so it must clone to
         // match the owned handle produced by the function arm.
         Ok(format!(
-            "{{ let smelt_function_value = smelt_timer_callback.clone(); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)({call_args}).map(|_| ()) }} else {{ Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) }} }}"
+            "{{ let smelt_function_value = smelt_timer_callback.clone(); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)({call_args}).map(|_| ()) }} else {{ Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) }} }}"
         ))
     }
 
@@ -1436,7 +1436,7 @@ impl FunctionEmitter<'_> {
         // absent handler (the resolved value still evaluates).
         if self.mir.types.get(self.operand_ty(callback)?) == Some(&Type::Unknown) {
             return Ok(format!(
-                "{{ let smelt_callable = match ({callback_text}).clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; match smelt_callable {{ Some(smelt_function) => (smelt_function)(vec![IntoSmeltUnknown::into_smelt_unknown({arg_expr})]).unwrap_or_else(|error| smelt_panic_throw(error)), None => {{ let _ = {arg_expr}; SmeltUnknown::Undefined }} }} }}"
+                "{{ let smelt_callable = match ({callback_text}).clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; match smelt_callable {{ Some(smelt_function) => (smelt_function)(vec![IntoSmeltUnknown::into_smelt_unknown({arg_expr})]).unwrap_or_else(|error| smelt_panic_throw(error)), None => {{ let _ = {arg_expr}; SmeltUnknown::Undefined }} }} }}"
             ));
         }
         if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callback)?) {
@@ -3552,7 +3552,7 @@ impl FunctionEmitter<'_> {
                 "value.contains_key(\"__smelt_error\")".to_owned()
             } else {
                 format!(
-                    "matches!(value.get(\"__smelt_error\"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == {class_name:?})"
+                    "matches!(value.get(\"{SMELT_ERROR}\"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == {class_name:?})"
                 )
             };
             if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
@@ -3600,11 +3600,11 @@ impl FunctionEmitter<'_> {
             let value_text = self.operand_text(value)?;
             if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
                 return Ok(format!(
-                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_arraybuffer\"))"
+                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"{SMELT_ARRAYBUFFER}\"))"
                 ));
             }
             return Ok(format!(
-                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_arraybuffer\"))"
+                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_ARRAYBUFFER}\"))"
             ));
         }
         // A CONCRETE blob answers both spellings statically: it always is a
@@ -3630,11 +3630,11 @@ impl FunctionEmitter<'_> {
             let value_text = self.operand_text(value)?;
             if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
                 return Ok(format!(
-                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_blob\"))"
+                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"{SMELT_BLOB}\"))"
                 ));
             }
             return Ok(format!(
-                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_blob\"))"
+                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_BLOB}\"))"
             ));
         }
         if class_name == "Number"
@@ -3646,11 +3646,11 @@ impl FunctionEmitter<'_> {
             let value_text = self.operand_text(value)?;
             if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
                 return Ok(format!(
-                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_number\"))"
+                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"{SMELT_NUMBER}\"))"
                 ));
             }
             return Ok(format!(
-                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_number\"))"
+                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_NUMBER}\"))"
             ));
         }
         if class_name == "Promise"
@@ -3790,7 +3790,7 @@ impl FunctionEmitter<'_> {
             }
         }
         let probe = format!(
-            "matches!(value.get(\"__smelt_class\"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, {}))",
+            "matches!(value.get(\"{SMELT_CLASS}\"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, {}))",
             names.join(" | ")
         );
         let value_text = self.operand_text(value)?;
