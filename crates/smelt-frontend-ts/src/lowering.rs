@@ -883,8 +883,8 @@ struct ModuleBuilder<'ctx> {
     /// [`state::lowering_mode::UnknownIndexAccess`].
     unknown_index_access: state::lowering_mode::UnknownIndexAccess,
     /// Provenance of source names this module did not declare: value,
-    /// type-only and namespace imports, test builtins, `@date-fns/tz`
-    /// factories, and `globalThis` aliases.
+    /// type-only and namespace imports, test builtins, and `globalThis`
+    /// aliases.
     ///
     /// See [`state::import_scope::ImportScope`] for what it does and does not
     /// guarantee about those sets.

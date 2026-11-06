@@ -378,6 +378,18 @@ const fn helper_backed(class_name: &'static str, marker: &'static str) -> HostOb
     entry(class_name, marker, class_name, HostKind::HelperBacked)
 }
 
+/// Host constructors a program reads the output of and Smelt has no model for.
+///
+/// Constructing one is a blocker rather than a marker-only host object, because
+/// the value would be consulted for behaviour Smelt does not provide.
+pub const UNMODELED_HOST_CONSTRUCTORS: &[&str] = &["Intl.DateTimeFormat", "Intl.RelativeTimeFormat"];
+
+/// Ambient namespace objects whose unclaimed member calls are blockers.
+///
+/// Every modeled member call of these is claimed by a rule of its own; what
+/// reaches the end of the call dispatch has no host behaviour behind it.
+pub const UNMODELED_CALL_NAMESPACES: &[&str] = &["Intl", "process"];
+
 /// The canonical set of host objects whose identity Smelt models with a dedicated
 /// marker record.
 ///
@@ -543,10 +555,8 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     // to probe host identity (`isPlainObject(new Intl.Locale('en')) === false`);
     // none of their structural surface is read, so each is a marker-only host
     // object keyed by its full qualified path (the construction site is always
-    // `new Intl.<Constructor>(...)`). `Intl.DateTimeFormat` and
-    // `Intl.RelativeTimeFormat` are deliberately absent: the opaque-formatter
-    // model claims them first and never stamps a marker (see
-    // `intl_date_time_format_constructor_expression`).
+    // `new Intl.<Constructor>(...)`). The formatters read for their output are
+    // in `UNMODELED_HOST_CONSTRUCTORS` instead.
     host("Intl.Collator", "__smelt_intl_collator"),
     host("Intl.DisplayNames", "__smelt_intl_displaynames"),
     host("Intl.DurationFormat", "__smelt_intl_durationformat"),

@@ -2,8 +2,7 @@
 //!
 //! [`ImportScope`] owns the name sets that record where a binding came from:
 //! value imports, type-only imports, namespace imports (`import * as ns`), the
-//! Vitest-compatible test builtins, the `tz` factories from `@date-fns/tz`, and
-//! the locals statically known to alias the ambient global object
+//! Vitest-compatible test builtins, and the locals statically known to alias the ambient global object
 //! (`const g = globalThis`).
 //!
 //! # What this struct owns
@@ -35,8 +34,6 @@ pub(in crate::lowering) struct ImportScope {
     namespaces: HashSet<String>,
     /// Test-framework API names imported from Vitest-compatible modules.
     test_builtins: HashSet<String>,
-    /// Local names bound to `tz` from the `@date-fns/tz` package.
-    date_fns_timezone_factories: HashSet<String>,
     /// Value imports whose module is neither a source file nor an implemented
     /// host-module export, mapped to the blocker message their first *use*
     /// must report.
@@ -137,16 +134,6 @@ impl ImportScope {
         self.test_builtins.contains(name)
     }
 
-    /// Record a local bound to `tz` from `@date-fns/tz`.
-    pub(in crate::lowering) fn mark_date_fns_timezone_factory(&mut self, local: String) {
-        self.date_fns_timezone_factories.insert(local);
-    }
-
-    /// Return whether a name is a `@date-fns/tz` timezone factory.
-    pub(in crate::lowering) fn is_date_fns_timezone_factory(&self, name: &str) -> bool {
-        self.date_fns_timezone_factories.contains(name)
-    }
-
     /// Record a value import that has no modeled runtime surface.
     ///
     /// `blocker` is the message [`Self::unresolved_value_import`] hands to the
@@ -212,12 +199,10 @@ mod tests {
         let mut imports = ImportScope::default();
         imports.mark_global_object_alias("g".to_owned());
         imports.mark_test_builtin("expect".to_owned());
-        imports.mark_date_fns_timezone_factory("tz".to_owned());
 
         assert!(imports.is_global_object_alias("g"));
         assert!(!imports.is_imported_binding("g"));
         assert!(imports.is_test_builtin("expect"));
         assert!(!imports.is_namespace("expect"));
-        assert!(imports.is_date_fns_timezone_factory("tz"));
     }
 }

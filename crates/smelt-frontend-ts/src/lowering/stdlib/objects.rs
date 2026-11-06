@@ -8,7 +8,7 @@ use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator};
 use smelt_hir::{
-    BinOp, Body, DictProjectionOp, ErasureReason, Expr, ExprKind, FunctionType, Literal, PrimitiveCastOp,
+    BinOp, Body, DictProjectionOp, ErasureReason, Expr, ExprKind, Literal, PrimitiveCastOp,
     PropertyLookup,
     StringAffixOp, StringCaseOp, StringNormalizeForm, StringReplaceOp, StringSearchOp,
     Span, StringTrimSide, Type, UnknownKind,
@@ -766,91 +766,6 @@ impl ModuleBuilder<'_> {
             let _ = self.argument(argument, body)?;
         }
         let ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object metadata mutation");
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::None),
-            ty,
-            span: self.span(call.span.start, call.span.end),
-        })))
-    }
-
-    /// Lower lodash `_.has(object, path)` as an opaque boolean ownership check.
-    pub(in crate::lowering) fn lodash_has_call(
-        &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::StaticMemberExpression(member) = &call.callee else {
-            return Ok(None);
-        };
-        if member.property.name != "has" {
-            return Ok(None);
-        }
-        let Expression::Identifier(object) = &member.object else {
-            return Ok(None);
-        };
-        if object.name != "_" || !self.imports.is_value("_") {
-            return Ok(None);
-        }
-        let [target, path] = call.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "lodash has requires object and path arguments",
-            ));
-        };
-        let _ = self.argument(target, body)?;
-        let _ = self.argument(path, body)?;
-        let ty = self.ctx.krate.types.intern(Type::Bool);
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Bool(false)),
-            ty,
-            span: self.span(call.span.start, call.span.end),
-        })))
-    }
-
-    /// Lower common curried lodash/fp helpers as opaque callable values.
-    pub(in crate::lowering) fn lodash_fp_curried_call(
-        &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::StaticMemberExpression(member) = &call.callee else {
-            return Ok(None);
-        };
-        let Expression::Identifier(object) = &member.object else {
-            return Ok(None);
-        };
-        if object.name != "fp" || !self.imports.is_value("fp") {
-            return Ok(None);
-        }
-        if !matches!(
-            member.property.name.as_str(),
-            "map"
-                | "filter"
-                | "replace"
-                | "split"
-                | "join"
-                | "slice"
-                | "trimCharsStart"
-                | "identity"
-                | "toLower"
-                | "pipe"
-        ) {
-            return Ok(None);
-        }
-        for argument in &call.arguments {
-            let _ = self.argument(argument, body)?;
-        }
-        let param_ty = self.erase_with(ErasureReason::UntypedPackage, "lodash/fp");
-        let return_ty = self.erase_with(ErasureReason::UntypedPackage, "lodash/fp");
-        let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-            params: vec![param_ty],
-            rest: None,
-            required_params: None,
-                    mutable_params: Vec::new(),
-return_ty,
-            is_async: false,
-                            may_throw: false,
-        }));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::None),
             ty,

@@ -4048,18 +4048,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.imports.mark_type_only(local.clone());
             } else {
                 self.imports.mark_value(local.clone());
-                // `tz` from `@date-fns/tz` is a MODELED host-module export (see
-                // `smelt_stdlib::host_modules`); the factory marker is driven by
-                // that registry rather than by a package-name test here, so a
-                // package spelling lives in exactly one place.
-                if matches!(
-                    smelt_stdlib::host_module_export(source, &imported),
-                    Some(export)
-                        if export.surface == smelt_stdlib::HostSurface::Modeled
-                            && imported == "tz"
-                ) {
-                    self.imports.mark_date_fns_timezone_factory(local.clone());
-                }
                 // An imported binding that the source module resolved to the
                 // ambient global object *is* the ambient global object here.
                 if self.source_exports_global_object_alias(source, &imported) {
@@ -4495,10 +4483,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 // shared named-function path rather than the literal folder.
                 let item =
                     self.function_declaration_named(function, binding.name.as_str())?;
-                items.push(item);
-                continue;
-            }
-            if let Some(item) = self.fp_wrapper_const_declaration(binding.name.as_str(), init)? {
                 items.push(item);
                 continue;
             }

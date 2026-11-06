@@ -54,8 +54,7 @@ export function describeHandle(handle: Session): string {
 /// A modeled host-module export keeps lowering through its own rule.
 ///
 /// `tz` from `@date-fns/tz` is modeled, so the registry must not turn it into a
-/// blocker; the timezone-factory marker is driven by the registry rather than
-/// by a package-name test inside import lowering.
+/// blocker; the call resolves through the registry, not through its spelling.
 #[test]
 fn modeled_host_module_export_still_lowers() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -498,5 +497,178 @@ console.log(serve({ port: 1 }));
     {
         return Err("a local serve was lowered as the adapter".to_owned());
     }
+    Ok(())
+}
+
+/// Whether any body of the crate holds an expression satisfying `predicate`.
+fn any_expr(ctx: &HirCtx, predicate: impl Fn(&smelt_hir::Expr) -> bool) -> bool {
+    ctx.krate.bodies.iter().flat_map(|body| &body.exprs).any(predicate)
+}
+
+/// The diagnostics for `source`, which must not lower.
+fn blockers(source: &str) -> Result<Vec<String>, String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(source, &mut ctx)?;
+    Ok(errors.into_iter().map(|error| error.message).collect())
+}
+
+/// Library helpers have no rule of their own: an unmodeled package blocks at the
+/// use, whatever the helper is called and however it reaches the use.
+#[test]
+fn unmodeled_package_helpers_block_instead_of_being_stubbed() -> Result<(), String> {
+    for source in [
+        ts!(r#"
+import _ from "lodash";
+export const run = (value: { a: number }): boolean => _.has(value, "a");
+"#),
+        ts!(r#"
+import _ from "lodash";
+export function run(values: number[]): void { _.forEach(values, (value) => { console.log(value); }); }
+"#),
+        ts!(r#"
+import fp from "lodash/fp";
+export const run = (values: number[]) => fp.map((value: number) => value, values);
+"#),
+        ts!(r#"
+import { async } from "@strapi/utils";
+export const run = (values: number[]) => async.map(values, async (value: number) => value);
+"#),
+        ts!(r#"
+import { isEmpty } from "lodash";
+export const run = (values: string[]): string[] => values.filter(isEmpty);
+"#),
+        ts!(r#"
+import { has } from "lodash/fp";
+export const run = (values: { a?: number }[]) => values.filter(has("a"));
+"#),
+        ts!(r#"
+import { omit } from "lodash/fp";
+export const run = (values: { a: number }[]) => values.map(omit("a"));
+"#),
+    ] {
+        let messages = blockers(source)?;
+        ensure!(
+            messages.iter().any(|message| message.contains("unresolved package")),
+            "expected a package blocker for {source}, got {messages:?}",
+        );
+    }
+    Ok(())
+}
+
+/// `process` and `Intl` members nothing models are blockers, not reads of an
+/// undefined field of the erased global.
+#[test]
+fn unmodeled_host_namespace_members_block() -> Result<(), String> {
+    for (source, expected) in [
+        ("export const dir = process.cwd();", "`process.cwd` is not modeled"),
+        (
+            "export const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;",
+            "`Intl.DateTimeFormat` is not modeled",
+        ),
+        (
+            "export const format = (date: Date) => new Intl.DateTimeFormat('en').format(date);",
+            "`Intl.DateTimeFormat` is not modeled",
+        ),
+        (
+            "export const format = (n: number) => new Intl.RelativeTimeFormat('en').format(n, 'day');",
+            "`Intl.RelativeTimeFormat` is not modeled",
+        ),
+    ] {
+        let messages = blockers(source)?;
+        ensure!(
+            messages.iter().any(|message| message.contains(expected)),
+            "expected {expected} for {source}, got {messages:?}",
+        );
+    }
+    Ok(())
+}
+
+/// A binding named like the host namespace is the binding, not the namespace.
+#[test]
+fn shadowed_host_namespace_call_is_not_blocked() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function dir(process: { cwd(): string }): string {
+  return process.cwd();
+}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+/// `strapi` is no ambient global: an undeclared name stays unresolved.
+#[test]
+fn undeclared_framework_global_does_not_resolve() -> Result<(), String> {
+    let messages = blockers(ts!("export const config = () => strapi.config;\n"))?;
+    ensure!(!messages.is_empty(), "expected `strapi` to stay unresolved");
+    Ok(())
+}
+
+/// A library's own type names lower through their declarations: the tuple alias
+/// of the corpus spelling keeps no name-keyed arity.
+#[test]
+fn library_type_names_have_no_rule_of_their_own() -> Result<(), String> {
+    let messages =
+        blockers(ts!("export const head = (...xs: NonEmptyArray<number>): number => xs[0];\n"))?;
+    ensure!(!messages.is_empty(), "expected undeclared `NonEmptyArray` to stay unresolved");
+    Ok(())
+}
+
+/// The renamed `tz` import resolves through the registry, and a local `tz` that
+/// shadows nothing imported is an ordinary function.
+#[test]
+fn timezone_factory_is_recognized_by_binding_not_spelling() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { tz as zone } from "@date-fns/tz";
+
+export const named = zone("Europe/Rome");
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        any_expr(&ctx, |expr| matches!(expr.kind, ExprKind::DateTimezoneContext { .. })),
+        "expected the renamed import to reach the timezone rule",
+    );
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function tz(name: string): string { return name; }
+
+export const named = tz("Europe/Rome");
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        !any_expr(&ctx, |expr| matches!(expr.kind, ExprKind::DateTimezoneContext { .. })),
+        "a local `tz` must not reach the timezone rule",
+    );
+    Ok(())
+}
+
+/// A local object named `sinon` is not the test library.
+#[test]
+fn sinon_rule_requires_the_import() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+const sinon = { useFakeTimers: (): number => 1 };
+export const clock = sinon.useFakeTimers();
+"#),
+        &mut ctx,
+    )?;
+    let is_fake_timers = |expr: &smelt_hir::Expr| {
+        matches!(
+            ctx.krate.types.get(expr.ty),
+            Some(Type::Class { name, .. }) if ctx.krate.symbols.get(*name) == Some("SinonFakeTimers")
+        )
+    };
+    ensure!(
+        !any_expr(&ctx, is_fake_timers),
+        "a local `sinon` must not be claimed by the fake-timers rule",
+    );
     Ok(())
 }

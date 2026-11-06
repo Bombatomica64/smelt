@@ -976,10 +976,8 @@ impl ModuleBuilder<'_> {
         call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::Identifier(callee) = &call.callee else {
-            return Ok(None);
-        };
-        if !self.imports.is_date_fns_timezone_factory(callee.name.as_str())
+        if self.host_module_export_path(&call.callee)
+            != Some((smelt_stdlib::HostModuleId::DateFnsTz, "tz".to_owned()))
         {
             return Ok(None);
         }
@@ -1409,6 +1407,7 @@ impl ModuleBuilder<'_> {
         };
         if let Expression::Identifier(object) = &member.object
             && object.name == "sinon"
+            && self.imports.is_value("sinon")
             && member.property.name == "useFakeTimers"
         {
             if call.arguments.len() > 1 {

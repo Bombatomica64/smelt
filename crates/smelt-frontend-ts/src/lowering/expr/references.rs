@@ -369,7 +369,7 @@ impl ModuleBuilder<'_> {
             }
             if matches!(
                 name,
-                "AbortSignal" | "Object" | "Symbol" | "process" | "strapi" | "require"
+                "AbortSignal" | "Object" | "Symbol" | "process" | "require"
             ) {
                 let ty = self.erase_with(ErasureReason::ByName, "ambient global");
                 return self.module_global_expression(name, ty, start, end, body);

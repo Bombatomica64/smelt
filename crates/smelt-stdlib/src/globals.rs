@@ -43,9 +43,7 @@ pub const NODE_PROFILE_VERSION_STRING: &str = "v20.0.0";
 /// The IANA time zone the deterministic target profile runs in.
 ///
 /// The zone is fixed at compile time rather than read from the host at run
-/// time: `process.env.TZ` is this zone and
-/// `Intl.DateTimeFormat().resolvedOptions().timeZone` reports it. Every other
-/// `process.env` variable is read from the real environment at run time, as
+/// time: `process.env.TZ` is this zone. Every other `process.env` variable is read from the real environment at run time, as
 /// Node does. Comparing a generated program against `node` (the end-to-end
 /// oracle) therefore means running `node` with `TZ` set to this zone and
 /// nothing else that the program reads.

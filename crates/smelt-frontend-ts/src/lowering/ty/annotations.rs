@@ -1496,14 +1496,13 @@ impl ModuleBuilder<'_> {
 
     /// Return how many leading arguments a rest parameter's source type requires.
     ///
-    /// HIR lowers both `...rest: T[]` and `...rest: NonEmptyArray<T>` (i.e.
-    /// `[T, ...T[]]`) to the same `Type::List(T)`, erasing the required-prefix
-    /// arity. Overload selection still needs that arity so a `NonEmptyArray`
-    /// rest does not match an empty rest tail vacuously, so this inspects the
-    /// *source* annotation:
+    /// HIR lowers both `...rest: T[]` and `...rest: [T, ...T[]]` to the same
+    /// `Type::List(T)`, erasing the required-prefix arity. Overload selection
+    /// still needs that arity so a required prefix does not match an empty rest
+    /// tail vacuously, so this inspects the *source* annotation:
     ///
-    /// * `NonEmptyArray<T>` (by name) and a required-prefix tuple `[A, B, ...T[]]`
-    ///   return the number of required leading elements (`>= 1`).
+    /// * a required-prefix tuple `[A, B, ...T[]]` returns the number of required
+    ///   leading elements (`>= 1`).
     /// * Plain `T[]`, `Array<T>`, `ReadonlyArray<T>`, and all-rest tuples
     ///   `[...T[]]` accept an empty tail and return `0`.
     ///
@@ -1520,8 +1519,6 @@ impl ModuleBuilder<'_> {
                 Self::rest_parameter_min_arity(&operator.type_annotation)
             }
             TSType::TSTypeReference(reference) => match &reference.type_name {
-                // `NonEmptyArray<T>` is `[T, ...T[]]`: at least one element.
-                TSTypeName::IdentifierReference(name) if name.name.as_str() == "NonEmptyArray" => 1,
                 // `Readonly<…>`/`Required<…>` are transparent wrappers.
                 TSTypeName::IdentifierReference(name)
                     if matches!(name.name.as_str(), "Readonly" | "Required") =>
@@ -1640,7 +1637,6 @@ impl ModuleBuilder<'_> {
     ///
     /// * a rest-less tuple `[A, B]` => `Exact(2)` (and `[]` => `Exact(0)`),
     /// * a required-prefix tuple `[T, ...T[]]` => `AtLeast(1)`,
-    /// * `NonEmptyArray<T>` => `AtLeast(1)`,
     /// * everything else (`T[]`, `Array<T>`, non-array types) => `None`.
     ///
     /// `Readonly`/`Required`/parenthesized wrappers and the `readonly` operator
@@ -1659,9 +1655,6 @@ impl ModuleBuilder<'_> {
                 Self::parameter_length_requirement(&operator.type_annotation)
             }
             TSType::TSTypeReference(reference) => match &reference.type_name {
-                TSTypeName::IdentifierReference(name) if name.name.as_str() == "NonEmptyArray" => {
-                    Some(ParamLength::AtLeast(1))
-                }
                 TSTypeName::IdentifierReference(name)
                     if matches!(name.name.as_str(), "Readonly" | "Required") =>
                 {
@@ -2446,22 +2439,9 @@ impl ModuleBuilder<'_> {
             ("Capitalize" | "Uncapitalize" | "Uppercase" | "Lowercase", [_]) => {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
-            (
-                "Array"
-                | "ArrayLike"
-                | "Iterable"
-                | "ReadonlyArray"
-                | "NonEmptyArray"
-                | "IterableContainer",
-                [item],
-            ) => {
+            ("Array" | "ArrayLike" | "Iterable" | "ReadonlyArray", [item]) => {
                 let lowered_item = self.ts_type_to_hir(item)?;
                 Ok(self.ctx.krate.types.intern(Type::List(lowered_item)))
-            }
-            ("TuplePrefix" | "RemovePrefix" | "TupleSuffix" | "RemoveSuffix", _)
-            | ("IterableContainer", []) => {
-                let item = self.erase(ErasureReason::TypeLevel);
-                Ok(self.ctx.krate.types.intern(Type::List(item)))
             }
             // `Partial<X>` of a concrete interface record is its OWN record
             // with every field optional. Lowering it as `X` made the fields of
@@ -4196,7 +4176,7 @@ impl ModuleBuilder<'_> {
             .krate
             .symbols
             .get(method)
-            .is_some_and(|method_text| matches!(method_text, "call" | "apply" | "bind" | "flush"))
+            .is_some_and(|method_text| matches!(method_text, "call" | "apply" | "bind"))
         {
             let ty = self.erase(ErasureReason::ByName);
             return Ok((ty, smelt_hir::ItemId(u32::MAX)));

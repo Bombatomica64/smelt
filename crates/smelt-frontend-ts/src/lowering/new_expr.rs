@@ -48,9 +48,6 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
         let Expression::Identifier(callee) = &new_expr.callee else {
-            if let Some(expr) = self.intl_date_time_format_constructor_expression(new_expr, body)? {
-                return Ok(expr);
-            }
             if let Some(expr) = self.intl_namespace_constructor_expression(new_expr, body)? {
                 return Ok(expr);
             }

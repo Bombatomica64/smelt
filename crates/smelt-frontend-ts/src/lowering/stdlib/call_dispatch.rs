@@ -2576,15 +2576,6 @@ impl<'builder> ModuleBuilder<'builder> {
         self.type_test_call(call, body)
     }
 
-    /// Adapter so the infallible node-process-version handler fits the registry shape.
-    pub(in crate::lowering) fn node_process_version_match_call_entry(
-        &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        Ok(self.node_process_version_match_call(call, body))
-    }
-
     /// Ordered builtin/stdlib call lowering handlers.
     ///
     /// The order is load-bearing: earlier handlers win when two could match the
@@ -2596,7 +2587,6 @@ impl<'builder> ModuleBuilder<'builder> {
             Self::type_test_call_entry,
             Self::typed_test_value_call_entry,
             Self::date_call,
-            Self::intl_call,
             Self::regex_replace_call,
             Self::object_assign_call,
             Self::vitest_async_expect_call,
@@ -2617,11 +2607,8 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::timer_call,
         Self::number_to_string_call,
         Self::number_to_fixed_call,
-        Self::node_process_version_match_call_entry,
-        Self::node_process_cwd_call,
         Self::commonjs_require_call,
         Self::object_metadata_mutation_call,
-        Self::lodash_has_call,
         Self::object_get_own_property_symbols_call,
         Self::object_projection_call,
         Self::object_has_own_call,
@@ -2664,9 +2651,6 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::string_trim_call,
         Self::string_locale_compare_call,
         Self::string_affix_call,
-        Self::lodash_for_each_call,
-        Self::strapi_async_map_call,
-        Self::lodash_fp_curried_call,
         Self::list_callback_call,
         Self::list_reduce_call,
         Self::list_search_call,
@@ -2691,6 +2675,7 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::string_contains_call,
         Self::string_split_call,
         Self::namespace_member_call,
+        Self::unmodeled_host_namespace_call,
             Self::function_bind_call,
         ]
     }
