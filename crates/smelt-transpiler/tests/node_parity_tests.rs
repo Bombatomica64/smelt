@@ -154,6 +154,12 @@ fn array_like_interface() -> TestResult {
     verify_node_parity("array_like_interface")
 }
 
+/// A method called on an erased value is what the value holds.
+#[test]
+fn erased_member_calls() -> TestResult {
+    verify_node_parity("erased_member_calls")
+}
+
 /// Array-valued ternary arms join instead of one adopting the other's type.
 #[test]
 fn conditional_list_arms() -> TestResult {
