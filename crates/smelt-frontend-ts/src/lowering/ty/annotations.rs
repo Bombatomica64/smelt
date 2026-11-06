@@ -2342,7 +2342,7 @@ impl ModuleBuilder<'_> {
         // module declares itself shadows the global one, so it skips the table
         // and resolves through the declaration path in the fallback arm; an
         // empty spelling matches no builtin arm.
-        let builtin_spelling = if self.module_type_shadows_global(reference) {
+        let builtin_spelling = if self.source_shadows_global_type(reference) {
             ""
         } else {
             name_text.as_str()
@@ -4912,11 +4912,11 @@ impl ModuleBuilder<'_> {
     /// declaration of THIS module counts: an interface item another module
     /// lowered is visible crate-wide by symbol, so consulting the crate's items
     /// would let one file's `Set` hijack every other file's builtin `Set<T>`.
-    fn module_type_shadows_global(&self, reference: &oxc::ast::ast::TSTypeReference<'_>) -> bool {
+    fn source_shadows_global_type(&self, reference: &oxc::ast::ast::TSTypeReference<'_>) -> bool {
         let TSTypeName::IdentifierReference(name) = &reference.type_name else {
             return false;
         };
-        self.types.module_declares_type_name(name.name.as_str())
+        self.source_shadows_global(name.name.as_str())
     }
 
     /// Whether the module declares a type of this name.

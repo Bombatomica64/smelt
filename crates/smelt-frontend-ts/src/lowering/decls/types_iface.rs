@@ -852,65 +852,41 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::ForOfStatement(for_stmt) => {
-                let saved_locals = self.scope.snapshot_bindings();
-                let mut iter = self.expression(&for_stmt.right, body)?;
-                if for_stmt.r#await
-                    && let Some(Type::Future(inner)) =
-                        self.ctx.krate.types.get(Self::expr_ty(body, iter)).cloned()
-                {
-                    iter = body.push_expr(Expr {
-                        kind: ExprKind::Await(iter),
-                        ty: inner,
-                        span: self.span(for_stmt.right.span().start, for_stmt.right.span().end),
-                    });
-                }
-                // A synchronous generator receiver has no indexable Rust
-                // representation, so it cannot flow through the index-based
-                // `Stmt::For` lowering. Drain it through the resume protocol
-                // instead. Async generators keep the existing path (their
-                // resume returns a future).
-                if let Some(Type::Generator {
-                    is_async: false,
-                    yield_ty,
-                    return_ty,
-                    ..
-                }) = self.ctx.krate.types.get(Self::expr_ty(body, iter)).cloned()
-                {
-                    let result = self.lower_generator_for_of(
-                        for_stmt, iter, yield_ty, return_ty, body, block,
-                    );
-                    self.scope.restore_bindings(saved_locals);
-                    return result;
-                }
-                let iter = self.for_of_iterable(iter, &for_stmt.right, body);
-                let destructured =
-                    self.for_left_destructuring(&for_stmt.left, Self::expr_ty(body, iter), body)?;
-                let (pat, loop_body) =
-                    if let Some((pat, value, binding, annotated_ty, mutable)) = destructured {
-                        let loop_body = body.push_block(self.statement_span(&for_stmt.body));
-                        self.binding_declaration(
-                            binding,
-                            Some(value),
-                            annotated_ty,
-                            mutable,
-                            body,
-                            loop_body,
-                        )?;
-                        if let Statement::BlockStatement(block_stmt) = &for_stmt.body {
-                            for nested_statement in &block_stmt.body {
-                                self.statement_in_block(nested_statement, body, loop_body)?;
-                            }
-                        } else {
-                            self.statement_in_block(&for_stmt.body, body, loop_body)?;
-                        }
-                        (pat, loop_body)
-                    } else {
-                        (
-                            self.for_left_pattern(&for_stmt.left, Self::expr_ty(body, iter), body)?,
-                            self.block_from_statement(&for_stmt.body, body)?,
-                        )
-                    };
-                self.scope.restore_bindings(saved_locals);
+                let lowered = self.with_lexical_scope(|this| {
+                    let mut iter = this.expression(&for_stmt.right, body)?;
+                    if for_stmt.r#await
+                        && let Some(Type::Future(inner)) =
+                            this.ctx.krate.types.get(Self::expr_ty(body, iter)).cloned()
+                    {
+                        iter = body.push_expr(Expr {
+                            kind: ExprKind::Await(iter),
+                            ty: inner,
+                            span: this.span(for_stmt.right.span().start, for_stmt.right.span().end),
+                        });
+                    }
+                    // A synchronous generator receiver has no indexable Rust
+                    // representation, so it cannot flow through the index-based
+                    // `Stmt::For` lowering. Drain it through the resume protocol
+                    // instead. Async generators keep the existing path (their
+                    // resume returns a future).
+                    if let Some(Type::Generator {
+                        is_async: false,
+                        yield_ty,
+                        return_ty,
+                        ..
+                    }) = this.ctx.krate.types.get(Self::expr_ty(body, iter)).cloned()
+                    {
+                        this.lower_generator_for_of(for_stmt, iter, yield_ty, return_ty, body, block)?;
+                        return Ok(None);
+                    }
+                    let iter = this.for_of_iterable(iter, &for_stmt.right, body);
+                    let (pat, loop_body) =
+                        this.for_binding_and_body(&for_stmt.left, &for_stmt.body, iter, body)?;
+                    Ok::<_, SmeltError>(Some((pat, iter, loop_body)))
+                })?;
+                let Some((pat, iter, loop_body)) = lowered else {
+                    return Ok(());
+                };
                 body.push_stmt_to_block(
                     block,
                     Stmt::For {
@@ -922,36 +898,12 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::ForInStatement(for_stmt) => {
-                let saved_locals = self.scope.snapshot_bindings();
-                let iter = self.for_in_iterable(&for_stmt.right, body)?;
-                let destructured =
-                    self.for_left_destructuring(&for_stmt.left, Self::expr_ty(body, iter), body)?;
-                let (pat, loop_body) =
-                    if let Some((pat, value, binding, annotated_ty, mutable)) = destructured {
-                        let loop_body = body.push_block(self.statement_span(&for_stmt.body));
-                        self.binding_declaration(
-                            binding,
-                            Some(value),
-                            annotated_ty,
-                            mutable,
-                            body,
-                            loop_body,
-                        )?;
-                        if let Statement::BlockStatement(block_stmt) = &for_stmt.body {
-                            for nested_statement in &block_stmt.body {
-                                self.statement_in_block(nested_statement, body, loop_body)?;
-                            }
-                        } else {
-                            self.statement_in_block(&for_stmt.body, body, loop_body)?;
-                        }
-                        (pat, loop_body)
-                    } else {
-                        (
-                            self.for_left_pattern(&for_stmt.left, Self::expr_ty(body, iter), body)?,
-                            self.block_from_statement(&for_stmt.body, body)?,
-                        )
-                    };
-                self.scope.restore_bindings(saved_locals);
+                let (pat, iter, loop_body) = self.with_lexical_scope(|this| {
+                    let iter = this.for_in_iterable(&for_stmt.right, body)?;
+                    let (pat, loop_body) =
+                        this.for_binding_and_body(&for_stmt.left, &for_stmt.body, iter, body)?;
+                    Ok::<_, SmeltError>((pat, iter, loop_body))
+                })?;
                 body.push_stmt_to_block(
                     block,
                     Stmt::For {
@@ -1175,20 +1127,20 @@ impl ModuleBuilder<'_> {
                 self.scope.pop_narrowing_scope();
                 let try_body = try_body?;
                 let (catch_binding, catch_body) = if let Some(handler) = &try_stmt.handler {
-                    let previous_locals = self.scope.snapshot_bindings();
-                    self.scope.push_narrowing_scope(std::collections::HashMap::new());
-                    let lowered = (|| {
-                        let catch_binding = handler
-                            .param
-                            .as_ref()
-                            .map(|param| self.catch_binding(param, body))
-                            .transpose()?;
-                        let catch_body = self.block_from_block_statement(&handler.body, body)?;
-                        Ok::<_, SmeltError>((catch_binding, catch_body))
-                    })();
-                    self.scope.pop_narrowing_scope();
-                    self.scope.restore_bindings(previous_locals);
-                    let (catch_binding, catch_body) = lowered?;
+                    let (catch_binding, catch_body) = self.with_lexical_scope(|this| {
+                        this.scope.push_narrowing_scope(std::collections::HashMap::new());
+                        let lowered = (|| {
+                            let catch_binding = handler
+                                .param
+                                .as_ref()
+                                .map(|param| this.catch_binding(param, body))
+                                .transpose()?;
+                            let catch_body = this.block_from_block_statement(&handler.body, body)?;
+                            Ok::<_, SmeltError>((catch_binding, catch_body))
+                        })();
+                        this.scope.pop_narrowing_scope();
+                        lowered
+                    })?;
                     (catch_binding, Some(catch_body))
                 } else {
                     (None, None)
@@ -1228,19 +1180,49 @@ impl ModuleBuilder<'_> {
                 // not just from its textual position, so it lowers before the
                 // first sibling that mentions it (`lowering::hoisting`).
                 let saved = self.scope.snapshot_bindings();
-                for child in crate::lowering::hoisting::hoisted_statements(&block_stmt.body) {
-                    self.statement_in_block(child, body, block)?;
-                }
+                let lowered = crate::lowering::hoisting::hoisted_statements(&block_stmt.body)
+                    .into_iter()
+                    .try_for_each(|child| self.statement_in_block(child, body, block));
                 // Its `let`/`const` bindings end with it, like any block's.
                 self.scope
                     .close_lexical_block(&saved, &Self::lexically_declared_names(&block_stmt.body));
-                Ok(())
+                lowered
             }
             _ => Err(SmeltError::unsupported(
                 self.statement_span(statement),
                 format!("statement kind is not lowered yet: {statement:?}"),
             )),
         }
+    }
+
+    /// Bind a `for` loop's left side and lower its body, as `(pattern, body block)`.
+    ///
+    /// A destructuring left side binds a synthetic pattern and destructures it as
+    /// the first statements of the loop body.
+    fn for_binding_and_body(
+        &mut self,
+        left: &oxc::ast::ast::ForStatementLeft<'_>,
+        loop_statement: &Statement<'_>,
+        iter: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> Result<(smelt_hir::PatternId, smelt_hir::BlockId), SmeltError> {
+        let iter_ty = Self::expr_ty(body, iter);
+        let Some((pat, value, binding, annotated_ty, mutable)) =
+            self.for_left_destructuring(left, iter_ty, body)?
+        else {
+            let pat = self.for_left_pattern(left, iter_ty, body)?;
+            return Ok((pat, self.block_from_statement(loop_statement, body)?));
+        };
+        let loop_body = body.push_block(self.statement_span(loop_statement));
+        self.binding_declaration(binding, Some(value), annotated_ty, mutable, body, loop_body)?;
+        if let Statement::BlockStatement(block_stmt) = loop_statement {
+            for nested_statement in &block_stmt.body {
+                self.statement_in_block(nested_statement, body, loop_body)?;
+            }
+        } else {
+            self.statement_in_block(loop_statement, body, loop_body)?;
+        }
+        Ok((pat, loop_body))
     }
 
     /// Lower an expression in statement position: an expression statement, or

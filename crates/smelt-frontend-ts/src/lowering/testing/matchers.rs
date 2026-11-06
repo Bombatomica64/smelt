@@ -3754,7 +3754,7 @@ impl ModuleBuilder<'_> {
             return None;
         }
         let target = Self::stdlib_class_for_name(class_name)?;
-        if !target.narrows_from_erased() || self.user_class_shadows(class_name) {
+        if !target.narrows_from_erased() || self.source_shadows_global(class_name) {
             return None;
         }
         let narrowed = self.stdlib_class_type(class_name);

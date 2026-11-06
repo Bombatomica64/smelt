@@ -150,7 +150,6 @@ interned types
   t18 = Optional<String | Unknown>
   t19 = Request
   t20 = fn(globalThis.ResponseInit) -> String
-  t21 = fn(Optional<String>, Optional<globalThis.ResponseInit>) -> Response
-  t22 = fn(globalThis.ResponseInit) -> String
-  t23 = List<String>
-  t24 = List<List<String>>
+  t21 = fn(globalThis.ResponseInit) -> String
+  t22 = List<String>
+  t23 = List<List<String>>

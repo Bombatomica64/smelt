@@ -2214,10 +2214,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // `local_ty`). Emptying the scope for the duration is both the fix and
         // the correct rule: an initializer that references a module-body local
         // now reports an unresolved name instead of mis-resolving one.
-        let saved_locals = self.scope.take_bindings();
-        let lowered = self.expression_with_hint(init, &mut init_body, Some(global_ty));
-        self.scope.restore_bindings(saved_locals);
-        let value = lowered?;
+        let value = self.with_empty_lexical_scope(|this| {
+            this.expression_with_hint(init, &mut init_body, Some(global_ty))
+        })?;
         init_body.push_stmt(smelt_hir::Stmt::Return(Some(value)));
         let body_id = self.ctx.krate.push_body(init_body);
         // The synthesized name is derived from the binding and the global's own
@@ -3674,37 +3673,33 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Result<Function, SmeltError> {
         let name = self.intern_source_name(name_text);
         let mut params = Vec::new();
-        let saved_locals = self.scope.take_bindings();
-        for (index, param) in function.params.items.iter().enumerate() {
-            let ty = match self.function_parameter_type(param) {
-                Ok(ty) => self.overload_omitted_param_type(name_text, index, param, ty),
-                Err(error) => {
-                    self.scope.restore_bindings(saved_locals);
-                    return Err(error);
-                }
-            };
-            let local = smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX));
-            let (param_name, span) =
-                if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
-                    self.scope.bind(binding.name.to_string(), local);
-                    (
-                        self.intern_source_name(binding.name.as_str()),
-                        self.span(binding.span.start, binding.span.end),
-                    )
-                } else {
-                    (
-                        self.intern_source_name(&format!("__param{index}")),
-                        self.span(param.span.start, param.span.end),
-                    )
-                };
-            params.push(Param {
-                name: param_name,
-                local,
-                ty,
-                span,
-            });
-        }
-        self.scope.restore_bindings(saved_locals);
+        self.with_empty_lexical_scope(|this| {
+            for (index, param) in function.params.items.iter().enumerate() {
+                let ty = this.function_parameter_type(param)?;
+                let ty = this.overload_omitted_param_type(name_text, index, param, ty);
+                let local = smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX));
+                let (param_name, span) =
+                    if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                        this.scope.bind(binding.name.to_string(), local);
+                        (
+                            this.intern_source_name(binding.name.as_str()),
+                            this.span(binding.span.start, binding.span.end),
+                        )
+                    } else {
+                        (
+                            this.intern_source_name(&format!("__param{index}")),
+                            this.span(param.span.start, param.span.end),
+                        )
+                    };
+                params.push(Param {
+                    name: param_name,
+                    local,
+                    ty,
+                    span,
+                });
+            }
+            Ok::<_, SmeltError>(())
+        })?;
         let mut rest_index = None;
         if let Some(rest) = &function.params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {

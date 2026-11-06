@@ -4094,7 +4094,7 @@ impl Bag {
     let _smelt_tmp_4: String = _smelt_tmp_2.clone() + &_smelt_tmp_3.clone();
     _smelt_tmp_4.clone()
     });
-    return Label { __smelt_call: { let smelt_callback = _smelt_tmp_1.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(String, Option<String>) -> String> = ::std::rc::Rc::new(move |arg0: String, arg1: Option<String>| (smelt_callback)(arg0, arg1)); smelt_adapted } };
+    return Label { __smelt_call: _smelt_tmp_1.clone() };
     }
     fn join(sep: String, parts: SmeltList<String>) -> String {
     let _smelt_tmp_3: String = parts.clone().borrow().join(&sep.clone());

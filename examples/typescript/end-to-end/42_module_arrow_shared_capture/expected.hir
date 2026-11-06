@@ -30,4 +30,3 @@ interned types
   t4 = fn(fn() -> None) -> None
   t5 = Float
   t6 = fn(fn() -> None) -> None
-  t7 = fn() -> None

@@ -76,6 +76,4 @@ interned types
   t7 = fn(String, Optional<String>) -> String
   t8 = fn(Float, Optional<Float>) -> Float
   t9 = Bool
-  t10 = fn(String, Optional<String>) -> String
-  t11 = fn(Float, Optional<Float>) -> Float
-  t12 = None
+  t10 = None

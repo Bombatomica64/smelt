@@ -206,6 +206,32 @@ impl ModuleBuilder<'_> {
         result
     }
 
+    /// Run `lower` in a nested lexical scope: what it binds ends with it, on every
+    /// exit.
+    pub(in crate::lowering) fn with_lexical_scope<R>(
+        &mut self,
+        lower: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let saved = self.scope.snapshot_bindings();
+        let result = lower(self);
+        self.scope.restore_bindings(saved);
+        result
+    }
+
+    /// Run `lower` with no name of the enclosing body in scope.
+    ///
+    /// For code that lowers into a different body, whose `LocalId`s the enclosing
+    /// bindings do not name.
+    pub(in crate::lowering) fn with_empty_lexical_scope<R>(
+        &mut self,
+        lower: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let saved = self.scope.take_bindings();
+        let result = lower(self);
+        self.scope.restore_bindings(saved);
+        result
+    }
+
     /// The context for a body of `kind` nested in the current one; see
     /// [`FnCtx::nested`].
     pub(in crate::lowering) fn nested_fn_ctx(

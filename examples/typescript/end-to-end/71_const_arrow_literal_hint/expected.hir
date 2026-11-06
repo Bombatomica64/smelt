@@ -86,6 +86,4 @@ interned types
   t8 = fn(Opts) -> String
   t9 = Optional<Float>
   t10 = Optional<String>
-  t11 = fn(Optional<Opts>) -> String
-  t12 = None
-  t13 = fn(List<Opts>) -> Float
+  t11 = None

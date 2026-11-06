@@ -461,8 +461,10 @@ impl ModuleBuilder<'_> {
     /// (see `infer_block_return`): the body's own returns are the answer the
     /// source wrote, joined by [`Self::joined_inferred_type`].
     ///
-    /// `None` means there is nothing to infer from: a body with no `return` at
-    /// all, or a bare `return;`, so the caller keeps its fallback.
+    /// This is asked only of a body that cannot fall off its end, so one with no
+    /// `return` at all only throws: it answers `never`. `None` is a bare
+    /// `return;`, which says nothing about a value, so the caller keeps its
+    /// fallback.
     fn inferred_block_return_ty(&mut self, closure_body: &Body) -> Option<smelt_hir::TypeId> {
         let mut returned = Vec::new();
         for stmt in &closure_body.stmts {
@@ -471,7 +473,10 @@ impl ModuleBuilder<'_> {
             };
             returned.push(Self::expr_ty(closure_body, (*value)?));
         }
-        (!returned.is_empty()).then(|| self.joined_inferred_type(returned))
+        if returned.is_empty() {
+            return Some(self.ctx.krate.types.intern(Type::Never));
+        }
+        Some(self.joined_inferred_type(returned))
     }
 
     /// Lower a callback closure body from its constituent parts.
@@ -648,6 +653,14 @@ impl ModuleBuilder<'_> {
             ));
         }
 
+        // JavaScript's `Function.length`: the parameters before the first omittable one.
+        let required_params = Some(
+            params
+                .items
+                .iter()
+                .position(|param| param.optional || Self::formal_parameter_has_default(param))
+                .unwrap_or(params.items.len()),
+        );
         let mut capture_names = Vec::new();
         for (_, _, initializer, ..) in &defaulted_params {
             self.collect_expression_capture_names(initializer, &param_names, &mut capture_names);
@@ -894,7 +907,7 @@ impl ModuleBuilder<'_> {
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: param_tys.to_vec(),
             rest: rest_index,
-            required_params: None,
+            required_params,
             mutable_params: Vec::new(),
             return_ty: actual_return_ty,
             is_async,
@@ -904,7 +917,7 @@ impl ModuleBuilder<'_> {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params: closure_params,
                 rest: rest_index,
-                required_params: None,
+                required_params,
                 return_ty: actual_return_ty,
                 captures,
                 body: body_id,

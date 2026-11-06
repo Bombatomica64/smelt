@@ -32,8 +32,4 @@ interned types
   t7 = fn(String, Float) -> None
   t8 = fn(List<String>, fn(String, Float) -> None) -> None
   t9 = fn(fn(Float) -> None) -> None
-  t10 = fn(fn(Float) -> None) -> None
-  t11 = fn(Float) -> None
-  t12 = Bool
-  t13 = fn(List<String>, fn(String, Float) -> None) -> None
-  t14 = fn(String, Float) -> None
+  t10 = Bool

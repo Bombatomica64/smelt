@@ -98,9 +98,7 @@ interned types
   t3 = None
   t4 = fn(Optional<String>, Optional<String>) -> String
   t5 = List<Optional<String>>
-  t6 = fn(String, Optional<String>) -> String
-  t7 = Float
-  t8 = Bool
-  t9 = fn(Optional<String>, Optional<String>) -> String
-  t10 = Optional<Float>
-  t11 = Optional<Bool>
+  t6 = Float
+  t7 = Bool
+  t8 = Optional<Float>
+  t9 = Optional<Bool>

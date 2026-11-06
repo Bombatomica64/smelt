@@ -161,9 +161,8 @@ interned types
   t20 = (Float, String)
   t21 = List<(Float, String)>
   t22 = Optional<List<String>>
-  t23 = fn(Wrapper | Request) -> Bool
-  t24 = fn(String) -> List<String>
-  t25 = fn(Dict<String, String>, Optional<Dict<String, String>>, String) -> String
-  t26 = fn(Dict<String, String>, String) -> String
-  t27 = fn() -> String
-  t28 = fn(Bool | RegExp, String) -> Bool
+  t23 = fn(String) -> List<String>
+  t24 = fn(Dict<String, String>, Optional<Dict<String, String>>, String) -> String
+  t25 = fn(Dict<String, String>, String) -> String
+  t26 = fn() -> String
+  t27 = fn(Bool | RegExp, String) -> Bool

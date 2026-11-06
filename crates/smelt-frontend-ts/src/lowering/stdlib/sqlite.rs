@@ -82,7 +82,7 @@ impl ModuleBuilder<'_> {
         if database_rule.is_none() && statement_rule.is_none() {
             return Ok(None);
         }
-        if self.user_class_shadows("DatabaseSync") || self.user_class_shadows("StatementSync") {
+        if self.source_shadows_global("DatabaseSync") || self.source_shadows_global("StatementSync") {
             return Ok(None);
         }
         // `exec`, `get`, `all` and `run` are also `RegExp`'s and `Map`'s

@@ -105,7 +105,6 @@ interned types
   t23 = Session<Float>
   t24 = fn(Session<Float>) -> String
   t25 = Optional<fn(Session<Float>) -> String>
-  t26 = fn(Session<Float>) -> String
-  t27 = Cell<String>
-  t28 = Pair<Float, String>
-  t29 = fn() -> Float
+  t26 = Cell<String>
+  t27 = Pair<Float, String>
+  t28 = fn() -> Float

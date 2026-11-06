@@ -91,3 +91,4 @@ interned types
   t10 = fn(String) -> Bool
   t11 = None
   t12 = fn(String, Int, List<String>) -> Bool
+  t13 = fn(String, Int, List<String>) -> Bool

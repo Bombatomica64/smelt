@@ -123,10 +123,8 @@ interned types
   t34 = fn() -> Float
   t35 = fn(List<String>) -> String
   t36 = fn(fn(List<String>) -> String) -> List<String>
-  t37 = fn(List<String>) -> String
-  t38 = Base<Float>
-  t39 = fn(Float) -> Float
-  t40 = fn(Float) -> String
-  t41 = fn(fn(Float) -> String) -> List<String>
-  t42 = fn(Float) -> String
-  t43 = fn(String) -> Float
+  t37 = Base<Float>
+  t38 = fn(Float) -> Float
+  t39 = fn(Float) -> String
+  t40 = fn(fn(Float) -> String) -> List<String>
+  t41 = fn(String) -> Float

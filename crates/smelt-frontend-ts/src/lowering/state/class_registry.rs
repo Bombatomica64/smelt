@@ -196,6 +196,13 @@ impl ClassRegistry {
         }
     }
 
+    /// Whether the module being lowered declares a class called `name` itself,
+    /// lexically scoped ones included.
+    pub(in crate::lowering) fn declared_in_module(&self, name: &str) -> bool {
+        self.scoped_type_names.contains_key(name)
+            || self.names.get(name).is_some_and(|entry| entry.declared.is_some())
+    }
+
     /// Whether `name` names a class nominally: registered, or declared by
     /// this module and still to be lowered.
     pub(in crate::lowering) fn is_known(&self, name: &str) -> bool {

@@ -579,19 +579,19 @@ impl ModuleBuilder<'_> {
     /// Return whether a lowered type is the modeled `Server` class.
     pub(in crate::lowering) fn is_http_server_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::HttpServer)
-            && !self.user_class_shadows("Server")
+            && !self.source_shadows_global("Server")
     }
 
     /// Return whether a lowered type is the modeled `IncomingMessage` class.
     pub(in crate::lowering) fn is_incoming_message_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::IncomingMessage)
-            && !self.user_class_shadows("IncomingMessage")
+            && !self.source_shadows_global("IncomingMessage")
     }
 
     /// Return whether a lowered type is the modeled `ServerResponse` class.
     pub(in crate::lowering) fn is_server_response_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::ServerResponse)
-            && !self.user_class_shadows("ServerResponse")
+            && !self.source_shadows_global("ServerResponse")
     }
 
     /// The HIR type a `Server` operation answers.

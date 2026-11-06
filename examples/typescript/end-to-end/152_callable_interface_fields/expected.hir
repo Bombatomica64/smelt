@@ -171,10 +171,6 @@ interned types
   t19 = Set
   t20 = SetHeader
   t21 = Echo
-  t22 = fn(String) -> Float
-  t23 = fn(String, String | Float) -> None
-  t24 = fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None
-  t25 = K
-  t26 = fn(String) -> String
-  t27 = fn() -> Float
-  t28 = Dict<String, Bool>
+  t22 = K
+  t23 = fn() -> Float
+  t24 = Dict<String, Bool>

@@ -83,7 +83,8 @@ interned types
   t12 = List<Unknown>
   t13 = Int
   t14 = fn(String, String | Float) -> String
-  t15 = None
-  t16 = fn(String, String) -> String
-  t17 = (String)
-  t18 = (String, String)
+  t15 = fn(String, String | Float) -> String
+  t16 = None
+  t17 = fn(String, String) -> String
+  t18 = (String)
+  t19 = (String, String)

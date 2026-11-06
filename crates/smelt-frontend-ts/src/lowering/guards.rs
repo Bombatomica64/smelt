@@ -248,60 +248,16 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true when an expression is a built-in constructor target.
+    ///
+    /// Any class with a host-object registry marker is a valid target: the marker
+    /// exists so `instanceof` can be answered, whether or not the class has a
+    /// modeled surface. The same holds for a modeled stdlib class and an
+    /// ECMAScript error class; `Promise` answers through its runtime tag.
     pub(super) fn instanceof_builtin_target(target: &str) -> bool {
-        // ANY class with a host-object registry marker is a valid target: the
-        // marker exists precisely so `instanceof` can be answered, and an
-        // identity-only entry (one with no modeled surface, such as `FormData`
-        // or `ReadableStream`) is no different in that respect from one with a
-        // full surface. Naming individual host classes below was how this list
-        // grew, and it is why `body instanceof FormData` aborted as "not a
-        // lowered class" the moment those two joined the registry for identity.
-        smelt_stdlib::host_object_marker(target).is_some()
+        target == "Promise"
+            || smelt_stdlib::host_object_marker(target).is_some()
             || smelt_stdlib::typescript_stdlib_class(target).is_some()
-            // Typed-array views (`x instanceof Uint8Array`) are byte-backed host
-            // objects, so they are already covered by the `byte_buffer_role`
-            // clause below; naming them here too keeps the recognizer readable.
-            || smelt_stdlib::is_typed_array_class_name(target)
-            || Self::marker_only_builtin_marker(target).is_some()
-            // The byte-backed host objects (`ArrayBuffer`, `SharedArrayBuffer`,
-            // `Buffer`, `DataView`) all carry a registry marker their `instanceof`
-            // resolves through.
-            || smelt_stdlib::byte_buffer_role(target).is_some()
             || smelt_stdlib::is_error_class_name(target)
-            || matches!(
-                target,
-                "Promise"
-                    | "Blob"
-                    // `File` records stamp `__smelt_file` on top of
-                    // `__smelt_blob` (see `file_constructor_expression`), so
-                    // both `value instanceof File` and `value instanceof Blob`
-                    // resolve through their markers in `instance_of_text`.
-                    | "File"
-                    | "Number"
-                    // Boxed primitive wrappers. A real primitive (`true`, `"a"`)
-                    // is never `instanceof` its wrapper; only the boxed object
-                    // form is, recognized through its `__smelt_boolean` /
-                    // `__smelt_string` marker (see `instance_of_text`). Listing
-                    // them makes `value instanceof Boolean` / `instanceof String`
-                    // lower to a marker check instead of aborting as an unmodeled
-                    // class — the correct `false` for the primitives that
-                    // es-toolkit's `isBoolean`/`isString` test against.
-                    | "Boolean"
-                    | "String"
-                    // `Symbol` likewise: a primitive symbol erases to
-                    // `SmeltUnknown::Symbol` and is not `instanceof Symbol`; only a
-                    // boxed `Object(symbol)` wrapper carrying `__smelt_symbol` is.
-                    | "Symbol"
-                    | "AbortController"
-                    | "AbortSignal"
-                    // Host `DOMException`: es-toolkit's `AbortError`/`TimeoutError`
-                    // tests probe `value instanceof DOMException`. A `new
-                    // DOMException(...)` erases to a record carrying
-                    // `__smelt_domexception` (see
-                    // `domexception_object_constructor_expression`), recognized
-                    // through that marker in `instance_of_text`.
-                    | "DOMException"
-            )
     }
 
     /// Return true for host global constructors that Smelt always models as

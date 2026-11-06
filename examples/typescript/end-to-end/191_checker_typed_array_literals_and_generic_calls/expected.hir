@@ -188,7 +188,6 @@ interned types
   t36 = (String, Float)
   t37 = fn((A, B)) -> (B, A)
   t38 = fn(Float) -> Bool
-  t39 = fn(Float) -> Bool
-  t40 = fn(List<T>, fn(T) -> Bool) -> List<T>
-  t41 = Float | List<Float> | List<Float | List<Float>> | List<Float | List<Float | List<Float>>>
-  t42 = List<Float | List<Float> | List<Float | List<Float>> | List<Float | List<Float | List<Float>>>>
+  t39 = fn(List<T>, fn(T) -> Bool) -> List<T>
+  t40 = Float | List<Float> | List<Float | List<Float>> | List<Float | List<Float | List<Float>>>
+  t41 = List<Float | List<Float> | List<Float | List<Float>> | List<Float | List<Float | List<Float>>>>

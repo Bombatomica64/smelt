@@ -1117,8 +1117,8 @@ impl ModuleBuilder<'_> {
             ) || matches!(
                 self.stdlib_class_of_type(*arm),
                 Some(smelt_stdlib::StdlibClass::Url | smelt_stdlib::StdlibClass::UrlSearchParams)
-            ) && !self.user_class_shadows("URL")
-                && !self.user_class_shadows("URLSearchParams")
+            ) && !self.source_shadows_global("URL")
+                && !self.source_shadows_global("URLSearchParams")
         })
     }
 

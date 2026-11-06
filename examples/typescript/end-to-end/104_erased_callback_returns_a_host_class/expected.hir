@@ -37,6 +37,5 @@ interned types
   t4 = Bool | fn(Float) -> ArrayBuffer
   t5 = String
   t6 = fn(Bool | fn(Float) -> ArrayBuffer) -> String
-  t7 = fn(Float) -> ArrayBuffer
-  t8 = fn(Bool | fn(Float) -> ArrayBuffer) -> String
-  t9 = None
+  t7 = fn(Bool | fn(Float) -> ArrayBuffer) -> String
+  t8 = None
