@@ -455,8 +455,7 @@ closure ClosureId(2) -> List<String> throws
   bb0:
     %6 = copy %2.field29
     %3 = copy %6[0.0]
-    %7 = closure_call copy %3.field6(copy %0, copy %1)
-    %4 = copy %7
+    %4 = closure_call copy %3.field6(copy %0, copy %1)
     %8 = bind_this copy %3.field6, copy %3
     %5 = copy %8
     %9 = closure ClosureId(3) [copy %5]

@@ -124,7 +124,6 @@ use smelt_hir::{Type, TypeInterner};
 use crate::{LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement};
 
 use super::Pass;
-use super::local_use::local_decl;
 
 /// Fuses a dict-entry read/compute/write-back triple into one entry update.
 #[derive(Debug, Default)]
@@ -267,9 +266,9 @@ fn dict_entry_types_match(
     stored_dest: LocalId,
 ) -> bool {
     let (Some(base_decl), Some(current_decl), Some(stored_decl)) = (
-        local_decl(function, base),
-        local_decl(function, current),
-        local_decl(function, stored_dest),
+        function.body().local_decl(base),
+        function.body().local_decl(current),
+        function.body().local_decl(stored_dest),
     ) else {
         return false;
     };

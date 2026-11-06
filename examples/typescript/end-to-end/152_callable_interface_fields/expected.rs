@@ -4116,7 +4116,6 @@ impl Context {
     move |closure_arg_0: String, closure_arg_1: Option<String>, closure_arg_2: Option<SetHeaderOptions>| {
     let previous: Option<String>;
     let _smelt_tmp_6: bool;
-    let _smelt_tmp_7: Option<String>;
     let _smelt_tmp_8: Option<bool>;
     let _smelt_tmp_9: bool;
     let mut _smelt_tmp_10: bool;
@@ -4133,8 +4132,7 @@ impl Context {
     _smelt_tmp_6 = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().headers.remove(&closure_arg_0).is_some();
     ()
     } else {
-    _smelt_tmp_7 = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().headers.clone().get(&closure_arg_0);
-    previous = _smelt_tmp_7.clone();
+    previous = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().headers.clone().get(&closure_arg_0);
     _smelt_tmp_8 = closure_arg_2.clone().as_ref().and_then(|_smelt_value| _smelt_value.append.clone());
     _smelt_tmp_9 = _smelt_tmp_8.clone().clone().unwrap_or(false);
     if _smelt_tmp_9 {

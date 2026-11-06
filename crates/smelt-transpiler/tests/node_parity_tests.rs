@@ -49,6 +49,13 @@ clone-strategy = "aggressive"
     ensure_eq(&stdout, &expected, format!("{name}: generated Rust stdout"))
 }
 
+/// A copy keeps its value when a closure writes the source afterwards, whether the
+/// copy sits in a function or a closure and however deep the writing closure is.
+#[test]
+fn copy_before_write() -> TestResult {
+    verify_node_parity("copy_before_write")
+}
+
 /// `DOMException` is an `Error`, `File` a `Blob`, a `TypeError` an `Error`, and a
 /// union arm answers for its base classes.
 #[test]

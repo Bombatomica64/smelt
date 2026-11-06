@@ -108,10 +108,8 @@ closure ClosureId(0) -> Float
     %5 temp: Float
     %6 temp: Float
   bb0:
-    %4 = copy %0 ?? 10.0
-    %2 = copy %4
-    %5 = copy %1 ?? 10.0
-    %3 = copy %5
+    %2 = copy %0 ?? 10.0
+    %3 = copy %1 ?? 10.0
     %6 = copy %2 + copy %3
     return copy %6
 
@@ -127,8 +125,7 @@ closure ClosureId(1) -> Float
     %7 temp: Float
   bb0:
     %4 = copy %0 * 2.0
-    %5 = copy %1 ?? copy %4
-    %3 = copy %5
+    %3 = copy %1 ?? copy %4
     %6 = copy %0 + copy %3
     %7 = copy %6 + copy %2
     return copy %7
@@ -146,8 +143,7 @@ closure ClosureId(2) -> Float
     %8 temp: Float
     %9 temp: Float
   bb0:
-    %4 = copy %1 ?? "x"
-    %3 = copy %4
+    %3 = copy %1 ?? "x"
     %5 = len copy %3
     %6 = copy %0 + copy %5
     %7 = copy %2 == undefined
@@ -175,8 +171,7 @@ closure ClosureId(3) -> Float
     %8 temp: Float
     %9 temp: Float
   bb0:
-    %4 = copy %1 ?? 1.0
-    %3 = copy %4
+    %3 = copy %1 ?? 1.0
     %5 = copy %0 <= 0.0
     switch copy %5 ? bb1 : bb2
   bb1:

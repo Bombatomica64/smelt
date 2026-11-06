@@ -118,13 +118,11 @@ closure ClosureId(0) -> Dict<String, String | List<String>>
     %24 temp: Optional<String | List<String>>
     %25 temp: Bool
   bb0:
-    %7 = {}
-    %1 = copy %7
+    %1 = {}
     %8 = ["name", "hey"]
     %9 = ["name", "ho"]
     %10 = ["x", "1"]
-    %11 = [copy %8, copy %9, copy %10]
-    %2 = copy %11
+    %2 = [copy %8, copy %9, copy %10]
     %12 = 0
     goto bb1
   bb1:
@@ -133,10 +131,8 @@ closure ClosureId(0) -> Dict<String, String | List<String>>
     switch copy %14 ? bb2 : bb4
   bb2:
     %3 = copy %2[copy %12]
-    %15 = copy %3?.[0.0]
-    %4 = copy %15
-    %16 = copy %3?.[1.0]
-    %5 = copy %16
+    %4 = copy %3?.[0.0]
+    %5 = copy %3?.[1.0]
     switch copy %0 ? bb5 : bb6
   bb3:
     %12 = copy %12 + 1

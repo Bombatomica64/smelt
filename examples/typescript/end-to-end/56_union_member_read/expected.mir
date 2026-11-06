@@ -119,9 +119,8 @@ fn status_of (FuncId(2)) -> Float
     %4 = copy %7.field10
     goto bb5
   bb5:
-    %8 = move %4
     %9 = -1.0
-    %10 = move %8 ?? move %9
+    %10 = move %4 ?? move %9
     return move %10
 
 fn main (FuncId(3)) -> None

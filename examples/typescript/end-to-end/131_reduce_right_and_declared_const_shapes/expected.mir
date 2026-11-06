@@ -187,8 +187,7 @@ closure ClosureId(0) -> Dict<String, Float>
     %10 temp: Float
     %11 temp: Float
   bb0:
-    %5 = tuple_index copy %1, 0
-    %2 = copy %5
+    %2 = tuple_index copy %1, 0
     %6 = [3.0, 1.0, 2.0]
     %7 = copy %4
     %8 = tuple_index copy %7, 1

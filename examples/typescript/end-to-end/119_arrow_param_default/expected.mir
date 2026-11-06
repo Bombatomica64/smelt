@@ -106,8 +106,7 @@ closure ClosureId(0) -> String
     %5 temp: String
     %6 temp: String
   bb0:
-    %3 = copy %1 ?? "hello"
-    %2 = copy %3
+    %2 = copy %1 ?? "hello"
     %4 = "" + copy %2
     %5 = copy %4 + ", "
     %6 = copy %5 + copy %0
@@ -123,8 +122,7 @@ closure ClosureId(1) -> Float
     %5 temp: Float
   bb0:
     %3 = copy %0 * 2.0
-    %4 = copy %1 ?? copy %3
-    %2 = copy %4
+    %2 = copy %1 ?? copy %3
     %5 = copy %0 * copy %2
     return copy %5
 

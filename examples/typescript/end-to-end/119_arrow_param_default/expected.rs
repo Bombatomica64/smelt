@@ -149,8 +149,7 @@ fn main() {
     let _smelt_tmp_16: f64;
     let _smelt_tmp_18: f64;
     let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: Option<String>| {
-    let _smelt_tmp_3: String = closure_arg_1.clone().unwrap_or("hello".to_owned());
-    let greeting_1: String = _smelt_tmp_3.clone();
+    let greeting_1: String = closure_arg_1.clone().unwrap_or("hello".to_owned());
     let _smelt_tmp_4: String = "".to_owned() + &greeting_1.clone();
     let _smelt_tmp_5: String = _smelt_tmp_4.clone() + &", ".to_owned();
     let _smelt_tmp_6: String = _smelt_tmp_5.clone() + &closure_arg_0.clone();
@@ -159,8 +158,7 @@ fn main() {
     let greet = _smelt_tmp_2.clone();
     let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: Option<f64>| {
     let _smelt_tmp_3: f64 = closure_arg_0 * 2.0;
-    let _smelt_tmp_4: f64 = closure_arg_1.clone().unwrap_or(_smelt_tmp_3);
-    let factor_1: f64 = _smelt_tmp_4;
+    let factor_1: f64 = closure_arg_1.clone().unwrap_or(_smelt_tmp_3);
     let _smelt_tmp_5: f64 = closure_arg_0 * factor_1;
     _smelt_tmp_5
     });

@@ -3808,8 +3808,7 @@ impl Ctx {
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let smelt_self = self.clone();
     move |closure_arg_0: String, closure_arg_1: SmeltUnion2| {
-    let _smelt_tmp_5: (String, SmeltUnion2) = (closure_arg_0.clone(), closure_arg_1.clone());
-    let args: (String, SmeltUnion2) = _smelt_tmp_5.clone();
+    let args: (String, SmeltUnion2) = (closure_arg_0.clone(), closure_arg_1.clone());
     let __smelt_spread: (String, SmeltUnion2) = args.clone();
     let _smelt_tmp_6: String = smelt_self._respond(__smelt_spread.0.clone(), __smelt_spread.1.clone());
     _smelt_tmp_6.clone()

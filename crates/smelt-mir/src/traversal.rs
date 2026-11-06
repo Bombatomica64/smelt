@@ -18,8 +18,8 @@
 use std::collections::HashMap;
 
 use crate::{
-    Callee, GlobalProjection, LocalId, LocalKind, MirFunction, Operand, Place, Rvalue, Statement,
-    Terminator,
+    BasicBlock, Callee, GlobalProjection, LocalDecl, LocalId, LocalKind, MirClosure, MirFunction,
+    Operand, Place, Rvalue, Statement, Terminator,
 };
 
 /// One thing a [`Statement`] reads.
@@ -1317,14 +1317,26 @@ impl Terminator {
     }
 }
 
-impl MirFunction {
+/// One body's locals and blocks, whether a function's or a closure's.
+///
+/// Definition and read counts mean the same in both, so they live here and
+/// [`MirFunction`] and [`MirClosure`] only hand out the view.
+#[derive(Debug, Clone, Copy)]
+pub struct Body<'a> {
+    /// Every local of the body.
+    pub locals: &'a [LocalDecl],
+    /// Every block of the body.
+    pub blocks: &'a [BasicBlock],
+}
+
+impl<'a> Body<'a> {
     /// How many times each local is defined anywhere in this body: every
     /// [`Statement::defs`] and [`Terminator::defs`]. This is the one answer to
     /// "is this local assigned once".
     #[must_use]
-    pub fn assignment_counts(&self) -> HashMap<LocalId, usize> {
+    pub fn assignment_counts(self) -> HashMap<LocalId, usize> {
         let mut counts: HashMap<LocalId, usize> = HashMap::new();
-        for block in &self.blocks {
+        for block in self.blocks {
             let statements = block.statements.iter().map(Statement::defs);
             let terminator = block.terminator.as_ref().map(Terminator::defs);
             for local in statements.chain(terminator).flatten() {
@@ -1337,7 +1349,7 @@ impl MirFunction {
 
     /// How many times `local` is defined; see [`Self::assignment_counts`].
     #[must_use]
-    pub fn assignment_count(&self, local: LocalId) -> usize {
+    pub fn assignment_count(self, local: LocalId) -> usize {
         self.blocks
             .iter()
             .map(|block| {
@@ -1353,10 +1365,10 @@ impl MirFunction {
 
     /// How many times `local` is read anywhere in this body.
     #[must_use]
-    pub fn read_count(&self, local: LocalId) -> usize {
+    pub fn read_count(self, local: LocalId) -> usize {
         let mut count: usize = 0;
         let mut tally = |read: LocalId| count = count.saturating_add(usize::from(read == local));
-        for block in &self.blocks {
+        for block in self.blocks {
             for statement in &block.statements {
                 statement.read_locals(&mut tally);
             }
@@ -1367,18 +1379,68 @@ impl MirFunction {
         count
     }
 
+    /// The declaration of `local`, if the index is in range.
+    #[must_use]
+    pub fn local_decl(self, local: LocalId) -> Option<&'a LocalDecl> {
+        self.locals.get(usize::try_from(local.0).unwrap_or(usize::MAX))
+    }
+
     /// Whether `local` is a compiler temporary.
     #[must_use]
-    pub fn is_temp(&self, local: LocalId) -> bool {
-        self.locals
-            .get(usize::try_from(local.0).unwrap_or(usize::MAX))
-            .is_some_and(|decl| decl.kind == LocalKind::Temp)
+    pub fn is_temp(self, local: LocalId) -> bool {
+        self.local_decl(local).is_some_and(|decl| decl.kind == LocalKind::Temp)
     }
 
     /// Whether `local` is a temporary assigned once and read once.
     #[must_use]
-    pub fn is_single_use_temp(&self, local: LocalId) -> bool {
+    pub fn is_single_use_temp(self, local: LocalId) -> bool {
         self.is_temp(local) && self.assignment_count(local) == 1 && self.read_count(local) == 1
+    }
+}
+
+impl MirFunction {
+    /// This function's locals and blocks.
+    #[must_use]
+    pub fn body(&self) -> Body<'_> {
+        Body { locals: &self.locals, blocks: &self.blocks }
+    }
+
+    /// See [`Body::assignment_counts`].
+    #[must_use]
+    pub fn assignment_counts(&self) -> HashMap<LocalId, usize> {
+        self.body().assignment_counts()
+    }
+
+    /// See [`Body::assignment_count`].
+    #[must_use]
+    pub fn assignment_count(&self, local: LocalId) -> usize {
+        self.body().assignment_count(local)
+    }
+
+    /// See [`Body::read_count`].
+    #[must_use]
+    pub fn read_count(&self, local: LocalId) -> usize {
+        self.body().read_count(local)
+    }
+
+    /// See [`Body::is_temp`].
+    #[must_use]
+    pub fn is_temp(&self, local: LocalId) -> bool {
+        self.body().is_temp(local)
+    }
+
+    /// See [`Body::is_single_use_temp`].
+    #[must_use]
+    pub fn is_single_use_temp(&self, local: LocalId) -> bool {
+        self.body().is_single_use_temp(local)
+    }
+}
+
+impl MirClosure {
+    /// This closure's locals and blocks.
+    #[must_use]
+    pub fn body(&self) -> Body<'_> {
+        Body { locals: &self.locals, blocks: &self.blocks }
     }
 }
 

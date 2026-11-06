@@ -1,14 +1,7 @@
 //! Local lookups and temp inlining shared by the MIR optimization passes. The
 //! read and definition counts themselves live on [`MirFunction`].
 
-use crate::{Constant, LocalDecl, LocalId, MirFunction, Operand, Rvalue, Statement};
-
-/// The declaration of a local, if the index is in range.
-pub(super) fn local_decl(function: &MirFunction, local: LocalId) -> Option<&LocalDecl> {
-    function
-        .locals
-        .get(usize::try_from(local.0).unwrap_or(usize::MAX))
-}
+use crate::{Constant, LocalId, MirFunction, Operand, Rvalue, Statement};
 
 /// Inline every single-assignment temp in `candidates` that only ever holds
 /// an absent constant (`undefined`/`None`) into the statement operands that

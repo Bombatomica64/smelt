@@ -42,8 +42,7 @@ closure ClosureId(0) -> Future<String>
   bb0:
     %2 = string_trim_both copy %0
     %3 = async_resolve(0.0, copy %2)
-    %4 = await copy %3
-    %1 = copy %4
+    %1 = await copy %3
     %5 = string_upper copy %1
     return copy %5
 

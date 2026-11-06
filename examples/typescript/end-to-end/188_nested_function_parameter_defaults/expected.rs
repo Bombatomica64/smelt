@@ -121,10 +121,8 @@ pub(crate) fn block_nested(n: f64) -> f64 {
     let _smelt_tmp_2: bool = n > 0.0;
     if _smelt_tmp_2 {
     _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: Option<f64>, closure_arg_1: Option<f64>| {
-    let _smelt_tmp_4: f64 = closure_arg_0.clone().unwrap_or(10.0);
-    let a_1: f64 = _smelt_tmp_4;
-    let _smelt_tmp_5: f64 = closure_arg_1.clone().unwrap_or(10.0);
-    let b_1: f64 = _smelt_tmp_5;
+    let a_1: f64 = closure_arg_0.clone().unwrap_or(10.0);
+    let b_1: f64 = closure_arg_1.clone().unwrap_or(10.0);
     let _smelt_tmp_6: f64 = a_1 + b_1;
     _smelt_tmp_6
     });
@@ -139,8 +137,7 @@ pub(crate) fn block_nested(n: f64) -> f64 {
 pub(crate) fn body_level(n: f64) -> f64 {
     let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: Option<f64>, closure_arg_2: f64| {
     let _smelt_tmp_4: f64 = closure_arg_0 * 2.0;
-    let _smelt_tmp_5: f64 = closure_arg_1.clone().unwrap_or(_smelt_tmp_4);
-    let b_1: f64 = _smelt_tmp_5;
+    let b_1: f64 = closure_arg_1.clone().unwrap_or(_smelt_tmp_4);
     let _smelt_tmp_6: f64 = closure_arg_0 + b_1;
     let _smelt_tmp_7: f64 = _smelt_tmp_6 + closure_arg_2;
     _smelt_tmp_7
@@ -160,8 +157,7 @@ pub(crate) fn hoisted_call(n: f64) -> f64 {
     let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: Option<String>, closure_arg_2: Option<bool>| {
     let mut _smelt_tmp_8: f64;
     let _smelt_tmp_9: f64;
-    let _smelt_tmp_4: String = closure_arg_1.clone().unwrap_or("x".to_owned());
-    let label_1: String = _smelt_tmp_4.clone();
+    let label_1: String = closure_arg_1.clone().unwrap_or("x".to_owned());
     let _smelt_tmp_5: f64 = label_1.chars().count() as f64;
     let _smelt_tmp_6: f64 = closure_arg_0 + _smelt_tmp_5;
     let _smelt_tmp_7: bool = closure_arg_2.clone().is_none();
@@ -189,8 +185,7 @@ pub(crate) fn recursive(n: f64) -> f64 {
     let _smelt_tmp_7: f64;
     let _smelt_tmp_8: f64;
     let _smelt_tmp_9: f64;
-    let _smelt_tmp_4: f64 = closure_arg_1.clone().unwrap_or(1.0);
-    let acc_1: f64 = _smelt_tmp_4;
+    let acc_1: f64 = closure_arg_1.clone().unwrap_or(1.0);
     let _smelt_tmp_5: bool = closure_arg_0 <= 0.0;
     if _smelt_tmp_5 {
     _smelt_tmp_6 = acc_1;

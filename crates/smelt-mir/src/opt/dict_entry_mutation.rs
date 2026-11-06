@@ -57,7 +57,6 @@ use smelt_hir::{Type, TypeInterner};
 use crate::{LocalId, Mir, MirFunction, Place, Rvalue, Statement};
 
 use super::Pass;
-use super::local_use::local_decl;
 
 /// Rewrites a dict-entry copy-out/mutate/copy-back triple into one in-place mutation.
 #[derive(Debug, Default)]
@@ -181,10 +180,10 @@ fn dict_entry_types_match(
     base: LocalId,
     alias: LocalId,
 ) -> bool {
-    let Some(base_decl) = local_decl(function, base) else {
+    let Some(base_decl) = function.body().local_decl(base) else {
         return false;
     };
-    let Some(alias_decl) = local_decl(function, alias) else {
+    let Some(alias_decl) = function.body().local_decl(alias) else {
         return false;
     };
     if !matches!(types.get(alias_decl.ty), Some(Type::List(_))) {

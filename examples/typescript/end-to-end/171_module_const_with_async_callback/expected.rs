@@ -3808,8 +3808,7 @@ smelt_local.block_on(&smelt_runtime, async move {
         let smelt_async_value = {
     let _smelt_tmp_2: String = closure_arg_0.clone().trim().to_owned();
     let _smelt_tmp_3: SmeltFuture<String> = SmeltFuture::from_future(Box::pin(async move { smelt_sleep_ms(0.0 as f64).await; Ok::<_, Box<dyn std::error::Error>>(_smelt_tmp_2.clone()) }));
-    let _smelt_tmp_4: String = _smelt_tmp_3.await?;
-    let trimmed: String = _smelt_tmp_4.clone();
+    let trimmed: String = _smelt_tmp_3.await?;
     let _smelt_tmp_5: String = trimmed.clone().to_uppercase();
     _smelt_tmp_5.clone()
         };

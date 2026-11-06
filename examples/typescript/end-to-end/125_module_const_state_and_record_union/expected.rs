@@ -3669,8 +3669,6 @@ fn main() {
     let mut __smelt_logical_value_6: Option<String>;
     let mut _smelt_tmp_13: usize;
     let mut _smelt_tmp_14: bool;
-    let mut _smelt_tmp_15: Option<String>;
-    let mut _smelt_tmp_16: Option<String>;
     let mut _smelt_tmp_17: bool;
     let mut _smelt_tmp_18: bool;
     let mut _smelt_tmp_19: bool;
@@ -3680,23 +3678,19 @@ fn main() {
     let mut _smelt_tmp_23: f64;
     let mut _smelt_tmp_24: Option<SmeltUnion10>;
     let mut _smelt_tmp_25: bool;
-    let _smelt_tmp_7: SmeltRecord<String, SmeltUnion10> = SmeltRecord::from([]);
-    let mut results: SmeltRecord<String, SmeltUnion10> = _smelt_tmp_7.clone();
+    let mut results: SmeltRecord<String, SmeltUnion10> = SmeltRecord::from([]);
     let _smelt_tmp_8: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["name".to_owned(), "hey".to_owned()]; smelt_list_items }));
     let _smelt_tmp_9: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["name".to_owned(), "ho".to_owned()]; smelt_list_items }));
     let _smelt_tmp_10: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x".to_owned(), "1".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_11: SmeltList<SmeltList<String>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_8.clone(), _smelt_tmp_9.clone(), _smelt_tmp_10.clone()]; smelt_list_items }));
-    let pairs: SmeltList<SmeltList<String>> = Into::<SmeltList<_>>::into(_smelt_tmp_11.clone());
+    let pairs: SmeltList<SmeltList<String>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_8.clone(), _smelt_tmp_9.clone(), _smelt_tmp_10.clone()]; smelt_list_items }));
     let mut _smelt_tmp_12: usize = 0;
     loop {
     _smelt_tmp_13 = pairs.len();
     _smelt_tmp_14 = _smelt_tmp_12 < _smelt_tmp_13;
     if _smelt_tmp_14 {
     __smelt_for_item = Into::<SmeltList<_>>::into(pairs.borrow().get(_smelt_tmp_12).cloned().unwrap_or_else(|| SmeltList::new(Vec::<String>::new())));
-    _smelt_tmp_15 = ({ let smelt_len = __smelt_for_item.clone().len() as i64; let smelt_index = 0.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| __smelt_for_item.clone().borrow().get(index).cloned());
-    name = _smelt_tmp_15.clone();
-    _smelt_tmp_16 = ({ let smelt_len = __smelt_for_item.clone().len() as i64; let smelt_index = 1.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| __smelt_for_item.clone().borrow().get(index).cloned());
-    value = _smelt_tmp_16.clone();
+    name = ({ let smelt_len = __smelt_for_item.clone().len() as i64; let smelt_index = 0.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| __smelt_for_item.clone().borrow().get(index).cloned());
+    value = ({ let smelt_len = __smelt_for_item.clone().len() as i64; let smelt_index = 1.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| __smelt_for_item.clone().borrow().get(index).cloned());
     if closure_arg_0 {
     _smelt_tmp_17 = match results.get(&name.clone().map_or(String::new(), |value| value.clone())).unwrap_or(SmeltUnion10::M0(String::new())).clone().into_smelt_unknown() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };
     if _smelt_tmp_17 {

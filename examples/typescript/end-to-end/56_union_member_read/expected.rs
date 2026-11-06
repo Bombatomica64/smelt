@@ -4244,7 +4244,6 @@ pub(crate) fn status_of(arg: SmeltUnion3) -> f64 {
     let _smelt_tmp_5: SmeltResponse;
     let _smelt_tmp_6: f64;
     let _smelt_tmp_7: InitLike;
-    let _smelt_tmp_8: Option<f64>;
     let _smelt_tmp_9: f64;
     let _smelt_tmp_10: f64;
     let _smelt_tmp_11: f64;
@@ -4261,9 +4260,8 @@ pub(crate) fn status_of(arg: SmeltUnion3) -> f64 {
     _smelt_tmp_7 = match _smelt_tmp_2 { SmeltUnion7::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_4 = _smelt_tmp_7.status.clone();
     }
-    _smelt_tmp_8 = _smelt_tmp_4;
     _smelt_tmp_9 = -1.0;
-    _smelt_tmp_10 = _smelt_tmp_8.clone().unwrap_or(_smelt_tmp_9);
+    _smelt_tmp_10 = _smelt_tmp_4.clone().unwrap_or(_smelt_tmp_9);
     return _smelt_tmp_10;
     } else {
     _smelt_tmp_11 = match arg.clone() { SmeltUnion3::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
