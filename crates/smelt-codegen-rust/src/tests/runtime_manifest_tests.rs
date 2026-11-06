@@ -8,7 +8,7 @@
 
 use super::*;
 use crate::runtime_prelude::{flag, rendered_text};
-use smelt_runtime::order::{Entry, ORDER};
+use smelt_runtime::order::{CONSOLE_INSPECT, Entry, ORDER};
 use smelt_runtime::source::{flag_names, item_names, item_source};
 
 /// Every item the order names resolves, and every item is in the order.
@@ -20,6 +20,7 @@ use smelt_runtime::source::{flag_names, item_names, item_source};
 fn runtime_order_and_items_agree() {
     let ordered: Vec<&str> = ORDER
         .iter()
+        .chain(CONSOLE_INSPECT)
         .filter_map(|entry| match entry {
             Entry::Item(name) => Some(*name),
             _ => None,

@@ -96,6 +96,7 @@ mod runtime {
     include!("runtime/callable_registry.rs");
     include!("runtime/captures.rs");
     include!("runtime/clock.rs");
+    include!("runtime/console_inspect.rs");
     include!("runtime/conversions.rs");
     include!("runtime/crypto.rs");
     include!("runtime/date.rs");
@@ -148,4 +149,12 @@ mod runtime {
     include!("runtime/value.rs");
     include!("runtime/view_write_through.rs");
     include!("runtime/vitest_mock.rs");
+
+    /// Behaviour tests, inside the flat module so private items are in scope.
+    #[cfg(test)]
+    mod family_tests {
+        use super::*;
+
+        include!("runtime_tests.rs");
+    }
 }

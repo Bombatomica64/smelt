@@ -75,12 +75,18 @@ pub(crate) fn emit_entries(
 }
 
 /// Renders the runtime under `flags`, for tests that read its text.
+#[cfg(test)]
+pub(crate) fn rendered_text(flags: &dyn Fn(&str) -> bool) -> String {
+    rendered_entries(ORDER, flags)
+}
+
+/// Renders `entries` under `flags`, for tests that read their text.
 ///
 /// Slots hold program text, so they render as nothing here.
 #[cfg(test)]
-pub(crate) fn rendered_text(flags: &dyn Fn(&str) -> bool) -> String {
+pub(crate) fn rendered_entries(entries: &[Entry], flags: &dyn Fn(&str) -> bool) -> String {
     let mut text = String::new();
-    for entry in ORDER {
+    for entry in entries {
         match entry {
             Entry::Item(name) if item_enabled(name, flags) => {
                 for line in render_item(name, flags).unwrap_or_default() {

@@ -120,6 +120,10 @@ const MODULES: &[RuntimeModule] = &[
         source: include_str!("runtime/clock.rs"),
     },
     RuntimeModule {
+        name: "console_inspect",
+        source: include_str!("runtime/console_inspect.rs"),
+    },
+    RuntimeModule {
         name: "conversions",
         source: include_str!("runtime/conversions.rs"),
     },

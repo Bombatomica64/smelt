@@ -34,7 +34,7 @@
 //! [`crate::console_inspect_prelude`].
 
 use super::*;
-use crate::console_inspect_prelude::{self, InspectContainers, InspectField};
+use crate::console_inspect_prelude::{self, InspectField};
 use crate::rust::RustIdent;
 use super::union::union_name;
 
@@ -291,14 +291,9 @@ pub(crate) fn emit_console_inspect_support(
         return Ok(String::new());
     };
     let emitter = FunctionEmitter::new(mir, context, function)?;
-    let demand = context.demand();
-    let needs_unknown = demand.has(Need::Unknown);
-    let mut text = console_inspect_prelude::runtime_text(InspectContainers {
-        list: demand.has(Need::SmeltList),
-        prim_set: demand.has(Need::PrimSet),
-        unknown: needs_unknown,
-        bigint: demand.has(Need::BigInt),
-    });
+    let mut writer = crate::rust::CodeWriter::new();
+    crate::runtime_prelude::emit_entries(&mut writer, smelt_runtime::order::CONSOLE_INSPECT, mir, context)?;
+    let mut text = writer.finish();
     let records = inspect_records(mir, context);
     let mut ordered = records.iter().collect::<Vec<_>>();
     ordered.sort_by(|left, right| left.1.rust_name.cmp(&right.1.rust_name));

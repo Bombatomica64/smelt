@@ -82,39 +82,23 @@ use crate::{rust::erased_string, type_substitution::TypeSubstitution};
 use smelt_hir::{BodyId, Type, TypeId};
 use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, MirGlobalInit};
 
-mod asymmetric_matcher_prelude;
-mod builtin_member_prelude;
-mod callable_registry;
-mod erased_method_prelude;
 mod erased_list_alias;
 mod accessor_prelude;
 mod bigint_prelude;
-mod byte_buffer_prelude;
-mod event_emitter_prelude;
-mod host_value_erasure;
 mod number_format_prelude;
 mod console_inspect_prelude;
 mod string_to_number_prelude;
-mod blob_prelude;
-mod fetch_types_prelude;
-mod crypto_prelude;
 mod host_module_prelude;
-mod form_data_prelude;
-mod text_codec_prelude;
 mod typed_array_prelude;
 mod url_prelude;
 pub(crate) mod base_init;
 pub(crate) mod class_proto;
 pub(crate) mod bound_traits;
-mod date_prelude;
 pub(crate) mod classes;
 pub(crate) mod classify;
 pub(crate) mod lazy_view;
 pub(crate) mod reference_origin;
 pub(crate) mod deps;
-mod function_object_prelude;
-mod http_server_prelude;
-mod sqlite_prelude;
 // Increment 3 of the callback-generics plan made the last dormant entry point
 // live: the safety valve consults `collect_bindings` and `TypeParamBinding`
 // directly, so the module no longer needs a `dead_code` expectation.

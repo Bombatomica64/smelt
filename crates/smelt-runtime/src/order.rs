@@ -222,3 +222,12 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("SmeltSqliteDatabase"),
     Entry::Item("impl_IntoSmeltUnknown_for_SmeltSqliteDatabase"),
 ];
+
+/// The `util.inspect` runtime, spliced in only when a `console.log` reaches it.
+pub const CONSOLE_INSPECT: &[Entry] = &[
+    Entry::Item("SmeltInspectContext"),
+    Entry::Item("impl_SmeltInspect_for_SmeltList"),
+    Entry::Item("impl_SmeltInspect_for_SmeltPrimSet"),
+    Entry::Item("impl_SmeltInspect_for_BigInt"),
+    Entry::Item("impl_SmeltInspect_for_SmeltRecord"),
+];
