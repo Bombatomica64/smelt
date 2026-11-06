@@ -2,6 +2,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use indexmap::IndexMap;
+
 use crate::lowering::{ConstCollection, ConstLiteral, RestParam};
 use smelt_hir::{
     Crate as HirCrate, ExprKind, Field, FunctionType, ItemId, Literal, TypeId, TypeParamDef,
@@ -137,8 +139,9 @@ pub struct HirCtx {
     /// './globalThis'` would read members off a fresh empty record instead of
     /// resolving them against the modeled global.
     pub module_global_object_aliases: HashMap<String, HashSet<String>>,
-    /// Exported object constants used as namespace-like API surfaces.
-    pub object_namespaces: HashMap<String, HashMap<String, ItemId>>,
+    /// Exported object constants used as namespace-like API surfaces, each with
+    /// its entries in source order.
+    pub object_namespaces: HashMap<String, IndexMap<String, ItemId>>,
     /// Exported object constants with literal data values.
     pub object_consts: HashMap<String, ObjectConst>,
     /// Exported object constants whose values can be projected by `Object.values`.

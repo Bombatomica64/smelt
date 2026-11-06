@@ -743,6 +743,10 @@ impl ModuleBuilder<'_> {
                     && Self::statement_must_exit(&if_stmt.consequent)
                     && let Some(narrowing) = self.inverse_guard_narrowing(&if_stmt.test, body)
                 {
+                    #[expect(
+                        clippy::iter_over_hash_type,
+                        reason = "keyed inserts into the narrowing scope"
+                    )]
                     for (name, target) in narrowing {
                         self.apply_narrowing(name, target);
                     }

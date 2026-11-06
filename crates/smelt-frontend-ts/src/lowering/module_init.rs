@@ -2,6 +2,8 @@
 
 use crate::lowering::js_text::js_str_text;
 use std::collections::{HashMap, HashSet};
+
+use indexmap::IndexMap;
 use std::path::Path;
 
 use super::support::{
@@ -542,6 +544,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 item,
             );
         }
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "keyed inserts of distinct aliases"
+        )]
         for (alias, item_id) in &ctx.export_aliases {
             let Some(item) = ctx
                 .krate
@@ -576,6 +582,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 values.insert(name.to_owned(), value);
             }
         }
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "keyed inserts of distinct aliases"
+        )]
         for (alias, item_id) in &ctx.export_aliases {
             let Some(Item::Const(const_item)) = ctx
                 .krate
@@ -1156,21 +1166,23 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // alias is published here — otherwise the importing module sees a name
         // no declaration is bound to, and `class X extends StoreBase` recorded a
         // base class nothing declares (silently dropping every inherited member).
-        for (exported, local) in self.export_renames.clone() {
-            if self.ctx.export_aliases.contains_key(&exported) {
-                continue;
-            }
-            // Either registry can hold the declaration at this point: a class
-            // lives in the class registry, everything else in the item map.
-            if let Some(item) = self
-                .items
-                .get(&local)
-                .copied()
-                .or_else(|| self.classes.item(&local))
-            {
-                self.items.insert(exported.clone(), item);
-                self.ctx.export_aliases.insert(exported, item);
-            }
+        //
+        // Every local resolves before any alias is published: in `export { a as
+        // b, b as c }` the alias `b` must not capture the local `b` of `c`.
+        let resolved = self
+            .export_renames
+            .iter()
+            .filter(|(exported, _)| !self.ctx.export_aliases.contains_key(*exported))
+            .filter_map(|(exported, local)| {
+                // Either registry can hold the declaration at this point: a class
+                // lives in the class registry, everything else in the item map.
+                let item = self.items.get(local).copied().or_else(|| self.classes.item(local))?;
+                Some((exported.clone(), item))
+            })
+            .collect::<Vec<_>>();
+        for (exported, item) in resolved {
+            self.items.insert(exported.clone(), item);
+            self.ctx.export_aliases.insert(exported, item);
         }
         let mut exports = HashMap::new();
         for item_id in &module.items {
@@ -1186,6 +1198,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 exports.insert(name.to_owned(), *item_id);
             }
         }
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "keyed inserts of distinct aliases"
+        )]
         for (alias, item_id) in &self.ctx.export_aliases {
             if previous_export_aliases.get(alias) != Some(item_id) {
                 exports.insert(alias.clone(), *item_id);
@@ -2465,6 +2481,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     bound: HashSet::new(),
                 };
                 collector.visit_expression(init);
+                #[expect(
+                    clippy::iter_over_hash_type,
+                    reason = "set union"
+                )]
                 for free in collector.into_free_names() {
                     changed |= reads.insert(free);
                 }
@@ -3912,6 +3932,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let Some(exports) = self.source_module_exports(source) else {
             return;
         };
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "keyed inserts of distinct names"
+        )]
         for (name, item) in exports {
             let alias = format!("{namespace}.{name}");
             self.ctx.export_aliases.insert(alias.clone(), item);
@@ -5467,7 +5491,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         object: &oxc::ast::ast::ObjectExpression<'_>,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<bool, SmeltError> {
-        let mut members = HashMap::new();
+        let mut members = IndexMap::new();
         let function_hint = self.function_table_value_type(type_hint);
         if type_hint.is_some() && function_hint.is_none() {
             return Ok(false);

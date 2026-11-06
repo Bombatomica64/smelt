@@ -423,6 +423,10 @@ impl Flow {
     /// Record a `from module import *`, which may bind any name.
     fn star_import(&mut self, module: &str) {
         let star = Target::Star(module.to_owned());
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "inserts one target into every set"
+        )]
         for targets in self.names.values_mut() {
             targets.insert(star.clone());
         }

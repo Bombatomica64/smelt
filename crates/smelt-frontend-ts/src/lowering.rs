@@ -38,6 +38,7 @@ use std::{
 use support::unknown_kind_from_typeof;
 
 use crate::{HirCtx, SmeltError};
+use indexmap::IndexMap;
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{
     Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ChainElement, Declaration,
@@ -898,8 +899,9 @@ struct ModuleBuilder<'ctx> {
     /// (`record_module_exports`) consumes the module's `SignaturesDeclared`
     /// phase token, so it cannot run before the prepasses or run twice.
     export_renames: HashMap<String, String>,
-    /// Object constants that act as namespace-like API surfaces.
-    object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
+    /// Object constants that act as namespace-like API surfaces, each with its
+    /// entries in source order.
+    object_namespaces: HashMap<String, IndexMap<String, smelt_hir::ItemId>>,
     /// Folded constant values visible to this module: literals, `enum` members,
     /// `RegExp` literals, object constants, collections and object-value
     /// projections.

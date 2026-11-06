@@ -3,6 +3,8 @@
 use crate::lowering::js_text::js_str_text;
 use std::collections::{HashMap, HashSet};
 
+use indexmap::IndexMap;
+
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
 use oxc::ast::ast::{
@@ -1281,7 +1283,7 @@ impl ModuleBuilder<'_> {
             .iter()
             .map(|member| self.type_fields_from_ts(member))
             .collect::<Result<Vec<_>, _>>()?;
-        let mut grouped: HashMap<smelt_hir::Symbol, Vec<Field>> = HashMap::new();
+        let mut grouped: IndexMap<smelt_hir::Symbol, Vec<Field>> = IndexMap::new();
         for fields in &variants {
             for field in fields {
                 grouped.entry(field.name).or_default().push(field.clone());
@@ -2948,13 +2950,16 @@ impl ModuleBuilder<'_> {
             .iter()
             .filter_map(|candidate| Self::canonical_module_path(candidate))
             .collect::<Vec<_>>();
-        self.ctx.type_renames.iter().find_map(|(path, renames)| {
-            let rendered = renames.get(name)?;
-            let canonical = Self::canonical_module_path(path)?;
-            canonical_candidates
-                .contains(&canonical)
-                .then(|| rendered.clone())
-        })
+        self.ctx
+            .type_renames
+            .iter()
+            .filter_map(|(path, renames)| {
+                let rendered = renames.get(name)?;
+                let canonical = Self::canonical_module_path(path)?;
+                canonical_candidates.contains(&canonical).then_some((path, rendered))
+            })
+            .min_by_key(|(path, _)| *path)
+            .map(|(_, rendered)| rendered.clone())
     }
 
     /// Lower a TypeScript `Record<K, V>` key type for Smelt's object model.
