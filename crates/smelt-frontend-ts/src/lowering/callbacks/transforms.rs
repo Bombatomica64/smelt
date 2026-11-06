@@ -194,7 +194,6 @@ impl ModuleBuilder<'_> {
     /// Build `receiver.at(index)` on a list or string whose element type is
     /// `item_ty`: the index coerced by [`Self::coerce_at_index_operand`], then
     /// an `OptionalIndex` typed `Optional<item_ty>`.
-    ///
     pub(in crate::lowering) fn optional_at_index_expr(
         &mut self,
         receiver: smelt_hir::ExprId,
