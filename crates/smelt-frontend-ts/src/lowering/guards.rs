@@ -1915,9 +1915,7 @@ impl ModuleBuilder<'_> {
             let executor_expr = if let Some(executor) = lowered_executor {
                 executor
             } else {
-                let exprs_before = body.exprs.len();
-                let bodies_before = self.ctx.krate.bodies.len();
-                let items_before = self.ctx.krate.items.len();
+                let mark = self.speculation_mark(body);
                 let executor_ty = self.promise_executor_type(output_ty);
                 let executor =
                     self.argument_with_hint(executor_arg, body, Some(executor_ty))?;
@@ -1940,13 +1938,8 @@ impl ModuleBuilder<'_> {
                         // to read what it resolves with; lower it again
                         // against the typed resolver so the values flow at
                         // their own type. The first lowering is rolled back
-                        // the way `compact_callback_rebuilds` rolls back its
-                        // probe: its expressions, and its closure bodies
-                        // when no item was minted meanwhile.
-                        body.exprs.truncate(exprs_before);
-                        if self.ctx.krate.items.len() == items_before {
-                            self.ctx.krate.bodies.truncate(bodies_before);
-                        }
+                        // through the speculation mark.
+                        self.roll_back_to(mark, body);
                         let typed_executor_ty = self.promise_executor_type(resolved);
                         if let Ok(typed) =
                             self.argument_with_hint(executor_arg, body, Some(typed_executor_ty))
@@ -1956,10 +1949,7 @@ impl ModuleBuilder<'_> {
                         } else {
                             // A value the typed resolver does not accept
                             // keeps the erased resolver the probe used.
-                            body.exprs.truncate(exprs_before);
-                            if self.ctx.krate.items.len() == items_before {
-                                self.ctx.krate.bodies.truncate(bodies_before);
-                            }
+                            self.roll_back_to(mark, body);
                             self.argument_with_hint(executor_arg, body, Some(executor_ty))?
                         }
                     }

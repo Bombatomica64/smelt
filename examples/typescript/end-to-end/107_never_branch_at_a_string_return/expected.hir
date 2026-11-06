@@ -28,4 +28,5 @@ interned types
   t4 = Bool
   t5 = Float
   t6 = Unknown
-  t7 = None
+  t7 = ArrayBuffer | String
+  t8 = None

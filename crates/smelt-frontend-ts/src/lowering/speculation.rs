@@ -32,11 +32,14 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Discard what lowering added to `body` and the crate since `mark`.
-    pub(in crate::lowering) fn roll_back_to(&mut self, mark: SpeculationMark, body: &mut Body) {
+    /// Discard what lowering added to `body` and the crate since `mark`; true
+    /// when `body` had grown.
+    pub(in crate::lowering) fn roll_back_to(&mut self, mark: SpeculationMark, body: &mut Body) -> bool {
+        let grew = body.exprs.len() > mark.exprs;
         body.exprs.truncate(mark.exprs);
         if self.ctx.krate.items.len() == mark.items {
             self.ctx.krate.bodies.truncate(mark.bodies);
         }
+        grew
     }
 }

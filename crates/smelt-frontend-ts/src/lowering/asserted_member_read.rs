@@ -62,14 +62,14 @@ impl ModuleBuilder<'_> {
         let Ok(field_ty) = self.class_field_type(target, field) else {
             return Ok(None);
         };
-        let exprs_before = body.exprs.len();
+        let mark = self.speculation_mark(body);
         let receiver = self.expression(operand, body)?;
         // not a new erasure: compared against, and the receiver is already erased
         let unknown_ty = self.unknown_type();
         if Self::expr_ty(body, receiver) != unknown_ty {
             // A plain read has no effect, so the probe is dropped and the
             // ordinary assertion path lowers the operand itself.
-            body.exprs.truncate(exprs_before);
+            self.roll_back_to(mark, body);
             return Ok(None);
         }
         let span = self.span(member.span.start, member.span.end);

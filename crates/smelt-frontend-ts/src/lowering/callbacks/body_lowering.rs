@@ -455,36 +455,23 @@ impl ModuleBuilder<'_> {
             .filter(|initializer| !Self::initializer_is_type_zero_default(initializer))
     }
 
-    /// The type a closure body's `return` statements agree on, if any.
+    /// The type a closure body's `return` statements join to, if any.
     ///
     /// Used when the caller had no return type to give a block-bodied callback
     /// (see `infer_block_return`): the body's own returns are the answer the
-    /// source wrote. The join is [`Self::conditional_branch_type`], the same
-    /// unification a ternary's arms use, so `return 'n'` and `return k` agree
-    /// on `String` and a genuinely mixed body still widens the way a ternary
-    /// would.
+    /// source wrote, joined by [`Self::joined_inferred_type`].
     ///
-    /// Returns `None` when there is nothing to infer FROM — a body with no
-    /// `return` at all, or a bare `return;` — and when the arms do not unify,
-    /// so the caller keeps its fallback rather than inventing a type. A `None`
-    /// answer is therefore always the pre-existing behaviour.
+    /// `None` means there is nothing to infer from: a body with no `return` at
+    /// all, or a bare `return;`, so the caller keeps its fallback.
     fn inferred_block_return_ty(&mut self, closure_body: &Body) -> Option<smelt_hir::TypeId> {
-        let mut inferred: Option<smelt_hir::TypeId> = None;
+        let mut returned = Vec::new();
         for stmt in &closure_body.stmts {
             let Stmt::Return(value) = stmt else {
                 continue;
             };
-            let value_ty = Self::expr_ty(closure_body, (*value)?);
-            inferred = match inferred {
-                None => Some(value_ty),
-                Some(current) if current == value_ty => Some(current),
-                Some(current) => Some(
-                    self.conditional_branch_type(current, value_ty, None, 0, 0)
-                        .ok()?,
-                ),
-            };
+            returned.push(Self::expr_ty(closure_body, (*value)?));
         }
-        inferred
+        (!returned.is_empty()).then(|| self.joined_inferred_type(returned))
     }
 
     /// Lower a callback closure body from its constituent parts.

@@ -2172,7 +2172,7 @@ impl ModuleBuilder<'_> {
                         return_types.push(return_ty);
                     }
                 }
-                (value, self.reconciled_inferred_types(return_types))
+                (value, self.joined_inferred_type(return_types))
             } else if let Some(item_ty) = match self.ctx.krate.types.get(value_ty) {
                 Some(Type::List(item_ty) | Type::Set(item_ty)) => Some(*item_ty),
                 Some(Type::String) => Some(self.ctx.krate.types.intern(Type::String)),

@@ -2855,19 +2855,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         init: &Expression<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
-        let bodies = self.ctx.krate.bodies.len();
-        let items = self.ctx.krate.items.len();
         let mut body = Body::new(None, self.expression_span(init));
+        let mark = self.speculation_mark(&body);
         let result = self
             .expression_with_hint(init, &mut body, None)
             .map(|expr| Self::expr_ty(&body, expr));
-        // Only bodies are rolled back, and only when the probe declared no
-        // item: an item (a class expression, say) is registered by id in the
-        // builder's name tables and owns bodies of its own, so a probe that
-        // made one keeps everything it made, as it always did.
-        if self.ctx.krate.items.len() == items {
-            self.ctx.krate.bodies.truncate(bodies);
-        }
+        self.roll_back_to(mark, &mut body);
         result
     }
 

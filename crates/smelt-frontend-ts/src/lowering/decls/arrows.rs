@@ -591,11 +591,8 @@ return_ty,
     pub(in crate::lowering) fn last_return_type(&mut self, body: &Body) -> Option<smelt_hir::TypeId> {
         let mut found = Vec::new();
         Self::collect_return_types_from_block(body, body.root, &mut found);
-        if let Some(first) = found.first().copied() {
-            if found.iter().all(|ty| *ty == first) {
-                return Some(first);
-            }
-            return Some(self.erase(ErasureReason::MissingAnnotation));
+        if !found.is_empty() {
+            return Some(self.joined_inferred_type(found));
         }
         let root = body.blocks.get(usize::try_from(body.root.0).ok()?)?;
         let last_stmt = root.stmts.last()?;
