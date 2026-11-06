@@ -950,8 +950,6 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Returns whether a predeclared local should keep a concrete default.
     pub(super) fn predeclared_local_needs_default(&self, local: LocalId) -> Result<bool, EmitError> {
         let decl = self.local_decl(local)?;
-        let binding = self.local_binding(local)?.text();
-        let name = binding.as_ref();
         let is_callable = matches!(self.mir.types.get(decl.ty), Some(Type::Function(_)))
             || self.lexical_rust_type(decl.ty, false)?.holds_callable();
         // A callable compiler temp used to be seeded unconditionally. That
@@ -963,14 +961,8 @@ impl<'mir> FunctionEmitter<'mir> {
         // assigned, it is read first, or the definite-assignment walk
         // (`local_may_be_used_before_assignment`, consulted by every caller)
         // finds a path that reads it unassigned.
-        if is_callable
-            && (self.local_assignment_count(local) == 0 || self.local_first_access_is_read(local))
-        {
-            return Ok(true);
-        }
-        Ok(matches!(self.mir.types.get(decl.ty), Some(Type::Float))
-            && name.starts_with("index")
-            && (name.contains('_') || self.local_first_access_is_read(local)))
+        Ok(is_callable
+            && (self.local_assignment_count(local) == 0 || self.local_first_access_is_read(local)))
     }
 
     /// Returns whether a `Function`-typed call-result temp is dead because its
@@ -6102,36 +6094,6 @@ impl<'mir> FunctionEmitter<'mir> {
             .symbols
             .get(symbol)
             .ok_or_else(|| EmitError::new("MIR references an unknown symbol"))
-    }
-
-    /// Return whether a type is Remeda's internal `MatchFnResult` wrapper.
-    pub(super) fn is_match_fn_result_type(&self, ty: TypeId) -> Result<bool, EmitError> {
-        Ok(matches!(
-            self.mir.types.get(ty),
-            Some(Type::Class { name, .. }) if smelt_stdlib::typescript_stdlib_class(self.symbol_name(*name)?)
-                == Some(smelt_stdlib::StdlibClass::MatchFnResult)
-        ))
-    }
-
-    /// Return the generic payload type carried by a `MatchFnResult<T>` value.
-    ///
-    /// Older generated code erased this field through `SmeltUnknown`, but
-    /// date-fns parser matches instantiate it with concrete payloads such as
-    /// `String`. Preserving the payload type avoids emitting unknown-pattern
-    /// casts against concrete Rust values.
-    pub(super) fn match_fn_result_value_type(
-        &self,
-        ty: TypeId,
-    ) -> Result<Option<TypeId>, EmitError> {
-        let Some(Type::Class { name, args }) = self.mir.types.get(ty) else {
-            return Ok(None);
-        };
-        if smelt_stdlib::typescript_stdlib_class(self.symbol_name(*name)?)
-            != Some(smelt_stdlib::StdlibClass::MatchFnResult)
-        {
-            return Ok(None);
-        }
-        Ok(args.first().copied())
     }
 
     /// Gets the original source spelling of a symbol when runtime object keys

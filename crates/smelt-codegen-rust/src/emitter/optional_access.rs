@@ -24,13 +24,6 @@ impl FunctionEmitter<'_> {
         let field_ty = self.field_access_type(inner_ty, field)?;
         if is_optional {
             let value = self.field_access_text("_smelt_value", inner_ty, field)?;
-            if matches!(self.mir.types.get(inner_ty), Some(Type::Unknown))
-                && self.symbol_name(field)? == "groups"
-            {
-                return Ok(format!(
-                    "{receiver_text}.as_ref().map(|_smelt_value| {value})"
-                ));
-            }
             if let Some(Type::Optional(dest_inner)) = self.mir.types.get(dest_ty) {
                 if let Some(Type::Optional(field_inner)) = self.mir.types.get(field_ty) {
                     let mapped = self.optional_inner_map_text(&value, *field_inner, *dest_inner)?;

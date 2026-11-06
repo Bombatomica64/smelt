@@ -29,6 +29,12 @@ impl FunctionEmitter<'_> {
         self.default_value(key)
     }
 
+    /// Whether `ty` is a record declaring a field `field`.
+    fn storage_field_named(&self, ty: TypeId, field: Symbol) -> bool {
+        self.structural_record_fields(ty)
+            .is_some_and(|fields| fields.iter().any(|candidate| candidate.name == field))
+    }
+
     /// Converts a place to its Rust text representation.
     pub(super) fn place_text(&self, place: &Place) -> Result<String, EmitError> {
         match place {
@@ -224,8 +230,12 @@ impl FunctionEmitter<'_> {
                         "{base_text}.as_ref().and_then(|_smelt_value| _smelt_value.get({field_name:?}))"
                     ));
                 }
+                // An iterator step is an `Optional` of the stepped value, so its
+                // `.value` is that value. A record with a `value` field of its own
+                // is not a step.
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
                     && self.symbol_source_name(*field)? == "value"
+                    && !self.storage_field_named(*inner, *field)
                 {
                     let wrapped = self.erase_value_text("value", *inner)?;
                     return Ok(self.carrier_format(format_args!(

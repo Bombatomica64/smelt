@@ -1048,23 +1048,6 @@ impl FunctionEmitter<'_> {
                     {
                         return Ok(field_call.into());
                     }
-                    // Route the built-in `Array.prototype.concat` to the list-concat
-                    // helper. This is gated on the receiver's *static* type being a
-                    // `List` (not on argument text), so it is a general rule keyed by
-                    // the concrete receiver type rather than a name-based fixup: any
-                    // list receiver calling single-argument `concat` lowers here.
-                    if method_name == "concat"
-                        && rest.len() == 1
-                        && matches!(
-                            self.mir.types.get(self.operand_ty(receiver)?),
-                            Some(Type::List(_))
-                        )
-                    {
-                        let Some(first_rest) = rest.first() else {
-                            return Err(EmitError::new("concat receiver argument is missing"));
-                        };
-                        return self.list_concat_text(receiver, first_rest).map(CallText::from);
-                    }
                     let class_type_params = self.callee_class_type_params(function);
                     let mut rendered_args = rest
                         .iter()
@@ -2780,38 +2763,6 @@ impl FunctionEmitter<'_> {
             monomorphization_before_arguments.as_ref(),
             self.sampled_call_monomorphization(callee, args).as_ref(),
         );
-        if let Callee::Static(func) = callee {
-            let function = self
-                .mir
-                .functions
-                .get(id_index(func.0, "function index does not fit usize")?)
-                .ok_or_else(|| EmitError::new("call references an unknown function"))?;
-            let rust_name = self.function_rust_name(function)?;
-            if rust_name.starts_with("piped_")
-                && let Some(Type::Function(target_function)) = self.mir.types.get(dest_ty)
-                && matches!(
-                    self.mir.types.get(target_function.return_ty),
-                    Some(Type::Float)
-                )
-            {
-                // The wrapper is assigned to `dest_ty`'s `dyn Fn`, so its
-                // parameters must carry whatever `&` that spelling does
-                // (`callback_param_is_shared_reference`); rendering the bare
-                // types here made the two disagree (E0631).
-                let scope = self.current_function_type_params();
-                let substitution = TypeSubstitution::lexical(&scope);
-                let params = self
-                    .callback_arg_decls(target_function, &substitution, MutablePrefix::Apply)?
-                    .join(", ");
-                let call_args = (0..target_function.params.len())
-                    .map(|index| format!("arg{index}"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                return Ok(format!(
-                    "{{ let smelt_piped = {call_text}; ::std::rc::Rc::new(move |{params}| -> f64 {{ (smelt_piped)({call_args}).smelt_into_f64() }}) }}"
-                ));
-            }
-        }
         call_text = self.wrap_native_async_call_text(callee, call_text)?;
         let source_ty = self.call_emitted_source_ty(callee, args, dest_ty)?;
         self.value_at_type_text(&call_text, source_ty, dest_ty, &self.render_scope())

@@ -390,15 +390,6 @@ impl FunctionEmitter<'_> {
         {
             return Ok(Self::regexp_literal_text(&self.operand_text(operand)?));
         }
-        if self.is_match_fn_result_type(self.operand_ty(operand)?)?
-            && !self.is_match_fn_result_type(target)?
-        {
-            return self.extract_value_text(
-                &format!("{}.value.clone()", self.operand_text(operand)?),
-                target,
-                            scope,
-            );
-        }
         if matches!(
             self.mir.types.get(target),
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)?
@@ -1249,18 +1240,6 @@ impl FunctionEmitter<'_> {
                 return self.extract_value_text(&erased, target, scope);
             }
             return self.extract_value_text(value_text, target, scope);
-        }
-        if self.is_match_fn_result_type(source)? && !self.is_match_fn_result_type(target)? {
-            let value_ty = match self.match_fn_result_value_type(source)? {
-                Some(value_ty) => value_ty,
-                None => self.type_id(Type::Unknown)?,
-            };
-            return self.value_at_type_text(
-                &format!("{value_text}.value.clone()"),
-                value_ty,
-                target,
-                            scope,
-            );
         }
         if self.mir.types.get(source) == Some(&Type::None) {
             return self.default_value(target);

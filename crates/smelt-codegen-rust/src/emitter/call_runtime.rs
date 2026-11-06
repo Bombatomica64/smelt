@@ -379,9 +379,6 @@ impl FunctionEmitter<'_> {
         // rvalue already produced a `SmeltList` (the blanket `From<T> for T`) and
         // wraps a fresh-identity list otherwise (`From<Vec<T>>`).
         if matches!(self.mir.types.get(dest_ty), Some(Type::List(_))) {
-            if text == "SmeltList::default()" {
-                return Ok(text);
-            }
             return Ok(format!("Into::<SmeltList<_>>::into({text})"));
         }
         Ok(text)
