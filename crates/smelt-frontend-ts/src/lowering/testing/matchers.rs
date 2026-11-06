@@ -3663,10 +3663,7 @@ impl ModuleBuilder<'_> {
                     //
                     // A dynamic member is any kind at run time, so it stays.
                     !matches!(self.ctx.krate.types.get(*item), Some(Type::None))
-                        && (matches!(
-                            self.ctx.krate.types.get(*item),
-                            Some(Type::Unknown | Type::TypeParam { .. })
-                        ) || kinds
+                        && (matches!(self.ctx.krate.types.get(*item), Some(Type::Unknown)) || kinds
                             .iter()
                             .any(|kind| self.type_matches_typeof(*item, kind)))
                 })
