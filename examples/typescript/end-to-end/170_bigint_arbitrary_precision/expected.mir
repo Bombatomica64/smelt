@@ -486,8 +486,8 @@ fn main (FuncId(4)) -> None throws
 
 closure ClosureId(0) -> Float
   locals
-    %0 param __callback_param_0: BigInt
-    %1 param __callback_param_1: BigInt
+    %0 param a: BigInt
+    %1 param b: BigInt
     %2 temp: Bool
     %3 temp: Float
     %4 temp: Float

@@ -163,60 +163,6 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
-        // Prefer the materialized closure binding whenever the callback has one.
-        //
-        // A JavaScript function value has OBSERVABLE IDENTITY: `d === d` is true,
-        // and a value read twice out of one binding is one object. Rebuilding the
-        // compact callback expression at every reference allocates a fresh
-        // closure per read, so two reads of the same `const d = () => 1` compared
-        // unequal — `expect(instanceHoldingD).toEqual({ d })` could not hold, and
-        // neither could any other assertion that a callback survived a round
-        // trip. Reading the binding is also what keeps a reference from a NESTED
-        // body correct: a rebuild there would retain capture IDs from the
-        // defining body (for example `next` closing over `itemsByIndex`) instead
-        // of the nested body's remapped local.
-        //
-        // A callback registered by a DIFFERENT body than the one being lowered is
-        // stale for this body — an outer body's `const add` that this body
-        // shadows with a binding the callback table never learned about, or a
-        // name a nested closure closes over, whose rebuild would retain capture
-        // IDs from the defining body (for example `next` closing over
-        // `itemsByIndex`) instead of the nested body's remapped local.
-        //
-        // The rebuild below is still the path for a same-body callback whose
-        // local holds no value: an inlined declaration keeps calls concrete (and
-        // a generic callback instantiable per call site), and there is nothing to
-        // read.
-        if let Some(local) = self.scope.lookup(name)
-            && self.scope.callback(name).is_some_and(|callback| {
-                callback.materialized
-                    || body.blocks.first().map(|block| block.span) != callback.defining_body_span
-            })
-            && usize::try_from(local.0)
-                .ok()
-                .and_then(|index| body.locals.get(index))
-                .is_some_and(|decl| {
-                    matches!(self.ctx.krate.types.get(decl.ty), Some(Type::Function(_)))
-                })
-        {
-            let ty = Self::local_ty(body, local);
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::Local(local),
-                ty,
-                span: self.span(start, end),
-            }));
-        }
-        if let Some(callback) = self.visible_callback(name, body) {
-            return self.callback_expr_to_closure_with_return_ty(
-                callback.return_ty,
-                &callback.callback,
-                &callback.params,
-                callback.rest.map(|rest| rest.index),
-                callback.required_params,
-                self.span(start, end),
-                body,
-            );
-        }
         let Some(local) = self.scope.lookup(name) else {
             // A module-level `let`/`var` binding lifted to a mutable global (and
             // not shadowed by a local) reads through `GlobalGet`, never the

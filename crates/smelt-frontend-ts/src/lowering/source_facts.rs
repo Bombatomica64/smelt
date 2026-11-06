@@ -8,8 +8,9 @@
 use std::collections::{HashMap, HashSet};
 
 use oxc::ast::ast::{
-    BindingPattern, Class, Declaration, Function, IdentifierReference, Program, Statement,
-    TSEnumDeclaration, TSInterfaceDeclaration, TSTypeAliasDeclaration, VariableDeclaration,
+    BindingPattern, Class, Declaration, Function, IdentifierReference, MethodDefinition, Program,
+    PropertyDefinition, PropertyKey, Statement, TSEnumDeclaration, TSInterfaceDeclaration,
+    TSMethodSignature, TSPropertySignature, TSTypeAliasDeclaration, VariableDeclaration,
     VariableDeclarationKind,
 };
 use oxc::ast_visit::{Visit, walk};
@@ -27,6 +28,8 @@ pub(super) struct SourceFacts {
     classes: HashSet<String>,
     /// Named types declared at any depth: classes, interfaces, aliases, enums.
     types: HashSet<String>,
+    /// Member names declared by classes, interfaces and object types.
+    members: HashSet<String>,
     /// The start offset of each identifier reference, ascending per name.
     references: HashMap<String, Vec<u32>>,
 }
@@ -141,6 +144,18 @@ impl SourceFacts {
         self.types.contains(name)
     }
 
+    /// The member names this module's classes, interfaces and object types declare.
+    pub(super) fn declared_members(&self) -> impl Iterator<Item = &String> {
+        self.members.iter()
+    }
+
+    /// Record a statically named member.
+    fn record_member(&mut self, key: &PropertyKey<'_>) {
+        if let Some(name) = key.static_name() {
+            self.members.insert(crate::lowering::js_text::static_name_text(name).into_owned());
+        }
+    }
+
     /// Whether `name` is read inside `span`.
     pub(super) fn mentions(&self, span: Span, name: &str) -> bool {
         self.references.get(name).is_some_and(|positions| {
@@ -167,6 +182,26 @@ impl<'a> Visit<'a> for SourceFacts {
             self.types.insert(id.name.to_string());
         }
         walk::walk_class(self, class);
+    }
+
+    fn visit_method_definition(&mut self, method: &MethodDefinition<'a>) {
+        self.record_member(&method.key);
+        walk::walk_method_definition(self, method);
+    }
+
+    fn visit_property_definition(&mut self, property: &PropertyDefinition<'a>) {
+        self.record_member(&property.key);
+        walk::walk_property_definition(self, property);
+    }
+
+    fn visit_ts_method_signature(&mut self, signature: &TSMethodSignature<'a>) {
+        self.record_member(&signature.key);
+        walk::walk_ts_method_signature(self, signature);
+    }
+
+    fn visit_ts_property_signature(&mut self, signature: &TSPropertySignature<'a>) {
+        self.record_member(&signature.key);
+        walk::walk_ts_property_signature(self, signature);
     }
 
     fn visit_ts_interface_declaration(&mut self, interface: &TSInterfaceDeclaration<'a>) {

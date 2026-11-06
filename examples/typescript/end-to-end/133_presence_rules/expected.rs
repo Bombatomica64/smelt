@@ -4297,79 +4297,71 @@ impl Default for SmeltUnion15 {
 }
 
 fn main() {
-    let _smelt_tmp_8: bool;
-    let _smelt_tmp_10: ::std::rc::Rc<dyn Fn(SmeltUnion4) -> bool>;
-    let _smelt_tmp_12: bool;
+    let _smelt_tmp_7: bool;
+    let _smelt_tmp_10: bool;
+    let _smelt_tmp_15: bool;
     let _smelt_tmp_17: bool;
     let _smelt_tmp_19: bool;
-    let _smelt_tmp_21: bool;
-    let _smelt_tmp_24: String;
-    let _smelt_tmp_26: SmeltRecord<String, String>;
+    let _smelt_tmp_22: String;
+    let _smelt_tmp_24: SmeltRecord<String, String>;
+    let _smelt_tmp_25: SmeltRecord<String, String>;
     let _smelt_tmp_27: SmeltRecord<String, String>;
-    let _smelt_tmp_29: SmeltRecord<String, String>;
+    let _smelt_tmp_30: SmeltRecord<String, String>;
     let _smelt_tmp_32: SmeltRecord<String, String>;
-    let _smelt_tmp_34: SmeltRecord<String, String>;
+    let _smelt_tmp_37: SmeltRegExp;
     let _smelt_tmp_39: SmeltRegExp;
-    let _smelt_tmp_41: SmeltRegExp;
-    let _smelt_tmp_45: SmeltRegExp;
-    let _smelt_tmp_46: SmeltRegExp;
-    let _smelt_tmp_47: String;
-    let _smelt_tmp_2: SmeltRecord<String, String> = SmeltRecord::from([("Content-Type".to_owned(), "text/plain".to_owned())]);
-    let req: SmeltRequest = SmeltRequest::from_parts_with_init(&"https://x/".to_owned(), "POST".to_owned(), SmeltHeaders::from_pairs(_smelt_tmp_2.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"a".to_owned()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
-    let _smelt_tmp_4 = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion4| {
+    let _smelt_tmp_43: SmeltRegExp;
+    let _smelt_tmp_44: SmeltRegExp;
+    let _smelt_tmp_45: String;
+    let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion4| {
     let _smelt_tmp_1: bool = matches!(closure_arg_0.clone(), SmeltUnion4::M0(_));
     _smelt_tmp_1
     });
-    let _smelt_tmp_5: bool = (_smelt_tmp_4)(SmeltUnion4::M0(req.clone()));
-    let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion4| {
-    let _smelt_tmp_1: bool = matches!(closure_arg_0.clone(), SmeltUnion4::M0(_));
-    _smelt_tmp_1
-    });
-    let _smelt_tmp_7: Wrapper = Wrapper::new(req.clone());
-    _smelt_tmp_8 = (_smelt_tmp_6)(SmeltUnion4::M1(_smelt_tmp_7));
-    let _ = { println!("{} {}", _smelt_tmp_5, _smelt_tmp_8); };
-    _smelt_tmp_10 = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion4| {
-    let _smelt_tmp_1: bool = matches!(closure_arg_0.clone(), SmeltUnion4::M0(_));
-    _smelt_tmp_1
-    });
+    let is_raw = _smelt_tmp_2.clone();
+    let _smelt_tmp_3: SmeltRecord<String, String> = SmeltRecord::from([("Content-Type".to_owned(), "text/plain".to_owned())]);
+    let req: SmeltRequest = SmeltRequest::from_parts_with_init(&"https://x/".to_owned(), "POST".to_owned(), SmeltHeaders::from_pairs(_smelt_tmp_3.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"a".to_owned()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    let _smelt_tmp_5: bool = (is_raw)(SmeltUnion4::M0(req.clone()));
+    let _smelt_tmp_6: Wrapper = Wrapper::new(req.clone());
+    _smelt_tmp_7 = (is_raw)(SmeltUnion4::M1(_smelt_tmp_6));
+    let _ = { println!("{} {}", _smelt_tmp_5, _smelt_tmp_7); };
+    let _smelt_tmp_9: Wrapper = Wrapper::new(req.clone());
+    _smelt_tmp_10 = (is_raw)(SmeltUnion4::M0(_smelt_tmp_9.0.borrow().raw.clone()));
     let _smelt_tmp_11: Wrapper = Wrapper::new(req.clone());
-    _smelt_tmp_12 = (_smelt_tmp_10)(SmeltUnion4::M0(_smelt_tmp_11.0.borrow().raw.clone()));
-    let _smelt_tmp_13: Wrapper = Wrapper::new(req.clone());
-    let _smelt_tmp_14: String = _smelt_tmp_13.header();
-    let _ = { println!("{} {}", _smelt_tmp_12, _smelt_tmp_14); };
+    let _smelt_tmp_12: String = _smelt_tmp_11.header();
+    let _ = { println!("{} {}", _smelt_tmp_10, _smelt_tmp_12); };
+    let _smelt_tmp_14: Wrapper = Wrapper::new(req.clone());
+    _smelt_tmp_15 = true;
     let _smelt_tmp_16: Wrapper = Wrapper::new(req.clone());
     _smelt_tmp_17 = true;
-    let _smelt_tmp_18: Wrapper = Wrapper::new(req.clone());
-    _smelt_tmp_19 = true;
-    let _smelt_tmp_20: Wrapper = Wrapper::new(req);
-    _smelt_tmp_21 = false;
-    let _ = { println!("{} {} {}", _smelt_tmp_17, _smelt_tmp_19, _smelt_tmp_21); };
-    let _smelt_tmp_23: SmeltList<String> = segments("a/b/c".to_owned());
-    _smelt_tmp_24 = _smelt_tmp_23.borrow().join(&",".to_owned());
-    let _ = { println!("{}", _smelt_tmp_24); };
-    _smelt_tmp_26 = SmeltRecord::from([("id".to_owned(), "1".to_owned())]);
-    _smelt_tmp_27 = SmeltRecord::from([("action".to_owned(), "create".to_owned())]);
-    let _smelt_tmp_28: String = pick(_smelt_tmp_26, Some(_smelt_tmp_27), "action".to_owned());
-    _smelt_tmp_29 = SmeltRecord::from([("id".to_owned(), "1".to_owned())]);
-    let _smelt_tmp_30: String = pick(_smelt_tmp_29, None::<SmeltRecord<String, String>>, "id".to_owned());
-    let _ = { println!("{} {}", _smelt_tmp_28, _smelt_tmp_30); };
-    _smelt_tmp_32 = SmeltRecord::from([]);
+    let _smelt_tmp_18: Wrapper = Wrapper::new(req);
+    _smelt_tmp_19 = false;
+    let _ = { println!("{} {} {}", _smelt_tmp_15, _smelt_tmp_17, _smelt_tmp_19); };
+    let _smelt_tmp_21: SmeltList<String> = segments("a/b/c".to_owned());
+    _smelt_tmp_22 = _smelt_tmp_21.borrow().join(&",".to_owned());
+    let _ = { println!("{}", _smelt_tmp_22); };
+    _smelt_tmp_24 = SmeltRecord::from([("id".to_owned(), "1".to_owned())]);
+    _smelt_tmp_25 = SmeltRecord::from([("action".to_owned(), "create".to_owned())]);
+    let _smelt_tmp_26: String = pick(_smelt_tmp_24, Some(_smelt_tmp_25), "action".to_owned());
+    _smelt_tmp_27 = SmeltRecord::from([("id".to_owned(), "1".to_owned())]);
+    let _smelt_tmp_28: String = pick(_smelt_tmp_27, None::<SmeltRecord<String, String>>, "id".to_owned());
+    let _ = { println!("{} {}", _smelt_tmp_26, _smelt_tmp_28); };
+    _smelt_tmp_30 = SmeltRecord::from([]);
+    let _smelt_tmp_31: String = pick_or(_smelt_tmp_30, "x".to_owned());
+    _smelt_tmp_32 = SmeltRecord::from([("x".to_owned(), "y".to_owned())]);
     let _smelt_tmp_33: String = pick_or(_smelt_tmp_32, "x".to_owned());
-    _smelt_tmp_34 = SmeltRecord::from([("x".to_owned(), "y".to_owned())]);
-    let _smelt_tmp_35: String = pick_or(_smelt_tmp_34, "x".to_owned());
-    let _ = { println!("{} {}", _smelt_tmp_33, _smelt_tmp_35); };
-    let _smelt_tmp_37: String = buckets();
-    let _ = { println!("{}", _smelt_tmp_37); };
+    let _ = { println!("{} {}", _smelt_tmp_31, _smelt_tmp_33); };
+    let _smelt_tmp_35: String = buckets();
+    let _ = { println!("{}", _smelt_tmp_35); };
+    _smelt_tmp_37 = SmeltRegExp::new("^[0-9]+$".to_owned(), "".to_owned());
+    let _smelt_tmp_38: bool = matches(SmeltUnion15::M1(_smelt_tmp_37), "123".to_owned());
     _smelt_tmp_39 = SmeltRegExp::new("^[0-9]+$".to_owned(), "".to_owned());
-    let _smelt_tmp_40: bool = matches(SmeltUnion15::M1(_smelt_tmp_39), "123".to_owned());
-    _smelt_tmp_41 = SmeltRegExp::new("^[0-9]+$".to_owned(), "".to_owned());
-    let _smelt_tmp_42: bool = matches(SmeltUnion15::M1(_smelt_tmp_41), "abc".to_owned());
-    let _smelt_tmp_43: bool = matches(SmeltUnion15::M0(true), "x".to_owned());
-    let _ = { println!("{} {} {}", _smelt_tmp_40, _smelt_tmp_42, _smelt_tmp_43); };
-    _smelt_tmp_45 = SmeltRegExp::new("^a(?=/next)".to_owned(), "".to_owned());
-    _smelt_tmp_46 = SmeltRegExp::new("x/y".to_owned(), "".to_owned());
-    _smelt_tmp_47 = format!("/{}/{}", _smelt_tmp_46.source, _smelt_tmp_46.flags);
-    let _ = { println!("{} {}", _smelt_tmp_45.source.to_string().clone(), _smelt_tmp_47); };
+    let _smelt_tmp_40: bool = matches(SmeltUnion15::M1(_smelt_tmp_39), "abc".to_owned());
+    let _smelt_tmp_41: bool = matches(SmeltUnion15::M0(true), "x".to_owned());
+    let _ = { println!("{} {} {}", _smelt_tmp_38, _smelt_tmp_40, _smelt_tmp_41); };
+    _smelt_tmp_43 = SmeltRegExp::new("^a(?=/next)".to_owned(), "".to_owned());
+    _smelt_tmp_44 = SmeltRegExp::new("x/y".to_owned(), "".to_owned());
+    _smelt_tmp_45 = format!("/{}/{}", _smelt_tmp_44.source, _smelt_tmp_44.flags);
+    let _ = { println!("{} {}", _smelt_tmp_43.source.to_string().clone(), _smelt_tmp_45); };
     return;
 }
 

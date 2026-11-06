@@ -71,7 +71,7 @@ interned types
   t4 = Chain<T>
   t5 = fn(T) -> Chain<T>
   t6 = List<T>
-  t7 = fn(T) -> Chain<T>
+  t7 = Unknown
   t8 = None
   t9 = Chain<Float>
   t10 = fn(Float) -> Chain<Float>

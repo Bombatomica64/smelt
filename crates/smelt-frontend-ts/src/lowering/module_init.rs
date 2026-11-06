@@ -521,6 +521,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
         path.ends_with(".test-d.ts") || path.ends_with(".test.ts")
     }
 
+    /// Install the module's facts and publish the member names it declares.
+    pub(super) fn adopt_source_facts(&mut self, facts: super::source_facts::SourceFacts) {
+        self.ctx.declared_member_names.extend(facts.declared_members().cloned());
+        self.source_facts = facts;
+    }
+
     /// Collect items already present in the shared crate for cross-module references.
     pub(super) fn visible_items(
         ctx: &HirCtx,
@@ -537,6 +543,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let Some(name) = item_name(&ctx.krate, item) else {
                 continue;
             };
+            if matches!(item, Item::Class(class) if ctx.local_class_expressions.contains(&class.name)) {
+                continue;
+            }
             insert_visible_item(
                 &mut items,
                 &mut classes,
@@ -1631,8 +1640,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// `collect_module_globals` folds an annotated `const xs: T[] = [...]`
     /// before it is known whether the module writes through `xs`. A written
     /// binding lifts to a `MutableGlobal` slot, and every read must see that
-    /// slot: a folded copy of the initializer (which the compact callback IR
-    /// would inline) would silently read the stale initial elements.
+    /// slot: a folded copy of the initializer would silently read the stale
+    /// initial elements.
     fn forget_lifted_const_collections(&mut self) {
         let lifted: Vec<String> = self.mutable_global_items.keys().cloned().collect();
         for name in lifted {
@@ -2205,10 +2214,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // `local_ty`). Emptying the scope for the duration is both the fix and
         // the correct rule: an initializer that references a module-body local
         // now reports an unresolved name instead of mis-resolving one.
-        let saved_locals = self.scope.take_bindings();
-        let lowered = self.expression_with_hint(init, &mut init_body, Some(global_ty));
-        self.scope.restore_bindings(saved_locals);
-        let value = lowered?;
+        let value = self.with_empty_lexical_scope(|this| {
+            this.expression_with_hint(init, &mut init_body, Some(global_ty))
+        })?;
         init_body.push_stmt(smelt_hir::Stmt::Return(Some(value)));
         let body_id = self.ctx.krate.push_body(init_body);
         // The synthesized name is derived from the binding and the global's own
@@ -2696,9 +2704,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     /// Scan `const name = <arrow/function>` initializers for mutation targets.
     ///
-    /// Const arrow/function bindings lift to items (the compact callback and
-    /// function-item forms), so their bodies — like function declarations —
-    /// have no module-body local to assign through and need the global lift.
+    /// Const arrow/function bindings lift to items, so their bodies, like
+    /// function declarations, have no module-body local to assign through and
+    /// need the global lift.
     fn collect_mutated_names_in_const_callables(
         collector: &mut MutatedNameCollector,
         decl: &oxc::ast::ast::VariableDeclaration<'_>,
@@ -2846,19 +2854,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         init: &Expression<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
-        let bodies = self.ctx.krate.bodies.len();
-        let items = self.ctx.krate.items.len();
         let mut body = Body::new(None, self.expression_span(init));
+        let mark = self.speculation_mark(&body);
         let result = self
             .expression_with_hint(init, &mut body, None)
             .map(|expr| Self::expr_ty(&body, expr));
-        // Only bodies are rolled back, and only when the probe declared no
-        // item: an item (a class expression, say) is registered by id in the
-        // builder's name tables and owns bodies of its own, so a probe that
-        // made one keeps everything it made, as it always did.
-        if self.ctx.krate.items.len() == items {
-            self.ctx.krate.bodies.truncate(bodies);
-        }
+        self.roll_back_to(mark, &mut body);
         result
     }
 
@@ -3672,37 +3673,33 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Result<Function, SmeltError> {
         let name = self.intern_source_name(name_text);
         let mut params = Vec::new();
-        let saved_locals = self.scope.take_bindings();
-        for (index, param) in function.params.items.iter().enumerate() {
-            let ty = match self.function_parameter_type(param) {
-                Ok(ty) => self.overload_omitted_param_type(name_text, index, param, ty),
-                Err(error) => {
-                    self.scope.restore_bindings(saved_locals);
-                    return Err(error);
-                }
-            };
-            let local = smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX));
-            let (param_name, span) =
-                if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
-                    self.scope.bind(binding.name.to_string(), local);
-                    (
-                        self.intern_source_name(binding.name.as_str()),
-                        self.span(binding.span.start, binding.span.end),
-                    )
-                } else {
-                    (
-                        self.intern_source_name(&format!("__param{index}")),
-                        self.span(param.span.start, param.span.end),
-                    )
-                };
-            params.push(Param {
-                name: param_name,
-                local,
-                ty,
-                span,
-            });
-        }
-        self.scope.restore_bindings(saved_locals);
+        self.with_empty_lexical_scope(|this| {
+            for (index, param) in function.params.items.iter().enumerate() {
+                let ty = this.function_parameter_type(param)?;
+                let ty = this.overload_omitted_param_type(name_text, index, param, ty);
+                let local = smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX));
+                let (param_name, span) =
+                    if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                        this.scope.bind(binding.name.to_string(), local);
+                        (
+                            this.intern_source_name(binding.name.as_str()),
+                            this.span(binding.span.start, binding.span.end),
+                        )
+                    } else {
+                        (
+                            this.intern_source_name(&format!("__param{index}")),
+                            this.span(param.span.start, param.span.end),
+                        )
+                    };
+                params.push(Param {
+                    name: param_name,
+                    local,
+                    ty,
+                    span,
+                });
+            }
+            Ok::<_, SmeltError>(())
+        })?;
         let mut rest_index = None;
         if let Some(rest) = &function.params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
@@ -5016,16 +5013,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init else {
                 return true;
             };
-            let text = self
-                .source
-                .get(
-                    usize::try_from(arrow.span.start).unwrap_or(usize::MAX)
-                        ..usize::try_from(arrow.span.end).unwrap_or(usize::MAX),
-                )
-                .unwrap_or_default();
             candidates.iter().all(|candidate| {
                 declared.contains(candidate)
-                    || !text.contains(candidate)
+                    || !self.source_facts.mentions(arrow.span, candidate)
                     || lowered.contains(candidate)
             })
         })
@@ -5100,6 +5090,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
                             referrer_spans.push((declarator.span.start, declarator.span.end));
                             note_self_recursive(binding, &declarator.init);
                         }
+                        // An object or array constant is rebuilt at each read,
+                        // inside item bodies too, so an arrow it names must be
+                        // an item that body can reach.
+                        if matches!(
+                            declarator.init,
+                            Some(Expression::ObjectExpression(_) | Expression::ArrayExpression(_))
+                        ) {
+                            referrer_spans.push((declarator.span.start, declarator.span.end));
+                        }
                     }
                 }
                 Statement::FunctionDeclaration(function) => {
@@ -5145,9 +5144,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .into_iter()
             .filter_map(|(name, const_start)| {
                 let spelled_in = |start: u32, end: u32| {
-                    self.source
-                        .get(usize::try_from(start).unwrap_or(usize::MAX)..usize::try_from(end).unwrap_or(usize::MAX))
-                        .is_some_and(|text| text.contains(&name))
+                    self.source_facts.mentions(oxc::span::Span::new(start, end), &name)
                 };
                 let referenced = spelled_in(0, const_start)
                     || referrer_spans
@@ -5190,10 +5187,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// binding now fails to resolve instead of diverging silently, which is the
     /// honest failure.
     ///
-    /// Source-text containment matches the surrounding heuristics in this pass
-    /// (`forward_arrow_const_names`, `arrow_const_dependencies_are_lowered`)
-    /// deliberately: over-refusing costs a closure, and a closure is always
-    /// correct here.
+    /// Over-refusing costs a closure, and a closure is always correct here.
     fn retain_capturable_arrow_consts(
         &self,
         program: &Program<'_>,

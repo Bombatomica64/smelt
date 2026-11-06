@@ -4023,13 +4023,26 @@ fn smelt_typed_array_write_origin(record: &SmeltObject, offset: usize, encoded: 
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let _smelt_tmp_3: SmeltArrayBuffer;
-    let _smelt_tmp_0: SmeltArrayBuffer = SmeltArrayBuffer::new(((3.0) as f64).max(0.0) as usize);
-    let _smelt_tmp_1: String = describe__module_main(_smelt_tmp_0);
-    let _ = { println!("{}", _smelt_tmp_1); };
-    _smelt_tmp_3 = SmeltArrayBuffer::new(((4.0) as f64).max(0.0) as usize);
-    let _smelt_tmp_4: String = describe_block(_smelt_tmp_3);
-    let _ = { println!("{}", _smelt_tmp_4); };
+    let _smelt_tmp_5: SmeltArrayBuffer;
+    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: SmeltArrayBuffer| {
+    let _smelt_tmp_2: f64;
+    let _smelt_tmp_3: String;
+    let _smelt_tmp_1: bool = !closure_arg_0.clone().is_shared();
+    if _smelt_tmp_1 {
+    _smelt_tmp_2 = closure_arg_0.clone().byte_length();
+    _smelt_tmp_3 = "bytes:".to_owned() + &smelt_number_to_string(_smelt_tmp_2);
+    _smelt_tmp_3.clone()
+    } else {
+    match closure_arg_0.clone().into_smelt_unknown().clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }
+    }
+    });
+    let describe = _smelt_tmp_1.clone();
+    let _smelt_tmp_2: SmeltArrayBuffer = SmeltArrayBuffer::new(((3.0) as f64).max(0.0) as usize);
+    let _smelt_tmp_3: String = (describe)(_smelt_tmp_2);
+    let _ = { println!("{}", _smelt_tmp_3); };
+    _smelt_tmp_5 = SmeltArrayBuffer::new(((4.0) as f64).max(0.0) as usize);
+    let _smelt_tmp_6: String = describe_block(_smelt_tmp_5);
+    let _ = { println!("{}", _smelt_tmp_6); };
     return;
 }
 
@@ -4047,19 +4060,6 @@ pub(crate) fn describe_block(buffer: SmeltArrayBuffer) -> String {
     if _smelt_tmp_1 {
     _smelt_tmp_2 = buffer.clone().byte_length();
     _smelt_tmp_3 = "block:".to_owned() + &smelt_number_to_string(_smelt_tmp_2);
-    return _smelt_tmp_3;
-    } else {
-    return match buffer.clone().into_smelt_unknown().clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
-    }
-}
-
-pub(crate) fn describe__module_main(buffer: SmeltArrayBuffer) -> String {
-    let _smelt_tmp_2: f64;
-    let _smelt_tmp_3: String;
-    let _smelt_tmp_1: bool = !buffer.clone().is_shared();
-    if _smelt_tmp_1 {
-    _smelt_tmp_2 = buffer.clone().byte_length();
-    _smelt_tmp_3 = "bytes:".to_owned() + &smelt_number_to_string(_smelt_tmp_2);
     return _smelt_tmp_3;
     } else {
     return match buffer.clone().into_smelt_unknown().clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };

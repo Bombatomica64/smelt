@@ -12,7 +12,7 @@ mod ops;
 mod types;
 
 pub use call::{
-    CallbackCallArg, CallbackExpr, CallbackExprKind, CaptureMode, ClosureCapture, ClosureExpr,
+    CaptureMode, ClosureCapture, ClosureExpr,
 };
 pub use control_flow::AsyncOp;
 pub use core::Expr;

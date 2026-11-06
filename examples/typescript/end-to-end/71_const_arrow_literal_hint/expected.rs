@@ -148,20 +148,18 @@ struct Opts {
 }
 fn main() {
     let total: ::std::rc::Rc<dyn Fn(&SmeltList<Opts>) -> f64>;
-    let _smelt_tmp_7: Opts;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_10: ::std::rc::Rc<dyn Fn(Opts) -> String>;
+    let _smelt_tmp_8: Opts;
+    let _smelt_tmp_9: String;
     let _smelt_tmp_11: Opts;
     let _smelt_tmp_12: String;
-    let _smelt_tmp_14: ::std::rc::Rc<dyn Fn(Opts) -> String>;
-    let _smelt_tmp_15: Opts;
-    let _smelt_tmp_16: String;
-    let _smelt_tmp_18: String;
-    let _smelt_tmp_20: ::std::rc::Rc<dyn Fn(&SmeltList<Opts>) -> f64>;
+    let _smelt_tmp_14: Opts;
+    let _smelt_tmp_15: String;
+    let _smelt_tmp_17: String;
+    let _smelt_tmp_19: ::std::rc::Rc<dyn Fn(&SmeltList<Opts>) -> f64>;
+    let _smelt_tmp_20: Opts;
     let _smelt_tmp_21: Opts;
-    let _smelt_tmp_22: Opts;
-    let _smelt_tmp_23: SmeltList<Opts>;
-    let _smelt_tmp_24: f64;
+    let _smelt_tmp_22: SmeltList<Opts>;
+    let _smelt_tmp_23: f64;
     let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: Option<Opts>| {
     let _smelt_tmp_1: Option<f64> = closure_arg_0.clone().as_ref().and_then(|_smelt_value| _smelt_value.status.clone());
     let _smelt_tmp_2: f64 = _smelt_tmp_1.clone().unwrap_or(0.0);
@@ -173,69 +171,30 @@ fn main() {
     _smelt_tmp_7.clone()
     });
     let show_optional = _smelt_tmp_3.clone();
-    let _smelt_tmp_4: Opts = Opts { status: Some(8.0), label: Some("fn".to_owned()) };
-    let _smelt_tmp_5: String = show_fn(_smelt_tmp_4);
-    let _ = { println!("{}", _smelt_tmp_5); };
-    _smelt_tmp_7 = Opts { status: Some(7.0), label: Some("opt".to_owned()) };
-    _smelt_tmp_8 = (show_optional)(Some(_smelt_tmp_7));
-    let _ = { println!("{}", _smelt_tmp_8); };
-    _smelt_tmp_10 = ::std::rc::Rc::new(|closure_arg_0: Opts| {
-    let mut _smelt_tmp_2: Option<f64>;
-    let _smelt_tmp_3: String;
-    let _smelt_tmp_4: String;
-    let _smelt_tmp_5: bool;
-    let mut _smelt_tmp_6: Option<String>;
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_1: bool = !(closure_arg_0.status.clone().is_none());
-    if _smelt_tmp_1 {
-    _smelt_tmp_2 = closure_arg_0.status.clone();
-    } else {
-    _smelt_tmp_2 = Some(0.0);
-    }
-    _smelt_tmp_3 = "required ".to_owned() + &_smelt_tmp_2.clone().map_or_else(|| "undefined".to_owned(), |value| value.to_string());
-    _smelt_tmp_4 = _smelt_tmp_3.clone() + &" ".to_owned();
-    _smelt_tmp_5 = !(closure_arg_0.label.clone().is_none());
-    if _smelt_tmp_5 {
-    _smelt_tmp_6 = closure_arg_0.label.clone();
-    } else {
-    _smelt_tmp_6 = Some("-".to_owned());
-    }
-    _smelt_tmp_7 = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_7.clone()
+    let _smelt_tmp_4 = ::std::rc::Rc::new(|closure_arg_0: Opts| {
+    let _smelt_tmp_1: f64 = closure_arg_0.status.clone().unwrap_or(0.0);
+    let _smelt_tmp_2: String = "required ".to_owned() + &smelt_number_to_string(_smelt_tmp_1);
+    let _smelt_tmp_3: String = _smelt_tmp_2.clone() + &" ".to_owned();
+    let _smelt_tmp_4: String = closure_arg_0.label.clone().unwrap_or("-".to_owned());
+    let _smelt_tmp_5: String = _smelt_tmp_3.clone() + &_smelt_tmp_4.clone();
+    _smelt_tmp_5.clone()
     });
+    let show_required = _smelt_tmp_4.clone();
+    let _smelt_tmp_5: Opts = Opts { status: Some(8.0), label: Some("fn".to_owned()) };
+    let _smelt_tmp_6: String = show_fn(_smelt_tmp_5);
+    let _ = { println!("{}", _smelt_tmp_6); };
+    _smelt_tmp_8 = Opts { status: Some(7.0), label: Some("opt".to_owned()) };
+    _smelt_tmp_9 = (show_optional)(Some(_smelt_tmp_8));
+    let _ = { println!("{}", _smelt_tmp_9); };
     _smelt_tmp_11 = Opts { status: Some(9.0), label: Some("req".to_owned()) };
-    _smelt_tmp_12 = (_smelt_tmp_10)(_smelt_tmp_11);
+    _smelt_tmp_12 = (show_required)(_smelt_tmp_11);
     let _ = { println!("{}", _smelt_tmp_12); };
-    _smelt_tmp_14 = ::std::rc::Rc::new(|closure_arg_0: Opts| {
-    let mut _smelt_tmp_2: Option<f64>;
-    let _smelt_tmp_3: String;
-    let _smelt_tmp_4: String;
-    let _smelt_tmp_5: bool;
-    let mut _smelt_tmp_6: Option<String>;
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_1: bool = !(closure_arg_0.status.clone().is_none());
-    if _smelt_tmp_1 {
-    _smelt_tmp_2 = closure_arg_0.status.clone();
-    } else {
-    _smelt_tmp_2 = Some(0.0);
-    }
-    _smelt_tmp_3 = "required ".to_owned() + &_smelt_tmp_2.clone().map_or_else(|| "undefined".to_owned(), |value| value.to_string());
-    _smelt_tmp_4 = _smelt_tmp_3.clone() + &" ".to_owned();
-    _smelt_tmp_5 = !(closure_arg_0.label.clone().is_none());
-    if _smelt_tmp_5 {
-    _smelt_tmp_6 = closure_arg_0.label.clone();
-    } else {
-    _smelt_tmp_6 = Some("-".to_owned());
-    }
-    _smelt_tmp_7 = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_7.clone()
-    });
-    _smelt_tmp_15 = Opts { status: None::<f64>, label: Some("partial".to_owned()) };
-    _smelt_tmp_16 = (_smelt_tmp_14)(_smelt_tmp_15);
-    let _ = { println!("{}", _smelt_tmp_16); };
-    _smelt_tmp_18 = (show_optional)(None);
-    let _ = { println!("{}", _smelt_tmp_18); };
-    _smelt_tmp_20 = ::std::rc::Rc::new(|closure_arg_0: &SmeltList<Opts>| {
+    _smelt_tmp_14 = Opts { status: None::<f64>, label: Some("partial".to_owned()) };
+    _smelt_tmp_15 = (show_required)(_smelt_tmp_14);
+    let _ = { println!("{}", _smelt_tmp_15); };
+    _smelt_tmp_17 = (show_optional)(None);
+    let _ = { println!("{}", _smelt_tmp_17); };
+    _smelt_tmp_19 = ::std::rc::Rc::new(|closure_arg_0: &SmeltList<Opts>| {
     let mut item: Opts;
     let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
@@ -257,12 +216,12 @@ fn main() {
     }
     }
     });
-    total = _smelt_tmp_20.clone();
-    _smelt_tmp_21 = Opts { status: Some(1.0), label: None::<String> };
-    _smelt_tmp_22 = Opts { status: Some(2.0), label: Some("two".to_owned()) };
-    _smelt_tmp_23 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Opts> = vec![_smelt_tmp_21.clone(), _smelt_tmp_22.clone()]; smelt_list_items }));
-    _smelt_tmp_24 = (total)(&_smelt_tmp_23);
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_24)); };
+    total = _smelt_tmp_19.clone();
+    _smelt_tmp_20 = Opts { status: Some(1.0), label: None::<String> };
+    _smelt_tmp_21 = Opts { status: Some(2.0), label: Some("two".to_owned()) };
+    _smelt_tmp_22 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Opts> = vec![_smelt_tmp_20.clone(), _smelt_tmp_21.clone()]; smelt_list_items }));
+    _smelt_tmp_23 = (total)(&_smelt_tmp_22);
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_23)); };
     return;
 }
 

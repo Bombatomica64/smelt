@@ -86,7 +86,7 @@ interned types
   t7 = Chain<T>
   t8 = List<T>
   t9 = fn() -> Chain<T>
-  t10 = fn() -> Chain<T>
+  t10 = Unknown
   t11 = None
   t12 = Track<T>
   t13 = Chain<Float>

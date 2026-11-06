@@ -118,7 +118,7 @@ interned types
   t20 = fn(String, Float, String) -> String
   t21 = fn(String, Optional<Float>, Optional<String>) -> String
   t22 = fn(String, Float, ...Bool) -> String
-  t23 = fn(String, Float, Bool) -> String
-  t24 = fn(String, ...Float) -> String
-  t25 = fn(String, Optional<Float>) -> String
+  t23 = fn(String, ...Float) -> String
+  t24 = fn(String, Optional<Float>) -> String
+  t25 = fn(String, Float) -> String
   t26 = fn(String, Float) -> String

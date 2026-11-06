@@ -2342,7 +2342,7 @@ impl ModuleBuilder<'_> {
         // module declares itself shadows the global one, so it skips the table
         // and resolves through the declaration path in the fallback arm; an
         // empty spelling matches no builtin arm.
-        let builtin_spelling = if self.module_type_shadows_global(reference) {
+        let builtin_spelling = if self.source_shadows_global_type(reference) {
             ""
         } else {
             name_text.as_str()
@@ -3101,8 +3101,7 @@ impl ModuleBuilder<'_> {
     /// getter's return annotation), so the member-type resolver reads it from
     /// there instead of falling through to the `Unknown` boundary. Erasing it
     /// forced every chained access (`c.req.header(..)`) into dynamic
-    /// `SmeltUnknown` dispatch, and the compact callback IR could not lower a
-    /// method call on the erased receiver at all. Static and setter-only
+    /// `SmeltUnknown` dispatch. Static and setter-only
     /// descriptors are not instance reads, so they do not answer here.
     fn class_getter_read_type(
         class: &Class,
@@ -3115,46 +3114,6 @@ impl ModuleBuilder<'_> {
                 descriptor.name == field && descriptor.getter.is_some() && !descriptor.is_static
             })
             .map(|descriptor| descriptor.read_ty)
-    }
-
-    /// Whether reading `field` off a value of `receiver_ty` runs a getter.
-    ///
-    /// True when the receiver is a class (or a class-constrained type
-    /// parameter) whose own declaration, or a base class's, records `field` as
-    /// an instance getter (see [`Self::class_getter_read_type`]) and no stored
-    /// field of that name shadows it first. A getter read executes source code,
-    /// so callers that would evaluate the read more than once, or evaluate it
-    /// where JavaScript would not, use this to keep it to exactly one read.
-    pub(in crate::lowering) fn class_member_reads_through_getter(
-        &self,
-        receiver_ty: smelt_hir::TypeId,
-        field: smelt_hir::Symbol,
-    ) -> bool {
-        let Some(Type::Class { name, .. }) = self
-            .ctx
-            .krate
-            .types
-            .get(self.type_param_constraint_or_self(receiver_ty))
-        else {
-            return false;
-        };
-        let mut class_name = Some(*name);
-        let mut seen = HashSet::new();
-        while let Some(current) = class_name
-            && seen.insert(current)
-        {
-            let Some(class) = self.class_by_symbol(current) else {
-                return false;
-            };
-            if class.fields.iter().any(|item| item.name == field) {
-                return false;
-            }
-            if Self::class_getter_read_type(class, field).is_some() {
-                return true;
-            }
-            class_name = class.base;
-        }
-        false
     }
 
     /// Resolve the type of a class field.
@@ -3179,6 +3138,10 @@ impl ModuleBuilder<'_> {
             }
             // not a new erasure: the receiver is already erased
             Type::Unknown => Ok(self.unknown_type()),
+            // TypeScript accepts no member read off `never`, so a `never`
+            // receiver here is a contextual type inference could not resolve,
+            // and its members have no static layout.
+            Type::Never => Ok(self.erase(ErasureReason::TypeLevel)),
             // A member of a class- or interface-bounded parameter has the type
             // its bound declares (see `type_param_member_bound`); any other
             // parameter's members have no static layout.
@@ -4948,11 +4911,11 @@ impl ModuleBuilder<'_> {
     /// declaration of THIS module counts: an interface item another module
     /// lowered is visible crate-wide by symbol, so consulting the crate's items
     /// would let one file's `Set` hijack every other file's builtin `Set<T>`.
-    fn module_type_shadows_global(&self, reference: &oxc::ast::ast::TSTypeReference<'_>) -> bool {
+    fn source_shadows_global_type(&self, reference: &oxc::ast::ast::TSTypeReference<'_>) -> bool {
         let TSTypeName::IdentifierReference(name) = &reference.type_name else {
             return false;
         };
-        self.types.module_declares_type_name(name.name.as_str())
+        self.source_shadows_global(name.name.as_str())
     }
 
     /// Whether the module declares a type of this name.

@@ -1259,7 +1259,7 @@ emitter.removeListener('a', listener);
 
 /// A user class named `EventEmitter` shadows the modeled one.
 ///
-/// The same shared `user_class_shadows` check the other modeled classes use:
+/// The same shared `source_shadows_global` check the other modeled classes use:
 /// a source class of that name owns its own members, including inside its own
 /// methods where the class is still only pending.
 #[test]

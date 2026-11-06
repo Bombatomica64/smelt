@@ -966,7 +966,7 @@ fn new_proxy_lowers_to_target() -> Result<(), String> {
 /// A locally declared class shadowing the builtin `Object` name still wins, so
 /// `new Object()` resolves to the user class instead of the record fallback.
 #[test]
-fn new_user_class_shadows_object_builtin() -> Result<(), String> {
+fn new_source_shadows_global_object_builtin() -> Result<(), String> {
     let source = ts!(r"
 class Object {
   value: number = 1;

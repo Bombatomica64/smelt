@@ -1,92 +1,95 @@
 module examples/typescript/end-to-end/124_optional_argument_and_receiver/input.ts (ModuleId(0))
-  body BodyId(3)
-  items
-    fn merge_path__module_examples/typescript/end-to-end/124_optional_argument_and_receiver/input.ts owner Module
+  body BodyId(2)
   locals
     %0 const join: fn(String, Optional<String>) -> String
-    %1 const words: List<Optional<String>>
-    %2 let w: Optional<String>
+    %1 const mergePath: fn(Optional<String>, Optional<String>) -> String
+    %2 const words: List<Optional<String>>
+    %3 let w: Optional<String>
   exprs
-    #0: fn(String, Optional<String>) -> String = closure BodyId(1) captures 0 -> String
-    #1: String = "p"
-    #2: Optional<String> = none
-    #3: String = closure_call #0(#1, #2)
-    #4: fn(String, Optional<String>) -> String = closure BodyId(2) captures 0 -> String
-    #5: String = "p"
-    #6: String = "q"
-    #7: String = closure_call #4(#5, #6)
-    #8: None = @1(console_log)
-    #9: None = call #8(#3, #7)
-    #10: String = "/book/"
-    #11: String = "/hey"
-    #12: fn(Optional<String>, Optional<String>) -> String = @0(merge_path__module_examples/typescript/end-to-end/124_optional_argument_and_receiver/input.ts)
-    #13: String = call #12(#10, #11)
-    #14: String = "/"
-    #15: String = "book"
-    #16: fn(Optional<String>, Optional<String>) -> String = @0(merge_path__module_examples/typescript/end-to-end/124_optional_argument_and_receiver/input.ts)
-    #17: String = call #16(#14, #15)
-    #18: String = "/"
-    #19: String = "/book"
-    #20: fn(Optional<String>, Optional<String>) -> String = @0(merge_path__module_examples/typescript/end-to-end/124_optional_argument_and_receiver/input.ts)
-    #21: String = call #20(#18, #19)
-    #22: None = @2(console_log)
-    #23: None = call #22(#13, #17, #21)
-    #24: String = "/xy"
-    #25: None = undefined
-    #26: List<Optional<String>> = [#24, #25]
-    #27: List<Optional<String>> = %1
-    #28: Optional<String> = %2
-    #29: String = %2
-    #30: Float = 1.0
-    #31: Float = Neg #30
-    #32: Optional<String> = #29?.[#31]
-    #33: Bool = unknown_is Null #28
-    #34: Bool = Not #33
-    #35: None = none
-    #36: Optional<String> = if #34 then #32 else #35
-    #37: Optional<String> = %2
-    #38: String = %2
-    #39: String = %2
-    #40: Float = 1.0
-    #41: String = string_slice #39, #40, _
-    #42: Bool = unknown_is Null #37
-    #43: Bool = Not #42
-    #44: None = none
-    #45: Optional<String> = if #43 then #41 else #44
-    #46: Optional<String> = %2
-    #47: String = %2
-    #48: Optional<String> = #47?.to_upper_case()
-    #49: Bool = unknown_is Null #46
-    #50: Bool = Not #49
-    #51: None = none
-    #52: Optional<String> = if #50 then #48 else #51
-    #53: Optional<String> = %2
-    #54: String = %2
-    #55: String = %2
-    #56: String = "x"
-    #57: Float = string_find #55, #56
-    #58: Bool = unknown_is Null #53
-    #59: Bool = Not #58
-    #60: None = none
-    #61: Optional<Float> = if #59 then #57 else #60
-    #62: Optional<String> = %2
-    #63: String = %2
-    #64: String = "/"
-    #65: String = assert_type #63
-    #66: String = assert_type #64
-    #67: Bool = string_starts_with #65, #66
-    #68: Bool = unknown_is Null #62
-    #69: Bool = Not #68
-    #70: None = none
-    #71: Optional<Bool> = if #69 then #67 else #70
-    #72: None = @3(console_log)
-    #73: None = call #72(#36, #45, #52, #61, #71)
+    #0: fn(String, Optional<String>) -> String = closure BodyId(0) captures 0 -> String
+    #1: fn(String, Optional<String>) -> String = %0
+    #2: String = "p"
+    #3: Optional<String> = none
+    #4: String = closure_call #1(#2, #3)
+    #5: fn(String, Optional<String>) -> String = %0
+    #6: String = "p"
+    #7: String = "q"
+    #8: String = closure_call #5(#6, #7)
+    #9: None = @0(console_log)
+    #10: None = call #9(#4, #8)
+    #11: fn(Optional<String>, Optional<String>) -> String = closure BodyId(1) captures 0 -> String
+    #12: fn(Optional<String>, Optional<String>) -> String = %1
+    #13: String = "/book/"
+    #14: String = "/hey"
+    #15: String = closure_call #12(#13, #14)
+    #16: fn(Optional<String>, Optional<String>) -> String = %1
+    #17: String = "/"
+    #18: String = "book"
+    #19: String = closure_call #16(#17, #18)
+    #20: fn(Optional<String>, Optional<String>) -> String = %1
+    #21: String = "/"
+    #22: String = "/book"
+    #23: String = closure_call #20(#21, #22)
+    #24: None = @1(console_log)
+    #25: None = call #24(#15, #19, #23)
+    #26: String = "/xy"
+    #27: None = undefined
+    #28: List<Optional<String>> = [#26, #27]
+    #29: List<Optional<String>> = %2
+    #30: Optional<String> = %3
+    #31: String = %3
+    #32: Float = 1.0
+    #33: Float = Neg #32
+    #34: Optional<String> = #31?.[#33]
+    #35: Bool = unknown_is Null #30
+    #36: Bool = Not #35
+    #37: None = none
+    #38: Optional<String> = if #36 then #34 else #37
+    #39: Optional<String> = %3
+    #40: String = %3
+    #41: String = %3
+    #42: Float = 1.0
+    #43: String = string_slice #41, #42, _
+    #44: Bool = unknown_is Null #39
+    #45: Bool = Not #44
+    #46: None = none
+    #47: Optional<String> = if #45 then #43 else #46
+    #48: Optional<String> = %3
+    #49: String = %3
+    #50: Optional<String> = #49?.to_upper_case()
+    #51: Bool = unknown_is Null #48
+    #52: Bool = Not #51
+    #53: None = none
+    #54: Optional<String> = if #52 then #50 else #53
+    #55: Optional<String> = %3
+    #56: String = %3
+    #57: String = %3
+    #58: String = "x"
+    #59: Float = string_find #57, #58
+    #60: Bool = unknown_is Null #55
+    #61: Bool = Not #60
+    #62: None = none
+    #63: Optional<Float> = if #61 then #59 else #62
+    #64: Optional<String> = %3
+    #65: String = %3
+    #66: String = "/"
+    #67: String = assert_type #65
+    #68: String = assert_type #66
+    #69: Bool = string_starts_with #67, #68
+    #70: Bool = unknown_is Null #64
+    #71: Bool = Not #70
+    #72: None = none
+    #73: Optional<Bool> = if #71 then #69 else #72
+    #74: None = @2(console_log)
+    #75: None = call #74(#38, #47, #54, #63, #73)
   stmts
-    s0: #9
-    s1: #23
-    s2: let %1: List<Optional<String>> = #26
-    s3: #73
-    s4: for %2 in #27 BlockId(1)
+    s0: let %0: fn(String, Optional<String>) -> String = #0
+    s1: #10
+    s2: let %1: fn(Optional<String>, Optional<String>) -> String = #11
+    s3: #25
+    s4: let %2: List<Optional<String>> = #28
+    s5: #75
+    s6: for %3 in #29 BlockId(1)
 
 interned types
   t0 = String

@@ -82,16 +82,14 @@ impl ModuleBuilder<'_> {
         if database_rule.is_none() && statement_rule.is_none() {
             return Ok(None);
         }
-        if self.user_class_shadows("DatabaseSync") || self.user_class_shadows("StatementSync") {
+        if self.source_shadows_global("DatabaseSync") || self.source_shadows_global("StatementSync") {
             return Ok(None);
         }
         // `exec`, `get`, `all` and `run` are also `RegExp`'s and `Map`'s
         // method names, so most receivers lowered here are not a database:
         // the probe is rolled back on that path (as the callback-closure probe
         // does) and the dispatcher that owns the call lowers the receiver itself.
-        let exprs_before = body.exprs.len();
-        let bodies_before = self.ctx.krate.bodies.len();
-        let items_before = self.ctx.krate.items.len();
+        let mark = self.speculation_mark(body);
         let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
@@ -107,12 +105,8 @@ impl ModuleBuilder<'_> {
             (Some(smelt_stdlib::StdlibClass::SqliteStatement), "get") => (SqliteOp::Get, None),
             (Some(smelt_stdlib::StdlibClass::SqliteStatement), "run") => (SqliteOp::Run, None),
             _ => {
-                if body.exprs.len() > exprs_before {
+                if self.roll_back_to(mark, body) {
                     self.forget_dispatched_receiver();
-                }
-                body.exprs.truncate(exprs_before);
-                if self.ctx.krate.items.len() == items_before {
-                    self.ctx.krate.bodies.truncate(bodies_before);
                 }
                 return Ok(None);
             }

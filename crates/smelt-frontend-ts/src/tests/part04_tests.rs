@@ -1599,18 +1599,11 @@ function clean(value: any): any[] {
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
-    ensure!(ctx.krate.bodies.iter().any(|body| {
-        body.exprs.iter().any(|expr| {
-            let ExprKind::StringTrim { operand, .. } = expr.kind else {
-                return false;
-            };
-            usize::try_from(operand.0).is_ok_and(|index| {
-                matches!(
-                    body.exprs.get(index).map(|operand| &operand.kind),
-                    Some(ExprKind::TypeAssert { .. })
-                )
-            })
-        })
+    // `trim` on an `any` value is resolved by the runtime, as for every erased
+    // prototype method: the receiver may be anything, so nothing asserts it into
+    // a string.
+    ensure!(!ctx.krate.bodies.iter().any(|body| {
+        body.exprs.iter().any(|expr| matches!(expr.kind, ExprKind::StringTrim { .. }))
     }));
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -8995,9 +8988,8 @@ export function keyEcho(values: unknown[]): string[][] {
 #[test]
 fn lowers_callback_if_else_returning_values_as_conditional() -> Result<(), String> {
     // A `.map` callback whose body is an `if/else` where both arms terminate
-    // with a value must lower as a direct conditional expression rather than
-    // being rejected with "callback if/else blocks need direct conditional
-    // expression lowering".
+    // with a value infers its return from those arms: the closure answers
+    // `string`, so the mapped list is `string[]`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
@@ -9014,13 +9006,14 @@ export function classify(values: number[]): string[] {
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
+    let string_ty = ctx.krate.types.intern(Type::String);
     ensure!(
         ctx.krate.bodies.iter().any(|body| {
-            body.exprs
-                .iter()
-                .any(|expr| matches!(&expr.kind, ExprKind::Conditional { .. }))
+            body.exprs.iter().any(|expr| {
+                matches!(&expr.kind, ExprKind::Closure(closure) if closure.return_ty == string_ty)
+            })
         }),
-        "value-yielding if/else callback did not lower to a conditional expression"
+        "value-yielding if/else callback lost its string return type"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())

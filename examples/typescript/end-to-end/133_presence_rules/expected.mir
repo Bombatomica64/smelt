@@ -183,147 +183,128 @@ fn main (FuncId(7)) -> None
   locals
     %0 user is_raw: fn(Wrapper | Request) -> Bool
     %1 user req: Request
-    %2 temp: Dict<String, String>
-    %3 temp: Request
-    %4 temp: fn(Wrapper | Request) -> Bool
+    %2 temp: fn(Wrapper | Request) -> Bool
+    %3 temp: Dict<String, String>
+    %4 temp: Request
     %5 temp: Bool
-    %6 temp: fn(Wrapper | Request) -> Bool
-    %7 temp: Wrapper
-    %8 temp: Bool
-    %9 temp: None
-    %10 temp: fn(Wrapper | Request) -> Bool
+    %6 temp: Wrapper
+    %7 temp: Bool
+    %8 temp: None
+    %9 temp: Wrapper
+    %10 temp: Bool
     %11 temp: Wrapper
-    %12 temp: Bool
-    %13 temp: Wrapper
-    %14 temp: String
-    %15 temp: None
+    %12 temp: String
+    %13 temp: None
+    %14 temp: Wrapper
+    %15 temp: Bool
     %16 temp: Wrapper
     %17 temp: Bool
     %18 temp: Wrapper
     %19 temp: Bool
-    %20 temp: Wrapper
-    %21 temp: Bool
-    %22 temp: None
-    %23 temp: List<String>
-    %24 temp: String
-    %25 temp: None
-    %26 temp: Dict<String, String>
+    %20 temp: None
+    %21 temp: List<String>
+    %22 temp: String
+    %23 temp: None
+    %24 temp: Dict<String, String>
+    %25 temp: Dict<String, String>
+    %26 temp: String
     %27 temp: Dict<String, String>
     %28 temp: String
-    %29 temp: Dict<String, String>
-    %30 temp: String
-    %31 temp: None
+    %29 temp: None
+    %30 temp: Dict<String, String>
+    %31 temp: String
     %32 temp: Dict<String, String>
     %33 temp: String
-    %34 temp: Dict<String, String>
+    %34 temp: None
     %35 temp: String
     %36 temp: None
-    %37 temp: String
-    %38 temp: None
+    %37 temp: RegExp
+    %38 temp: Bool
     %39 temp: RegExp
     %40 temp: Bool
-    %41 temp: RegExp
-    %42 temp: Bool
-    %43 temp: Bool
-    %44 temp: None
-    %45 temp: RegExp
-    %46 temp: RegExp
-    %47 temp: String
-    %48 temp: None
+    %41 temp: Bool
+    %42 temp: None
+    %43 temp: RegExp
+    %44 temp: RegExp
+    %45 temp: String
+    %46 temp: None
   bb0:
-    %2 = {"Content-Type": "text/plain"}
-    %1 = request_new input="https://x/" method="POST" headers=move %2 body="a"
-    %4 = closure ClosureId(0) []
-    %5 = closure_call move %4(copy %1)
-    %6 = closure ClosureId(1) []
-    %7 = call fn5(copy %1) -> bb1
+    %2 = closure ClosureId(0) []
+    %0 = move %2
+    %3 = {"Content-Type": "text/plain"}
+    %1 = request_new input="https://x/" method="POST" headers=move %3 body="a"
+    %5 = closure_call copy %0(copy %1)
+    %6 = call fn5(copy %1) -> bb1
   bb1:
-    %8 = closure_call move %6(move %7)
-    %9 = call @console_log(move %5, move %8) -> bb2
+    %7 = closure_call copy %0(move %6)
+    %8 = call @console_log(move %5, move %7) -> bb2
   bb2:
-    %10 = closure ClosureId(2) []
-    %11 = call fn5(copy %1) -> bb3
+    %9 = call fn5(copy %1) -> bb3
   bb3:
-    %12 = closure_call move %10(copy %11.field14)
-    %13 = call fn5(copy %1) -> bb4
+    %10 = closure_call move %0(copy %9.field14)
+    %11 = call fn5(copy %1) -> bb4
   bb4:
-    %14 = call fn6(move %13) -> bb5
+    %12 = call fn6(move %11) -> bb5
   bb5:
-    %15 = call @console_log(move %12, move %14) -> bb6
+    %13 = call @console_log(move %10, move %12) -> bb6
   bb6:
-    %16 = call fn5(copy %1) -> bb7
+    %14 = call fn5(copy %1) -> bb7
   bb7:
-    %17 = dict_contains_key move %16, "raw", chain
-    %18 = call fn5(copy %1) -> bb8
+    %15 = dict_contains_key move %14, "raw", chain
+    %16 = call fn5(copy %1) -> bb8
   bb8:
-    %19 = dict_contains_key move %18, "header", chain
-    %20 = call fn5(move %1) -> bb9
+    %17 = dict_contains_key move %16, "header", chain
+    %18 = call fn5(move %1) -> bb9
   bb9:
-    %21 = dict_contains_key move %20, "nope", chain
-    %22 = call @console_log(move %17, move %19, move %21) -> bb10
+    %19 = dict_contains_key move %18, "nope", chain
+    %20 = call @console_log(move %15, move %17, move %19) -> bb10
   bb10:
-    %23 = call fn0("a/b/c") -> bb11
+    %21 = call fn0("a/b/c") -> bb11
   bb11:
-    %24 = string_join move %23, ","
-    %25 = call @console_log(move %24) -> bb12
+    %22 = string_join move %21, ","
+    %23 = call @console_log(move %22) -> bb12
   bb12:
-    %26 = {"id": "1"}
-    %27 = {"action": "create"}
-    %28 = call fn1(move %26, move %27, "action") -> bb13
+    %24 = {"id": "1"}
+    %25 = {"action": "create"}
+    %26 = call fn1(move %24, move %25, "action") -> bb13
   bb13:
-    %29 = {"id": "1"}
-    %30 = call fn1(move %29, undefined, "id") -> bb14
+    %27 = {"id": "1"}
+    %28 = call fn1(move %27, undefined, "id") -> bb14
   bb14:
-    %31 = call @console_log(move %28, move %30) -> bb15
+    %29 = call @console_log(move %26, move %28) -> bb15
   bb15:
-    %32 = {}
-    %33 = call fn2(move %32, "x") -> bb16
+    %30 = {}
+    %31 = call fn2(move %30, "x") -> bb16
   bb16:
-    %34 = {"x": "y"}
-    %35 = call fn2(move %34, "x") -> bb17
+    %32 = {"x": "y"}
+    %33 = call fn2(move %32, "x") -> bb17
   bb17:
-    %36 = call @console_log(move %33, move %35) -> bb18
+    %34 = call @console_log(move %31, move %33) -> bb18
   bb18:
-    %37 = call fn3() -> bb19
+    %35 = call fn3() -> bb19
   bb19:
-    %38 = call @console_log(move %37) -> bb20
+    %36 = call @console_log(move %35) -> bb20
   bb20:
-    %39 = external_new7("^[0-9]+$", "")
-    %40 = call fn4(move %39, "123") -> bb21
+    %37 = external_new7("^[0-9]+$", "")
+    %38 = call fn4(move %37, "123") -> bb21
   bb21:
-    %41 = external_new7("^[0-9]+$", "")
-    %42 = call fn4(move %41, "abc") -> bb22
+    %39 = external_new7("^[0-9]+$", "")
+    %40 = call fn4(move %39, "abc") -> bb22
   bb22:
-    %43 = call fn4(true, "x") -> bb23
+    %41 = call fn4(true, "x") -> bb23
   bb23:
-    %44 = call @console_log(move %40, move %42, move %43) -> bb24
+    %42 = call @console_log(move %38, move %40, move %41) -> bb24
   bb24:
-    %45 = external_new7("^a(?=/next)", "")
-    %46 = external_new7("x/y", "")
-    %47 = primitive_cast_string move %46
-    %48 = call @console_log(copy %45.field41, move %47) -> bb25
+    %43 = external_new7("^a(?=/next)", "")
+    %44 = external_new7("x/y", "")
+    %45 = primitive_cast_string move %44
+    %46 = call @console_log(copy %43.field40, move %45) -> bb25
   bb25:
     return none
 
 closure ClosureId(0) -> Bool
   locals
-    %0 param __callback_param_0: Wrapper | Request
-    %1 temp: Bool
-  bb0:
-    %1 = dict_contains_key copy %0, "headers", chain
-    return copy %1
-
-closure ClosureId(1) -> Bool
-  locals
-    %0 param __callback_param_0: Wrapper | Request
-    %1 temp: Bool
-  bb0:
-    %1 = dict_contains_key copy %0, "headers", chain
-    return copy %1
-
-closure ClosureId(2) -> Bool
-  locals
-    %0 param __callback_param_0: Wrapper | Request
+    %0 param request: Wrapper | Request
     %1 temp: Bool
   bb0:
     %1 = dict_contains_key copy %0, "headers", chain

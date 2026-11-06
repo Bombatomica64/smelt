@@ -4,8 +4,11 @@
     reason = "the crate root constructs the lowering builder"
 )]
 
+mod callback_expr;
 mod stdlib;
 mod stdlib_dispatch;
+
+use callback_expr::{CallbackExpr, CallbackExprKind};
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -20,7 +23,7 @@ use ruff_python_ast::{
 };
 use ruff_text_size::{Ranged, TextRange};
 use smelt_hir::{
-    AsyncOp, BinOp, Body, CallbackExpr, CallbackExprKind, CaptureMode, Class, ClassKind,
+    AsyncOp, BinOp, Body, CaptureMode, Class, ClassKind,
     ClassProtocol,
     ClosureCapture, ConstItem, DictProjectionOp, Expr as HirExpr, ExprKind, Field, FileId,
     Function, FunctionOwner, FunctionType, Import, Item, ItemId, Language, ListCallbackOp, Literal,

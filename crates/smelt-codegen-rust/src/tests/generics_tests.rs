@@ -444,17 +444,13 @@ export function zipLike<T, R>(
 }
 ",
     );
-    let dispatch = source
-        .lines()
-        .find(|line| line.contains("let smelt_function_value = iteratee"))
-        .expect("expected a dynamic-dispatch snippet over the optional callee");
-    // The callee is erased to the runtime carrier before the discriminant match
-    // instead of a bare `Option` being matched directly.
+    // The `iteratee == null` guard above the closure holds inside it, so the
+    // capture is read at the guard's narrowed, non-optional runtime carrier.
     assert!(
-        dispatch.contains("iteratee.clone().clone().map_or("),
-        "optional callee must be erased before the runtime match: {dispatch}"
+        source.contains("let _smelt_tmp_2: SmeltUnknown = iteratee.clone().expect("),
+        "the guarded callee must reach the runtime call without its Option: {source}"
     );
-    assert!(dispatch.contains("match smelt_function_value { SmeltUnknown::Function"));
+    assert!(source.contains("match smelt_value.clone() { SmeltUnknown::Function"));
 }
 
 #[test]

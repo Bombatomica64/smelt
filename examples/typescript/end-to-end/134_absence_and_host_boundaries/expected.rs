@@ -4375,6 +4375,9 @@ pub struct SmeltBlob {
     file_name: Option<String>,
     /// `lastModified` in epoch milliseconds; meaningless unless a file.
     last_modified: f64,
+    /// The source class of an instance decoded into this type, when a program
+    /// subclasses `Blob`: `instanceof` reads it back through `__smelt_class`.
+    instance_class: Option<String>,
 }
 
 impl PartialEq for SmeltBlob { fn eq(&self, other: &Self) -> bool { self.bytes == other.bytes && self.blob_type == other.blob_type && self.file_name == other.file_name && self.last_modified == other.last_modified } }
@@ -4393,9 +4396,9 @@ impl SmeltBlob {
     /// An empty, untyped blob with a fresh JS reference identity.
     pub fn new() -> Self { Self::from_bytes(Vec::new(), String::new()) }
     /// A blob over owned bytes, with a fresh JS reference identity.
-    pub fn from_bytes(bytes: Vec<u8>, blob_type: String) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(bytes), blob_type, file_name: None, last_modified: 0.0 } }
+    pub fn from_bytes(bytes: Vec<u8>, blob_type: String) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(bytes), blob_type, file_name: None, last_modified: 0.0, instance_class: None } }
     /// The same, as a `File`: the two extra data properties are present.
-    pub fn file_from_bytes(bytes: Vec<u8>, blob_type: String, name: String, last_modified: f64) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(bytes), blob_type, file_name: Some(name), last_modified } }
+    pub fn file_from_bytes(bytes: Vec<u8>, blob_type: String, name: String, last_modified: f64) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(bytes), blob_type, file_name: Some(name), last_modified, instance_class: None } }
     /// A blob from string parts, with optional `File` metadata.
     pub fn from_string_parts(parts: Vec<String>, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> Self { let mut bytes: Vec<u8> = Vec::new(); for part in &parts { bytes.extend_from_slice(part.as_bytes()); } Self::with_metadata(bytes, blob_type, file_name, last_modified) }
     /// A blob from blob parts, with optional `File` metadata.
@@ -4434,7 +4437,13 @@ impl SmeltBlob {
 /// The record shape has ONE definition, `smelt_blob_record`, shared with the
 /// reflected host constructor, so a concrete blob and a reflectively-built one
 /// erase to the same object.
-impl IntoSmeltUnknown for SmeltBlob { fn into_smelt_unknown(self) -> SmeltUnknown { smelt_blob_record(self.id, &self.bytes, &self.blob_type, self.file_name.clone(), self.last_modified) } }
+impl IntoSmeltUnknown for SmeltBlob {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let record = smelt_blob_record(self.id, &self.bytes, &self.blob_type, self.file_name.clone(), self.last_modified);
+        if let (SmeltUnknown::Object(object), Some(class)) = (&record, self.instance_class) { object.insert("__smelt_class".to_owned(), SmeltUnknown::String(class.into())); }
+        record
+    }
+}
 
 #[allow(dead_code)]
 impl SmeltBlob {
@@ -4452,7 +4461,9 @@ impl SmeltFromUnknown for SmeltBlob {
         let blob_type = match map.get("type") { Some(SmeltUnknown::String(text)) => text.to_string(), _ => String::new() };
         let name = match map.get("name") { Some(SmeltUnknown::String(text)) => Some(text.to_string()), _ => None };
         let last_modified = match map.get("lastModified") { Some(SmeltUnknown::Number(value)) => value, _ => 0.0 };
-        match name { Some(name) => Self::file_from_bytes(bytes, blob_type, name, last_modified), None => Self::from_bytes(bytes, blob_type) }
+        let instance_class = match map.get("__smelt_class") { Some(SmeltUnknown::String(class)) => Some(class.to_string()), _ => None };
+        let blob = match name { Some(name) => Self::file_from_bytes(bytes, blob_type, name, last_modified), None => Self::from_bytes(bytes, blob_type) };
+        Self { instance_class, ..blob }
     }
 }
 
@@ -4908,13 +4919,13 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_48 = { let smelt_needle = 171.0; _smelt_tmp_47.borrow().iter().position(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).map_or(-1.0, |idx| idx as f64) };
     let _ = { println!("{} {}", _smelt_tmp_46, smelt_console_number(_smelt_tmp_48)); };
     _smelt_tmp_50 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![10.0, 255.0]; smelt_list_items }));
-    _smelt_tmp_51 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
-    let _smelt_tmp_3: String = { let value = (closure_arg_0 as f64).trunc() as i128; let radix = ((16.0 as f64).trunc() as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 { digits.push('0'); } while n > 0 { let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 { (b'0' + digit) as char } else { (b'a' + digit - 10) as char }); n /= u128::from(radix); } if negative { digits.push('-'); } digits.iter().rev().collect::<String>() };
-    _smelt_tmp_3.clone()
+    _smelt_tmp_51 = ::std::rc::Rc::new(|closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
+    let _smelt_tmp_1: String = { let value = (closure_arg_0 as f64).trunc() as i128; let radix = ((16.0 as f64).trunc() as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 { digits.push('0'); } while n > 0 { let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 { (b'0' + digit) as char } else { (b'a' + digit - 10) as char }); n /= u128::from(radix); } if negative { digits.push('-'); } digits.iter().rev().collect::<String>() };
+    _smelt_tmp_1.clone()
     });
-    _smelt_tmp_52 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
-    let _smelt_tmp_3: String = { let value = (closure_arg_0 as f64).trunc() as i128; let radix = ((16.0 as f64).trunc() as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 { digits.push('0'); } while n > 0 { let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 { (b'0' + digit) as char } else { (b'a' + digit - 10) as char }); n /= u128::from(radix); } if negative { digits.push('-'); } digits.iter().rev().collect::<String>() };
-    _smelt_tmp_3.clone()
+    _smelt_tmp_52 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
+    let _smelt_tmp_1: String = { let value = (closure_arg_0 as f64).trunc() as i128; let radix = ((16.0 as f64).trunc() as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 { digits.push('0'); } while n > 0 { let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 { (b'0' + digit) as char } else { (b'a' + digit - 10) as char }); n /= u128::from(radix); } if negative { digits.push('-'); } digits.iter().rev().collect::<String>() };
+    _smelt_tmp_1.clone()
     }); let smelt_array = _smelt_tmp_50; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     _smelt_tmp_53 = _smelt_tmp_52.borrow().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_53); };

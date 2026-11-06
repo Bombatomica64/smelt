@@ -30,9 +30,10 @@ interned types
   t3 = Holder<T>
   t4 = fn() -> T
   t5 = fn() -> T
-  t6 = None
-  t7 = String
-  t8 = Holder<String>
-  t9 = fn() -> String
+  t6 = Unknown
+  t7 = None
+  t8 = String
+  t9 = Holder<String>
   t10 = fn() -> String
-  t11 = fn(Float) -> Float
+  t11 = fn() -> String
+  t12 = fn(Float) -> Float

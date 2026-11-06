@@ -2133,7 +2133,7 @@ export function unescape(str: string): string {
          callback:\n{body}"
     );
     assert!(
-        body.contains("HashMap<String, String>"),
+        body.contains("SmeltRecord<String, String>"),
         "the rebuilt constant must keep the source's concrete string-to-string \
          type:\n{body}"
     );

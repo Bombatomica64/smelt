@@ -1804,3 +1804,38 @@ export function copy(flag: boolean, rec: Record<string, string>): number {
     ensure!(merges_the_parameter, "the spread must merge `rec` itself, not an empty record");
     Ok(())
 }
+
+/// A class expression's name is bound inside its own body only, so a later
+/// module's `File` is the host class, not another file's override class.
+#[test]
+fn class_expression_name_does_not_reach_another_module() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+const original = globalThis.File;
+globalThis.File = class File extends Blob {
+  label(): string { return 'override'; }
+};
+"),
+        &mut ctx,
+    )?;
+    lower_ok(ts!("export function pick(x: File): File { return x; }"), &mut ctx)?;
+    let pick = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Function(function)
+                if ctx.krate.symbols.get(function.name).is_some_and(|name| name.ends_with("pick")) =>
+            {
+                Some(function)
+            }
+            _ => None,
+        })
+        .ok_or("pick was not lowered")?;
+    let Some(Type::Class { name, .. }) = ctx.krate.types.get(pick.return_ty) else {
+        return Err("pick does not return a class".to_owned());
+    };
+    ensure!(ctx.krate.symbols.get(*name) == Some("File"));
+    Ok(())
+}

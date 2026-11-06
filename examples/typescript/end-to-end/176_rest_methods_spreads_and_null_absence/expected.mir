@@ -234,23 +234,14 @@ fn main (FuncId(7)) -> None
 
 closure ClosureId(0) -> String
   locals
-    %0 param __callback_param_0: String
-    %1 param __callback_param_1: Optional<String>
+    %0 param name: String
+    %1 param suffix: Optional<String>
     %2 temp: String
-    %3 temp: Bool
-    %4 temp: Optional<String>
-    %5 temp: String
+    %3 temp: String
+    %4 temp: String
   bb0:
     %2 = "" + copy %0
-    %3 = copy %1 != none
-    switch copy %3 ? bb1 : bb2
-  bb1:
-    %4 = copy %1
-    goto bb3
-  bb2:
-    %4 = "."
-    goto bb3
-  bb3:
-    %5 = copy %2 + copy %4
-    return copy %5
+    %3 = copy %1 ?? "."
+    %4 = copy %2 + copy %3
+    return copy %4
 

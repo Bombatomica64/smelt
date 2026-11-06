@@ -79,7 +79,7 @@ fn main (FuncId(3)) -> None throws
 
 closure ClosureId(0) -> String
   locals
-    %0 param __callback_param_0: String
+    %0 param value: String
     %1 temp: String
   bb0:
     %1 = "fast:" + copy %0

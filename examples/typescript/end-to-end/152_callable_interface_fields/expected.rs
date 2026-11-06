@@ -4101,7 +4101,7 @@ impl Context {
     _smelt_tmp_5
     }
 });
-    (*smelt_capture_this.borrow()).0.borrow_mut().get = Get { __smelt_call: { let smelt_callback = _smelt_tmp_3.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| (smelt_callback)(arg0)); smelt_adapted } };
+    (*smelt_capture_this.borrow()).0.borrow_mut().get = Get { __smelt_call: _smelt_tmp_3.clone() };
     let _smelt_tmp_4 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&*smelt_capture_this.borrow());
     move |closure_arg_0: String, closure_arg_1: SmeltUnion16| {
@@ -4110,7 +4110,7 @@ impl Context {
     ()
     }
 });
-    (*smelt_capture_this.borrow()).0.borrow_mut().set = Set { __smelt_call: { let smelt_callback = _smelt_tmp_4.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(String, SmeltUnion16) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: SmeltUnion16| (smelt_callback)(arg0, arg1)); smelt_adapted } };
+    (*smelt_capture_this.borrow()).0.borrow_mut().set = Set { __smelt_call: _smelt_tmp_4.clone() };
     let _smelt_tmp_5 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&*smelt_capture_this.borrow());
     move |closure_arg_0: String, closure_arg_1: Option<String>, closure_arg_2: Option<SetHeaderOptions>| {
@@ -4158,7 +4158,7 @@ impl Context {
     }
     }
 });
-    (*smelt_capture_this.borrow()).0.borrow_mut().header = SetHeader { __smelt_call: { let smelt_callback = _smelt_tmp_5.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(String, Option<String>, Option<SetHeaderOptions>) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: Option<String>, arg2: Option<SetHeaderOptions>| (smelt_callback)(arg0, arg1, arg2)); smelt_adapted } };
+    (*smelt_capture_this.borrow()).0.borrow_mut().header = SetHeader { __smelt_call: _smelt_tmp_5.clone() };
     let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: String| {
     closure_arg_0.clone()
     });

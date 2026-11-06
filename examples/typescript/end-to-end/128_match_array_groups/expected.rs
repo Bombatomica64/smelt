@@ -3600,8 +3600,8 @@ pub(crate) fn describe(text: String) -> () {
     let _smelt_tmp_16: String;
     let _smelt_tmp_17: SmeltMatch;
     let _smelt_tmp_18: SmeltList<Option<String>>;
-    let _smelt_tmp_19: ::std::rc::Rc<dyn Fn(Option<String>, i64, &SmeltList<Option<String>>) -> Option<String>>;
-    let _smelt_tmp_20: SmeltList<Option<String>>;
+    let _smelt_tmp_19: ::std::rc::Rc<dyn Fn(Option<String>, i64, &SmeltList<Option<String>>) -> String>;
+    let _smelt_tmp_20: SmeltList<String>;
     let _smelt_tmp_21: String;
     let _smelt_tmp_23: SmeltMatch;
     let _smelt_tmp_24: SmeltList<Option<String>>;
@@ -3636,27 +3636,15 @@ pub(crate) fn describe(text: String) -> () {
     _smelt_tmp_16 = _smelt_tmp_15.borrow().iter().map(|item| { item.as_ref().map_or_else(String::new, Clone::clone) }).collect::<Vec<_>>().join(&"|".to_owned());
     _smelt_tmp_17 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_18 = Into::<SmeltList<_>>::into((_smelt_tmp_17).to_array_view());
-    _smelt_tmp_19 = ::std::rc::Rc::new(|closure_arg_0: Option<String>, closure_arg_1: i64, closure_arg_2: &SmeltList<Option<String>>| {
-    let mut _smelt_tmp_4: Option<String>;
-    let _smelt_tmp_3: bool = !(closure_arg_0.clone().is_none());
-    if _smelt_tmp_3 {
-    _smelt_tmp_4 = closure_arg_0.clone();
-    } else {
-    _smelt_tmp_4 = Some("U".to_owned());
-    }
-    _smelt_tmp_4.clone()
+    _smelt_tmp_19 = ::std::rc::Rc::new(|closure_arg_0: Option<String>, _arg0: i64, _arg1: &SmeltList<Option<String>>| {
+    let _smelt_tmp_1: String = closure_arg_0.clone().unwrap_or("U".to_owned());
+    _smelt_tmp_1.clone()
     });
-    _smelt_tmp_20 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: Option<String>, closure_arg_1: i64, closure_arg_2: &SmeltList<Option<String>>| {
-    let mut _smelt_tmp_4: Option<String>;
-    let _smelt_tmp_3: bool = !(closure_arg_0.clone().is_none());
-    if _smelt_tmp_3 {
-    _smelt_tmp_4 = closure_arg_0.clone();
-    } else {
-    _smelt_tmp_4 = Some("U".to_owned());
-    }
-    _smelt_tmp_4.clone()
+    _smelt_tmp_20 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: Option<String>, _arg0: i64, _arg1: &SmeltList<Option<String>>| {
+    let _smelt_tmp_1: String = closure_arg_0.clone().unwrap_or("U".to_owned());
+    _smelt_tmp_1.clone()
     }); let smelt_array = _smelt_tmp_18; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
-    _smelt_tmp_21 = _smelt_tmp_20.borrow().iter().map(|item| { item.as_ref().map_or_else(String::new, Clone::clone) }).collect::<Vec<_>>().join(&",".to_owned());
+    _smelt_tmp_21 = _smelt_tmp_20.borrow().join(&",".to_owned());
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_13), _smelt_tmp_16, _smelt_tmp_21); };
     _smelt_tmp_23 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_24 = Into::<SmeltList<_>>::into((_smelt_tmp_23).to_array_view());
@@ -3734,15 +3722,15 @@ pub(crate) fn digits(text: String) -> String {
     _smelt_tmp_11 = _smelt_tmp_10.match_all_strings(&text.clone()).map(SmeltList::from);
     _smelt_tmp_12 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
     _smelt_tmp_13 = Into::<SmeltList<_>>::into(_smelt_tmp_11.clone().unwrap_or(_smelt_tmp_12));
-    _smelt_tmp_14 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
-    let _smelt_tmp_3: String = "<".to_owned() + &closure_arg_0.clone();
-    let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &">".to_owned();
-    _smelt_tmp_4.clone()
+    _smelt_tmp_14 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    let _smelt_tmp_1: String = "<".to_owned() + &closure_arg_0.clone();
+    let _smelt_tmp_2: String = _smelt_tmp_1.clone() + &">".to_owned();
+    _smelt_tmp_2.clone()
     });
-    _smelt_tmp_15 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
-    let _smelt_tmp_3: String = "<".to_owned() + &closure_arg_0.clone();
-    let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &">".to_owned();
-    _smelt_tmp_4.clone()
+    _smelt_tmp_15 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    let _smelt_tmp_1: String = "<".to_owned() + &closure_arg_0.clone();
+    let _smelt_tmp_2: String = _smelt_tmp_1.clone() + &">".to_owned();
+    _smelt_tmp_2.clone()
     }); let smelt_array = _smelt_tmp_13; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     tagged = _smelt_tmp_15.borrow().join(&"".to_owned());
     _smelt_tmp_17 = all.clone().is_none();
@@ -3770,26 +3758,14 @@ pub(crate) fn first_two(text: String, pattern: SmeltRegExp) -> String {
     let _smelt_tmp_5: SmeltList<Option<String>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Option<String>> = vec![]; smelt_list_items }));
     let groups: SmeltList<Option<String>> = Into::<SmeltList<_>>::into(_smelt_tmp_4.clone().unwrap_or(_smelt_tmp_5));
     let _smelt_tmp_7: SmeltList<Option<String>> = Into::<SmeltList<_>>::into(groups.borrow().iter().skip({ let smelt_len = groups.len() as i64; let smelt_index = 0.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = groups.len() as i64; let smelt_index = 2.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = groups.len() as i64; let smelt_index = 0.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).cloned().collect::<Vec<_>>());
-    let _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: Option<String>, closure_arg_1: i64, closure_arg_2: &SmeltList<Option<String>>| {
-    let mut _smelt_tmp_4: Option<String>;
-    let _smelt_tmp_3: bool = !(closure_arg_0.clone().is_none());
-    if _smelt_tmp_3 {
-    _smelt_tmp_4 = closure_arg_0.clone();
-    } else {
-    _smelt_tmp_4 = Some("-".to_owned());
-    }
-    _smelt_tmp_4.clone()
+    let _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: Option<String>, _arg0: i64, _arg1: &SmeltList<Option<String>>| {
+    let _smelt_tmp_1: String = closure_arg_0.clone().unwrap_or("-".to_owned());
+    _smelt_tmp_1.clone()
     });
-    let _smelt_tmp_9: SmeltList<Option<String>> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: Option<String>, closure_arg_1: i64, closure_arg_2: &SmeltList<Option<String>>| {
-    let mut _smelt_tmp_4: Option<String>;
-    let _smelt_tmp_3: bool = !(closure_arg_0.clone().is_none());
-    if _smelt_tmp_3 {
-    _smelt_tmp_4 = closure_arg_0.clone();
-    } else {
-    _smelt_tmp_4 = Some("-".to_owned());
-    }
-    _smelt_tmp_4.clone()
+    let _smelt_tmp_9: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: Option<String>, _arg0: i64, _arg1: &SmeltList<Option<String>>| {
+    let _smelt_tmp_1: String = closure_arg_0.clone().unwrap_or("-".to_owned());
+    _smelt_tmp_1.clone()
     }); let smelt_array = _smelt_tmp_7; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
-    let _smelt_tmp_10: String = _smelt_tmp_9.borrow().iter().map(|item| { item.as_ref().map_or_else(String::new, Clone::clone) }).collect::<Vec<_>>().join(&"|".to_owned());
+    let _smelt_tmp_10: String = _smelt_tmp_9.borrow().join(&"|".to_owned());
     return _smelt_tmp_10;
 }

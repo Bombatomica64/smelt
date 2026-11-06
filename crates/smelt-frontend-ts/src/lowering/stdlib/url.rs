@@ -42,7 +42,7 @@ impl ModuleBuilder<'_> {
     /// Return whether a lowered type is the modeled `URL` class.
     pub(in crate::lowering) fn is_url_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::Url)
-            && !self.user_class_shadows("URL")
+            && !self.source_shadows_global("URL")
     }
 
     /// Lower `new URL(input, base?)` to a parsed URL value.

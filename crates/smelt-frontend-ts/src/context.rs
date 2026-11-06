@@ -276,6 +276,14 @@ pub struct HirCtx {
     /// original name (`krate.names`), because that is what reflection reads:
     /// `instanceof` and `__smelt_class` must still answer `Node`.
     pub type_renames: HashMap<String, HashMap<String, String>>,
+    /// Every member name a class, interface or object type of a lowered module
+    /// declares, the cheap first question of "does the receiver own this call".
+    pub declared_member_names: HashSet<String>,
+    /// Class expressions whose name is visible only inside their own body.
+    ///
+    /// `globalThis.File = class File extends Blob {}` binds `File` for the class
+    /// body and nowhere else, so another module's `File` is still the host class.
+    pub local_class_expressions: HashSet<smelt_hir::Symbol>,
     /// Crate-unique module identity for each module path.
     ///
     /// A module-private helper's Rust item name has to stay distinct after every
@@ -338,6 +346,8 @@ impl HirCtx {
             written_host_globals: HashSet::new(),
             project_sources_outside_crate: HashSet::new(),
             type_renames: HashMap::new(),
+            declared_member_names: HashSet::new(),
+            local_class_expressions: HashSet::new(),
             module_identities: HashMap::new(),
             predeclared_unique_symbols: HashMap::new(),
         }

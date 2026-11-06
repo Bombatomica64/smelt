@@ -1,30 +1,33 @@
 module examples/typescript/end-to-end/104_erased_callback_returns_a_host_class/input.ts (ModuleId(0))
-  body BodyId(5)
+  body BodyId(3)
   items
-    fn make__module_examples/typescript/end-to-end/104_erased_callback_returns_a_host_class/input.ts owner Module
     type Maker = Bool | fn(Float) -> ArrayBuffer
     fn describe owner Module
     fn label owner Module
+  locals
+    %0 const make: fn(Float) -> ArrayBuffer
   exprs
-    #0: fn(Float) -> ArrayBuffer = closure BodyId(3) captures 0 -> ArrayBuffer
-    #1: fn(Bool | fn(Float) -> ArrayBuffer) -> String = @2(describe)
-    #2: String = call #1(#0)
-    #3: None = @6(console_log)
-    #4: None = call #3(#2)
-    #5: Bool = true
-    #6: fn(Bool | fn(Float) -> ArrayBuffer) -> String = @2(describe)
-    #7: String = call #6(#5)
-    #8: None = @7(console_log)
-    #9: None = call #8(#7)
-    #10: fn(Float) -> ArrayBuffer = closure BodyId(4) captures 0 -> ArrayBuffer
-    #11: fn(Bool | fn(Float) -> ArrayBuffer) -> String = @3(label)
-    #12: String = call #11(#10)
-    #13: None = @8(console_log)
-    #14: None = call #13(#12)
+    #0: fn(Float) -> ArrayBuffer = closure BodyId(2) captures 0 -> ArrayBuffer
+    #1: fn(Float) -> ArrayBuffer = %0
+    #2: fn(Bool | fn(Float) -> ArrayBuffer) -> String = @2(describe)
+    #3: String = call #2(#1)
+    #4: None = @5(console_log)
+    #5: None = call #4(#3)
+    #6: Bool = true
+    #7: fn(Bool | fn(Float) -> ArrayBuffer) -> String = @2(describe)
+    #8: String = call #7(#6)
+    #9: None = @6(console_log)
+    #10: None = call #9(#8)
+    #11: fn(Float) -> ArrayBuffer = %0
+    #12: fn(Bool | fn(Float) -> ArrayBuffer) -> String = @3(label)
+    #13: String = call #12(#11)
+    #14: None = @7(console_log)
+    #15: None = call #14(#13)
   stmts
-    s0: #4
-    s1: #9
-    s2: #14
+    s0: let %0: fn(Float) -> ArrayBuffer = #0
+    s1: #5
+    s2: #10
+    s3: #15
 
 interned types
   t0 = Bool

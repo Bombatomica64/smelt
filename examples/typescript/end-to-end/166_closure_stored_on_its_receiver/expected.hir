@@ -68,8 +68,7 @@ interned types
   t10 = fn() -> fn(String) -> String
   t11 = fn() -> fn() -> String
   t12 = Ctx
-  t13 = fn(String) -> String
-  t14 = None
-  t15 = Sub
-  t16 = Bool
-  t17 = fn(Float) -> String
+  t13 = None
+  t14 = Sub
+  t15 = Bool
+  t16 = fn(Float) -> String

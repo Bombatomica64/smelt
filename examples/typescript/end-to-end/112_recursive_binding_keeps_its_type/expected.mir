@@ -18,7 +18,7 @@ fn banner (FuncId(1)) -> String
     %3 temp: fn(Float, String) -> String
     %4 temp: String
   bb0:
-    %3 = closure ClosureId(1) [copy %0, copy %2]
+    %3 = closure ClosureId(1) [copy %2, copy %0]
     %2 = move %3
     %4 = closure_call copy %2(copy %1, "")
     return move %4
@@ -81,29 +81,24 @@ closure ClosureId(0) -> Float
 
 closure ClosureId(1) -> String
   locals
-    %0 param __callback_param_0: Float
-    %1 param __callback_param_1: String
-    %2 user text: String
-    %3 user repeat: fn(Float, String) -> String
+    %0 param left: Float
+    %1 param acc: String
+    %2 user repeat: fn(Float, String) -> String
+    %3 user text: String
     %4 temp: Bool
-    %5 temp: String
-    %6 temp: Float
+    %5 temp: Float
+    %6 temp: String
     %7 temp: String
-    %8 temp: String
   bb0:
     %4 = copy %0 <= 0.0
     switch copy %4 ? bb1 : bb2
   bb1:
-    %5 = copy %1
-    goto bb3
+    return copy %1
   bb2:
-    %6 = copy %0 - 1.0
-    %7 = copy %1 + copy %2
-    %8 = closure_call copy %3(copy %6, copy %7)
-    %5 = copy %8
-    goto bb3
-  bb3:
-    return copy %5
+    %5 = copy %0 - 1.0
+    %6 = copy %1 + copy %3
+    %7 = closure_call copy %2(copy %5, copy %6)
+    return copy %7
 
 closure ClosureId(2) -> String
   locals

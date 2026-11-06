@@ -20,8 +20,5 @@ interned types
   t5 = Float
   t6 = fn() -> Float
   t7 = List<fn() -> None>
-  t8 = fn(fn() -> None) -> None
-  t9 = fn() -> None
-  t10 = fn(fn(fn() -> None) -> None) -> None
-  t11 = fn(fn(fn(fn() -> None) -> None) -> None) -> None
-  t12 = fn() -> Float
+  t8 = fn(fn(fn(fn() -> None) -> None) -> None) -> None
+  t9 = fn() -> Float

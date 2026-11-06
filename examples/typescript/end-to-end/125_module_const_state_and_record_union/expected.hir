@@ -75,4 +75,3 @@ interned types
   t18 = List<List<String>>
   t19 = Optional<String>
   t20 = Optional<String | List<String>>
-  t21 = fn(Bool) -> Dict<String, String | List<String>>

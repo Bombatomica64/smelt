@@ -564,7 +564,7 @@ impl ModuleBuilder<'_> {
                 let _ = self.argument(collection_argument, body)?;
             }
             let index_ty = self.ctx.krate.types.intern(Type::Int);
-            let _ = self.callback_argument_with_body_fallback(
+            let _ = self.callback_argument_with_return_hint(
                 callback_argument,
                 &[unknown_ty, index_ty, list_ty],
                 unknown_ty,
@@ -659,7 +659,7 @@ impl ModuleBuilder<'_> {
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         // not a new erasure: an `unknown` return hint means "no hint" to
         // closure-body lowering; a return that stays erased is recorded in
-        // `callback_argument_with_body_fallback`.
+        // `callback_argument_with_return_hint`.
         let unknown_ty = self.unknown_type();
         let fallback_return_ty = match op {
             ListCallbackOp::Map | ListCallbackOp::FlatMap => unknown_ty,
@@ -683,14 +683,14 @@ impl ModuleBuilder<'_> {
                 | ListCallbackOp::Some
                 | ListCallbackOp::Every
         ) {
-            self.truthy_callback_argument_with_body_fallback(
+            self.truthy_callback_argument_with_return_hint(
                 callback_argument,
                 &callback_param_tys,
                 "array callback",
                 body,
             )?
         } else {
-            self.callback_argument_with_body_fallback(
+            self.callback_argument_with_return_hint(
                 callback_argument,
                 &callback_param_tys,
                 fallback_return_ty,

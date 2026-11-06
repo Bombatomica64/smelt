@@ -75,8 +75,8 @@ module examples/typescript/end-to-end/84_same_named_methods_across_classes/input
 interned types
   t0 = Ticker
   t1 = Labeller
-  t2 = String
-  t3 = Unknown
+  t2 = Unknown
+  t3 = String
   t4 = Dict<String, Unknown>
   t5 = fn(String) -> Unknown
   t6 = Float

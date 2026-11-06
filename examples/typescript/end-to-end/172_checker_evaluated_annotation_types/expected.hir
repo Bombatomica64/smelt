@@ -19,41 +19,40 @@ module examples/typescript/end-to-end/172_checker_evaluated_annotation_types/inp
     #6: String = "c"
     #7: List<String> = [#4, #5, #6]
     #8: Store = new Store()
-    #9: Store = new Store()
-    #10: fn(String) -> Float = #9.get
-    #11: Store = new Store()
-    #12: String = "abcd"
-    #13: Float = #11.get(#12)
-    #14: List<String> = %0
-    #15: Float = len #14
-    #16: List<String> = %0
-    #17: String = "+"
-    #18: String = string_join #16, #17
-    #19: None = @7(console_log)
-    #20: None = call #19(#15, #18)
-    #21: Float = %1
-    #22: Float = 1.0
-    #23: Float = Add #21, #22
-    #24: List<String> = %2
-    #25: String = ","
-    #26: String = string_join #24, #25
-    #27: List<String> = %2
-    #28: Float = len #27
-    #29: None = @8(console_log)
-    #30: None = call #29(#23, #26, #28)
-    #31: Float = %3
-    #32: Float = 2.0
-    #33: Float = Mul #31, #32
-    #34: None = @9(console_log)
-    #35: None = call #34(#33)
+    #9: fn(String) -> Float = #8.get
+    #10: Store = new Store()
+    #11: String = "abcd"
+    #12: Float = #10.get(#11)
+    #13: List<String> = %0
+    #14: Float = len #13
+    #15: List<String> = %0
+    #16: String = "+"
+    #17: String = string_join #15, #16
+    #18: None = @7(console_log)
+    #19: None = call #18(#14, #17)
+    #20: Float = %1
+    #21: Float = 1.0
+    #22: Float = Add #20, #21
+    #23: List<String> = %2
+    #24: String = ","
+    #25: String = string_join #23, #24
+    #26: List<String> = %2
+    #27: Float = len #26
+    #28: None = @8(console_log)
+    #29: None = call #28(#22, #25, #27)
+    #30: Float = %3
+    #31: Float = 2.0
+    #32: Float = Mul #30, #31
+    #33: None = @9(console_log)
+    #34: None = call #33(#32)
   stmts
     s0: let %0: List<String> = #2
     s1: let %1: Float = #3
     s2: let %2: List<String> = #7
-    s3: let %3: Float = #13
-    s4: #20
-    s5: #30
-    s6: #35
+    s3: let %3: Float = #12
+    s4: #19
+    s5: #29
+    s6: #34
 
 interned types
   t0 = T

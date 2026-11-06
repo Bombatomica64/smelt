@@ -151,19 +151,11 @@ impl ModuleBuilder<'_> {
                     // body prelude applying the default (see
                     // `apply_parameter_defaults`). Without it the default was dropped
                     // and an omitted argument arrived as the type's zero value.
-                    // A CALLBACK-typed default (`toKey: (x: T) => string = x => ..`)
-                    // is left to the callback-default machinery that call sites
-                    // already use (`LocalCallbackDefault`), which inlines it where the
-                    // argument is omitted.
                     let default_initializer = match &param.pattern {
-                        BindingPattern::BindingIdentifier(_)
-                            if !matches!(this.ctx.krate.types.get(ty), Some(Type::Function(_))) =>
-                        {
-                            param
+                        BindingPattern::BindingIdentifier(_) => param
                             .initializer
                             .as_deref()
-                            .filter(|initializer| !Self::initializer_is_type_zero_default(initializer))
-                        }
+                            .filter(|initializer| !Self::initializer_is_type_zero_default(initializer)),
                         _ => None,
                     };
                     if default_initializer.is_some()
@@ -599,11 +591,8 @@ return_ty,
     pub(in crate::lowering) fn last_return_type(&mut self, body: &Body) -> Option<smelt_hir::TypeId> {
         let mut found = Vec::new();
         Self::collect_return_types_from_block(body, body.root, &mut found);
-        if let Some(first) = found.first().copied() {
-            if found.iter().all(|ty| *ty == first) {
-                return Some(first);
-            }
-            return Some(self.erase(ErasureReason::MissingAnnotation));
+        if !found.is_empty() {
+            return Some(self.joined_inferred_type(found));
         }
         let root = body.blocks.get(usize::try_from(body.root.0).ok()?)?;
         let last_stmt = root.stmts.last()?;

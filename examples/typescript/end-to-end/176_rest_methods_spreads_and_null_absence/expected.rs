@@ -4089,17 +4089,10 @@ impl Bag {
     }
     fn __smelt_get_label(&self) -> Label {
     let _smelt_tmp_1 = ::std::rc::Rc::new(move |closure_arg_0: String, closure_arg_1: Option<String>| {
-    let mut _smelt_tmp_4: Option<String>;
-    let _smelt_tmp_5: String;
     let _smelt_tmp_2: String = "".to_owned() + &closure_arg_0.clone();
-    let _smelt_tmp_3: bool = !(closure_arg_1.clone().is_none());
-    if _smelt_tmp_3 {
-    _smelt_tmp_4 = closure_arg_1.clone();
-    } else {
-    _smelt_tmp_4 = Some(".".to_owned());
-    }
-    _smelt_tmp_5 = _smelt_tmp_2.clone() + &_smelt_tmp_4.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_5.clone()
+    let _smelt_tmp_3: String = closure_arg_1.clone().unwrap_or(".".to_owned());
+    let _smelt_tmp_4: String = _smelt_tmp_2.clone() + &_smelt_tmp_3.clone();
+    _smelt_tmp_4.clone()
     });
     return Label { __smelt_call: _smelt_tmp_1.clone() };
     }

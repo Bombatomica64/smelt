@@ -82,7 +82,7 @@ impl ModuleBuilder<'_> {
         Ok(expanded)
     }
 
-    /// Distribute a trailing LIST spread over the callee's remaining fixed parameters.
+    /// Distribute a LIST spread over the fixed parameters it covers.
     ///
     /// `f(...xs)` into a callee with fixed parameters and no rest parameter
     /// binds parameter `i` to `xs[i]` in JavaScript (`undefined` past the
@@ -92,9 +92,9 @@ impl ModuleBuilder<'_> {
     /// first so it is evaluated once. Hono's `get render()` returns
     /// `(...args) => this.#renderer(...args)` into a one-parameter renderer.
     ///
-    /// Only a spread in the LAST position is distributed: arguments after a
-    /// runtime-length spread have no static parameter position. And only into
-    /// TYPED parameters: a callee whose covered parameters are erased (`any`,
+    /// One spread is distributed, wherever it is written: the fixed arguments
+    /// after it keep the parameters they end on, so `func(...args, n)` covers the
+    /// parameters before `n`. Only into TYPED parameters: a callee whose covered parameters are erased (`any`,
     /// es-toolkit's `IsEqualCustomizer`) is called through the erased
     /// packed-argument path, which spreads the list at run time, so per-element
     /// reads there would only add erased values. Any other shape is returned
@@ -106,17 +106,27 @@ impl ModuleBuilder<'_> {
         params: &[smelt_hir::TypeId],
         body: &mut Body,
     ) -> Result<Vec<CallArg<'a>>, SmeltError> {
-        let Some(&CallArg::UnexpandedSpread(spread)) = arguments.last() else {
+        let mut spreads = arguments
+            .iter()
+            .enumerate()
+            .filter(|(_, argument)| matches!(argument, CallArg::UnexpandedSpread(_)));
+        let Some((position, &CallArg::UnexpandedSpread(spread))) = spreads.next() else {
             return Ok(arguments);
         };
-        let position = arguments.len().saturating_sub(1);
-        let covered_params = params.get(position..).unwrap_or_default();
+        if spreads.next().is_some() {
+            return Ok(arguments);
+        }
+        let trailing = arguments.len().saturating_sub(position).saturating_sub(1);
+        let covered_params = params
+            .get(position..params.len().saturating_sub(trailing))
+            .unwrap_or_default();
         let covered = covered_params.len();
         if covered == 0
             || covered_params.iter().any(|param| matches!(self.ctx.krate.types.get(*param), Some(Type::Unknown)))
         {
             return Ok(arguments);
         }
+        let after = arguments.split_off(position.saturating_add(1));
         arguments.pop();
         let span = self.span(spread.span.start, spread.span.end);
         let operand = self.expression(&spread.argument, body)?;
@@ -125,6 +135,7 @@ impl ModuleBuilder<'_> {
         let resolved = self.type_param_constraint_or_self(operand_ty);
         let Some(Type::List(element_ty)) = self.ctx.krate.types.get(resolved).cloned() else {
             arguments.push(CallArg::Lowered(operand));
+            arguments.extend(after);
             return Ok(arguments);
         };
         let spread_name = self.intern_source_name("__smelt_spread");
@@ -143,6 +154,7 @@ impl ModuleBuilder<'_> {
                 span,
             })));
         }
+        arguments.extend(after);
         Ok(arguments)
     }
 

@@ -199,7 +199,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn is_blob_class_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty)
             .is_some_and(smelt_stdlib::StdlibClass::is_blob_runtime_type)
-            && !self.user_class_shadows("Blob")
-            && !self.user_class_shadows("File")
+            && !self.source_shadows_global("Blob")
+            && !self.source_shadows_global("File")
     }
 }

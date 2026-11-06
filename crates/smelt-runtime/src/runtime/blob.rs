@@ -64,6 +64,9 @@ pub struct SmeltBlob {
     file_name: Option<String>,
     /// `lastModified` in epoch milliseconds; meaningless unless a file.
     last_modified: f64,
+    /// The source class of an instance decoded into this type, when a program
+    /// subclasses `Blob`: `instanceof` reads it back through `__smelt_class`.
+    instance_class: Option<String>,
 }
 
 //~ Structural equality over everything observable. `toEqual` on two blobs
@@ -88,11 +91,11 @@ impl SmeltBlob {
     /// An empty, untyped blob with a fresh JS reference identity.
     pub fn new() -> Self { Self::from_bytes(Vec::new(), String::new()) }
     /// A blob over owned bytes, with a fresh JS reference identity.
-    pub fn from_bytes(bytes: Vec<u8>, blob_type: String) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(bytes), blob_type, file_name: None, last_modified: 0.0 } }
+    pub fn from_bytes(bytes: Vec<u8>, blob_type: String) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(bytes), blob_type, file_name: None, last_modified: 0.0, instance_class: None } }
     //~ `lastModified` defaults to 0 rather than the wall clock, keeping a
     //~ generated program deterministic; the erased record already did this.
     /// The same, as a `File`: the two extra data properties are present.
-    pub fn file_from_bytes(bytes: Vec<u8>, blob_type: String, name: String, last_modified: f64) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(bytes), blob_type, file_name: Some(name), last_modified } }
+    pub fn file_from_bytes(bytes: Vec<u8>, blob_type: String, name: String, last_modified: f64) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(bytes), blob_type, file_name: Some(name), last_modified, instance_class: None } }
     //~ The two concrete `BlobPart` arms. A string part contributes its UTF-8
     //~ bytes and a blob part its own bytes — what the erased walk
     //~ (`smelt_blob_parts_bytes`) does for the same values, so a concretely
@@ -148,7 +151,13 @@ impl SmeltBlob {
 /// The record shape has ONE definition, `smelt_blob_record`, shared with the
 /// reflected host constructor, so a concrete blob and a reflectively-built one
 /// erase to the same object.
-impl IntoSmeltUnknown for SmeltBlob { fn into_smelt_unknown(self) -> SmeltUnknown { smelt_blob_record(self.id, &self.bytes, &self.blob_type, self.file_name.clone(), self.last_modified) } }
+impl IntoSmeltUnknown for SmeltBlob {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let record = smelt_blob_record(self.id, &self.bytes, &self.blob_type, self.file_name.clone(), self.last_modified);
+        if let (SmeltUnknown::Object(object), Some(class)) = (&record, self.instance_class) { object.insert("__smelt_class".to_owned(), SmeltUnknown::String(class.into())); }
+        record
+    }
+}
 
 //~ The constructor for `new Blob(parts, ..)` / `new File(parts, name, ..)`.
 //~ It lives in the erasure section because its ARGUMENT is erased: a
@@ -173,7 +182,9 @@ impl SmeltFromUnknown for SmeltBlob {
         let blob_type = match map.get("type") { Some(SmeltUnknown::String(text)) => text.to_string(), _ => String::new() };
         let name = match map.get("name") { Some(SmeltUnknown::String(text)) => Some(text.to_string()), _ => None };
         let last_modified = match map.get("lastModified") { Some(SmeltUnknown::Number(value)) => value, _ => 0.0 };
-        match name { Some(name) => Self::file_from_bytes(bytes, blob_type, name, last_modified), None => Self::from_bytes(bytes, blob_type) }
+        let instance_class = match map.get("__smelt_class") { Some(SmeltUnknown::String(class)) => Some(class.to_string()), _ => None };
+        let blob = match name { Some(name) => Self::file_from_bytes(bytes, blob_type, name, last_modified), None => Self::from_bytes(bytes, blob_type) };
+        Self { instance_class, ..blob }
     }
 }
 
