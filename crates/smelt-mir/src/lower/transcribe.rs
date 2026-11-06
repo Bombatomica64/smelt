@@ -51,7 +51,7 @@ macro_rules! lower_op_field {
 macro_rules! transcribed_op_kinds {
     ($(
         $(#[$meta:meta])*
-        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt),* $(,)? })?
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
         $($fact:ident $fact_value:tt)*
         => $display:tt;
     )*) => {
@@ -72,7 +72,7 @@ pub(super) use {transcribed_op_kinds, transcribed_op_pattern};
 macro_rules! define_lower_transcribed_op {
     ($(
         $(#[$meta:meta])*
-        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt),* $(,)? })?
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
         $($fact:ident $fact_value:tt)*
         => $display:tt;
     )*) => {

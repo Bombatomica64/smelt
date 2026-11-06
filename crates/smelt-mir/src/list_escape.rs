@@ -1084,311 +1084,147 @@ impl<'a> BodyWalk<'a> {
     }
 }
 
-/// Whether this rvalue's result is a brand-new list buffer nothing else names.
-///
-/// Deliberately a short whitelist. Leaving a genuinely fresh producer out only
-/// under-counts the tierable population; putting a non-fresh one in would be
-/// unsound, so only operations whose runtime helper allocates a new `Vec` are
-/// listed. In particular the JavaScript in-place mutators (`sort`, `reverse`,
-/// `fill`, `copyWithin`) return *the receiver* and so are handled as
-/// [`OperandRole::ResultAlias`] instead of appearing here.
-#[must_use]
-#[expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "the wildcard is the soundness guarantee: an `Rvalue` variant this \
-              whitelist has not vetted must report `false` (not provably fresh), so \
-              a variant added later degrades to a conservative `Escaping` verdict \
-              rather than to a silently wrong `Local` one"
-)]
-pub const fn rvalue_mints_fresh_list(value: &Rvalue) -> bool {
-    match value {
-        // Literal construction and the explicit copying operations.
-        Rvalue::List(_)
-        | Rvalue::ListCopy { .. }
-        | Rvalue::ListSlice { .. }
-        | Rvalue::ListConcat { .. }
-        | Rvalue::ListWith { .. }
-        | Rvalue::ListFlat { .. }
-        | Rvalue::ListFromLength { .. }
-        | Rvalue::ListFromLengthMap { .. }
-        // `splice` returns the removed elements as a new array; `toSpliced`
-        // (`mutate: false`) returns a new array outright. Both are fresh.
-        | Rvalue::ListSplice { .. }
-        // Non-mutating ES2023 variants: `toSorted`, `toReversed`.
-        | Rvalue::ListSorted { .. }
-        | Rvalue::ListReversed { .. }
-        | Rvalue::ListEnumerate { .. }
-        | Rvalue::ListZip { .. }
-        | Rvalue::ListRange { .. }
-        | Rvalue::ListProjection { .. }
-        | Rvalue::TupleToList { .. }
-        | Rvalue::TupleSlice { .. }
-        | Rvalue::DictProjection { .. }
-        | Rvalue::SetProjection { .. }
-        // String and regex splits allocate their result vector.
-        | Rvalue::StringSplit { .. }
-        | Rvalue::StringChars { .. }
-        | Rvalue::RegexSplit { .. } => true,
-        // Only the list-producing callbacks; `find`/`some`/`forEach` return an
-        // element or a scalar, and a returned element is a handle on a value
-        // that also lives inside the receiver.
-        Rvalue::ListCallback { op, .. } => matches!(
-            op,
-            smelt_hir::ListCallbackOp::Map
-                | smelt_hir::ListCallbackOp::Filter
-                | smelt_hir::ListCallbackOp::FlatMap
-        ),
-        _ => false,
-    }
+/// Pairs one op field's operands with its stated role.
+macro_rules! push_op_role {
+    ($roles:ident, one, $field:ident, $role:expr) => { $roles.push(($field, $role)); };
+    ($roles:ident, opt, $field:ident, $role:expr) => {
+        if let Some(operand) = $field {
+            $roles.push((operand, $role));
+        }
+    };
+    ($roles:ident, many, $field:ident, $role:expr) => {
+        for operand in $field {
+            $roles.push((operand, $role));
+        }
+    };
+    ($roles:ident, splice, $field:ident, $role:expr) => {
+        for item in $field {
+            $roles.push((&item.value, $role));
+        }
+    };
 }
 
-/// The role of each operand this rvalue reads, for operands the analysis models.
-///
-/// Returned as `(&Operand, role)` pairs so [`BodyWalk::visit_rvalue`] can match them
-/// against [`Rvalue::reads`] by pointer identity — that keeps the
-/// canonical operand walk as the single enumeration point while still letting
-/// positions differ in role. **Any operand not named here gets
-/// [`OperandRole::Escapes`]**, including every operand of every variant that
-/// falls into the wildcard arm, so the table fails safe.
-#[expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "the wildcard is the soundness guarantee: an unlisted `Rvalue` variant \
-              yields no roles, so every operand it reads falls to \
-              `OperandRole::Escapes`. A variant added later fails safe instead of \
-              silently producing a wrong `Local` verdict"
-)]
-fn operand_roles(value: &Rvalue) -> Vec<(&Operand, OperandRole)> {
-    const READ: OperandRole = OperandRole::Read;
-    const RECV: OperandRole = OperandRole::Receiver { mutating: false };
-    const RECV_MUT: OperandRole = OperandRole::Receiver { mutating: true };
-    const ALIAS: OperandRole = OperandRole::ResultAlias { mutating: false };
-    const ALIAS_MUT: OperandRole = OperandRole::ResultAlias { mutating: true };
-    const STORED: OperandRole = OperandRole::Escapes(EscapeReason::StoredInContainer);
-    const CALLED: OperandRole = OperandRole::Escapes(EscapeReason::CallArgument);
-    const ERASED: OperandRole = OperandRole::Escapes(EscapeReason::Erased);
-
-    match value {
-        // Plain propagation: the destination names the source's buffer.
-        Rvalue::Use(operand) => vec![(operand, ALIAS)],
-        // Both arms may become the result.
-        Rvalue::OptionalCoalesce { optional, fallback } => {
-            vec![(optional, ALIAS), (fallback, ALIAS)]
+/// Generates [`rvalue_mints_fresh_list`] and `operand_roles`: the forms only MIR
+/// has by hand, the rest from the op table's `fresh` facts and field roles.
+macro_rules! define_list_facts {
+    ($(
+        $(#[$meta:meta])*
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
+        => $display:tt;
+    )*) => {
+        /// Whether this rvalue's result is a brand-new list buffer nothing else names.
+        ///
+        /// Deliberately a short whitelist. Leaving a genuinely fresh producer out only
+        /// under-counts the tierable population; putting a non-fresh one in would be
+        /// unsound, so only operations whose runtime helper allocates a new `Vec` are
+        /// listed. In particular the JavaScript in-place mutators (`sort`, `reverse`,
+        /// `fill`, `copyWithin`) return *the receiver* and so are handled as
+        /// [`OperandRole::ResultAlias`] instead of appearing here.
+        #[must_use]
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "the wildcard is the soundness guarantee: an `Rvalue` variant this \
+                      whitelist has not vetted must report `false` (not provably fresh), so \
+                      a variant added later degrades to a conservative `Escaping` verdict \
+                      rather than to a silently wrong `Local` one"
+        )]
+        #[allow(
+            unused_variables,
+            reason = "each arm binds every field; a fact reads the ones it needs"
+        )]
+        pub const fn rvalue_mints_fresh_list(value: &Rvalue) -> bool {
+            match value {
+                Rvalue::List(_) => true,
+                $(
+                    Rvalue::$name $({ $($field,)* })? => {
+                        smelt_hir::op_fresh!($($fact $fact_value)*)
+                    }
+                )*
+                _ => false,
+            }
         }
 
-        // In-place mutators that return the receiver in JavaScript.
-        Rvalue::ListReverse { list } => vec![(list, ALIAS_MUT)],
-        Rvalue::ListSort {
-            list,
-            comparator,
-            key,
-            ..
-        } => {
-            let mut roles = vec![(list, ALIAS_MUT)];
-            roles.extend(
-                comparator
+        /// The role of each operand this rvalue reads, for operands the analysis models.
+        ///
+        /// Returned as `(&Operand, role)` pairs so [`BodyWalk::visit_rvalue`] can match them
+        /// against [`Rvalue::reads`] by pointer identity — that keeps the
+        /// canonical operand walk as the single enumeration point while still letting
+        /// positions differ in role. **Any operand not named here gets
+        /// [`OperandRole::Escapes`]**, including every operand of every variant that
+        /// falls into the wildcard arm, so the table fails safe.
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "the wildcard is the soundness guarantee: an unlisted `Rvalue` variant \
+                      yields no roles, so every operand it reads falls to \
+                      `OperandRole::Escapes`. A variant added later fails safe instead of \
+                      silently producing a wrong `Local` verdict"
+        )]
+        #[allow(
+            unused_variables,
+            unused_mut,
+            reason = "each arm binds every field; a field with no role contributes nothing"
+        )]
+        fn operand_roles(value: &Rvalue) -> Vec<(&Operand, OperandRole)> {
+            const READ: OperandRole = OperandRole::Read;
+            const RECV: OperandRole = OperandRole::Receiver { mutating: false };
+            const RECV_MUT: OperandRole = OperandRole::Receiver { mutating: true };
+            const ALIAS: OperandRole = OperandRole::ResultAlias { mutating: false };
+            const ALIAS_MUT: OperandRole = OperandRole::ResultAlias { mutating: true };
+            const STORED: OperandRole = OperandRole::Escapes(EscapeReason::StoredInContainer);
+            const CALLED: OperandRole = OperandRole::Escapes(EscapeReason::CallArgument);
+            const ERASED: OperandRole = OperandRole::Escapes(EscapeReason::Erased);
+
+            match value {
+                // Plain propagation: the destination names the source's buffer.
+                Rvalue::Use(operand) => vec![(operand, ALIAS)],
+                // Scalar-producing inspections of arbitrary values.
+                Rvalue::Binary { lhs, rhs, .. } => vec![(lhs, READ), (rhs, READ)],
+                Rvalue::Unary { operand, .. } => vec![(operand, READ)],
+                // Genuine escapes, named explicitly so the reported reason distinguishes
+                // "really escapes" from "could not prove otherwise". The verdict would
+                // be the same without these arms; only the reason label would blur.
+                Rvalue::List(items) | Rvalue::Set(items) | Rvalue::Tuple(items) => {
+                    items.iter().map(|item| (item, STORED)).collect()
+                }
+                Rvalue::Dict(entries) => entries
                     .iter()
-                    .chain(key.iter())
-                    .map(|callback| (callback, CALLED)),
-            );
-            roles
+                    .flat_map(|(key, entry)| [(key, STORED), (entry, STORED)])
+                    .collect(),
+                Rvalue::Struct { fields, .. } => {
+                    fields.iter().map(|(_, field)| (field, STORED)).collect()
+                }
+                Rvalue::GlobalSet { value: stored, .. } => vec![(stored, STORED)],
+                Rvalue::Closure { captures, .. } => captures
+                    .iter()
+                    .map(|capture| (capture, OperandRole::Escapes(EscapeReason::Captured)))
+                    .collect(),
+                Rvalue::ExternalClassInstance { args, .. } => {
+                    args.iter().map(|arg| (arg, CALLED)).collect()
+                }
+                Rvalue::UnionMethod { receiver, args, .. } | Rvalue::BoundMethod { receiver, args, .. } => {
+                    let mut roles = vec![(receiver, CALLED)];
+                    roles.extend(args.iter().map(|arg| (arg, CALLED)));
+                    roles
+                }
+                Rvalue::Await(operand) => vec![(operand, CALLED)],
+                $(
+                    Rvalue::$name $({ $($field,)* })? => {
+                        let mut roles = Vec::new();
+                        $($($(push_op_role!(roles, $kind, $field, $role);)?)*)?
+                        roles
+                    }
+                )*
+                // Every other form publishes its operands. Falling here is what
+                // keeps a new variant from silently producing a wrong `Local`
+                // verdict.
+                _ => Vec::new(),
+            }
         }
-        Rvalue::ListFill { list, value: item, .. } => {
-            vec![(list, ALIAS_MUT), (item, STORED)]
-        }
-        Rvalue::ListCopyWithin { list, .. } => vec![(list, ALIAS_MUT)],
-
-        // In-place mutators whose result is a scalar or a removed element.
-        Rvalue::ListPush { list, item } => vec![(list, RECV_MUT), (item, STORED)],
-        Rvalue::ListInsert { list, index, item } => {
-            vec![(list, RECV_MUT), (index, READ), (item, STORED)]
-        }
-        Rvalue::ListUnshift { list, items } => {
-            let mut roles = vec![(list, RECV_MUT)];
-            roles.extend(items.iter().map(|item| (item, STORED)));
-            roles
-        }
-        // `extend` copies `other`'s elements out; `other` itself keeps its
-        // buffer, so it is an ordinary read.
-        Rvalue::ListExtend { list, other } => vec![(list, RECV_MUT), (other, READ)],
-        Rvalue::ListClear { list }
-        | Rvalue::ListPop { list }
-        | Rvalue::ListShift { list }
-        // `next` advances the iteration cursor, which is a write.
-        | Rvalue::ListNext { list } => vec![(list, RECV_MUT)],
-        Rvalue::ListRemove { list, item } => vec![(list, RECV_MUT), (item, READ)],
-        Rvalue::ListSplice {
-            list,
-            start,
-            delete_count,
-            items,
-            mutate,
-        } => {
-            let mut roles = vec![
-                (
-                    list,
-                    OperandRole::Receiver {
-                        mutating: *mutate,
-                    },
-                ),
-                (start, READ),
-            ];
-            roles.extend(delete_count.iter().map(|count| (count, READ)));
-            roles.extend(items.iter().map(|item| (&item.value, STORED)));
-            roles
-        }
-
-        // Read-only list operations: the receiver is inspected and the result is
-        // fresh or scalar.
-        Rvalue::Len { operand: list }
-        | Rvalue::ListCopy { list }
-        | Rvalue::ListSum { list }
-        | Rvalue::ListToSet { list }
-        | Rvalue::ListPairsToDict { list }
-        | Rvalue::ListToTuple { list }
-        | Rvalue::ListEnumerate { list }
-        | Rvalue::ListRandomChoice { list }
-        | Rvalue::ListBoolFold { list, .. }
-        | Rvalue::ListProjection { list, .. }
-        | Rvalue::ListReversed { list } => vec![(list, RECV)],
-        Rvalue::ListSlice { list, start, end } => {
-            let mut roles = vec![(list, RECV)];
-            roles.extend(start.iter().map(|bound| (bound, READ)));
-            roles.extend(end.iter().map(|bound| (bound, READ)));
-            roles
-        }
-        Rvalue::ListFlat { list, depth } => {
-            let mut roles = vec![(list, RECV)];
-            roles.extend(depth.iter().map(|level| (level, READ)));
-            roles
-        }
-        Rvalue::ListConcat { left, right } | Rvalue::ListZip { left, right } => {
-            vec![(left, RECV), (right, RECV)]
-        }
-        Rvalue::ListContains { list, item } | Rvalue::ListCount { list, item } => {
-            vec![(list, RECV), (item, READ)]
-        }
-        Rvalue::ListIndex { list, item } => vec![(list, RECV), (item, READ)],
-        Rvalue::ListSearch {
-            list,
-            item,
-            from_index,
-            ..
-        } => {
-            let mut roles = vec![(list, RECV), (item, READ)];
-            roles.extend(from_index.iter().map(|index| (index, READ)));
-            roles
-        }
-        // The callback is a closure value, not a list; if a list ever appears
-        // there it is being handed to something that can keep it.
-        // JavaScript hands the receiver to the callback as its third argument
-        // (`cb(item, index, array)`), and codegen emits exactly that
-        // (`(smelt_callback)(item, index as i64, &smelt_array)`), so the
-        // callback can retain a handle on the array. The receiver therefore
-        // escapes here even though `map`/`filter` themselves only read it.
-        Rvalue::ListCallback { list, callback, .. } => vec![(list, CALLED), (callback, CALLED)],
-        Rvalue::ListSorted { list, key, .. } => {
-            let mut roles = vec![(list, RECV)];
-            roles.extend(key.iter().map(|selector| (selector, CALLED)));
-            roles
-        }
-        // The accumulator seed flows into the reduction's result and through
-        // the callback, so it is published even though the receiver is not.
-        // `reduce` likewise passes the array as the reducer's fourth argument.
-        Rvalue::ListReduce {
-            list,
-            initial,
-            callback,
-            ..
-        } => {
-            let mut roles = vec![(list, CALLED), (callback, CALLED)];
-            roles.extend(initial.iter().map(|seed| (seed, CALLED)));
-            roles
-        }
-        Rvalue::ListFromLengthMap { length, callback } => {
-            vec![(length, READ), (callback, CALLED)]
-        }
-        Rvalue::ListFromLength { length } => vec![(length, READ)],
-        // The repeated value ends up inside the produced list.
-        Rvalue::ListRange { start, end, step } => {
-            vec![(start, READ), (end, READ), (step, READ)]
-        }
-        // `with` copies, but the replacement value lands inside the copy.
-        Rvalue::ListWith {
-            list,
-            index,
-            value: replacement,
-        } => vec![(list, RECV), (index, READ), (replacement, STORED)],
-        Rvalue::StringJoin { items, separator } => vec![(items, RECV), (separator, READ)],
-
-        // Scalar-producing inspections of arbitrary values.
-        Rvalue::Binary { lhs, rhs, .. } => vec![(lhs, READ), (rhs, READ)],
-        Rvalue::JsonIndent { text, space } => vec![(text, READ), (space, READ)],
-        Rvalue::Unary { operand, .. }
-        | Rvalue::TypeofValue { value: operand }
-        | Rvalue::UnknownIs { value: operand, .. }
-        | Rvalue::InstanceOf { value: operand, .. }
-        | Rvalue::NumericPredicate { operand, .. }
-        | Rvalue::JsonStringify { value: operand }
-        | Rvalue::StructuredClone { operand } => vec![(operand, READ)],
-        Rvalue::NumericExtrema { args, spread, .. } => {
-            let mut roles: Vec<(&Operand, OperandRole)> =
-                args.iter().map(|arg| (arg, READ)).collect();
-            roles.extend(spread.iter().map(|list| (list, RECV)));
-            roles
-        }
-
-        // Genuine escapes, named explicitly so the reported reason distinguishes
-        // "really escapes" from "could not prove otherwise". The verdict would
-        // be the same without these arms; only the reason label would blur.
-        Rvalue::List(items) | Rvalue::Set(items) | Rvalue::Tuple(items) => {
-            items.iter().map(|item| (item, STORED)).collect()
-        }
-        Rvalue::Dict(entries) => entries
-            .iter()
-            .flat_map(|(key, entry)| [(key, STORED), (entry, STORED)])
-            .collect(),
-        Rvalue::Struct { fields, .. } => {
-            fields.iter().map(|(_, field)| (field, STORED)).collect()
-        }
-        Rvalue::DictSet {
-            dict,
-            key: entry_key,
-            value: entry_value,
-        } => vec![(dict, RECV), (entry_key, STORED), (entry_value, STORED)],
-        Rvalue::SetAdd { set, item } => vec![(set, RECV), (item, STORED)],
-        Rvalue::GlobalSet { value: stored, .. } => vec![(stored, STORED)],
-        Rvalue::Closure { captures, .. } => captures
-            .iter()
-            .map(|capture| (capture, OperandRole::Escapes(EscapeReason::Captured)))
-            .collect(),
-        Rvalue::ClosureCall { callee, args } => {
-            let mut roles = vec![(callee, CALLED)];
-            roles.extend(args.iter().map(|arg| (arg, CALLED)));
-            roles
-        }
-        Rvalue::ClosureCallSpread { callee, args } => vec![(callee, CALLED), (args, CALLED)],
-        Rvalue::ExternalClassInstance { args, .. }
-        | Rvalue::HostConstruct { args, .. }
-        | Rvalue::AsyncOp { args, .. } => args.iter().map(|arg| (arg, CALLED)).collect(),
-        Rvalue::OptionalMethod { receiver, args, .. }
-        | Rvalue::UnionMethod { receiver, args, .. }
-        | Rvalue::BoundMethod { receiver, args, .. } => {
-            let mut roles = vec![(receiver, CALLED)];
-            roles.extend(args.iter().map(|arg| (arg, CALLED)));
-            roles
-        }
-        Rvalue::Await(operand) => vec![(operand, CALLED)],
-        Rvalue::UnknownCast { value: operand, .. } | Rvalue::BoxPrimitive { value: operand } => {
-            vec![(operand, ERASED)]
-        }
-
-        // Everything else — remaining containers, host globals, dates, regexes,
-        // and any variant added after this table was written — publishes its
-        // operands. Falling into this arm is what keeps a new `Rvalue` variant
-        // from silently producing a wrong `Local` verdict.
-        _ => Vec::new(),
-    }
+    };
 }
+
+smelt_hir::for_each_op!(define_list_facts);
 
 #[cfg(test)]
 mod tests;

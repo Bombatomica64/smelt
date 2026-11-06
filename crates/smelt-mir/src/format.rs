@@ -221,7 +221,7 @@ macro_rules! render_op_field {
 macro_rules! define_rvalue_text {
     ($(
         $(#[$meta:meta])*
-        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt),* $(,)? })?
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
         $($fact:ident $fact_value:tt)*
         => $display:tt;
     )*) => {
@@ -476,7 +476,7 @@ fn callee_text(callee: &Callee) -> String {
 macro_rules! define_op_call_text {
     ($(
         $(#[$meta:meta])*
-        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt),* $(,)? })?
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
         $($fact:ident $fact_value:tt)*
         => $display:tt;
     )*) => {

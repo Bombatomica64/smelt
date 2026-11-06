@@ -44,6 +44,15 @@
 //!   `try` the source wrote can see the throw; otherwise the op is a plain
 //!   assignment.
 //! * `call(text)`: how `dump-mir` names the op in its call-terminator form.
+//! * `mutates(receiver)`: the `Option<&Operand>` the op writes through in place.
+//! * `fresh(condition)`: the result is a newly allocated list no one else holds.
+//! * `needs(Need, Need if condition, ..)`: the runtime families the op demands;
+//!   see `Need` in `smelt-codegen-rust`.
+//!
+//! A field may also state its role for list escape analysis, `name: kind @ROLE`,
+//! with `ROLE` a constant of `operand_roles` or a parenthesised expression over
+//! it. A field with no role is unmodelled, and the analysis treats it as an
+//! escape.
 //!
 //! # Display
 //!
@@ -99,6 +108,23 @@ macro_rules! op_call_text {
     () => { "@infallible_op".to_owned() };
     (call ($text:expr) $($rest:tt)*) => { $text };
     ($other:ident $value:tt $($rest:tt)*) => { $crate::op_call_text!($($rest)*) };
+}
+
+/// Expands to an entry's `mutates` receiver; by default an op mutates nothing.
+#[macro_export]
+macro_rules! op_mutates {
+    () => { None };
+    (mutates ($receiver:expr) $($rest:tt)*) => { $receiver };
+    ($other:ident $value:tt $($rest:tt)*) => { $crate::op_mutates!($($rest)*) };
+}
+
+/// Expands to an entry's `fresh` condition; by default a result is not provably
+/// fresh.
+#[macro_export]
+macro_rules! op_fresh {
+    () => { false };
+    (fresh ($condition:expr) $($rest:tt)*) => { $condition };
+    ($other:ident $value:tt $($rest:tt)*) => { $crate::op_fresh!($($rest)*) };
 }
 
 /// Hands `callback` every operation, the transcribed group then the custom one.
@@ -173,6 +199,7 @@ macro_rules! op_group_transcribed {
             /// functions never produce this expression: they capture the enclosing
             /// function's `this` local lexically, exactly as the source does.
             ThisRead
+                needs(ThisRead)
                 => ("this".to_owned());
             /// Bind a receiver to a callable, yielding `Function.prototype.bind`'s value.
             ///
@@ -187,6 +214,7 @@ macro_rules! op_group_transcribed {
                 /// The receiver value the callee's `this` resolves to.
                 receiver: one,
             }
+                needs(ThisChannel)
                 => (format!("bind_this {callee}, {receiver}"));
             /// JavaScript `new callee(args)` where `callee` is a function VALUE — the
             /// `[[Construct]]` operation, not a call.
@@ -205,13 +233,14 @@ macro_rules! op_group_transcribed {
                 /// The spelled constructor arguments.
                 args: many,
             }
+                needs(Construct)
                 => (format!("construct {callee}({})", args.join(", ")));
             /// Call a closure value with a runtime argument vector from spread syntax.
             ClosureCallSpread {
                 /// Closure value to call.
-                callee: one,
+                callee: one @CALLED,
                 /// Runtime argument list.
-                args: one,
+                args: one @CALLED,
             }
                 => (format!("closure_call {callee}(...{args})"));
             /// Read a field through a TypeScript optional-chain receiver.
@@ -233,7 +262,7 @@ macro_rules! op_group_transcribed {
             /// Compute the length of a value.
             Len {
                 /// The value measured.
-                operand: one,
+                operand: one @RECV,
             }
                 => (format!("len {operand}"));
             /// Compute the absolute value of an integer or floating-point number.
@@ -249,18 +278,19 @@ macro_rules! op_group_transcribed {
                 /// Numeric operand to round.
                 operand: one,
             }
+                needs(MathRound if matches!(op, $crate::NumericRoundOp::Round))
                 => (format!("numeric_{op} {operand}"));
             /// Compute the minimum or maximum of floating-point operands.
             NumericExtrema {
                 /// Operation to apply.
                 op: [$crate::NumericExtremaOp],
                 /// Numeric operands to compare.
-                args: many,
+                args: many @READ,
                 /// Optional numeric list reduced alongside `args`, produced when the
                 /// source spreads a list into `Math.max`/`Math.min`
                 /// (e.g. `Math.max(...values)`). The reduction folds every element of
                 /// this list with the scalar `args` using the same extrema operation.
-                spread: opt,
+                spread: opt @RECV,
             }
                 => (
                     format!(
@@ -280,7 +310,7 @@ macro_rules! op_group_transcribed {
                 /// Predicate to apply.
                 op: [$crate::NumericPredicateOp],
                 /// Numeric operand to test.
-                operand: one,
+                operand: one @READ,
             }
                 => (format!("numeric_{op} {operand}"));
             /// Apply a direct unary numeric function.
@@ -309,6 +339,7 @@ macro_rules! op_group_transcribed {
                 => (format!("numeric_atan2 {y}, {x}"));
             /// Generate a pseudo-random floating-point value in the half-open range `[0, 1)`.
             NumericRandom
+                needs(DepRand)
                 => ("numeric_random".to_owned());
             /// Generate a pseudo-random integer in an inclusive range.
             NumericRandomInt {
@@ -317,6 +348,7 @@ macro_rules! op_group_transcribed {
                 /// Inclusive upper bound.
                 end: one,
             }
+                needs(DepRand)
                 => (format!("numeric_random_int {start}, {end}"));
             /// Convert a numeric value to a string with a numeric radix.
             NumericToStringRadix {
@@ -366,6 +398,7 @@ macro_rules! op_group_transcribed {
                 /// String operand to normalize.
                 operand: one,
             }
+                needs(DepUnicodeNormalization)
                 => (format!("string_normalize_{form} {operand}"));
             /// JavaScript `Object.prototype.toString.call(operand)`: the classic
             /// `"[object Tag]"` type probe. Resolves the tag from the erased value's
@@ -380,8 +413,9 @@ macro_rules! op_group_transcribed {
             /// markers (`structuredClone(x)`; see the runtime `smelt_structured_clone`).
             StructuredClone {
                 /// Erased value operand to deep-clone.
-                operand: one,
+                operand: one @READ,
             }
+                needs(StructuredClone)
                 => (format!("structured_clone {operand}"));
             /// Trim whitespace from a string value.
             StringTrim {
@@ -401,6 +435,7 @@ macro_rules! op_group_transcribed {
                 /// String compared against the receiver.
                 right: one,
             }
+                needs(LocaleCompare)
                 => (
                     hir: format!("string_locale_compare {left} {right}"),
                     mir: format!("string_locale_compare {left}, {right}"),
@@ -426,6 +461,7 @@ macro_rules! op_group_transcribed {
                 /// Optional JavaScript `fromIndex` position.
                 from_index: opt,
             }
+                needs(DepRegex if matches!(op, $crate::StringSearchOp::Regex))
                 => (
                     {
                         let base = format!("string_{op} {haystack}, {needle}");
@@ -491,6 +527,7 @@ macro_rules! op_group_transcribed {
                 /// String value being matched.
                 haystack: one,
             }
+                needs(DepRegex)
                 => (format!("regex_{op} {pattern}, {haystack}"));
             /// Replace regex matches with a replacement string.
             RegexReplace {
@@ -503,6 +540,7 @@ macro_rules! op_group_transcribed {
                 /// Replacement text.
                 replacement: one,
             }
+                needs(DepRegex)
                 => (
                     hir: format!("regex_{op} {pattern}, {haystack}, {replacement}"),
                     mir: format!("regex_{} {pattern}, {haystack}, {replacement}", op.mir_regex_text()),
@@ -523,6 +561,7 @@ macro_rules! op_group_transcribed {
                 /// known, so the emitter only has to render each role.
                 args: [Vec<$crate::RegexReplaceArg>],
             }
+                needs(DepRegex)
                 => (
                     hir: format!("regex_{} {pattern}, {haystack}, {callback} [{}]", op.callback_text(), regex_replace_args_text(args)),
                     mir: format!("regex_{} {pattern}, {haystack}, {callback} [{}]", op.mir_callback_text(), regex_replace_args_text(args)),
@@ -534,6 +573,7 @@ macro_rules! op_group_transcribed {
                 /// String value to transform.
                 haystack: one,
             }
+                needs(DepRegex)
                 => (format!("regex_replace_first_upper {pattern}, {haystack}"));
             /// Split a string with a regex pattern.
             RegexSplit {
@@ -542,6 +582,8 @@ macro_rules! op_group_transcribed {
                 /// String value to split.
                 haystack: one,
             }
+                fresh(true)
+                needs(DepRegex)
                 => (format!("regex_split {pattern}, {haystack}"));
             /// Return the first regex match as a JavaScript-like match array.
             RegexFind {
@@ -550,6 +592,7 @@ macro_rules! op_group_transcribed {
                 /// String value to search.
                 haystack: one,
             }
+                needs(DepRegex)
                 => (format!("regex_find {pattern}, {haystack}"));
             /// Execute a JavaScript-like `RegExp` value and return a match object.
             RegexExec {
@@ -558,6 +601,7 @@ macro_rules! op_group_transcribed {
                 /// String value to search.
                 haystack: one,
             }
+                needs(DepRegex)
                 => (format!("regex_exec {regex}, {haystack}"));
             /// `regex.test(haystack)` on a CONCRETE `RegExp` receiver.
             ///
@@ -573,6 +617,7 @@ macro_rules! op_group_transcribed {
                 /// String value to search.
                 haystack: one,
             }
+                needs(DepRegex)
                 => (format!("regex_test {regex} {haystack}"));
             /// Return every match index from JavaScript `String.prototype.matchAll`.
             RegexMatchAll {
@@ -581,6 +626,7 @@ macro_rules! op_group_transcribed {
                 /// String value to search.
                 haystack: one,
             }
+                needs(DepRegex)
                 => (format!("regex_match_all {regex}, {haystack}"));
             /// Read a single character from a string as a string value.
             StringCharAt {
@@ -629,9 +675,9 @@ macro_rules! op_group_transcribed {
             /// Test whether a list contains an item.
             ListContains {
                 /// List value to search in.
-                list: one,
+                list: one @RECV,
                 /// Item to search for.
-                item: one,
+                item: one @READ,
             }
                 => (format!("list_contains {list}, {item}"));
             /// Test whether a set contains an item.
@@ -663,10 +709,11 @@ macro_rules! op_group_transcribed {
             /// Insert an item into a set.
             SetAdd {
                 /// Set value to mutate.
-                set: one,
+                set: one @RECV,
                 /// Item to insert.
-                item: one,
+                item: one @STORED,
             }
+                mutates(Some(set))
                 => (format!("set_add {set}, {item}"));
             /// Remove an item from a set.
             SetRemove {
@@ -677,12 +724,14 @@ macro_rules! op_group_transcribed {
                 /// Item to remove.
                 item: one,
             }
+                mutates(Some(set))
                 => (format!("set_{op} {set}, {item}"));
             /// Clear all items from a set.
             SetClear {
                 /// Set value to mutate.
                 set: one,
             }
+                mutates(Some(set))
                 => (format!("set_clear {set}"));
             /// Return a shallow copy of a set.
             SetCopy {
@@ -707,6 +756,7 @@ macro_rules! op_group_transcribed {
                 /// Set value to project.
                 set: one,
             }
+                fresh(true)
                 => (format!("set_{op} {set}"));
             /// `new Headers(init?)`.
             ///
@@ -717,6 +767,7 @@ macro_rules! op_group_transcribed {
                 /// Optional initializer expression.
                 init: opt,
             }
+                needs(Headers)
                 => (
                     init.map_or_else(
                         || "headers_new".to_owned(),
@@ -732,6 +783,10 @@ macro_rules! op_group_transcribed {
                 /// Optional initializer expression.
                 init: opt,
             }
+                needs(
+                    UrlSearchParams,
+                    DepUrl,
+                )
                 => (
                     init.map_or_else(
                         || "url_search_params_new".to_owned(),
@@ -743,6 +798,7 @@ macro_rules! op_group_transcribed {
             /// No initializer: the spec gives the constructor no arguments and fixes
             /// the encoding at UTF-8.
             TextEncoderNew
+                needs(TextEncoder)
                 => ("text_encoder_new".to_owned());
             /// `new TextDecoder(label?)`.
             ///
@@ -753,6 +809,7 @@ macro_rules! op_group_transcribed {
                 /// The optional encoding-label expression.
                 label: opt,
             }
+                needs(TextDecoder)
                 => (
                     label.map_or_else(
                         || "text_decoder_new".to_owned(),
@@ -768,6 +825,7 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments (the string to encode, or none).
                 args: many,
             }
+                needs(TextEncoder)
                 => (format!("text_encoder_{op} {}{}", encoder, tail(" ", ", ", &args)));
             /// Apply a `TextDecoder` member to a concrete receiver.
             TextDecoderOp {
@@ -778,6 +836,7 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments (the byte view to decode, or none).
                 args: many,
             }
+                needs(TextDecoder)
                 => (format!("text_decoder_{op} {}{}", decoder, tail(" ", ", ", &args)));
             /// The ambient global object (`globalThis`, `global`), as ONE shared value.
             ///
@@ -790,6 +849,7 @@ macro_rules! op_group_transcribed {
             /// `SmeltObject` carrying the `__smelt_global_object` marker), and a typed
             /// read of a member goes through a checked cast at the read site.
             GlobalObject
+                needs(GlobalObject)
                 => ("global_object".to_owned());
             /// Construct a value of the concrete typed-array family.
             ///
@@ -807,6 +867,7 @@ macro_rules! op_group_transcribed {
                 /// The constructor arguments, as written.
                 args: many,
             }
+                needs(ByteArray)
                 => (format!("typed_array_new {class_name}{}", tail(" ", " ", &args)));
             /// Read a member of, or call a method on, the concrete typed-array family.
             ByteArrayOp {
@@ -817,6 +878,7 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments (a range, a value, a source view, or none).
                 args: many,
             }
+                needs(ByteArray)
                 => (format!("byte_array_{} {bytes}{}", op.name(), tail(" ", " ", &args)));
             /// Apply a `URLSearchParams` operation to a concrete receiver.
             UrlSearchParamsOp {
@@ -827,6 +889,10 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments (name, or name and value).
                 args: many,
             }
+                needs(
+                    UrlSearchParams,
+                    DepUrl,
+                )
                 => (format!("url_search_params_{op} {}{}", params, tail(", ", ", ", &args)));
             /// An `AbortSignal` static call (`AbortSignal.abort(reason?)`,
             /// `AbortSignal.timeout(ms)`).
@@ -838,6 +904,7 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments, in source order.
                 args: many,
             }
+                needs(Timers if matches!(op, $crate::AbortSignalOp::Timeout))
                 => (format!("abort_signal_{op}{}", tail(" ", ", ", &args)));
             /// Apply a `WebCrypto` operation.
             ///
@@ -849,6 +916,12 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments, in source order.
                 args: many,
             }
+                needs(
+                    CryptoRandomValues if matches!(op, $crate::CryptoOp::GetRandomValues),
+                    CryptoDigest if matches!(op, $crate::CryptoOp::Digest),
+                    CryptoKey if matches!(op, $crate::CryptoOp::ImportKey | $crate::CryptoOp::Sign | $crate::CryptoOp::Verify),
+                    DepUuid if matches!(op, $crate::CryptoOp::RandomUuid),
+                )
                 => (format!("crypto_{op}{}", tail(" ", ", ", &args)));
             /// `new FormData()`.
             ///
@@ -856,6 +929,7 @@ macro_rules! op_group_transcribed {
             /// only, which is DOM and outside the profile, so a form is always built
             /// empty and filled with `append`.
             FormDataNew
+                needs(FormData)
                 => ("form_data_new".to_owned());
             /// Apply a `FormData` operation to a concrete receiver.
             FormDataOp {
@@ -866,6 +940,7 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments (name; name and value; or a callback).
                 args: many,
             }
+                needs(FormData)
                 => (format!("form_data_{op} {}{}", form, tail(", ", ", ", &args)));
             /// `new Response(body?, init?)`.
             ///
@@ -885,6 +960,7 @@ macro_rules! op_group_transcribed {
                 /// `init.headers`, when the init literal set it.
                 headers: opt,
             }
+                needs(Response)
                 => (
                     {
                         let mut parts = Vec::new();
@@ -914,6 +990,7 @@ macro_rules! op_group_transcribed {
             /// by a listener is reported and has no meaning until listeners can be
             /// async here.
             EventEmitterNew
+                needs(EventEmitter)
                 => ("event_emitter_new".to_owned());
             /// `process.env.NAME`: the variable from the process environment, or
             /// `undefined` when it is not set. Typed `Optional<String>`.
@@ -936,6 +1013,7 @@ macro_rules! op_group_transcribed {
                 /// The event name, followed by the operation's own arguments.
                 args: many,
             }
+                needs(EventEmitter)
                 => (format!("emitter_{op} {}{}", emitter, tail(" ", " ", &args)));
             /// `createServer(handler)` from `node:http`.
             ///
@@ -946,12 +1024,14 @@ macro_rules! op_group_transcribed {
                 /// The request handler, called once per accepted request.
                 handler: one,
             }
+                needs(HttpServer)
                 => (format!("http_create_server {handler}"));
             /// `new DatabaseSync(path)` (`smelt_hir::ExprKind::SqliteOpen`).
             SqliteOpen {
                 /// The database file, or `":memory:"`.
                 path: one,
             }
+                needs(Sqlite)
                 => (format!("sqlite_open {path}"));
             /// A `node:sqlite` operation (`smelt_hir::ExprKind::SqliteOp`).
             SqliteOp {
@@ -963,6 +1043,7 @@ macro_rules! op_group_transcribed {
                 /// for `all`/`get`/`run`.
                 args: many,
             }
+                needs(Sqlite)
                 => (
                     {
                         let mut text = format!("sqlite_{op:?} {receiver}").to_lowercase();
@@ -984,6 +1065,7 @@ macro_rules! op_group_transcribed {
                 /// The fetch handler, called once per accepted request.
                 fetch: one,
             }
+                needs(FetchServer)
                 => (format!("http_create_fetch_server {fetch}"));
             /// A `node:http` `Server` member operation.
             HttpServerOp {
@@ -995,6 +1077,7 @@ macro_rules! op_group_transcribed {
                 /// and an optional listening callback; the others take none.
                 args: many,
             }
+                needs(HttpServer)
                 => (format!("http_server_{op} {}{}", server, tail(" ", " ", &args)));
             /// A `node:http` `IncomingMessage` property read.
             IncomingMessageOp {
@@ -1003,6 +1086,7 @@ macro_rules! op_group_transcribed {
                 /// The request receiver.
                 message: one,
             }
+                needs(HttpServer)
                 => (format!("incoming_message_{op} {message}"));
             /// A `node:http` `ServerResponse` member operation.
             ServerResponseOp {
@@ -1013,6 +1097,7 @@ macro_rules! op_group_transcribed {
                 /// The operation's arguments, in source order.
                 args: many,
             }
+                needs(HttpServer)
                 => (format!("server_response_{op} {}{}", response, tail(" ", " ", &args)));
             /// `new Request(input, init?)`.
             ///
@@ -1044,6 +1129,10 @@ macro_rules! op_group_transcribed {
                 /// `signal` because it registers a follow rather than storing a value.
                 init_members: {$crate::RequestInitMember},
             }
+                needs(
+                    Request,
+                    DepUrl,
+                )
                 => (
                     {
                         let mut parts = vec![format!("input={input}")];
@@ -1074,6 +1163,11 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments; every modeled member is nullary today.
                 args: many,
             }
+                needs(
+                    Request,
+                    FormData if matches!(op, $crate::RequestOp::FormData),
+                    JsonParse if matches!(op, $crate::RequestOp::Json),
+                )
                 => (format!("request_{op} {}{}", request, tail(" ", " ", &args)));
             /// A `Response` member operation on a concrete `Response` receiver.
             ResponseOp {
@@ -1084,6 +1178,11 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments; every modeled member is nullary today.
                 args: many,
             }
+                needs(
+                    Response,
+                    FormData if matches!(op, $crate::ResponseOp::FormData),
+                    JsonParse if matches!(op, $crate::ResponseOp::Json),
+                )
                 => (format!("response_{op} {}{}", response, tail(" ", " ", &args)));
             /// Apply a WHATWG `Headers` operation to a concrete `Headers` receiver.
             HeadersOp {
@@ -1094,14 +1193,16 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments (name, or name and value).
                 args: many,
             }
+                needs(Headers)
                 => (format!("headers_{op} {}{}", headers, tail(", ", ", ", &args)));
             /// Concatenate two lists into a new list.
             ListConcat {
                 /// Left list value.
-                left: one,
+                left: one @RECV,
                 /// Right list value.
-                right: one,
+                right: one @RECV,
             }
+                fresh(true)
                 => (format!("list_concat {left}, {right}"));
             /// Normalize one `Array.prototype.concat` argument whose static type is
             /// erased into the list of items it contributes.
@@ -1115,21 +1216,22 @@ macro_rules! op_group_transcribed {
                 /// The erased argument value.
                 value: one,
             }
+                needs(ConcatSpread)
                 => (format!("concat_spread {value}"));
             /// Find an item index in a list, returning -1 when absent.
             ListSearch {
                 /// Search direction.
                 op: [$crate::ListSearchOp],
                 /// List value to search.
-                list: one,
+                list: one @RECV,
                 /// Item to search for.
-                item: one,
+                item: one @READ,
                 /// Optional JavaScript `fromIndex` argument for `Array.prototype.indexOf`
                 /// and `lastIndexOf`.
                 ///
                 /// When present, the search starts at this index (truncated toward zero;
                 /// negative values count back from the end). `None` searches the whole array.
-                from_index: opt,
+                from_index: opt @READ,
             }
                 => (
                     {
@@ -1142,37 +1244,49 @@ macro_rules! op_group_transcribed {
                 /// List callback operation to apply.
                 op: [$crate::ListCallbackOp],
                 /// List value to process.
-                list: one,
+                list: one @CALLED,
                 /// Closure or callable value.
-                callback: one,
+                callback: one @CALLED,
             }
+                // JavaScript hands the receiver to the callback as its third argument, so
+                // the callback can retain a handle on the array: the receiver escapes.
+                fresh(matches!(
+                    op,
+                    $crate::ListCallbackOp::Map
+                        | $crate::ListCallbackOp::Filter
+                        | $crate::ListCallbackOp::FlatMap
+                ))
                 => (format!("list_{op} {list}, {callback}"));
             /// Build a sparse-like unknown list from a numeric length.
             ListFromLength {
                 /// Numeric length source.
-                length: one,
+                length: one @READ,
             }
+                fresh(true)
                 => (format!("list_from_length {length}"));
             /// Build a list by invoking a mapper for indexes from zero to length.
             ListFromLengthMap {
                 /// Numeric length source.
-                length: one,
+                length: one @READ,
                 /// Closure or callable value.
-                callback: one,
+                callback: one @CALLED,
             }
+                fresh(true)
                 => (format!("list_from_length_map {length}, {callback}"));
             /// `Array.prototype.reduce` / `reduceRight`: fold `list` through `callback`.
             ListReduce {
                 /// List value to reduce.
-                list: one,
+                list: one @CALLED,
                 /// Initial accumulator value, or omitted for JavaScript-style first-item seeding.
-                initial: opt,
+                initial: opt @CALLED,
                 /// Closure or callable value.
-                callback: one,
+                callback: one @CALLED,
                 /// `true` for `reduceRight`: visit elements from the last index down to
                 /// zero (the callback still receives each element's original index).
                 from_right: [bool],
             }
+                // The seed flows into the result and through the callback, and `reduce`
+                // passes the array as the reducer's fourth argument.
                 => (
                     format!(
                         "{} {}, {}, {}",
@@ -1189,26 +1303,29 @@ macro_rules! op_group_transcribed {
             /// Take a shallow slice from a list.
             ListSlice {
                 /// List value to slice.
-                list: one,
+                list: one @RECV,
                 /// Inclusive start index, or omitted for zero.
-                start: opt,
+                start: opt @READ,
                 /// Exclusive end index, or omitted for collection length.
-                end: opt,
+                end: opt @READ,
             }
+                fresh(true)
                 => (format!("list_slice {}, {}, {}", list, opt(&start), opt(&end)));
             /// Remove and optionally insert list items.
             ListSplice {
                 /// List value to mutate or copy.
-                list: one,
+                list: one @(if *mutate { RECV_MUT } else { RECV }),
                 /// Start index.
-                start: one,
+                start: one @READ,
                 /// Number of items to delete, or omitted to delete through the end.
-                delete_count: opt,
+                delete_count: opt @READ,
                 /// Replacement items.
-                items: splice,
+                items: splice @STORED,
                 /// Whether to mutate the source list and return removed items.
                 mutate: [bool],
             }
+                mutates(if *mutate { Some(list) } else { None })
+                fresh(true)
                 => (
                     format!(
                         "list_splice {list}, {start}, {}, [{}], {mutate}",
@@ -1219,19 +1336,20 @@ macro_rules! op_group_transcribed {
             /// Fill a list range with one value.
             ListFill {
                 /// List value to mutate.
-                list: one,
+                list: one @ALIAS_MUT,
                 /// Value to assign.
-                value: one,
+                value: one @STORED,
                 /// Inclusive start index, or omitted for zero.
                 start: opt,
                 /// Exclusive end index, or omitted for collection length.
                 end: opt,
             }
+                mutates(Some(list))
                 => (format!("list_fill {}, {}, {}, {}", list, value, opt(&start), opt(&end)));
             /// Copy a range inside a list.
             ListCopyWithin {
                 /// List value to mutate.
-                list: one,
+                list: one @ALIAS_MUT,
                 /// Target index.
                 target: one,
                 /// Source start index.
@@ -1239,51 +1357,57 @@ macro_rules! op_group_transcribed {
                 /// Source end index, or omitted for collection length.
                 end: opt,
             }
+                mutates(Some(list))
                 => (format!("list_copy_within {}, {}, {}, {}", list, target, start, opt(&end)));
             /// Return a copied list with one replaced item.
             ListWith {
                 /// List value to copy.
-                list: one,
+                list: one @RECV,
                 /// Index to replace.
-                index: one,
+                index: one @READ,
                 /// Replacement value.
-                value: one,
+                value: one @STORED,
             }
+                // `with` copies, but the replacement lands inside the copy.
+                fresh(true)
                 => (format!("list_with {list}, {index}, {value}"));
             /// Flatten a list to an optional JavaScript depth.
             ListFlat {
                 /// List value to flatten.
-                list: one,
+                list: one @RECV,
                 /// Explicit flatten depth, or omitted for JavaScript's depth of one.
-                depth: opt,
+                depth: opt @READ,
             }
+                fresh(true)
                 => (format!("list_flat {}, {}", list, opt(&depth)));
             /// Project array keys, values, or entries.
             ListProjection {
                 /// Projection operation.
                 op: [$crate::ListProjectionOp],
                 /// List value to project.
-                list: one,
+                list: one @RECV,
             }
+                fresh(true)
                 => (format!("list_{op} {list}"));
             /// Return a shallow copy of a list.
             ListCopy {
                 /// List value to copy.
-                list: one,
+                list: one @RECV,
             }
+                fresh(true)
                 => (format!("list_copy {list}"));
             /// Count list items equal to a target item.
             ListCount {
                 /// List value to scan.
-                list: one,
+                list: one @RECV,
                 /// Item to count.
-                item: one,
+                item: one @READ,
             }
                 => (format!("list_count {list}, {item}"));
             /// Sum numeric items in a list.
             ListSum {
                 /// List value to reduce.
-                list: one,
+                list: one @RECV,
             }
                 => (format!("list_sum {list}"));
             /// Fold boolean items in a list with `all` or `any` semantics.
@@ -1291,21 +1415,22 @@ macro_rules! op_group_transcribed {
                 /// Fold operation to apply.
                 op: [$crate::BoolFoldOp],
                 /// Boolean list value to reduce.
-                list: one,
+                list: one @RECV,
             }
                 => (format!("list_{op} {list}"));
             /// Return a sorted copy of a list.
             ListSorted {
                 /// List value to copy and sort.
-                list: one,
+                list: one @RECV,
                 /// Optional key closure for Python `sorted(values, key=...)`.
                 ///
                 /// Like other callbacks, the key is a normal closure body referenced by
                 /// `ExprId`; it maps one list item to a sortable value.
-                key: opt,
+                key: opt @CALLED,
                 /// Whether to sort in descending order, as in Python `reverse=True`.
                 reverse: [bool],
             }
+                fresh(true)
                 => (
                     {
                         let key_text = if key.is_some() { " <key>" } else { "" };
@@ -1316,52 +1441,58 @@ macro_rules! op_group_transcribed {
             /// Return a reversed copy of a list.
             ListReversed {
                 /// List value to copy in reverse order.
-                list: one,
+                list: one @RECV,
             }
+                fresh(true)
                 => (format!("list_reversed {list}"));
             /// Pair list items with zero-based integer indexes.
             ListEnumerate {
                 /// List value to enumerate.
-                list: one,
+                list: one @RECV,
             }
+                fresh(true)
                 => (format!("list_enumerate {list}"));
             /// Pair two lists elementwise, truncating to the shorter list.
             ListZip {
                 /// Left list value to zip.
-                left: one,
+                left: one @RECV,
                 /// Right list value to zip.
-                right: one,
+                right: one @RECV,
             }
+                fresh(true)
                 => (format!("list_zip {left}, {right}"));
             /// Materialize an integer range as a list.
             ListRange {
                 /// Inclusive start value.
-                start: one,
+                start: one @READ,
                 /// Exclusive end value.
-                end: one,
+                end: one @READ,
                 /// Step value.
-                step: one,
+                step: one @READ,
             }
+                fresh(true)
                 => (format!("list_range {start}, {end}, {step}"));
             /// Pick one item from a list with a pseudo-random index.
             ListRandomChoice {
                 /// List value to choose from.
-                list: one,
+                list: one @RECV,
             }
+                needs(DepRand)
                 => (format!("list_random_choice {list}"));
             /// Return the first index of an equal list item.
             ListIndex {
                 /// List value to scan.
-                list: one,
+                list: one @RECV,
                 /// Item to locate.
-                item: one,
+                item: one @READ,
             }
                 => (format!("list_index {list}, {item}"));
             /// Consume the first list item and return a JavaScript iterator-result object.
             ListNext {
                 /// List value to mutate.
-                list: one,
+                list: one @RECV_MUT,
             }
+                mutates(Some(list))
                 => (format!("list_next {list}"));
             /// Test whether a tuple contains an item.
             TupleContains {
@@ -1386,12 +1517,13 @@ macro_rules! op_group_transcribed {
             /// Insert or replace a dictionary key-value pair.
             DictSet {
                 /// Dictionary value to mutate.
-                dict: one,
+                dict: one @RECV,
                 /// Key to write.
-                key: one,
+                key: one @STORED,
                 /// Value to write.
-                value: one,
+                value: one @STORED,
             }
+                mutates(Some(dict))
                 => (format!("dict_set {dict}, {key}, {value}"));
             /// Remove a dictionary key and return whether it existed.
             DictRemoveKey {
@@ -1400,6 +1532,7 @@ macro_rules! op_group_transcribed {
                 /// Key to remove.
                 key: one,
             }
+                mutates(Some(dict))
                 => (format!("dict_remove_key {dict}, {key}"));
             /// Look up a dictionary key and return an optional value or default.
             DictGet {
@@ -1420,12 +1553,14 @@ macro_rules! op_group_transcribed {
                 /// Default value to insert for a missing key.
                 default: one,
             }
+                mutates(Some(dict))
                 => (format!("dict_setdefault {dict}, {key}, {default}"));
             /// Clear all entries from a dictionary and return `None`.
             DictClear {
                 /// Dictionary value to mutate.
                 dict: one,
             }
+                mutates(Some(dict))
                 => (format!("dict_clear {dict}"));
             /// Remove a dictionary key and return its value.
             DictPop {
@@ -1436,6 +1571,7 @@ macro_rules! op_group_transcribed {
                 /// Optional default value for missing keys.
                 default: opt,
             }
+                mutates(Some(dict))
                 => (format!("dict_pop {}, {}, {}", dict, key, opt(&default)));
             /// Extend a dictionary with entries from another dictionary and return `None`.
             DictUpdate {
@@ -1444,6 +1580,7 @@ macro_rules! op_group_transcribed {
                 /// Dictionary supplying entries to copy.
                 other: one,
             }
+                mutates(Some(dict))
                 => (format!("dict_update {dict}, {other}"));
             /// Merge source dictionaries into a target dictionary and return the target.
             DictAssign {
@@ -1452,6 +1589,7 @@ macro_rules! op_group_transcribed {
                 /// Dictionaries supplying entries to copy.
                 sources: many,
             }
+                mutates(Some(target))
                 => (format!("dict_assign {target}, [{}]", sources.join(", ")));
             /// Attach object-literal properties to a callable JavaScript value.
             CallableObjectAssign {
@@ -1484,6 +1622,7 @@ macro_rules! op_group_transcribed {
                 /// Dictionary value to project.
                 dict: one,
             }
+                fresh(true)
                 => (format!("dict_{op} {dict}"));
             /// Split a string into a list of strings.
             StringSplit {
@@ -1494,26 +1633,33 @@ macro_rules! op_group_transcribed {
                 /// Optional maximum number of pieces.
                 limit: opt,
             }
+                fresh(true)
+                needs(DepRegex)
                 => (format!("string_split {}, {}, {}", haystack, separator, opt(&limit)));
             /// Convert a string into a list of one-character strings.
             StringChars {
                 /// String value to expand.
                 haystack: one,
             }
+                fresh(true)
                 => (format!("string_chars {haystack}"));
             /// Join a list of strings with a separator string.
             StringJoin {
                 /// String items to join.
-                items: one,
+                items: one @RECV,
                 /// Separator string.
-                separator: one,
+                separator: one @READ,
             }
                 => (format!("string_join {items}, {separator}"));
             /// Serialize a JSON-compatible value to a JSON string.
             JsonStringify {
                 /// Value to serialize.
-                value: one,
+                value: one @READ,
             }
+                needs(
+                    Unknown,
+                    DepSerdeJson,
+                )
                 => (format!("json_stringify {value}"));
             /// The `space` argument of `JSON.stringify(value, replacer, space)`:
             /// re-indent compact JSON `text` the way JavaScript lays out an indented
@@ -1521,40 +1667,60 @@ macro_rules! op_group_transcribed {
             /// string cut to 10 characters; anything else means no indentation).
             JsonIndent {
                 /// The compact JSON text.
-                text: one,
+                text: one @READ,
                 /// The source `space` argument.
-                space: one,
+                space: one @READ,
             }
+                needs(
+                    JsonIndent,
+                    DepChrono,
+                )
                 => (format!("json_indent {text}, {space}"));
             /// Perform a blocking HTTP GET request and return response text.
             HttpGetText {
                 /// URL to request.
                 url: one,
             }
+                needs(DepReqwest)
                 => (format!("http_get_text {url}"));
             /// Read the current timestamp in milliseconds.
             DateNow
+                needs(
+                    DateNow,
+                    DepChrono,
+                )
                 => ("date_now".to_owned());
             /// Configure the timestamp returned by JavaScript `Date.now()`.
             DateSetNow {
                 /// Timestamp or Date-compatible value to use as the mocked clock.
                 timestamp: one,
             }
+                needs(
+                    DateNow,
+                    DepChrono,
+                )
                 => (format!("date_set_now {timestamp}"));
             /// Restore the real JavaScript `Date.now()` clock.
             DateResetNow
+                needs(
+                    DateNow,
+                    DepChrono,
+                )
                 => ("date_reset_now".to_owned());
             /// Read the configured JavaScript `Date.prototype.getTimezoneOffset` value.
             DateTimezoneOffset
+                needs(DateTimezoneOffset)
                 => ("date_timezone_offset".to_owned());
             /// Configure the return value observed by `Date.prototype.getTimezoneOffset`.
             DateSetTimezoneOffset {
                 /// Offset from UTC in minutes.
                 offset: one,
             }
+                needs(DateTimezoneOffset)
                 => (format!("date_set_timezone_offset {offset}"));
             /// Restore the default `Date.prototype.getTimezoneOffset` implementation.
             DateResetTimezoneOffset
+                needs(DateTimezoneOffset)
                 => ("date_reset_timezone_offset".to_owned());
             /// Construct a stateful Vitest `vi.fn([impl])` mock: a callable erased
             /// object that records calls and serves configured one-shot/default
@@ -1563,6 +1729,7 @@ macro_rules! op_group_transcribed {
                 /// Optional wrapped implementation used as the default outcome.
                 implementation: opt,
             }
+                needs(VitestMock)
                 => (
                     implementation.map_or_else(
                         || "vitest_mock_fn".to_owned(),
@@ -1578,6 +1745,7 @@ macro_rules! op_group_transcribed {
                 /// Expected call count.
                 count: one,
             }
+                needs(VitestMock)
                 => (format!("vitest_mock_called_times {mock} {count}"));
             /// Whether a Vitest mock recorded a call whose arguments deep-equal
             /// `args` (`expect(mock).toHaveBeenCalledWith(...)`); true means the
@@ -1592,6 +1760,7 @@ macro_rules! op_group_transcribed {
                 /// Compare only the most recent recorded call (`toHaveBeenLastCalledWith`).
                 last: [bool],
             }
+                needs(VitestMock)
                 => (
                     format!(
                         "vitest_mock_called_with{} {} [{}]",
@@ -1602,6 +1771,7 @@ macro_rules! op_group_transcribed {
                 );
             /// `vi.restoreAllMocks()`: undo every installed spy, newest first.
             VitestRestoreAllMocks
+                needs(VitestMock)
                 => ("vitest_restore_all_mocks".to_owned());
             /// `vi.spyOn(target, name)`: replace `target[name]` with a recording mock
             /// that forwards to the member's current value, and evaluate to that mock.
@@ -1616,6 +1786,7 @@ macro_rules! op_group_transcribed {
                 /// The member name.
                 name: one,
             }
+                needs(VitestMock)
                 => (format!("vitest_spy_on {target} {name}"));
             /// Whether two values are deep-equal under the vitest matcher rules
             /// (`expect(a).toEqual(b)` where either side may hold an ASYMMETRIC
@@ -1632,6 +1803,7 @@ macro_rules! op_group_transcribed {
                 /// The expected value, possibly an asymmetric matcher or containing one.
                 expected: one,
             }
+                needs(VitestMock)
                 => (format!("vitest_asymmetric_equal {actual} {expected}"));
             /// Whether a Vitest mock's most recent recorded result deep-equals
             /// `expected` after flattening a resolved promise
@@ -1643,18 +1815,24 @@ macro_rules! op_group_transcribed {
                 /// Expected resolved value.
                 expected: one,
             }
+                needs(VitestMock)
                 => (format!("vitest_mock_last_resolved_with {mock} {expected}"));
             /// Create a date-fns-compatible date context function for an IANA time zone.
             DateTimezoneContext {
                 /// IANA time zone name.
                 timezone: one,
             }
+                needs(
+                    DepChronoTz,
+                    DepChrono,
+                )
                 => (format!("date_timezone_context {timezone}"));
             /// Convert a timestamp in milliseconds to an ISO-8601 string.
             DateToIsoString {
                 /// Timestamp in milliseconds.
                 timestamp_ms: one,
             }
+                needs(DepChrono)
                 => (
                     hir: format!("date_to_iso {timestamp_ms}"),
                     mir: format!("date_to_iso_string {timestamp_ms}"),
@@ -1664,6 +1842,7 @@ macro_rules! op_group_transcribed {
                 /// Timestamp in milliseconds.
                 timestamp_ms: one,
             }
+                needs(DepChrono)
                 => (format!("date_to_string {timestamp_ms}"));
             /// Convert a Date timestamp to `Date.prototype.toUTCString()` output, the
             /// HTTP-date form (`Sun, 24 Dec 2000 10:30:59 GMT`).
@@ -1671,18 +1850,21 @@ macro_rules! op_group_transcribed {
                 /// Timestamp in milliseconds.
                 timestamp_ms: one,
             }
+                needs(DepChrono)
                 => (format!("date_to_utc_string {timestamp_ms}"));
             /// Construct a timestamp in milliseconds from local Date constructor parts.
             DateFromParts {
                 /// Date constructor parts: year, month, date, hours, minutes, seconds, milliseconds.
                 parts: many,
             }
+                needs(DepChrono)
                 => (format!("date_from_parts [{}]", parts.join(", ")));
             /// Construct a timestamp in milliseconds from one JavaScript Date constructor value.
             DateFromValue {
                 /// Date constructor argument.
                 value: one,
             }
+                needs(DepChrono)
                 => (format!("date_from_value {value}"));
             /// Read a local-time date component from a timestamp.
             DateGetPart {
@@ -1691,6 +1873,7 @@ macro_rules! op_group_transcribed {
                 /// Timestamp in milliseconds.
                 timestamp_ms: one,
             }
+                needs(DepChrono)
                 => (format!("date_get_{part:?} {timestamp_ms}"));
             /// Return a timestamp with a local-time date component replaced.
             DateSetPart {
@@ -1701,6 +1884,7 @@ macro_rules! op_group_transcribed {
                 /// Replacement values accepted by the corresponding JS setter.
                 values: many,
             }
+                needs(DepChrono)
                 => (format!("date_set_{part:?} {timestamp_ms}, [{}]", values.join(", ")));
             /// Extract a parsed URL field.
             UrlField {
@@ -1709,6 +1893,7 @@ macro_rules! op_group_transcribed {
                 /// URL string to parse.
                 url: one,
             }
+                needs(DepUrl)
                 => (
                     hir: format!("url_{field:?} {url}"),
                     mir: format!("url_{} {url}", field.text()),
@@ -1748,6 +1933,7 @@ macro_rules! op_group_transcribed {
                 /// `File` options `lastModified` milliseconds, when spelled.
                 last_modified: opt,
             }
+                needs(Blob)
                 => (
                     format!(
                         "blob_from_parts {parts}, {blob_type}, {}, {}",
@@ -1764,6 +1950,7 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments (`slice`'s range and content type, or none).
                 args: many,
             }
+                needs(Blob)
                 => (format!("blob_{op} {}{}", blob, tail(" ", ", ", &args)));
             /// Construct a modeled host object of a *registry* identity from its
             /// constructor arguments (`new ArrayBuffer(8)`, `new DataView(buf, 1, 2)`).
@@ -1783,7 +1970,7 @@ macro_rules! op_group_transcribed {
                 /// Host constructor's registry class name (`"ArrayBuffer"`, `"DataView"`).
                 class_name: [String],
                 /// Spelled constructor arguments, erased.
-                args: many,
+                args: many @CALLED,
             }
                 => (
                     {
@@ -1850,6 +2037,7 @@ macro_rules! op_group_transcribed {
                 /// Modeled host constructor whose override slot is read.
                 class: (sym "class"),
             }
+                needs(HostOverride)
                 => (format!("host_global_read {class}"));
             /// Write `value` into a modeled host constructor's global override slot
             /// (`globalThis.<class> = value`). Evaluates to the stored value so the
@@ -1865,6 +2053,7 @@ macro_rules! op_group_transcribed {
                 /// The value being stored.
                 value: one,
             }
+                needs(HostOverride)
                 => (format!("host_global_write {class} = {value}"));
             /// Whether a modeled host constructor's global override slot is currently
             /// *present* (`typeof <class> !== 'undefined'` folding for a reassigned host
@@ -1874,6 +2063,7 @@ macro_rules! op_group_transcribed {
                 /// Modeled host constructor whose override slot presence is tested.
                 class: (sym "class"),
             }
+                needs(HostOverride)
                 => (format!("host_global_present {class}"));
             /// Select a first-class function value from a static string-keyed table.
             FunctionTableLookup {
@@ -1895,7 +2085,7 @@ macro_rules! op_group_transcribed {
             /// Test whether a value is an instance of a class.
             InstanceOf {
                 /// Value being tested. Kept as an operand so side effects are evaluated before the check.
-                value: one,
+                value: one @READ,
                 /// Target class symbol.
                 class: [$crate::Symbol],
             }
@@ -1915,20 +2105,23 @@ macro_rules! op_group_transcribed {
                 /// The constructor function value whose `prototype` is looked for.
                 target: one,
             }
+                needs(InstanceOfValue)
                 => (format!("instanceof {value}, {target}"));
             /// Test the runtime tag of a TypeScript `unknown` value.
             UnknownIs {
                 /// Value being tested.
-                value: one,
+                value: one @READ,
                 /// Runtime tag to check.
                 kind: [$crate::UnknownKind],
             }
+                needs(Unknown)
                 => (format!("unknown_is {kind:?} {value}"));
             /// Return the JavaScript `typeof` string for a runtime-erased value.
             TypeofValue {
                 /// Value being classified.
-                value: one,
+                value: one @READ,
             }
+                needs(Typeof)
                 => (format!("typeof {value}"));
             /// Compute the opaque `Object.getPrototypeOf` sentinel for an erased value.
             ///
@@ -1965,7 +2158,7 @@ macro_rules! op_group_transcribed {
             /// `new String(..)` build, so both spellings share one representation.
             BoxPrimitive {
                 /// Value being boxed.
-                value: one,
+                value: one @ERASED,
             }
                 => (format!("box_primitive {value}"));
             /// Create a fresh erased object from a runtime prototype value.
@@ -1996,25 +2189,27 @@ macro_rules! op_group_transcribed {
                 /// Erased object mapping property key to property descriptor.
                 descriptors: one,
             }
+                needs(DefineProperties)
                 => (format!("define_properties {target} {descriptors}"));
             /// Extract a typed value from a TypeScript `unknown` value.
             UnknownCast {
                 /// Value being extracted.
-                value: one,
+                value: one @ERASED,
                 /// Type expected after extraction.
                 target: (ty),
             }
+                needs(Unknown)
                 => (format!("unknown_cast {value} as {target}"));
             /// Convert a list into a set by collecting unique items.
             ListToSet {
                 /// List value to collect into a set.
-                list: one,
+                list: one @RECV,
             }
                 => (format!("list_to_set {list}"));
             /// Convert a list of key/value tuples into a dictionary.
             ListPairsToDict {
                 /// List of pair tuples to collect into a dictionary.
-                list: one,
+                list: one @RECV,
             }
                 => (format!("list_pairs_to_dict {list}"));
             /// Convert a homogeneous tuple into a list.
@@ -2022,11 +2217,12 @@ macro_rules! op_group_transcribed {
                 /// Tuple value to collect into a list.
                 tuple: one,
             }
+                fresh(true)
                 => (format!("tuple_to_list {tuple}"));
             /// Convert a homogeneous list into a statically-sized tuple.
             ListToTuple {
                 /// List value to collect into a tuple.
-                list: one,
+                list: one @RECV,
             }
                 => (format!("list_to_tuple {list}"));
             /// Convert a homogeneous tuple into a set by collecting unique items.
@@ -2052,14 +2248,21 @@ macro_rules! op_group_transcribed {
                 /// Exclusive normalized end index.
                 end: [usize],
             }
+                fresh(true)
                 => (format!("tuple_slice {tuple}, {start}, {end}"));
             /// Run a runtime-backed async operation.
             AsyncOp {
                 /// Operation to perform.
                 op: [$crate::AsyncOp],
                 /// Operation inputs.
-                args: many,
+                args: many @CALLED,
             }
+                needs(
+                    DepTokio,
+                    Response if matches!(op, $crate::AsyncOp::HttpFetch),
+                    DepReqwest if matches!(op, $crate::AsyncOp::HttpFetch | $crate::AsyncOp::HttpGetText),
+                    Timers if op.arms_a_timer(),
+                )
                 => (format!("{op}({})", args.join(", ")));
             /// One of the four ECMA-262 URI transcoding globals applied to `operand`:
             /// `encodeURI`, `encodeURIComponent`, `decodeURI`, `decodeURIComponent`.
@@ -2074,6 +2277,10 @@ macro_rules! op_group_transcribed {
             }
                 fallible(op.is_fallible())
                 call(if matches!(op, $crate::UriTranscodeOp::Decode) { "@decode_uri".to_owned() } else { "@decode_uri_component".to_owned() })
+                needs(
+                    UriEncode if !op.is_fallible(),
+                    UriDecode if op.is_fallible(),
+                )
                 => (format!("{op} {operand}"));
             /// A call into a modeled Node host module (`path.join(..)`,
             /// `createHash('sha256')`, `hash.update(..)`), resolved from the IMPORT the
@@ -2087,6 +2294,10 @@ macro_rules! op_group_transcribed {
             }
                 fallible(op.is_fallible())
                 call(format!("@{}", op.name()))
+                needs(
+                    NodePath if matches!(op, $crate::HostModuleOp::Path(_)),
+                    NodeHash if matches!(op, $crate::HostModuleOp::Hash(_)),
+                )
                 => (format!("{} {}", op.name(), args.join(" ")));
             /// Read or write a component of a concrete `URL`, or take its
             /// `searchParams`.
@@ -2100,6 +2311,10 @@ macro_rules! op_group_transcribed {
             }
                 fallible(matches!(op, $crate::UrlOp::Set($crate::UrlField::Href)))
                 call("@url_set_href".to_owned())
+                needs(
+                    Url if !matches!(op, $crate::UrlOp::Set($crate::UrlField::Href)),
+                    UrlThrowing if matches!(op, $crate::UrlOp::Set($crate::UrlField::Href)),
+                )
                 => (format!("url_{op:?} {url}{}", tail(", ", ", ", &args)));
             /// `btoa` / `atob`: the base64 transcoders of the web platform.
             ///
@@ -2114,6 +2329,7 @@ macro_rules! op_group_transcribed {
             }
                 fallible(true)
                 call(format!("@{}", op.name()))
+                needs(Base64)
                 => (format!("{} {operand}", op.name()));
             /// `new RegExp(pattern, flags)` over a pattern that is NOT a source literal.
             ///
@@ -2131,6 +2347,7 @@ macro_rules! op_group_transcribed {
             }
                 fallible(true)
                 call("@regexp_compile".to_owned())
+                needs(RegExpCompile)
                 => (format!("regexp_compile {pattern} {flags}"));
             /// A `DataView` element accessor: `getInt16(offset, littleEndian?)` or
             /// `setFloat64(offset, value, littleEndian?)`, which throws a catchable
@@ -2157,6 +2374,7 @@ macro_rules! op_group_transcribed {
                     if *write { "set" } else { "get" },
                     element.element_name()
                 ))
+                needs(DataViewAccess)
                 => (format!(
                     "data_view_{}{} {view} {}",
                     if *write { "set" } else { "get" },
@@ -2175,6 +2393,9 @@ macro_rules! op_group_transcribed {
             }
                 fallible(true)
                 call(format!("@{}", op.name()))
+                needs(
+                    DepSerdeJson if matches!(op, $crate::BigIntOp::JsonStringify),
+                )
                 => (format!("{} {}", op.name(), args.join(" ")));
             /// `new URL(input, base?)`: a parsed WHATWG URL value, which throws a
             /// catchable `TypeError` when the input (resolved against the base) is not
@@ -2190,6 +2411,7 @@ macro_rules! op_group_transcribed {
             }
                 fallible(true)
                 call("@url_new".to_owned())
+                needs(UrlThrowing)
                 => (base.map_or_else(
                     || format!("url_new {input}"),
                     |base| format!("url_new {input}, {base}"),
@@ -2213,6 +2435,7 @@ macro_rules! op_group_transcribed {
             }
                 fallible(true)
                 call(if target.is_some() { "@json_decode" } else { "@json_parse" }.to_owned())
+                needs(JsonParse)
                 => (format!(
                     "{} {text}",
                     if target.is_some() { "json_decode" } else { "json_parse" }
@@ -2232,101 +2455,111 @@ macro_rules! op_group_custom {
             /// Call a closure value.
             ClosureCall {
                 /// Closure value to call.
-                callee: one,
+                callee: one @CALLED,
                 /// Call arguments.
-                args: many,
+                args: many @CALLED,
             }
                 => (format!("closure_call {callee}({})", args.join(", ")));
             /// Call a method through a TypeScript optional-chain receiver.
             OptionalMethod {
                 /// Receiver operand, either `T` or `Option<T>`.
-                receiver: one,
+                receiver: one @CALLED,
                 /// Method name to call when the receiver is present.
                 method: (sym "method"),
                 /// Call arguments.
-                args: many,
+                args: many @CALLED,
             }
                 => (format!("{receiver}?.{method}({})", args.join(", ")));
             /// Return an optional value's content or a fallback operand.
             OptionalCoalesce {
                 /// Optional operand to inspect.
-                optional: one,
+                optional: one @ALIAS,
                 /// Fallback operand used when the optional is empty.
-                fallback: one,
+                fallback: one @ALIAS,
             }
+                // Both arms may become the result.
                 => (format!("{optional} ?? {fallback}"));
             /// Push one item into a list and return the new length.
             ListPush {
                 /// List value to mutate.
-                list: one,
+                list: one @RECV_MUT,
                 /// Item to append.
-                item: one,
+                item: one @STORED,
             }
+                mutates(Some(list))
                 => (format!("list_push {list}, {item}"));
             /// Extend a list with items from another list and return `None`.
             ListExtend {
                 /// List value to mutate.
-                list: one,
+                list: one @RECV_MUT,
                 /// List supplying items to copy.
-                other: one,
+                other: one @READ,
             }
+                // `extend` copies `other`'s elements out; `other` keeps its buffer.
+                mutates(Some(list))
                 => (format!("list_extend {list}, {other}"));
             /// Insert one item into a list at an integer index and return `None`.
             ListInsert {
                 /// List value to mutate.
-                list: one,
+                list: one @RECV_MUT,
                 /// Integer index where the item is inserted.
-                index: one,
+                index: one @READ,
                 /// Item to insert.
-                item: one,
+                item: one @STORED,
             }
+                mutates(Some(list))
                 => (format!("list_insert {list}, {index}, {item}"));
             /// Insert zero or more items at the front of a list and return the new length.
             ListUnshift {
                 /// List value to mutate.
-                list: one,
+                list: one @RECV_MUT,
                 /// Items to insert at the front.
-                items: many,
+                items: many @STORED,
             }
+                mutates(Some(list))
                 => (format!("list_unshift {list} [{}]", items.join(", ")));
             /// Reverse a list in place and return the language-specific result.
             ListReverse {
                 /// List value to mutate.
-                list: one,
+                list: one @ALIAS_MUT,
             }
+                mutates(Some(list))
                 => (format!("list_reverse {list}"));
             /// Clear all items from a list and return `None`.
             ListClear {
                 /// List value to mutate.
-                list: one,
+                list: one @RECV_MUT,
             }
+                mutates(Some(list))
                 => (format!("list_clear {list}"));
             /// Remove the first list item equal to a target item and return `None`.
             ListRemove {
                 /// List value to mutate.
-                list: one,
+                list: one @RECV_MUT,
                 /// Item to remove.
-                item: one,
+                item: one @READ,
             }
+                mutates(Some(list))
                 => (format!("list_remove {list}, {item}"));
             /// Sort a list in place and return `None`.
             ListSort {
                 /// List value to mutate.
-                list: one,
+                list: one @ALIAS_MUT,
                 /// Optional comparator closure for JavaScript `Array.prototype.sort`.
                 ///
                 /// Like other callbacks, the comparator is a normal closure body
                 /// referenced by `ExprId`; it takes two list items and returns a number.
-                comparator: opt,
+                comparator: opt @CALLED,
                 /// Optional key closure for Python `list.sort(key=...)`.
                 ///
                 /// The key is a normal closure body referenced by `ExprId`; it maps one
                 /// list item to a sortable value. It is mutually exclusive with the
                 /// JavaScript-style `comparator`.
-                key: opt,
+                key: opt @CALLED,
                 /// Whether to sort in descending order, as in Python `reverse=True`.
                 reverse: [bool],
             }
+                mutates(Some(list))
                 => (
                     {
                         let comparator_text = if comparator.is_some() {
@@ -2342,14 +2575,16 @@ macro_rules! op_group_custom {
             /// Pop the last item from a list.
             ListPop {
                 /// List value to mutate.
-                list: one,
+                list: one @RECV_MUT,
             }
+                mutates(Some(list))
                 => (format!("list_pop {list}"));
             /// Remove and return the first item from a list.
             ListShift {
                 /// List value to mutate.
-                list: one,
+                list: one @RECV_MUT,
             }
+                mutates(Some(list))
                 => (format!("list_shift {list}"));
         }
     };

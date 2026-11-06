@@ -85,7 +85,7 @@ macro_rules! visit_op_field {
 macro_rules! walk_rvalue_operands {
     ($rvalue:expr, $visit:ident, $mutability:tt, $(
         $(#[$meta:meta])*
-        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt),* $(,)? })?
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
         $($fact:ident $fact_value:tt)*
         => $display:tt;
     )*) => {
@@ -168,7 +168,7 @@ smelt_hir::for_each_op!(define_rvalue_walks);
 macro_rules! define_rvalue_is_fallible {
     ($(
         $(#[$meta:meta])*
-        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt),* $(,)? })?
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
         $($fact:ident $fact_value:tt)*
         => $display:tt;
     )*) => {
@@ -195,6 +195,40 @@ macro_rules! define_rvalue_is_fallible {
 }
 
 smelt_hir::for_each_op!(define_rvalue_is_fallible);
+
+/// Generates [`Rvalue::mutated_receiver`] from the op table's `mutates` facts.
+macro_rules! define_rvalue_mutated_receiver {
+    ($(
+        $(#[$meta:meta])*
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
+        => $display:tt;
+    )*) => {
+        impl Rvalue {
+            /// The collection operand this rvalue mutates in place, if any.
+            ///
+            /// Copies and non-mutating projections (`DictCopy`, `SetCopy`, a
+            /// non-mutating `ListSplice`) answer `None`.
+            #[must_use]
+            #[allow(
+                unused_variables,
+                reason = "each arm binds every field; a fact reads the ones it needs"
+            )]
+            pub const fn mutated_receiver(&self) -> Option<&Operand> {
+                match self {
+                    $(
+                        Self::$name $({ $($field,)* })? => {
+                            smelt_hir::op_mutates!($($fact $fact_value)*)
+                        }
+                    )*
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+smelt_hir::for_each_op!(define_rvalue_mutated_receiver);
 
 /// Expands to the one operand walk over a [`Terminator`], shared by
 /// [`Terminator::reads`] and [`Terminator::reads_mut`].
@@ -292,44 +326,6 @@ impl Place {
 }
 
 impl Rvalue {
-    /// The collection operand this rvalue mutates in place, if any.
-    ///
-    /// This is the one list of receiver-mutating operations; copies and
-    /// non-mutating projections (`DictCopy`, `SetCopy`, a non-mutating
-    /// `ListSplice`) answer `None`.
-    #[must_use]
-    pub const fn mutated_receiver(&self) -> Option<&Operand> {
-        match self {
-            Self::ListPush { list, .. }
-            | Self::ListExtend { list, .. }
-            | Self::ListInsert { list, .. }
-            | Self::ListUnshift { list, .. }
-            | Self::ListReverse { list }
-            | Self::ListSplice {
-                list, mutate: true, ..
-            }
-            | Self::ListFill { list, .. }
-            | Self::ListCopyWithin { list, .. }
-            | Self::ListClear { list }
-            | Self::ListRemove { list, .. }
-            | Self::ListSort { list, .. }
-            | Self::ListPop { list }
-            | Self::ListShift { list }
-            | Self::ListNext { list } => Some(list),
-            Self::SetAdd { set, .. } | Self::SetRemove { set, .. } | Self::SetClear { set } => {
-                Some(set)
-            }
-            Self::DictClear { dict }
-            | Self::DictPop { dict, .. }
-            | Self::DictSet { dict, .. }
-            | Self::DictRemoveKey { dict, .. }
-            | Self::DictSetDefault { dict, .. }
-            | Self::DictUpdate { dict, .. } => Some(dict),
-            Self::DictAssign { target, .. } => Some(target),
-            _ => None,
-        }
-    }
-
     /// Visit every local this rvalue reads, through any projection.
     pub fn read_locals(&self, mut visit: impl FnMut(LocalId)) {
         self.reads(|operand| operand.read_locals(&mut visit));

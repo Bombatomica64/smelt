@@ -53,7 +53,7 @@ macro_rules! render_op_field {
 macro_rules! define_expr_text {
     ($(
         $(#[$meta:meta])*
-        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt),* $(,)? })?
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
         $($fact:ident $fact_value:tt)*
         => $display:tt;
     )*) => {

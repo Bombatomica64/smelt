@@ -50,7 +50,7 @@ pub struct ListSpliceItem {
 macro_rules! define_expr_kind {
     ($(
         $(#[$meta:meta])*
-        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt),* $(,)? })?
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
         $($fact:ident $fact_value:tt)*
         => $display:tt;
     )*) => {
