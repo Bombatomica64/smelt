@@ -228,6 +228,8 @@ pub(crate) struct EmitContext {
     /// Whether each union asked about so far is stored as a generated enum; a
     /// pure function of the MIR that every read of a union member asks.
     pub(crate) concrete_unions: std::cell::RefCell<HashMap<TypeId, bool>>,
+    /// See [`crate::generic_lifting::ErasedArgumentMemo`].
+    pub(crate) erased_arguments: crate::generic_lifting::ErasedArgumentMemo,
     /// What this program demands of the runtime, computed once.
     demand: RuntimeDemand,
     /// Whether the render under trial touched the erased carrier; see
@@ -530,6 +532,7 @@ impl EmitContext {
             function_return_types,
             owned_callback_params,
             concrete_unions: ::std::cell::RefCell::default(),
+            erased_arguments: ::std::cell::RefCell::default(),
             function_item_accessors: ::std::cell::RefCell::new(
                 ::std::collections::BTreeMap::new(),
             ),
@@ -704,6 +707,7 @@ impl EmitContext {
                     function,
                     &self.owned_callback_params,
                     &self.bound_traits,
+                    &self.erased_arguments,
                 )
             })
             .collect();
@@ -822,6 +826,7 @@ impl EmitContext {
                                         caller,
                                         &self.owned_callback_params,
                                         &self.bound_traits,
+                                        &self.erased_arguments,
                                     )
                                     .contains(&caller_param)
                                 })

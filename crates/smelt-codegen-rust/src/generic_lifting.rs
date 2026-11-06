@@ -6,7 +6,7 @@
 //! inferable through a callback at every call site. `EmitContext` runs it before
 //! any body renders, so the definition and every call site agree on the shape.
 
-use std::collections::HashSet;
+use std::{cell::RefCell, collections::{HashMap, HashSet}};
 
 use smelt_hir::{AsyncOp, Symbol, Type, TypeId};
 use smelt_mir::{
@@ -18,6 +18,11 @@ use crate::{
     EmitError, bound_traits::BoundTraitPlan, classes::{GENERATED_TYPE_PARAM_BOUNDS, class_name_text, type_param_in_dict_key},
     generic_bindings, id_index, rust::RustIdent,
 };
+
+/// Per function, whether a call site passes an erased argument at a bare
+/// type-parameter position. Every call site asks about its callee, and the answer
+/// scans the callee's callers, so it is computed once per function.
+pub(crate) type ErasedArgumentMemo = RefCell<HashMap<FuncId, bool>>;
 
 /// Return whether a free function's signature should emit real Rust generics.
 ///
@@ -69,8 +74,9 @@ pub(crate) fn function_emits_rust_generics(
     function: &MirFunction,
     owned_callback_params: &HashSet<(FuncId, LocalId)>,
     bounds: &BoundTraitPlan,
+    erased_arguments: &ErasedArgumentMemo,
 ) -> bool {
-    !liftable_type_params(mir, function, owned_callback_params, bounds).is_empty()
+    !liftable_type_params(mir, function, owned_callback_params, bounds, erased_arguments).is_empty()
 }
 
 /// Whether every value whose type mentions `name` is only ever *moved* in this
@@ -329,6 +335,7 @@ pub(crate) fn liftable_type_params(
     function: &MirFunction,
     owned_callback_params: &HashSet<(FuncId, LocalId)>,
     bounds: &BoundTraitPlan,
+    erased_arguments: &ErasedArgumentMemo,
 ) -> HashSet<Symbol> {
     if function.type_params.is_empty() {
         return HashSet::new();
@@ -345,7 +352,7 @@ pub(crate) fn liftable_type_params(
         })
         .collect();
 
-    if called_with_erased_type_param_argument(mir, function)
+    if called_with_erased_type_param_argument_memoized(mir, function, erased_arguments)
         || !callback_only_params_are_pinned_at_every_call_site(
             mir,
             function,
@@ -884,6 +891,20 @@ pub(crate) fn bound_forwarding_callers(mir: &Mir, function: &MirFunction) -> Vec
 ///
 /// This scans every function's `Call` terminators for calls that resolve to
 /// `function` and checks the argument at each of its type-parameter positions.
+fn called_with_erased_type_param_argument_memoized(
+    mir: &Mir,
+    function: &MirFunction,
+    memo: &ErasedArgumentMemo,
+) -> bool {
+    let known = memo.borrow().get(&function.id).copied();
+    known.unwrap_or_else(|| {
+        let answer = called_with_erased_type_param_argument(mir, function);
+        memo.borrow_mut().insert(function.id, answer);
+        answer
+    })
+}
+
+/// Whether some call passes an erased value at a bare type-parameter position.
 fn called_with_erased_type_param_argument(mir: &Mir, function: &MirFunction) -> bool {
     // Parameter positions whose declared type is exactly one of the function's
     // own type parameters (`x: T`). Nested shapes (`T[]`) still bind `T` from
@@ -1357,8 +1378,9 @@ pub(crate) fn callback_generic_params(
     function: &MirFunction,
     owned: &HashSet<(FuncId, LocalId)>,
     bounds: &BoundTraitPlan,
+    erased_arguments: &ErasedArgumentMemo,
 ) -> Result<Vec<(LocalId, String)>, EmitError> {
-    if !function_emits_rust_generics(mir, function, owned, bounds) {
+    if !function_emits_rust_generics(mir, function, owned, bounds, erased_arguments) {
         return Ok(Vec::new());
     }
     let mut taken: HashSet<String> = HashSet::new();
@@ -1417,8 +1439,9 @@ pub(crate) fn function_impl_generics_list(
     function: &MirFunction,
     owned_callback_params: &HashSet<(FuncId, LocalId)>,
     bounds: &BoundTraitPlan,
+    erased_arguments: &ErasedArgumentMemo,
 ) -> Result<Vec<String>, EmitError> {
-    let liftable = liftable_type_params(mir, function, owned_callback_params, bounds);
+    let liftable = liftable_type_params(mir, function, owned_callback_params, bounds, erased_arguments);
     if liftable.is_empty() {
         return Ok(Vec::new());
     }

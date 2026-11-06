@@ -434,16 +434,7 @@ fn array_literal_lines_scale_linearly() {
     assert_linear("array literal, one element per line", 64, array_literal_lines);
 }
 
-/// IGNORED: quadratic in codegen. Measured growth 11.4 at n=1024 (output
-/// growth 4.05, codegen 86 ms -> 1.26 s). Every emitted statement asks
-/// whole-function questions about its locals, each a scan over every
-/// statement: `local_binding_needs_mut` (via `local_assignment_count`,
-/// `rvalue_mutates_local`, `local_may_be_assigned_after_assignment`,
-/// `local_uses_shared_capture_storage`), plus `list_alias_origin` per `push`.
-/// The fix is one per-function pass that indexes statements by the locals
-/// they touch -- a rework of `emitter::local_analysis`, not a local change.
 #[test]
-#[ignore = "quadratic codegen local analysis; see the comment"]
 fn array_push_statements_scale_linearly() {
     assert_linear("array filled by push statements", 64, array_push_statements);
 }
@@ -465,14 +456,7 @@ fn generic_call_chain_scales_linearly() {
     assert_linear_up_to("nested generic call chain", 8, MAX_NESTING, generic_call_chain);
 }
 
-/// IGNORED: quadratic in codegen, same cause as `array_push_statements`.
-/// Measured growth 11.7 at n=512 (output growth 4.2, codegen 67 ms ->
-/// 941 ms; `local_binding_needs_mut` and the capture-storage scan). The
-/// frontend half is fixed: `predeclare_forward_referenced_locals` re-walked
-/// the whole statement prefix for every declaration (frontend 44 ms -> 660 ms
-/// at n=256 before, 14 ms -> 99 ms at n=512 after).
 #[test]
-#[ignore = "quadratic codegen local analysis; see the comment"]
 fn long_function_scales_linearly() {
     assert_linear("long function body", 64, long_function);
 }

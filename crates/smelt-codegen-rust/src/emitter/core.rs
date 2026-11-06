@@ -483,6 +483,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.function,
                 &self.context.owned_callback_params,
                 &self.context.bound_traits,
+                &self.context.erased_arguments,
             )?;
             parts.extend(self.callback_generic_bounds_text()?);
             if parts.is_empty() {
@@ -616,6 +617,7 @@ impl<'mir> FunctionEmitter<'mir> {
             self.function,
             &self.context.owned_callback_params,
             &self.context.bound_traits,
+            &self.context.erased_arguments,
         );
         if liftable.len() < self.function.type_params.len() {
             return Ok(!liftable.is_empty());
