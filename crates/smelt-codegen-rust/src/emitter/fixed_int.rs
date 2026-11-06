@@ -19,6 +19,7 @@
 //! `i32` never takes part in arithmetic here. Integer-closed arithmetic is
 //! rendered only for the range-analysis widths (`usize`, `i64`).
 
+use crate::rust::RustExpr;
 use super::*;
 
 impl FunctionEmitter<'_> {
@@ -29,12 +30,12 @@ impl FunctionEmitter<'_> {
     /// unsuffixed, so Rust infers the width). Only `+`, `-` and comparisons are
     /// produced by the range analysis; any other operator is left to the
     /// general emitter, which sees the operands' declared types.
-    pub(super) fn fixed_int_binary_text(
+    pub(super) fn fixed_int_binary_expr(
         &self,
         op: smelt_hir::BinOp,
         lhs: &Operand,
         rhs: &Operand,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         let counter = |ty: TypeId| {
             matches!(
                 self.mir.types.get(ty),
@@ -69,12 +70,12 @@ impl FunctionEmitter<'_> {
         ) {
             return Ok(None);
         }
-        Ok(Some(format!(
+        Ok(Some(RustExpr::loose(format!(
             "{} {} {}",
-            self.operand_text(lhs)?,
+            self.operand_expr(lhs)?,
             smelt_hir::bin_op_text(op),
-            self.operand_text(rhs)?
-        )))
+            self.operand_expr(rhs)?
+        ))))
     }
 
     /// Renders a primitive conversion into or out of a `FixedInt`, if this is one.
@@ -84,13 +85,13 @@ impl FunctionEmitter<'_> {
     /// over an `Option` for an optional int32 slot). `ToInt32` stores a value
     /// the frontend proved to be a whole number in the `i32` range, so its
     /// `as i32` is exact as well.
-    pub(super) fn fixed_int_cast_text(
+    pub(super) fn fixed_int_cast_expr(
         &self,
         op: smelt_hir::PrimitiveCastOp,
         dest: &Type,
         operand: &Type,
-        operand_text: &str,
-    ) -> Option<String> {
+        operand_expr: &RustExpr,
+    ) -> Option<RustExpr> {
         let is_fixed = |ty: &TypeId| matches!(self.mir.types.get(*ty), Some(Type::FixedInt(_)));
         let is_float = |ty: &TypeId| matches!(self.mir.types.get(*ty), Some(Type::Float));
         match (op, dest, operand) {
@@ -98,19 +99,19 @@ impl FunctionEmitter<'_> {
                 smelt_hir::PrimitiveCastOp::ToFloat | smelt_hir::PrimitiveCastOp::ToJsNumber,
                 Type::Float,
                 Type::FixedInt(_),
-            ) => Some(format!("{operand_text} as f64")),
+            ) => Some(RustExpr::opaque(format!("{operand_expr} as f64"))),
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Optional(to), Type::Optional(from))
                 if is_float(to) && is_fixed(from) =>
             {
-                Some(format!("{operand_text}.map(f64::from)"))
+                Some(RustExpr::postfix_on(&operand_expr, format!("{operand_expr}.map(f64::from)")))
             }
             (smelt_hir::PrimitiveCastOp::ToInt32, Type::FixedInt(width), Type::Float) => {
-                Some(format!("{operand_text} as {}", width.rust_name()))
+                Some(RustExpr::opaque(format!("{operand_expr} as {}", width.rust_name())))
             }
             (smelt_hir::PrimitiveCastOp::ToInt32, Type::Optional(to), Type::Optional(from))
                 if is_fixed(to) && is_float(from) =>
             {
-                Some(format!("{operand_text}.map(|value| value as i32)"))
+                Some(RustExpr::postfix_on(&operand_expr, format!("{operand_expr}.map(|value| value as i32)")))
             }
             _ => None,
         }
@@ -121,11 +122,11 @@ impl FunctionEmitter<'_> {
     /// A collection's `len()` is already a `usize`, so a `usize` destination
     /// needs no cast at all; `len_expr` is returned unchanged in that case
     /// unless it is a float literal (a function's declared arity).
-    pub(super) fn fixed_int_len_text(len_expr: String, width: smelt_hir::IntWidth) -> String {
+    pub(super) fn fixed_int_len_expr(len_expr: String, width: smelt_hir::IntWidth) -> RustExpr {
         if width == smelt_hir::IntWidth::Usize && !len_expr.ends_with(".0") {
-            return len_expr;
+            return RustExpr::from(len_expr);
         }
-        format!("{len_expr} as {}", width.rust_name())
+        RustExpr::opaque(format!("{len_expr} as {}", width.rust_name()))
     }
 
     /// JavaScript `ToInt32` of a numeric expression, as an `i32` expression.
@@ -134,17 +135,17 @@ impl FunctionEmitter<'_> {
     /// signed 32-bit integer; `NaN` and `±Infinity` are `0`. This is the exact
     /// spec algorithm (ECMA-262 `ToInt32`), so `x | 0`, `x as int32` and every
     /// int32 operator agree with every JavaScript engine.
-    pub(super) fn js_to_int32_text(value_text: &str) -> String {
-        format!(
+    pub(super) fn js_to_int32_expr(value_text: &RustExpr) -> RustExpr {
+        RustExpr::atom(format!(
             "{{ let smelt_int32_v = ({value_text} as f64).trunc(); if smelt_int32_v.is_finite() {{ smelt_int32_v.rem_euclid(4294967296.0) as u32 as i32 }} else {{ 0_i32 }} }}"
-        )
+        ))
     }
 
     /// JavaScript `ToUint32` of a numeric expression, as a `u32` expression.
-    pub(super) fn js_to_uint32_text(value_text: &str) -> String {
-        format!(
+    pub(super) fn js_to_uint32_expr(value_text: &RustExpr) -> RustExpr {
+        RustExpr::atom(format!(
             "{{ let smelt_uint32_v = ({value_text} as f64).trunc(); if smelt_uint32_v.is_finite() {{ smelt_uint32_v.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }} }}"
-        )
+        ))
     }
 
     /// JavaScript `a << b`, `a >> b` and `Math.imul(a, b)` on `number`s.
@@ -154,21 +155,21 @@ impl FunctionEmitter<'_> {
     /// arithmetic (sign-propagating) shift, and `Math.imul` is the low 32 bits
     /// of the product read as signed. The int32 result converts to `f64`
     /// exactly (or to `i64` for an `Int` destination).
-    pub(super) fn js_int32_binary_text(
+    pub(super) fn js_int32_binary_expr(
         op: smelt_hir::BinOp,
-        lhs_text: &str,
-        rhs_text: &str,
+        lhs_text: &RustExpr,
+        rhs_text: &RustExpr,
         result_cast: &str,
-    ) -> String {
-        let lhs = Self::js_to_int32_text(lhs_text);
+    ) -> RustExpr {
+        let lhs = Self::js_to_int32_expr(lhs_text);
         let int32 = match op {
-            smelt_hir::BinOp::IMul => format!("({lhs}).wrapping_mul({})", Self::js_to_int32_text(rhs_text)),
+            smelt_hir::BinOp::IMul => format!("({lhs}).wrapping_mul({})", Self::js_to_int32_expr(rhs_text)),
             smelt_hir::BinOp::Shl => {
-                format!("({lhs}).wrapping_shl({} & 31)", Self::js_to_uint32_text(rhs_text))
+                format!("({lhs}).wrapping_shl({} & 31)", Self::js_to_uint32_expr(rhs_text))
             }
-            _ => format!("({lhs}).wrapping_shr({} & 31)", Self::js_to_uint32_text(rhs_text)),
+            _ => format!("({lhs}).wrapping_shr({} & 31)", Self::js_to_uint32_expr(rhs_text)),
         };
-        format!("(({int32}) as {result_cast})")
+        RustExpr::atom(format!("(({int32}) as {result_cast})"))
     }
 
     /// A `FixedInt` element index rendered as a Rust `usize`, if `index` is one.
@@ -176,21 +177,21 @@ impl FunctionEmitter<'_> {
     /// A `usize` index is used as is. A signed one goes through the same
     /// "negative addresses nothing" conversion as any other index, but straight
     /// from the integer, without the `f64` round trip.
-    pub(super) fn fixed_int_index_text(
+    pub(super) fn fixed_int_index_expr(
         &self,
         index: &Operand,
         usize_conversion: &str,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         match self.mir.types.get(self.operand_ty(index)?) {
             Some(Type::FixedInt(smelt_hir::IntWidth::Usize)) => {
-                Ok(Some(self.operand_text(index)?))
+                Ok(Some(RustExpr::from(self.operand_expr(index)?)))
             }
             // `usize::try_from` accepts any signed width directly, so the
             // integer is bound as it is.
-            Some(Type::FixedInt(_)) => Ok(Some(format!(
+            Some(Type::FixedInt(_)) => Ok(Some(RustExpr::atom(format!(
                 "{{ let smelt_normalized = {}; {usize_conversion} }}",
-                self.operand_text(index)?
-            ))),
+                self.operand_expr(index)?
+            )))),
             _ => Ok(None),
         }
     }

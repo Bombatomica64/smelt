@@ -8,6 +8,7 @@
     reason = "the private emitter module still exposes helpers to its parent codegen module"
 )]
 
+use crate::rust::RustExpr;
 use crate::classes::{NominalStorage, type_holds_function};
 use crate::generic_bindings::CalleeTypeParamBindings;
 use crate::runtime_demand::{Need, RuntimeDemand};
@@ -175,8 +176,8 @@ pub(crate) mod view_write_through;
 pub(crate) mod weak_receiver;
 
 pub(crate) use literals::method_mutates_this;
-use literals::{assigned_locals, constant_text};
-use rendered_value::{Precedence, RenderedValue};
+use literals::{assigned_locals, constant_expr};
+use rendered_value::RenderedValue;
 use types::MutablePrefix;
 pub(crate) use union::emit_union_definitions;
 pub(crate) use json_decode::emit_json_decoders;
@@ -300,7 +301,7 @@ pub(crate) struct EmitContext {
     /// spelled at EVERY site that recovered the class: Hono's CORS test module
     /// repeated `Hono`'s conversion about a thousand times and reached 28 MB,
     /// past what one rustc can compile in a capped build. Only outermost
-    /// conversions are hoisted (see `extract_value_text`), so a helper's body
+    /// conversions are hoisted (see `extract_rendered`), so a helper's body
     /// is exactly the text that was inlined before.
     ///
     /// Keyed by the module-level Rust spelling of the type; the value is
@@ -1567,9 +1568,9 @@ pub(crate) struct FunctionEmitter<'mir> {
     ///
     /// Two coercions rebuild a value out of its parts and can therefore ask for
     /// a nested coercion of a component type: the field-wise record adapter
-    /// ([`FunctionEmitter::structural_record_adapter_text`]) and the
+    /// ([`FunctionEmitter::structural_record_adapter`]) and the
     /// callable-object `__smelt_call` read
-    /// ([`FunctionEmitter::callable_object_call_slot_text`], whose slot coercion
+    /// ([`FunctionEmitter::callable_object_call_slot_expr`], whose slot coercion
     /// goes on to adapt the call signature's return value). TypeScript callable
     /// interfaces routinely make those two mutually recursive — es-toolkit's
     /// `CurriedFunction1<T1, R>` has a call signature returning
@@ -1615,14 +1616,14 @@ pub(crate) struct FunctionEmitter<'mir> {
 /// read receiver has to take its own short-lived borrow. The returned `Ref`
 /// guard lives to the end of the enclosing statement, which is safe because
 /// emitted code is three-address — see the invariant on
-/// [`FunctionEmitter::local_value_text`].
+/// [`FunctionEmitter::local_value`].
 ///
-/// Use this, never [`list_write_text`], for a *read*: an index expression such
+/// Use this, never [`list_write_expr`], for a *read*: an index expression such
 /// as `arr.get({ .. arr.len() .. })` takes two simultaneous borrows of one cell,
 /// and two shared borrows are allowed where a second mutable one panics with
 /// "already borrowed".
-pub(super) fn list_read_text(list_text: &str) -> String {
-    format!("{list_text}.borrow()")
+pub(super) fn list_read_expr(list_text: &RustExpr) -> RustExpr {
+    RustExpr::postfix_on(&list_text, format!("{list_text}.borrow()"))
 }
 
 /// Wraps a list-valued expression so it reads as its backing `Vec`, mutably.
@@ -1633,10 +1634,10 @@ pub(super) fn list_read_text(list_text: &str) -> String {
 /// The receiver itself is only borrowed immutably (`RefCell` is interior
 /// mutability), so this composes with a receiver held behind `&`.
 ///
-/// Never combine this with [`list_read_text`] on the same list inside one
+/// Never combine this with [`list_read_expr`] on the same list inside one
 /// expression: the two guards would coexist and panic "already borrowed".
-pub(super) fn list_write_text(list_text: &str) -> String {
-    format!("{list_text}.borrow_mut()")
+pub(super) fn list_write_expr(list_text: &RustExpr) -> RustExpr {
+    RustExpr::postfix_on(&list_text, format!("{list_text}.borrow_mut()"))
 }
 
 /// How to compute the default end bound for a slice.

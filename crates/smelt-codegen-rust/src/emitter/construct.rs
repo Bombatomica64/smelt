@@ -9,6 +9,7 @@
 //! reached through a value whose identity is only known at runtime, and the
 //! constructed object's shape is whatever the constructor decided.
 
+use crate::rust::RustExpr;
 use smelt_hir::TypeId;
 use smelt_mir::Operand;
 
@@ -25,12 +26,12 @@ impl FunctionEmitter<'_> {
     /// its own result — so the value is extracted at the destination type,
     /// which is what lets `new f()` sit in a statement position (`()`) or feed
     /// a concretely typed binding.
-    pub(super) fn construct_text(
+    pub(super) fn construct_expr(
         &self,
         callee: &Operand,
         args: &[Operand],
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let callee_text = self.erase(callee)?;
         let arg_texts = args
             .iter()
@@ -38,24 +39,24 @@ impl FunctionEmitter<'_> {
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
         let call_text = format!("smelt_construct({callee_text}, ::std::vec![{arg_texts}])");
-        self.extract_value_text(&call_text, dest_ty, &self.render_scope())
+        self.extract_rendered(&RustExpr::opaque(&call_text), dest_ty, &self.render_scope()).map(RustExpr::from)
     }
 
     /// Render JavaScript `value instanceof target` for a runtime constructor.
     ///
-    /// Unlike [`FunctionEmitter::instance_of_text`], whose target is a class
+    /// Unlike [`FunctionEmitter::instance_of_expr`], whose target is a class
     /// name known at compile time, the target here is a value: the answer is a
     /// prototype-chain walk, so both operands are erased and handed to the
     /// runtime predicate.
-    pub(super) fn instance_of_value_text(
+    pub(super) fn instance_of_value(
         &self,
         value: &Operand,
         target: &Operand,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let value_text = self.erase(value)?;
         let target_text = self.erase(target)?;
-        Ok(format!(
+        Ok(RustExpr::chain(format!(
             "smelt_instance_of_value(&{value_text}, &{target_text})"
-        ))
+        )))
     }
 }

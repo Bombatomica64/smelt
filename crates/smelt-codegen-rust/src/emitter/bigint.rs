@@ -24,6 +24,7 @@
 //! Type-preservation requirement: a bigint operand or result is never spelled
 //! `f64`, `i64` or `SmeltUnknown`; it stays `num_bigint::BigInt` end to end.
 
+use crate::rust::RustExpr;
 use super::*;
 use crate::emitter::call::CallText;
 use crate::bigint_prelude::BIGINT_TYPE;
@@ -51,10 +52,10 @@ impl FunctionEmitter<'_> {
     /// Renders a BORROW of a bigint operand.
     ///
     /// A place is borrowed in place (`&value`), which is what lets an operator
-    /// read it without the clone `operand_text` adds for a non-`Copy` read; a
+    /// read it without the clone `operand_expr` adds for a non-`Copy` read; a
     /// constant is borrowed as a temporary, which lives to the end of the
     /// enclosing statement.
-    pub(super) fn bigint_ref_text(&self, operand: &Operand) -> Result<String, EmitError> {
+    pub(super) fn bigint_ref_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
         match operand {
             Operand::Copy(place) | Operand::Move(place)
                 if self.is_bigint_type(self.place_ty(place)?)
@@ -62,19 +63,19 @@ impl FunctionEmitter<'_> {
                     && !self.place_is_reference_class_field(place)
                     && !self.index_place_read_is_owned(place) =>
             {
-                Ok(format!("&{}", self.place_text(place)?))
+                Ok(RustExpr::loose(format!("&{}", self.place_expr(place)?)))
             }
-            Operand::Const(_) => Ok(format!("&{}", self.operand_text(operand)?)),
-            _ => Ok(format!("&({})", self.operand_text(operand)?)),
+            Operand::Const(_) => Ok(RustExpr::loose(format!("&{}", self.operand_expr(operand)?))),
+            _ => Ok(RustExpr::loose(format!("&({})", self.operand_expr(operand)?))),
         }
     }
 
     /// Renders a bigint operand as an OWNED `BigInt`, converting a numeric
     /// constant the frontend left untyped.
-    fn bigint_owned_text(&self, operand: &Operand) -> Result<String, EmitError> {
+    fn bigint_owned_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
         match operand {
-            Operand::Const(Constant::BigInt(digits)) => Ok(crate::bigint_prelude::literal_text(digits)),
-            _ => self.operand_text(operand),
+            Operand::Const(Constant::BigInt(digits)) => Ok(RustExpr::from(crate::bigint_prelude::literal_text(digits))),
+            _ => self.operand_expr(operand),
         }
     }
 
@@ -103,13 +104,13 @@ impl FunctionEmitter<'_> {
     /// pair; the result is recovered at the destination's own type. Narrowing
     /// the union to its `number` member instead is what used to panic on a
     /// bigint ("union guard selected an excluded member").
-    fn bigint_dynamic_arithmetic_text(
+    fn bigint_dynamic_arithmetic_expr(
         &self,
         op: smelt_hir::BinOp,
         lhs: &Operand,
         rhs: &Operand,
         dest_ty: TypeId,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         use smelt_hir::BinOp;
         if !self.context.needs_bigint() {
             return Ok(None);
@@ -143,9 +144,9 @@ impl FunctionEmitter<'_> {
         );
         let unknown_ty = self.type_id(Type::Unknown)?;
         if dest_ty == unknown_ty {
-            return Ok(Some(text));
+            return Ok(Some(RustExpr::from(text)));
         }
-        Ok(Some(self.value_at_type_text(&text, unknown_ty, dest_ty, &self.render_scope())?))
+        Ok(Some(RustExpr::from(self.rendered_at_type(&RustExpr::opaque(&text), unknown_ty, dest_ty, &self.render_scope())?)))
     }
 
     /// Renders a binary operation with a bigint operand, if this is one.
@@ -154,15 +155,15 @@ impl FunctionEmitter<'_> {
     /// or a number; an erased or optional operand is left to the general
     /// emitter, which erases both sides and lets `SmeltUnknown`'s own operators
     /// decide at run time.
-    pub(super) fn bigint_binary_text(
+    pub(super) fn bigint_binary_expr(
         &self,
         op: smelt_hir::BinOp,
         lhs: &Operand,
         rhs: &Operand,
         dest_ty: TypeId,
-    ) -> Result<Option<String>, EmitError> {
-        if let Some(text) = self.bigint_dynamic_arithmetic_text(op, lhs, rhs, dest_ty)? {
-            return Ok(Some(text));
+    ) -> Result<Option<RustExpr>, EmitError> {
+        if let Some(text) = self.bigint_dynamic_arithmetic_expr(op, lhs, rhs, dest_ty)? {
+            return Ok(Some(RustExpr::from(text)));
         }
         let lhs_ty = self.operand_ty(lhs)?;
         let rhs_ty = self.operand_ty(rhs)?;
@@ -191,9 +192,9 @@ impl FunctionEmitter<'_> {
         // `unknown`) crosses the boundary through the ordinary erasure.
         let result_ty = self.type_id(result)?;
         if result_ty != dest_ty && self.mir.types.get(dest_ty) == Some(&Type::Unknown) {
-            return Ok(Some(self.erase_value_text(&rendered, result_ty)?));
+            return Ok(Some(RustExpr::from(self.erase_rendered(&RustExpr::opaque(&rendered), result_ty)?)));
         }
-        Ok(Some(rendered))
+        Ok(Some(RustExpr::from(rendered)))
     }
 
     /// Renders an operation between two bigints and its result type.
@@ -204,8 +205,8 @@ impl FunctionEmitter<'_> {
         rhs: &Operand,
     ) -> Result<Option<(String, Type)>, EmitError> {
         use smelt_hir::BinOp;
-        let lhs_ref = self.bigint_ref_text(lhs)?;
-        let rhs_ref = self.bigint_ref_text(rhs)?;
+        let lhs_ref = self.bigint_ref_expr(lhs)?;
+        let rhs_ref = self.bigint_ref_expr(rhs)?;
         let text = match op {
             BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => {
                 (
@@ -266,11 +267,11 @@ impl FunctionEmitter<'_> {
     ) -> Result<Option<(String, Type)>, EmitError> {
         use smelt_hir::BinOp;
         let (big, number) = if lhs_big { (lhs, rhs) } else { (rhs, lhs) };
-        let big_ref = self.bigint_ref_text(big)?;
+        let big_ref = self.bigint_ref_expr(big)?;
         let number_text = if matches!(self.mir.types.get(self.operand_ty(number)?), Some(Type::Float)) {
-            self.operand_text(number)?
+            self.operand_expr(number)?
         } else {
-            format!("{} as f64", self.operand_text(number)?)
+            RustExpr::opaque(format!("{} as f64", self.operand_expr(number)?))
         };
         let ordering = format!("smelt_bigint_compare_number({big_ref}, {number_text})");
         // The helper orders `bigint` against `number`; a `number < bigint`
@@ -317,11 +318,11 @@ impl FunctionEmitter<'_> {
     }
 
     /// Renders unary `-` over a bigint, if the operand is one.
-    pub(super) fn bigint_negation_text(&self, operand: &Operand) -> Result<Option<String>, EmitError> {
+    pub(super) fn bigint_negation_expr(&self, operand: &Operand) -> Result<Option<RustExpr>, EmitError> {
         if !self.is_bigint_type(self.operand_ty(operand)?) {
             return Ok(None);
         }
-        Ok(Some(format!("-{}", self.bigint_ref_text(operand)?)))
+        Ok(Some(RustExpr::loose(format!("-{}", self.bigint_ref_expr(operand)?))))
     }
 
     /// Renders a fallible bigint builtin call (`Rvalue::BigIntCall`).
@@ -350,33 +351,33 @@ impl FunctionEmitter<'_> {
                 };
                 let bits = arg(0)?;
                 let value = arg(1)?;
-                let bits_text = self.bigint_width_text(bits)?;
-                Ok(CallText::propagating(format!("{helper}({bits_text}, {})", self.bigint_operand_ref_text(value)?)))
+                let bits_text = self.bigint_width_expr(bits)?;
+                Ok(CallText::propagating(format!("{helper}({bits_text}, {})", self.bigint_operand_ref_expr(value)?)))
             }
             BigIntOp::JsonStringify => {
                 // Serialized through the erased carrier like every
-                // `JSON.stringify` (see `json_stringify_text`); its
+                // `JSON.stringify` (see `json_stringify_expr`); its
                 // `Serialize` impl is what refuses a `SmeltUnknown::BigInt`,
                 // and that refusal is the only error it can raise.
                 let value = arg(0)?;
                 let erased =
-                    self.erase_value_text(&self.operand_text(value)?, self.operand_ty(value)?)?;
+                    self.erase_rendered(&self.operand_expr(value)?, self.operand_ty(value)?)?;
                 Ok(CallText::propagating(format!(
                     "serde_json::to_string(&{erased}).map_err(|_| smelt_bigint_type_error_value(\"Do not know how to serialize a BigInt\".to_owned()))"
                 )))
             }
             BigIntOp::ToStringRadix => {
                 let radix = arg(1)?;
-                let radix_operand = self.operand_text(radix)?;
+                let radix_operand = self.operand_expr(radix)?;
                 let radix_text =
                     if matches!(self.mir.types.get(self.operand_ty(radix)?), Some(Type::Float)) {
                         radix_operand
                     } else {
-                        format!("{radix_operand} as f64")
+                        RustExpr::opaque(format!("{radix_operand} as f64"))
                     };
                 Ok(CallText::propagating(format!(
                     "smelt_bigint_to_string_radix({}, {radix_text})",
-                    self.bigint_operand_ref_text(arg(0)?)?
+                    self.bigint_operand_ref_expr(arg(0)?)?
                 )))
             }
             BigIntOp::Div | BigIntOp::Rem | BigIntOp::Pow | BigIntOp::Shl | BigIntOp::Shr => {
@@ -389,8 +390,8 @@ impl FunctionEmitter<'_> {
                 };
                 Ok(CallText::propagating(format!(
                     "{helper}({}, {})",
-                    self.bigint_operand_ref_text(arg(0)?)?,
-                    self.bigint_operand_ref_text(arg(1)?)?
+                    self.bigint_operand_ref_expr(arg(0)?)?,
+                    self.bigint_operand_ref_expr(arg(1)?)?
                 )))
             }
         }
@@ -400,12 +401,12 @@ impl FunctionEmitter<'_> {
     ///
     /// An `unknown` operand reaching a bigint operation (a generic or `any`
     /// value) goes through the checked `ToBigInt` adapter rather than a cast.
-    fn bigint_operand_ref_text(&self, operand: &Operand) -> Result<String, EmitError> {
+    fn bigint_operand_ref_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
         let ty = self.operand_ty(operand)?;
         if self.is_bigint_type(ty) {
-            return self.bigint_ref_text(operand);
+            return self.bigint_ref_expr(operand);
         }
-        Ok(format!("&{}", self.bigint_from_value_text(operand, ty, true)?))
+        Ok(RustExpr::loose(format!("&{}", self.bigint_from_value(operand, ty, true)?)))
     }
 
     /// `BigInt(value)`, a call that propagates its `RangeError` or `SyntaxError`.
@@ -416,56 +417,56 @@ impl FunctionEmitter<'_> {
             // shape the throwing-terminator emitter expects.
             return Ok(CallText::propagating(format!(
                 "Ok::<{BIGINT_TYPE}, Box<dyn ::std::error::Error>>({})",
-                self.bigint_owned_text(operand)?
+                self.bigint_owned_expr(operand)?
             )));
         }
-        Ok(CallText::propagating(self.bigint_from_value_text(operand, ty, false)?))
+        Ok(CallText::propagating(self.bigint_from_value(operand, ty, false)?))
     }
 
     /// The `Result`-returning conversion of a non-bigint value to a bigint.
     ///
     /// With `panic_route`, the result is unwrapped through the panic channel
     /// instead (for a conversion nested inside another operation's arguments).
-    fn bigint_from_value_text(
+    fn bigint_from_value(
         &self,
         operand: &Operand,
         ty: TypeId,
         panic_route: bool,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let text = match self.mir.types.get(ty) {
             Some(Type::Float) => {
-                format!("smelt_bigint_from_number({})", self.operand_text(operand)?)
+                format!("smelt_bigint_from_number({})", self.operand_expr(operand)?)
             }
             Some(Type::Int | Type::FixedInt(_)) => {
-                format!("smelt_bigint_from_number({} as f64)", self.operand_text(operand)?)
+                format!("smelt_bigint_from_number({} as f64)", self.operand_expr(operand)?)
             }
             Some(Type::String) => {
-                format!("smelt_bigint_from_string(&{})", self.operand_text(operand)?)
+                format!("smelt_bigint_from_string(&{})", self.operand_expr(operand)?)
             }
             // `BigInt(true)` is `1n`; a boolean never throws.
             Some(Type::Bool) => format!(
                 "Ok::<{BIGINT_TYPE}, Box<dyn ::std::error::Error>>({BIGINT_TYPE}::from(i64::from({})))",
-                self.operand_text(operand)?
+                self.operand_expr(operand)?
             ),
             _ => format!("smelt_bigint_from_unknown(&{})", self.erase(operand)?),
         };
         Ok(if panic_route {
-            format!("{text}.unwrap_or_else(|error| smelt_panic_throw(error))")
+            RustExpr::postfix_on(&text, format!("{text}.unwrap_or_else(|error| smelt_panic_throw(error))"))
         } else {
-            text
+            RustExpr::from(text)
         })
     }
 
     /// An `asIntN`/`asUintN` width as the `f64` the runtime's `ToIndex` takes.
-    fn bigint_width_text(&self, bits: &Operand) -> Result<String, EmitError> {
+    fn bigint_width_expr(&self, bits: &Operand) -> Result<RustExpr, EmitError> {
         match self.mir.types.get(self.operand_ty(bits)?) {
-            Some(Type::Float) => self.operand_text(bits),
+            Some(Type::Float) => self.operand_expr(bits),
             Some(Type::Int | Type::FixedInt(_)) => {
-                Ok(format!("{} as f64", self.operand_text(bits)?))
+                Ok(RustExpr::opaque(format!("{} as f64", self.operand_expr(bits)?)))
             }
             _ => {
                 let float_ty = self.type_id(Type::Float)?;
-                self.primitive_cast_text(smelt_hir::PrimitiveCastOp::ToFloat, bits, float_ty)
+                self.primitive_cast_expr(smelt_hir::PrimitiveCastOp::ToFloat, bits, float_ty)
             }
         }
     }

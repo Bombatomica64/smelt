@@ -1,5 +1,6 @@
 //! Closure rendering engine: emits Rust closure literals and their block/match bodies for MIR closures, including extra-parameter adapters, await detection, and closure operand text.
 
+use crate::rust::RustExpr;
 use super::*;
 
 use local_binding::{CellUpgrade, LocalBinding, SELF_CAPTURE_NAME, SharedCell};
@@ -26,8 +27,8 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a non-escaping MIR closure into a Rust closure literal.
-    pub(super) fn closure_text(&self, id: smelt_mir::ClosureId) -> Result<String, EmitError> {
-        Ok(self.closure_text_with_extra_params(id, &[], &[], None, None)?.text)
+    pub(super) fn closure_expr(&self, id: smelt_mir::ClosureId) -> Result<RustExpr, EmitError> {
+        Ok(RustExpr::from(self.closure_text_with_extra_params(id, &[], &[], None, None)?.text))
     }
 
     /// Whether a contextual `target_ty` re-types a closure parameter whose own
@@ -58,11 +59,11 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a MIR closure into a Rust closure literal shaped for `dest_ty`.
-    pub(super) fn closure_text_for_type(
+    pub(super) fn closure_expr_for_type(
         &self,
         id: smelt_mir::ClosureId,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         // A JS callback often accepts fewer arguments than the contextual
         // function type provides (e.g. `.map(value => ...)` is called with
         // `(value, index, array)`). The emitted closure appends one ignored
@@ -272,7 +273,7 @@ impl FunctionEmitter<'_> {
                         // the callback result behave as in JS.
                         self.carrier_format(format_args!("{{ {call}; SmeltUnknown::Undefined }}"))
                     } else {
-                        self.value_at_type_text(&call, source_closure.return_ty, unknown_ty, &self.render_scope())?
+                        self.rendered_at_type(&RustExpr::opaque(&call), source_closure.return_ty, unknown_ty, &self.render_scope())?.into_string()
                     };
                 let length = source_closure
                     .required_params
@@ -296,13 +297,13 @@ impl FunctionEmitter<'_> {
                         .borrow_mut()
                         .entry(key)
                         .or_insert(erased_function);
-                    return Ok(format!("__smelt_fn_erased_{key}()"));
+                    return Ok(RustExpr::opaque(format!("__smelt_fn_erased_{key}()")));
                 }
-                return Ok(erased_function);
+                return Ok(RustExpr::from(erased_function));
             }
-            return Ok(callback_text);
+            return Ok(RustExpr::from(callback_text));
         }
-        Ok(closure)
+        Ok(RustExpr::from(closure))
     }
 
     /// Choose one distinct Rust binding name per captured source local.
@@ -666,7 +667,7 @@ impl FunctionEmitter<'_> {
                     // `clippy::single_match_else` rejects.
                     if let Some(target_ty) = retype {
                         let target_ty_text = emitter.type_text(target_ty)?;
-                        let coerced = emitter.value_at_type_text(&name, target_ty, local.ty, &self.render_scope())?;
+                        let coerced = emitter.rendered_at_type(&RustExpr::opaque(&name), target_ty, local.ty, &self.render_scope())?;
                         param_rebinds.push_str(&format!(
                             "let {mutability}{name}: {local_ty_text} = {coerced};\n"
                         ));
@@ -1189,7 +1190,7 @@ impl FunctionEmitter<'_> {
             if !matches!(operand, Operand::Const(Constant::None))
                 && self.operand_ty(operand)? != self.none_ty
             {
-                out.push_str(&format!("    {};\n", self.operand_text(operand)?));
+                out.push_str(&format!("    {};\n", self.operand_expr(operand)?));
             }
             if self.function.can_throw || self.function.is_async {
                 self.binding_uses.record_early_return();
@@ -1303,7 +1304,7 @@ impl FunctionEmitter<'_> {
                 self.emit_statement(statement, out)?;
             }
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
             // Both branches run inside the generated `loop`, so any MIR `Return`
             // they reach must become an explicit `return` (see `in_loop`). A
             // branch that instead flows back to the header (`stop`) emits nothing
@@ -1354,7 +1355,7 @@ impl FunctionEmitter<'_> {
                     if !matches!(operand, Operand::Const(Constant::None))
                         && self.operand_ty(operand)? != self.none_ty
                     {
-                        out.push_str(&format!("    {};\n", self.operand_text(operand)?));
+                        out.push_str(&format!("    {};\n", self.operand_expr(operand)?));
                     }
                     if self.function.can_throw {
                         out.push_str(&format!("    Ok::<(), {ERROR_BOX}>(())\n"));
@@ -1412,7 +1413,7 @@ impl FunctionEmitter<'_> {
             } => {
                 // A `try`/`catch` around the call is a real fork of the closure
                 // body and must be rendered. Ignoring `unwind` sent the call
-                // through `closure_call_text_for_dest`, whose only difference from
+                // through `closure_call_expr_for_dest`, whose only difference from
                 // the function-level path is that it rewrites a trailing `?` into
                 // `unwrap_or_else(|error| panic!(..))` — which is precisely the
                 // handler being discarded. A nested `function` whose body wrapped
@@ -1438,7 +1439,7 @@ impl FunctionEmitter<'_> {
                     );
                 }
                 let local = self.local_decl(*dest)?;
-                let call_text = self.closure_call_text_for_dest(callee, args, local.ty)?;
+                let call_text = self.closure_call_expr_for_dest(callee, args, local.ty)?;
                 let name = self.local_name(*dest)?;
                 out.push_str(&format!(
                     "    let {name}: {} = {call_text};\n",
@@ -1476,7 +1477,7 @@ impl FunctionEmitter<'_> {
                 // return `Result`, so propagate the await error exactly as the
                 // ordinary control-flow emitter does instead of assigning the
                 // whole `Result` into the destination's `T` local.
-                let value = format!("{}.await?", self.await_operand_text(future)?);
+                let value = format!("{}.await?", self.await_operand_expr(future)?);
                 out.push_str(&format!(
                     "    let {name}: {} = {value};\n",
                     self.type_text(local.ty)?
@@ -1498,7 +1499,7 @@ impl FunctionEmitter<'_> {
                 // branches). Statements follow the `if`, so an arm that returns
                 // must say `return` (the loop-body rule, `in_loop`).
                 let branch_declared = self.declared_scope();
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
                 self.emit_closure_block_inner(self.block(*then_block)?, out, active, Some(join), true)?;
                 out.push_str("    } else {\n");
                 branch_declared.reset();
@@ -1513,7 +1514,7 @@ impl FunctionEmitter<'_> {
                 else_block,
             } => {
                 let branch_declared = self.declared_scope();
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
                 self.emit_closure_block_inner(
                     self.block(*then_block)?,
                     out,
@@ -1604,13 +1605,13 @@ impl FunctionEmitter<'_> {
         in_loop: bool,
     ) -> Result<(), EmitError> {
         let join = self.match_join(arms, default)?;
-        let scrutinee_text = self.match_scrutinee_text(scrutinee)?;
+        let scrutinee_text = self.match_scrutinee_expr(scrutinee)?;
         out.push_str(&format!("    match {scrutinee_text} {{\n"));
         let match_declared = self.declared_scope();
         for arm in arms {
             out.push_str(&format!(
                 "        {} => {{\n",
-                self.match_label_text(&arm.label)
+                self.match_label_expr(&arm.label)
             ));
             self.emit_closure_block_inner(self.block(arm.target)?, out, active, join, in_loop)?;
             out.push_str("        }\n");
@@ -1638,7 +1639,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Resolve a callback operand to the Rust closure expression that constructed it.
-    pub(super) fn closure_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
+    pub(super) fn closure_operand_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
         let local = match operand {
             Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
             _ => {
@@ -1655,7 +1656,7 @@ impl FunctionEmitter<'_> {
                 } = statement
                     && *dest == local
                 {
-                    return self.closure_text(*id);
+                    return self.closure_expr(*id);
                 }
             }
         }
@@ -1703,10 +1704,10 @@ impl FunctionEmitter<'_> {
     /// callback shape, so this path asks closure emission to add ignored
     /// trailing parameters before iterator code calls the callback with
     /// `(item, index, array)` or `(acc, item, index, array)`.
-    pub(super) fn closure_operand_text_for_declared_type(
+    pub(super) fn closure_operand_expr_for_declared_type(
         &self,
         operand: &Operand,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let local = match operand {
             Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
             _ => {
@@ -1725,7 +1726,7 @@ impl FunctionEmitter<'_> {
                 } = statement
                     && *dest == source_local
                 {
-                    return self.closure_text_for_type(*id, dest_ty);
+                    return self.closure_expr_for_type(*id, dest_ty);
                 }
             }
         }

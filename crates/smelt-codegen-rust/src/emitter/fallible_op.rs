@@ -7,6 +7,7 @@
 //! Ok(Err(e))` shape that binds the caught error, and the typed value the
 //! adapter answers. Only the throw crosses the erased channel.
 
+use crate::rust::RustExpr;
 use smelt_hir::{Base64Op, Type, TypeId, UriTranscodeOp};
 use smelt_mir::{Operand, Rvalue};
 
@@ -36,7 +37,7 @@ impl FunctionEmitter<'_> {
                     Base64Op::Encode => crate::thrown::BTOA_FN,
                     Base64Op::Decode => crate::thrown::ATOB_FN,
                 };
-                let value_text = self.string_like_operand_text(value, "base64 input")?;
+                let value_text = self.string_like_operand_expr(value, "base64 input")?;
                 (
                     CallText::propagating(format!("{adapter}({value_text}.as_str())")),
                     self.type_id(Type::String)?,
@@ -72,12 +73,12 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::RegExpCompile { .. } => {
                 let pattern = args.first().map_or_else(
-                    || Ok("String::new()".to_owned()),
-                    |arg| self.string_like_operand_text(arg, "RegExp pattern"),
+                    || Ok(RustExpr::atom("String::new()")),
+                    |arg| self.string_like_operand_expr(arg, "RegExp pattern"),
                 )?;
                 let flags = args.get(1).map_or_else(
-                    || Ok("String::new()".to_owned()),
-                    |arg| self.string_like_operand_text(arg, "RegExp flags"),
+                    || Ok(RustExpr::atom("String::new()")),
+                    |arg| self.string_like_operand_expr(arg, "RegExp flags"),
                 )?;
                 let source_ty = self.regexp_class_ty().ok_or_else(|| {
                     EmitError::new("a RegExp compile call needs the RegExp class type interned")
@@ -103,7 +104,7 @@ impl FunctionEmitter<'_> {
                         ));
                     }
                 };
-                let value_text = self.string_like_operand_text(value, "URI decoder input")?;
+                let value_text = self.string_like_operand_expr(value, "URI decoder input")?;
                 (
                     CallText::propagating(format!("{adapter}({value_text}.as_str())")),
                     self.type_id(Type::String)?,
@@ -138,11 +139,11 @@ impl FunctionEmitter<'_> {
             let call = format!(
                 "{}(&{})",
                 super::json_decode::json_decode_entry_name(decoded),
-                self.operand_text(text)?
+                self.operand_expr(text)?
             );
             return Ok((CallText::propagating(call), decoded));
         }
-        let call = format!("{}(&{})", crate::thrown::JSON_PARSE_FN, self.operand_text(text)?);
+        let call = format!("{}(&{})", crate::thrown::JSON_PARSE_FN, self.operand_expr(text)?);
         Ok((CallText::propagating(call), self.type_id(Type::Unknown)?))
     }
 }

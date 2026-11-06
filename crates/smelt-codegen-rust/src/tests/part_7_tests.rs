@@ -4947,7 +4947,7 @@ function wrap<T>(
     // `data: readonly T[]` is extracted out of the packed rest vector, and `T`
     // is not a Rust generic in this emission scope, so its elements are already
     // `SmeltUnknown`: the extraction re-wraps the SAME array rather than
-    // rebuilding its element vector (see `erased_to_list_text`). That is what
+    // rebuilding its element vector (see `erased_to_list_expr`). That is what
     // keeps a `purry`-style runtime dispatcher from paying an O(n) copy on every
     // crossing, and it is what makes the array a callback receives BE the array
     // being iterated.
@@ -8016,7 +8016,7 @@ export function read(table: Record<string, Pair | Triple>): string {
     // is what made a move observable — one use could never fail to compile.
     // Both reads used to erase it (`into_smelt_unknown`); since element and
     // `.length` reads project the union's arms
-    // (`concrete_union_index_reads`, `concrete_union_length_read_text`), both
+    // (`concrete_union_index_reads`, `concrete_union_length_read_expr`), both
     // inspect it through a borrow (`match &first`) and nothing erases it. The
     // guarantee is unchanged and now holds by construction: neither read
     // consumes `first`.
@@ -8660,7 +8660,7 @@ function tag(rows: string[][], suffix: string): string[][] {
 #[test]
 fn optional_unknown_truthiness_covers_undefined() {
     // An optional `unknown` used in a boolean position coerces through
-    // `optional_truthy_text`. The generated `match` must treat both
+    // `optional_truthy_expr`. The generated `match` must treat both
     // `Some(Null)` and `Some(Undefined)` as falsy; omitting the `Undefined`
     // arm produced a non-exhaustive match (E0004) because `SmeltUnknown` has a
     // dedicated `Undefined` variant.
@@ -11796,7 +11796,7 @@ fn array_containment_projects_an_optional_union_receiver() {
     // The source narrows it with `switch (typeof chars) { case 'object': … }` and the
     // frontend only emits `Rvalue::ListContains` after that narrowing holds, but MIR
     // reads the value through its DECLARING local, so the operand type at emission
-    // is still the wide one. `list_contains_text` matched `Type::List` alone and
+    // is still the wide one. `list_contains_expr` matched `Type::List` alone and
     // answered a constant `false` for anything else, so es-toolkit's
     // `trim`/`trimStart`/`trimEnd` array-`chars` loops never removed a character —
     // ten specs, silently wrong rather than failing.
@@ -12351,7 +12351,7 @@ console.log(attempt(5));
 /// Closure bodies are rendered by their own recursive emitter,
 /// `emit_closure_block_inner`, and its `Call`/`Await` arms matched
 /// `unwind: _` — throwing the exception handler away. The call then went through
-/// `closure_call_text_for_dest`, whose single difference from the function-level
+/// `closure_call_expr_for_dest`, whose single difference from the function-level
 /// path is that it rewrites a trailing `?` into
 /// `unwrap_or_else(|error| smelt_panic_throw(error))`. So a nested function whose body wrapped
 /// a throwing call in `try`/`catch` did not run its `catch` at all: it aborted
@@ -12648,7 +12648,7 @@ export function fireAndForget(cb: () => Promise<string>): void {
 ///
 /// A callee's optional trailing parameters are part of the Rust `dyn Fn` type
 /// the value lowered to, so JavaScript's "omitted arguments are `undefined`"
-/// has to be materialized at the call site. `indirect_call_args_text` rendered
+/// has to be materialized at the call site. `indirect_call_args_expr` rendered
 /// only the arguments the source supplied, so a `try`-wrapped `work()` against
 /// an `Rc<dyn Fn(Option<String>) -> f64>` emitted `(work)()` and rustc rejected
 /// it with E0057 ("this function takes 1 argument but 0 arguments were
@@ -12693,7 +12693,7 @@ export function outer(): number {
         "the callback's optional parameter must survive into its Rust type:\n{source}"
     );
     // The padding is a bare `None`: `work` is a closure VALUE, whose own
-    // signature types the `Option` (`closure_value_padding_text`). The
+    // signature types the `Option` (`closure_value_padding_expr`). The
     // requirement is unchanged — the argument is present, not dropped; only
     // the turbofish the caller's view used to spell is gone, because that view
     // can be less precise than the callee's real signature.
@@ -12996,7 +12996,7 @@ export function copy(b: string[], n: number[], i: number): void {
 #[test]
 fn an_element_read_on_an_erased_receiver_misses_to_undefined() {
     // The same rule with the receiver erased instead of the destination: when
-    // the base is a `SmeltUnknown` the read goes through `unknown_index_text`,
+    // the base is a `SmeltUnknown` the read goes through `unknown_index_expr`,
     // which answered `SmeltUnknown::Null` for an out-of-range array or string
     // index. That is the `zipWith` defect — ragged inputs produced `"3null"`
     // where JavaScript produces `"3undefined"`. A missing OBJECT PROPERTY is a
@@ -13418,7 +13418,7 @@ def read(o: Ok) -> int:
 /// A method call on a union receiver dispatches by matching the tagged enum,
 /// with no dynamic erasure.
 ///
-/// The emitter has always been able to do this (`union_method_text`); what was
+/// The emitter has always been able to do this (`union_method_expr`); what was
 /// missing was the Python frontend emitting an ordinary `Method` expression for
 /// a union-typed receiver instead of rejecting it. The arms are concrete
 /// classes, so the call must stay concrete — routing it through `SmeltUnknown`
@@ -14585,7 +14585,7 @@ fn erased_object_field_list_alias_push_writes_back_an_aliasing_array() {
     // object, push into the local, and the object must observe the push.
     //
     // Extracting the field already ALIASES the stored array (see
-    // `erased_to_list_text`'s array arm, `SmeltList::with_storage`), so the
+    // `erased_to_list_expr`'s array arm, `SmeltList::with_storage`), so the
     // write-back has to hand back another handle on that same buffer. Rebuilding
     // the element vector detached the field from the local's buffer, re-breaking
     // the aliasing once per push, and cost an O(n) copy every time.
@@ -15278,7 +15278,7 @@ export function run(formatLong: FormatLong): string {
 /// over it must not run the erased numeric-conversion match.
 ///
 /// `place_ty` used to answer the erased fallback for the read while
-/// `typed_array_index_read_text` rendered `view.get(i).unwrap_or(0.0)`, so the
+/// `typed_array_index_read_expr` rendered `view.get(i).unwrap_or(0.0)`, so the
 /// conversion matched `SmeltUnknown` arms against an `f64` scrutinee and the
 /// crate did not compile (E0308, ~50 of them in one `hex()` helper). The text
 /// and the type are now decided by the same rule.

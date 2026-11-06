@@ -1,6 +1,7 @@
 //! Record-shaped coercion: a generated record's crossings to and from the
 //! erased carrier, field by field.
 
+use crate::rust::RustExpr;
 use std::collections::HashSet;
 
 use smelt_hir::{Type, TypeId};
@@ -95,29 +96,29 @@ pub(crate) fn emit_record_into_smelt_unknown_impl(
                     let field_source = if accessor_owner
                         .is_some_and(|owner| accessor_prelude::is_accessor_field(mir, owner, field.name))
                     {
-                        format!("({})", accessor_prelude::read_text(&format!("self.{field_name}")))
+                        format!("({})", accessor_prelude::read_expr(&format!("self.{field_name}")))
                     } else {
                         format!("self.{field_name}")
                     };
                     let value = match mir.types.get(field.ty) {
                         Some(Type::Optional(inner)) if absent_is_null => {
-                            record_field_unknown_text(mir, "smelt_present", *inner).map(|present| {
+                            record_field_unknown_expr(mir, &RustExpr::path("smelt_present"), *inner).map(|present| {
                                 format!(
                                     "{field_source}.map_or(SmeltUnknown::Null, |smelt_present| {present})"
                                 )
                             })
                         }
-                        _ => erased_function_field_text(
+                        _ => erased_function_field_expr(
                             mir,
                             context,
                             scoped_type_params,
-                            &field_source,
+                            &RustExpr::opaque(&field_source),
                             field.ty,
                         )
                         .map_or_else(
-                            || record_field_unknown_text(mir, &field_source, field.ty),
+                            || record_field_unknown_expr(mir, &RustExpr::opaque(&field_source), field.ty),
                             Ok,
-                        ),
+                        ).map(RustExpr::into_string),
                     }
                     .unwrap_or_else(|_| "SmeltUnknown::Null".to_owned());
                     fn_writer.line(format!("({key:?}.to_owned(), {value}),"));
@@ -328,7 +329,7 @@ fn emit_function_field_origin_restore(
 
 /// Recovers a value of type `ty` from a `SmeltUnknown` expression.
 ///
-/// The mirror of [`record_field_unknown_text`], and it exists for the same
+/// The mirror of [`record_field_unknown_expr`], and it exists for the same
 /// reason: a Rust TUPLE of an arity without an emitted `SmeltFromUnknown` impl has none, so the blanket
 /// `SmeltFromUnknown::smelt_from_unknown(…)` an erased adapter reaches for does
 /// not compile against a tuple parameter. `RegExpRouter#add`'s
@@ -343,39 +344,39 @@ fn emit_function_field_origin_restore(
 /// The `panic!` on a non-array matches the spelling the emitter's other
 /// tuple-extraction sites already use, rather than inventing a second answer for
 /// the same impossible input.
-pub(crate) fn record_field_from_unknown_text(
+pub(crate) fn record_field_from_unknown_expr(
     mir: &Mir,
-    value_text: &str,
+    value_text: &RustExpr,
     ty: TypeId,
-) -> Result<String, EmitError> {
+) -> Result<RustExpr, EmitError> {
     let Some(Type::Tuple(items)) = mir.types.get(ty) else {
-        return Ok(format!(
+        return Ok(RustExpr::atom(format!(
             "SmeltFromUnknown::smelt_from_unknown({value_text})"
-        ));
+        )));
     };
     let elements = items
         .iter()
         .enumerate()
         .map(|(index, item)| {
-            record_field_from_unknown_text(
+            record_field_from_unknown_expr(
                 mir,
-                &format!(
+                &RustExpr::chain(format!(
                     "smelt_tuple_values.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
-                ),
+                )),
                 *item,
             )
         })
         .collect::<Result<Vec<_>, _>>()?
         .join(", ");
-    Ok(format!(
+    Ok(RustExpr::atom(format!(
         "(if let SmeltUnknown::Array(smelt_tuple_values) = {value_text} {{ ({elements}) }} else {{ panic!(\"unknown is not tuple\") }})"
-    ))
+    )))
 }
 
 /// Erases a FUNCTION-typed record field (`p: (a: A) => R` or `p?: ..`) to a
 /// callable `SmeltUnknown`, or `None` for a signature this adapter declines.
 ///
-/// [`record_field_unknown_text`] spells a function field `SmeltUnknown::Null`
+/// [`record_field_unknown_expr`] spells a function field `SmeltUnknown::Null`
 /// because it has no emitter to render the adapter. The erased view of an
 /// interface struct then lost its methods: Hono's `Object.assign(this, rest)`
 /// copied a `Router` through such a view, and the router it read back had a
@@ -389,13 +390,13 @@ pub(crate) fn record_field_from_unknown_text(
 /// converted value. Declined, keeping the old spelling: rest, async and
 /// mutable-parameter signatures, an `impl` or `&mut` in the rendered type, and
 /// a parameter type that cannot be produced from an erased value.
-fn erased_function_field_text(
+fn erased_function_field_expr(
     mir: &Mir,
     context: &EmitContext,
     scoped_type_params: &HashSet<smelt_hir::Symbol>,
-    value_text: &str,
+    value_text: &RustExpr,
     ty: TypeId,
-) -> Option<String> {
+) -> Option<RustExpr> {
     let (optional, function_ty) = match mir.types.get(ty)? {
         Type::Optional(inner) => (true, *inner),
         _ => (false, ty),
@@ -450,12 +451,12 @@ fn erased_function_field_text(
         )
     };
     Some(if optional {
-        format!(
+        RustExpr::postfix_on(&value_text, format!(
             "{value_text}.map_or(SmeltUnknown::Undefined, |smelt_present| {})",
             adapter("smelt_present")
-        )
+        ))
     } else {
-        adapter(&format!("{value_text}.clone()"))
+        RustExpr::from(adapter(&format!("{value_text}.clone()")))
     })
 }
 
@@ -493,10 +494,10 @@ fn rendered_fn_params(rendered: &str) -> Option<Vec<String>> {
 }
 
 /// Renders a generated record field as a `SmeltUnknown` expression.
-pub(crate) fn record_field_unknown_text(mir: &Mir, value_text: &str, ty: TypeId) -> Result<String, EmitError> {
+pub(crate) fn record_field_unknown_expr(mir: &Mir, value_text: &RustExpr, ty: TypeId) -> Result<RustExpr, EmitError> {
     Ok(match mir.types.get(ty) {
         Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
-            format!("({value_text}).into_smelt_unknown()")
+            RustExpr::atom(format!("({value_text}).into_smelt_unknown()"))
         }
         Some(
             Type::None
@@ -506,27 +507,27 @@ pub(crate) fn record_field_unknown_text(mir: &Mir, value_text: &str, ty: TypeId)
             | Type::GeneratorResult { .. },
         )
         | None => {
-            "SmeltUnknown::Null".to_owned()
+            RustExpr::atom("SmeltUnknown::Null")
         }
-        Some(Type::Bool) => format!("SmeltUnknown::Bool({value_text})"),
-        Some(Type::Int | Type::FixedInt(_) | Type::Float) => format!("SmeltUnknown::Number({value_text} as f64)"),
-        Some(Type::BigInt) => format!("SmeltUnknown::BigInt(({value_text}).clone())"),
-        Some(Type::String) => erased_string(value_text),
+        Some(Type::Bool) => RustExpr::atom(format!("SmeltUnknown::Bool({value_text})")),
+        Some(Type::Int | Type::FixedInt(_) | Type::Float) => RustExpr::atom(format!("SmeltUnknown::Number({value_text} as f64)")),
+        Some(Type::BigInt) => RustExpr::atom(format!("SmeltUnknown::BigInt(({value_text}).clone())")),
+        Some(Type::String) => RustExpr::from(erased_string(value_text)),
         Some(Type::Optional(inner)) => {
-            let inner_text = record_field_unknown_text(mir, "value", *inner)?;
-            format!("{value_text}.map_or(SmeltUnknown::Undefined, |value| {inner_text})")
+            let inner_text = record_field_unknown_expr(mir, &RustExpr::path("value"), *inner)?;
+            RustExpr::postfix_on(&value_text, format!("{value_text}.map_or(SmeltUnknown::Undefined, |value| {inner_text})"))
         }
         Some(Type::List(item) | Type::Set(item)) => {
-            let item_text = record_field_unknown_text(mir, "value", *item)?;
-            format!(
+            let item_text = record_field_unknown_expr(mir, &RustExpr::path("value"), *item)?;
+            RustExpr::atom(format!(
                 "SmeltUnknown::Array({value_text}.into_iter().map(|value| {item_text}).collect())"
-            )
+            ))
         }
         Some(Type::Dict(key, item)) if matches!(mir.types.get(*key), Some(Type::String)) => {
-            let item_text = record_field_unknown_text(mir, "value", *item)?;
-            format!(
+            let item_text = record_field_unknown_expr(mir, &RustExpr::path("value"), *item)?;
+            RustExpr::atom(format!(
                 "SmeltUnknown::Object(SmeltObject::new({value_text}.into_iter().map(|(key, value)| (key, {item_text})).collect()))"
-            )
+            ))
         }
         // A tuple erases ELEMENT-WISE to a JS array, like every other structural
         // shape above it. It was grouped with the shapes that have an
@@ -543,17 +544,17 @@ pub(crate) fn record_field_unknown_text(mir: &Mir, value_text: &str, ty: TypeId)
                 .iter()
                 .enumerate()
                 .map(|(index, item)| {
-                    record_field_unknown_text(mir, &format!("smelt_tuple.{index}"), *item)
+                    record_field_unknown_expr(mir, &RustExpr::path(format!("smelt_tuple.{index}")), *item)
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
-            format!(
+            RustExpr::atom(format!(
                 "{{ let smelt_tuple = {value_text}; SmeltUnknown::Array(vec![{elements}].into()) }}"
-            )
+            ))
         }
         Some(Type::Dict(_, _) | Type::JsMap(_, _) | Type::Class { .. }) => {
-            format!("({value_text}).into_smelt_unknown()")
+            RustExpr::atom(format!("({value_text}).into_smelt_unknown()"))
         }
-        Some(Type::Function(_)) => "SmeltUnknown::Null".to_owned(),
+        Some(Type::Function(_)) => RustExpr::atom("SmeltUnknown::Null"),
     })
 }

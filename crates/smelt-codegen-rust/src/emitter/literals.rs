@@ -4,37 +4,37 @@ use super::*;
 use crate::rust::RustExpr;
 
 /// Converts a MIR constant to Rust source text.
-pub(crate) fn constant_text(constant: &Constant) -> String {
+pub(crate) fn constant_expr(constant: &Constant) -> RustExpr {
     match constant {
-        Constant::Bool(value) => value.to_string(),
-        Constant::Int(value) => value.to_string(),
-        Constant::BigInt(digits) => crate::bigint_prelude::literal_text(digits),
+        Constant::Bool(value) => RustExpr::from(value.to_string()),
+        Constant::Int(value) => RustExpr::from(value.to_string()),
+        Constant::BigInt(digits) => RustExpr::from(crate::bigint_prelude::literal_text(digits)),
         Constant::Float(value) => {
             if value.is_infinite() {
                 return if value.is_sign_negative() {
-                    "f64::NEG_INFINITY".to_owned()
+                    RustExpr::atom("f64::NEG_INFINITY")
                 } else {
-                    "f64::INFINITY".to_owned()
+                    RustExpr::atom("f64::INFINITY")
                 };
             }
             if value.is_nan() {
-                return "f64::NAN".to_owned();
+                return RustExpr::atom("f64::NAN");
             }
             if value.fract() == 0.0 {
-                format!("{value:.1}")
+                RustExpr::chain(format!("{value:.1}"))
             } else {
-                value.to_string()
+                RustExpr::chain(value.to_string())
             }
         }
-        Constant::String(value) => RustExpr::string_literal(value).into_string(),
+        Constant::String(value) => RustExpr::string_literal(value),
         Constant::Symbol(value) => {
-            format!(
+            RustExpr::atom(format!(
                 "SmeltUnknown::Symbol({}.into())",
                 RustExpr::string_literal(value).into_string()
-            )
+            ))
         }
-        Constant::Undefined => "()".to_owned(),
-        Constant::None => "()".to_owned(),
+        Constant::Undefined => RustExpr::atom("()"),
+        Constant::None => RustExpr::atom("()"),
     }
 }
 

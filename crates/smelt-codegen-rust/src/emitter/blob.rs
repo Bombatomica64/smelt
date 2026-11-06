@@ -5,6 +5,7 @@
 //! `await blob.text()` is a real future over the blob's bytes — no tagged
 //! record and no runtime member lookup in between.
 
+use crate::rust::RustExpr;
 use super::*;
 
 impl FunctionEmitter<'_> {
@@ -18,15 +19,15 @@ impl FunctionEmitter<'_> {
     /// byte-backed host record family) arrives erased and goes through the
     /// boundary adapter `SmeltBlob::from_parts_unknown`, which is also the one
     /// the reflected host constructor uses.
-    pub(super) fn blob_new_text(
+    pub(super) fn blob_new_expr(
         &self,
         parts: &Operand,
         blob_type: &Operand,
         name: Option<&Operand>,
         last_modified: Option<&Operand>,
-    ) -> Result<String, EmitError> {
-        let parts_text = self.operand_text(parts)?;
-        let type_text = self.operand_text(blob_type)?;
+    ) -> Result<RustExpr, EmitError> {
+        let parts_text = self.operand_expr(parts)?;
+        let type_text = self.operand_expr(blob_type)?;
         let parts_ty = self.operand_ty(parts)?;
         let concrete_constructor = match self.mir.types.get(parts_ty) {
             Some(&Type::List(item)) => {
@@ -41,61 +42,61 @@ impl FunctionEmitter<'_> {
             _ => None,
         };
         let name_text = match name {
-            Some(name_operand) => format!("Some(({}).clone())", self.operand_text(name_operand)?),
+            Some(name_operand) => format!("Some(({}).clone())", self.operand_expr(name_operand)?),
             None => "None".to_owned(),
         };
         let last_modified_text = match last_modified {
-            Some(operand) => format!("Some(({}) as f64)", self.operand_text(operand)?),
+            Some(operand) => format!("Some(({}) as f64)", self.operand_expr(operand)?),
             None => "None".to_owned(),
         };
         if let Some(constructor) = concrete_constructor {
-            return Ok(format!(
+            return Ok(RustExpr::opaque(format!(
                 "SmeltBlob::{constructor}(({parts_text}).clone().into(), ({type_text}).clone(), {name_text}, {last_modified_text})"
-            ));
+            )));
         }
-        Ok(format!(
+        Ok(RustExpr::atom(format!(
             "SmeltBlob::from_parts_unknown(({parts_text}).clone(), ({type_text}).clone(), {name_text}, {last_modified_text})"
-        ))
+        )))
     }
 
     /// Emit one `Blob`/`File` member as a method call.
-    pub(super) fn blob_op_text(
+    pub(super) fn blob_op_expr(
         &self,
         op: smelt_hir::BlobOp,
         blob: &Operand,
         args: &[Operand],
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
-        let receiver = self.operand_text(blob)?;
+    ) -> Result<RustExpr, EmitError> {
+        let receiver = self.operand_expr(blob)?;
         match op {
             smelt_hir::BlobOp::Size => {
                 let float_ty = self.type_id(Type::Float)?;
-                self.value_at_type_text(&format!("{receiver}.size()"), float_ty, dest_ty, &self.render_scope())
+                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.size()")), float_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
             }
             smelt_hir::BlobOp::LastModified => {
                 let float_ty = self.type_id(Type::Float)?;
-                self.value_at_type_text(&format!("{receiver}.last_modified()"), float_ty, dest_ty, &self.render_scope())
+                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.last_modified()")), float_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
             }
             smelt_hir::BlobOp::Type => {
                 let string_ty = self.type_id(Type::String)?;
-                self.value_at_type_text(&format!("{receiver}.blob_type()"), string_ty, dest_ty, &self.render_scope())
+                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.blob_type()")), string_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
             }
             smelt_hir::BlobOp::Name => {
                 let string_ty = self.type_id(Type::String)?;
-                self.value_at_type_text(&format!("{receiver}.file_name()"), string_ty, dest_ty, &self.render_scope())
+                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.file_name()")), string_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
             }
             // The body readers are `async` in the spec even though a blob's
             // bytes are already in memory: the source awaits them, so the value
             // has to be a real future or the `await` has nothing to poll.
-            smelt_hir::BlobOp::Text => Ok(format!(
+            smelt_hir::BlobOp::Text => Ok(RustExpr::atom(format!(
                 "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(smelt_blob.to_text()) }})) }}"
-            )),
-            smelt_hir::BlobOp::ArrayBuffer => Ok(self.carrier_format(format_args!(
-                "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltArrayBuffer::from_bytes(smelt_blob.to_bytes())) }})) }}"
             ))),
-            smelt_hir::BlobOp::Bytes => Ok(format!(
+            smelt_hir::BlobOp::ArrayBuffer => Ok(RustExpr::from(self.carrier_format(format_args!(
+                "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltArrayBuffer::from_bytes(smelt_blob.to_bytes())) }})) }}"
+            )))),
+            smelt_hir::BlobOp::Bytes => Ok(RustExpr::atom(format!(
                 "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltTypedArray::from_bytes(smelt_blob.to_bytes())) }})) }}"
-            )),
+            ))),
             smelt_hir::BlobOp::Slice => {
                 let float_ty = self.type_id(Type::Float)?;
                 let string_ty = self.type_id(Type::String)?;
@@ -109,11 +110,11 @@ impl FunctionEmitter<'_> {
                     None => "None".to_owned(),
                     Some(arg) => format!("Some({})", self.value_at_type(arg, string_ty)?),
                 };
-                Ok(format!(
+                Ok(RustExpr::postfix_on(&receiver, format!(
                     "{receiver}.slice({}, {}, {content_type})",
                     range(0)?,
                     range(1)?
-                ))
+                )))
             }
         }
     }

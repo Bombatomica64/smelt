@@ -6,12 +6,12 @@
 //! `Rc<RefCell<Inner>>` handle representation by `classify::reference_classes`)
 //! is ONE JavaScript object: every handle on the cell is the same object. Its
 //! erasure to `SmeltUnknown` (`IntoSmeltUnknown`, or the emitter's inline
-//! `class_unknown_object_text` adapter) builds an erased object carrying a
+//! `class_unknown_object_expr` adapter) builds an erased object carrying a
 //! snapshot of its own-property fields, its prototype members and a stable id
 //! derived from the cell address, so reads, method calls and `===` through the
 //! erased value already behave. Narrowing that erased value BACK to the record
 //! type, however, rebuilt the record from the snapshot
-//! (`string_dict_record_adapter_text`): a brand-new cell. Every write the
+//! (`string_dict_record_adapter`): a brand-new cell. Every write the
 //! recovered value then received landed on a copy nothing else could see.
 //!
 //! Hono's `compose` is the shape. Middleware is stored as `Function` in
@@ -32,10 +32,10 @@
 //! of the typed handle as `Box<dyn Any>`:
 //!
 //! * erasing a reference record stamps its handle into the slot
-//!   ([`with_origin_text`]);
+//!   ([`with_origin_expr`]);
 //! * narrowing an erased value to a reference record downcasts the slot to the
 //!   target handle type first, and only rebuilds from the snapshot when the
-//!   value did not come from an erasure of that type ([`restore_or_rebuild_text`]).
+//!   value did not come from an erasure of that type ([`restore_or_rebuild_expr`]).
 //!
 //! The slot is strong on purpose. A JavaScript reference keeps its object
 //! alive, so an erased view must too: `const x: unknown = new C()` drops the
@@ -66,11 +66,13 @@
     reason = "crate-visible helpers are shared with the prelude emitter and the emitter shards"
 )]
 
+use crate::rust::RustExpr;
+
 
 /// Stamp `handle` (an expression yielding the typed reference handle) as the
 /// origin of the erased object built by `object_ctor`.
-pub(crate) fn with_origin_text(object_ctor: &str, handle: &str) -> String {
-    format!("{object_ctor}.smelt_with_origin({handle}.clone())")
+pub(crate) fn with_origin_expr(object_ctor: &str, handle: &str) -> RustExpr {
+    RustExpr::postfix_on(&object_ctor, format!("{object_ctor}.smelt_with_origin({handle}.clone())"))
 }
 
 /// Recover a reference record from the record view `record`: the live handle
@@ -78,10 +80,10 @@ pub(crate) fn with_origin_text(object_ctor: &str, handle: &str) -> String {
 ///
 /// The handle type is inferred from `rebuild`'s type — both arms of the match
 /// must agree — so a generic record needs no spelled type arguments here.
-pub(crate) fn restore_or_rebuild_text(record: &str, rebuild: &str) -> String {
-    format!(
+pub(crate) fn restore_or_rebuild_expr(record: &str, rebuild: &str) -> RustExpr {
+    RustExpr::atom(format!(
         "match {record}.smelt_origin() {{ Some(smelt_origin) => smelt_origin, None => {rebuild} }}"
-    )
+    ))
 }
 
 /// Emit `SmeltFromUnknown` for a reference record's handle type.

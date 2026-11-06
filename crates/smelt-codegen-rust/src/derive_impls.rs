@@ -1,6 +1,7 @@
 //! Hand-written and gated `derive` impls of generated storage types, and the
 //! predicates deciding which of them a type gets.
 
+use crate::rust::RustExpr;
 use std::collections::HashSet;
 
 use smelt_hir::{Type, TypeId};
@@ -56,7 +57,7 @@ pub(crate) fn emit_default_impl_for_storage_type(
             field.ty,
             &TypeSubstitution::lexical(scoped_type_params),
         )
-        .unwrap_or_else(|_| "Default::default()".to_owned());
+        .unwrap_or_else(|_| RustExpr::atom("Default::default()"));
         let field_type_text = FunctionEmitter::type_text_for_with_scoped_type_params(
             mir,
             context,
@@ -84,12 +85,12 @@ pub(crate) fn emit_default_impl_for_storage_type(
             field_defaults.push((
                 field_name,
                 accessor_prelude::storage_type_text(&field_type_text),
-                accessor_prelude::constant_text(&default_value),
+                accessor_prelude::constant_expr(&default_value),
                 true,
             ));
             continue;
         }
-        field_defaults.push((field_name, field_type_text, default_value, is_callable_slot));
+        field_defaults.push((field_name, field_type_text, RustExpr::from(default_value), is_callable_slot));
     }
     let delegating_field_types = field_defaults
         .iter()

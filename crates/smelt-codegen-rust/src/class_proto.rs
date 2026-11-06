@@ -25,7 +25,7 @@
 //!
 //! that builds one erased, receiver-bound adapter per eligible method, keyed
 //! under [`METHOD_KEY_PREFIX`]. Both
-//! erasure paths (the inline `class_unknown_object_text` adapter and the
+//! erasure paths (the inline `class_unknown_object_expr` adapter and the
 //! generated `IntoSmeltUnknown` impl) append its result, so an instance erases
 //! the same way whichever path the emitter took.
 //!
@@ -50,13 +50,14 @@
     reason = "crate-visible helpers are shared with the parent module and the emitter shards"
 )]
 
+use crate::rust::RustExpr;
 use smelt_hir::{Type, TypeId};
 use smelt_mir::{FuncId, HirOrigin, LocalId, Mir, MirClass, MirFunction};
 
 use crate::emitter::{EmitContext, method_mutates_this};
 use crate::{
     EmitError, classes::effective_class_methods,
-    emitter::record_coercion::{record_field_unknown_text, type_supports_from_unknown},
+    emitter::record_coercion::{record_field_unknown_expr, type_supports_from_unknown},
     sanitize_ident,
 };
 
@@ -91,7 +92,7 @@ const ACCESSOR_PREFIXES: [&str; 2] = ["__smelt_get_", "__smelt_set_"];
 ///
 /// The outbound mirror of [`type_supports_from_unknown`]. `Never`, futures,
 /// generators and bare function handles have no faithful erased rendering —
-/// [`record_field_unknown_text`] answers `SmeltUnknown::Null` for them, which
+/// [`record_field_unknown_expr`] answers `SmeltUnknown::Null` for them, which
 /// would fabricate a value rather than report one — so a method returning one
 /// is not eligible. `None` (a `void` method) IS eligible: JavaScript answers
 /// `undefined`, which the carrier spells exactly.
@@ -176,10 +177,10 @@ pub(crate) fn method_is_proto_eligible(
 /// Keyed by the *defining* class, taken from the method's [`HirOrigin`], so a
 /// method a subclass inherits resolves to the same identity as the base's own
 /// read — again exactly the prototype-chain answer.
-pub(crate) fn method_identity_text(
+pub(crate) fn method_identity_expr(
     mir: &Mir,
     function: &MirFunction,
-) -> Result<Option<String>, EmitError> {
+) -> Result<Option<RustExpr>, EmitError> {
     let HirOrigin::ClassMethod { class, method, .. } = function.origin else {
         return Ok(None);
     };
@@ -192,7 +193,7 @@ pub(crate) fn method_identity_text(
         .get(method)
         .ok_or_else(|| EmitError::new("class method references an unknown symbol"))?;
     let key = format!("{class_name}::{method_name}");
-    Ok(Some(format!("smelt_method_identity({key:?})")))
+    Ok(Some(RustExpr::chain(format!("smelt_method_identity({key:?})"))))
 }
 
 /// Render the erased adapter expression for one eligible method.
@@ -202,11 +203,11 @@ pub(crate) fn method_identity_text(
 /// mutate), coerces each positional argument in through `SmeltFromUnknown`
 /// (padding missing arguments with `undefined`, as JavaScript does), calls the
 /// real typed method, and erases the typed result back out.
-fn method_adapter_text(
+fn method_adapter(
     mir: &Mir,
     function: &MirFunction,
     rust_method: &str,
-) -> Result<String, EmitError> {
+) -> Result<RustExpr, EmitError> {
     let mut args = Vec::new();
     for (index, param) in function.params.iter().skip(1).enumerate() {
         let local = local_decl(function, *param)
@@ -214,12 +215,12 @@ fn method_adapter_text(
         // The parameter's TYPE decides how it is recovered. This used to reach
         // for the blanket `SmeltFromUnknown` regardless — the declaration was
         // fetched and discarded — which does not compile for a parameter type
-        // that has no such impl. See `record_field_from_unknown_text`.
-        args.push(crate::emitter::record_coercion::record_field_from_unknown_text(
+        // that has no such impl. See `record_field_from_unknown_expr`.
+        args.push(crate::emitter::record_coercion::record_field_from_unknown_expr(
             mir,
-            &format!(
+            &RustExpr::chain(format!(
                 "smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
-            ),
+            )),
             local.ty,
         )?);
     }
@@ -235,12 +236,12 @@ fn method_adapter_text(
         // A `void` method evaluates to `undefined` in JavaScript.
         "{ let () = smelt_result; SmeltUnknown::Undefined }".to_owned()
     } else {
-        record_field_unknown_text(mir, "smelt_result", function.return_ty)?
+        record_field_unknown_expr(mir, &RustExpr::path("smelt_result"), function.return_ty)?.into_string()
     };
     // The adapter is a fresh allocation per erasure, but it denotes the ONE
     // prototype method; link it to that method's canonical identity so
     // `instance.m === OtherInstance.m` answers `true` as it does in JavaScript.
-    let identity = method_identity_text(mir, function)?;
+    let identity = method_identity_expr(mir, function)?;
     let body = format!(
         "{{ let smelt_receiver = self.clone(); \
          move |smelt_args: Vec<SmeltUnknown>| {{ let _ = &smelt_args; \
@@ -250,14 +251,14 @@ fn method_adapter_text(
     // link takes, and `shadow_unrelated` reads a same-name rebind here as a
     // second, unrelated binding.
     let Some(identity_key) = identity else {
-        return Ok(format!(
+        return Ok(RustExpr::atom(format!(
             "SmeltUnknown::Function(::std::rc::Rc::new({body}))"
-        ));
+        )));
     };
-    Ok(format!(
+    Ok(RustExpr::atom(format!(
         "{{ let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({body}); \
          smelt_link_function_identity_key(&smelt_method, {identity_key}); SmeltUnknown::Function(smelt_method) }}"
-    ))
+    )))
 }
 
 /// Emit the `__smelt_proto_entries` inherent method for a class.
@@ -291,7 +292,7 @@ pub(crate) fn class_proto_entries_method(
                 .get(name)
                 .ok_or_else(|| EmitError::new("class method references an unknown symbol"))?,
         );
-        let adapter = method_adapter_text(mir, function, &rust_method)?;
+        let adapter = method_adapter(mir, function, &rust_method)?;
         let key = format!("{METHOD_KEY_PREFIX}{source_name}");
         pushes.push(format!(
             "        smelt_proto_entries.push(({key:?}.to_owned(), {adapter}));\n"

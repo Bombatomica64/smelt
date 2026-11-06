@@ -8,7 +8,7 @@ use smelt_mir::Mir;
 use crate::classes::{
     self, NominalStorage, class_impl_generics_text, class_name_text, class_type_params_text,
     effective_class_fields, effective_interface_fields, interface_impl_generics_text,
-    interface_type_params_text, materialized_static_value_text, type_holds_function,
+    interface_type_params_text, materialized_static_value, type_holds_function,
 };
 use crate::derive_impls::{
     class_is_json_serializable, derive_generics_text, emit_clone_impl_for_value_class,
@@ -467,7 +467,7 @@ fn emit_class_type(
                         &TypeSubstitution::lexical(&scoped_type_params),
                     )
                     .unwrap_or_else(|_| "SmeltUnknown".to_owned());
-                    let value = materialized_static_value_text(field.value.as_ref());
+                    let value = materialized_static_value(field.value.as_ref());
                     impl_writer.block(
                         format!("fn __smelt_static_{field_name}() -> {field_ty}"),
                         |function_writer| function_writer.line(value),

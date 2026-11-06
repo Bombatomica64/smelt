@@ -1,6 +1,7 @@
 //! Storage of reference records: the `Rc<RefCell<_>>` handle newtype, its inner
 //! record and the impls that keep identity on the handle.
 
+use crate::rust::RustExpr;
 use std::collections::HashSet;
 
 use smelt_mir::{Mir, MirFunction};
@@ -8,12 +9,12 @@ use smelt_mir::{Mir, MirFunction};
 use crate::classes::{
     class_impl_generics_text, class_name_text, class_type_args_text, class_type_params_text,
     NominalStorage, effective_class_fields, effective_class_methods,
-    materialized_static_value_text, type_holds_function,
+    materialized_static_value, type_holds_function,
 };
 use crate::derive_impls::{
     derive_generics_text, emit_debug_impl_for_storage_type, emit_default_impl_for_storage_type,
 };
-use crate::emitter::record_coercion::record_field_unknown_text;
+use crate::emitter::record_coercion::record_field_unknown_expr;
 use crate::emitter::{self, EmitContext, FunctionEmitter};
 use crate::rust::{CodeWriter, RustIdent};
 use crate::type_substitution::TypeSubstitution;
@@ -324,7 +325,7 @@ pub(crate) fn emit_reference_record_storage(
                         &TypeSubstitution::lexical(&scoped_type_params),
                     )
                     .unwrap_or_else(|_| "SmeltUnknown".to_owned());
-                    let value = materialized_static_value_text(field.value.as_ref());
+                    let value = materialized_static_value(field.value.as_ref());
                     impl_writer.block(
                         format!("fn __smelt_static_{field_name}() -> {field_ty}"),
                         |function_writer| function_writer.line(value),
@@ -474,18 +475,18 @@ fn emit_reference_class_into_smelt_unknown_impl(
                         .get(field.name)
                         .or_else(|| mir.symbols.get(field.name))
                         .unwrap_or("field");
-                    let value = record_field_unknown_text(
+                    let value = record_field_unknown_expr(
                         mir,
-                        &format!("__smelt_inner.{field_name}.clone()"),
+                        &RustExpr::chain(format!("__smelt_inner.{field_name}.clone()")).ending_in_clone(),
                         field.ty,
                     )
-                    .unwrap_or_else(|_| "SmeltUnknown::Null".to_owned());
+                    .unwrap_or_else(|_| RustExpr::atom("SmeltUnknown::Null"));
                     // A closure capturing this instance weakly must hold it
                     // strongly once it is reachable from an erased view.
                     let value = if weak_fields.contains(&field.name) {
                         format!("smelt_keep_receiver_alive({value}, &self)")
                     } else {
-                        value
+                        value.into_string()
                     };
                     fn_writer.line(format!("({key:?}.to_owned(), {value}),"));
                 }
@@ -496,13 +497,13 @@ fn emit_reference_class_into_smelt_unknown_impl(
                 // A property write through this view reaches the instance
                 // (see `emitter::view_write_through`).
                 if has_field_setter {
-                    fn_writer.line(emitter::view_write_through::erased_view_entry_text("self", "__smelt_entries", has_live_reads));
+                    fn_writer.line(emitter::view_write_through::erased_view_entry_expr(&RustExpr::path("self"), "__smelt_entries", has_live_reads));
                 }
                 // The erased view holds the live handle, so narrowing it back
                 // yields this instance (see `reference_origin`).
                 fn_writer.line(format!(
                     "SmeltUnknown::Object({})",
-                    reference_origin::with_origin_text("SmeltObject::with_id(__smelt_id, __smelt_entries)", "self")
+                    reference_origin::with_origin_expr("SmeltObject::with_id(__smelt_id, __smelt_entries)", "self")
                 ));
             });
         },

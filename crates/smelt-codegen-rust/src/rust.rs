@@ -6,30 +6,299 @@
 //! migrate expression, statement, and item emission here incrementally without
 //! changing the MIR-facing codegen API all at once.
 
-/// A Rust expression fragment that has already been rendered as source text.
+/// Where a rendered Rust expression sits on the emitter's precedence ladder,
+/// tightest first.
+///
+/// The producer of an expression states this, so a consumer asks the value
+/// whether it needs wrapping instead of reading its text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Precedence {
+    /// An identifier or dotted field path: `a`, `self.items`.
+    Path,
+    /// A primary followed only by field, method and index postfixes, with no
+    /// path separator in the spine: `a.b()`, `xs[0].y`, `"k".to_owned()`.
+    Chain,
+    /// Binds as tightly as a postfix expression but does not start a plain
+    /// chain: a path call, a turbofish, a parenthesized group, a block, a
+    /// `match`, a macro. Generated code spells `(Foo::new()).clone()` for these.
+    Atom,
+    /// An `as` cast. A further cast needs no parentheses; a postfix does.
+    Cast,
+    /// A loose top-level operator: a binary or unary operator, a closure, an
+    /// `if`, a range.
+    Loose,
+    /// The producer did not say. Treated as [`Self::Loose`], which can only
+    /// cost a pair of parentheses.
+    Unstated,
+}
+
+impl Precedence {
+    /// Whether this expression can take a postfix without changing how the
+    /// generated source spells it.
+    #[must_use]
+    pub fn is_chain(self) -> bool {
+        matches!(self, Self::Path | Self::Chain)
+    }
+
+    /// Whether a postfix, a cast or a unary operator can be applied to this
+    /// expression without parentheses.
+    #[must_use]
+    pub fn binds_tightly(self) -> bool {
+        self <= Self::Atom
+    }
+}
+
+/// What a value knows about its own form; bare text knows nothing.
+pub trait Formed {
+    /// How tightly this expression binds.
+    fn precedence(&self) -> Precedence;
+    /// TEMPORARY migration audit.
+    fn origin(&self) -> String { "bare".to_owned() }
+}
+
+impl Formed for str {
+    fn precedence(&self) -> Precedence {
+        Precedence::Unstated
+    }
+}
+
+impl Formed for String {
+    fn precedence(&self) -> Precedence {
+        Precedence::Unstated
+    }
+}
+
+impl<T: Formed + ?Sized> Formed for &T {
+    fn precedence(&self) -> Precedence {
+        (**self).precedence()
+    }
+    fn origin(&self) -> String { (**self).origin() }
+}
+
+/// The spelling of a method-call clone, as [`RustExpr::ending_in_clone`] records it.
+const CLONE_SUFFIX: &str = ".clone()";
+
+/// A Rust expression fragment that has been rendered as source text, with the
+/// facts its producer knows about that text.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RustExpr(String);
+pub struct RustExpr {
+    /// The rendered source.
+    text: String,
+    /// How tightly the rendered text binds.
+    precedence: Precedence,
+    /// Whether the text ends in a `.clone()` call, so it is already owned.
+    clone_tail: bool,
+    /// Whether the text is `"literal".to_owned()`, the emitter's own spelling of
+    /// a string constant.
+    owned_literal: bool,
+    /// TEMPORARY migration audit: who built this expression.
+    pub origin: &'static std::panic::Location<'static>,
+}
 
 impl RustExpr {
+    /// `text`, at `precedence`.
+    #[track_caller]
+    fn with_precedence(text: impl Into<String>, precedence: Precedence) -> Self {
+        Self { text: text.into(), precedence, clone_tail: false, owned_literal: false, origin: std::panic::Location::caller() }
+    }
+
+    /// An identifier or field path.
+    #[must_use]
+    pub fn path(text: impl Into<String>) -> Self {
+        Self::with_precedence(text, Precedence::Path)
+    }
+
+    /// A postfix chain; see [`Precedence::Chain`].
+    #[must_use]
+    pub fn chain(text: impl Into<String>) -> Self {
+        Self::with_precedence(text, Precedence::Chain)
+    }
+
+    /// A tightly binding non-chain; see [`Precedence::Atom`].
+    #[must_use]
+    pub fn atom(text: impl Into<String>) -> Self {
+        Self::with_precedence(text, Precedence::Atom)
+    }
+
+    /// An `as` cast.
+    #[must_use]
+    pub fn cast(text: impl Into<String>) -> Self {
+        Self::with_precedence(text, Precedence::Cast)
+    }
+
+    /// An expression with a loose top-level operator.
+    #[must_use]
+    pub fn loose(text: impl Into<String>) -> Self {
+        Self::with_precedence(text, Precedence::Loose)
+    }
+
+    /// An expression whose producer does not state its form.
+    #[must_use]
+    #[track_caller]
+    pub fn opaque(text: impl Into<String>) -> Self {
+        Self::with_precedence(text, Precedence::Unstated)
+    }
+
+    /// `text`, a postfix applied to `receiver`: it binds as `receiver` does.
+    #[must_use]
+    #[track_caller]
+    pub fn postfix_on(receiver: &(impl Formed + ?Sized), text: impl Into<String>) -> Self {
+        let precedence = match receiver.precedence() {
+            Precedence::Path => Precedence::Chain,
+            other => other,
+        };
+        Self::with_precedence(text, precedence)
+    }
+
+    /// `text`, a postfix on `receiver` whose spine holds a path separator or a
+    /// turbofish: an [`Precedence::Atom`] at best.
+    #[must_use]
+    #[track_caller]
+    pub fn atom_on(receiver: &(impl Formed + ?Sized), text: impl Into<String>) -> Self {
+        Self::with_precedence(text, receiver.precedence().max(Precedence::Atom))
+    }
+
+    /// This expression, recorded as ending in a `.clone()` call.
+    #[must_use]
+    pub fn ending_in_clone(mut self) -> Self {
+        self.clone_tail = true;
+        self
+    }
+
     /// Creates an owned Rust `String` expression from arbitrary string data.
     ///
     /// The literal body is escaped with Rust's debug string formatter, then
     /// `.to_owned()` is appended to match Smelt's generated `String` convention.
     #[must_use]
     pub fn string_literal(value: &str) -> Self {
-        Self(format!("{value:?}.to_owned()"))
+        Self::chain(format!("{value:?}.to_owned()")).owned_literal()
+    }
+
+    /// This expression, recorded as spelling `"literal".to_owned()`.
+    #[must_use]
+    pub fn owned_literal(mut self) -> Self {
+        self.owned_literal = true;
+        self
+    }
+
+    /// How tightly this expression binds.
+    #[must_use]
+    pub fn binding(&self) -> Precedence {
+        self.precedence
+    }
+
+    /// Whether this expression spells `"literal".to_owned()`.
+    #[must_use]
+    pub fn is_owned_literal(&self) -> bool {
+        self.owned_literal
+    }
+
+    /// An owned copy of this value, without cloning what is already owned.
+    ///
+    /// `X.clone().clone()` computes exactly `X.clone()`: `Clone::clone` takes
+    /// `&self` and returns an owned value, so a second call re-copies a temporary
+    /// nothing else observes. A chain keeps the plain `value.clone()` spelling; any
+    /// other form is parenthesised so the result splices into a larger expression.
+    #[must_use]
+    pub fn cloned_value(&self) -> Self {
+        match (self.precedence.is_chain(), self.clone_tail) {
+            (true, true) => self.clone(),
+            (true, false) => Self::chain(format!("{}{CLONE_SUFFIX}", self.text)).ending_in_clone(),
+            (false, true) => Self::atom(format!("({})", self.text)),
+            (false, false) => Self::atom(format!("({}){CLONE_SUFFIX}", self.text)).ending_in_clone(),
+        }
+    }
+
+    /// A shared borrow of the value this expression evaluates to.
+    ///
+    /// A chain keeps the plain `&value` spelling and loses a trailing `.clone()`:
+    /// `a.clone()` and `a` borrow equal values, so the copy is dead weight behind
+    /// a `&`. Any looser expression is parenthesised so the `&` cannot bind more
+    /// tightly than the caller meant.
+    #[must_use]
+    pub fn borrowed_value(&self) -> Self {
+        if !self.precedence.is_chain() {
+            return Self::loose(format!("&({})", self.text));
+        }
+        let place = if self.clone_tail {
+            &self.text[..self.text.len() - CLONE_SUFFIX.len()]
+        } else {
+            self.text.as_str()
+        };
+        Self::loose(format!("&{place}"))
+    }
+
+    /// The text, parenthesized only when it cannot take a postfix or a cast.
+    #[must_use]
+    pub fn parenthesized_if_needed(&self) -> String {
+        if self.precedence.binds_tightly() {
+            self.text.clone()
+        } else {
+            format!("({})", self.text)
+        }
     }
 
     /// Returns the rendered source text for this expression.
     #[must_use]
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.text
     }
 
     /// Consumes the expression and returns its rendered source text.
     #[must_use]
     pub fn into_string(self) -> String {
-        self.0
+        self.text
+    }
+}
+
+impl Formed for RustExpr {
+    fn precedence(&self) -> Precedence {
+        self.precedence
+    }
+    fn origin(&self) -> String { format!("{}:{}", self.origin.file(), self.origin.line()) }
+}
+
+impl From<String> for RustExpr {
+    /// Text whose producer states nothing about it.
+    #[track_caller]
+    fn from(text: String) -> Self {
+        Self::opaque(text)
+    }
+}
+
+impl From<&str> for RustExpr {
+    /// Text whose producer states nothing about it.
+    #[track_caller]
+    fn from(text: &str) -> Self {
+        Self::opaque(text)
+    }
+}
+
+impl From<RustExpr> for String {
+    fn from(expr: RustExpr) -> Self {
+        expr.text
+    }
+}
+
+impl std::borrow::Borrow<str> for RustExpr {
+    /// Lets a slice of expressions `join` into a comma-separated list.
+    fn borrow(&self) -> &str {
+        &self.text
+    }
+}
+
+impl AsRef<str> for RustExpr {
+    fn as_ref(&self) -> &str {
+        &self.text
+    }
+}
+
+impl std::ops::Deref for RustExpr {
+    type Target = str;
+
+    /// The text, for the positions that splice it into a larger template.
+    fn deref(&self) -> &str {
+        &self.text
     }
 }
 

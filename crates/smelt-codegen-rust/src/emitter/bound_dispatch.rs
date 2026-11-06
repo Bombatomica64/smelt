@@ -9,7 +9,7 @@
 //!   static type already does: the class's own (or inherited) method, the
 //!   function stored in a virtual slot or interface method property, or a
 //!   stored field read;
-//! * [`FunctionEmitter::bound_method_text`] / [`FunctionEmitter::bound_field_text`]
+//! * [`FunctionEmitter::bound_method_expr`] / [`FunctionEmitter::bound_field_expr`]
 //!   render one member access. When the receiver's type parameter is a real
 //!   Rust generic in scope the access goes through the trait (`a.speak()`);
 //!   otherwise the parameter erased at this function — no trait, a call site
@@ -18,6 +18,7 @@
 //!   produced before bounds were typed, now converted to the bound's declared
 //!   result type.
 
+use crate::rust::RustExpr;
 use smelt_hir::{Symbol, Type, TypeId};
 use smelt_mir::{Mir, Operand};
 
@@ -196,16 +197,16 @@ impl FunctionEmitter<'_> {
 
     /// Render `receiver.method(args)` where the receiver's type is a bounded
     /// type parameter (`Rvalue::BoundMethod`).
-    pub(super) fn bound_method_text(
+    pub(super) fn bound_method_expr(
         &self,
         receiver: &Operand,
         bound: Symbol,
         method: Symbol,
         args: &[Operand],
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let receiver_ty = self.operand_ty(receiver)?;
-        let receiver_text = self.bound_receiver_text(receiver)?;
+        let receiver_text = self.bound_receiver_expr(receiver)?;
         if let Some(member) = self.bound_trait_member(receiver_ty, bound, method)
             && let BoundMemberKind::Method { params, ret, throws } = &member.kind
         {
@@ -217,13 +218,13 @@ impl FunctionEmitter<'_> {
                 .join(", ");
             let suffix = if *throws { "?" } else { "" };
             let call = format!("{receiver_text}.{}({args_text}){suffix}", member.rust_name);
-            return self.value_at_type_text(&call, *ret, dest_ty, &self.render_scope());
+            return self.rendered_at_type(&RustExpr::opaque(&call), *ret, dest_ty, &self.render_scope()).map(RustExpr::from);
         }
         // The parameter erased here: look the method up on the erased value,
         // as JavaScript does, and call it through the erased call ABI.
         let erased_args = args
             .iter()
-            .map(|arg| self.erase_value_text(&self.operand_text(arg)?, self.operand_ty(arg)?))
+            .map(|arg| self.erase_rendered(&self.operand_expr(arg)?, self.operand_ty(arg)?))
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
         let method_name = self.symbol_name(method)?;
@@ -238,41 +239,41 @@ impl FunctionEmitter<'_> {
         // MIR interns `unknown` for every program with a bound member read
         // (`intern_bound_dispatch_carrier_type`).
         let unknown_ty = self.type_id(Type::Unknown)?;
-        self.value_at_type_text(&call, unknown_ty, dest_ty, &self.render_scope())
+        self.rendered_at_type(&RustExpr::opaque(&call), unknown_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
     }
 
     /// Render `receiver.field` where the receiver's type is a bounded type
     /// parameter (`Rvalue::BoundField`).
-    pub(super) fn bound_field_text(
+    pub(super) fn bound_field_expr(
         &self,
         receiver: &Operand,
         bound: Symbol,
         field: Symbol,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let receiver_ty = self.operand_ty(receiver)?;
-        let receiver_text = self.bound_receiver_text(receiver)?;
+        let receiver_text = self.bound_receiver_expr(receiver)?;
         if let Some(member) = self.bound_trait_member(receiver_ty, bound, field)
             && let BoundMemberKind::Field { ty } = &member.kind
         {
             let read = format!("{receiver_text}.{}()", member.rust_name);
-            return self.value_at_type_text(&read, *ty, dest_ty, &self.render_scope());
+            return self.rendered_at_type(&RustExpr::opaque(&read), *ty, dest_ty, &self.render_scope()).map(RustExpr::from);
         }
         let field_name = self.symbol_name(field)?;
         let read = format!("smelt_get_unknown_field(&{receiver_text}, {field_name:?})");
         let unknown_ty = self.type_id(Type::Unknown)?;
-        self.value_at_type_text(&read, unknown_ty, dest_ty, &self.render_scope())
+        self.rendered_at_type(&RustExpr::opaque(&read), unknown_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
     }
 
     /// The receiver of a bound member access, borrowed in place: both the
     /// trait method (`&self`) and the erased lookup (`&SmeltUnknown`) only
     /// borrow it, so a whole-local operand is read without the copy
-    /// `operand_text` would render for it.
-    fn bound_receiver_text(&self, receiver: &Operand) -> Result<String, EmitError> {
+    /// `operand_expr` would render for it.
+    fn bound_receiver_expr(&self, receiver: &Operand) -> Result<RustExpr, EmitError> {
         match receiver {
             Operand::Copy(smelt_mir::Place::Local(local))
-            | Operand::Move(smelt_mir::Place::Local(local)) => self.local_value_text(*local),
-            Operand::Copy(_) | Operand::Move(_) | Operand::Const(_) => self.operand_text(receiver),
+            | Operand::Move(smelt_mir::Place::Local(local)) => self.local_value(*local),
+            Operand::Copy(_) | Operand::Move(_) | Operand::Const(_) => self.operand_expr(receiver),
         }
     }
 

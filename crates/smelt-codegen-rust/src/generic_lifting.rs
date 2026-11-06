@@ -468,7 +468,7 @@ fn type_param_used_as_map_key(mir: &Mir, function: &MirFunction, name: Symbol) -
 /// which §1.3 describes and which no textual annotation can repair:
 ///
 /// a. the callback argument is **omitted**, so the trailing-default loop
-///    renders `borrowed_default_function_text` and no closure carries the type;
+///    renders `borrowed_default_function_expr` and no closure carries the type;
 /// b. the argument's static type is **invisible** to the shared analysis
 ///    (`operand_type` returns `Err`), so which renderer runs cannot be
 ///    predicted;
@@ -1162,7 +1162,7 @@ fn type_param_inferable_through_callback(
         // `SmeltErasedFunction`. The *parameter* declaration of a borrowed one
         // still goes through `param_type_text`, so the callee would advertise
         // a real `Fn` bound — but every call site hands it a
-        // `SmeltErasedFunction` VALUE (`function_shape_adapter_text` bails out
+        // `SmeltErasedFunction` VALUE (`function_shape_adapter` bails out
         // early when both sides are that shape), and that struct implements no
         // `Fn` trait, so there is nothing to infer through and the argument
         // would not even satisfy the bound. This exclusion lives

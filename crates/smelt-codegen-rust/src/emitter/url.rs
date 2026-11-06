@@ -8,6 +8,7 @@
 //! * the fallible calls `Rvalue::UrlNew` and the `href` setter, whose trailing
 //!   `?` is what marks them throwing to the call-terminator emitter.
 
+use crate::rust::RustExpr;
 use crate::emitter::call::CallText;
 use smelt_hir::{Type, TypeId, UrlField, UrlOp};
 use smelt_mir::Operand;
@@ -38,22 +39,22 @@ impl FunctionEmitter<'_> {
     /// A write answers the ASSIGNED text, which is what the source assignment
     /// expression evaluates to. The `href` write never reaches here: it throws,
     /// so MIR gives it a call terminator (`Callee::Op`).
-    pub(super) fn url_op_text(
+    pub(super) fn url_op_expr(
         &self,
         op: UrlOp,
         url: &Operand,
         args: &[Operand],
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         // Every `SmeltUrl` method takes `&self`: the handle is shared, so a
         // write through the borrow is observed by every alias.
-        let receiver = self.operand_borrow_text(url)?;
+        let receiver = self.operand_borrow_expr(url)?;
         let string_ty = self.type_id(Type::String)?;
         let scope = self.render_scope();
         match op {
             UrlOp::Get(field) => {
                 let text = format!("{receiver}.{}()", Self::url_getter(field));
-                self.value_at_type_text(&text, string_ty, dest_ty, &scope)
+                self.rendered_at_type(&RustExpr::opaque(&text), string_ty, dest_ty, &scope).map(RustExpr::from)
             }
             UrlOp::Set(field) => {
                 if !field.is_settable() || field == UrlField::Href {
@@ -70,7 +71,7 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_url_value: String = {value_text}; {receiver}.set_{}(&smelt_url_value); smelt_url_value }}",
                     Self::url_getter(field)
                 );
-                self.value_at_type_text(&text, string_ty, dest_ty, &scope)
+                self.rendered_at_type(&RustExpr::opaque(&text), string_ty, dest_ty, &scope).map(RustExpr::from)
             }
             UrlOp::SearchParams => {
                 let params_ty = self
@@ -78,12 +79,12 @@ impl FunctionEmitter<'_> {
                     .ok_or_else(|| {
                         EmitError::new("`URL.searchParams` needs the URLSearchParams type interned")
                     })?;
-                self.value_at_type_text(
-                    &format!("{receiver}.search_params()"),
+                self.rendered_at_type(
+                    &RustExpr::postfix_on(&receiver, format!("{receiver}.search_params()")),
                     params_ty,
                     dest_ty,
                     &scope,
-                )
+                ).map(RustExpr::from)
             }
         }
     }
@@ -93,11 +94,11 @@ impl FunctionEmitter<'_> {
         let input = args
             .first()
             .ok_or_else(|| EmitError::new("`new URL` takes an input"))?;
-        let input_text = self.string_like_operand_text(input, "URL input")?;
+        let input_text = self.string_like_operand_expr(input, "URL input")?;
         let base_text = match args.get(1) {
             Some(base) => format!(
                 "Some({}.as_str())",
-                self.string_like_operand_text(base, "URL base")?
+                self.string_like_operand_expr(base, "URL base")?
             ),
             None => "None".to_owned(),
         };
@@ -109,8 +110,8 @@ impl FunctionEmitter<'_> {
         let [url, value] = args else {
             return Err(EmitError::new("`URL.href` assignment takes a URL and a value"));
         };
-        let url_text = self.operand_borrow_text(url)?;
-        let value_text = self.string_like_operand_text(value, "URL href")?;
+        let url_text = self.operand_borrow_expr(url)?;
+        let value_text = self.string_like_operand_expr(value, "URL href")?;
         Ok(CallText::propagating(format!("{URL_SET_HREF_FN}(&{url_text}, {value_text})")))
     }
 

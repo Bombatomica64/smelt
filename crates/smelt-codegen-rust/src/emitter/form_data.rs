@@ -12,80 +12,81 @@
 //! stores the concrete two-arm `SmeltFormDataValue`. Both are concrete, so the
 //! seam is a `match` in either direction rather than an erasure, and the arm
 //! wrapping goes through the ordinary union injection
-//! (`inject_union_value_text`) so the generated union's arm numbering is never
+//! (`inject_union_value`) so the generated union's arm numbering is never
 //! spelled here.
 
+use crate::rust::RustExpr;
 use super::*;
 
 impl FunctionEmitter<'_> {
     /// Emit one `FormData` member as a method call on a concrete receiver.
-    pub(super) fn form_data_op_text(
+    pub(super) fn form_data_op_expr(
         &self,
         op: smelt_hir::FormDataOp,
         form: &Operand,
         args: &[Operand],
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
-        let receiver = self.operand_text(form)?;
+    ) -> Result<RustExpr, EmitError> {
+        let receiver = self.operand_expr(form)?;
         let string_ty = self.type_id(Type::String)?;
         let name = |index: usize| -> Result<String, EmitError> {
             let Some(argument) = args.get(index) else {
                 return Err(EmitError::new("a FormData name argument is missing"));
             };
-            self.value_at_type(argument, string_ty)
+            self.value_at_type(argument, string_ty).map(RustExpr::into_string)
         };
         match op {
             smelt_hir::FormDataOp::Has => {
                 let bool_ty = self.type_id(Type::Bool)?;
-                self.value_at_type_text(&format!("{receiver}.has(&{})", name(0)?), bool_ty, dest_ty, &self.render_scope())
+                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.has(&{})", name(0)?)), bool_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
             }
-            smelt_hir::FormDataOp::Delete => Ok(format!("{receiver}.delete(&{})", name(0)?)),
+            smelt_hir::FormDataOp::Delete => Ok(RustExpr::postfix_on(&receiver, format!("{receiver}.delete(&{})", name(0)?))),
             smelt_hir::FormDataOp::Set | smelt_hir::FormDataOp::Append => {
                 let method = if matches!(op, smelt_hir::FormDataOp::Set) {
                     "set"
                 } else {
                     "append"
                 };
-                let value = self.form_data_entry_value_text(args.get(1), args.get(2))?;
-                Ok(format!("{receiver}.{method}(&{}, {value})", name(0)?))
+                let value = self.form_data_entry_value(args.get(1), args.get(2))?;
+                Ok(RustExpr::postfix_on(&receiver, format!("{receiver}.{method}(&{}, {value})", name(0)?)))
             }
             smelt_hir::FormDataOp::Keys => {
                 let list_ty = self.type_id(Type::List(string_ty))?;
-                self.value_at_type_text(
-                    &format!("SmeltList::new({receiver}.keys())"),
+                self.rendered_at_type(
+                    &RustExpr::atom(format!("SmeltList::new({receiver}.keys())")),
                     list_ty,
                     dest_ty,
                     &self.render_scope(),
-                )
+                ).map(RustExpr::from)
             }
             smelt_hir::FormDataOp::Get => {
                 let value_ty = self.form_data_value_type_id()?;
                 let source_ty = self.type_id(Type::Optional(value_ty))?;
-                let arm = self.form_data_value_to_union_text("smelt_entry", value_ty)?;
-                self.value_at_type_text(
-                    &format!("{receiver}.get(&{}).map(|smelt_entry| {arm})", name(0)?),
+                let arm = self.form_data_value_to_union_expr(&RustExpr::path("smelt_entry"), value_ty)?;
+                self.rendered_at_type(
+                    &RustExpr::postfix_on(&receiver, format!("{receiver}.get(&{}).map(|smelt_entry| {arm})", name(0)?)),
                     source_ty,
                     dest_ty,
                     &self.render_scope(),
-                )
+                ).map(RustExpr::from)
             }
             smelt_hir::FormDataOp::GetAll | smelt_hir::FormDataOp::Values => {
                 let value_ty = self.form_data_value_type_id()?;
                 let source_ty = self.type_id(Type::List(value_ty))?;
-                let arm = self.form_data_value_to_union_text("smelt_entry", value_ty)?;
+                let arm = self.form_data_value_to_union_expr(&RustExpr::path("smelt_entry"), value_ty)?;
                 let call = if matches!(op, smelt_hir::FormDataOp::GetAll) {
                     format!("{receiver}.get_all(&{})", name(0)?)
                 } else {
                     format!("{receiver}.values()")
                 };
-                self.value_at_type_text(
-                    &format!(
+                self.rendered_at_type(
+                    &RustExpr::atom(format!(
                         "SmeltList::new({call}.into_iter().map(|smelt_entry| {arm}).collect::<Vec<_>>())"
-                    ),
+                    )),
                     source_ty,
                     dest_ty,
                     &self.render_scope(),
-                )
+                ).map(RustExpr::from)
             }
             smelt_hir::FormDataOp::Entries => {
                 // The DESTINATION's own pair type wins when it has one. The
@@ -100,22 +101,22 @@ impl FunctionEmitter<'_> {
                 // stopping the whole crate in the emitter.
                 let (pair_ty, value_ty) = self.form_data_entry_pair_types(dest_ty)?;
                 let source_ty = self.type_id(Type::List(pair_ty))?;
-                let arm = self.form_data_value_to_union_text("smelt_entry", value_ty)?;
-                self.value_at_type_text(
-                    &format!(
+                let arm = self.form_data_value_to_union_expr(&RustExpr::path("smelt_entry"), value_ty)?;
+                self.rendered_at_type(
+                    &RustExpr::atom(format!(
                         "SmeltList::new({receiver}.entries_in_order().into_iter().map(|(smelt_name, smelt_entry)| (smelt_name, {arm})).collect::<Vec<_>>())"
-                    ),
+                    )),
                     source_ty,
                     dest_ty,
                     &self.render_scope(),
-                )
+                ).map(RustExpr::from)
             }
             // The one callback member on this surface. It walks the same
             // insertion-ordered entry list `entries()` answers and calls back
             // with the spec's `(value, name, form)`, forwarding as many of the
             // three as the callback declares — a one-parameter callback is
             // called with one argument, exactly as JavaScript does.
-            smelt_hir::FormDataOp::ForEach => self.form_data_for_each_text(&receiver, args),
+            smelt_hir::FormDataOp::ForEach => self.form_data_for_each_expr(&receiver, args),
         }
     }
 
@@ -131,11 +132,11 @@ impl FunctionEmitter<'_> {
     /// forward `(item, index, array)`: JavaScript passes all three and a
     /// callback that declares one takes one, and a generated Rust closure has a
     /// fixed arity, so the argument list has to match what was declared.
-    fn form_data_for_each_text(
+    fn form_data_for_each_expr(
         &self,
-        receiver: &str,
+        receiver: &RustExpr,
         args: &[Operand],
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let Some(callback) = args.first() else {
             return Err(EmitError::new("`FormData.forEach` requires a callback"));
         };
@@ -145,12 +146,12 @@ impl FunctionEmitter<'_> {
                 "`FormData.forEach` requires a callback with a function type",
             ));
         };
-        let closure_text = match self.closure_operand_text_for_declared_type(callback) {
+        let closure_expr = match self.closure_operand_expr_for_declared_type(callback) {
             Ok(text) => text,
-            Err(_) => self.operand_text(callback)?,
+            Err(_) => RustExpr::from(self.operand_expr(callback)?.into_string()),
         };
         let value_ty = self.form_data_value_type_id()?;
-        let value_arm = self.form_data_value_to_union_text("smelt_entry", value_ty)?;
+        let value_arm = self.form_data_value_to_union_expr(&RustExpr::path("smelt_entry"), value_ty)?;
         let available = [
             "smelt_value".to_owned(),
             "smelt_name.clone()".to_owned(),
@@ -161,10 +162,10 @@ impl FunctionEmitter<'_> {
             .take(function_ty.params.len().min(available.len()))
             .cloned()
             .collect::<Vec<_>>();
-        let call_text = self.callback_invocation_text(&function_ty, &forwarded.join(", "));
-        Ok(format!(
-            "{{ let smelt_callback = {closure_text}; for (smelt_name, smelt_entry) in {receiver}.entries_in_order() {{ let smelt_value = {value_arm}; let _ = {call_text}; }} () }}"
-        ))
+        let call_text = self.callback_invocation_expr(&function_ty, &forwarded.join(", "));
+        Ok(RustExpr::atom(format!(
+            "{{ let smelt_callback = {closure_expr}; for (smelt_name, smelt_entry) in {receiver}.entries_in_order() {{ let smelt_value = {value_arm}; let _ = {call_text}; }} () }}"
+        )))
     }
 
     /// Emit a `set`/`append` value argument as a `SmeltFormDataValue`.
@@ -181,11 +182,11 @@ impl FunctionEmitter<'_> {
     ///
     /// Anything else is a named blocker: accepting it would mean stringifying a
     /// value the source did not ask to stringify.
-    fn form_data_entry_value_text(
+    fn form_data_entry_value(
         &self,
         value: Option<&Operand>,
         filename: Option<&Operand>,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let Some(value) = value else {
             return Err(EmitError::new("a FormData value argument is missing"));
         };
@@ -195,14 +196,14 @@ impl FunctionEmitter<'_> {
             Some(operand) => format!("Some({})", self.value_at_type(operand, string_ty)?),
         };
         let value_ty = self.operand_ty(value)?;
-        let value_text = self.operand_text(value)?;
+        let value_text = self.operand_expr(value)?;
         if matches!(self.mir.types.get(value_ty), Some(Type::String)) {
-            return Ok(format!("SmeltFormDataValue::Text(({value_text}).clone())"));
+            return Ok(RustExpr::atom(format!("SmeltFormDataValue::Text(({value_text}).clone())")));
         }
         if self.is_blob_class_type(value_ty)? {
-            return Ok(format!(
+            return Ok(RustExpr::chain(format!(
                 "smelt_form_data_file_value(({value_text}).clone(), {filename_text})"
-            ));
+            )));
         }
         if let Some(members) = self.concrete_union_members(value_ty) {
             let members = members.to_vec();
@@ -222,7 +223,7 @@ impl FunctionEmitter<'_> {
                     union::union_name(value_ty)
                 ));
             }
-            return Ok(format!("match ({value_text}).clone() {{ {} }}", arms.join(", ")));
+            return Ok(RustExpr::atom(format!("match ({value_text}).clone() {{ {} }}", arms.join(", "))));
         }
         Err(EmitError::new(
             "a FormData value must be a string or a Blob/File",
@@ -235,11 +236,11 @@ impl FunctionEmitter<'_> {
     /// into the union through the shared union injection, so the arm indices
     /// come from the union's own member order rather than from an assumption
     /// spelled here.
-    fn form_data_value_to_union_text(
+    fn form_data_value_to_union_expr(
         &self,
-        value_text: &str,
+        value_text: &RustExpr,
         union_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let string_ty = self.type_id(Type::String)?;
         let Some(members) = self.concrete_union_members(union_ty) else {
             return Err(EmitError::new(
@@ -254,14 +255,14 @@ impl FunctionEmitter<'_> {
                 EmitError::new("the FormData entry value union has no File member")
             })?;
         let text_arm = self
-            .inject_union_value_text("smelt_text", string_ty, union_ty, &self.render_scope())?
+            .inject_union_value(&RustExpr::path("smelt_text"), string_ty, union_ty, &self.render_scope())?
             .ok_or_else(|| EmitError::new("the FormData entry value has no string member"))?;
         let file_arm = self
-            .inject_union_value_text("smelt_file", file_ty, union_ty, &self.render_scope())?
+            .inject_union_value(&RustExpr::path("smelt_file"), file_ty, union_ty, &self.render_scope())?
             .ok_or_else(|| EmitError::new("the FormData entry value has no File member"))?;
-        Ok(format!(
+        Ok(RustExpr::atom(format!(
             "match {value_text} {{ SmeltFormDataValue::Text(smelt_text) => {text_arm}, SmeltFormDataValue::File(smelt_file) => {file_arm} }}"
-        ))
+        )))
     }
 
     /// The `(name, value)` pair type an entries projection answers, and the

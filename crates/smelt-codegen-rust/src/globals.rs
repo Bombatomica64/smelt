@@ -1,5 +1,6 @@
 //! Module-level mutable globals: their thread-local cells and static names.
 
+use crate::rust::RustExpr;
 use smelt_hir::Type;
 use smelt_mir::{Mir, MirGlobalInit};
 
@@ -30,7 +31,7 @@ pub(crate) fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<S
         // — and that timing is exactly JavaScript's "module state is
         // initialized before any consumer runs", per generated test thread.
         let init = match &global.init {
-            MirGlobalInit::Constant(constant) => emitter::literals::constant_text(constant),
+            MirGlobalInit::Constant(constant) => emitter::literals::constant_expr(constant),
             MirGlobalInit::Call(func_id) => {
                 let function = mir
                     .functions
@@ -63,9 +64,9 @@ pub(crate) fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<S
                 // during module evaluation is always uncaught in JavaScript.
                 if function.can_throw {
                     any_fallible_init = true;
-                    format!("{function_name}().unwrap_or_else(|error| smelt_module_init_failed(error))")
+                    RustExpr::postfix_on(&function_name, format!("{function_name}().unwrap_or_else(|error| smelt_module_init_failed(error))"))
                 } else {
-                    format!("{function_name}()")
+                    RustExpr::postfix_on(&function_name, format!("{function_name}()"))
                 }
             }
         };

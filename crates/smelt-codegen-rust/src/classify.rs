@@ -97,7 +97,7 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
 /// instance needs it bound to its own most-derived method from construction
 /// on, not only when converted to a base type. The constructor binds it
 /// through a `Weak` handle on the instance's cell
-/// (`FunctionEmitter::bind_own_virtual_slots_text`), which only the
+/// (`FunctionEmitter::bind_own_virtual_slots_expr`), which only the
 /// reference representation has: a value struct cannot hand a closure a
 /// handle to itself. Before this, `new A().f()` with `f() { return this.g() }`
 /// called the slot's default closure.

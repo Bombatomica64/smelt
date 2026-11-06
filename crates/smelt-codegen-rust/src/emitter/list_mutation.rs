@@ -1,5 +1,6 @@
 //! List Mutation emission helpers.
 
+use crate::rust::RustExpr;
 use super::*;
 
 /// Source location for a list local copied out of a mutable JavaScript property.
@@ -26,12 +27,12 @@ impl FunctionEmitter<'_> {
     /// list is mutated through the container's entry accessor, which is what a
     /// hand-written Rust port does (`groups.entry(key).or_default().push(x)`) and
     /// which copies neither the old nor the new group.
-    pub(super) fn dict_entry_push_text(
+    pub(super) fn dict_entry_push_expr(
         &self,
         entry: &Operand,
         item: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let (Operand::Copy(Place::Index { base, index, .. })
         | Operand::Move(Place::Index { base, index, .. })) = entry
         else {
@@ -55,13 +56,13 @@ impl FunctionEmitter<'_> {
         };
         let entry_key_ty = *key_ty;
         let entry_ty = *value_ty;
-        let base_text = self.local_mut_value_text(*base)?;
+        let base_text = self.local_mut_value(*base)?;
         let key_text = if self.mir.types.get(entry_key_ty) == Some(&Type::String) {
             let source_key = self.operand_ty(index.as_ref())?;
-            let index_text = self.operand_text(index.as_ref())?;
-            self.property_key_to_string_text(&index_text, source_key)?
+            let index_text = self.operand_expr(index.as_ref())?;
+            self.property_key_to_string_expr(&index_text, source_key)?
         } else {
-            self.value_at_type(index.as_ref(), entry_key_ty)?
+            RustExpr::from(self.value_at_type(index.as_ref(), entry_key_ty)?)
         };
         let default_value = self.default_value(entry_ty)?;
         let item_text = self.value_at_type(item, *item_ty)?;
@@ -83,7 +84,7 @@ impl FunctionEmitter<'_> {
         // Either way the slot derefs to the list, never to its backing
         // `Vec` — `SmeltList` owns its values behind an `Rc<RefCell<..>>`
         // and so implements no `DerefMut` — so the push goes through
-        // `list_write_text`, the same borrow every other list write uses
+        // `list_write_expr`, the same borrow every other list write uses
         // (`smelt_slot.push(..)` does not resolve: E0599).
         let accessor = if self.dict_uses_js_key_map(entry_key_ty)
             || self.dict_uses_smelt_record(entry_key_ty)
@@ -100,19 +101,19 @@ impl FunctionEmitter<'_> {
         };
         // The write guard is a statement-local temporary, so it is released
         // before `{result}` reads the length back through the slot.
-        let push_text = list_write_text("smelt_slot");
-        return Ok(format!(
+        let push_text = list_write_expr(&RustExpr::path("smelt_slot"));
+        return Ok(RustExpr::atom(format!(
             "{{ let smelt_push_item = {item_text}; let smelt_slot = {accessor}; {push_text}.push(smelt_push_item); {result} }}"
-        ));
+        )));
     }
 
     /// Converts a list push operation to Rust text.
-    pub(super) fn list_push_text(
+    pub(super) fn list_push_expr(
         &self,
         list: &Operand,
         item: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list push receiver must be a list"));
@@ -133,7 +134,7 @@ impl FunctionEmitter<'_> {
                 Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
             )
         {
-            let base_text = self.local_mut_value_text(*base)?;
+            let base_text = self.local_mut_value(*base)?;
             // Source property name, not the Rust-mangled symbol: this reads and
             // rewrites a field of an ERASED object, whose keys are JavaScript
             // property names. Mangling made `obj.someList.push(x)` look up
@@ -169,16 +170,16 @@ impl FunctionEmitter<'_> {
             // non-object base), and the `other =>` arm has to create the object.
             // Storing an already-stored handle back over itself is a pointer
             // write, so there is nothing to gain from making it conditional.
-            return Ok(self.carrier_format(format_args!(
+            return Ok(RustExpr::from(self.carrier_format(format_args!(
                 "{{ let smelt_array = match {base_text}.clone() {{ SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"{field_name}\") {{ SmeltUnknown::Array(values) => values, _ => SmeltArray::new(Vec::new()) }}, _ => SmeltArray::new(Vec::new()) }}; let smelt_push_item = ({item_text}).into_smelt_unknown(); smelt_array.push(smelt_push_item); let smelt_result = {result}; let smelt_value = SmeltUnknown::Array(smelt_array); match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert(\"{field_name}\".to_owned(), smelt_value); }}, other => {{ let map = SmeltObject::new(Vec::from([(\"{field_name}\".to_owned(), smelt_value)])); *other = SmeltUnknown::Object(map); }} }} smelt_result }}"
-            )));
+            ))));
         }
         if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = list
             && let Some(ListAliasOrigin::Field { base, field }) = self.list_alias_origin(*local)
             && self.list_alias_base_is_erased_object(base)?
         {
-            let list_text = self.local_value_text(*local)?;
-            let base_text = self.local_mut_value_text(base)?;
+            let list_text = self.local_value(*local)?;
+            let base_text = self.local_mut_value(base)?;
             let field_name = self.symbol_name(field)?;
             let item_text = self.value_at_type(item, *item_ty)?;
             let result = if returns_length {
@@ -186,7 +187,7 @@ impl FunctionEmitter<'_> {
             } else {
                 "()".to_owned()
             };
-            let list_mut = list_write_text(&list_text);
+            let list_mut = list_write_expr(&list_text);
             // Materialize the pushed item into a temp before the push, ALWAYS.
             // The receiver's `borrow_mut()` guard must never coexist with a read
             // borrow of the same shared buffer ("already borrowed"), and since a
@@ -197,10 +198,10 @@ impl FunctionEmitter<'_> {
             // is a runtime property. One `let` removes the whole class.
             let push_expr =
                 format!("let smelt_push_item = {item_text}; {list_mut}.push(smelt_push_item);");
-            let smelt_value_text = self.erased_array_writeback_value_text(&list_text, list_ty);
-            return Ok(self.carrier_format(format_args!(
+            let smelt_value_text = self.erased_array_writeback_value(&list_text, list_ty);
+            return Ok(RustExpr::from(self.carrier_format(format_args!(
                 "{{ {push_expr} let smelt_result = {result}; let smelt_value = {smelt_value_text}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert(\"{field_name}\".to_owned(), smelt_value); }}, other => {{ let map = SmeltObject::new(Vec::from([(\"{field_name}\".to_owned(), smelt_value)])); *other = SmeltUnknown::Object(map); }} }} smelt_result }}"
-            )));
+            ))));
         }
         if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = list
             && let Some(ListAliasOrigin::Index { base, index }) = self.list_alias_origin(*local)
@@ -208,14 +209,14 @@ impl FunctionEmitter<'_> {
                 self.mir.types.get(self.local_decl(base)?.ty)
             && *value_ty == list_ty
         {
-            let list_text = self.local_value_text(*local)?;
-            let base_text = self.local_mut_value_text(base)?;
+            let list_text = self.local_value(*local)?;
+            let base_text = self.local_mut_value(base)?;
             let key_text = if self.mir.types.get(*key_ty) == Some(&Type::String) {
                 let source_key = self.operand_ty(index.as_ref())?;
-                let index_text = self.operand_text(index.as_ref())?;
-                self.property_key_to_string_text(&index_text, source_key)?
+                let index_text = self.operand_expr(index.as_ref())?;
+                self.property_key_to_string_expr(&index_text, source_key)?
             } else {
-                self.value_at_type(index.as_ref(), *key_ty)?
+                RustExpr::from(self.value_at_type(index.as_ref(), *key_ty)?)
             };
             let item_text = self.value_at_type(item, *item_ty)?;
             let result = if returns_length {
@@ -223,7 +224,7 @@ impl FunctionEmitter<'_> {
             } else {
                 "()".to_owned()
             };
-            let list_mut = list_write_text(&list_text);
+            let list_mut = list_write_expr(&list_text);
             // Materialize the pushed item into a temp before the push, ALWAYS.
             // The receiver's `borrow_mut()` guard must never coexist with a read
             // borrow of the same shared buffer ("already borrowed"), and since a
@@ -234,16 +235,16 @@ impl FunctionEmitter<'_> {
             // is a runtime property. One `let` removes the whole class.
             let push_expr =
                 format!("let smelt_push_item = {item_text}; {list_mut}.push(smelt_push_item);");
-            return Ok(format!(
+            return Ok(RustExpr::atom(format!(
                 "{{ {push_expr} let smelt_result = {result}; {base_text}.insert({key_text}, {list_text}.clone()); smelt_result }}"
-            ));
+            )));
         }
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
             return Err(EmitError::new(
                 "list push receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_value_text(*local)?;
+        let list_text = self.local_value(*local)?;
         let item_text = self.value_at_type(item, *item_ty)?;
         // Evaluate the pushed item into a temporary BEFORE taking the list's
         // mutable borrow in `.push`. Rust evaluates a method receiver before its
@@ -257,13 +258,13 @@ impl FunctionEmitter<'_> {
         // reads through a second handle), and the syntactic "does the item
         // mention this local" test that used to gate it cannot see that.
         // Aliasing is a runtime property; one `let` removes the whole class.
-        let list_mut = list_write_text(&list_text);
+        let list_mut = list_write_expr(&list_text);
         let push_expr =
             format!("let smelt_push_item = {item_text}; {list_mut}.push(smelt_push_item);");
         if returns_length {
-            Ok(format!("{{ {push_expr} {list_text}.len() as f64 }}"))
+            Ok(RustExpr::atom(format!("{{ {push_expr} {list_text}.len() as f64 }}")))
         } else {
-            Ok(format!("{{ {push_expr} () }}"))
+            Ok(RustExpr::atom(format!("{{ {push_expr} () }}")))
         }
     }
 
@@ -276,7 +277,7 @@ impl FunctionEmitter<'_> {
     /// and `SmeltArray` model that with the identical representation: an `id`
     /// plus a shared `Rc<RefCell<Vec<SmeltUnknown>>>`. When the list's elements
     /// already render as `SmeltUnknown`, extracting the field into the typed
-    /// local was a re-wrap of the SAME array (`erased_to_list_text`'s array arm
+    /// local was a re-wrap of the SAME array (`erased_to_list_expr`'s array arm
     /// calls `SmeltList::with_storage(values.id, values.storage())`), so the
     /// push has ALREADY landed in the buffer the object's field points at. The
     /// value written back must therefore be another handle on that one array —
@@ -306,13 +307,13 @@ impl FunctionEmitter<'_> {
     /// [`Self::list_items_render_as_unknown`]: an in-scope type parameter is a
     /// real Rust generic whose elements must be converted, while an out-of-scope
     /// one is erased to `SmeltUnknown` and aliases.
-    fn erased_array_writeback_value_text(&self, list_text: &str, list_ty: TypeId) -> String {
+    fn erased_array_writeback_value(&self, list_text: &RustExpr, list_ty: TypeId) -> RustExpr {
         if self.list_items_render_as_unknown(list_ty, &self.render_scope()) {
-            self.carrier_format(format_args!("SmeltUnknown::Array({list_text}.clone().into())"))
+            RustExpr::from(self.carrier_format(format_args!("SmeltUnknown::Array({list_text}.clone().into())")))
         } else {
-            self.carrier_format(format_args!(
+            RustExpr::from(self.carrier_format(format_args!(
                 "SmeltUnknown::Array({list_text}.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())"
-            ))
+            )))
         }
     }
 
@@ -385,12 +386,12 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a list extend operation to Rust text.
-    pub(super) fn list_extend_text(
+    pub(super) fn list_extend_expr(
         &self,
         list: &Operand,
         other: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) {
             return Err(EmitError::new("list extend receiver must be a list"));
@@ -400,9 +401,9 @@ impl FunctionEmitter<'_> {
         // `value_at_type` conversion instead of failing; genuinely unconvertible
         // shapes still produce that helper's honest error.
         let other_text = if self.operand_ty(other)? == list_ty {
-            self.operand_text(other)?
+            self.operand_expr(other)?
         } else {
-            self.value_at_type(other, list_ty)?
+            RustExpr::from(self.value_at_type(other, list_ty)?)
         };
         let returns_length = match self.mir.types.get(dest_ty) {
             Some(Type::Float) => true,
@@ -418,20 +419,20 @@ impl FunctionEmitter<'_> {
                 "list extend receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_value_text(*local)?;
+        let list_text = self.local_value(*local)?;
         // The extended-from list is bound before the receiver's write borrow, so
         // `a.extend(a)` cannot hold a read guard and a write guard on one shared
         // buffer at the same time.
-        let list_mut = list_write_text(&list_text);
-        let other_read = list_read_text("smelt_extend_from");
+        let list_mut = list_write_expr(&list_text);
+        let other_read = list_read_expr(&RustExpr::path("smelt_extend_from"));
         if returns_length {
-            Ok(format!(
+            Ok(RustExpr::atom(format!(
                 "{{ let smelt_extend_from = {other_text}; {list_mut}.extend({other_read}.iter().cloned()); {list_text}.len() as f64 }}"
-            ))
+            )))
         } else {
-            Ok(format!(
+            Ok(RustExpr::atom(format!(
                 "{{ let smelt_extend_from = {other_text}; {list_mut}.extend({other_read}.iter().cloned()); () }}"
-            ))
+            )))
         }
     }
 
@@ -440,13 +441,13 @@ impl FunctionEmitter<'_> {
     /// Python accepts negative indexes with insertion-before-end behavior. This
     /// direct mapping intentionally rejects negative indexes at runtime until
     /// Python-compatible negative-index lowering is modeled explicitly.
-    pub(super) fn list_insert_text(
+    pub(super) fn list_insert_expr(
         &self,
         list: &Operand,
         index: &Operand,
         item: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list insert receiver must be a list"));
@@ -467,22 +468,22 @@ impl FunctionEmitter<'_> {
                 "list insert receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_value_text(*local)?;
-        let index_text = self.operand_text(index)?;
-        let item_text = self.operand_text(item)?;
-        let list_mut = list_write_text(&list_text);
-        Ok(format!(
+        let list_text = self.local_value(*local)?;
+        let index_text = self.operand_expr(index)?;
+        let item_text = self.operand_expr(item)?;
+        let list_mut = list_write_expr(&list_text);
+        Ok(RustExpr::atom(format!(
             "{{ let insert_index = usize::try_from({index_text}).expect(\"list insert negative index\"); let smelt_insert_item = {item_text}; {list_mut}.insert(insert_index, smelt_insert_item); () }}"
-        ))
+        )))
     }
 
     /// Converts a list unshift operation to Rust text.
-    pub(super) fn list_unshift_text(
+    pub(super) fn list_unshift_expr(
         &self,
         list: &Operand,
         items: &[Operand],
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list unshift receiver must be a list"));
@@ -502,25 +503,25 @@ impl FunctionEmitter<'_> {
                 "list unshift receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_value_text(*local)?;
+        let list_text = self.local_value(*local)?;
         let mut statements = Vec::with_capacity(items.len().saturating_add(1));
-        let list_mut = list_write_text(&list_text);
+        let list_mut = list_write_expr(&list_text);
         for item in items.iter().rev() {
-            let item_text = self.operand_text(item)?;
+            let item_text = self.operand_expr(item)?;
             statements.push(format!(
                 "let smelt_unshift_item = {item_text}; {list_mut}.insert(0, smelt_unshift_item);"
             ));
         }
         statements.push(format!("{list_text}.len() as f64"));
-        Ok(format!("{{ {} }}", statements.join(" ")))
+        Ok(RustExpr::atom(format!("{{ {} }}", statements.join(" "))))
     }
 
     /// Converts a list reverse operation to Rust text.
-    pub(super) fn list_reverse_text(
+    pub(super) fn list_reverse_expr(
         &self,
         list: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) {
             return Err(EmitError::new("list reverse receiver must be a list"));
@@ -539,21 +540,21 @@ impl FunctionEmitter<'_> {
                 "list reverse receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_value_text(*local)?;
-        let list_mut = list_write_text(&list_text);
+        let list_text = self.local_value(*local)?;
+        let list_mut = list_write_expr(&list_text);
         if returns_list {
-            Ok(format!("{{ {list_mut}.reverse(); {list_text}.clone() }}"))
+            Ok(RustExpr::atom(format!("{{ {list_mut}.reverse(); {list_text}.clone() }}")))
         } else {
-            Ok(format!("{{ {list_mut}.reverse(); () }}"))
+            Ok(RustExpr::atom(format!("{{ {list_mut}.reverse(); () }}")))
         }
     }
 
     /// Converts a list pop operation to Rust text.
-    pub(super) fn list_pop_text(
+    pub(super) fn list_pop_expr(
         &self,
         list: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list pop receiver must be a list"));
@@ -564,24 +565,24 @@ impl FunctionEmitter<'_> {
                 "list pop receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_value_text(*local)?;
+        let list_text = self.local_value(*local)?;
         // `Array.prototype.pop` yields `item | undefined`. The two exact-match
         // fast paths keep the historical output; any other destination (e.g. a
         // widened/narrowed optional whose inner differs from the list item type,
         // as when the item type is a union) coerces the popped value to the
         // destination through the standard coercion seam instead of aborting.
-        let list_mut = list_write_text(&list_text);
+        let list_mut = list_write_expr(&list_text);
         match self.mir.types.get(dest_ty) {
-            Some(Type::Optional(inner)) if *inner == item_ty => Ok(format!("{list_mut}.pop()")),
+            Some(Type::Optional(inner)) if *inner == item_ty => Ok(RustExpr::postfix_on(&list_mut, format!("{list_mut}.pop()"))),
             _ if dest_ty == item_ty => {
-                Ok(format!("{list_mut}.pop().expect(\"pop from empty list\")"))
+                Ok(RustExpr::postfix_on(&list_mut, format!("{list_mut}.pop().expect(\"pop from empty list\")")))
             }
             Some(Type::Optional(_)) => {
                 let pop_ty = self.type_id(Type::Optional(item_ty))?;
-                self.value_at_type_text(&format!("{list_mut}.pop()"), pop_ty, dest_ty, &self.render_scope())
+                self.rendered_at_type(&RustExpr::postfix_on(&list_mut, format!("{list_mut}.pop()")), pop_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
             }
-            _ => self.value_at_type_text(
-                &format!("{list_mut}.pop().expect(\"pop from empty list\")"),
+            _ => self.rendered_at_type(
+                &RustExpr::postfix_on(&list_mut, format!("{list_mut}.pop().expect(\"pop from empty list\")")),
                 item_ty,
                 dest_ty,
                 &self.render_scope(),
@@ -590,11 +591,11 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a list shift operation to Rust text.
-    pub(super) fn list_shift_text(
+    pub(super) fn list_shift_expr(
         &self,
         list: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list shift receiver must be a list"));
@@ -610,19 +611,19 @@ impl FunctionEmitter<'_> {
                 "list shift receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_value_text(*local)?;
-        let list_mut = list_write_text(&list_text);
-        Ok(format!(
+        let list_text = self.local_value(*local)?;
+        let list_mut = list_write_expr(&list_text);
+        Ok(RustExpr::loose(format!(
             "if {list_text}.is_empty() {{ None }} else {{ Some({list_mut}.remove(0)) }}"
-        ))
+        )))
     }
 
     /// Converts JavaScript iterator `next()` over a lowered list to Rust text.
-    pub(super) fn list_next_text(
+    pub(super) fn list_next_expr(
         &self,
         list: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list next receiver must be a list"));
@@ -636,20 +637,20 @@ impl FunctionEmitter<'_> {
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
             return Err(EmitError::new("list next receiver must be a mutable local"));
         };
-        let list_text = self.local_value_text(*local)?;
-        let list_mut = list_write_text(&list_text);
-        Ok(format!(
+        let list_text = self.local_value(*local)?;
+        let list_mut = list_write_expr(&list_text);
+        Ok(RustExpr::loose(format!(
             "if {list_text}.is_empty() {{ SmeltGeneratorResult::Complete(()) }} else {{ SmeltGeneratorResult::Yielded({list_mut}.remove(0)) }}"
-        ))
+        )))
     }
 
     /// Converts a collection clear operation to Rust text.
-    pub(super) fn collection_clear_text(
+    pub(super) fn collection_clear_expr(
         &self,
         collection: &Operand,
         dest_ty: TypeId,
         collection_name: &str,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let collection_ty = self.operand_ty(collection)?;
         let expected_collection = match collection_name {
             "list" => matches!(self.mir.types.get(collection_ty), Some(Type::List(_))),
@@ -678,17 +679,17 @@ impl FunctionEmitter<'_> {
                 "{collection_name} clear receiver must be a place operand"
             )));
         };
-        let collection_text = self.assignment_place_text(collection_place)?;
-        Ok(format!("{{ {collection_text}.clear(); () }}"))
+        let collection_text = self.assignment_place_expr(collection_place)?;
+        Ok(RustExpr::atom(format!("{{ {collection_text}.clear(); () }}")))
     }
 
     /// Converts a list remove operation to Rust text.
-    pub(super) fn list_remove_text(
+    pub(super) fn list_remove_expr(
         &self,
         list: &Operand,
         item: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list remove receiver must be a list"));
@@ -706,25 +707,25 @@ impl FunctionEmitter<'_> {
                 "list remove receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_value_text(*local)?;
-        let item_text = self.operand_text(item)?;
+        let list_text = self.local_value(*local)?;
+        let item_text = self.operand_expr(item)?;
         // The search runs under a read borrow that a `let` ends before the
         // removal takes its write borrow of the same shared buffer.
-        let list_read = list_read_text(&list_text);
-        let list_mut = list_write_text(&list_text);
+        let list_read = list_read_expr(&list_text);
+        let list_mut = list_write_expr(&list_text);
         if self.list_item_uses_same_value_zero(*item_ty) {
             if self.mir.types.get(*item_ty) == Some(&Type::Float) {
-                return Ok(format!(
+                return Ok(RustExpr::atom(format!(
                     "{{ let smelt_needle = {item_text}; let remove_index = {list_read}.iter().position(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).expect(\"list remove missing item\"); {list_mut}.remove(remove_index); () }}"
-                ));
+                )));
             }
-            return Ok(self.carrier_format(format_args!(
+            return Ok(RustExpr::from(self.carrier_format(format_args!(
                 "{{ let smelt_needle = {item_text}; let remove_index = {list_read}.iter().position(|item| item.same_js_key(&smelt_needle)).expect(\"list remove missing item\"); {list_mut}.remove(remove_index); () }}"
-            )));
+            ))));
         }
-        Ok(format!(
+        Ok(RustExpr::atom(format!(
             "{{ let smelt_needle = {item_text}; let remove_index = {list_read}.iter().position(|item| item == &smelt_needle).expect(\"list remove missing item\"); {list_mut}.remove(remove_index); () }}"
-        ))
+        )))
     }
 
     /// Converts a list sort operation to Rust text.
@@ -733,14 +734,14 @@ impl FunctionEmitter<'_> {
     /// ordering for the currently supported item types. TypeScript callers use
     /// the list destination, so codegen sorts by stringified item text to match
     /// JavaScript's no-comparator `Array.prototype.sort` behavior.
-    pub(super) fn list_sort_text(
+    pub(super) fn list_sort_expr(
         &self,
         list: &Operand,
         comparator: Option<&Operand>,
         key: Option<&Operand>,
         reverse: bool,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list sort receiver must be a list"));
@@ -758,50 +759,50 @@ impl FunctionEmitter<'_> {
                 "list sort receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_value_text(*local)?;
+        let list_text = self.local_value(*local)?;
         // The sort rewrites the shared buffer in place, so every alias of this
         // array sees the new order — which is what `Array.prototype.sort` does.
         // KNOWN LIMITATION: a comparator that reads the array it is sorting
         // (legal in JavaScript) reads the same cell while this write borrow is
         // live and panics "already borrowed"; it was an E0502 borrow error when
         // the elements were an inline `Vec`.
-        let list_mut = list_write_text(&list_text);
+        let list_mut = list_write_expr(&list_text);
         let result_text = if returns_list {
             format!("{list_text}.clone()")
         } else {
             "()".to_owned()
         };
         if let Some(comparator_operand) = comparator {
-            return self.list_sort_comparator_text(
+            return self.list_sort_comparator_expr(
                 comparator_operand,
                 element_ty,
                 returns_list,
                 &list_mut,
-                &result_text,
+                &RustExpr::opaque(&result_text),
             );
         }
         if key.is_some() || reverse {
             let (prefix, closure) = self.list_sort_by_text(key, reverse, element_ty)?;
-            return Ok(format!(
+            return Ok(RustExpr::atom(format!(
                 "{{ {prefix}{list_mut}.sort_by({closure}); {result_text} }}"
-            ));
+            )));
         }
         // A TypeScript receiver (`returns_list`) follows JavaScript's default
         // ordering for every element surface it supports; a Python receiver
         // (`sort()` with no key, `returns_list == false`) keeps source-native
         // scalar ordering and only borrows the JS coercion for erased items.
-        if let Some(sort_call) = self.js_default_sort_call_text(element_ty, &list_mut)?
+        if let Some(sort_call) = self.js_default_sort_call_expr(element_ty, &list_mut)?
             && (returns_list || !self.element_sorts_natively(element_ty))
         {
-            return Ok(format!("{{ {sort_call}; {result_text} }}"));
+            return Ok(RustExpr::atom(format!("{{ {sort_call}; {result_text} }}")));
         }
         match self.mir.types.get(*item_ty) {
             Some(Type::Bool | Type::Int | Type::String) => {
-                Ok(format!("{{ {list_mut}.sort(); {result_text} }}"))
+                Ok(RustExpr::atom(format!("{{ {list_mut}.sort(); {result_text} }}")))
             }
-            Some(Type::Float) => Ok(format!(
+            Some(Type::Float) => Ok(RustExpr::atom(format!(
                 "{{ {list_mut}.sort_by(|left, right| left.partial_cmp(right).expect(\"list sort incomparable float\")); {result_text} }}"
-            )),
+            ))),
             _ => Err(EmitError::new(
                 "list sort supports bool, int, float, string, and erased items",
             )),
@@ -839,30 +840,30 @@ impl FunctionEmitter<'_> {
     /// Factored out of the comparator-less path so the optional-comparator path
     /// (`array.sort(maybeCompare)`) can reuse the exact same ordering in its
     /// `None` arm.
-    fn js_default_sort_call_text(
+    fn js_default_sort_call_expr(
         &self,
         element_ty: TypeId,
-        list_text: &str,
-    ) -> Result<Option<String>, EmitError> {
+        list_text: &RustExpr,
+    ) -> Result<Option<RustExpr>, EmitError> {
         match self.mir.types.get(element_ty) {
-            Some(Type::Bool | Type::Int | Type::Float | Type::String) => Ok(Some(format!(
+            Some(Type::Bool | Type::Int | Type::Float | Type::String) => Ok(Some(RustExpr::postfix_on(&list_text, format!(
                 "{list_text}.sort_by(|left, right| left.to_string().cmp(&right.to_string()))"
-            ))),
+            )))),
             Some(Type::TypeParam { name }) if self.current_function_has_type_param(*name) => {
                 Ok(None)
             }
             Some(Type::Unknown | Type::Union(_) | Type::Never | Type::TypeParam { .. }) => {
-                let left_key = self.js_string_coercion_match_text(
-                    &self.erase_concrete_union_text("left.clone()", element_ty),
+                let left_key = self.js_string_coercion_match_expr(
+                    &self.erase_concrete_union_expr(&RustExpr::chain("left.clone()").ending_in_clone(), element_ty),
                     self.absent_spelling(),
                 );
-                let right_key = self.js_string_coercion_match_text(
-                    &self.erase_concrete_union_text("right.clone()", element_ty),
+                let right_key = self.js_string_coercion_match_expr(
+                    &self.erase_concrete_union_expr(&RustExpr::chain("right.clone()").ending_in_clone(), element_ty),
                     self.absent_spelling(),
                 );
-                Ok(Some(format!(
+                Ok(Some(RustExpr::postfix_on(&list_text, format!(
                     "{list_text}.sort_by(|left, right| ({left_key}).cmp(&({right_key})))"
-                )))
+                ))))
             }
             _ => Ok(None),
         }
@@ -888,14 +889,14 @@ impl FunctionEmitter<'_> {
     /// result is coerced through the `SmeltIntoF64` boundary adapter rather than
     /// routed as an ordinary typed value; a concrete `number` return skips the
     /// adapter and compares directly.
-    fn list_sort_comparator_text(
+    fn list_sort_comparator_expr(
         &self,
         comparator: &Operand,
         element_ty: TypeId,
         returns_list: bool,
-        list_text: &str,
-        result_text: &str,
-    ) -> Result<String, EmitError> {
+        list_text: &RustExpr,
+        result_text: &RustExpr,
+    ) -> Result<RustExpr, EmitError> {
         if !returns_list {
             return Err(EmitError::new(
                 "comparator sort is only supported for array sort",
@@ -910,51 +911,51 @@ impl FunctionEmitter<'_> {
         // is matched here, exactly as hand-written Rust would; it is not erased
         // to `SmeltUnknown`.
         if let Some(Type::Optional(inner)) = self.mir.types.get(comparator_ty).cloned() {
-            let Some(default_sort) = self.js_default_sort_call_text(element_ty, list_text)? else {
+            let Some(default_sort) = self.js_default_sort_call_expr(element_ty, list_text)? else {
                 return Err(EmitError::new(
                     "array sort with an optional comparator needs a default ordering for its element type",
                 ));
             };
-            let some_arm = self.list_sort_comparator_call_text(
+            let some_arm = self.list_sort_comparator_call_expr(
                 inner,
                 element_ty,
                 "smelt_comparator",
                 list_text,
             )?;
-            let comparator_text = self.operand_text(comparator)?;
-            return Ok(format!(
+            let comparator_text = self.operand_expr(comparator)?;
+            return Ok(RustExpr::atom(format!(
                 "{{ match {comparator_text} {{ Some(smelt_comparator) => {{ {some_arm}; }} None => {{ {default_sort}; }} }}; {result_text} }}"
-            ));
+            )));
         }
-        let closure_text = match self.closure_operand_text_for_declared_type(comparator) {
-            Ok(closure_text) => closure_text,
-            Err(_) => self.operand_text(comparator)?,
+        let closure_expr = match self.closure_operand_expr_for_declared_type(comparator) {
+            Ok(closure_expr) => closure_expr,
+            Err(_) => RustExpr::from(self.operand_expr(comparator)?.into_string()),
         };
-        let sort_call = self.list_sort_comparator_call_text(
+        let sort_call = self.list_sort_comparator_call_expr(
             comparator_ty,
             element_ty,
             "smelt_comparator",
             list_text,
         )?;
-        Ok(format!(
-            "{{ let mut smelt_comparator = {closure_text}; {sort_call}; {result_text} }}"
-        ))
+        Ok(RustExpr::atom(format!(
+            "{{ let mut smelt_comparator = {closure_expr}; {sort_call}; {result_text} }}"
+        )))
     }
 
     /// Emit the `sort_by(..)` call for an already-bound comparator binding.
     ///
     /// `comparator_ty` must be the comparator's function type and
     /// `comparator_ident` the name of an in-scope binding holding it. Split out
-    /// of `list_sort_comparator_text` so the optional-comparator `Some(..)` arm
+    /// of `list_sort_comparator_expr` so the optional-comparator `Some(..)` arm
     /// can reuse the identical comparison, argument adaptation and
     /// number-to-`Ordering` mapping as the always-present case.
-    fn list_sort_comparator_call_text(
+    fn list_sort_comparator_call_expr(
         &self,
         comparator_ty: TypeId,
         element_ty: TypeId,
         comparator_ident: &str,
-        list_text: &str,
-    ) -> Result<String, EmitError> {
+        list_text: &RustExpr,
+    ) -> Result<RustExpr, EmitError> {
         let Some(Type::Function(function_ty)) = self.mir.types.get(comparator_ty) else {
             return Err(EmitError::new("array sort comparator must be a closure"));
         };
@@ -970,22 +971,22 @@ impl FunctionEmitter<'_> {
         };
         let left_param_ty = function_ty.params.first().copied().unwrap_or(element_ty);
         let right_param_ty = function_ty.params.get(1).copied().unwrap_or(left_param_ty);
-        let left_arg = self.callback_call_arg_text(
+        let left_arg = self.callback_call_arg_expr(
             function_ty,
             0,
             left_param_ty,
-            self.value_at_type_text("left.clone()", element_ty, left_param_ty, &self.render_scope())?,
+            self.rendered_at_type(&RustExpr::chain("left.clone()").ending_in_clone(), element_ty, left_param_ty, &self.render_scope())?.into_string(),
         );
-        let right_arg = self.callback_call_arg_text(
+        let right_arg = self.callback_call_arg_expr(
             function_ty,
             1,
             right_param_ty,
-            self.value_at_type_text("right.clone()", element_ty, right_param_ty, &self.render_scope())?,
+            self.rendered_at_type(&RustExpr::chain("right.clone()").ending_in_clone(), element_ty, right_param_ty, &self.render_scope())?.into_string(),
         );
         let ordering_coercion = if coerce_result { ".smelt_into_f64()" } else { "" };
-        Ok(format!(
+        Ok(RustExpr::postfix_on(&list_text, format!(
             "{list_text}.sort_by(|left, right| {{ let ordering = ({comparator_ident})({left_arg}, {right_arg}){ordering_coercion}; if ordering < 0.0 {{ std::cmp::Ordering::Less }} else if ordering > 0.0 {{ std::cmp::Ordering::Greater }} else {{ std::cmp::Ordering::Equal }} }})"
-        ))
+        )))
     }
 
 }

@@ -15,6 +15,7 @@
 //! runtime's `Result<(), _>`: it calls, discards the answer, and reports the
 //! error the source could raise.
 
+use crate::rust::RustExpr;
 use super::*;
 
 impl FunctionEmitter<'_> {
@@ -24,12 +25,12 @@ impl FunctionEmitter<'_> {
     /// wrapped rather than passed through so the server always holds the one
     /// signature `SmeltHttpHandler` names, whatever the source's arrow was
     /// inferred as.
-    pub(super) fn http_create_server_text(
+    pub(super) fn http_create_server_expr(
         &self,
         handler: &Operand,
-    ) -> Result<String, EmitError> {
-        let adapted = self.http_handler_adapter_text(handler)?;
-        Ok(format!("SmeltHttpServer::new({adapted})"))
+    ) -> Result<RustExpr, EmitError> {
+        let adapted = self.http_handler_adapter(handler)?;
+        Ok(RustExpr::atom(format!("SmeltHttpServer::new({adapted})")))
     }
 
     /// Emit a server answering requests with a fetch handler.
@@ -41,10 +42,10 @@ impl FunctionEmitter<'_> {
     /// one, or a union of the two — is erased through the ordinary erasure and
     /// written back by `smelt_fetch_server_respond`, which awaits a promise;
     /// a throwing handler's error becomes the adapter's 500.
-    pub(super) fn http_create_fetch_server_text(
+    pub(super) fn http_create_fetch_server_expr(
         &self,
         fetch: &Operand,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let ty = self.operand_ty(fetch)?;
         let Some(Type::Function(function)) = self.mir.types.get(ty) else {
             return Err(EmitError::new("`serve` needs a function as its `fetch` handler"));
@@ -52,9 +53,9 @@ impl FunctionEmitter<'_> {
         let Some(request_ty) = function.params.first().copied() else {
             return Err(EmitError::new("a `fetch` handler takes the request as its first parameter"));
         };
-        let mut text = self.operand_text(fetch)?;
+        let mut text = self.operand_expr(fetch)?;
         if matches!(fetch, Operand::Copy(_)) {
-            text = format!("{text}.clone()");
+            text = RustExpr::postfix_on(&text, format!("{text}.clone()")).ending_in_clone();
         }
         let request_by_reference = function.mutable_params.contains(&0)
             || self.callback_param_is_shared_reference(function, 0, request_ty);
@@ -70,33 +71,33 @@ impl FunctionEmitter<'_> {
                     "a `fetch` handler is called with the request alone, so its other parameters must be optional",
                 ));
             }
-            args.push(self.default_value(*param)?);
+            args.push(self.default_value(*param)?.into_string());
         }
         let call = format!("smelt_fetch({})", args.join(", "));
-        let erased = self.erase_value_text("smelt_answer", function.return_ty)?;
+        let erased = self.erase_rendered(&RustExpr::path("smelt_answer"), function.return_ty)?;
         let answer = if function.may_throw {
             format!("{call}.map(|smelt_answer| {erased})")
         } else {
             self.carrier_format(format_args!("{{ let smelt_answer = {call}; Ok::<SmeltUnknown, Box<dyn ::std::error::Error>>({erased}) }}"))
         };
-        Ok(format!(
+        Ok(RustExpr::atom(format!(
             "SmeltHttpServer::new({{ let smelt_fetch = {text}; ::std::rc::Rc::new(move |smelt_request: SmeltIncomingMessage, smelt_response: SmeltServerResponse| {{ let smelt_fetch_request = smelt_fetch_server_request(&smelt_request); smelt_fetch_server_respond(smelt_response, {answer}); Ok(()) }}) as SmeltHttpHandler }})"
-        ))
+        )))
     }
 
     /// Wrap a source request handler into a `SmeltHttpHandler`.
     ///
     /// A `copy` of a function-typed operand is left un-cloned by
-    /// `operand_text` (a callee position only borrows it), but this adapter
+    /// `operand_expr` (a callee position only borrows it), but this adapter
     /// MOVES the value into a closure, so it takes its own handle — the same
     /// correction the emitter's listener erasure needs.
-    fn http_handler_adapter_text(&self, handler: &Operand) -> Result<String, EmitError> {
+    fn http_handler_adapter(&self, handler: &Operand) -> Result<RustExpr, EmitError> {
         let ty = self.operand_ty(handler)?;
-        let mut text = self.operand_text(handler)?;
+        let mut text = self.operand_expr(handler)?;
         if matches!(handler, Operand::Copy(_))
             && matches!(self.mir.types.get(ty), Some(Type::Function(_)))
         {
-            text = format!("{text}.clone()");
+            text = RustExpr::postfix_on(&text, format!("{text}.clone()")).ending_in_clone();
         }
         // A handler declared as throwing already answers a `Result`; one that
         // is not answers its body's value directly. Both are discarded — Node
@@ -107,19 +108,19 @@ impl FunctionEmitter<'_> {
         } else {
             "let _ = smelt_handler(smelt_request, smelt_response);"
         };
-        Ok(format!(
+        Ok(RustExpr::atom(format!(
             "{{ let smelt_handler = {text}; ::std::rc::Rc::new(move |smelt_request: SmeltIncomingMessage, smelt_response: SmeltServerResponse| {{ {call} Ok(()) }}) as SmeltHttpHandler }}"
-        ))
+        )))
     }
 
     /// Emit a `node:http` `Server` member operation.
-    pub(super) fn http_server_op_text(
+    pub(super) fn http_server_op_expr(
         &self,
         op: smelt_hir::HttpServerOp,
         server: &Operand,
         args: &[Operand],
-    ) -> Result<String, EmitError> {
-        let receiver = self.operand_text(server)?;
+    ) -> Result<RustExpr, EmitError> {
+        let receiver = self.operand_expr(server)?;
         match op {
             smelt_hir::HttpServerOp::Listen => {
                 let float_ty = self.type_id(Type::Float)?;
@@ -141,20 +142,20 @@ impl FunctionEmitter<'_> {
                 };
                 let callback_text = match args.get(2) {
                     Some(callback) => {
-                        format!("Some({})", self.http_listen_callback_text(callback)?)
+                        format!("Some({})", self.http_listen_callback_expr(callback)?)
                     }
                     None => "None".to_owned(),
                 };
-                Ok(format!(
+                Ok(RustExpr::loose(format!(
                     "{receiver}.listen({port_text}, {host_text}, {callback_text})?"
-                ))
+                )))
             }
-            smelt_hir::HttpServerOp::Close => Ok(format!("{receiver}.close()?")),
+            smelt_hir::HttpServerOp::Close => Ok(RustExpr::loose(format!("{receiver}.close()?"))),
             smelt_hir::HttpServerOp::Address => {
-                let record = self.address_info_record_text("address", "family", "port")?;
-                Ok(format!(
+                let record = self.address_info_record_expr("address", "family", "port")?;
+                Ok(RustExpr::postfix_on(&receiver, format!(
                     "{receiver}.address().map(|(address, family, port)| {record})"
-                ))
+                )))
             }
         }
     }
@@ -166,12 +167,12 @@ impl FunctionEmitter<'_> {
     /// storage is the ordinary generated struct: a by-value `AddressInfo { .. }`,
     /// or the shared-cell handle when the program writes one of its fields.
     /// Nothing here is erased — `server.address()` is `Option<AddressInfo>`.
-    fn address_info_record_text(
+    fn address_info_record_expr(
         &self,
         address: &str,
         family: &str,
         port: &str,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let interface = self
             .mir
             .interfaces
@@ -182,30 +183,30 @@ impl FunctionEmitter<'_> {
             })?;
         let fields = format!("address: {address}, family: {family}, port: {port}");
         if self.context.is_reference_class(interface.name) {
-            return Ok(format!(
+            return Ok(RustExpr::chain(format!(
                 "AddressInfo(::std::rc::Rc::new(::std::cell::RefCell::new(AddressInfoInner {{ {fields} }})))"
-            ));
+            )));
         }
-        Ok(format!("AddressInfo {{ {fields} }}"))
+        Ok(RustExpr::loose(format!("AddressInfo {{ {fields} }}")))
     }
 
     /// Wrap a source listening callback into the runtime's `Rc<dyn Fn() -> ..>`.
-    fn http_listen_callback_text(&self, callback: &Operand) -> Result<String, EmitError> {
+    fn http_listen_callback_expr(&self, callback: &Operand) -> Result<RustExpr, EmitError> {
         let ty = self.operand_ty(callback)?;
-        let mut text = self.operand_text(callback)?;
+        let mut text = self.operand_expr(callback)?;
         if matches!(callback, Operand::Copy(_))
             && matches!(self.mir.types.get(ty), Some(Type::Function(_)))
         {
-            text = format!("{text}.clone()");
+            text = RustExpr::postfix_on(&text, format!("{text}.clone()")).ending_in_clone();
         }
         let call = if self.function_type_may_throw(ty) {
             "smelt_listening()?;"
         } else {
             "let _ = smelt_listening();"
         };
-        Ok(format!(
+        Ok(RustExpr::atom(format!(
             "{{ let smelt_listening = {text}; ::std::rc::Rc::new(move || {{ {call} Ok(()) }}) as ::std::rc::Rc<dyn Fn() -> Result<(), Box<dyn ::std::error::Error>>> }}"
-        ))
+        )))
     }
 
     /// Emit a `node:http` `IncomingMessage` property read.
@@ -216,33 +217,33 @@ impl FunctionEmitter<'_> {
     /// when the program stores the value where JS object identity matters. The
     /// runtime answers name/value pairs and the container is named here, so
     /// neither choice is baked into the prelude.
-    pub(super) fn incoming_message_op_text(
+    pub(super) fn incoming_message_op_expr(
         &self,
         op: smelt_hir::IncomingMessageOp,
         message: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
-        let receiver = self.operand_text(message)?;
+    ) -> Result<RustExpr, EmitError> {
+        let receiver = self.operand_expr(message)?;
         Ok(match op {
-            smelt_hir::IncomingMessageOp::Method => format!("{receiver}.method()"),
-            smelt_hir::IncomingMessageOp::Url => format!("{receiver}.url()"),
+            smelt_hir::IncomingMessageOp::Method => RustExpr::postfix_on(&receiver, format!("{receiver}.method()")),
+            smelt_hir::IncomingMessageOp::Url => RustExpr::postfix_on(&receiver, format!("{receiver}.url()")),
             smelt_hir::IncomingMessageOp::Headers => {
                 let container = self.signature_type_text(dest_ty)?;
-                format!(
+                RustExpr::loose(format!(
                     "<{container} as ::std::iter::FromIterator<(String, String)>>::from_iter({receiver}.headers())"
-                )
+                ))
             }
         })
     }
 
     /// Emit a `node:http` `ServerResponse` member operation.
-    pub(super) fn server_response_op_text(
+    pub(super) fn server_response_op_expr(
         &self,
         op: smelt_hir::ServerResponseOp,
         response: &Operand,
         args: &[Operand],
-    ) -> Result<String, EmitError> {
-        let receiver = self.operand_text(response)?;
+    ) -> Result<RustExpr, EmitError> {
+        let receiver = self.operand_expr(response)?;
         let string_ty = self.type_id(Type::String)?;
         let float_ty = self.type_id(Type::Float)?;
         let arg_at = |index: usize| -> Result<&Operand, EmitError> {
@@ -251,21 +252,21 @@ impl FunctionEmitter<'_> {
             })
         };
         Ok(match op {
-            smelt_hir::ServerResponseOp::StatusCode => format!("{receiver}.status_code()"),
+            smelt_hir::ServerResponseOp::StatusCode => RustExpr::postfix_on(&receiver, format!("{receiver}.status_code()")),
             smelt_hir::ServerResponseOp::SetStatusCode => {
                 let value = self.value_at_type(arg_at(0)?, float_ty)?;
-                format!("{receiver}.set_status_code({value})")
+                RustExpr::postfix_on(&receiver, format!("{receiver}.set_status_code({value})"))
             }
             smelt_hir::ServerResponseOp::SetHeader => {
                 let name = self.value_at_type(arg_at(0)?, string_ty)?;
                 let value = self.value_at_type(arg_at(1)?, string_ty)?;
                 // Answers the response so the statement has a value to discard
                 // and `res.setHeader(..)` composes like the other members.
-                format!("{{ {receiver}.set_header(&{name}, &{value}); {receiver}.clone() }}")
+                RustExpr::atom(format!("{{ {receiver}.set_header(&{name}, &{value}); {receiver}.clone() }}"))
             }
             smelt_hir::ServerResponseOp::GetHeader => {
                 let name = self.value_at_type(arg_at(0)?, string_ty)?;
-                format!("{receiver}.get_header(&{name})")
+                RustExpr::postfix_on(&receiver, format!("{receiver}.get_header(&{name})"))
             }
             smelt_hir::ServerResponseOp::WriteHead => {
                 let status = self.value_at_type(arg_at(0)?, float_ty)?;
@@ -276,25 +277,25 @@ impl FunctionEmitter<'_> {
                 let headers_text = match args.get(1) {
                     Some(headers) => {
                         let headers_ty = self.operand_ty(headers)?;
-                        let headers_value = self.operand_text(headers)?;
+                        let headers_value = self.operand_expr(headers)?;
                         let converted =
-                            self.headers_conversion_text(&headers_value, headers_ty)?;
+                            self.headers_conversion_expr(&headers_value, headers_ty)?;
                         format!("Some({converted}.entries_in_insertion_order())")
                     }
                     None => "None".to_owned(),
                 };
-                format!("{receiver}.write_head({status}, {headers_text})")
+                RustExpr::postfix_on(&receiver, format!("{receiver}.write_head({status}, {headers_text})"))
             }
             smelt_hir::ServerResponseOp::Write => {
                 let chunk = self.value_at_type(arg_at(0)?, string_ty)?;
-                format!("{receiver}.write(&{chunk})")
+                RustExpr::postfix_on(&receiver, format!("{receiver}.write(&{chunk})"))
             }
             smelt_hir::ServerResponseOp::End => {
                 let chunk = match args.first() {
                     Some(chunk) => format!("Some({})", self.value_at_type(chunk, string_ty)?),
                     None => "None".to_owned(),
                 };
-                format!("{receiver}.end({chunk})")
+                RustExpr::postfix_on(&receiver, format!("{receiver}.end({chunk})"))
             }
         })
     }
@@ -310,12 +311,12 @@ impl FunctionEmitter<'_> {
     /// true afterwards exactly as the spec says a fetched request is consumed;
     /// an empty body is sent as no body rather than as zero bytes, so a GET
     /// built this way is indistinguishable on the wire from a plain one.
-    pub(super) fn http_fetch_request_text(
+    pub(super) fn http_fetch_request_expr(
         &self,
         request: &Operand,
-    ) -> Result<String, EmitError> {
-        let request_text = self.operand_text(request)?;
-        Ok(format!(
+    ) -> Result<RustExpr, EmitError> {
+        let request_text = self.operand_expr(request)?;
+        Ok(RustExpr::atom(format!(
             "SmeltFuture::from_future(Box::pin(async move {{ \
              let smelt_request = {request_text}; \
              let smelt_method = reqwest::Method::from_bytes(smelt_request.method().as_bytes()).unwrap_or(reqwest::Method::GET); \
@@ -329,7 +330,7 @@ impl FunctionEmitter<'_> {
              let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect(); \
              let smelt_bytes = smelt_http.bytes().await.expect(\"HTTP response body read failed\").to_vec(); \
              Ok::<_, {ERROR_BOX}>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }}))"
-        ))
+        )))
     }
 
     /// Return whether a function-typed operand's type is declared throwing.

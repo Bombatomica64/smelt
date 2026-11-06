@@ -83,7 +83,7 @@ impl FunctionEmitter<'_> {
     /// Seam 1: a callback adapter's parameter *declaration* and its body
     /// conversion must start from one type.
     ///
-    /// `function_shape_adapter_text` emits `|arg{index}: D| inner(convert(arg{index}))`.
+    /// `function_shape_adapter` emits `|arg{index}: D| inner(convert(arg{index}))`.
     /// `D` comes from `callback_arg_decls` rendering the callee's declared
     /// parameter under `substitution`; the conversion starts from `body_ty`,
     /// resolved through the call site's bindings. When the site monomorphized
@@ -144,7 +144,7 @@ impl FunctionEmitter<'_> {
     /// Seam 2: one call site monomorphizes its arguments and its return under
     /// one decision.
     ///
-    /// `call_text_for_dest` renders the arguments (inside `call_text`) and then
+    /// `call_expr_for_dest` renders the arguments (inside `call_text`) and then
     /// the return (inside `call_emitted_source_ty`), and each recomputes
     /// `static_call_monomorphization` for itself. The whole design rests on that
     /// recomputation being a pure function of `(function, args)`: if emitter
@@ -212,7 +212,7 @@ impl FunctionEmitter<'_> {
     ///
     /// A generic free function renders a direct required borrowed callback
     /// parameter as `&F{n}` with an `F{n}: Fn(..) + ?Sized` bound. Only
-    /// `borrowed_function_argument_text` produces a `&dyn Fn`-shaped argument
+    /// `borrowed_function_argument_expr` produces a `&dyn Fn`-shaped argument
     /// that binds such a parameter; the monomorphization passthrough renders an
     /// owned `Rc<..>` handle and the ordinary coercion renders a value, either
     /// of which is `E0308`/`E0277` against `&F{n}`. That is the shipped defect

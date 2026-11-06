@@ -41,6 +41,7 @@
 //! "Erased anywhere" is deliberately conservative: a `SmeltList<SmeltUnknown>`
 //! counts as erased, so the metric can only under-state typedness.
 
+use crate::rust::RustExpr;
 use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
@@ -500,7 +501,7 @@ impl FunctionEmitter<'_> {
         let Ok(text) = self.signature_type_text(ty) else {
             return Typedness::Erased;
         };
-        if mentions_erased(&text) {
+        if mentions_erased(&RustExpr::opaque(&text)) {
             Typedness::Erased
         } else if self.type_mentions_param(ty, 0) {
             Typedness::Generic
@@ -545,7 +546,7 @@ impl FunctionEmitter<'_> {
 }
 
 /// Whether rendered Rust type text mentions the erased runtime value.
-pub(crate) fn mentions_erased(text: &str) -> bool {
+pub(crate) fn mentions_erased(text: &RustExpr) -> bool {
     ["SmeltUnknown", "SmeltErasedFunction"].iter().any(|erased| {
         text.match_indices(erased).any(|(at, _)| {
             let after = text[at + erased.len()..].chars().next();

@@ -1,5 +1,6 @@
 //! Control Flow emission helpers.
 
+use crate::rust::RustExpr;
 use super::*;
 use super::flow_state::Flow;
 
@@ -332,7 +333,7 @@ impl FunctionEmitter<'_> {
                         Some(Type::None)
                     )
                 {
-                    out.push_str(&format!("    {};\n", self.global_touch_text(*global)));
+                    out.push_str(&format!("    {};\n", self.global_touch_expr(*global)));
                     self.mark_local_declared(*dest);
                     return Ok(());
                 }
@@ -359,9 +360,9 @@ impl FunctionEmitter<'_> {
                     Rvalue::TypeofValue { value: typeof_operand }
                         if self.local_is_static_typeof_str(*dest) =>
                     {
-                        self.typeof_str_text(typeof_operand)?
+                        self.typeof_str_expr(typeof_operand)?.into_string()
                     }
-                    _ => self.rvalue_text_for_dest(value, local.ty)?,
+                    _ => self.rvalue_expr_for_dest(value, local.ty)?.into_string(),
                 };
                 if self.deferred_capture_cells.borrow().contains(dest) {
                     // The cell was declared without a value; its one
@@ -376,7 +377,7 @@ impl FunctionEmitter<'_> {
                         || self.mutable_locals.contains(dest)
                         || self.predeclared_locals.contains(dest))
                 {
-                    let assignment = self.assignment_place_text(&Place::Local(*dest))?;
+                    let assignment = self.assignment_place_expr(&Place::Local(*dest))?;
                     out.push_str(&format!("    {assignment} = {rendered_value};\n"));
                     return Ok(());
                 }
@@ -443,10 +444,10 @@ impl FunctionEmitter<'_> {
     ) -> Result<(), EmitError> {
         match place {
             // A write through a module-level mutable global goes straight into
-            // the cell; see `global_place_assign_text` for why it must not go
+            // the cell; see `global_place_assign_expr` for why it must not go
             // through a materialized copy.
             Place::Global { base, projection } => {
-                let statement = self.global_place_assign_text(*base, projection, value)?;
+                let statement = self.global_place_assign_expr(*base, projection, value)?;
                 out.push_str("    ");
                 out.push_str(&statement);
                 out.push_str(";\n");
@@ -459,16 +460,16 @@ impl FunctionEmitter<'_> {
                 // A JavaScript `RegExp.lastIndex` write stores into a
                 // `RefCell<usize>`, so the numeric right-hand side (typed
                 // `f64`) is narrowed back to `usize` at the write seam. The
-                // matching read path lives in `regexp_field_text`.
+                // matching read path lives in `regexp_field_expr`.
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
                     && self.is_regexp_class_symbol(*name)?
                     && matches!(self.symbol_name(*field)?, "lastIndex" | "last_index")
                 {
                     let rendered_value =
-                        self.rvalue_text_for_dest(value, self.type_id(Type::Float)?)?;
+                        self.rvalue_expr_for_dest(value, self.type_id(Type::Float)?)?;
                     out.push_str(&format!(
                         "    *{}.last_index.borrow_mut() = ({rendered_value}) as usize;\n",
-                        self.local_value_text(*base)?
+                        self.local_value(*base)?
                     ));
                     return Ok(());
                 }
@@ -482,9 +483,9 @@ impl FunctionEmitter<'_> {
                 // the `smelt_get_unknown_field` function arm.
                 if let Some(Type::Function(function)) = self.mir.types.get(base_ty).cloned() {
                     let unknown_ty = self.type_id(Type::Unknown)?;
-                    let rendered_value = self.rvalue_text_for_dest(value, unknown_ty)?;
+                    let rendered_value = self.rvalue_expr_for_dest(value, unknown_ty)?;
                     let field_name = self.symbol_source_name(*field)?;
-                    let base_text = self.local_value_text(*base)?;
+                    let base_text = self.local_value(*base)?;
                     // `Type::Function` has two Rust spellings (see `rust_type`):
                     // the `SmeltErasedFunction` struct, which carries the store
                     // as a method, and a typed `Rc<dyn Fn(..)>`, which reaches
@@ -509,11 +510,11 @@ impl FunctionEmitter<'_> {
                     return Ok(());
                 }
                 if let Some(Type::Dict(key, item)) = self.mir.types.get(base_ty) {
-                    let rendered_value = self.rvalue_text_for_dest(value, *item)?;
-                    let key_text = self.dict_field_key_text(*key, *field)?;
+                    let rendered_value = self.rvalue_expr_for_dest(value, *item)?;
+                    let key_text = self.dict_field_key_expr(*key, *field)?;
                     out.push_str(&format!(
                         "    {}.insert({key_text}, {rendered_value});\n",
-                        self.local_mut_value_text(*base)?,
+                        self.local_mut_value(*base)?,
                     ));
                     return Ok(());
                 }
@@ -535,7 +536,7 @@ impl FunctionEmitter<'_> {
                 // one operation in TypeScript, so they take one rule here.
                 if self.concrete_union_members(base_ty).is_some() {
                     if let Some(statement) =
-                        self.concrete_union_field_assign_text(*base, *field, value)?
+                        self.concrete_union_field_assign_expr(*base, *field, value)?
                     {
                         out.push_str("    ");
                         out.push_str(&statement);
@@ -543,14 +544,14 @@ impl FunctionEmitter<'_> {
                         return Ok(());
                     }
                     let unknown_ty = self.type_id(Type::Unknown)?;
-                    let rendered_value = self.rvalue_text_for_dest(value, unknown_ty)?;
+                    let rendered_value = self.rvalue_expr_for_dest(value, unknown_ty)?;
                     let field_name = self.symbol_source_name(*field)?;
                     let union_text = self.union_type_text(base_ty)?;
                     let erased =
-                        self.erase_concrete_union_text(&self.local_value_text(*base)?, base_ty);
+                        self.erase_concrete_union_expr(&self.local_value(*base)?, base_ty);
                     out.push_str(&format!(
                         "    {{ let smelt_value = {rendered_value}; let mut smelt_erased = {erased}; smelt_index_assign(&mut smelt_erased, {field_name:?}.to_owned(), smelt_value); {} = {union_text}::from_smelt_unknown(smelt_erased); }}\n",
-                        self.local_mut_value_text(*base)?
+                        self.local_mut_value(*base)?
                     ));
                     return Ok(());
                 }
@@ -560,8 +561,8 @@ impl FunctionEmitter<'_> {
                 ) || self.is_erased_class_type(base_ty)
                 {
                     let unknown_ty = self.type_id(Type::Unknown)?;
-                    let rendered_value = self.rvalue_text_for_dest(value, unknown_ty)?;
-                    let base_text = self.local_mut_value_text(*base)?;
+                    let rendered_value = self.rvalue_expr_for_dest(value, unknown_ty)?;
+                    let base_text = self.local_mut_value(*base)?;
                     // A JavaScript array is an object with named properties too, so
                     // an ARRAY receiver stores the property in the array's side
                     // table (`SmeltArray::set_named_property`) and stays an array.
@@ -621,10 +622,10 @@ impl FunctionEmitter<'_> {
                 if let Some((_key_ty, value_ty)) = self.class_index_store_types(base_ty)
                     && !self.class_has_named_field(base_ty, *field)
                 {
-                    let rendered_value = self.rvalue_text_for_dest(value, value_ty)?;
+                    let rendered_value = self.rvalue_expr_for_dest(value, value_ty)?;
                     out.push_str(&format!(
                         "    {}.{}.insert({:?}.to_owned(), {rendered_value});\n",
-                        self.local_mut_value_text(*base)?,
+                        self.local_mut_value(*base)?,
                         smelt_hir::CLASS_INDEX_STORE_FIELD,
                         self.symbol_source_name(*field)?,
                     ));
@@ -653,27 +654,27 @@ impl FunctionEmitter<'_> {
                 }
                 match self.mir.types.get(base_ty) {
                     Some(Type::Dict(key, item)) => {
-                        let rendered_value = self.rvalue_text_for_dest(value, *item)?;
+                        let rendered_value = self.rvalue_expr_for_dest(value, *item)?;
                         let key_text = if self.mir.types.get(*key) == Some(&Type::String) {
                             let index_ty = self.operand_ty(index)?;
                             if index_ty == *key {
                                 self.value_at_type(index, *key)?
                             } else {
-                                let index_text = self.operand_text(index)?;
-                                self.property_key_to_string_text(&index_text, index_ty)?
+                                let index_text = self.operand_expr(index)?;
+                                RustExpr::from(self.property_key_to_string_expr(&index_text, index_ty)?.into_string())
                             }
                         } else {
                             self.value_at_type(index, *key)?
                         };
                         out.push_str(&format!(
                             "    {}.insert({}, {rendered_value});\n",
-                            self.local_mut_value_text(*base)?,
+                            self.local_mut_value(*base)?,
                             key_text
                         ));
                         return Ok(());
                     }
                     Some(Type::List(item)) => {
-                        let rendered_value = self.rvalue_text_for_dest(value, *item)?;
+                        let rendered_value = self.rvalue_expr_for_dest(value, *item)?;
                         // The receiver is grown and written through `resize` /
                         // `IndexMut`, which need a mutable borrow, but the two
                         // length reads (normalizing the index and bounds-checking
@@ -686,10 +687,10 @@ impl FunctionEmitter<'_> {
                         // emitted statement to at most one `borrow_mut()` of the
                         // cell, avoiding the "already borrowed" panic. Write-path
                         // twin of the list index READ arm in `place.rs`.
-                        let base_mut = list_write_text(&self.local_value_text(*base)?);
-                        let base_read = self.local_value_text(*base)?;
+                        let base_mut = list_write_expr(&self.local_value(*base)?);
+                        let base_read = self.local_value(*base)?;
                         let index_text =
-                            self.normalized_index_text(&format!("{base_read}.len()"), index, *negative)?;
+                            self.normalized_index_expr(&RustExpr::postfix_on(&base_read, format!("{base_read}.len()")), index, *negative)?;
                         // Growing past the end leaves JS *holes*, which read as
                         // `undefined`, not `null` (see `array_hole_value`).
                         let default_value = self.array_hole_value(*item)?;
@@ -709,19 +710,19 @@ impl FunctionEmitter<'_> {
                             .get(tuple_index)
                             .copied()
                             .ok_or_else(|| EmitError::new("tuple index is out of bounds"))?;
-                        let rendered_value = self.rvalue_text_for_dest(value, item_ty)?;
+                        let rendered_value = self.rvalue_expr_for_dest(value, item_ty)?;
                         out.push_str(&format!(
                             "    {}.{tuple_index} = {rendered_value};\n",
-                            self.local_mut_value_text(*base)?
+                            self.local_mut_value(*base)?
                         ));
                         return Ok(());
                     }
                     Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                         let rendered_value =
-                            self.rvalue_text_for_dest(value, self.type_id(Type::Unknown)?)?;
+                            self.rvalue_expr_for_dest(value, self.type_id(Type::Unknown)?)?;
                         let index_ty = self.operand_ty(index)?;
-                        let index_text = self.operand_text(index)?;
-                        let key_text = self.property_key_to_string_text(&index_text, index_ty)?;
+                        let index_text = self.operand_expr(index)?;
+                        let key_text = self.property_key_to_string_expr(&index_text, index_ty)?;
                         // A CONCRETE union stores a tagged `SmeltUnion…` enum, so
                         // it is not a `&mut SmeltUnknown` and cannot be handed to
                         // the erased keyed-write helper — this arm matched
@@ -742,16 +743,16 @@ impl FunctionEmitter<'_> {
                         if self.concrete_union_members(base_ty).is_some() {
                             let union_text = self.union_type_text(base_ty)?;
                             let erased = self
-                                .erase_concrete_union_text(&self.local_value_text(*base)?, base_ty);
+                                .erase_concrete_union_expr(&self.local_value(*base)?, base_ty);
                             out.push_str(&format!(
                                 "    {{ let smelt_key = {key_text}; let smelt_value = {rendered_value}; let mut smelt_erased = {erased}; smelt_index_assign(&mut smelt_erased, smelt_key, smelt_value); {} = {union_text}::from_smelt_unknown(smelt_erased); }}\n",
-                                self.local_mut_value_text(*base)?
+                                self.local_mut_value(*base)?
                             ));
                             return Ok(());
                         }
                         out.push_str(&format!(
                             "    {{ let smelt_key = {key_text}; let smelt_value = {rendered_value}; smelt_index_assign(&mut {}, smelt_key, smelt_value); }}\n",
-                            self.local_mut_value_text(*base)?
+                            self.local_mut_value(*base)?
                         ));
                         return Ok(());
                     }
@@ -766,21 +767,21 @@ impl FunctionEmitter<'_> {
                         let (key_ty, value_ty) = self
                             .class_index_store_types(base_ty)
                             .ok_or_else(|| EmitError::new("class index store types missing"))?;
-                        let rendered_value = self.rvalue_text_for_dest(value, value_ty)?;
+                        let rendered_value = self.rvalue_expr_for_dest(value, value_ty)?;
                         let key_text = if self.mir.types.get(key_ty) == Some(&Type::String) {
                             let index_ty = self.operand_ty(index)?;
                             if index_ty == key_ty {
                                 self.value_at_type(index, key_ty)?
                             } else {
-                                let index_text = self.operand_text(index)?;
-                                self.property_key_to_string_text(&index_text, index_ty)?
+                                let index_text = self.operand_expr(index)?;
+                                RustExpr::from(self.property_key_to_string_expr(&index_text, index_ty)?.into_string())
                             }
                         } else {
                             self.value_at_type(index, key_ty)?
                         };
                         out.push_str(&format!(
                             "    {}.{}.insert({key_text}, {rendered_value});\n",
-                            self.local_mut_value_text(*base)?,
+                            self.local_mut_value(*base)?,
                             smelt_hir::CLASS_INDEX_STORE_FIELD,
                         ));
                         return Ok(());
@@ -790,7 +791,7 @@ impl FunctionEmitter<'_> {
                     // (see `class_keyed_write`).
                     Some(Type::Class { .. })
                         if let Some(statement) =
-                            self.class_keyed_field_write_text(*base, base_ty, index, value)? =>
+                            self.class_keyed_field_write_expr(*base, base_ty, index, value)? =>
                     {
                         out.push_str("    ");
                         out.push_str(&statement);
@@ -798,7 +799,7 @@ impl FunctionEmitter<'_> {
                         return Ok(());
                     }
                     _ => {
-                        let rendered_value = self.rvalue_text(value)?;
+                        let rendered_value = self.rvalue_expr(value)?;
                         out.push_str(&format!("    let _ = {rendered_value};\n"));
                         return Ok(());
                     }
@@ -808,7 +809,7 @@ impl FunctionEmitter<'_> {
         }
 
         self.binding_uses.take_mut_borrows();
-        let rendered_value = self.rvalue_text_for_dest(value, self.place_ty(place)?)?;
+        let rendered_value = self.rvalue_expr_for_dest(value, self.place_ty(place)?)?;
         let value_mut_borrows = self.binding_uses.take_mut_borrows();
         if let Place::Local(local) = place
             && (!self.is_local_declared(*local)
@@ -878,7 +879,7 @@ impl FunctionEmitter<'_> {
         }
         out.push_str(&format!(
             "    if !({}) {{ break; }}\n",
-            self.truthy_operand_text(&Operand::Copy(Place::Local(self.switch_cond_local(block)?)))?
+            self.truthy_operand_expr(&Operand::Copy(Place::Local(self.switch_cond_local(block)?)))?
         ));
         Ok(())
     }
@@ -977,7 +978,7 @@ impl FunctionEmitter<'_> {
                         self.mir.types.get(self.operand_ty(operand)?)
                     && !matches!(self.mir.types.get(body_return_ty), Some(Type::Future(_)))
                 {
-                    let future_text = self.operand_text(operand)?;
+                    let future_text = self.operand_expr(operand)?;
                     out.push_str(&format!(
                         "    let smelt_adopted = {future_text}.await?;\n"
                     ));
@@ -987,7 +988,7 @@ impl FunctionEmitter<'_> {
                         out.push_str("    return Ok(());\n");
                     } else {
                         let value =
-                            self.value_at_type_text("smelt_adopted", item_ty, body_return_ty, &self.render_scope())?;
+                            self.rendered_at_type(&RustExpr::path("smelt_adopted"), item_ty, body_return_ty, &self.render_scope())?;
                         self.binding_uses.record_early_return();
                         out.push_str(&format!("    return Ok({value});\n"));
                     }
@@ -998,10 +999,10 @@ impl FunctionEmitter<'_> {
                         self.binding_uses.record_early_return();
                         out.push_str(&format!(
                             "    return Ok({});\n",
-                            self.operand_text(operand)?
+                            self.operand_expr(operand)?
                         ));
                     } else {
-                        out.push_str(&format!("    return {};\n", self.operand_text(operand)?));
+                        out.push_str(&format!("    return {};\n", self.operand_expr(operand)?));
                     }
                 } else if body_return_ty == self.none_ty {
                     // A `void`/`None` return still evaluates its operand for
@@ -1012,7 +1013,7 @@ impl FunctionEmitter<'_> {
                     if !matches!(operand, Operand::Const(Constant::None))
                         && self.operand_ty(operand)? != self.none_ty
                     {
-                        out.push_str(&format!("    {};\n", self.operand_text(operand)?));
+                        out.push_str(&format!("    {};\n", self.operand_expr(operand)?));
                     }
                     if self.function.can_throw || self.function.is_async {
                         self.binding_uses.record_early_return();
@@ -1101,7 +1102,7 @@ impl FunctionEmitter<'_> {
         let name = self.local_name(dest)?;
         // A `Function`-typed call result whose only consumer erases it back to
         // `SmeltUnknown` re-renders the call at the erase site (see
-        // `coercion::erased_call_assignment_text`). Emitting the typed-callback
+        // `coercion::erased_call_assignment_expr`). Emitting the typed-callback
         // binding here would be a dead store that also evaluates the call a
         // second time, double-moving its arguments. Suppress it so the single
         // re-inlined erase is the lone evaluation.
@@ -1117,7 +1118,7 @@ impl FunctionEmitter<'_> {
             // the returned value is dropped.
             if let Callee::Static(func) = callee
                 && let Some(adapter) =
-                    self.static_call_mut_list_adapter_text(*func, args, local.ty)?
+                    self.static_call_mut_list_adapter(*func, args, local.ty)?
             {
                 out.push_str(&format!("    let _ = {adapter};\n"));
                 self.mark_local_declared(dest);
@@ -1128,7 +1129,7 @@ impl FunctionEmitter<'_> {
             self.mark_local_declared(dest);
             return Ok(());
         }
-        let call_text = self.call_text_for_dest(callee, args, local.ty)?;
+        let call_text = self.call_expr_for_dest(callee, args, local.ty)?;
         let mutability = if self.local_binding_needs_mut(dest) {
             "mut "
         } else {
@@ -1264,9 +1265,9 @@ impl FunctionEmitter<'_> {
         } else {
             ""
         };
-        let raw_value = format!("{}.await?", self.await_operand_text(future)?);
+        let raw_value = format!("{}.await?", self.await_operand_expr(future)?);
         let source_ty = self.awaited_output_ty(future)?;
-        let value = self.value_at_type_text(&raw_value, source_ty, local.ty, &self.render_scope())?;
+        let value = self.rendered_at_type(&RustExpr::opaque(&raw_value), source_ty, local.ty, &self.render_scope())?;
         if matches!(
             self.mir.types.get(local.ty),
             Some(Type::Future(_) | Type::Function(_))
@@ -1334,7 +1335,7 @@ impl FunctionEmitter<'_> {
             // site declares a concrete `Future<T>`. Coerce the caught value from
             // the call's actual emitted type to the destination so a later
             // `await` yields `T` directly; when they already match,
-            // `value_at_type_text` returns the value unchanged. A function-typed
+            // `rendered_at_type` returns the value unchanged. A function-typed
             // destination is left untouched (function handles are not coerced
             // through this path).
             if matches!(self.mir.types.get(local.ty), Some(Type::Function(_))) {
@@ -1344,7 +1345,7 @@ impl FunctionEmitter<'_> {
             } else {
                 let source_ty = self.call_emitted_source_ty(callee, args, local.ty)?;
                 let value_text =
-                    self.value_at_type_text("__smelt_value", source_ty, local.ty, &self.render_scope())?;
+                    self.rendered_at_type(&RustExpr::path("__smelt_value"), source_ty, local.ty, &self.render_scope())?;
                 if matches!(self.mir.types.get(local.ty), Some(Type::Future(_))) {
                     out.push_str(&format!(
                         "            let {mutability}{name} = {value_text};\n"
@@ -1388,11 +1389,11 @@ impl FunctionEmitter<'_> {
                     // must still answer `error.name === 'URIError'`. See
                     // `thrown::emit_panic_route_support`.
                     Some(Type::Unknown) => {
-                        crate::thrown::caught_panic_error_value_expr("__smelt_panic")
+                        crate::thrown::caught_panic_error_value_expr("__smelt_panic").into_string()
                     }
-                    _ => self.default_value(exception_decl.ty)?,
+                    _ => self.default_value(exception_decl.ty)?.into_string(),
                 };
-                out.push_str(&self.exception_binding_text(exception_local, &exception_name, &value));
+                out.push_str(&self.exception_binding_expr(exception_local, &exception_name, &RustExpr::opaque(&value)));
                 self.mark_local_declared(exception_local);
             }
             self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -1422,7 +1423,7 @@ impl FunctionEmitter<'_> {
             "    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {raw_call})) {{\n"
         ));
         out.push_str("        Ok(Ok(__smelt_value)) => {\n");
-        let value_text = self.value_at_type_text("__smelt_value", source_ty, local.ty, &self.render_scope())?;
+        let value_text = self.rendered_at_type(&RustExpr::path("__smelt_value"), source_ty, local.ty, &self.render_scope())?;
         let name = self.local_name(dest)?;
         let mutability = if self.local_binding_needs_mut(dest) {
             "mut "
@@ -1460,8 +1461,8 @@ impl FunctionEmitter<'_> {
             // catch variable through `smelt_panic_error_value`, which answers the
             // value a panic-routed throw parked in `SMELT_PANIC_VALUE`, and a
             // class-and-message record only for a panic with no parked value.)
-            let value = self.caught_error_value_text(exception_decl.ty, "__smelt_error")?;
-            out.push_str(&self.exception_binding_text(exception_local, &exception_name, &value));
+            let value = self.caught_error_value(exception_decl.ty, &RustExpr::path("__smelt_error"))?;
+            out.push_str(&self.exception_binding_expr(exception_local, &exception_name, &value));
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -1482,11 +1483,11 @@ impl FunctionEmitter<'_> {
                 // Same class-preserving recovery as the sibling call
                 // terminator; see `thrown::emit_panic_route_support`.
                 Some(Type::Unknown) => {
-                    crate::thrown::caught_panic_error_value_expr("__smelt_panic")
+                    crate::thrown::caught_panic_error_value_expr("__smelt_panic").into_string()
                 }
-                _ => self.default_value(exception_decl.ty)?,
+                _ => self.default_value(exception_decl.ty)?.into_string(),
             };
-            out.push_str(&self.exception_binding_text(exception_local, &exception_name, &value));
+            out.push_str(&self.exception_binding_expr(exception_local, &exception_name, &RustExpr::opaque(&value)));
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -1537,7 +1538,7 @@ impl FunctionEmitter<'_> {
             Continuation::InLoop { .. } => None,
         });
         let arm_continuation = joined_continuation.as_ref().unwrap_or(continuation);
-        let future_text = self.await_operand_text(future)?;
+        let future_text = self.await_operand_expr(future)?;
         out.push_str(&format!("    match {future_text}.await {{\n"));
         out.push_str("        Ok(__smelt_value) => {\n");
         let name = self.local_name(dest)?;
@@ -1555,7 +1556,7 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(local.ty),
             Some(Type::Future(_) | Type::Function(_))
         ) {
-            let value_text = self.value_at_type_text("__smelt_value", source_ty, local.ty, &self.render_scope())?;
+            let value_text = self.rendered_at_type(&RustExpr::path("__smelt_value"), source_ty, local.ty, &self.render_scope())?;
             out.push_str(&format!(
                 "            let {mutability}{name} = {value_text};\n"
             ));
@@ -1564,7 +1565,7 @@ impl FunctionEmitter<'_> {
                 "            let {mutability}{name}: () = {{ let _ = __smelt_value; }};\n"
             ));
         } else {
-            let value_text = self.value_at_type_text("__smelt_value", source_ty, local.ty, &self.render_scope())?;
+            let value_text = self.rendered_at_type(&RustExpr::path("__smelt_value"), source_ty, local.ty, &self.render_scope())?;
             out.push_str(&format!(
                 "            let {mutability}{name}: {} = {value_text};\n",
                 self.type_text(local.ty)?
@@ -1590,8 +1591,8 @@ impl FunctionEmitter<'_> {
         if let Some(exception_local) = handler.exception_local {
             let exception_name = self.local_name(exception_local)?;
             let exception_decl = self.local_decl(exception_local)?;
-            let value = self.caught_error_value_text(exception_decl.ty, "__smelt_error")?;
-            out.push_str(&self.exception_binding_text(exception_local, &exception_name, &value));
+            let value = self.caught_error_value(exception_decl.ty, &RustExpr::path("__smelt_error"))?;
+            out.push_str(&self.exception_binding_expr(exception_local, &exception_name, &value));
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -1616,11 +1617,11 @@ impl FunctionEmitter<'_> {
     /// rejoined continuation (`throwing_join`) runs after the `match`, outside
     /// the arm, so a `let` in the arm would shadow it and the tail would read
     /// the unassigned outer binding. Otherwise it is a fresh `let`.
-    fn exception_binding_text(&self, local: LocalId, name: &str, value: &str) -> String {
+    fn exception_binding_expr(&self, local: LocalId, name: &str, value: &RustExpr) -> RustExpr {
         if self.is_local_declared(local) {
-            format!("            {name} = {value};\n")
+            RustExpr::loose(format!("            {name} = {value};\n"))
         } else {
-            format!("            let {name} = {value};\n")
+            RustExpr::loose(format!("            let {name} = {value};\n"))
         }
     }
 
@@ -1647,7 +1648,7 @@ impl FunctionEmitter<'_> {
             let loop_declared = self.declared_scope();
             out.push_str(&format!(
                 "    while {} {{\n",
-                self.truthy_operand_text(cond)?
+                self.truthy_operand_expr(cond)?
             ));
             self.emit_block_until_goto(
                 then,
@@ -1664,7 +1665,7 @@ impl FunctionEmitter<'_> {
 
         if matches!(then.terminator, Some(Terminator::Goto(target)) if target == else_block) {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
             self.emit_block_until_goto(then, else_block, RegionExit::Join, out)?;
             out.push_str("    }\n");
             branch_declared.close();
@@ -1693,12 +1694,12 @@ impl FunctionEmitter<'_> {
             {
                 let local = self.local_decl(*then_dest)?;
                 let name = self.local_name(*then_dest)?;
-                let then_text = self.rvalue_text_for_dest(then_value, local.ty)?;
-                let else_text = self.rvalue_text_for_dest(else_value, local.ty)?;
+                let then_text = self.rvalue_expr_for_dest(then_value, local.ty)?;
+                let else_text = self.rvalue_expr_for_dest(else_value, local.ty)?;
                 out.push_str(&format!(
                     "    let {name}: {} = if {} {{ {then_text} }} else {{ {else_text} }};\n",
                     self.type_text(local.ty)?,
-                    self.truthy_operand_text(cond)?
+                    self.truthy_operand_expr(cond)?
                 ));
                 self.mark_local_declared(*then_dest);
                 return self.emit_block(self.block(*then_target)?, out);
@@ -1720,25 +1721,25 @@ impl FunctionEmitter<'_> {
                 ));
                 self.mark_local_declared(then_dest);
                 let branch_declared = self.declared_scope();
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
                 for statement in then_prefix {
                     self.emit_statement(statement, out)?;
                 }
-                let then_text = self.rvalue_text_for_dest(then_value, local.ty)?;
+                let then_text = self.rvalue_expr_for_dest(then_value, local.ty)?;
                 out.push_str(&format!("    {name} = {then_text};\n"));
                 out.push_str("    } else {\n");
                 branch_declared.reset();
                 for statement in else_prefix {
                     self.emit_statement(statement, out)?;
                 }
-                let else_text = self.rvalue_text_for_dest(else_value, local.ty)?;
+                let else_text = self.rvalue_expr_for_dest(else_value, local.ty)?;
                 out.push_str(&format!("    {name} = {else_text};\n"));
                 out.push_str("    }\n");
                 branch_declared.close();
                 return self.emit_block(self.block(*then_target)?, out);
             }
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
             self.emit_block_until_goto(then, *then_target, RegionExit::Join, out)?;
             out.push_str("    } else {\n");
             branch_declared.reset();
@@ -1774,7 +1775,7 @@ impl FunctionEmitter<'_> {
             );
             let branch_declared = self.declared_scope();
             out.push_str(&format!("    {branch_label}: {{\n"));
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
             for statement in &then.statements {
                 self.emit_statement(statement, out)?;
             }
@@ -1794,7 +1795,7 @@ impl FunctionEmitter<'_> {
             && self.branch_join_target(else_.id, &mut BlockIdSet::default())? == Some(then_target)
         {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
             self.emit_block_until_goto(then, then_target, RegionExit::Join, out)?;
             out.push_str("    } else {\n");
             branch_declared.reset();
@@ -1808,7 +1809,7 @@ impl FunctionEmitter<'_> {
             && self.branch_join_target(then.id, &mut BlockIdSet::default())? == Some(else_target)
         {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
             self.emit_block_until_goto(then, else_target, RegionExit::Join, out)?;
             out.push_str("    } else {\n");
             branch_declared.reset();
@@ -1848,7 +1849,7 @@ impl FunctionEmitter<'_> {
             )
         {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
             self.emit_block_until_goto(then, else_block, RegionExit::Join, out)?;
             out.push_str("    }\n");
             branch_declared.close();
@@ -1864,7 +1865,7 @@ impl FunctionEmitter<'_> {
                     .is_some())
         {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
             for statement in &then.statements {
                 self.emit_statement(statement, out)?;
             }
@@ -1905,7 +1906,7 @@ impl FunctionEmitter<'_> {
             && self.block_can_reach(else_.id, then_target, &mut BlockIdSet::default())
         {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
             for statement in &then.statements {
                 self.emit_statement(statement, out)?;
             }
@@ -1927,7 +1928,7 @@ impl FunctionEmitter<'_> {
             );
             let branch_declared = self.declared_scope();
             out.push_str(&format!("    {branch_label}: {{\n"));
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
             for statement in &then.statements {
                 self.emit_statement(statement, out)?;
             }
@@ -1982,7 +1983,7 @@ impl FunctionEmitter<'_> {
             && self.block_eventually_terminates(else_.id, &mut BlockIdSet::default())?
         {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
             self.emit_block(then, out)?;
             out.push_str("    } else {\n");
             branch_declared.reset();
@@ -1994,7 +1995,7 @@ impl FunctionEmitter<'_> {
 
         if self.block_eventually_terminates(then.id, &mut BlockIdSet::default())? {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
             self.emit_block(then, out)?;
             out.push_str("    }\n");
             branch_declared.close();
@@ -2009,7 +2010,7 @@ impl FunctionEmitter<'_> {
             let branch_declared = self.declared_scope();
             out.push_str(&format!(
                 "    if !({}) {{\n",
-                self.truthy_operand_text(cond)?
+                self.truthy_operand_expr(cond)?
             ));
             self.emit_block(else_, out)?;
             out.push_str("    }\n");
@@ -2027,7 +2028,7 @@ impl FunctionEmitter<'_> {
         ) && then_join == else_join
         {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
             self.emit_block_until_goto(then, then_join, RegionExit::Join, out)?;
             out.push_str("    } else {\n");
             branch_declared.reset();
@@ -2067,7 +2068,7 @@ impl FunctionEmitter<'_> {
             && self.block_never_falls_through(else_.id, &mut BlockIdSet::default())?
         {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
             self.emit_block(then, out)?;
             out.push_str("    } else {\n");
             branch_declared.reset();
@@ -2078,7 +2079,7 @@ impl FunctionEmitter<'_> {
         }
 
         let branch_declared = self.declared_scope();
-        out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+        out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
         for statement in &then.statements {
             self.emit_statement(statement, out)?;
         }
@@ -2438,7 +2439,7 @@ impl FunctionEmitter<'_> {
         // (`ToBool`) fall through to the unit default and emit `while ()`.
         let cond_ty = self.local_decl(*cond_local)?.ty;
         Ok(Some((
-            self.rvalue_text_for_dest(value, cond_ty)?,
+            self.rvalue_expr_for_dest(value, cond_ty)?.into_string(),
             *then_block,
             *else_block,
             idx,
@@ -2478,7 +2479,7 @@ impl FunctionEmitter<'_> {
             )?
         {
             return Ok(Some((
-                self.truthy_operand_text(cond)?,
+                self.truthy_operand_expr(cond)?.into_string(),
                 *then_block,
                 *else_block,
                 true,
@@ -2493,7 +2494,7 @@ impl FunctionEmitter<'_> {
             )?
         {
             return Ok(Some((
-                self.truthy_operand_text(cond)?,
+                self.truthy_operand_expr(cond)?.into_string(),
                 *else_block,
                 *then_block,
                 false,
@@ -2730,7 +2731,7 @@ impl FunctionEmitter<'_> {
         // and emit `while ()` (see `while_header`).
         let cond_ty = self.local_decl(*cond_local)?.ty;
         Ok(Some((
-            self.rvalue_text_for_dest(value, cond_ty)?,
+            self.rvalue_expr_for_dest(value, cond_ty)?.into_string(),
             *then_block,
             latch_block,
             *else_block,
@@ -2972,7 +2973,7 @@ impl FunctionEmitter<'_> {
                 then_block,
                 else_block,
             }) => {
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
                 self.emit_condition_region(self.block(*then_block)?, decision, out, visited)?;
                 out.push_str("    } else {\n");
                 self.emit_condition_region(self.block(*else_block)?, decision, out, visited)?;
@@ -3005,7 +3006,7 @@ impl FunctionEmitter<'_> {
             let Some(Terminator::Switch { cond, .. }) = &self.block(decision)?.terminator else {
                 return Err(EmitError::new("compound while decision must be a switch"));
             };
-            self.truthy_operand_text(cond)?
+            self.truthy_operand_expr(cond)?
         };
         let loop_declared = self.declared_scope();
         out.push_str("    loop {\n");
@@ -3159,7 +3160,7 @@ impl FunctionEmitter<'_> {
                 then_block,
                 else_block,
             }) if break_target.is_some() => {
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
                 self.emit_loop_branch(self.block(*then_block)?, stop, break_target, out)?;
                 out.push_str("    } else {\n");
                 self.emit_loop_branch(self.block(*else_block)?, stop, break_target, out)?;
@@ -3192,7 +3193,7 @@ impl FunctionEmitter<'_> {
                         out,
                     );
                 };
-                let cond_text = self.truthy_operand_text(cond)?;
+                let cond_text = self.truthy_operand_expr(cond)?;
                 let branch_declared = self.declared_scope();
                 if *then_block == join && *else_block == join {
                     // Both edges already are the join: no branch to emit.
@@ -3385,7 +3386,7 @@ impl FunctionEmitter<'_> {
                 // which must declare it again (E0425 `_smelt_tmp_N` when the
                 // else-arm assigned it bare).
                 let branch_declared = self.declared_scope();
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
                 // Each branch can legitimately converge on the same join block.
                 // Sharing the recursion guard across siblings makes the later
                 // branch look cyclic and incorrectly emits `continue`.
@@ -3575,7 +3576,7 @@ impl FunctionEmitter<'_> {
         let join_scope = self.flow.push_loop_join_stop(join, continue_target);
         let mut arms = String::new();
         let emitted = (|| -> Result<(), EmitError> {
-            arms.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            arms.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
             let mut then_visited = visited.clone();
             self.emit_loop_branch_inner(
                 self.block(then_block)?,

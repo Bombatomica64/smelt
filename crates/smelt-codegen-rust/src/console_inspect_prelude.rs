@@ -67,7 +67,7 @@
 //!   through `Display for SmeltUnknown` as before.
 //! * An absent optional inside a container prints `undefined`; `T | null`
 //!   and `T | undefined` share one Rust `Option` (see
-//!   `console_optional_text`).
+//!   `console_optional_expr`).
 //! * Record struct fields print in DECLARATION order. A literal written in a
 //!   different key order than its interface declares prints in the
 //!   interface's order, where Node prints the literal's.

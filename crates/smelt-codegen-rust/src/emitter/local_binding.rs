@@ -7,6 +7,7 @@
 //! a shared cell, which cell, is this a closure parameter) is answered from the
 //! binding, and Rust text is only produced on the way out.
 
+use crate::rust::RustExpr;
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
@@ -66,13 +67,13 @@ impl SharedCell {
     }
 
     /// The place expression that reads the cell: `(*smelt_capture_x.borrow())`.
-    pub(super) fn read_text(&self) -> String {
-        format!("(*{}{}.borrow())", self.cell, self.upgrade.suffix())
+    pub(super) fn read_expr(&self) -> RustExpr {
+        RustExpr::atom(format!("(*{}{}.borrow())", self.cell, self.upgrade.suffix()))
     }
 
     /// The place expression that writes the cell: `(*smelt_capture_x.borrow_mut())`.
-    pub(super) fn write_text(&self) -> String {
-        format!("(*{}{}.borrow_mut())", self.cell, self.upgrade.suffix())
+    pub(super) fn write_expr(&self) -> RustExpr {
+        RustExpr::atom(format!("(*{}{}.borrow_mut())", self.cell, self.upgrade.suffix()))
     }
 }
 
@@ -107,9 +108,9 @@ impl LocalBinding {
             Self::Receiver => Cow::Borrowed("self"),
             Self::ClosureArg(index) => Cow::Owned(format!("closure_arg_{index}")),
             Self::SelfOwned => Cow::Borrowed(SELF_OWNED_NAME),
-            Self::SharedCapture(cell) => Cow::Owned(cell.write_text()),
+            Self::SharedCapture(cell) => Cow::Owned(cell.write_expr().into_string()),
             Self::WeakEmitter { name } => {
-                Cow::Owned(super::weak_receiver::emitter_access_text(name))
+                Cow::Owned(super::weak_receiver::emitter_access_expr(name).into_string())
             }
         }
     }
@@ -239,17 +240,17 @@ mod tests {
     fn a_shared_cell_reads_and_writes_through_its_own_borrow() {
         let cell = SharedCell::named("total", CellUpgrade::Strong);
         assert_eq!(cell.cell, "smelt_capture_total");
-        assert_eq!(cell.read_text(), "(*smelt_capture_total.borrow())");
-        assert_eq!(cell.write_text(), "(*smelt_capture_total.borrow_mut())");
+        assert_eq!(cell.read_expr().as_str(), "(*smelt_capture_total.borrow())");
+        assert_eq!(cell.write_expr().as_str(), "(*smelt_capture_total.borrow_mut())");
     }
 
     #[test]
     fn an_upgrading_cell_keeps_its_upgrade_between_cell_and_borrow() {
         let weak = SharedCell::named("this", CellUpgrade::WeakReceiver);
-        assert_eq!(weak.read_text(), "(*smelt_capture_this.smelt_receiver_cell().borrow())");
+        assert_eq!(weak.read_expr().as_str(), "(*smelt_capture_this.smelt_receiver_cell().borrow())");
         let recursive = SharedCell::named("walk", CellUpgrade::SelfRecursive);
-        assert!(recursive.write_text().starts_with("(*smelt_capture_walk.upgrade()"));
-        assert!(recursive.write_text().ends_with(".borrow_mut())"));
+        assert!(recursive.write_expr().starts_with("(*smelt_capture_walk.upgrade()"));
+        assert!(recursive.write_expr().ends_with(".borrow_mut())"));
     }
 
     #[test]

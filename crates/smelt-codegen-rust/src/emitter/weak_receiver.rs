@@ -57,6 +57,7 @@
 //! different object. Those are not proven cycle-only, so correctness wins and
 //! they keep leaking as before.
 
+use crate::rust::RustExpr;
 use smelt_stdlib::runtime_symbols::markers::SMELT_CALL;
 use std::collections::{HashMap, HashSet};
 
@@ -680,6 +681,6 @@ pub(crate) fn emitter_prelude_text(name: &str, source: &str) -> String {
 }
 
 /// How a weak emitter capture named `name` is read inside the listener body.
-pub(crate) fn emitter_access_text(name: &str) -> String {
-    format!("smelt_weak_{name}.smelt_emitter()")
+pub(crate) fn emitter_access_expr(name: &str) -> RustExpr {
+    RustExpr::opaque(format!("smelt_weak_{name}.smelt_emitter()"))
 }

@@ -12,16 +12,17 @@
 //! `AbortSignal`-aware helper uses, because the signal arrives optional —
 //! resolve them through the ordinary optional-chained member read.
 
+use crate::rust::RustExpr;
 use super::*;
 
 impl FunctionEmitter<'_> {
     /// Emit one `AbortSignal` static call.
-    pub(super) fn abort_signal_op_text(
+    pub(super) fn abort_signal_op_expr(
         &self,
         op: smelt_hir::AbortSignalOp,
         args: &[Operand],
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let unknown_ty = self.type_id(Type::Unknown)?;
         let call = match op {
             // `AbortSignal.abort(reason?)` is already aborted, so its record is
@@ -75,6 +76,6 @@ impl FunctionEmitter<'_> {
                 ))
             }
         };
-        self.value_at_type_text(&call, unknown_ty, dest_ty, &self.render_scope())
+        self.rendered_at_type(&RustExpr::opaque(&call), unknown_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
     }
 }

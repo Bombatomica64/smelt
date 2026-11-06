@@ -1,5 +1,6 @@
 //! Control Flow Match emission helpers.
 
+use crate::rust::RustExpr;
 use super::*;
 
 impl FunctionEmitter<'_> {
@@ -29,7 +30,7 @@ impl FunctionEmitter<'_> {
         default: Option<smelt_mir::BlockId>,
         out: &mut String,
     ) -> Result<(), EmitError> {
-        let scrutinee_text = self.match_scrutinee_text(scrutinee)?;
+        let scrutinee_text = self.match_scrutinee_expr(scrutinee)?;
         let scrutinee_ty = self.operand_ty(scrutinee)?;
         let hoisted_join = self.match_join(arms, default)?;
         out.push_str(&format!("    match {scrutinee_text} {{\n"));
@@ -97,7 +98,7 @@ impl FunctionEmitter<'_> {
         out: &mut String,
         visited: &BlockIdSet,
     ) -> Result<(), EmitError> {
-        let scrutinee_text = self.match_scrutinee_text(scrutinee)?;
+        let scrutinee_text = self.match_scrutinee_expr(scrutinee)?;
         let scrutinee_ty = self.operand_ty(scrutinee)?;
         out.push_str(&format!("    match {scrutinee_text} {{\n"));
         let match_declared = self.declared_scope();
@@ -209,7 +210,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a match scrutinee operand to its Rust text representation.
-    pub(super) fn match_scrutinee_text(&self, operand: &Operand) -> Result<String, EmitError> {
+    pub(super) fn match_scrutinee_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
         let operand_ty = self.operand_ty(operand)?;
         // Compare the resolved type directly rather than interning `Type::String`
         // and comparing ids: a program that never uses a string (e.g. a switch
@@ -223,29 +224,29 @@ impl FunctionEmitter<'_> {
                 Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))
                     if self.local_is_static_typeof_str(*local) =>
                 {
-                    self.place_text(&Place::Local(*local))
+                    self.place_expr(&Place::Local(*local))
                 }
                 Operand::Copy(place) | Operand::Move(place) => {
-                    Ok(format!("{}.as_str()", self.place_text(place)?))
+                    Ok(RustExpr::postfix_on(&self.place_expr(place)?, format!("{}.as_str()", self.place_expr(place)?)))
                 }
-                Operand::Const(Constant::String(value)) => Ok(format!("{value:?}")),
-                Operand::Const(_) => self.operand_text(operand),
+                Operand::Const(Constant::String(value)) => Ok(RustExpr::chain(format!("{value:?}"))),
+                Operand::Const(_) => self.operand_expr(operand),
             }
         } else if matches!(
             self.mir.types.get(operand_ty),
             Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String)
         ) {
-            Ok(format!("{}.as_deref()", self.operand_text(operand)?))
+            Ok(RustExpr::postfix_on(&self.operand_expr(operand)?, format!("{}.as_deref()", self.operand_expr(operand)?)))
         } else {
-            self.operand_text(operand)
+            self.operand_expr(operand)
         }
     }
 
     /// Converts a constant to its match label text.
-    pub(super) fn match_label_text(&self, constant: &Constant) -> String {
+    pub(super) fn match_label_expr(&self, constant: &Constant) -> RustExpr {
         match constant {
-            Constant::String(value) => format!("{value:?}"),
-            _ => constant_text(constant),
+            Constant::String(value) => RustExpr::chain(format!("{value:?}")),
+            _ => RustExpr::from(constant_expr(constant).into_string()),
         }
     }
 
@@ -258,7 +259,7 @@ impl FunctionEmitter<'_> {
         {
             return format!("Some({value:?})");
         }
-        self.match_label_text(constant)
+        self.match_label_expr(constant).into_string()
     }
 
 }

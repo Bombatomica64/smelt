@@ -1,5 +1,6 @@
 //! Parameter and closure-capture ownership analysis: which parameters need mutable-reference ABI, which captured bindings must use shared (RefCell) storage, and the closure-body write detection behind those decisions.
 
+use crate::rust::RustExpr;
 use super::*;
 use smelt_hir::FunctionType;
 
@@ -267,7 +268,7 @@ impl FunctionEmitter<'_> {
     /// TypeId equality alone is `E0308`.
     ///
     /// When the two renderings disagree the argument is rendered through
-    /// [`FunctionEmitter::demoting_erased_argument_text`], which is a
+    /// [`FunctionEmitter::demoting_erased_argument_expr`], which is a
     /// *demotion signal* rather than a rendering the emitted crate keeps: it
     /// touches the erased carrier, so the generic trial
     /// (`FunctionEmitter::renders_real_generics`) rejects the caller's
@@ -278,12 +279,12 @@ impl FunctionEmitter<'_> {
     /// `None` means "no callee emission scope to compare against" — an indirect
     /// call through a function *value*, whose target type is rendered in the
     /// caller's own scope, so MIR identity already implies rendered identity.
-    pub(super) fn mutable_reference_argument_text(
+    pub(super) fn mutable_reference_argument_expr(
         &self,
         operand: &Operand,
         target: TypeId,
         callee_emission_scope: Option<&HashSet<Symbol>>,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let text = match operand {
             Operand::Copy(place) | Operand::Move(place) => {
                 if let Place::Local(local) = place
@@ -291,7 +292,7 @@ impl FunctionEmitter<'_> {
                     && self.function.params.contains(local)
                     && self.parameter_needs_mutable_reference(*local)
                 {
-                    return self.place_text(place);
+                    return self.place_expr(place);
                 }
                 let place_ty = self.place_ty(place)?;
                 if place_ty == target {
@@ -300,9 +301,9 @@ impl FunctionEmitter<'_> {
                         target,
                         callee_emission_scope,
                     )? {
-                        self.place_text(place)?
+                        self.place_expr(place)?
                     } else {
-                        self.demoting_erased_argument_text(place, place_ty)?
+                        self.demoting_erased_argument_expr(place, place_ty)?
                     }
                 } else if self.list_argument_aliases_callee_parameter(
                     place_ty,
@@ -312,7 +313,7 @@ impl FunctionEmitter<'_> {
                     // Different `TypeId`s, one Rust type: there is nothing to
                     // convert, so borrow the caller's own list and let the
                     // callee mutate it in place.
-                    self.place_text(place)?
+                    self.place_expr(place)?
                 } else {
                     // HAZARD (unfixed): a coercion that has to change the
                     // element representation collects into a fresh backing
@@ -327,12 +328,12 @@ impl FunctionEmitter<'_> {
                     // `call::mut_list_adapter_arg` has and this
                     // single-expression seam does not, so the hazard is named
                     // here rather than papered over.
-                    self.value_at_type(operand, target)?
+                    RustExpr::from(self.value_at_type(operand, target)?)
                 }
             }
-            Operand::Const(_) => self.value_at_type(operand, target)?,
+            Operand::Const(_) => RustExpr::from(self.value_at_type(operand, target)?),
         };
-        Ok(format!("&mut {text}"))
+        Ok(RustExpr::loose(format!("&mut {text}")))
     }
 
     /// Whether a `&mut` list argument and the callee's list parameter are the
@@ -392,7 +393,7 @@ impl FunctionEmitter<'_> {
     /// callee's declared `T[]` parameter are the SAME `TypeId` while rendering
     /// as `SmeltList<T>` and `SmeltList<SmeltUnknown>`. Every pass-through that
     /// keys on `TypeId` equality has to consult this first — the `&mut` path
-    /// ([`FunctionEmitter::mutable_reference_argument_text`], where the failure
+    /// ([`FunctionEmitter::mutable_reference_argument_expr`], where the failure
     /// is invariance) and the by-value static-call path (where the failure is a
     /// lifted caller statically calling a demoted callee whose type parameters
     /// share names).
@@ -435,7 +436,7 @@ impl FunctionEmitter<'_> {
     /// expression that bridges a caller's `SmeltList<T>` to a callee's
     /// `SmeltList<SmeltUnknown>` while preserving the callee's write-back
     /// (`&mut` is invariant, and the convert-in-place adapter
-    /// `call::static_call_mut_list_adapter_text` declines on the throwing-call
+    /// `call::static_call_mut_list_adapter` declines on the throwing-call
     /// path). On the by-value path the erasure below *would* be the correct
     /// value, but emitting it would silently throw away the caller's generics
     /// one argument at a time; demoting the caller as a whole is the honest
@@ -448,18 +449,18 @@ impl FunctionEmitter<'_> {
     /// The text below therefore never reaches the emitted crate; the guards in
     /// [`FunctionEmitter::argument_renders_alike_across_call`] are what make that
     /// true, and they must not be relaxed without replacing this mechanism.
-    pub(super) fn demoting_erased_argument_text(
+    pub(super) fn demoting_erased_argument_expr(
         &self,
         place: &Place,
         place_ty: TypeId,
-    ) -> Result<String, EmitError> {
-        let place_text = self.place_text(place)?;
+    ) -> Result<RustExpr, EmitError> {
+        let place_expr = self.place_expr(place)?;
         if matches!(self.mir.types.get(place_ty), Some(Type::List(_))) {
-            return Ok(self.carrier_format(format_args!(
-                "{place_text}.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<SmeltList<_>>()"
-            )));
+            return Ok(RustExpr::from(self.carrier_format(format_args!(
+                "{place_expr}.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<SmeltList<_>>()"
+            ))));
         }
-        Ok(self.carrier_format(format_args!("{place_text}.clone().into_smelt_unknown()")))
+        Ok(RustExpr::from(self.carrier_format(format_args!("{place_expr}.clone().into_smelt_unknown()"))))
     }
 
     /// Returns whether a non-escaping capture must share outer storage.

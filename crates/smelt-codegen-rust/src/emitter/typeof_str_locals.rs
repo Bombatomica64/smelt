@@ -2,7 +2,7 @@
 //!
 //! JavaScript `typeof` answers one of seven fixed spellings, so the value a
 //! `Rvalue::TypeofValue` produces is naturally a `&'static str`
-//! ([`FunctionEmitter::typeof_str_text`]). MIR types the destination local
+//! ([`FunctionEmitter::typeof_str_expr`]). MIR types the destination local
 //! `Type::String`, though, because MIR has one string type and no notion of a
 //! borrowed one -- so emitting the local as a Rust `String` costs an allocation
 //! per evaluation that the value never needed.
@@ -18,7 +18,7 @@
 //! The recognised shapes, which are what the corpora actually contain:
 //!
 //! - the scrutinee of a `Terminator::Match` -- the source `switch (typeof x)`.
-//!   A `&'static str` has no `.as_str()`, so [`FunctionEmitter::match_scrutinee_text`]
+//!   A `&'static str` has no `.as_str()`, so [`FunctionEmitter::match_scrutinee_expr`]
 //!   matches the binding directly instead.
 //! - either side of an equality `Rvalue::Binary` against a string literal or
 //!   against another local this analysis also accepted -- the source

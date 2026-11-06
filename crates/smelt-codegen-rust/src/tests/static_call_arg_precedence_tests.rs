@@ -28,7 +28,7 @@ use super::*;
 /// borrow.
 ///
 /// The callback parameter is not decoration. A `&mut` LIST argument is normally
-/// emitted by a THIRD ladder — `call::static_call_mut_list_adapter_text`, the
+/// emitted by a THIRD ladder — `call::static_call_mut_list_adapter`, the
 /// convert-in-place adapter, recognisable by its `smelt_mut_call_result`
 /// wrapper — which never reaches the classifier at all. That adapter declines
 /// for a callee whose callback parameter mentions one of the callee's own

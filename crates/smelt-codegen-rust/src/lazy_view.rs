@@ -46,14 +46,16 @@
     reason = "crate-visible helpers are shared with the prelude emitter and the emitter shards"
 )]
 
+use crate::rust::RustExpr;
+
 /// The erased object for a reference record whose snapshot waits for first use.
 ///
 /// `id_text` is the record's stable identity, `build_body` the statements that
 /// fill `smelt_object_entries` from `smelt_object_value`/`smelt_struct_value`
 /// (the same text the eager view runs), and `handle` the live handle, which is
 /// both captured by the builder and stamped as the origin.
-pub(crate) fn lazy_reference_object_text(id_text: &str, build_body: &str, handle: &str) -> String {
-    format!(
+pub(crate) fn lazy_reference_object_expr(id_text: &str, build_body: &str, handle: &str) -> RustExpr {
+    RustExpr::atom(format!(
         "SmeltObject::lazy_with_id({id_text}, {{ let smelt_lazy_handle = {handle}.clone(); move || {{ let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); {build_body}smelt_object_entries }} }}).smelt_with_origin({handle}.clone())"
-    )
+    ))
 }

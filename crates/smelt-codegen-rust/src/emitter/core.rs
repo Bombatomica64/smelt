@@ -1,5 +1,6 @@
 //! Core emission helpers.
 
+use crate::rust::RustExpr;
 use super::*;
 use crate::emitter::rendered_value::cloned_value_text;
 use crate::emitter::local_binding::{CellUpgrade, LocalBinding, SELF_OWNED_NAME, SharedCell};
@@ -637,7 +638,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// `forward_thrown_future` hands a fallible source's future straight through
     /// to a fallible future target, for an adapter whose call value is that future.
     #[expect(clippy::too_many_arguments, reason = "the adapter's own facts, named")]
-    fn adapter_return_text(
+    fn adapter_return_expr(
         &self,
         source: &FunctionType,
         target_function: &FunctionType,
@@ -646,7 +647,7 @@ impl<'mir> FunctionEmitter<'mir> {
         default_adjusted_return_text: String,
         adapter_source: AdapterSource,
         forward_thrown_future: bool,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let AdapterSource {
             returns_future: source_returns_future,
             output_may_throw: source_async_output_may_throw,
@@ -655,23 +656,23 @@ impl<'mir> FunctionEmitter<'mir> {
             && !source_returns_future
         {
             if target_function.may_throw {
-                format!("{{ {call_value}; Ok::<(), {ERROR_BOX}>(()) }}")
+                RustExpr::atom(format!("{{ {call_value}; Ok::<(), {ERROR_BOX}>(()) }}"))
             } else {
-                format!("{{ {call_value}; () }}")
+                RustExpr::atom(format!("{{ {call_value}; () }}"))
             }
         } else if self.mir.types.get(target_return_ty) == Some(&Type::None)
             && source_returns_future
         {
             if target_function.may_throw {
-                format!(
+                RustExpr::atom(format!(
                     "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {call_value}.await; }})); Ok::<(), {ERROR_BOX}>(()) }}",
                     spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
-                )
+                ))
             } else {
-                format!(
+                RustExpr::atom(format!(
                     "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {call_value}.await; }})); () }}",
                     spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
-                )
+                ))
             }
         } else if target_function.may_throw
             && source_returns_future
@@ -679,21 +680,21 @@ impl<'mir> FunctionEmitter<'mir> {
             && let Some(Type::Future(item)) = self.mir.types.get(source.return_ty)
         {
             let item_text = self.type_text(*item)?;
-            format!(
+            RustExpr::atom(format!(
                 "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, {ERROR_BOX}>({default_adjusted_return_text}.await?) }}))"
-            )
+            ))
         } else if target_function.may_throw
             && default_adjusted_return_text.contains("SmeltFuture::")
         {
-            default_adjusted_return_text
+            RustExpr::from(default_adjusted_return_text)
         } else if target_function.may_throw
             && let Some(Type::Future(item)) = self.mir.types.get(target_return_ty)
             && !(source.may_throw && source_returns_future)
         {
             let item_text = self.type_text(*item)?;
-            format!(
+            RustExpr::atom(format!(
                 "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, {ERROR_BOX}>({default_adjusted_return_text}.await?) }}))"
-            )
+            ))
         } else if forward_thrown_future
             && target_function.may_throw
             && matches!(
@@ -712,11 +713,11 @@ impl<'mir> FunctionEmitter<'mir> {
             // adapter closure return `Result<Future, _>`, and a chain of such
             // adapters (or a later erasure into a promise) would then observe a
             // nested `Result<Result<Future, _>, _>` at its await seam (was E0277).
-            default_adjusted_return_text
+            RustExpr::from(default_adjusted_return_text)
         } else if target_function.may_throw {
-            format!("Ok::<_, {ERROR_BOX}>({default_adjusted_return_text})")
+            RustExpr::loose(format!("Ok::<_, {ERROR_BOX}>({default_adjusted_return_text})"))
         } else {
-            default_adjusted_return_text
+            RustExpr::from(default_adjusted_return_text)
         })
     }
 
@@ -870,7 +871,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     "    let smelt_capture_{name}: ::std::rc::Rc<::std::cell::RefCell<{}>> = ::std::rc::Rc::new(::std::cell::RefCell::new({}));\n",
                     self.capture_cell_type_text(local, decl.ty)?,
                     if self.is_base_initializer_receiver(local) {
-                        "Default::default()".to_owned()
+                        RustExpr::atom("Default::default()")
                     } else {
                         self.default_value(decl.ty)?
                     }
@@ -940,9 +941,9 @@ impl<'mir> FunctionEmitter<'mir> {
         &self,
         local: LocalId,
         ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         if self.local_is_static_typeof_str(local) {
-            return Ok("\"\"".to_owned());
+            return Ok(RustExpr::chain("\"\""));
         }
         self.default_value(ty)
     }
@@ -973,7 +974,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// actually returns `SmeltUnknown`. When that result is only ever *erased*
     /// back to `SmeltUnknown` (e.g. pushed into a `pipe(...)` argument list), the
     /// erase seam re-derives the value by re-rendering the defining call at
-    /// `Unknown` (see `coercion::erased_call_assignment_text`). In that case the
+    /// `Unknown` (see `coercion::erased_call_assignment_expr`). In that case the
     /// typed-callback binding the call terminator/statement would emit is never
     /// read: it is a dead store whose extraction-from-`SmeltUnknown` template
     /// also evaluates the call a *second* time, double-moving the arguments.
@@ -1012,7 +1013,7 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Returns whether a local's defining definition is a call the erase seam
     /// can re-render at `Unknown` (a `ClosureCall` statement or `Call`
-    /// terminator). Mirrors `coercion::erased_call_assignment_text`'s gate.
+    /// terminator). Mirrors `coercion::erased_call_assignment_expr`'s gate.
     fn local_defined_by_reinlinable_call(&self, local: LocalId) -> bool {
         for block in &self.function.blocks {
             for statement in &block.statements {
@@ -1285,10 +1286,10 @@ impl<'mir> FunctionEmitter<'mir> {
     /// must preserve this: do not build a single emitted statement that both
     /// borrows a shared capture and evaluates a call. See the regression test
     /// `shared_capture_borrow_never_spans_a_sibling_closure_call`.
-    pub(super) fn local_value_text(&self, local: LocalId) -> Result<String, EmitError> {
+    pub(super) fn local_value(&self, local: LocalId) -> Result<RustExpr, EmitError> {
         match self.local_shared_cell(local)? {
-            Some(cell) => Ok(cell.read_text()),
-            None => Ok(self.local_name(local)?.into_owned()),
+            Some(cell) => Ok(cell.read_expr()),
+            None => Ok(RustExpr::from(self.local_name(local)?.into_owned())),
         }
     }
 
@@ -1314,19 +1315,19 @@ impl<'mir> FunctionEmitter<'mir> {
     /// the end of the FULL enclosing statement; if that statement also invoked
     /// a closure re-borrowing the same cell, the nested borrow would panic with
     /// "already borrowed". The same three-address invariant documented on
-    /// [`Self::local_value_text`] prevents this: every call is a separate SSA
+    /// [`Self::local_value`] prevents this: every call is a separate SSA
     /// temp statement, so an assignment target's `borrow_mut` guard only ever
     /// coexists with already-evaluated value operands (e.g.
     /// `(*smelt_capture_count.borrow_mut()) = _smelt_tmp_N;`), never with a live
     /// call. Callers must not construct a single statement that both takes this
     /// mutable borrow and evaluates a call.
-    pub(super) fn local_mut_value_text(&self, local: LocalId) -> Result<String, EmitError> {
+    pub(super) fn local_mut_value(&self, local: LocalId) -> Result<RustExpr, EmitError> {
         match self.local_shared_cell(local)? {
             Some(cell) => {
                 self.binding_uses.record_mut_borrow(&cell);
-                Ok(cell.write_text())
+                Ok(cell.write_expr())
             }
-            None => Ok(self.local_name(local)?.into_owned()),
+            None => Ok(RustExpr::from(self.local_name(local)?.into_owned())),
         }
     }
 
@@ -1443,13 +1444,13 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Emits a field-wise adapter between structurally compatible record types.
-    pub(super) fn structural_record_adapter_text(
+    pub(super) fn structural_record_adapter(
         &self,
-        value_text: &str,
+        value_text: &RustExpr,
         source: TypeId,
         target: TypeId,
         scope: &RenderScope,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         // A reference class is a handle newtype over `Rc<RefCell<Inner>>`, not a
         // field-wise struct, so it cannot be rebuilt with a `Name { field: .. }`
         // literal (that fails with E0560). When the source already has the
@@ -1463,7 +1464,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 (Some(Type::Class { name: src_name, .. }), Some(Type::Class { name: tgt_name, .. })) if src_name == tgt_name
             )
         {
-            return Ok(Some(format!("{value_text}.clone()")));
+            return Ok(Some(RustExpr::postfix_on(&value_text, format!("{value_text}.clone()")).ending_in_clone()));
         }
         // A MODELED HOST class has no generated fields to pair up — its data
         // lives behind the prelude struct's accessors — but it still EXPOSES
@@ -1475,9 +1476,9 @@ impl<'mir> FunctionEmitter<'mir> {
         // because `structural_record_fields` answers `None` for such a source
         // and the whole adapter would decline.
         if let Some(adapter) =
-            self.host_class_to_record_adapter_text(value_text, source, target, scope)?
+            self.host_class_to_record_adapter(value_text, source, target, scope)?
         {
-            return Ok(Some(adapter));
+            return Ok(Some(RustExpr::from(adapter)));
         }
         let Some(adapted_fields) = self.structural_record_adapter_fields(source, target) else {
             return Ok(None);
@@ -1504,9 +1505,9 @@ impl<'mir> FunctionEmitter<'mir> {
             // default is kept only where the pair cannot be spelled at module
             // level.
             if let Some(call) = self.hoisted_record_adapter_call(value_text, source, target)? {
-                return Ok(Some(call));
+                return Ok(Some(RustExpr::from(call)));
             }
-            return Ok(Some(self.default_value(target)?));
+            return Ok(Some(RustExpr::from(self.default_value(target)?)));
         };
         let target_name = sanitize_ident(self.symbol_name(*name)?);
         let mut field_text = Vec::new();
@@ -1514,12 +1515,12 @@ impl<'mir> FunctionEmitter<'mir> {
             let field_name = sanitize_ident(self.symbol_name(target_field.name)?);
             let mut value_at_slot_abi = false;
             let value = if let Some(value) =
-                self.virtual_method_storage_field_text(source, target, target_field.name)?
+                self.virtual_method_storage_field_expr(source, target, target_field.name)?
             {
                 value
             } else if let Some(value) = match &source_field_match {
                 Some(source_field) => {
-                    self.receiver_bound_field_slot_text(source, target, source_field, &target_field, scope)?
+                    self.receiver_bound_field_slot_expr(source, target, source_field, &target_field, scope)?
                 }
                 None => None,
             } {
@@ -1535,8 +1536,8 @@ impl<'mir> FunctionEmitter<'mir> {
                 };
                 let source_value = format!("{source_base}.{source_field_name}.clone()");
                 let adapted =
-                    self.value_at_type_text(&source_value, source_field.ty, target_field.ty, scope)?;
-                value_at_slot_abi = adapted == source_value
+                    self.rendered_at_type(&RustExpr::opaque(&source_value), source_field.ty, target_field.ty, scope)?;
+                value_at_slot_abi = adapted == RustExpr::from(source_value)
                     && self.record_slot_read_keeps_slot_abi(source, &source_field, target, &target_field);
                 // Narrowing a callable object to a callable interface that
                 // declares fewer members drops the source's own data fields —
@@ -1547,17 +1548,17 @@ impl<'mir> FunctionEmitter<'mir> {
                 // carries a property bag for exactly this, so hand the dropped
                 // properties to it instead of losing them at the seam.
                 if self.symbol_source_name(target_field.name)? == SMELT_CALL {
-                    self.callable_object_carried_properties_text(&adapted, source, target)?
+                    self.callable_object_carried_properties_expr(&adapted, source, target)?
                 } else {
-                    adapted
+                    RustExpr::from(adapted)
                 }
             } else {
                 // No source field supplies this value, so nothing here can
                 // spell a type parameter: an explicitly empty environment.
-                self.default_value_with_scoped_type_params(
+                RustExpr::from(self.default_value_with_scoped_type_params(
                     target_field.ty,
                     &TypeSubstitution::erased(),
-                )?
+                )?)
             };
             // A callable slot keeps the ABI its DECLARATION gave it, whatever
             // the record was instantiated at (`emitter::record_slot_abi`). A
@@ -1566,7 +1567,7 @@ impl<'mir> FunctionEmitter<'mir> {
             let value = if value_at_slot_abi {
                 value
             } else {
-                self.record_field_value_at_slot_abi(value, target, &target_field)?
+                RustExpr::from(self.record_field_value_at_slot_abi(value.into_string(), target, &target_field)?)
             };
             field_text.push(format!("{field_name}: {value}"));
         }
@@ -1585,15 +1586,15 @@ impl<'mir> FunctionEmitter<'mir> {
         // returns the base class, handed to a parameter typed as the subclass
         // that adds no members); it copies the members into a new instance.
         if self.is_reference_class_type(target) {
-            return Ok(Some(format!(
+            return Ok(Some(RustExpr::atom(format!(
                 "{{ let smelt_struct_value = {value_text}.clone(); {target_name}(::std::rc::Rc::new(::std::cell::RefCell::new({target_name}Inner {{ {} }}))) }}",
                 field_text.join(", ")
-            )));
+            ))));
         }
-        Ok(Some(format!(
+        Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_struct_value = {value_text}.clone(); {target_name} {{ {} }} }}",
             field_text.join(", ")
-        )))
+        ))))
     }
 
     /// The call to a hoisted adapter from `source` to `target`, registering
@@ -1607,7 +1608,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// when no structural adapter exists for the pair.
     fn hoisted_record_adapter_call(
         &self,
-        value_text: &str,
+        value_text: &RustExpr,
         source: TypeId,
         target: TypeId,
     ) -> Result<Option<String>, EmitError> {
@@ -1641,12 +1642,12 @@ impl<'mir> FunctionEmitter<'mir> {
                 // expansions in progress at this call site are not its own.
                 let _suspended = helper_reservation::suspend(&self.type_expansion_stack);
                 let module_scope = self.render_scope();
-                self.structural_record_adapter_text("smelt_value", source, target, &module_scope)
+                self.structural_record_adapter(&RustExpr::path("smelt_value"), source, target, &module_scope)
             };
             let Some(body) = body? else {
                 return Ok(None);
             };
-            reservation.commit(body)
+            reservation.commit(body.into_string())
         };
         drop(hoisted);
         Ok(Some(format!(
@@ -1670,13 +1671,13 @@ impl<'mir> FunctionEmitter<'mir> {
     /// non-optional target field is one of its members. An OPTIONAL target
     /// field the source does not expose is simply absent, which is what an
     /// optional property means.
-    fn host_class_to_record_adapter_text(
+    fn host_class_to_record_adapter(
         &self,
-        value_text: &str,
+        value_text: &RustExpr,
         source: TypeId,
         target: TypeId,
         scope: &RenderScope,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         if source == target || !self.exposes_host_members(source)? {
             return Ok(None);
         }
@@ -1694,16 +1695,16 @@ impl<'mir> FunctionEmitter<'mir> {
             let field_name = sanitize_ident(self.symbol_name(target_field.name)?);
             let member = self.symbol_source_name(target_field.name)?.to_owned();
             let read =
-                self.host_class_member_read_text("smelt_host_value", source, &member)?;
+                self.host_class_member_read_text(&RustExpr::path("smelt_host_value"), source, &member)?;
             let value = match read {
-                Some((read_text, member_ty)) => {
-                    self.value_at_type_text(&read_text, member_ty, target_field.ty, scope)?
+                Some((read_expr, member_ty)) => {
+                    self.rendered_at_type(&RustExpr::opaque(&read_expr), member_ty, target_field.ty, scope)?
                 }
                 // An optional property the source does not expose is absent;
                 // any other missing member means this is not a structural
                 // conversion at all, so nothing is emitted.
                 None if matches!(self.mir.types.get(target_field.ty), Some(Type::Optional(_))) => {
-                    "None".to_owned()
+                    RustExpr::path("None")
                 }
                 None => return Ok(None),
             };
@@ -1716,10 +1717,10 @@ impl<'mir> FunctionEmitter<'mir> {
         // The source is read once per field, so it is bound once: `value_text`
         // may be a call, and re-evaluating it per field would both duplicate
         // its effects and move any by-value argument more than once.
-        Ok(Some(format!(
+        Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_host_value = {value_text}; {target_name} {{ {} }} }}",
             field_text.join(", ")
-        )))
+        ))))
     }
 
     /// Attach a callable object's dropped own properties to its erased slot.
@@ -1728,20 +1729,20 @@ impl<'mir> FunctionEmitter<'mir> {
     /// record conversion. Every data field the SOURCE record declares that the
     /// TARGET does not is a JavaScript property of the underlying function
     /// value, so it is erased and merged into the erased callable's property
-    /// bag; a later undeclared-member read (`place_text`) finds it there. When
+    /// bag; a later undeclared-member read (`place_expr`) finds it there. When
     /// the source drops nothing, the value is returned unchanged so ordinary
     /// conversions emit exactly what they did before.
-    fn callable_object_carried_properties_text(
+    fn callable_object_carried_properties_expr(
         &self,
-        call_field_text: &str,
+        call_field_text: &RustExpr,
         source: TypeId,
         target: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let (Some(source_fields), Some(target_fields)) = (
             self.structural_record_fields(source),
             self.structural_record_fields(target),
         ) else {
-            return Ok(call_field_text.to_owned());
+            return Ok(RustExpr::from(call_field_text.to_owned()));
         };
         let mut entries = Vec::new();
         for source_field in &source_fields {
@@ -1756,19 +1757,19 @@ impl<'mir> FunctionEmitter<'mir> {
                 continue;
             }
             let field_name = sanitize_ident(self.symbol_name(source_field.name)?);
-            let value = self.erase_value_text(
-                &format!("smelt_struct_value.{field_name}.clone()"),
+            let value = self.erase_rendered(
+                &RustExpr::chain(format!("smelt_struct_value.{field_name}.clone()")).ending_in_clone(),
                 source_field.ty,
             )?;
             entries.push(format!("({name:?}.to_owned(), {value})"));
         }
         if entries.is_empty() {
-            return Ok(call_field_text.to_owned());
+            return Ok(RustExpr::from(call_field_text.to_owned()));
         }
-        Ok(format!(
+        Ok(RustExpr::atom(format!(
             "({call_field_text}).smelt_with_properties(vec![{}])",
             entries.join(", ")
-        ))
+        )))
     }
 
     /// Returns true when `field` is a callable slot that represents a class method.
@@ -1838,7 +1839,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Router` carries `add` as a method, not a field. Structural assignability
     /// (`const r: Router = new ListRouter()`) is about members, so the slot is
     /// filled by binding the source's method to the source value — the same
-    /// bound closure [`Self::virtual_method_storage_field_text`] already emits
+    /// bound closure [`Self::virtual_method_storage_field_expr`] already emits
     /// for a base-class slot. Without this the field pairing found no source for
     /// `add` and the adapter declined (`expected Router, found ListRouter`).
     fn is_interface_method_slot_bound_by_source(
@@ -1867,13 +1868,13 @@ impl<'mir> FunctionEmitter<'mir> {
     /// source class implementation. This preserves JavaScript/TypeScript
     /// overridable method behavior for base-typed structural storage such as
     /// `Record<string, Parser<any>>`.
-    pub(super) fn virtual_method_storage_field_text(
+    pub(super) fn virtual_method_storage_field_expr(
         &self,
         source: TypeId,
         target: TypeId,
         method: Symbol,
-    ) -> Result<Option<String>, EmitError> {
-        self.virtual_method_slot_closure_text(source, target, method, &SlotReceiver::SourceValue)
+    ) -> Result<Option<RustExpr>, EmitError> {
+        self.virtual_method_slot_closure(source, target, method, &SlotReceiver::SourceValue)
     }
 
     /// Bind every virtual method slot of a freshly allocated instance to the
@@ -1889,12 +1890,12 @@ impl<'mir> FunctionEmitter<'mir> {
     /// its own slots. A slot whose method is abstract on this class is left at
     /// its default (the class cannot be instantiated). Answers `None` when the
     /// class has no slot to bind.
-    pub(super) fn bind_own_virtual_slots_text(
+    pub(super) fn bind_own_virtual_slots_expr(
         &self,
         class: &MirClass,
         instance_ty: TypeId,
         instance: &str,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         let mut bindings = Vec::new();
         for slot in crate::classes::own_virtual_slot_names(self.mir, class) {
             if self.find_class_method_function(class.name, slot).is_none() {
@@ -1904,7 +1905,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 handle: instance.to_owned(),
             };
             if let Some(closure) =
-                self.virtual_method_slot_closure_text(instance_ty, instance_ty, slot, &receiver)?
+                self.virtual_method_slot_closure(instance_ty, instance_ty, slot, &receiver)?
             {
                 let name = sanitize_ident(self.symbol_name(slot)?);
                 bindings.push(format!("{instance}.0.borrow_mut().{name} = {closure};"));
@@ -1913,18 +1914,18 @@ impl<'mir> FunctionEmitter<'mir> {
         if bindings.is_empty() {
             return Ok(None);
         }
-        Ok(Some(bindings.join(" ")))
+        Ok(Some(RustExpr::from(bindings.join(" "))))
     }
 
-    /// The slot closure behind [`Self::virtual_method_storage_field_text`],
+    /// The slot closure behind [`Self::virtual_method_storage_field_expr`],
     /// with the receiver it dispatches on chosen by `receiver`.
-    fn virtual_method_slot_closure_text(
+    fn virtual_method_slot_closure(
         &self,
         source: TypeId,
         target: TypeId,
         method: Symbol,
         receiver: &SlotReceiver,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         if !self.is_virtual_method_storage_field(target, method)
             && !self.is_interface_method_slot_bound_by_source(source, target, method)
         {
@@ -1983,9 +1984,9 @@ impl<'mir> FunctionEmitter<'mir> {
                 .enumerate()
                 .map(|(index, param)| {
                     if function_ty.mutable_params.contains(&index) {
-                        Ok(format!("arg{index}"))
+                        Ok(RustExpr::path(format!("arg{index}")))
                     } else {
-                        self.value_at_type_text(&format!("arg{index}.clone()"), *param, *param, &self.render_scope())
+                        self.rendered_at_type(&RustExpr::opaque(format!("arg{index}.clone()")).ending_in_clone(), *param, *param, &self.render_scope())
                     }
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?
@@ -1997,7 +1998,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 format!("{{ let smelt_callable = {source_field_base}.{method_name}.clone(); smelt_callable({args}) }}")
             };
             let body =
-                self.value_at_type_text(&call, function_ty.return_ty, function_ty.return_ty, &self.render_scope())?;
+                self.rendered_at_type(&RustExpr::opaque(&call), function_ty.return_ty, function_ty.return_ty, &self.render_scope())?;
             let return_ty = if function_ty.may_throw {
                 format!(
                     "Result<{}, {ERROR_BOX}>",
@@ -2009,11 +2010,11 @@ impl<'mir> FunctionEmitter<'mir> {
             let wrapped_body = if function_ty.may_throw {
                 format!("Ok::<_, {ERROR_BOX}>({body})")
             } else {
-                body
+                body.into_string()
             };
-            return Ok(Some(format!(
+            return Ok(Some(RustExpr::atom(format!(
                 "{{ let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn({param_types}) -> {return_ty}> = ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_method_receiver = smelt_virtual_receiver.clone(); {wrapped_body} }}); smelt_virtual_method }}"
-            )));
+            ))));
         }
         let Some(source_function) = direct_source_function
             .or(inherited_source_function)
@@ -2023,7 +2024,7 @@ impl<'mir> FunctionEmitter<'mir> {
             })
         else {
             return Ok(Some(
-                self.default_value(
+                RustExpr::from(self.default_value(
                     self.mir
                         .types
                         .all()
@@ -2032,7 +2033,7 @@ impl<'mir> FunctionEmitter<'mir> {
                         .and_then(|index| u32::try_from(index).ok())
                         .map(TypeId)
                         .ok_or_else(|| EmitError::new("virtual method field type is missing"))?,
-                )?,
+                )?),
             ));
         };
         // Same deliberate erasure as the dispatches-to-source-field arm above.
@@ -2084,18 +2085,18 @@ impl<'mir> FunctionEmitter<'mir> {
                     format!("arg{index}.clone()")
                 };
                 let arg_text =
-                    self.value_at_type_text(&arg_source_text, *target_param, source_param, &self.render_scope())?;
+                    self.rendered_at_type(&RustExpr::opaque(&arg_source_text), *target_param, source_param, &self.render_scope())?;
                 if !dispatches_to_source_field
                     && let Some(source_local) =
                         source_function.params.get(index.saturating_add(1)).copied()
                     && self.parameter_needs_mutable_reference_in(source_function, source_local)
                 {
                     if function_ty.mutable_params.contains(&index) {
-                        Ok(format!("arg{index}"))
+                        Ok(RustExpr::path(format!("arg{index}")))
                     } else {
                         let local_name = format!("smelt_arg_{index}");
                         arg_preludes.push(format!("let mut {local_name} = {arg_text};"));
-                        Ok(format!("&mut {local_name}"))
+                        Ok(RustExpr::loose(format!("&mut {local_name}")))
                     }
                 } else {
                     Ok(arg_text)
@@ -2159,7 +2160,7 @@ impl<'mir> FunctionEmitter<'mir> {
             call
         };
         let body =
-            self.value_at_type_text(&adjusted_call, source_return_ty, function_ty.return_ty, &self.render_scope())?;
+            self.rendered_at_type(&RustExpr::opaque(&adjusted_call), source_return_ty, function_ty.return_ty, &self.render_scope())?;
         let return_ty = if function_ty.may_throw {
             format!(
                 "Result<{}, {ERROR_BOX}>",
@@ -2171,16 +2172,16 @@ impl<'mir> FunctionEmitter<'mir> {
         let wrapped_body = if function_ty.may_throw && !source_can_throw {
             format!("Ok::<_, {ERROR_BOX}>({body})")
         } else {
-            body
+            body.into_string()
         };
         let prelude = if arg_preludes.is_empty() {
             String::new()
         } else {
             format!("{} ", arg_preludes.join(" "))
         };
-        Ok(Some(format!(
+        Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_virtual_receiver = {receiver_value}; let smelt_virtual_method: ::std::rc::Rc<dyn Fn({param_types}) -> {return_ty}> = ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let {receiver_mut}smelt_method_receiver = {receiver_rebind}; {prelude}{wrapped_body} }}); smelt_virtual_method }}"
-        )))
+        ))))
     }
 
     /// Return the MIR class described by a class type.
@@ -2247,14 +2248,14 @@ impl<'mir> FunctionEmitter<'mir> {
     /// semantics when the frontend has not retained the original literal at the
     /// destination site. Missing optional fields become `None`; missing required
     /// fields fall back to the target field default.
-    pub(super) fn string_dict_record_adapter_text(
+    pub(super) fn string_dict_record_adapter(
         &self,
-        value_text: &str,
+        value_text: &RustExpr,
         source_key: TypeId,
         source_value: TypeId,
         target: TypeId,
         scope: &RenderScope,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         if self.mir.types.get(source_key) != Some(&Type::String)
             || !self.is_structural_record_adapter_target(target)
         {
@@ -2353,21 +2354,21 @@ impl<'mir> FunctionEmitter<'mir> {
                 && self.dict_uses_smelt_record(source_key)
                 && self.can_render_dict_value_as(source_value, field.ty)
             {
-                self.erased_record_callable_slot_text("smelt_record_map", target, &field, scope)?
+                self.erased_record_callable_slot_expr("smelt_record_map", target, &field, scope)?
             } else {
                 None
             };
             let value = if let Some(value) = receiver_bound {
                 value
-            } else if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty)
+            } else { if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty)
                 && self.record_value_misses_concrete_union(source_value, *inner)
             {
                 // The record's values cannot be this field's type, so the key
                 // is absent from any value the source holds.
-                "None".to_owned()
+                RustExpr::path("None")
             } else if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
                 if self.can_render_dict_value_as(source_value, *inner) {
-                    let mapped = self.value_at_type_text("value", source_value, *inner, scope)?;
+                    let mapped = self.rendered_at_type(&RustExpr::path("value"), source_value, *inner, scope)?;
                     if source_is_erased
                         && !matches!(self.mir.types.get(*inner), Some(Type::Unknown))
                     {
@@ -2375,40 +2376,40 @@ impl<'mir> FunctionEmitter<'mir> {
                         // arm, not a value to convert: `score: number | null`
                         // read off `{ score: null }` is `None`, where mapping
                         // it through the number conversion answered `NaN`.
-                        format!(
+                        RustExpr::postfix_on(&lookup_value, format!(
                             "{lookup_value}.and_then(|value| if smelt_unknown_is_nullish(&value) {{ None }} else {{ Some({mapped}) }})"
-                        )
+                        ))
                     } else {
-                        format!("{lookup_value}.map(|value| {mapped})")
+                        RustExpr::postfix_on(&lookup_value, format!("{lookup_value}.map(|value| {mapped})"))
                     }
                 } else if self.can_render_dict_value_as(source_value, field.ty) {
                     // The dictionary value is already optional-shaped, so the
                     // `get` produced an `Option<Option<_>>`; flatten it instead of
                     // discarding the field. Without this arm the projection
                     // answered `None` for a value that was actually present.
-                    let mapped = self.value_at_type_text("value", source_value, field.ty, scope)?;
-                    format!("{lookup_value}.map_or(None, |value| {mapped})")
+                    let mapped = self.rendered_at_type(&RustExpr::path("value"), source_value, field.ty, scope)?;
+                    RustExpr::postfix_on(&lookup_value, format!("{lookup_value}.map_or(None, |value| {mapped})"))
                 } else {
-                    "None".to_owned()
+                    RustExpr::path("None")
                 }
             } else if self.can_render_dict_value_as(source_value, field.ty) {
-                let mapped = self.value_at_type_text("value", source_value, field.ty, scope)?;
-                format!(
+                let mapped = self.rendered_at_type(&RustExpr::path("value"), source_value, field.ty, scope)?;
+                RustExpr::postfix_on(&lookup_value, format!(
                     "{lookup_value}.map_or({}, |value| {mapped})",
                     self.default_value_with_scoped_type_params(
                         field.ty,
                         &TypeSubstitution::lexical_subset(&scoped_type_params),
                     )?
-                )
+                ))
             } else {
-                self.default_value_with_scoped_type_params(
+                RustExpr::from(self.default_value_with_scoped_type_params(
                     field.ty,
                     &TypeSubstitution::erased(),
-                )?
-            };
+                )?.into_string())
+            } };
             // A callable slot keeps the ABI its DECLARATION gave it, whatever
             // the record was instantiated at (`emitter::record_slot_abi`).
-            let value = self.record_field_value_at_slot_abi(value, target, &field)?;
+            let value = self.record_field_value_at_slot_abi(value.into_string(), target, &field)?;
             field_text.push(format!("{field_name}: {value}"));
         }
         if self
@@ -2435,18 +2436,18 @@ impl<'mir> FunctionEmitter<'mir> {
             // Only an erased-valued `SmeltRecord` view can share an erased
             // object's store; a concretely typed dictionary never carries one.
             let body = if source_is_erased && self.dict_uses_smelt_record(source_key) {
-                crate::reference_origin::restore_or_rebuild_text("smelt_record_map", &rebuild)
+                crate::reference_origin::restore_or_rebuild_expr("smelt_record_map", &rebuild)
             } else {
-                rebuild
+                RustExpr::from(rebuild)
             };
-            return Ok(Some(format!(
+            return Ok(Some(RustExpr::atom(format!(
                 "{{ let smelt_record_map = {value_text}.clone(); {body} }}"
-            )));
+            ))));
         }
-        Ok(Some(format!(
+        Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_record_map = {value_text}.clone(); {target_name} {{ {} }} }}",
             field_text.join(", ")
-        )))
+        ))))
     }
 
     /// Emits a class/interface record as a string-keyed dictionary.
@@ -2454,14 +2455,14 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Typed source records sometimes flow back into object operations. Rust
     /// structs cannot be matched as maps, so this reconstructs the source
     /// property names and converts each field to the requested map value type.
-    pub(super) fn structural_record_to_string_dict_adapter_text(
+    pub(super) fn structural_record_to_string_dict_adapter(
         &self,
-        value_text: &str,
+        value_text: &RustExpr,
         source: TypeId,
         target_key: TypeId,
         target_value: TypeId,
         scope: &RenderScope,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         if self.mir.types.get(target_key) != Some(&Type::String) {
             return Ok(None);
         }
@@ -2486,13 +2487,13 @@ impl<'mir> FunctionEmitter<'mir> {
                 format!("smelt_struct_value.{field_name}.clone()")
             };
             let value = if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
-                let mapped = self.value_at_type_text("value", *inner, target_value, scope)?;
+                let mapped = self.rendered_at_type(&RustExpr::path("value"), *inner, target_value, scope)?;
                 format!(
                     "{source_value}.map_or({}, |value| {mapped})",
                     self.default_value(target_value)?
                 )
             } else {
-                self.value_at_type_text(&source_value, field.ty, target_value, scope)?
+                self.rendered_at_type(&RustExpr::opaque(&source_value), field.ty, target_value, scope)?.into_string()
             };
             entries.push(format!("({key:?}.to_owned(), {value})"));
         }
@@ -2502,10 +2503,10 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             "::std::collections::HashMap::from"
         };
-        Ok(Some(format!(
+        Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_struct_value = {value_text}.clone(); {constructor}([{}]) }}",
             entries.join(", ")
-        )))
+        ))))
     }
 
     /// Whether a string-keyed dictionary's value type can populate a record field.
@@ -2607,7 +2608,7 @@ impl<'mir> FunctionEmitter<'mir> {
         // adapter does not forward the target's arguments *into* the source's
         // declared rest-list parameter, it packs them into a
         // `Vec<SmeltUnknown>` and calls `.call(..)` (see the `packed` branch in
-        // `rendered_function_shape_adapter_text`). So the per-parameter
+        // `rendered_function_shape_adapter`). So the per-parameter
         // renderability test below asks the wrong question — `f64` is not
         // renderable as `unknown[]` yet erases to `SmeltUnknown` perfectly
         // well. What the packed call really needs is a return value that can
@@ -2763,12 +2764,12 @@ impl<'mir> FunctionEmitter<'mir> {
     /// are shared `Rc`s capturing the original instance, so calls through the
     /// upcast value still reach it. `None` when `operand` is not the receiver
     /// or the target is the owner class itself.
-    pub(super) fn base_initializer_receiver_upcast_text(
+    pub(super) fn base_initializer_receiver_upcast_expr(
         &self,
         operand: &Operand,
         target: TypeId,
         scope: &RenderScope,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         let Some(receiver) = self.role.base_initializer() else {
             return Ok(None);
         };
@@ -2789,8 +2790,8 @@ impl<'mir> FunctionEmitter<'mir> {
         let Some(owner_ty) = crate::base_init::constructed_class_ty(self.mir, owner)? else {
             return Ok(None);
         };
-        let value_text = self.operand_text(operand)?;
-        self.structural_record_adapter_text(&value_text, owner_ty, target, scope)
+        let value_text = self.operand_expr(operand)?;
+        self.structural_record_adapter(&value_text, owner_ty, target, scope)
     }
 
     /// Whether this emitter renders a base initializer copy.
@@ -3113,7 +3114,7 @@ impl<'mir> FunctionEmitter<'mir> {
         context: &EmitContext,
         ty: TypeId,
         substitution: &TypeSubstitution<'_>,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         FunctionEmitter::type_renderer(mir, context, ty)?
         .default_value_with_scoped_type_params(ty, substitution)
     }
@@ -3129,14 +3130,14 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Converts an operand to its Rust text representation.
-    pub(super) fn operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
+    pub(super) fn operand_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
         // A throw-payload temporary is rendered as the expression it was
         // assigned, at the point that consumes it; the staging statement and
         // declaration are suppressed elsewhere. See `emitter::throw`.
         if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = operand
-            && let Some(text) = self.folded_throw_payload_text(*local)?
+            && let Some(text) = self.folded_throw_payload_expr(*local)?
         {
-            return Ok(text);
+            return Ok(RustExpr::from(text));
         }
         match operand {
             Operand::Copy(place) => {
@@ -3157,9 +3158,9 @@ impl<'mir> FunctionEmitter<'mir> {
                     // no hand-written port would spell a loop counter that way.
                     || self.place_type_is_copy_scalar(place)?
                 {
-                    self.place_text(place)
+                    self.place_expr(place)
                 } else {
-                    Ok(format!("{}.clone()", self.place_text(place)?))
+                    Ok(RustExpr::postfix_on(&self.place_expr(place)?, format!("{}.clone()", self.place_expr(place)?)).ending_in_clone())
                 }
             }
             Operand::Move(place) => {
@@ -3178,11 +3179,11 @@ impl<'mir> FunctionEmitter<'mir> {
                         Some(Type::Function(_))
                     )
                 {
-                    return Ok(cloned_value_text(&self.place_text(place)?));
+                    return Ok(RustExpr::from(cloned_value_text(&self.place_expr(place)?)));
                 }
-                self.place_text(place)
+                self.place_expr(place)
             }
-            Operand::Const(constant) => Ok(constant_text(constant)),
+            Operand::Const(constant) => Ok(RustExpr::from(constant_expr(constant))),
         }
     }
 
@@ -3227,19 +3228,19 @@ impl<'mir> FunctionEmitter<'mir> {
     /// team would not spell that. When a coercion is needed, the coerced
     /// temporary is referenced instead; Rust extends its lifetime to the end of
     /// the statement, so `&(expr)` is valid even though the value is unnamed.
-    pub(super) fn shared_reference_argument_text(
+    pub(super) fn shared_reference_argument_expr(
         &self,
         arg: &Operand,
         target_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         if self.operand_ty(arg)? != target_ty {
-            return Ok(format!("&({})", self.value_at_type(arg, target_ty)?));
+            return Ok(RustExpr::loose(format!("&({})", self.value_at_type(arg, target_ty)?)));
         }
-        let borrowed = self.operand_borrow_text(arg)?;
+        let borrowed = self.operand_borrow_expr(arg)?;
         if self.operand_renders_as_shared_reference(arg) {
-            Ok(borrowed)
+            Ok(RustExpr::from(borrowed))
         } else {
-            Ok(format!("&{borrowed}"))
+            Ok(RustExpr::loose(format!("&{borrowed}")))
         }
     }
 
@@ -3262,7 +3263,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Converts an operand to Rust text for a read whose every use is a `&self`
     /// receiver — `.len()`, `.iter()`, `.chars()`, indexing.
     ///
-    /// `operand_text` conservatively clones a `Copy` read, because in general the
+    /// `operand_expr` conservatively clones a `Copy` read, because in general the
     /// caller wants an owned value it can move on. When the caller only ever
     /// *borrows* the result, that clone is a whole-collection copy for nothing, and
     /// inside a loop it changes the algorithm's complexity class rather than adding a
@@ -3273,33 +3274,33 @@ impl<'mir> FunctionEmitter<'mir> {
     ///
     /// Only call this when the emitted expression cannot move or mutate through the
     /// text: `&self` methods qualify, `into_*`/`push`/assignment do not. `Move`
-    /// operands already elide the clone in `operand_text`, so this only changes
+    /// operands already elide the clone in `operand_expr`, so this only changes
     /// `Copy` reads.
-    pub(super) fn operand_borrow_text(&self, operand: &Operand) -> Result<String, EmitError> {
+    pub(super) fn operand_borrow_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
         // A folded throw payload is rendered as the expression it was assigned
         // rather than as a place, so there is no clone to elide; defer to the
         // shared path so both reads agree on that text.
         if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = operand
-            && self.folded_throw_payload_text(*local)?.is_some()
+            && self.folded_throw_payload_expr(*local)?.is_some()
         {
-            return self.operand_text(operand);
+            return self.operand_expr(operand);
         }
         // A local held in shared closure storage reads as
         // `(*smelt_capture_x.borrow())`, and that `Ref` guard lives to the end of the
         // FULL enclosing statement. The clone is what ends the borrow early: eliding
         // it would let the guard span a nested closure call that re-borrows the same
         // cell, panicking "already borrowed" — a `RefCell` crash single-threaded JS
-        // never produces. See the invariant documented on `local_value_text`. Keep
+        // never produces. See the invariant documented on `local_value`. Keep
         // the shared-storage read on the ordinary path, whatever the caller asked
         // for; a borrow-only receiver is not worth a runtime panic.
         if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = operand
             && self.local_uses_shared_capture_storage(*local)
         {
-            return self.operand_text(operand);
+            return self.operand_expr(operand);
         }
         match operand {
-            Operand::Copy(place) | Operand::Move(place) => self.place_text(place),
-            Operand::Const(constant) => Ok(constant_text(constant)),
+            Operand::Copy(place) | Operand::Move(place) => self.place_expr(place),
+            Operand::Const(constant) => Ok(RustExpr::from(constant_expr(constant))),
         }
     }
 
@@ -3379,7 +3380,7 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             return Ok(Some(self.borrowed_handle_kind(place)?));
         }
-        let callee_text = self.operand_text(callee)?;
+        let callee_text = self.operand_expr(callee)?;
         if self.is_function_parameter_name(&callee_text)?
             || self.is_borrowed_callback_capture_name(&callee_text)
         {
@@ -3431,20 +3432,20 @@ impl<'mir> FunctionEmitter<'mir> {
     /// the argument vector (`From<SmeltList<T>> for Vec<T>` converts it) rather
     /// than nesting it. Only genuinely separate per-argument operands are erased
     /// element-by-element.
-    pub(super) fn erased_call_argument_vector_text(
+    pub(super) fn erased_call_argument_vector_expr(
         &self,
         callee: &Operand,
         args: &[Operand],
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callee)?)
             && function.rest == Some(0)
             && let [rest_param] = function.params.as_slice()
             && let [packed] = args
             && self.operand_ty(packed)? == *rest_param
         {
-            return self.value_at_type(packed, *rest_param);
+            return self.value_at_type(packed, *rest_param).map(RustExpr::from);
         }
-        self.erased_call_args_text(args)
+        self.erased_call_args_expr(args)
     }
 
     /// Return whether the emitted Rust value for `callee` is a borrowed
@@ -3464,11 +3465,11 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Adapt a concrete callable to an erased JS rest callable while preserving
     /// the source `Function.length` metadata.
-    pub(super) fn erased_rest_function_value_text(
+    pub(super) fn erased_rest_function_value(
         &self,
         operand: &Operand,
         target: TypeId,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         let Some(Type::Function(target_function)) = self.mir.types.get(target) else {
             return Ok(None);
         };
@@ -3487,13 +3488,13 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             return Ok(None);
         }
-        let Some(callback) = self.smelt_erased_function_callback_text(operand, target)? else {
+        let Some(callback) = self.smelt_erased_function_callback_expr(operand, target)? else {
             return Ok(None);
         };
         let length = self.operand_function_length(operand)?;
-        Ok(Some(format!(
+        Ok(Some(RustExpr::loose(format!(
             "SmeltErasedFunction {{ callback: {callback}, length: {length}.0, object: None }}"
-        )))
+        ))))
     }
 
     /// Adapt a typed function operand to the runtime callback stored by
@@ -3504,11 +3505,11 @@ impl<'mir> FunctionEmitter<'mir> {
     /// precise return. This keeps function values first-class while ensuring the
     /// erased representation can be called uniformly by JavaScript-style helper
     /// code.
-    fn smelt_erased_function_callback_text(
+    fn smelt_erased_function_callback_expr(
         &self,
         operand: &Operand,
         target: TypeId,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         let Some(Type::Function(source)) = self.mir.types.get(self.operand_ty(operand)?) else {
             return Ok(None);
         };
@@ -3518,7 +3519,7 @@ impl<'mir> FunctionEmitter<'mir> {
         if !self.is_erased_unknown_rest_function(target_function) || target_function.may_throw {
             return Ok(None);
         }
-        let function_text = self.operand_text(operand)?;
+        let function_text = self.operand_expr(operand)?;
         let is_borrowed_param = match operand {
             Operand::Copy(place) | Operand::Move(place) => {
                 self.is_function_parameter_place(place)?
@@ -3529,7 +3530,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let callback_text = if is_borrowed_param {
             function_text.clone()
         } else {
-            "smelt_callback".to_owned()
+            RustExpr::path("smelt_callback")
         };
         let source_is_erased = self.is_erased_unknown_rest_function(source) && !source.may_throw;
         let call = if source_is_erased {
@@ -3557,18 +3558,18 @@ impl<'mir> FunctionEmitter<'mir> {
         // must not replace the call with a constant. It therefore takes the
         // statement shape of a `void` callback, whose value is never observed.
         let return_text = if matches!(self.mir.types.get(source.return_ty), Some(Type::None | Type::Never)) {
-            let null_text = self.null_value_text();
+            let null_text = self.null_value();
             format!("{{ {call_value}; {null_text} }}")
         } else {
-            self.value_at_type_text(&call_value, source.return_ty, unknown_ty, &self.render_scope())?
+            self.rendered_at_type(&RustExpr::opaque(&call_value), source.return_ty, unknown_ty, &self.render_scope())?.into_string()
         };
         let closure = self.carrier_format(format_args!("move |smelt_args: Vec<SmeltUnknown>| {return_text}"));
         Ok(Some(if is_borrowed_param {
-            format!("::std::rc::Rc::new({closure})")
+            RustExpr::loose(format!("::std::rc::Rc::new({closure})"))
         } else {
-            format!(
+            RustExpr::atom(format!(
                 "{{ let smelt_callback = {function_text}.clone(); ::std::rc::Rc::new({closure}) }}"
-            )
+            ))
         }))
     }
 
@@ -3727,12 +3728,12 @@ impl<'mir> FunctionEmitter<'mir> {
     /// site that passes `SmeltList<f64>` through concretely instantiates the
     /// callee at `T = f64`, so its callback adapter has to be declared
     /// `|arg0: f64|` and not `|arg0: SmeltUnknown|` (`E0631`).
-    pub(super) fn borrowed_function_argument_text(
+    pub(super) fn borrowed_function_argument_expr(
         &self,
         operand: &Operand,
         target: TypeId,
         callee_bindings: Option<&CalleeTypeParamBindings>,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         if !matches!(
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::Function(_))
@@ -3754,33 +3755,33 @@ impl<'mir> FunctionEmitter<'mir> {
                 && !self.is_erased_unknown_rest_function(function)
             {
                 let owned = self.extract(operand, target, &self.render_scope())?;
-                return Ok(format!("&*({owned})"));
+                return Ok(RustExpr::loose(format!("&*({owned})")));
             }
-            return self.borrowed_default_function_text(target, callee_bindings);
+            return self.borrowed_default_function_expr(target, callee_bindings);
         }
-        if let Some(adapter) = self.rest_vector_function_adapter_text(operand, target, true)? {
-            return Ok(adapter);
+        if let Some(adapter) = self.rest_vector_function_adapter(operand, target, true)? {
+            return Ok(RustExpr::from(adapter));
         }
         if let Some(adapter) =
-            self.function_shape_adapter_text(operand, target, true, callee_bindings)?
+            self.function_shape_adapter(operand, target, true, callee_bindings)?
         {
-            return Ok(adapter);
+            return Ok(RustExpr::from(adapter));
         }
         match operand {
             Operand::Copy(place) | Operand::Move(place) => {
-                let place_text = self.place_text(place)?;
-                Ok(format!("&*{place_text}"))
+                let place_expr = self.place_expr(place)?;
+                Ok(RustExpr::loose(format!("&*{place_expr}")))
             }
-            Operand::Const(_) => self.borrowed_default_function_text(target, callee_bindings),
+            Operand::Const(_) => self.borrowed_default_function_expr(target, callee_bindings),
         }
     }
 
     /// Render an inline typed no-op callback for a borrowed function parameter.
-    pub(super) fn borrowed_default_function_text(
+    pub(super) fn borrowed_default_function_expr(
         &self,
         target: TypeId,
         callee_bindings: Option<&CalleeTypeParamBindings>,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let Some(Type::Function(function)) = self.mir.types.get(target) else {
             return Err(EmitError::new(
                 "borrowed default callback target must be a function",
@@ -3798,7 +3799,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let return_text = if function.may_throw {
             format!("Ok::<_, {ERROR_BOX}>({return_value})")
         } else {
-            return_value
+            return_value.into_string()
         };
         // Increment 3: this is the renderer that produces the literal
         // `&|| Default::default()` of §1.3. With no closure argument to carry
@@ -3808,23 +3809,23 @@ impl<'mir> FunctionEmitter<'mir> {
         // demotes the callee crate-wide for the same shape; the redundancy is
         // deliberate, since the valve is crate-wide and this is local.
         if let Some(annotation) = self.callback_return_annotation(function, callee_bindings)? {
-            return Ok(format!("&|{params}| -> {annotation} {{ {return_text} }}"));
+            return Ok(RustExpr::loose(format!("&|{params}| -> {annotation} {{ {return_text} }}")));
         }
-        Ok(format!("&|{params}| {return_text}"))
+        Ok(RustExpr::loose(format!("&|{params}| {return_text}")))
     }
 
     /// Wrap a borrowed callback parameter in a cloneable owned callable handle.
-    pub(super) fn borrowed_function_handle_text(
+    pub(super) fn borrowed_function_handle_expr(
         &self,
-        function_text: &str,
+        function_text: &RustExpr,
         target: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let Some(Type::Function(function)) = self.mir.types.get(target) else {
             return Err(EmitError::new(
                 "borrowed callback handle target must be a function",
             ));
         };
-        // Near-verbatim twin of `borrowed_default_function_text`: same caller
+        // Near-verbatim twin of `borrowed_default_function_expr`: same caller
         // scope, same omitted `&mut ` prefix, preserved for the same reason.
         let caller_scope = self.current_function_type_params();
         let params = self.callback_arg_decls(
@@ -3845,18 +3846,18 @@ impl<'mir> FunctionEmitter<'mir> {
         //
         // Bind a clone in front of the closure, which is the clone discipline
         // every sibling adapter already uses: `_smelt_adapted_callback` in
-        // `function_shape_adapter_text` and `smelt_callback` in
-        // `rendered_function_shape_adapter_text` are both `{place}.clone()`
+        // `function_shape_adapter` and `smelt_callback` in
+        // `rendered_function_shape_adapter` are both `{place}.clone()`
         // preludes for exactly this reason. The clone is one `Rc` bump per
         // evaluation of this expression, not per invocation of the handle it
         // builds. `&dyn Fn` — the borrowed-parameter shape this helper is named
         // for — is `Copy`, so `.clone()` on it yields the same shared reference
         // and that emission is unchanged.
-        Ok(format!(
+        Ok(RustExpr::atom(format!(
             "{{ let smelt_handle_callback = {function_text}.clone(); \
              ::std::rc::Rc::new(move |{}| (smelt_handle_callback)({args})) }}",
             params.join(", ")
-        ))
+        )))
     }
 
     /// Adapt an extracted callback value to a compatible callback field shape.
@@ -3865,13 +3866,13 @@ impl<'mir> FunctionEmitter<'mir> {
     /// rather than MIR operands. JavaScript permits object callback fields to
     /// omit arguments supplied by their consumer, so map-extracted callbacks
     /// require the same wrapper semantics as ordinary callback operands.
-    pub(super) fn rendered_function_shape_adapter_text(
+    pub(super) fn rendered_function_shape_adapter(
         &self,
-        value_text: &str,
+        value_text: &RustExpr,
         source: TypeId,
         target: TypeId,
         scope: &RenderScope,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         let (Some(Type::Function(source_function)), Some(Type::Function(target_function))) =
             (self.mir.types.get(source), self.mir.types.get(target))
         else {
@@ -3947,12 +3948,12 @@ impl<'mir> FunctionEmitter<'mir> {
                             } else {
                                 format!("arg{target_index}")
                             };
-                            self.value_at_type_text(&base, *target_param, element, scope)
+                            self.rendered_at_type(&RustExpr::opaque(&base), *target_param, element, scope)
                         })
                         .collect::<Result<Vec<_>, EmitError>>()?
                         .join(", ");
                     let text = format!("SmeltList::from(vec![{elements}])");
-                    return Ok(self.callback_call_arg_text(source_function, index, *source_param, text));
+                    return Ok(self.callback_call_arg_expr(source_function, index, *source_param, text));
                 }
                 // The wrapped callback's own parameters carry the by-reference ABI
                 // (`callback_param_is_shared_reference`) just as the declarations
@@ -3962,15 +3963,15 @@ impl<'mir> FunctionEmitter<'mir> {
                 // to the end of the statement, so `&(expr)` is valid for a value
                 // with no name.
                 let text = match target_function.params.get(index) {
-                    Some(target_param) => self.value_at_type_text(
-                        &format!("arg{index}"),
+                    Some(target_param) => self.rendered_at_type(
+                        &RustExpr::opaque(format!("arg{index}")),
                         *target_param,
                         *source_param,
                                             scope,
                     )?,
                     None => self.default_value(*source_param)?,
                 };
-                Ok(self.callback_call_arg_text(source_function, index, *source_param, text))
+                Ok(self.callback_call_arg_expr(source_function, index, *source_param, text.into_string()))
             })
             .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
@@ -4032,11 +4033,11 @@ impl<'mir> FunctionEmitter<'mir> {
                         } else {
                             format!("arg{index}")
                         };
-                        self.erase_value_text(&base, *target_param)
+                        self.erase_rendered(&RustExpr::opaque(&base), *target_param)
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
-                match self.rest_spread_text(target_function)? {
+                match self.rest_spread_expr(target_function)? {
                     Some(spread) => format!(
                         "smelt_callback.call({{ let mut smelt_packed: Vec<SmeltUnknown> = vec![{packed}]; {spread} smelt_packed }})"
                     ),
@@ -4065,7 +4066,7 @@ impl<'mir> FunctionEmitter<'mir> {
             // treat the result as "no value".
             self.carrier_format(format_args!("{{ {call_value}; SmeltUnknown::Undefined }}"))
         } else {
-            self.value_at_type_text(&call_value, call_return_ty, target_function.return_ty, scope)?
+            self.rendered_at_type(&RustExpr::opaque(&call_value), call_return_ty, target_function.return_ty, scope)?.into_string()
         };
         let returned = if target_function.may_throw && !source_function.may_throw {
             format!("Ok::<_, {ERROR_BOX}>({converted})")
@@ -4079,7 +4080,7 @@ impl<'mir> FunctionEmitter<'mir> {
         // as that type is an E0308. Build the struct instead, unpacking the
         // argument vector into the single rest parameter the adapter body reads
         // and erasing the adapted return value to the callable ABI. (The
-        // operand-based path reaches `erased_rest_function_value_text` before
+        // operand-based path reaches `erased_rest_function_value` before
         // this adapter, which is why only rendered-text coercions — such as a
         // callable object's `__smelt_call` slot — hit this shape.)
         if self.is_erased_unknown_rest_function(target_function)
@@ -4094,23 +4095,23 @@ impl<'mir> FunctionEmitter<'mir> {
                 MutablePrefix::Apply,
             )?;
             let erased_return =
-                self.erase_value_text(&returned, target_function.return_ty)?;
+                self.erase_rendered(&RustExpr::opaque(&returned), target_function.return_ty)?;
             let length = source_function.params.len();
-            return Ok(Some(self.carrier_format(format_args!(
+            return Ok(Some(RustExpr::from(self.carrier_format(format_args!(
                 "{{ let smelt_callback = {value_text}.clone(); SmeltErasedFunction {{ callback: ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {{ let arg0: {rest_text} = SmeltList::from(smelt_args); {erased_return} }}), length: {length}.0, object: None }} }}"
-            ))));
+            )))));
         }
         let target_text = self.type_text(target)?;
-        Ok(Some(format!(
+        Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_callback = {value_text}.clone(); let smelt_adapted: {target_text} = ::std::rc::Rc::new(move |{}| {returned}); smelt_adapted }}",
             arg_decls.join(", ")
-        )))
+        ))))
     }
 
     /// The statement appending an adapter's rest parameter, element by element and
     /// erased, to the packed vector `smelt_packed`. `None` when `function` declares
     /// no list-typed rest parameter.
-    fn rest_spread_text(&self, function: &FunctionType) -> Result<Option<String>, EmitError> {
+    fn rest_spread_expr(&self, function: &FunctionType) -> Result<Option<RustExpr>, EmitError> {
         let Some(index) = function.rest else {
             return Ok(None);
         };
@@ -4123,10 +4124,10 @@ impl<'mir> FunctionEmitter<'mir> {
         let by_reference = function.mutable_params.contains(&index)
             || self.callback_param_is_shared_reference(function, index, param);
         let list = if by_reference { format!("arg{index}.clone()") } else { format!("arg{index}") };
-        let erased = self.erase_value_text("smelt_item", *item)?;
-        Ok(Some(format!(
+        let erased = self.erase_rendered(&RustExpr::path("smelt_item"), *item)?;
+        Ok(Some(RustExpr::loose(format!(
             "let smelt_rest: Vec<_> = {list}.into(); smelt_packed.extend(smelt_rest.into_iter().map(|smelt_item| {erased}));"
-        )))
+        ))))
     }
 
     /// A `RegExp` rendered the way JavaScript stringifies one: `/source/flags`.
@@ -4136,51 +4137,51 @@ impl<'mir> FunctionEmitter<'mir> {
     /// and erased paths cannot drift: remeda's `isDeepEqual` compares two regexes
     /// with `data.toString() === other.toString()`, and when one side was narrowed
     /// from `unknown` while the other was cast, the two renderings disagreed.
-    pub(super) fn regexp_literal_text(receiver_text: &str) -> String {
-        format!("format!(\"/{{}}/{{}}\", {receiver_text}.source, {receiver_text}.flags)")
+    pub(super) fn regexp_literal_expr(receiver_text: &RustExpr) -> RustExpr {
+        RustExpr::atom(format!("format!(\"/{{}}/{{}}\", {receiver_text}.source, {receiver_text}.flags)"))
     }
 
     /// Render conversion from a JavaScript property-key value to an owned Rust string.
-    pub(super) fn property_key_to_string_text(
+    pub(super) fn property_key_to_string_expr(
         &self,
-        value_text: &str,
+        value_text: &RustExpr,
         source_key: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         // The caller's `value_text` is usually already an owned temporary (an
-        // `operand_text` render clones the local it reads), so ask for an owned
+        // `operand_expr` render clones the local it reads), so ask for an owned
         // copy through `cloned_value_text` rather than appending `.clone()`
         // unconditionally: a property key is read once per element in every
         // `groupBy`/`countBy`/`keyBy` loop, and the second copy bought nothing.
         let owned_value_text = cloned_value_text(value_text);
         match self.mir.types.get(source_key) {
-            Some(Type::String) => Ok(owned_value_text),
-            Some(Type::Bool) => Ok(format!("{value_text}.to_string()")),
+            Some(Type::String) => Ok(RustExpr::from(owned_value_text)),
+            Some(Type::Bool) => Ok(RustExpr::postfix_on(&value_text, format!("{value_text}.to_string()"))),
             // A property KEY is a stringified number, and JavaScript's rule is
             // the one that applies: `({ [1e21]: 1 })` has the key `"1e+21"`,
             // not twenty-two digits. `smelt_property_key` already takes it for
             // an erased key, so the two spellings agree.
-            Some(Type::Int) => Ok(format!(
+            Some(Type::Int) => Ok(RustExpr::chain(format!(
                 "{fn_name}({value_text} as f64)",
                 fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
-            )),
-            Some(Type::Float) => Ok(format!(
+            ))),
+            Some(Type::Float) => Ok(RustExpr::chain(format!(
                 "{fn_name}({value_text})",
                 fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
-            )),
+            ))),
             Some(Type::Optional(inner)) => {
-                let inner_text = self.property_key_to_string_text("value", *inner)?;
-                Ok(format!(
+                let inner_text = self.property_key_to_string_expr(&RustExpr::path("value"), *inner)?;
+                Ok(RustExpr::postfix_on(&owned_value_text, format!(
                     "{owned_value_text}.map_or(String::new(), |value| {inner_text})"
-                ))
+                )))
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
-                Ok(Self::regexp_literal_text(value_text))
+                Ok(RustExpr::from(Self::regexp_literal_expr(value_text)))
             }
             Some(Type::List(item_ty)) => {
-                let item_text = self.property_key_to_string_text("value", *item_ty)?;
-                Ok(format!(
+                let item_text = self.property_key_to_string_expr(&RustExpr::path("value"), *item_ty)?;
+                Ok(RustExpr::atom_on(&owned_value_text, format!(
                     "{owned_value_text}.into_iter().map(|value| {item_text}).collect::<Vec<_>>().join(\",\")"
-                ))
+                )))
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Class { .. }) => {
                 // `smelt_property_key` inspects `SmeltUnknown` discriminants, so
@@ -4188,22 +4189,22 @@ impl<'mir> FunctionEmitter<'mir> {
                 // class instance is not a `SmeltUnknown`; erase it first so the
                 // helper receives the runtime shape it matches over (E0308). A
                 // source already spelled as `Unknown` erases to itself.
-                let erased = self.erase_value_text(value_text, source_key)?;
-                Ok(format!(
+                let erased = self.erase_rendered(value_text, source_key)?;
+                Ok(RustExpr::chain(format!(
                     "smelt_property_key({erased})"
-                ))
+                )))
             }
-            _ => Ok("\"[object Object]\".to_owned()".to_owned()),
+            _ => Ok(RustExpr::chain("\"[object Object]\".to_owned()")),
         }
     }
 
     /// Adapts a concrete callback to a single `Vec<SmeltUnknown>` rest callback.
-    pub(super) fn rest_vector_function_adapter_text(
+    pub(super) fn rest_vector_function_adapter(
         &self,
         operand: &Operand,
         target: TypeId,
         borrowed: bool,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         let Some(Type::Function(source)) = self.mir.types.get(self.operand_ty(operand)?) else {
             return Ok(None);
         };
@@ -4231,14 +4232,14 @@ impl<'mir> FunctionEmitter<'mir> {
         // break function reference identity. Fall through so the caller emits
         // `{text}.clone()` (shares the inner `Rc`). The borrowed path keeps its
         // existing adapter behaviour. Mirrors the guard in
-        // `erased_rest_function_value_text`.
+        // `erased_rest_function_value`.
         if !borrowed
             && self.is_erased_unknown_rest_function(source)
             && !source.may_throw
         {
             return Ok(None);
         }
-        let function_text = self.operand_text(operand)?;
+        let function_text = self.operand_expr(operand)?;
         let is_borrowed_param = match operand {
             Operand::Copy(place) | Operand::Move(place) => {
                 self.is_function_parameter_place(place)?
@@ -4249,7 +4250,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let callback_text = if is_borrowed_param {
             function_text.clone()
         } else {
-            "smelt_callback".to_owned()
+            RustExpr::path("smelt_callback")
         };
         // Which invocation syntax this adapter body may use is a question about
         // the source value's emitted Rust REPRESENTATION, so it goes through the
@@ -4283,25 +4284,25 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.mir.types.get(target_function.return_ty),
             ) {
             let awaited =
-                self.value_at_type_text("smelt_async_output", *source_item, *target_item, &self.render_scope())?;
+                self.rendered_at_type(&RustExpr::path("smelt_async_output"), *source_item, *target_item, &self.render_scope())?;
             if is_borrowed_param {
-                async_adapter_future_text(&call, &awaited)
+                async_adapter_future_expr(&RustExpr::opaque(&call), &awaited)
             } else {
                 let async_call = call
-                    .replace(&function_text, "smelt_async_callback")
+                    .replace(function_text.as_str(), "smelt_async_callback")
                     .replace("smelt_callback", "smelt_async_callback");
-                format!(
+                RustExpr::atom(format!(
                     "{{ let smelt_async_callback = {function_text}.clone(); {} }}",
-                    async_adapter_future_text(&async_call, &awaited)
-                )
+                    async_adapter_future_expr(&RustExpr::opaque(&async_call), &awaited)
+                ))
             }
-        } else if source.may_throw && !source_returns_future && target_function.may_throw {
-            format!("{call}?")
+        } else { if source.may_throw && !source_returns_future && target_function.may_throw {
+            RustExpr::loose(format!("{call}?"))
         } else if source.may_throw && !source_returns_future {
-            format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))")
+            RustExpr::postfix_on(&call, format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))"))
         } else {
-            call
-        };
+            RustExpr::from(call)
+        } };
         // `SmeltErasedFunction::call` answers `SmeltUnknown` whatever the source's
         // DECLARED return type is — `is_erased_unknown_rest_function` keys only on
         // the parameter shape — so the call's value is already erased and its
@@ -4310,22 +4311,22 @@ impl<'mir> FunctionEmitter<'mir> {
         // what an `arguments`-reading function becomes) otherwise produced
         // `SmeltUnknown::Array(<already SmeltUnknown>.into())`, an E0277 in the
         // generated crate. Mirrors the same correction in
-        // `rest_vector_unknown_adapter_text` and
-        // `erased_rest_forwarding_closure_text`.
+        // `rest_vector_unknown_adapter` and
+        // `erased_rest_forwarding_closure`.
         let call_return_ty = if source_is_erased {
             self.type_id(Type::Unknown)?
         } else {
             source.return_ty
         };
         let converted_return_text =
-            self.value_at_type_text(&call_value, call_return_ty, target_function.return_ty, &self.render_scope())?;
+            self.rendered_at_type(&call_value, call_return_ty, target_function.return_ty, &self.render_scope())?;
         let default_adjusted_return_text = converted_return_text;
-        let return_text = self.adapter_return_text(
+        let return_text = self.adapter_return_expr(
             source,
             target_function,
             target_function.return_ty,
             &call_value,
-            default_adjusted_return_text,
+            default_adjusted_return_text.into_string(),
             AdapterSource { returns_future: source_returns_future, output_may_throw: source_async_output_may_throw },
             true,
         )?;
@@ -4376,22 +4377,22 @@ impl<'mir> FunctionEmitter<'mir> {
             // binding inside the borrowed temporary so the closure body resolves
             // (mirrors the owned `::std::rc::Rc::new` branch below).
             if is_borrowed_param {
-                format!("&mut {closure}")
+                RustExpr::loose(format!("&mut {closure}"))
             } else {
-                format!("&mut {{ let smelt_callback = {function_text}.clone(); {closure} }}")
+                RustExpr::loose(format!("&mut {{ let smelt_callback = {function_text}.clone(); {closure} }}"))
             }
         } else if is_borrowed_param {
-            format!("::std::rc::Rc::new({closure})")
+            RustExpr::loose(format!("::std::rc::Rc::new({closure})"))
         } else {
-            format!(
+            RustExpr::atom(format!(
                 "{{ let smelt_callback = {function_text}.clone(); ::std::rc::Rc::new({closure}) }}"
-            )
+            ))
         }))
     }
 
     /// Render one erased argument at a callee parameter's declared type.
     ///
-    /// The ordinary answer is [`Self::extract_value_text`] at the ambient render
+    /// The ordinary answer is [`Self::extract_rendered`] at the ambient render
     /// scope. The exception is a parameter whose declared type is a
     /// `Type::TypeParam` this position CANNOT spell: the erasure arm there
     /// answers `SmeltUnknown`, which is a claim about the callee's Rust
@@ -4415,27 +4416,27 @@ impl<'mir> FunctionEmitter<'mir> {
     /// other shape keeps its checked extraction.
     ///
     /// The `.into_smelt_unknown()` on the source mirrors the SPELLED-target arm
-    /// of `extract_value_text` character for character
+    /// of `extract_rendered` character for character
     /// (`<T as SmeltFromUnknown>::smelt_from_unknown((..).into_smelt_unknown())`).
     /// It is identity on a value that is already erased, and keeping the two
     /// spellings identical is deliberate: they are the same boundary crossing
     /// with and without a name for the target, so `unknown_report`'s
     /// `into_smelt_unknown` boundary marker classifies them the same way and a
     /// baseline diff stays comparable across the change.
-    fn erased_argument_at_param_text(
+    fn erased_argument_at_param_expr(
         &self,
         item: &str,
         param_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let scope = self.render_scope();
         if let Some(Type::TypeParam { name }) = self.mir.types.get(param_ty)
             && !scope.spells(*name)
         {
-            return Ok(self.carrier_format(format_args!(
+            return Ok(RustExpr::from(self.carrier_format(format_args!(
                 "SmeltFromUnknown::smelt_from_unknown(({item}).into_smelt_unknown())"
-            )));
+            ))));
         }
-        self.extract_value_text(item, param_ty, &scope)
+        self.extract_rendered(&RustExpr::opaque(item), param_ty, &scope).map(RustExpr::from)
     }
 
     /// Render concrete callback arguments extracted from an erased JS argument vector.
@@ -4471,13 +4472,13 @@ impl<'mir> FunctionEmitter<'mir> {
                             "{open}smelt_args.iter().skip({index}).cloned().collect::<SmeltList<_>>(){close}"
                         ));
                     }
-                    let item_text = self.extract_value_text("value", *item_ty, &self.render_scope())?;
+                    let item_text = self.extract_rendered(&RustExpr::path("value"), *item_ty, &self.render_scope())?;
                     return Ok(format!(
                         "{open}smelt_args.iter().skip({index}).cloned().map(|value| {item_text}).collect::<SmeltList<_>>(){close}"
                     ));
                 }
                 let item = self.carrier_format(format_args!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Null)"));
-                let value = self.erased_argument_at_param_text(&item, *param_ty)?;
+                let value = self.erased_argument_at_param_expr(&item, *param_ty)?;
                 let arg = if function
                     .required_params
                     .is_some_and(|required_params| index >= required_params)
@@ -4487,7 +4488,7 @@ impl<'mir> FunctionEmitter<'mir> {
                         "if smelt_args.get({index}).is_some() {{ {value} }} else {{ {default} }}"
                     )
                 } else {
-                    value
+                    value.into_string()
                 };
                 if function.mutable_params.contains(&index) {
                     Ok(format!("&mut ({arg})"))
@@ -4579,13 +4580,13 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Adapt a callback to a compatible target callback shape.
-    pub(super) fn function_shape_adapter_text(
+    pub(super) fn function_shape_adapter(
         &self,
         operand: &Operand,
         target: TypeId,
         borrowed: bool,
         callee_bindings: Option<&CalleeTypeParamBindings>,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         let (Some(Type::Function(source)), Some(Type::Function(target_function))) = (
             self.mir.types.get(self.operand_ty(operand)?),
             self.mir.types.get(target),
@@ -4649,9 +4650,9 @@ impl<'mir> FunctionEmitter<'mir> {
         // (E0596); the fresh `move` wrapper closure below supplies whatever
         // `FnMut` shape the target expects on its own.
         let function_text = if self.is_function_parameter_place(place)? {
-            format!("&*{}", self.place_text(place)?)
+            format!("&*{}", self.place_expr(place)?)
         } else {
-            self.place_text(place)?
+            self.place_expr(place)?.into_string()
         };
         // The adapter's declarations spell the TARGET's parameter types, which
         // at a static call site belong to the callee. When this site pinned the
@@ -4735,19 +4736,19 @@ impl<'mir> FunctionEmitter<'mir> {
                             {
                                 "value".to_owned()
                             } else {
-                                self.value_at_type_text(
-                                    "value",
+                                self.rendered_at_type(
+                                    &RustExpr::path("value"),
                                     *target_item,
                                     *source_item,
                                     &self.render_scope(),
-                                )?
+                                )?.into_string()
                             };
                             text.push_str(&format!(
                                 "smelt_forwarded_args.extend({arg_text}.into_iter().map(|value| {item_text})); "
                             ));
                         } else {
                             let item_text =
-                                self.value_at_type_text(&arg_text, *target_param, *source_item, &self.render_scope())?;
+                                self.rendered_at_type(&RustExpr::opaque(&arg_text), *target_param, *source_item, &self.render_scope())?;
                             text.push_str(&format!("smelt_forwarded_args.push({item_text}); "));
                         }
                     }
@@ -4771,16 +4772,16 @@ impl<'mir> FunctionEmitter<'mir> {
                     && let Some(Type::List(rest_item)) = self.mir.types.get(*target_rest)
                 {
                     let offset = index.saturating_sub(rest_index);
-                    let missing = self.element_missing_value_text(*rest_item)?;
+                    let missing = self.element_missing_value(*rest_item)?;
                     let element = format!(
                         "arg{rest_index}.borrow().get({offset}).cloned().unwrap_or_else(|| {missing})"
                     );
                     let arg_text =
-                        self.value_at_type_text(&element, *rest_item, *source_param, &self.render_scope())?;
+                        self.rendered_at_type(&RustExpr::opaque(&element), *rest_item, *source_param, &self.render_scope())?;
                     if self.callback_param_is_shared_reference(source, index, *source_param) {
                         return Ok(format!("&({arg_text})"));
                     }
-                    return Ok(arg_text);
+                    return Ok(arg_text.into_string());
                 }
                 if let Some(target_param) = target_function.params.get(index) {
                     // The adapter's parameter is DECLARED at the substituted
@@ -4838,20 +4839,20 @@ impl<'mir> FunctionEmitter<'mir> {
                         format!("arg{index}")
                     };
                     let arg_text =
-                        self.value_at_type_text(&source_text, declared, *source_param, &self.render_scope())?;
+                        self.rendered_at_type(&RustExpr::opaque(&source_text), declared, *source_param, &self.render_scope())?;
                     // The converted value is a temporary, and Rust extends a borrowed
                     // temporary's lifetime to the end of the statement, so `&(expr)` is
                     // valid even though the value is unnamed.
                     if wrapped_takes_reference {
                         return Ok(format!("&({arg_text})"));
                     }
-                    Ok(arg_text)
+                    Ok(arg_text.into_string())
                 } else {
                     let default_text = self.default_value(*source_param)?;
                     if self.callback_param_is_shared_reference(source, index, *source_param) {
                         return Ok(format!("&({default_text})"));
                     }
-                    Ok(default_text)
+                    Ok(default_text.into_string())
                 }
             })
             .collect::<Result<Vec<_>, _>>()?
@@ -4893,17 +4894,17 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.mir.types.get(target_return_ty),
             ) {
             let awaited =
-                self.value_at_type_text("smelt_async_output", *source_item, *target_item, &self.render_scope())?;
+                self.rendered_at_type(&RustExpr::path("smelt_async_output"), *source_item, *target_item, &self.render_scope())?;
             if uses_adapted_callback {
                 let async_call = call_text
                     .replace("_smelt_adapted_callback", "smelt_async_callback")
                     .replace("smelt_callback", "smelt_async_callback");
                 format!(
                     "{{ let smelt_async_callback = _smelt_adapted_callback.clone(); {} }}",
-                    async_adapter_future_text(&async_call, &awaited)
+                    async_adapter_future_expr(&RustExpr::opaque(&async_call), &awaited)
                 )
             } else {
-                async_adapter_future_text(&call_text, &awaited)
+                async_adapter_future_expr(&RustExpr::opaque(&call_text), &awaited).into_string()
             }
         } else if source_returns_future
             && uses_adapted_callback
@@ -4921,13 +4922,13 @@ impl<'mir> FunctionEmitter<'mir> {
                 ));
             };
             let awaited =
-                self.value_at_type_text("smelt_async_output", *source_item, *target_item, &self.render_scope())?;
+                self.rendered_at_type(&RustExpr::path("smelt_async_output"), *source_item, *target_item, &self.render_scope())?;
             let async_call = call_text
                 .replace("_smelt_adapted_callback", "smelt_async_callback")
                 .replace("smelt_callback", "smelt_async_callback");
             format!(
                 "{{ let smelt_async_callback = _smelt_adapted_callback.clone(); {} }}",
-                async_adapter_future_text(&async_call, &awaited)
+                async_adapter_future_expr(&RustExpr::opaque(&async_call), &awaited)
             )
         } else if source.may_throw && !source_returns_future && target_function.may_throw {
             format!("{call_text}?")
@@ -4945,12 +4946,12 @@ impl<'mir> FunctionEmitter<'mir> {
             // Both sides are promise values (`SmeltFuture<..>`): the future was
             // already rebuilt at the target output type when `call_value` was
             // constructed, so no further coercion is needed.
-            call_value.clone()
+            RustExpr::from(call_value.clone())
         } else if source_returns_future {
             // The source returns a promise value but the target return is erased
             // (or otherwise not a future), so erase the `SmeltFuture<T>` to a
             // `SmeltUnknown::Promise` boundary value via the normal coercion.
-            self.value_at_type_text(&call_value, source.return_ty, target_return_ty, &self.render_scope())?
+            self.rendered_at_type(&RustExpr::opaque(&call_value), source.return_ty, target_return_ty, &self.render_scope())?
         } else if source_is_erased {
             // An erased callable is invoked through `SmeltErasedFunction::call`,
             // which yields a bare `SmeltUnknown` at runtime regardless of the
@@ -4960,8 +4961,8 @@ impl<'mir> FunctionEmitter<'mir> {
             // rather than treating the value as if it already had the source
             // return type and calling `Option` methods on a `SmeltUnknown`.
             let unknown_ty = self.type_id(Type::Unknown)?;
-            self.value_at_type_text(&call_value, unknown_ty, target_return_ty, &self.render_scope())?
-        } else if self.mir.types.get(source.return_ty) == Some(&Type::None)
+            self.rendered_at_type(&RustExpr::opaque(&call_value), unknown_ty, target_return_ty, &self.render_scope())?
+        } else { if self.mir.types.get(source.return_ty) == Some(&Type::None)
             && matches!(
                 self.mir.types.get(target_return_ty),
                 Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
@@ -4972,10 +4973,10 @@ impl<'mir> FunctionEmitter<'mir> {
             // `SmeltUnknown::Undefined` so downstream `!== undefined` guards
             // (e.g. cloneDeepWith's customizer wrapper) correctly treat the
             // result as "no value" rather than a real `null` clone.
-            self.carrier_format(format_args!("{{ {call_value}; SmeltUnknown::Undefined }}"))
+            RustExpr::from(self.carrier_format(format_args!("{{ {call_value}; SmeltUnknown::Undefined }}")))
         } else {
-            self.value_at_type_text(&call_value, source.return_ty, target_return_ty, &self.render_scope())?
-        };
+            RustExpr::from(self.rendered_at_type(&RustExpr::opaque(&call_value), source.return_ty, target_return_ty, &self.render_scope())?.into_string())
+        } };
         let field_adjusted_return_text = if !source_returns_future
             && matches!(
                 self.mir.types.get(target_return_ty),
@@ -4985,10 +4986,10 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             call_value.clone()
         } else {
-            converted_return_text
+            converted_return_text.into_string()
         };
         let default_adjusted_return_text = field_adjusted_return_text;
-        let return_text = self.adapter_return_text(
+        let return_text = self.adapter_return_expr(
             source,
             target_function,
             target_return_ty,
@@ -5046,7 +5047,7 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             format!("{{ let _ = {call_value}; {return_text} }}")
         } else {
-            return_text
+            return_text.into_string()
         };
         // Anything still missing the call had a real value to convert and lost
         // it, which is a coercion defect rather than a valueless source. Fail
@@ -5059,8 +5060,8 @@ impl<'mir> FunctionEmitter<'mir> {
             // coercion arm that dropped the value.
             let enclosing = self.symbol_name(self.function.name).unwrap_or("<unnamed>");
             let callback = self
-                .place_text(place)
-                .unwrap_or_else(|_| "<unrenderable place>".to_owned());
+                .place_expr(place)
+                .unwrap_or_else(|_| RustExpr::loose("<unrenderable place>"));
             let source_return = self.mir.types.get(source.return_ty);
             let target_return = self.mir.types.get(target_return_ty);
             return Err(EmitError::new(format!(
@@ -5112,19 +5113,19 @@ impl<'mir> FunctionEmitter<'mir> {
             format!("move |{}| {closure_tail}", arg_decls.join(", "))
         };
         if borrowed {
-            return Ok(Some(format!("&mut {closure}")));
+            return Ok(Some(RustExpr::loose(format!("&mut {closure}"))));
         }
         let adapter = format!("::std::rc::Rc::new({closure})");
         if uses_adapted_callback
             && !source_is_erased
             && let Some(wide_erasure) =
-                self.arity_narrowing_erasure_text(place, source, target_function)?
+                self.arity_narrowing_erasure_expr(place, source, target_function)?
         {
-            return Ok(Some(format!(
+            return Ok(Some(RustExpr::atom(format!(
                 "{{ let smelt_narrowed_callable = {adapter}; smelt_register_narrowed_callable(&smelt_narrowed_callable, {wide_erasure}); smelt_narrowed_callable }}"
-            )));
+            ))));
         }
-        Ok(Some(adapter))
+        Ok(Some(RustExpr::from(adapter)))
     }
 
     /// Erased full-arity view of a callback an adapter narrows to fewer parameters.
@@ -5147,18 +5148,18 @@ impl<'mir> FunctionEmitter<'mir> {
     /// forward the target's parameters. `None` when the adapter does not narrow
     /// the arity (same or more target parameters, or a target rest parameter
     /// that already forwards every argument).
-    fn arity_narrowing_erasure_text(
+    fn arity_narrowing_erasure_expr(
         &self,
         place: &Place,
         source: &FunctionType,
         target_function: &FunctionType,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         if target_function.rest.is_some() || source.params.len() <= target_function.params.len() {
             return Ok(None);
         }
         let source_ty = self.place_ty(place)?;
-        let source_text = format!("{}.clone()", self.place_text(place)?);
-        self.erase_value_text(&source_text, source_ty).map(Some)
+        let source_text = format!("{}.clone()", self.place_expr(place)?);
+        self.erase_rendered(&RustExpr::opaque(&source_text), source_ty).map(|erased| Some(RustExpr::from(erased)))
     }
 
     /// If `operand` is a bare function-item-as-value wrapper, return its crate
@@ -5204,9 +5205,9 @@ impl<'mir> FunctionEmitter<'mir> {
         let hoisted = HoistedModuleItemScope::enter(self);
         // Self-contained typed wrapper that forwards to the function item by name
         // (no captures, no local reference): `::std::rc::Rc::new(move |..| func1(..))`.
-        let wrapper_text = self.closure_text_for_type(closure_id, source_ty)?;
+        let wrapper_text = self.closure_expr_for_type(closure_id, source_ty)?;
         // Erased forwarding closure using `smelt_callback` as the bound source.
-        let inner = self.erased_rest_forwarding_closure_text(source_ty)?;
+        let inner = self.erased_rest_forwarding_closure(source_ty)?;
         // Register the source arity on the cached callable: an `Rc<dyn Fn>` cannot
         // carry `Function.prototype.length`, and this accessor is the only place a
         // function *item*'s erased value is built.
@@ -5247,7 +5248,7 @@ impl<'mir> FunctionEmitter<'mir> {
             return Ok(None);
         };
         // An erased-rest callable renders as `SmeltErasedFunction`, whose
-        // per-item `__smelt_fn_erased_<key>()` accessor (`closure_text_for_type`)
+        // per-item `__smelt_fn_erased_<key>()` accessor (`closure_expr_for_type`)
         // already gives every reference one shared identity.
         if !closure.captures.is_empty() || self.is_erased_unknown_rest_function(function) {
             return Ok(None);
@@ -5258,7 +5259,7 @@ impl<'mir> FunctionEmitter<'mir> {
         if module_text != scoped_text {
             return Ok(None);
         }
-        let wrapper = self.closure_text_for_type(id, dest_ty)?;
+        let wrapper = self.closure_expr_for_type(id, dest_ty)?;
         drop(hoisted);
         let mut accessors = self.context.function_item_typed_accessors.borrow_mut();
         let next_ordinal = accessors
@@ -5267,7 +5268,7 @@ impl<'mir> FunctionEmitter<'mir> {
             .count();
         let (ordinal, _) = accessors
             .entry((key, module_text))
-            .or_insert((next_ordinal, wrapper));
+            .or_insert((next_ordinal, wrapper.into_string()));
         Ok(Some(format!("__smelt_fn_typed_{key}_{ordinal}()")))
     }
 
@@ -5278,18 +5279,18 @@ impl<'mir> FunctionEmitter<'mir> {
     /// bound as `smelt_callback: Rc<dyn Fn..>`, then erases the result back into
     /// `SmeltUnknown`. The closure is self-contained: it references only
     /// `smelt_callback` and `smelt_args`, never the original operand local, so it
-    /// can be reused both by `rest_vector_unknown_adapter_text` (owned callback
+    /// can be reused both by `rest_vector_unknown_adapter` (owned callback
     /// path) and by the function-item value accessor.
     ///
     /// This mirrors the `needs_owned_callback` branch of
-    /// `rest_vector_unknown_adapter_text`: the call is `smelt_callback.call(..)`
+    /// `rest_vector_unknown_adapter`: the call is `smelt_callback.call(..)`
     /// when the source already exposes the erased rest ABI and cannot throw, and
     /// `(smelt_callback)(..)` otherwise. The `return_text` branches (None-return,
     /// fieldless class, may-throw, ordinary erase) match that function exactly.
-    pub(super) fn erased_rest_forwarding_closure_text(
+    pub(super) fn erased_rest_forwarding_closure(
         &self,
         source_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let Some(Type::Function(source)) = self.mir.types.get(source_ty) else {
             return Err(EmitError::new(
                 "erased rest forwarding closure requires a function type",
@@ -5305,7 +5306,7 @@ impl<'mir> FunctionEmitter<'mir> {
         // `SmeltErasedFunction::call` answers `SmeltUnknown` whatever the source's
         // DECLARED return type is, so the value is already erased and must not be
         // erased again. Mirrors the same correction in
-        // `rest_vector_unknown_adapter_text`.
+        // `rest_vector_unknown_adapter`.
         let source = &FunctionType {
             return_ty: if source_is_erased {
                 self.type_id(Type::Unknown)?
@@ -5329,7 +5330,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.carrier_format(format_args!("{{ {call}; Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Undefined) }}"))
             }
         } else if matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_))) {
-            let value = self.erase_value_text(&call, source.return_ty)?;
+            let value = self.erase_rendered(&RustExpr::opaque(&call), source.return_ty)?;
             self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({value})"))
         } else if self.is_erased_class_type(source.return_ty) {
             // A return value skips erasure only when its Rust
@@ -5337,22 +5338,22 @@ impl<'mir> FunctionEmitter<'mir> {
             // (`is_erased_class_type`), not merely when the class declares no
             // fields: a MODELED host class such as `Request` or `ArrayBuffer`
             // declares none here yet renders as its own concrete struct. See
-            // the same seam in `coercion::erase_value_text`.
+            // the same seam in `coercion::erase_rendered`.
             if source.may_throw {
                 call
             } else {
                 self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({call})"))
             }
         } else if source.may_throw {
-            let value = self.erase_value_text(&format!("{call}?"), source.return_ty)?;
+            let value = self.erase_rendered(&RustExpr::loose(format!("{call}?")), source.return_ty)?;
             self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({value})"))
         } else {
-            let value = self.erase_value_text(&call, source.return_ty)?;
+            let value = self.erase_rendered(&RustExpr::opaque(&call), source.return_ty)?;
             self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({value})"))
         };
-        Ok(self.carrier_format(format_args!(
+        Ok(RustExpr::from(self.carrier_format(format_args!(
             "::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text})"
-        )))
+        ))))
     }
 
     /// Registration text linking an erased callable to the class it constructs.
@@ -5368,15 +5369,15 @@ impl<'mir> FunctionEmitter<'mir> {
     /// override slots, since the registry only exists (and is only consulted)
     /// there: a crate that never reassigns a host global emits byte-identical
     /// output.
-    fn constructed_class_registration_text(&self, return_ty: TypeId) -> String {
+    fn constructed_class_registration_expr(&self, return_ty: TypeId) -> RustExpr {
         let Some(Type::Class { name, .. }) = self.mir.types.get(return_ty) else {
-            return String::new();
+            return RustExpr::from(String::new());
         };
         if crate::stdlib::host_override_slot_names(self.mir).is_empty() {
-            return String::new();
+            return RustExpr::from(String::new());
         }
         let Ok(class_name) = self.symbol_source_name(*name) else {
-            return String::new();
+            return RustExpr::from(String::new());
         };
         let mut classes = vec![format!("{class_name:?}")];
         for class in &self.mir.classes {
@@ -5387,22 +5388,22 @@ impl<'mir> FunctionEmitter<'mir> {
                 classes.push(format!("{subclass_name:?}"));
             }
         }
-        format!(
+        RustExpr::loose(format!(
             "smelt_register_function_classes(&smelt_erased_fn, &[{}]); ",
             classes.join(", ")
-        )
+        ))
     }
 
     /// Adapts a concrete callback to the erased JavaScript callback surface.
-    pub(super) fn rest_vector_unknown_adapter_text(
+    pub(super) fn rest_vector_unknown_adapter(
         &self,
         operand: &Operand,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         let source_ty = self.operand_ty(operand)?;
         let Some(Type::Function(source)) = self.mir.types.get(source_ty) else {
             return Ok(None);
         };
-        let function_text = self.operand_text(operand)?;
+        let function_text = self.operand_expr(operand)?;
         let needs_owned_callback = matches!(
             operand,
             Operand::Copy(place) | Operand::Move(place) if !self.is_function_parameter_place(place)?
@@ -5411,8 +5412,8 @@ impl<'mir> FunctionEmitter<'mir> {
             // Bind the callback as `smelt_callback` and reuse the shared erased
             // forwarding closure builder. The bound name and call shapes match
             // the original owned-callback code, so the emitted text is identical.
-            let inner = self.erased_rest_forwarding_closure_text(source_ty)?;
-            return Ok(Some(format!(
+            let inner = self.erased_rest_forwarding_closure(source_ty)?;
+            return Ok(Some(RustExpr::atom(format!(
                 // Bind the source ONCE, then record which callable the adapter
                 // forwards to so JavaScript `===` can see through the wrapper
                 // (`smelt_same_erased_function`). Two erasures of one closure
@@ -5423,15 +5424,15 @@ impl<'mir> FunctionEmitter<'mir> {
                 // belongs to. es-toolkit `rest(func)` reads `func.length` off
                 // exactly this adapter.
                 // A callback built by an arity-NARROWING adapter
-                // (`function_shape_adapter_text`) already recorded the
+                // (`function_shape_adapter`) already recorded the
                 // full-arity erased function it forwards to; that function, not
                 // a fresh wrapper limited to the narrowed parameters, is the
                 // value's erased form.
                 "{{ let smelt_source_fn = {function_text}.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = if let Some(SmeltUnknown::Function(smelt_narrowed_fn)) = smelt_lookup_callable_object(&smelt_source_fn) {{ smelt_narrowed_fn }} else {{ {inner} }}; smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); {register}(&smelt_erased_fn, {length}.0); {class_registration}smelt_erased_fn }}",
                 register = smelt_stdlib::runtime_symbols::function_length::REGISTER,
                 length = self.operand_function_length(operand)?,
-                class_registration = self.constructed_class_registration_text(source.return_ty),
-            )));
+                class_registration = self.constructed_class_registration_expr(source.return_ty),
+            ))));
         }
         // Non-owned (function-parameter) path: invoke the callback by its operand
         // text directly, with no binding or extra parentheses. Kept inline so the
@@ -5458,7 +5459,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.carrier_format(format_args!("{{ {call}; Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Undefined) }}"))
             }
         } else if matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_))) {
-            let value = self.erase_value_text(&call, source.return_ty)?;
+            let value = self.erase_rendered(&RustExpr::opaque(&call), source.return_ty)?;
             self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({value})"))
         } else if self.is_erased_class_type(source.return_ty) {
             // A return value skips erasure only when its Rust
@@ -5466,22 +5467,22 @@ impl<'mir> FunctionEmitter<'mir> {
             // (`is_erased_class_type`), not merely when the class declares no
             // fields: a MODELED host class such as `Request` or `ArrayBuffer`
             // declares none here yet renders as its own concrete struct. See
-            // the same seam in `coercion::erase_value_text`.
+            // the same seam in `coercion::erase_rendered`.
             if source.may_throw {
                 call
             } else {
                 self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({call})"))
             }
         } else if source.may_throw {
-            let value = self.erase_value_text(&format!("{call}?"), source.return_ty)?;
+            let value = self.erase_rendered(&RustExpr::loose(format!("{call}?")), source.return_ty)?;
             self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({value})"))
         } else {
-            let value = self.erase_value_text(&call, source.return_ty)?;
+            let value = self.erase_rendered(&RustExpr::opaque(&call), source.return_ty)?;
             self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({value})"))
         };
-        Ok(Some(self.carrier_format(format_args!(
+        Ok(Some(RustExpr::from(self.carrier_format(format_args!(
             "::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text})"
-        ))))
+        )))))
     }
 
     /// Gets the type of an operand.
@@ -5821,14 +5822,14 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Returns whether an index read already produces an owned value.
     ///
-    /// `place_text`'s `Place::Index` arm lowers almost every receiver shape to an
+    /// `place_expr`'s `Place::Index` arm lowers almost every receiver shape to an
     /// expression that CONSTRUCTS its result rather than projecting to a place:
     /// a list reads `.get(i).cloned().unwrap_or(missing)`, a dict
     /// `.get(&key).cloned().unwrap_or(default)`, a string
     /// `.chars().nth(i).map(..).expect(..)`, an erased receiver a `match` whose
     /// every arm builds a fresh `SmeltUnknown`, and a class index store an
     /// `.unwrap_or(default)`. Each of those is already owned, so the `.clone()`
-    /// `operand_text` appends to a `Copy` read is a SECOND whole-value copy of
+    /// `operand_expr` appends to a `Copy` read is a SECOND whole-value copy of
     /// something nobody else holds — the same redundancy
     /// [`Self::place_is_reference_class_field`] exists to suppress for a
     /// reference-class field.
@@ -5842,10 +5843,10 @@ impl<'mir> FunctionEmitter<'mir> {
     /// still need the clone to own their result:
     ///
     /// * `Type::Tuple`, which renders as the field projection `base.0`;
-    /// * a match-class receiver, whose `match_index_text` shape this predicate
+    /// * a match-class receiver, whose `match_index_expr` shape this predicate
     ///   deliberately does not model.
     ///
-    /// The arms here mirror `place_text`'s; `false` is always the safe answer, so
+    /// The arms here mirror `place_expr`'s; `false` is always the safe answer, so
     /// a shape added there and missed here keeps today's redundant clone rather
     /// than producing a borrow where an owned value was required.
     pub(super) fn index_place_read_is_owned(&self, place: &Place) -> bool {
@@ -5855,7 +5856,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let Ok(base_ty) = self.local_decl(*base).map(|decl| decl.ty) else {
             return false;
         };
-        // A match-class receiver takes the `match_index_text` path before the
+        // A match-class receiver takes the `match_index_expr` path before the
         // type dispatch below, so it is excluded first.
         if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
             && self.is_match_class_symbol(*name).unwrap_or(false)
@@ -6185,7 +6186,7 @@ pub(crate) fn is_erased_unknown_rest_function_in(
 }
 
 /// The callback operands an rvalue renders by re-emitting the closure's text at
-/// the use site (`closure_operand_text` and its declared-type sibling) rather than
+/// the use site (`closure_operand_expr` and its declared-type sibling) rather than
 /// by naming the closure's local.
 ///
 /// `ListCallback` inlines too, but is left out: its closures keep a binding.
@@ -6309,10 +6310,10 @@ struct AdapterSource {
 ///
 /// `call_text` is the inner call expression; `awaited_text` converts the binding
 /// `smelt_async_output` to the adapter's output type.
-fn async_adapter_future_text(call_text: &str, awaited_text: &str) -> String {
-    format!(
+fn async_adapter_future_expr(call_text: &RustExpr, awaited_text: &RustExpr) -> RustExpr {
+    RustExpr::atom(format!(
         "{{ let smelt_async_source = {call_text}; SmeltFuture::from_future(Box::pin(async move {{ let smelt_async_output = smelt_async_source.await?; Ok::<_, {ERROR_BOX}>({awaited_text}) }})) }}"
-    )
+    ))
 }
 
 /// The key the emitted-signature maps use for one generated Rust function.
@@ -6357,7 +6358,7 @@ pub(super) enum SlotReceiver {
     /// slot of a base-typed record built from a subclass instance.
     SourceValue,
     /// A `Weak` handle on a freshly allocated reference-class instance, named
-    /// `handle`; see `FunctionEmitter::bind_own_virtual_slots_text`.
+    /// `handle`; see `FunctionEmitter::bind_own_virtual_slots_expr`.
     WeakSelf {
         /// The Rust name of the new instance handle.
         handle: String,

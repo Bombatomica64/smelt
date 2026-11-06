@@ -36,6 +36,7 @@
 //! and the adapter exists purely because Rust distinguishes `T` from `&T` while
 //! TypeScript does not.
 
+use crate::rust::RustExpr;
 use super::FunctionEmitter;
 use crate::EmitError;
 use crate::generic_bindings::{CalleeTypeParamBindings, bind_class_type_params};
@@ -154,12 +155,12 @@ impl FunctionEmitter<'_> {
     /// The last condition is what keeps this inert: a non-generic record, a
     /// non-callable field and a substitution that did not move the ABI all
     /// render exactly the bytes they rendered before.
-    pub(super) fn record_slot_abi_adapter_text(
+    pub(super) fn record_slot_abi_adapter(
         &self,
-        value_text: &str,
+        value_text: &RustExpr,
         record_ty: TypeId,
         field: &MirField,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         let Some((declared_ty, bindings)) = self.declared_record_field_slot(record_ty, field.name)
         else {
             return Ok(None);
@@ -219,11 +220,11 @@ impl FunctionEmitter<'_> {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        Ok(Some(format!(
+        Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_slot_callback = {value_text}; let smelt_slot_adapted: {slot_text} = \
              ::std::rc::Rc::new(move |{param_decls}| (smelt_slot_callback)({forwarded})); \
              smelt_slot_adapted }}"
-        )))
+        ))))
     }
 
     /// Whether a value read off `source_field` of the record `source` is
@@ -234,7 +235,7 @@ impl FunctionEmitter<'_> {
     /// field's coercion passed the read through untouched, so the value is the
     /// stored callable as it is, which the generated struct already holds at
     /// the declared ABI. Wrapping it in
-    /// [`Self::record_slot_abi_adapter_text`] would treat it as rendered at the
+    /// [`Self::record_slot_abi_adapter`] would treat it as rendered at the
     /// substituted ABI and forward the wrong side of the `&`/`.clone()` seam
     /// (E0308 on Hono's `Router<[unknown, RouterRoute]>` rebuilt from an
     /// `options.router ?? new SmartRouter(..)` value).
@@ -254,7 +255,7 @@ impl FunctionEmitter<'_> {
         source_declared == target_declared
     }
 
-    /// Apply [`Self::record_slot_abi_adapter_text`] to a field value, returning
+    /// Apply [`Self::record_slot_abi_adapter`] to a field value, returning
     /// the original text when no adaptation is needed.
     ///
     /// The shape every record adapter's field loop wants: one call, one string
@@ -264,9 +265,9 @@ impl FunctionEmitter<'_> {
         value_text: String,
         record_ty: TypeId,
         field: &MirField,
-    ) -> Result<String, EmitError> {
-        Ok(self
-            .record_slot_abi_adapter_text(&value_text, record_ty, field)?
-            .unwrap_or(value_text))
+    ) -> Result<RustExpr, EmitError> {
+        Ok(RustExpr::from(self
+            .record_slot_abi_adapter(&RustExpr::opaque(&value_text), record_ty, field)?
+            .unwrap_or(RustExpr::from(value_text))))
     }
 }

@@ -4,6 +4,7 @@
     reason = "class helpers are shared across sibling emitter modules"
 )]
 
+use crate::rust::RustExpr;
 use std::collections::{HashMap, HashSet};
 
 use smelt_hir::{Symbol, Type, TypeId};
@@ -640,28 +641,28 @@ fn method_names_match(mir: &Mir, left: FuncId, right: FuncId) -> bool {
 ///
 /// Static members are emitted as associated getter functions because owned
 /// values such as `String` cannot be Rust `const` items.
-pub(crate) fn materialized_static_value_text(literal: Option<&smelt_hir::Literal>) -> String {
+pub(crate) fn materialized_static_value(literal: Option<&smelt_hir::Literal>) -> RustExpr {
     match literal {
-        Some(smelt_hir::Literal::Bool(value)) => value.to_string(),
-        Some(smelt_hir::Literal::Int(value)) => value.to_string(),
-        Some(smelt_hir::Literal::Float(value)) if value.is_nan() => "f64::NAN".to_owned(),
+        Some(smelt_hir::Literal::Bool(value)) => RustExpr::from(value.to_string()),
+        Some(smelt_hir::Literal::Int(value)) => RustExpr::from(value.to_string()),
+        Some(smelt_hir::Literal::Float(value)) if value.is_nan() => RustExpr::atom("f64::NAN"),
         Some(smelt_hir::Literal::Float(value))
             if value.is_infinite() && value.is_sign_positive() =>
         {
-            "f64::INFINITY".to_owned()
+            RustExpr::atom("f64::INFINITY")
         }
         Some(smelt_hir::Literal::Float(value)) if value.is_infinite() => {
-            "f64::NEG_INFINITY".to_owned()
+            RustExpr::atom("f64::NEG_INFINITY")
         }
-        Some(smelt_hir::Literal::Float(value)) => format!("{value:?}"),
-        Some(smelt_hir::Literal::String(value)) => format!("{value:?}.to_owned()"),
-        Some(smelt_hir::Literal::BigInt(digits)) => crate::bigint_prelude::literal_text(digits),
+        Some(smelt_hir::Literal::Float(value)) => RustExpr::chain(format!("{value:?}")),
+        Some(smelt_hir::Literal::String(value)) => RustExpr::chain(format!("{value:?}.to_owned()")),
+        Some(smelt_hir::Literal::BigInt(digits)) => RustExpr::from(crate::bigint_prelude::literal_text(digits)),
         Some(
             smelt_hir::Literal::Symbol(_)
             | smelt_hir::Literal::Undefined
             | smelt_hir::Literal::None,
         )
-        | None => "Default::default()".to_owned(),
+        | None => RustExpr::atom("Default::default()"),
     }
 }
 

@@ -11,7 +11,7 @@
 //!   *smelt_slot = current + 1.0; }
 //! ```
 //!
-//! The container's entry accessor is the same one `list_push_text` reaches for,
+//! The container's entry accessor is the same one `list_push_expr` reaches for,
 //! chosen the same way: `SmeltJsMap`/`SmeltRecord` expose `entry_or_insert`,
 //! which hands back a `RefMut<V>` guard, while a plain `HashMap` backing uses
 //! `entry(..).or_insert_with(..)` and hands back a `&mut V`. The `RefMut` guard
@@ -26,6 +26,7 @@
 //! it keeps the emission independent of whether the local analysis chose to
 //! predeclare the temporary.
 
+use crate::rust::RustExpr;
 use super::*;
 
 impl FunctionEmitter<'_> {
@@ -67,22 +68,22 @@ impl FunctionEmitter<'_> {
             ));
         };
         let (key_ty, entry_ty) = (*dict_key_ty, *dict_entry_ty);
-        let base_text = self.local_mut_value_text(base)?;
+        let base_text = self.local_mut_value(base)?;
         // The key is coerced exactly as every other dict write coerces it: a
         // string-keyed container takes a JavaScript property-key string, any
         // other key type takes the container's key type directly.
         let key_text = if self.mir.types.get(key_ty) == Some(&Type::String) {
             let source_key = self.operand_ty(index)?;
-            let index_text = self.operand_text(index)?;
-            self.property_key_to_string_text(&index_text, source_key)?
+            let index_text = self.operand_expr(index)?;
+            self.property_key_to_string_expr(&index_text, source_key)?
         } else {
-            self.value_at_type(index, key_ty)?
+            RustExpr::from(self.value_at_type(index, key_ty)?)
         };
         let default_text = self.value_at_type(default, entry_ty)?;
         // `SmeltJsMap` and `SmeltRecord` both expose `entry_or_insert`, which
         // seeds the entry from a CLOSURE so the seed is built only on the absent
         // path. A plain `HashMap` backing uses the standard-library spelling of
-        // the same thing. Selected by the same predicate pair `list_push_text`
+        // the same thing. Selected by the same predicate pair `list_push_expr`
         // uses, so the two entry-mutating emitters cannot disagree about which
         // container is in play.
         let guarded = self.dict_uses_js_key_map(key_ty) || self.dict_uses_smelt_record(key_ty);
@@ -101,7 +102,7 @@ impl FunctionEmitter<'_> {
         };
         let current_name = self.local_name(current)?.into_owned();
         let current_ty = self.type_text(self.local_decl(current)?.ty)?;
-        let stored = self.rvalue_text_for_dest(value, entry_ty)?;
+        let stored = self.rvalue_expr_for_dest(value, entry_ty)?;
         out.push_str(&format!(
             "    {{ {slot} = {accessor}; let {current_name}: {current_ty} = (*smelt_slot).clone(); *smelt_slot = {stored}; }}\n"
         ));

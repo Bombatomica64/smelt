@@ -14,6 +14,7 @@
 //! that same member model, asked by NAME, so the conversion and the ordinary
 //! `response.status` read cannot disagree about what a member means.
 
+use crate::rust::RustExpr;
 use smelt_hir::{ResponseOp, Type, TypeId};
 
 use super::{EmitError, FunctionEmitter};
@@ -28,7 +29,7 @@ struct HostMember {
 
 /// How one host member's value is produced from a rendered receiver.
 enum HostMemberRead {
-    /// A `Response` member operation, emitted by `response_op_on_text`.
+    /// A `Response` member operation, emitted by `response_op_on_expr`.
     Response(ResponseOp),
 }
 
@@ -74,7 +75,7 @@ impl FunctionEmitter<'_> {
     /// answer because the conversion could not have been well typed anyway.
     pub(super) fn host_class_member_read_text(
         &self,
-        base_text: &str,
+        base_text: &RustExpr,
         base_ty: TypeId,
         member: &str,
     ) -> Result<Option<(String, TypeId)>, EmitError> {
@@ -89,7 +90,7 @@ impl FunctionEmitter<'_> {
                 let Some(member_ty) = self.response_op_result_ty(op) else {
                     return Ok(None);
                 };
-                Ok(Some((self.response_op_on_text(op, base_text)?, member_ty)))
+                Ok(Some((self.response_op_on_expr(op, base_text)?.into_string(), member_ty)))
             }
         }
     }

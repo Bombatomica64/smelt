@@ -1,14 +1,15 @@
 //! Tuple emission helpers.
 
+use crate::rust::RustExpr;
 use super::*;
 
 impl FunctionEmitter<'_> {
     /// Converts a tuple containment operation to Rust text.
-    pub(super) fn tuple_contains_text(
+    pub(super) fn tuple_contains_expr(
         &self,
         tuple: &Operand,
         item: &Operand,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let tuple_ty = self.operand_ty(tuple)?;
         let Some(Type::Tuple(items)) = self.mir.types.get(tuple_ty) else {
             return Err(EmitError::new("tuple contains receiver must be a tuple"));
@@ -26,10 +27,10 @@ impl FunctionEmitter<'_> {
             if let Some(Type::Optional(opt_inner)) = self.mir.types.get(item_ty) {
                 let inner = *opt_inner;
                 if items_len == 0 {
-                    return Ok("false".to_owned());
+                    return Ok(RustExpr::path("false"));
                 }
                 let element_types: Vec<TypeId> = items.clone();
-                let tuple_text = self.operand_text(tuple)?;
+                let tuple_text = self.operand_expr(tuple)?;
                 let comparisons = if element_types.contains(&inner) {
                     (0..items_len)
                         .map(|idx| format!("{tuple_text}.{idx} == smelt_needle"))
@@ -44,7 +45,7 @@ impl FunctionEmitter<'_> {
                         .enumerate()
                         .map(|(idx, field_ty)| {
                             let erased =
-                                self.erase_value_text(&format!("{tuple_text}.{idx}"), *field_ty)?;
+                                self.erase_rendered(&RustExpr::postfix_on(&tuple_text, format!("{tuple_text}.{idx}")), *field_ty)?;
                             Ok(self.carrier_format(format_args!("({erased}).same_js_key(&smelt_needle)")))
                         })
                         .collect::<Result<Vec<_>, EmitError>>()?
@@ -54,33 +55,33 @@ impl FunctionEmitter<'_> {
                         "tuple contains item must match at least one tuple element type",
                     ));
                 };
-                let item_text = self.operand_text(item)?;
-                return Ok(format!(
+                let item_text = self.operand_expr(item)?;
+                return Ok(RustExpr::atom(format!(
                     "{{ match {item_text} {{ Some(smelt_needle) => {comparisons}, None => false }} }}"
-                ));
+                )));
             }
             return Err(EmitError::new(
                 "tuple contains item must match at least one tuple element type",
             ));
         }
         if items_len == 0 {
-            return Ok("false".to_owned());
+            return Ok(RustExpr::path("false"));
         }
-        let tuple_text = self.operand_text(tuple)?;
-        let item_text = self.operand_text(item)?;
-        Ok((0..items_len)
+        let tuple_text = self.operand_expr(tuple)?;
+        let item_text = self.operand_expr(item)?;
+        Ok(RustExpr::from((0..items_len)
             .map(|idx| format!("{tuple_text}.{idx} == {item_text}"))
             .collect::<Vec<_>>()
-            .join(" || "))
+            .join(" || ")))
     }
 
     /// Converts a statically-known tuple index operation to Rust text.
-    pub(super) fn tuple_index_text(
+    pub(super) fn tuple_index_expr(
         &self,
         tuple: &Operand,
         index: usize,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let tuple_ty = self.operand_ty(tuple)?;
         let Some(Type::Tuple(items)) = self.mir.types.get(tuple_ty) else {
             if self.has_dynamic_shape(tuple_ty)
@@ -93,10 +94,10 @@ impl FunctionEmitter<'_> {
                 // concrete generated union reaches the runtime-narrowing match
                 // through `IntoSmeltUnknown`, never as itself.
                 let tuple_text =
-                    self.erase_concrete_union_text(&self.operand_text(tuple)?, tuple_ty);
-                let unknown_value = self.unknown_index_text(&tuple_text, &index_operand)?;
+                    self.erase_concrete_union_expr(&self.operand_expr(tuple)?, tuple_ty);
+                let unknown_value = self.unknown_index_expr(&tuple_text, &index_operand)?;
                 let unknown_ty = self.type_id(Type::Unknown)?;
-                return self.value_at_type_text(&unknown_value, unknown_ty, dest_ty, &self.render_scope());
+                return self.rendered_at_type(&unknown_value, unknown_ty, dest_ty, &self.render_scope()).map(RustExpr::from);
             }
             // A narrowed optional union or `unknown` holds the tuple the
             // narrowing proved.
@@ -105,10 +106,10 @@ impl FunctionEmitter<'_> {
                     EmitError::new(format!("tuple index does not fit in runtime number: {err}"))
                 })?;
                 let index_operand = Operand::Const(Constant::Float(f64::from(runtime_index)));
-                let erased = self.erase_value_text(&self.operand_text(tuple)?, tuple_ty)?;
-                let unknown_value = self.unknown_index_text(&erased, &index_operand)?;
+                let erased = self.erase_rendered(&self.operand_expr(tuple)?, tuple_ty)?;
+                let unknown_value = self.unknown_index_expr(&erased, &index_operand)?;
                 let unknown_ty = self.type_id(Type::Unknown)?;
-                return self.value_at_type_text(&unknown_value, unknown_ty, dest_ty, &self.render_scope());
+                return self.rendered_at_type(&unknown_value, unknown_ty, dest_ty, &self.render_scope()).map(RustExpr::from);
             }
             return Err(EmitError::new("tuple index receiver must be a tuple"));
         };
@@ -120,17 +121,17 @@ impl FunctionEmitter<'_> {
                 "tuple index destination must match the tuple field type",
             ));
         }
-        Ok(format!("{}.{}.clone()", self.operand_text(tuple)?, index))
+        Ok(RustExpr::postfix_on(&self.operand_expr(tuple)?, format!("{}.{}.clone()", self.operand_expr(tuple)?, index)).ending_in_clone())
     }
 
     /// Converts a statically-known tuple slice operation to Rust text.
-    pub(super) fn tuple_slice_text(
+    pub(super) fn tuple_slice_expr(
         &self,
         tuple: &Operand,
         start: usize,
         end: usize,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let tuple_ty = self.operand_ty(tuple)?;
         let Some(Type::Tuple(items)) = self.mir.types.get(tuple_ty) else {
             return Err(EmitError::new("tuple slice receiver must be a tuple"));
@@ -149,26 +150,26 @@ impl FunctionEmitter<'_> {
                 "tuple slice destination must match selected tuple field types",
             ));
         }
-        let tuple_text = self.operand_text(tuple)?;
+        let tuple_text = self.operand_expr(tuple)?;
         let items_text = (start..end)
             .map(|idx| format!("{tuple_text}.{idx}.clone()"))
             .collect::<Vec<_>>()
             .join(", ");
         if end.checked_sub(start) == Some(1) {
-            Ok(format!("({items_text},)"))
+            Ok(RustExpr::atom(format!("({items_text},)")))
         } else {
-            Ok(format!("({items_text})"))
+            Ok(RustExpr::atom(format!("({items_text})")))
         }
     }
 
     /// Converts a homogeneous tuple-to-list constructor conversion to Rust text.
-    pub(super) fn tuple_to_list_text(
+    pub(super) fn tuple_to_list_expr(
         &self,
         tuple: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let (items, item_ty) = self.homogeneous_tuple_conversion_parts(tuple, dest_ty, "list")?;
-        let tuple_text = self.operand_text(tuple)?;
+        let tuple_text = self.operand_expr(tuple)?;
         let items_text = (0..items.len())
             .map(|idx| format!("{tuple_text}.{idx}.clone()"))
             .collect::<Vec<_>>()
@@ -179,17 +180,17 @@ impl FunctionEmitter<'_> {
                 "tuple-to-list destination must be list of the tuple item type",
             ));
         }
-        Ok(format!("vec![{items_text}]"))
+        Ok(RustExpr::atom(format!("vec![{items_text}]")))
     }
 
     /// Converts a homogeneous tuple-to-set constructor conversion to Rust text.
-    pub(super) fn tuple_to_set_text(
+    pub(super) fn tuple_to_set_expr(
         &self,
         tuple: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let (items, item_ty) = self.homogeneous_tuple_conversion_parts(tuple, dest_ty, "set")?;
-        let tuple_text = self.operand_text(tuple)?;
+        let tuple_text = self.operand_expr(tuple)?;
         let items_text = (0..items.len())
             .map(|idx| format!("{tuple_text}.{idx}.clone()"))
             .collect::<Vec<_>>()
@@ -200,10 +201,10 @@ impl FunctionEmitter<'_> {
                 "tuple-to-set destination must be set of the tuple item type",
             ));
         }
-        Ok(format!(
+        Ok(RustExpr::atom_on(&self.set_container_name(item_ty), format!(
             "{}::from([{items_text}])",
             self.set_container_name(item_ty)
-        ))
+        )))
     }
 
     /// Returns tuple fields and their shared item type for homogeneous tuple conversions.
