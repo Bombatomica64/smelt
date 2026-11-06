@@ -3128,6 +3128,41 @@ impl FunctionEmitter<'_> {
             })
     }
 
+    /// Python's `repr` of the value `reference` borrows, as a `String`
+    /// expression, for a type built of primitives, lists, tuples and options;
+    /// `None` for any other type.
+    fn python_repr_text(&self, reference: &str, ty: TypeId) -> Option<String> {
+        Some(match self.mir.types.get(ty)? {
+            Type::String => format!("smelt_py_str_repr({reference})"),
+            Type::Int => format!("({reference}).to_string()"),
+            Type::Float => format!("{}({reference})", crate::number_format_prelude::PY_FLOAT_REPR_FN),
+            Type::Bool => format!("(if *{reference} {{ \"True\" }} else {{ \"False\" }}).to_owned()"),
+            Type::Optional(item) => {
+                let item = self.python_repr_text("smelt_item", *item)?;
+                format!("match {reference} {{ Some(smelt_item) => {item}, None => \"None\".to_owned() }}")
+            }
+            Type::List(item) => {
+                let item = self.python_repr_text("smelt_item", *item)?;
+                format!(
+                    "format!(\"[{{}}]\", ({reference}).borrow().iter().map(|smelt_item| {item}).collect::<Vec<String>>().join(\", \"))"
+                )
+            }
+            Type::Tuple(items) => {
+                let parts = items
+                    .iter()
+                    .enumerate()
+                    .map(|(index, item)| self.python_repr_text(&format!("&({reference}).{index}"), *item))
+                    .collect::<Option<Vec<_>>>()?;
+                let trailing = if parts.len() == 1 { "," } else { "" };
+                format!(
+                    "format!(\"({{}}{trailing})\", [{}].join(\", \"))",
+                    parts.join(", ")
+                )
+            }
+            _ => return None,
+        })
+    }
+
     /// Converts an operand to console.log argument format and returns format string and value.
     pub(super) fn console_arg_text(
         &self,
@@ -3200,6 +3235,11 @@ impl FunctionEmitter<'_> {
                     self.erase(operand)?
                 ),
             ))
+        } else if absent == AbsentSpelling::None
+            && matches!(self.mir.types.get(ty), Some(Type::List(_) | Type::Tuple(_)))
+            && let Some(text) = self.python_repr_text(&format!("&{}", self.operand_text(operand)?), ty)
+        {
+            Ok(("{}", text))
         } else if matches!(
             self.mir.types.get(ty),
             Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))

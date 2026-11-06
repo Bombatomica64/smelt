@@ -91,6 +91,30 @@ fn smelt_console_number<N: ::std::borrow::Borrow<f64>>(value: N) -> String { let
 
 // @smelt:item-end
 
+// @smelt:item smelt_py_str_repr when python_number_format
+/// Python's `repr(str)`: single quotes, unless the text holds one and no double
+/// quote.
+fn smelt_py_str_repr<S: AsRef<str>>(value: S) -> String {
+    let value = value.as_ref();
+    let quote = if value.contains('\'') && !value.contains('"') { '"' } else { '\'' };
+    let mut text = String::with_capacity(value.len().saturating_add(2));
+    text.push(quote);
+    for character in value.chars() {
+        match character {
+            '\\' => text.push_str("\\\\"),
+            '\n' => text.push_str("\\n"),
+            '\r' => text.push_str("\\r"),
+            '\t' => text.push_str("\\t"),
+            other if other == quote => { text.push('\\'); text.push(other); }
+            other => text.push(other),
+        }
+    }
+    text.push(quote);
+    text
+}
+
+// @smelt:item-end
+
 // Emit [`PY_FLOAT_REPR_FN`].
 //
 // Emitted only for a crate with Python code (a function whose absent value

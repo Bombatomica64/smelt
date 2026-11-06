@@ -1,0 +1,8 @@
+['a', "it's", 'say "x"', 'back\\slash']
+[[1, 2], [3]] [True, False] [1.5, 2.0] ('a', 1)
+2 IndexError 2 IndexError
+[[1], [9, 4]] 4
+7
+3.5
+5
+3.5

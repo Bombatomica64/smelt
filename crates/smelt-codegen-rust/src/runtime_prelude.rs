@@ -180,6 +180,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "base64" => Need::Base64,
         "python_division" => Need::PythonDivision,
         "python_dict_read" => Need::PythonDictRead,
+        "python_list_read" => Need::PythonListRead,
         "global_object" => Need::GlobalObject,
         "unknown_assign" => Need::UnknownAssign,
         "reg_exp_compile" => Need::RegExpCompile,

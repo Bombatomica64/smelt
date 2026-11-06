@@ -89,6 +89,20 @@ impl FunctionEmitter<'_> {
                 )
             }
             Rvalue::PythonDictRead { dict, key } => self.python_dict_read_call(dict, key)?,
+            Rvalue::PythonListRead { list, index } => {
+                let list_ty = self.operand_ty(list)?;
+                let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+                    return Err(EmitError::new("a Python list read needs a list"));
+                };
+                let list_text = self.operand_borrow_text(list)?;
+                let index_text = self.operand_text(index)?;
+                (
+                    CallText::propagating(format!(
+                        "smelt_py_list_read(&{list_text}, {index_text})"
+                    )),
+                    *item_ty,
+                )
+            }
             Rvalue::Base64Transcode { op, .. } => {
                 let value = args.first().ok_or_else(|| {
                     EmitError::new("a base64 transcoder takes one string argument")

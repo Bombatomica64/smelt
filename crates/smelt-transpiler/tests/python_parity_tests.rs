@@ -66,3 +66,9 @@ fn lambda_arithmetic() -> TestResult {
 fn try_around_raising_callback() -> TestResult {
     verify_python_parity("try_around_raising_callback")
 }
+
+/// `xs[i]` raises `IndexError`, `print` draws `repr`, and `x /= 2` makes a `float`.
+#[test]
+fn list_semantics() -> TestResult {
+    verify_python_parity("list_semantics")
+}

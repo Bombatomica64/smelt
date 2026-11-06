@@ -2359,6 +2359,18 @@ macro_rules! op_group_transcribed {
                 call("@python_dict_read".to_owned())
                 needs(PythonDictRead)
                 => (format!("python_dict_read {dict}, {key}"));
+            /// Python's `xs[i]` on a list: a negative index counts from the end,
+            /// and an index out of range raises `IndexError`.
+            PythonListRead {
+                /// The list.
+                list: one,
+                /// The index, an `int`.
+                index: one,
+            }
+                fallible(true)
+                call("@python_list_read".to_owned())
+                needs(PythonListRead)
+                => (format!("python_list_read {list}, {index}"));
             /// `btoa` / `atob`: the base64 transcoders of the web platform.
             ///
             /// Fallible in both directions: `btoa` refuses a code point above U+00FF

@@ -1372,6 +1372,7 @@ impl FunctionEmitter<'_> {
             // Lowering gives each of these a call terminator (`fallible_op`).
             Rvalue::Base64Transcode { .. }
             | Rvalue::PythonDictRead { .. }
+            | Rvalue::PythonListRead { .. }
             | Rvalue::RegExpCompile { .. }
             | Rvalue::DataViewAccess { .. }
             | Rvalue::BigIntCall { .. }

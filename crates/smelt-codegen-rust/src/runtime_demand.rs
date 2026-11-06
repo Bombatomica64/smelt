@@ -129,6 +129,8 @@ pub(crate) enum Need {
     PythonDivision,
     /// Python's raising `d[k]` read.
     PythonDictRead,
+    /// Python's raising `xs[i]` read.
+    PythonListRead,
     /// A class read as a value.
     ClassValue,
     /// `globalThis` as a value.
