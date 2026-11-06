@@ -232,7 +232,7 @@ impl<'mir> FunctionEmitter<'mir> {
         };
         let mut child = FunctionEmitter::new(self.mir, self.context, function)?;
         child.role = emit_role::EmitRole::Closure(scope);
-        child.binding_uses = self.binding_uses.clone();
+        child.binding_uses = std::rc::Rc::clone(&self.binding_uses);
         Ok(child)
     }
 

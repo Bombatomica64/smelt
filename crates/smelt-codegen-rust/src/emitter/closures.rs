@@ -724,10 +724,10 @@ impl FunctionEmitter<'_> {
             };
             let mut body_text = param_rebinds;
             emitter.emit_mutable_local_preludes(&mut body_text)?;
-            let (emitted, body_returns_early) = emitter
+            let (body_outcome, body_returns_early) = emitter
                 .binding_uses
                 .tracking_early_return(|| emitter.emit_closure_block(emitter.entry_block()?, &mut body_text));
-            emitted?;
+            body_outcome?;
             let returns_future = matches!(
                 emitter.mir.types.get(function.return_ty),
                 Some(Type::Future(_))

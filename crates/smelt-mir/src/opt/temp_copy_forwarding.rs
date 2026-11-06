@@ -99,10 +99,11 @@ fn forward_body(
     // consideration with it, so the counts of the rest stay right, and recounting
     // per statement would make the pass quadratic in the size of the body.
     let single_use = Body { locals, blocks }.single_use_temps();
+    let facts = BodyFacts { shared, single_use: &single_use, types };
     let mut changed = false;
     for block_index in 0..blocks.len() {
         let mut index: usize = 0;
-        while let Some(found) = next_forward(Body { locals, blocks }, shared, &single_use, types, block_index, index) {
+        while let Some(found) = next_forward(Body { locals, blocks }, &facts, block_index, index) {
             let Some(block) = blocks.get_mut(block_index) else {
                 break;
             };
@@ -112,6 +113,16 @@ fn forward_body(
         }
     }
     changed
+}
+
+/// What the guards need beyond the body itself.
+struct BodyFacts<'a> {
+    /// Locals a closure can change; see [`SharedLocals`].
+    shared: &'a HashSet<LocalId>,
+    /// Temporaries assigned once and read once.
+    single_use: &'a HashSet<LocalId>,
+    /// The crate's types.
+    types: &'a TypeInterner,
 }
 
 /// One proven forwarding.
@@ -130,25 +141,22 @@ struct Forward {
 /// The first forwarding in the block at or after statement `start`.
 fn next_forward(
     body: Body<'_>,
-    shared: &HashSet<LocalId>,
-    single_use: &HashSet<LocalId>,
-    types: &TypeInterner,
+    facts: &BodyFacts<'_>,
     block_index: usize,
     start: usize,
 ) -> Option<Forward> {
     let block = body.blocks.get(block_index)?;
-    (start..block.statements.len()).find_map(|at| forwardable(body, block, shared, single_use, types, at))
+    (start..block.statements.len()).find_map(|at| forwardable(body, block, facts, at))
 }
 
 /// The forwarding of the statement at `at`, when it is a copy every guard admits.
 fn forwardable(
     body: Body<'_>,
     block: &BasicBlock,
-    shared: &HashSet<LocalId>,
-    single_use: &HashSet<LocalId>,
-    types: &TypeInterner,
+    facts: &BodyFacts<'_>,
     at: usize,
 ) -> Option<Forward> {
+    let BodyFacts { shared, single_use, types } = *facts;
     let Statement::Assign { dest, value: Rvalue::Use(source) } = block.statements.get(at)? else {
         return None;
     };

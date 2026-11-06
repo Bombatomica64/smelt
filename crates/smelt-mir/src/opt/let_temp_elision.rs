@@ -77,13 +77,13 @@ fn elide_body(
 ) -> bool {
     // Counted once, as in `TempCopyForwarding`: eliding a pair touches only that
     // pair's locals, and a recount per statement is quadratic in the body.
-    let facts = BodyFacts::of(Body { locals, blocks });
+    let facts = BodyFacts::of(Body { locals, blocks }, captures, types);
     let mut changed = false;
     for block_index in 0..blocks.len() {
         let mut index: usize = 0;
         loop {
             let body = Body { locals, blocks };
-            let Some((at, user)) = next_pair(body, &facts, captures, types, block_index, index) else {
+            let Some((at, user)) = next_pair(body, &facts, block_index, index) else {
                 break;
             };
             let Some(block) = blocks.get_mut(block_index) else {
@@ -107,15 +107,13 @@ fn elide_body(
 /// index and user local. `None` when the block has no more pairs.
 fn next_pair(
     body: Body<'_>,
-    facts: &BodyFacts,
-    captures: &HashSet<LocalId>,
-    types: &smelt_hir::TypeInterner,
+    facts: &BodyFacts<'_>,
     block_index: usize,
     mut index: usize,
 ) -> Option<(usize, LocalId)> {
     let len = body.blocks.get(block_index)?.statements.len();
     while index.saturating_add(1) < len {
-        if let Some(user) = elidable_pair(body, facts, captures, types, block_index, index) {
+        if let Some(user) = elidable_pair(body, facts, block_index, index) {
             return Some((index, user));
         }
         index = index.saturating_add(1);
@@ -127,9 +125,7 @@ fn next_pair(
 /// are an elidable `t = rv; u = move t` pair.
 fn elidable_pair(
     body: Body<'_>,
-    facts: &BodyFacts,
-    captures: &HashSet<LocalId>,
-    types: &smelt_hir::TypeInterner,
+    facts: &BodyFacts<'_>,
     block_index: usize,
     index: usize,
 ) -> Option<LocalId> {
@@ -144,7 +140,7 @@ fn elidable_pair(
     };
     let (temp, user) = (*temp_dest, *user_dest);
     let moves_temp = moved.local() == Some(temp);
-    if !moves_temp || temp == user || captures.contains(&user) {
+    if !moves_temp || temp == user || facts.captures.contains(&user) {
         return None;
     }
     let temp_decl = body.local_decl(temp)?;
@@ -154,7 +150,7 @@ fn elidable_pair(
         value.reads(|operand| reads |= operand.reads_local(user));
         reads
     };
-    let is_function = |ty| matches!(types.get(ty), Some(Type::Function(_)));
+    let is_function = |ty| matches!(facts.types.get(ty), Some(Type::Function(_)));
     (facts.single_use.contains(&temp)
         && facts.initializers.get(&user) == Some(&1)
         && !reads_user
@@ -164,7 +160,11 @@ fn elidable_pair(
 }
 
 /// What the guards ask of a whole body, computed in one walk.
-struct BodyFacts {
+struct BodyFacts<'a> {
+    /// Locals that never take a pair's user role.
+    captures: &'a HashSet<LocalId>,
+    /// The crate's types.
+    types: &'a smelt_hir::TypeInterner,
     /// Temporaries assigned once and read once.
     single_use: HashSet<LocalId>,
     /// Per local, how many definitions are not source reassignments: every
@@ -172,9 +172,9 @@ struct BodyFacts {
     initializers: HashMap<LocalId, usize>,
 }
 
-impl BodyFacts {
+impl<'a> BodyFacts<'a> {
     /// The facts of `body`.
-    fn of(body: Body<'_>) -> Self {
+    fn of(body: Body<'_>, captures: &'a HashSet<LocalId>, types: &'a smelt_hir::TypeInterner) -> Self {
         let mut initializers = body.assignment_counts();
         for statement in body.blocks.iter().flat_map(|block| &block.statements) {
             if let Statement::AssignPlace { place: Place::Local(target), .. } = statement
@@ -183,7 +183,7 @@ impl BodyFacts {
                 *count = count.saturating_sub(1);
             }
         }
-        Self { single_use: body.single_use_temps(), initializers }
+        Self { captures, types, single_use: body.single_use_temps(), initializers }
     }
 }
 

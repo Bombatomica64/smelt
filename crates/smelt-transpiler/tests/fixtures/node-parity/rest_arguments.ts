@@ -42,3 +42,10 @@ function spreadInto<T, R>(rows: T[][], combine: (...args: T[]) => R): R[] {
   return out;
 }
 console.log(JSON.stringify(spreadInto([[1, 2], [3, 4], [5, 6]], (a, b, c) => a + b + c)));
+const pick = (data: number, keep: (value: number) => boolean, ...rest: number[]): number =>
+  keep(data) ? data : (rest[0] ?? -1);
+function forward(...args: unknown[]): unknown {
+  // @ts-expect-error: the arguments are erased on purpose.
+  return pick(...args);
+}
+console.log(forward(1, (v: number) => v > 0), forward(1, (v: number) => v < 0, 7));

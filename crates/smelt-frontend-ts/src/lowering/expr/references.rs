@@ -441,7 +441,7 @@ impl ModuleBuilder<'_> {
             && matches!(self.ctx.krate.types.get(inner), Some(Type::Union(_)))
             && matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
         {
-            return Ok(self.projected_optional_arm(local, inner, ty, self.span(start, end), body));
+            return Ok(Self::projected_optional_arm(local, inner, ty, self.span(start, end), body));
         }
         Ok(local_expr)
     }
@@ -449,7 +449,6 @@ impl ModuleBuilder<'_> {
     /// A read of optional `local` at the surviving arm `ty`: the unwrap at the
     /// payload type `inner`, then the arm projection off it.
     fn projected_optional_arm(
-        &self,
         local: smelt_hir::LocalId,
         inner: smelt_hir::TypeId,
         ty: smelt_hir::TypeId,
@@ -486,7 +485,7 @@ impl ModuleBuilder<'_> {
             && matches!(self.ctx.krate.types.get(inner), Some(Type::Union(_) | Type::Unknown))
             && matches!(self.ctx.krate.types.get(ty), Some(Type::List(_) | Type::Tuple(_)))
         {
-            return self.projected_optional_arm(local, inner, ty, span, body);
+            return Self::projected_optional_arm(local, inner, ty, span, body);
         }
         receiver
     }
