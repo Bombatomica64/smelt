@@ -2594,7 +2594,7 @@ impl ModuleBuilder<'_> {
             return false;
         };
         member.property.name == "mock"
-            && matches!(&member.object, Expression::Identifier(object) if crate::lowering::stdlib::is_test_mock_namespace(&object.name))
+            && matches!(&member.object, Expression::Identifier(object) if crate::lowering::testing::is_test_mock_namespace(&object.name))
     }
 
     /// Return whether this is a top-level `await import("...")` side-effect load.
