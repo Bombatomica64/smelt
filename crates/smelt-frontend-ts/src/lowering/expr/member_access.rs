@@ -5,7 +5,7 @@ use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::js_text::js_str_text;
-use oxc::ast::ast::{ChainElement, Expression};
+use oxc::ast::ast::{Argument, ChainElement, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
     Body, DictProjectionOp, ErasureReason, Expr, ExprKind, FunctionType, Item, Literal, LocalDecl,
@@ -107,6 +107,16 @@ impl ModuleBuilder<'_> {
                             self.argument_with_hint(arg, body, hint)
                         })
                         .collect::<Result<Vec<_>, _>>()?;
+                    let spread_positions =
+                        call.arguments.iter().map(Argument::is_spread).collect::<Vec<_>>();
+                    let call_span = self.span(call.span.start, call.span.end);
+                    let args = self.pack_value_call_arguments(
+                        &function,
+                        args,
+                        &spread_positions,
+                        call_span,
+                        body,
+                    );
                     return Ok(Some(body.push_expr(Expr {
                         kind: ExprKind::ClosureCall { callee, args },
                         ty: function.return_ty,

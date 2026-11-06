@@ -201,7 +201,11 @@ impl ModuleBuilder<'_> {
         lower: impl FnOnce(&mut Self, &BodyScopeFrame) -> R,
     ) -> R {
         let frame = self.scope.enter_body(groups);
+        let shadows = self.classes.shadow_depth();
+        self.classes.note_body(true);
         let result = self.with_fn_ctx(ctx, |this| lower(this, &frame));
+        self.classes.note_body(false);
+        self.classes.close_shadows(shadows);
         self.scope.leave_body(frame);
         result
     }
@@ -213,7 +217,9 @@ impl ModuleBuilder<'_> {
         lower: impl FnOnce(&mut Self) -> R,
     ) -> R {
         let saved = self.scope.snapshot_bindings();
+        let shadows = self.classes.shadow_depth();
         let result = lower(self);
+        self.classes.close_shadows(shadows);
         self.scope.restore_bindings(saved);
         result
     }

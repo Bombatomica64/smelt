@@ -2,7 +2,7 @@
 //! call dynamic.
 
 use crate::SmeltError;
-use crate::lowering::{ModuleBuilder, RestParam};
+use crate::lowering::{ModuleBuilder};
 use oxc::ast::ast::{Argument, Expression};
 use smelt_hir::{Body, ErasureReason, Expr, ExprKind, FunctionType, Literal, Type};
 
@@ -186,16 +186,7 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
-        let rest = function.rest.and_then(|index| {
-            let param = self.type_param_constraint_or_self(*function.params.get(index)?);
-            match self.ctx.krate.types.get(param) {
-                Some(Type::List(item_ty)) => Some(RestParam {
-                    index,
-                    item_ty: *item_ty,
-                }),
-                _ => None,
-            }
-        });
+        let rest = self.list_rest_param(&function);
         let fixed_param_count = rest.map_or(function.params.len(), |rest| rest.index);
         if rest.is_some() && self.call_has_spread_arguments_or_source_spread(call) {
             let args = self.spread_closure_call_arguments(&function, rest, call, body)?;

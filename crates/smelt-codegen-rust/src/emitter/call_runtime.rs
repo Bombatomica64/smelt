@@ -1368,8 +1368,10 @@ impl FunctionEmitter<'_> {
                 self.url_search_params_op_text(*op, params, args, dest_ty)
             }
             Rvalue::UrlOp { op, url, args } => self.url_op_text(*op, url, args, dest_ty),
+            Rvalue::PythonDivision { op, lhs, rhs, .. } => self.python_division_text(*op, lhs, rhs),
             // Lowering gives each of these a call terminator (`fallible_op`).
             Rvalue::Base64Transcode { .. }
+            | Rvalue::PythonDictRead { .. }
             | Rvalue::RegExpCompile { .. }
             | Rvalue::DataViewAccess { .. }
             | Rvalue::BigIntCall { .. }
@@ -1470,6 +1472,9 @@ impl FunctionEmitter<'_> {
                 value: operand,
                 class,
             } => self.instance_of_text(operand, *class),
+            Rvalue::ClassValue { class, constructor } => {
+                self.class_value_text(*class, constructor.as_ref())
+            }
             Rvalue::InstanceOfValue { value, target } => {
                 self.instance_of_value_text(value, target)
             }
@@ -1921,14 +1926,8 @@ impl FunctionEmitter<'_> {
                     _ => None,
                 }
                 .or_else(|| self.class_field_declared_function_type(callee));
-                let mut rendered_args = if let Some(rest_args) =
-                    self.rest_vector_call_args_text(args, rest_function)?
-                {
-                    rest_args
-                } else {
-                    let packed_rest = self.packed_rest_arg_text(args, rest_function)?;
-                    let positional_args = packed_rest.as_ref().and_then(|(index, _)| args.get(..*index)).unwrap_or(args);
-                    let mut rendered_args = positional_args
+                let mut rendered_args = {
+                    let mut rendered_args = args
                         .iter()
                         .zip(params.iter())
                         .enumerate()
@@ -1964,11 +1963,6 @@ impl FunctionEmitter<'_> {
                             Ok(text)
                         })
                         .collect::<Result<Vec<_>, _>>()?;
-                    if let (Some((index, list)), Some(function)) = (packed_rest, rest_function)
-                        && let Some(param) = function.params.get(index)
-                    {
-                        rendered_args.push(self.callback_call_arg_text(function, index, *param, list));
-                    }
                     // A padded argument is a fresh temporary, so a
                     // by-shared-reference parameter borrows it in place. Without
                     // this the padding is the one argument in the ladder that
@@ -2626,61 +2620,6 @@ impl FunctionEmitter<'_> {
 
 
 
-
-    /// Packs a call's arguments into the single list a rest-only callee takes.
-    pub(super) fn rest_vector_call_args_text(
-        &self,
-        args: &[Operand],
-        function: Option<&FunctionType>,
-    ) -> Result<Option<Vec<String>>, EmitError> {
-        Ok(self.packed_rest_arg_text(args, function)?.and_then(|(index, list)| (index == 0).then(|| vec![list])))
-    }
-
-    /// The rest parameter's index and its packed list, for a call whose operands
-    /// past the positional parameters are the rest arguments.
-    ///
-    /// A `ClosureCall` carries one operand per source argument. `None` when the
-    /// callee has no list-typed rest, when no operand reaches it (the padding fills
-    /// an empty list), or when a single operand there already has the list's Rust
-    /// type, which is how a spread into the rest arrives.
-    pub(super) fn packed_rest_arg_text(
-        &self,
-        args: &[Operand],
-        function: Option<&FunctionType>,
-    ) -> Result<Option<(usize, String)>, EmitError> {
-        let Some(function_ty) = function else {
-            return Ok(None);
-        };
-        let Some(index) = function_ty.rest else {
-            return Ok(None);
-        };
-        let Some(param) = function_ty.params.get(index).copied() else {
-            return Ok(None);
-        };
-        if function_ty.params.len() != index.saturating_add(1) {
-            return Ok(None);
-        }
-        let Some(Type::List(item)) = self.mir.types.get(param) else {
-            return Ok(None);
-        };
-        let Some(rest_args) = args.get(index..).filter(|rest| !rest.is_empty()) else {
-            return Ok(None);
-        };
-        // Compared as rendered: `List<T>` and `List<unknown>` are one Rust type
-        // where `T` is erased, which is what a spread into the rest arrives as.
-        if let [single_arg] = rest_args {
-            let arg_ty = self.operand_ty(single_arg)?;
-            if arg_ty == param || self.type_text(arg_ty)? == self.type_text(param)? {
-                return Ok(None);
-            }
-        }
-        let items = rest_args
-            .iter()
-            .map(|arg| self.value_at_type(arg, *item))
-            .collect::<Result<Vec<_>, _>>()?
-            .join(", ");
-        Ok(Some((index, format!("SmeltList::from(vec![{items}])"))))
-    }
 
     /// Render call-argument text for a spread across a leading-positional + rest
     /// signature, binding the packed list to `smelt_spread_args`.

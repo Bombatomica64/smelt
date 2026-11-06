@@ -31,8 +31,7 @@ impl ModuleBuilder<'_> {
     /// protocol's `next()` on a list receiver, `ExprKind::OptionalMethod` when
     /// either the access or the receiver type is optional, and
     /// `ExprKind::Method` otherwise. A call that resolved to neither a concrete
-    /// method item nor a typed return is a dynamic boundary and yields
-    /// `undefined`, matching the surrounding erased-receiver behaviour.
+    /// method item nor a typed return is a dynamic boundary: an erased member call.
     pub(in crate::lowering) fn member_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -120,7 +119,8 @@ impl ModuleBuilder<'_> {
         // `unknown`, what its erased definition returns); class parameters
         // were already substituted from the receiver by `resolve_method`.
         if let Some((rest_index, params)) = rest_signature {
-            args = self.pack_rest_arguments(args, &spread_positions, rest_index, &params, call.span, body);
+            let span = self.span(call.span.start, call.span.end);
+            args = self.pack_rest_arguments(args, &spread_positions, rest_index, &params, span, body);
         }
         let return_ty = if method_item.0 == u32::MAX {
             return_ty
@@ -132,12 +132,28 @@ impl ModuleBuilder<'_> {
             && self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown)
             && !self.receiver_declares_in_progress_method(access_receiver_ty, method, member_span)?
         {
+            // No declaration answers this method, so the value decides at run
+            // time through the erased call ABI.
             // not a new erasure: the resolved method already returns `unknown`
             let ty = self.unknown_type();
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::None),
+            let span = self.span(call.span.start, call.span.end);
+            let value = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: receiver },
                 ty,
-                span: self.span(call.span.start, call.span.end),
+                span,
+            });
+            let callee = body.push_expr(Expr {
+                kind: ExprKind::Field {
+                    receiver: value,
+                    field: method,
+                },
+                ty,
+                span,
+            });
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::ClosureCall { callee, args },
+                ty,
+                span,
             }));
         }
         if optional_access {
@@ -242,10 +258,9 @@ impl ModuleBuilder<'_> {
         spread_positions: &[bool],
         rest_index: usize,
         params: &[smelt_hir::TypeId],
-        call_span: oxc::span::Span,
+        span: Span,
         body: &mut Body,
     ) -> Vec<smelt_hir::ExprId> {
-        let span = self.span(call_span.start, call_span.end);
         // A missing fixed argument before the rest position is an omitted
         // optional one: a `None` at the parameter's own type, as the
         // fixed-arity value-call path synthesizes.
@@ -275,6 +290,51 @@ impl ModuleBuilder<'_> {
         };
         args.push(packed);
         args
+    }
+
+    /// The list-typed rest parameter of `function`, when it has one.
+    pub(in crate::lowering) fn list_rest_param(
+        &self,
+        function: &smelt_hir::FunctionType,
+    ) -> Option<RestParam> {
+        function.rest.and_then(|index| {
+            let param = self.type_param_constraint_or_self(*function.params.get(index)?);
+            match self.ctx.krate.types.get(param) {
+                Some(Type::List(item_ty)) => Some(RestParam {
+                    index,
+                    item_ty: *item_ty,
+                }),
+                _ => None,
+            }
+        })
+    }
+
+    /// Pack the arguments of a call through a function VALUE into its parameters.
+    ///
+    /// A rest parameter receives one list, so `ClosureCall` operands line up with
+    /// parameters one to one. `spread_positions` marks which supplied arguments
+    /// are spreads, by position. A callee with no list-typed rest keeps its
+    /// arguments as they are.
+    pub(in crate::lowering) fn pack_value_call_arguments(
+        &self,
+        function: &smelt_hir::FunctionType,
+        args: Vec<smelt_hir::ExprId>,
+        spread_positions: &[bool],
+        span: Span,
+        body: &mut Body,
+    ) -> Vec<smelt_hir::ExprId> {
+        let Some(rest_index) = function.rest else {
+            return args;
+        };
+        let rest_is_list = function.params.len() == rest_index + 1
+            && matches!(
+                self.ctx.krate.types.get(function.params[rest_index]),
+                Some(Type::List(_))
+            );
+        if !rest_is_list {
+            return args;
+        }
+        self.pack_rest_arguments(args, spread_positions, rest_index, &function.params, span, body)
     }
 
     /// The parameter types of a class method with no rest parameter, or `None`
@@ -671,7 +731,8 @@ impl ModuleBuilder<'_> {
         if let Some(rest_index) = rest
             && rest_index < params.len()
         {
-            args = self.pack_rest_arguments(args, &spread_positions, rest_index, &params, call.span, body);
+            let span = self.span(call.span.start, call.span.end);
+            args = self.pack_rest_arguments(args, &spread_positions, rest_index, &params, span, body);
         }
         let return_ty = self.instantiate_generic_method_result(&method_type_params, return_ty);
         let callee = body.push_expr(Expr {
@@ -820,6 +881,23 @@ impl ModuleBuilder<'_> {
                     .skip(usize::from(!receiver_is_positional))
                     .map(|argument| self.argument(argument, body))
                     .collect::<Result<Vec<_>, _>>()?;
+                let spread_positions = call
+                    .arguments
+                    .iter()
+                    .skip(usize::from(!receiver_is_positional))
+                    .map(Argument::is_spread)
+                    .collect::<Vec<_>>();
+                // Binding `this` erases the callee, and an erased call takes one
+                // operand per argument.
+                let callable_is_typed = matches!(
+                    self.ctx.krate.types.get(Self::expr_ty(body, callable)),
+                    Some(Type::Function(_))
+                );
+                let args = if callable_is_typed {
+                    self.pack_value_call_arguments(&function, args, &spread_positions, span, body)
+                } else {
+                    args
+                };
                 return Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::ClosureCall {
                         callee: callable,
@@ -976,16 +1054,7 @@ impl ModuleBuilder<'_> {
             && let Some(function_ty) = self.function_member_type(callee_ty)
             && let Some(Type::Function(function)) =
                 self.ctx.krate.types.get(function_ty).cloned()
-            && let Some(rest) = function.rest.and_then(|index| {
-                let param = self.type_param_constraint_or_self(*function.params.get(index)?);
-                match self.ctx.krate.types.get(param) {
-                    Some(Type::List(item_ty)) => Some(RestParam {
-                        index,
-                        item_ty: *item_ty,
-                    }),
-                    _ => None,
-                }
-            })
+            && let Some(rest) = self.list_rest_param(&function)
         {
             let callable = if callee_ty == function_ty {
                 callee
@@ -1143,6 +1212,8 @@ impl ModuleBuilder<'_> {
                 "calls through function types with never parameters are not lowered",
             ));
         }
+        let call_span = self.span(call.span.start, call.span.end);
+        let args = self.pack_value_call_arguments(&function, args, &[], call_span, body);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ClosureCall {
                 callee: callable,
@@ -1273,6 +1344,8 @@ impl ModuleBuilder<'_> {
                 span: self.span(member.span.start, member.span.end),
             })
         };
+        let call_span = self.span(call.span.start, call.span.end);
+        let args = self.pack_value_call_arguments(&function, args, &[], call_span, body);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ClosureCall {
                 callee: callable,

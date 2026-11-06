@@ -348,42 +348,28 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
-        let op = match aug.op {
-            Operator::Add => BinOp::Add,
-            Operator::Sub => BinOp::Sub,
-            Operator::Mult => BinOp::Mul,
-            Operator::Div => BinOp::Div,
-            Operator::MatMult
-            | Operator::Mod
-            | Operator::Pow
-            | Operator::LShift
-            | Operator::RShift
-            | Operator::BitOr
-            | Operator::BitXor
-            | Operator::BitAnd
-            | Operator::FloorDiv => {
-                let op = aug.op;
-                return Err(SmeltError::unsupported(
-                    self.span(aug.range),
-                    format!("augmented assignment operator '{op:?}' is not supported"),
-                ));
-            }
-        };
-
+        let span = self.span(aug.range);
+        let op = Self::python_arithmetic_op(aug.op).ok_or_else(|| {
+            let op = aug.op;
+            SmeltError::unsupported(
+                span,
+                format!("augmented assignment operator '{op:?}' is not supported"),
+            )
+        })?;
         let target = self.expression(&aug.target, body)?;
         let rhs = self.expression(&aug.value, body)?;
-
-        // Determine the result type from the target expression's type.
-        let lhs_ty = Self::expr_ty(body, target);
-        let compound = body.push_expr(HirExpr {
-            kind: ExprKind::BinOp {
-                op,
-                lhs: target,
-                rhs,
-            },
-            ty: lhs_ty,
-            span: self.span(aug.range),
-        });
+        let target_ty = Self::expr_ty(body, target);
+        let compound = self.python_arithmetic(op, target, rhs, span, body)?;
+        let compound_ty = Self::expr_ty(body, compound);
+        if matches!(self.ctx.krate.types.get(target_ty), Some(Type::Int))
+            && matches!(self.ctx.krate.types.get(compound_ty), Some(Type::Float))
+        {
+            return Err(SmeltError::unsupported(
+                span,
+                "this augmented assignment makes an `int` variable a `float`; declare it `float`",
+            ));
+        }
+        let target = Self::subscript_store_target(target, body);
         body.push_stmt_to_block(
             block,
             HirStmt::Assign {

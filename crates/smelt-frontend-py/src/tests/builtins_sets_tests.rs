@@ -502,12 +502,38 @@ scaled: list[int] = list(map(scale, values))
                     op: smelt_hir::ListCallbackOp::Map,
                     callback,
                     ..
-                } if closure_cfg_has_capture(&ctx, body, *callback)
+                } if local_bound_to_capturing_closure(&ctx, body, *callback)
             )
         }),
         "expected local map lambda callback lowering",
     )?;
     Ok(())
+}
+
+/// Whether `callback` reads a local whose `let` binds a capturing closure.
+fn local_bound_to_capturing_closure(ctx: &HirCtx, body: &Body, callback: smelt_hir::ExprId) -> bool {
+    let Some(ExprKind::Local(local)) = usize::try_from(callback.0)
+        .ok()
+        .and_then(|index| body.exprs.get(index))
+        .map(|expr| &expr.kind)
+    else {
+        return false;
+    };
+    body.stmts.iter().any(|stmt| {
+        let smelt_hir::Stmt::Let {
+            pat,
+            value: Some(value),
+            ..
+        } = stmt
+        else {
+            return false;
+        };
+        usize::try_from(pat.0)
+            .ok()
+            .and_then(|index| body.patterns.get(index))
+            .is_some_and(|pattern| matches!(pattern, smelt_hir::Pattern::Binding(bound) if bound == local))
+            && closure_cfg_has_capture(ctx, body, *value)
+    })
 }
 
 #[test]

@@ -169,8 +169,16 @@ impl ModuleBuilder<'_> {
                 }
                 let index_ty = self.index_type(receiver_ty)?;
                 let index = self.expression(&sub.slice, body)?;
+                let kind = if matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Dict(..))) {
+                    ExprKind::PythonDictRead {
+                        dict: receiver,
+                        key: index,
+                    }
+                } else {
+                    ExprKind::Index { receiver, index }
+                };
                 Ok(body.push_expr(HirExpr {
-                    kind: ExprKind::Index { receiver, index },
+                    kind,
                     ty: index_ty,
                     span: self.span(sub.range),
                 }))
@@ -297,11 +305,8 @@ impl ModuleBuilder<'_> {
 
     /// Lower a Python `lambda` expression as a first-class closure value.
     ///
-    /// A lambda is lowered through the same compact callback IR the frontend
-    /// already uses for `map`/`filter`/`sorted(key=...)` lambdas: the body is
-    /// classified into a [`CallbackExpr`] tree by [`Self::lambda_callback`], then
-    /// materialized into a real [`ExprKind::Closure`] CFG body by
-    /// [`Self::callback_expr_to_closure`]. The resulting closure value can be
+    /// The body lowers through ordinary expression lowering in its own closure
+    /// body ([`Self::python_closure`]), and the resulting closure value can be
     /// stored in a local, passed to a call argument, or returned.
     ///
     /// Python lambda parameters never carry type annotations, so their types can
@@ -332,14 +337,15 @@ impl ModuleBuilder<'_> {
             ));
         };
 
-        let callback = self.lambda_callback(lambda, &function.params, body)?;
-        if callback.ty != function.return_ty {
+        let closure =
+            self.lambda_closure(lambda, &function.params, Some(function.return_ty), body)?;
+        if closure.return_ty != function.return_ty {
             return Err(SmeltError::unsupported(
                 self.span(lambda.range),
                 "lambda return type does not match its expected callable annotation",
             ));
         }
-        self.callback_expr_to_closure(&callback, &function.params, self.span(lambda.range), body)
+        Ok(closure.expr)
     }
 
     /// Lower a Python f-string (`f"a{expr}b"`) as runtime string concatenation.
@@ -526,40 +532,55 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower a binary arithmetic operator expression (`+`, `-`, `*`, `/`).
+    /// Lower a binary arithmetic operator expression.
     fn binop_expression(
         &mut self,
         b: &ruff_python_ast::ExprBinOp,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(b.range);
-        let (op, result_is_bool) = match b.op {
-            Operator::Add => (BinOp::Add, false),
-            Operator::Sub => (BinOp::Sub, false),
-            Operator::Mult => (BinOp::Mul, false),
-            Operator::Div => (BinOp::Div, false),
+        let op = Self::python_arithmetic_op(b.op).ok_or_else(|| {
+            SmeltError::unsupported(span, format!("binary operator '{}' is not supported", b.op))
+        })?;
+        let lhs = self.expression(&b.left, body)?;
+        let rhs = self.expression(&b.right, body)?;
+        self.python_arithmetic(op, lhs, rhs, span, body)
+    }
+
+    /// The arithmetic a Python operator stands for, when Smelt models it.
+    const fn python_arithmetic_op(op: Operator) -> Option<PythonArithmetic> {
+        match op {
+            Operator::Add => Some(PythonArithmetic::Plain(BinOp::Add)),
+            Operator::Sub => Some(PythonArithmetic::Plain(BinOp::Sub)),
+            Operator::Mult => Some(PythonArithmetic::Plain(BinOp::Mul)),
+            Operator::Div => Some(PythonArithmetic::Division(PythonDivisionOp::TrueDiv)),
+            Operator::FloorDiv => Some(PythonArithmetic::Division(PythonDivisionOp::FloorDiv)),
+            Operator::Mod => Some(PythonArithmetic::Division(PythonDivisionOp::Mod)),
             Operator::MatMult
-            | Operator::Mod
             | Operator::Pow
             | Operator::LShift
             | Operator::RShift
             | Operator::BitOr
             | Operator::BitXor
-            | Operator::BitAnd
-            | Operator::FloorDiv => {
-                return Err(SmeltError::unsupported(
-                    span,
-                    format!("binary operator '{}' is not supported", b.op),
-                ));
-            }
-        };
-        let mut lhs = self.expression(&b.left, body)?;
-        let mut rhs = self.expression(&b.right, body)?;
-        // Python's numeric tower: `/` is true division, a `float` even for two
-        // `int`s (`7 / 2 == 3.5`), and arithmetic mixing `int` and `float`
-        // promotes the `int` (`1 + 2.5 == 3.5`). The promoted operand goes
-        // through the same `ToFloat` cast `float(x)` lowers to, so codegen
-        // never sees an `i64` meet an `f64`.
+            | Operator::BitAnd => None,
+        }
+    }
+
+    /// Apply Python's numeric tower to two lowered operands.
+    ///
+    /// Arithmetic mixing `int` and `float` promotes the `int` (`1 + 2.5 == 3.5`)
+    /// through the same `ToFloat` cast `float(x)` lowers to, so codegen never sees
+    /// an `i64` meet an `f64`. `/` is true division, a `float` even for two `int`s
+    /// (`7 / 2 == 3.5`). `//` and `%` floor toward negative infinity and stay `int`
+    /// for two `int`s; all three raise `ZeroDivisionError` on a zero divisor.
+    fn python_arithmetic(
+        &mut self,
+        op: PythonArithmetic,
+        lhs: smelt_hir::ExprId,
+        rhs: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         let operand_kinds = (
             self.ctx.krate.types.get(Self::expr_ty(body, lhs)).cloned(),
             self.ctx.krate.types.get(Self::expr_ty(body, rhs)).cloned(),
@@ -569,26 +590,103 @@ impl ModuleBuilder<'_> {
             (Some(Type::Int | Type::Float), Some(Type::Int | Type::Float))
         );
         let any_float = matches!(operand_kinds, (Some(Type::Float), _) | (_, Some(Type::Float)));
-        if both_numeric
-            && matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div)
-            && (op == BinOp::Div || any_float)
-        {
-            lhs = self.promote_int_to_float(lhs, body);
-            rhs = self.promote_int_to_float(rhs, body);
-        }
-        let ty = if result_is_bool {
-            self.intern_type(Type::Bool)
-        } else if op == BinOp::Add {
-            self.python_add_return_ty(Self::expr_ty(body, lhs))
-                .unwrap_or_else(|| Self::expr_ty(body, lhs))
+        let promotes = both_numeric
+            && (any_float || matches!(op, PythonArithmetic::Division(PythonDivisionOp::TrueDiv)));
+        let (lhs, rhs) = if promotes {
+            (self.promote_int_to_float(lhs, body), self.promote_int_to_float(rhs, body))
         } else {
-            Self::expr_ty(body, lhs)
+            (lhs, rhs)
         };
-        Ok(body.push_expr(HirExpr {
-            kind: ExprKind::BinOp { op, lhs, rhs },
+        let lhs_ty = Self::expr_ty(body, lhs);
+        match op {
+            PythonArithmetic::Plain(op) => {
+                let ty = if op == BinOp::Add {
+                    self.python_add_return_ty(lhs_ty).unwrap_or(lhs_ty)
+                } else {
+                    lhs_ty
+                };
+                Ok(body.push_expr(HirExpr {
+                    kind: ExprKind::BinOp { op, lhs, rhs },
+                    ty,
+                    span,
+                }))
+            }
+            PythonArithmetic::Division(op) if both_numeric => {
+                let divisor_checked = !Self::is_nonzero_constant(rhs, body);
+                let kind = if op == PythonDivisionOp::TrueDiv && !divisor_checked {
+                    ExprKind::BinOp {
+                        op: BinOp::Div,
+                        lhs,
+                        rhs,
+                    }
+                } else {
+                    ExprKind::PythonDivision {
+                        op,
+                        lhs,
+                        rhs,
+                        divisor_checked,
+                    }
+                };
+                Ok(body.push_expr(HirExpr {
+                    kind,
+                    ty: lhs_ty,
+                    span,
+                }))
+            }
+            PythonArithmetic::Division(PythonDivisionOp::TrueDiv) => {
+                Ok(body.push_expr(HirExpr {
+                    kind: ExprKind::BinOp {
+                        op: BinOp::Div,
+                        lhs,
+                        rhs,
+                    },
+                    ty: lhs_ty,
+                    span,
+                }))
+            }
+            PythonArithmetic::Division(op) => Err(SmeltError::unsupported(
+                span,
+                format!("operator '{}' needs int or float operands", op.source_text()),
+            )),
+        }
+    }
+
+    /// The place a lowered subscript writes to: reading `d[k]` raises on a missing
+    /// key, storing to it inserts one.
+    fn subscript_store_target(
+        target: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let index = usize::try_from(target.0).unwrap_or(usize::MAX);
+        let read = &body.exprs[index];
+        let ExprKind::PythonDictRead { dict, key } = read.kind else {
+            return target;
+        };
+        let (ty, span) = (read.ty, read.span);
+        body.push_expr(HirExpr {
+            kind: ExprKind::Index {
+                receiver: dict,
+                index: key,
+            },
             ty,
             span,
-        }))
+        })
+    }
+
+    /// Whether an operand is a numeric constant other than zero, which `/`, `//`
+    /// and `%` cannot raise on.
+    fn is_nonzero_constant(expr: smelt_hir::ExprId, body: &Body) -> bool {
+        let index = usize::try_from(expr.0).unwrap_or(usize::MAX);
+        match &body.exprs[index].kind {
+            ExprKind::Literal(Literal::Int(value)) => *value != 0,
+            ExprKind::Literal(Literal::Float(value)) => *value != 0.0,
+            ExprKind::PrimitiveCast { operand, .. }
+            | ExprKind::UnaryOp {
+                op: UnaryOp::Neg,
+                operand,
+            } => Self::is_nonzero_constant(*operand, body),
+            _ => false,
+        }
     }
 
     /// Cast an `int`-typed operand to `float` (`float(x)`); any other operand

@@ -2081,6 +2081,19 @@ macro_rules! op_group_transcribed {
                 class: [$crate::Symbol],
             }
                 => (format!("instanceof {}, class{}", value, class.0));
+            /// A class used as a value: the runtime constructor object.
+            ///
+            /// `instanceof`, `new` and `.name` read it at run time, which is the
+            /// dynamic boundary: which class a slot holds is not a static fact.
+            ClassValue {
+                /// The class.
+                class: [$crate::Symbol],
+                /// The closure constructing an instance, when the class's
+                /// constructor signature is known where the value is read.
+                constructor: opt,
+            }
+                needs(ClassValue)
+                => (format!("class_value class{} {constructor:?}", class.0));
             /// JavaScript `value instanceof target` where `target` is a function VALUE
             /// rather than a nominal class name (`OrdinaryHasInstance`).
             ///
@@ -2307,6 +2320,35 @@ macro_rules! op_group_transcribed {
                     UrlThrowing if matches!(op, $crate::UrlOp::Set($crate::UrlField::Href)),
                 )
                 => (format!("url_{op:?} {url}{}", tail(", ", ", ", &args)));
+            /// Python's `/`, `//` or `%` over two `int`s or two `float`s.
+            ///
+            /// A zero divisor raises `ZeroDivisionError`, so the op is fallible
+            /// unless the frontend proved the divisor is a nonzero constant.
+            PythonDivision {
+                /// Which operator this is.
+                op: [$crate::PythonDivisionOp],
+                /// The dividend.
+                lhs: one,
+                /// The divisor.
+                rhs: one,
+                /// Whether the divisor can be zero at run time.
+                divisor_checked: [bool],
+            }
+                fallible(*divisor_checked)
+                call("@python_division".to_owned())
+                needs(PythonDivision)
+                => (format!("python_division {lhs} {} {rhs} checked={divisor_checked:?}", op.source_text()));
+            /// Python's `d[k]` read, which raises `KeyError` on a missing key.
+            PythonDictRead {
+                /// The dictionary.
+                dict: one,
+                /// The key.
+                key: one,
+            }
+                fallible(true)
+                call("@python_dict_read".to_owned())
+                needs(PythonDictRead)
+                => (format!("python_dict_read {dict}, {key}"));
             /// `btoa` / `atob`: the base64 transcoders of the web platform.
             ///
             /// Fallible in both directions: `btoa` refuses a code point above U+00FF

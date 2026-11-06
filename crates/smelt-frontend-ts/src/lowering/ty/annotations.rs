@@ -372,7 +372,17 @@ impl ModuleBuilder<'_> {
             TSType::TSNamedTupleMember(named) => {
                 self.tuple_element_type_to_hir(&named.element_type)
             }
-            TSType::TSTypeReference(reference) => self.type_reference_to_hir(reference),
+            TSType::TSTypeReference(reference) => {
+                let ty = self.type_reference_to_hir(reference)?;
+                // An array-like interface admits any list, which no struct of
+                // its named members can hold.
+                match self.ctx.krate.types.get(ty) {
+                    Some(Type::Class { name, .. }) if self.classes.is_array_like(*name) => {
+                        Ok(self.erase(ErasureReason::OpenLayout))
+                    }
+                    _ => Ok(ty),
+                }
+            }
             TSType::TSIndexedAccessType(indexed) => self.indexed_access_type_to_hir(indexed),
             TSType::TSTypeLiteral(literal) => self.type_literal_to_hir(literal),
             TSType::TSMappedType(mapped) => {

@@ -4,6 +4,7 @@
 
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::peel::{Wrappers, peel};
 use crate::SmeltError;
 use oxc::ast::ast::Expression;
 use oxc::span::GetSpan;
@@ -24,23 +25,16 @@ impl ModuleBuilder<'_> {
         if self.callable_through_erased_abi(callee_ty) {
             return self.erased_value_call(callee, member.span, call, body);
         }
-        let args = call
-            .arguments
-            .iter()
-            .map(|arg| self.argument(arg, body))
-            .collect::<Result<Vec<_>, _>>()?;
         if let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned() {
-            if args.len() < function.params.len() {
+            if call.arguments.len() < function.rest.unwrap_or(function.params.len()) {
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),
                     "computed member call argument count does not match function",
                 ));
             }
+            let args = self.value_call_arguments(&function, call, body)?;
             return Ok(body.push_expr(Expr {
-                kind: ExprKind::ClosureCall {
-                    callee,
-                    args: args.into_iter().take(function.params.len()).collect(),
-                },
+                kind: ExprKind::ClosureCall { callee, args },
                 ty: function.return_ty,
                 span: self.span(call.span.start, call.span.end),
             }));
@@ -150,16 +144,18 @@ impl ModuleBuilder<'_> {
         ) && let Some(Type::Function(function)) =
                 self.ctx.krate.types.get(function_ty).cloned()
         {
-            let expanded = self.expanded_call_arguments(&call.arguments, body)?;
-            let expanded = if function.rest.is_none() {
-                self.distribute_trailing_list_spread(expanded, &function.params, body)?
+            let args = if function.rest.is_some() {
+                self.value_call_arguments(&function, call, body)?
             } else {
-                expanded
+                let expanded = self.expanded_call_arguments(&call.arguments, body)?;
+                let expanded =
+                    self.distribute_trailing_list_spread(expanded, &function.params, body)?;
+                let mut args = Vec::with_capacity(function.params.len());
+                for argument in expanded.into_iter().take(function.params.len()) {
+                    args.push(self.lower_call_arg(argument, None, body)?);
+                }
+                args
             };
-            let mut args = Vec::with_capacity(function.params.len());
-            for argument in expanded.into_iter().take(function.params.len()) {
-                args.push(self.lower_call_arg(argument, None, body)?);
-            }
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::ClosureCall { callee, args },
                 ty: function.return_ty,
@@ -307,6 +303,30 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Lower a call's arguments for a call through a function value: spreads and
+    /// surplus arguments fill the rest list, and without a rest parameter the
+    /// surplus goes.
+    fn value_call_arguments(
+        &mut self,
+        function: &smelt_hir::FunctionType,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Vec<smelt_hir::ExprId>, SmeltError> {
+        let rest = self.list_rest_param(function);
+        if rest.is_some() && self.call_has_spread_arguments_or_source_spread(call) {
+            return self.spread_closure_call_arguments(function, rest, call, body);
+        }
+        let limit = if rest.is_some() { usize::MAX } else { function.params.len() };
+        let args = call
+            .arguments
+            .iter()
+            .take(limit)
+            .map(|arg| self.argument(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        let span = self.span(call.span.start, call.span.end);
+        Ok(self.pack_value_call_arguments(function, args, &[], span, body))
+    }
+
     /// Call through a transparent assertion: `(f as Fn)(..)`.
     pub(in crate::lowering) fn asserted_callee_call(
         &mut self,
@@ -316,6 +336,19 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let mut callee = self.expression(callee_expression, body)?;
         let mut callee_ty = Self::expr_ty(body, callee);
+        // The call is made at the asserted function type: that is the signature
+        // the arguments were written against.
+        if matches!(
+            peel(&call.callee, Wrappers::Parens),
+            Expression::TSAsExpression(_) | Expression::TSSatisfiesExpression(_)
+        ) {
+            let asserted = self.expression(&call.callee, body)?;
+            let asserted_ty = Self::expr_ty(body, asserted);
+            if matches!(self.ctx.krate.types.get(asserted_ty), Some(Type::Function(_))) {
+                callee = asserted;
+                callee_ty = asserted_ty;
+            }
+        }
         if let Some(&Type::Optional(inner)) = self.ctx.krate.types.get(callee_ty) {
             callee = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: callee },
@@ -342,12 +375,7 @@ impl ModuleBuilder<'_> {
                 "asserted call callee must be a function",
             ));
         };
-        let args = call
-            .arguments
-            .iter()
-            .take(function.params.len())
-            .map(|arg| self.argument(arg, body))
-            .collect::<Result<Vec<_>, _>>()?;
+        let args = self.value_call_arguments(&function, call, body)?;
         // A function item referenced as a value is the item itself or its
         // typed closure view (`function_item`).
         let callee_expr = body.expr_at(callee);

@@ -19,3 +19,28 @@
 fn smelt_math_round(value: f64) -> f64 { let floor = value.floor(); let rounded = if value - floor >= 0.5 { floor + 1.0 } else { floor }; if rounded == 0.0 && value.is_sign_negative() { -0.0 } else { rounded } }
 
 // @smelt:item-end
+
+// @smelt:item smelt_py_floor_div_int when python_division
+/// Python `int // int`: the quotient rounded toward negative infinity.
+fn smelt_py_floor_div_int(lhs: i64, rhs: i64) -> i64 { let quotient = lhs.wrapping_div(rhs); if lhs.wrapping_rem(rhs) != 0 && (lhs < 0) != (rhs < 0) { quotient - 1 } else { quotient } }
+/// Python `int % int`: the remainder takes the sign of the divisor.
+fn smelt_py_mod_int(lhs: i64, rhs: i64) -> i64 { let remainder = lhs.wrapping_rem(rhs); if remainder != 0 && (remainder < 0) != (rhs < 0) { remainder + rhs } else { remainder } }
+/// Python `float % float`: CPython's `float_rem`, sign of the divisor, and a zero
+/// result keeps it too.
+fn smelt_py_mod_float(lhs: f64, rhs: f64) -> f64 { let remainder = lhs % rhs; if remainder == 0.0 { 0.0_f64.copysign(rhs) } else if (remainder < 0.0) != (rhs < 0.0) { remainder + rhs } else { remainder } }
+/// Python `float // float`: CPython's `float_floor_div`, exact where `(a / b).floor()`
+/// is not (`1.0 // 0.1` is `9.0`).
+fn smelt_py_floor_div_float(lhs: f64, rhs: f64) -> f64 { let mut remainder = lhs % rhs; let mut quotient = (lhs - remainder) / rhs; if remainder != 0.0 && (remainder < 0.0) != (rhs < 0.0) { remainder += rhs; quotient -= 1.0; } let _ = remainder; if quotient == 0.0 { return 0.0_f64.copysign(lhs / rhs); } let floored = quotient.floor(); if quotient - floored > 0.5 { floored + 1.0 } else { floored } }
+/// Python `float / float`, the unchecked half of a checked true division.
+fn smelt_py_true_div(lhs: f64, rhs: f64) -> f64 { lhs / rhs }
+/// Run a Python division, raising `ZeroDivisionError` on a zero divisor.
+fn smelt_py_checked_division<T: PartialEq + Default>(lhs: T, rhs: T, divide: fn(T, T) -> T) -> Result<T, Box<dyn ::std::error::Error>> { if rhs == T::default() { return Err(Box::new(::std::io::Error::other("division by zero"))); } Ok(divide(lhs, rhs)) }
+
+// @smelt:item-end
+
+// @smelt:item smelt_py_key_error when python_dict_read
+/// The `KeyError` of a missing `d[key]`, worded as `str(error)` words it: the
+/// key's `repr`.
+fn smelt_py_key_error<K: ::std::fmt::Debug>(key: &K) -> Box<dyn ::std::error::Error> { let text = format!("{key:?}"); let repr = match text.strip_prefix('"').and_then(|inner| inner.strip_suffix('"')) { Some(inner) => format!("'{inner}'"), None => text }; Box::new(::std::io::Error::other(repr)) }
+
+// @smelt:item-end

@@ -63,7 +63,10 @@ impl ModuleBuilder<'_> {
             let unknown_ty = this.erase_at(ErasureReason::TestHarness, span, "toThrow class");
             let caught = this.caught_local(unknown_ty, span, target);
             let value = Self::caught_read(caught, unknown_ty, span, target);
-            let class = this.intern_type_name(name);
+            let class = this
+                .classes
+                .scoped_type_name(name)
+                .unwrap_or_else(|| this.intern_type_name(name));
             let test = target.push_expr(Expr {
                 kind: ExprKind::InstanceOf { value, class },
                 ty: bool_ty,

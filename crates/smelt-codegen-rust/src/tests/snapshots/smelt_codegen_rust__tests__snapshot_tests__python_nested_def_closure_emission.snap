@@ -15,7 +15,8 @@ fn make_adder(base: i64) -> ::std::rc::Rc<dyn Fn(i64) -> i64> {
     _smelt_tmp_2
     }
 });
-    return _smelt_tmp_2.clone();
+    let add = _smelt_tmp_2.clone();
+    return add.clone();
 }
 
 fn main() {

@@ -41,6 +41,35 @@ impl FunctionEmitter<'_> {
         self.extract_value_text(&call_text, dest_ty, &self.render_scope())
     }
 
+    /// Render a class read as a value.
+    ///
+    /// Which classes it covers is computed here, where every class is known: an
+    /// instance only records its own class, so `instanceof` needs the subclass set.
+    pub(super) fn class_value_text(
+        &self,
+        class: smelt_hir::Symbol,
+        constructor: Option<&Operand>,
+    ) -> Result<String, EmitError> {
+        let mut covered = vec![self.symbol_source_name(class)?];
+        for candidate in &self.mir.classes {
+            let mut base = candidate.base;
+            while let Some(name) = base {
+                if name == class {
+                    covered.push(self.symbol_source_name(candidate.name)?);
+                    break;
+                }
+                base = crate::classes::find_class(self.mir, name).and_then(|found| found.base);
+            }
+        }
+        let constructor_text =
+            constructor.map_or_else(|| Ok("SmeltUnknown::Undefined".to_owned()), |ctor| self.erase(ctor))?;
+        Ok(format!(
+            "smelt_class_value({:?}, {:?}, {constructor_text})",
+            covered[0],
+            covered.join(",")
+        ))
+    }
+
     /// Render JavaScript `value instanceof target` for a runtime constructor.
     ///
     /// Unlike [`FunctionEmitter::instance_of_text`], whose target is a class
