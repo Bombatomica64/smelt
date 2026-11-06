@@ -77,7 +77,7 @@ fn smelt_prototype_slot_is_observable(prototype: &SmeltUnknown) -> bool { !match
 // rather than being inlined -- and re-allocated -- at each site.
 // @smelt:item smelt_typeof when typeof & unknown
 /// Resolve the JavaScript `typeof` spelling for an erased value.
-fn smelt_typeof(value: &SmeltUnknown) -> &'static str { match value { SmeltUnknown::Undefined => "undefined", SmeltUnknown::Bool(_) => "boolean", SmeltUnknown::Number(_) => "number", /*@if bigint*/SmeltUnknown::BigInt(_) => "bigint", /*@end*/SmeltUnknown::String(_) => "string", SmeltUnknown::Symbol(_) => "symbol", SmeltUnknown::Function(_) => "function", SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => "object" } }
+fn smelt_typeof(value: &SmeltUnknown) -> &'static str { match value { SmeltUnknown::Undefined => "undefined", SmeltUnknown::Bool(_) => "boolean", SmeltUnknown::Number(_) => "number", /*@if bigint*/SmeltUnknown::BigInt(_) => "bigint", /*@end*/SmeltUnknown::String(_) => "string", SmeltUnknown::Symbol(_) => "symbol", SmeltUnknown::Function(_) => "function", SmeltUnknown::Object(object) if object.contains_key("__smelt_call") => "function", SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => "object" } }
 // @smelt:item-end
 
 // @smelt:item SMELT_OBJECT_PROTOTYPES when unknown

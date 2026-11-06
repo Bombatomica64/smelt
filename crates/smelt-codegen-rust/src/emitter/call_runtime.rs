@@ -1472,6 +1472,9 @@ impl FunctionEmitter<'_> {
                 value: operand,
                 class,
             } => self.instance_of_text(operand, *class),
+            Rvalue::ClassValue { class, constructor } => {
+                self.class_value_text(*class, constructor.as_ref())
+            }
             Rvalue::InstanceOfValue { value, target } => {
                 self.instance_of_value_text(value, target)
             }

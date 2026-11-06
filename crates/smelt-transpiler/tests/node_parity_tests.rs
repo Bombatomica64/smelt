@@ -112,6 +112,12 @@ fn console_erased_generic() -> TestResult {
     verify_node_parity("console_erased_generic")
 }
 
+/// A class stored in a value keeps its identity for `instanceof` and `new`.
+#[test]
+fn class_values() -> TestResult {
+    verify_node_parity("class_values")
+}
+
 /// Array-valued ternary arms join instead of one adopting the other's type.
 #[test]
 fn conditional_list_arms() -> TestResult {

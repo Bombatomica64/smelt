@@ -69,6 +69,29 @@ impl ModuleBuilder<'_> {
                 {
                     return Ok(expr);
                 }
+                // A member of a value holds a constructor at run time, so
+                // `new table.p()` constructs through it below; only a member of
+                // a namespace names a class.
+                let member_of_value = matches!(
+                    &member.object,
+                    Expression::Identifier(object) if self.scope.is_bound(object.name.as_str())
+                );
+                if member_of_value && !new_expr.arguments.iter().any(Argument::is_spread) {
+                    let callee = self.expression(&new_expr.callee, body)?;
+                    let ty = Self::expr_ty(body, callee);
+                    if self.ctx.krate.types.get(ty) == Some(&Type::Unknown) {
+                        let args = new_expr
+                            .arguments
+                            .iter()
+                            .map(|arg| self.argument(arg, body))
+                            .collect::<Result<Vec<_>, _>>()?;
+                        return Ok(body.push_expr(Expr {
+                            kind: ExprKind::Construct { callee, args },
+                            ty,
+                            span: self.span(new_expr.span.start, new_expr.span.end),
+                        }));
+                    }
+                }
                 let class_name = self.intern_type_name(member.property.name.as_str());
                 let args = new_expr
                     .arguments
@@ -852,6 +875,63 @@ impl ModuleBuilder<'_> {
             ty: function.return_ty,
             span,
         })))
+    }
+
+    /// A class name in value position: the runtime constructor object.
+    ///
+    /// `SmeltUnknown` is the honest carrier: a slot can hold any class, and a read
+    /// of it (`e instanceof pair.c`) is answered at run time. A concrete class
+    /// type would claim the slot holds an instance.
+    pub(in crate::lowering) fn class_value_expression(
+        &mut self,
+        name: &str,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let lowered = self.classes.item(name).and_then(|item| match self.item_ref(item) {
+            Item::Class(class) => Some(class.clone()),
+            _ => None,
+        });
+        let class = lowered.as_ref().map_or_else(|| self.intern_type_name(name), |class| class.name);
+        let params = lowered.as_ref().map(|lowered| match lowered.constructor {
+            Some(item) => match self.item_ref(item) {
+                Item::Function(function) => function
+                    .params
+                    .iter()
+                    .filter(|param| self.ctx.krate.symbols.get(param.name) != Some("this"))
+                    .map(|param| param.ty)
+                    .collect(),
+                _ => Vec::new(),
+            },
+            None => Vec::new(),
+        });
+        let constructor = match params {
+            Some(params) => {
+                let instance_ty = self.ctx.krate.types.intern(Type::Class {
+                    name: class,
+                    args: Vec::new(),
+                });
+                let hint = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                    params,
+                    rest: None,
+                    required_params: None,
+                    mutable_params: Vec::new(),
+                    return_ty: instance_ty,
+                    is_async: false,
+                    may_throw: false,
+                }));
+                let span = oxc::span::Span::new(start, end);
+                self.class_constructor_value_expression(name, Some(hint), span, body)?
+            }
+            None => None,
+        };
+        let ty = self.erase_with(ErasureReason::DynamicOperator, "class value");
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::ClassValue { class, constructor },
+            ty,
+            span: self.span(start, end),
+        }))
     }
 
     /// Adapt a class name used as a *value* into a constructor closure when the

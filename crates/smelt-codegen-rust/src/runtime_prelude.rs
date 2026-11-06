@@ -192,6 +192,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "this_read" => Need::ThisRead,
         "construct" => Need::Construct,
         "instance_of_value" => Need::InstanceOfValue,
+        "class_value" => Need::ClassValue,
         "host_override" => Need::HostOverride,
         "host_origins" => Need::HostOrigins,
         "erased_function" => Need::ErasedFunction,

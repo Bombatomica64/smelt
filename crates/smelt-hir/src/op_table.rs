@@ -2081,6 +2081,19 @@ macro_rules! op_group_transcribed {
                 class: [$crate::Symbol],
             }
                 => (format!("instanceof {}, class{}", value, class.0));
+            /// A class used as a value: the runtime constructor object.
+            ///
+            /// `instanceof`, `new` and `.name` read it at run time, which is the
+            /// dynamic boundary: which class a slot holds is not a static fact.
+            ClassValue {
+                /// The class.
+                class: [$crate::Symbol],
+                /// The closure constructing an instance, when the class's
+                /// constructor signature is known where the value is read.
+                constructor: opt,
+            }
+                needs(ClassValue)
+                => (format!("class_value class{} {constructor:?}", class.0));
             /// JavaScript `value instanceof target` where `target` is a function VALUE
             /// rather than a nominal class name (`OrdinaryHasInstance`).
             ///
