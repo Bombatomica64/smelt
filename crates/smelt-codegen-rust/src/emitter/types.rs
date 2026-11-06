@@ -1593,14 +1593,6 @@ impl FunctionEmitter<'_> {
         text.clone()
     }
 
-    /// Records the erasure events of rendering `ty`, keeping no text.
-    ///
-    /// `smelt-erasure.json` lists these sites even though the output does not
-    /// spell the type there.
-    pub(super) fn note_type_erasures(&self, ty: TypeId) -> Result<(), EmitError> {
-        self.lexical_rust_type(ty, false).map(|_| ())
-    }
-
     /// What `ty` renders to in the scope of the current function.
     pub(super) fn rust_shape(&self, ty: TypeId) -> Result<RustShape, EmitError> {
         Ok(self.lexical_rust_type(ty, false)?.shape())
