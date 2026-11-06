@@ -130,6 +130,11 @@ impl FunctionEmitter<'_> {
     /// every value-rendering verb they delegate to — asks this one scope rather
     /// than re-deriving the erasure rule at its own depth, which is what makes a
     /// render position's answer about a `Type::TypeParam` single-valued (H42).
+    ///
+    /// The arms here are the ones that need the operand itself, not only its
+    /// rendering: its place, its constant, its closure, or a spelling an operand
+    /// has that an inlined fragment cannot. Everything else falls through to
+    /// [`Self::rendered_at_type`], the one ladder both entries share.
     pub(super) fn value_at_type_in(
         &self,
         operand: &Operand,
@@ -374,59 +379,6 @@ impl FunctionEmitter<'_> {
         {
             return self.extract(operand, target, scope);
         }
-        if let Some(adapter) = self.structural_record_adapter(
-            &self.operand_expr(operand)?,
-            self.operand_ty(operand)?,
-            target,
-                    scope,
-        )? {
-            return Ok(adapter);
-        }
-        if let (Some(Type::Class { .. }), Some(Type::Dict(target_key, target_value))) = (
-            self.mir.types.get(self.operand_ty(operand)?),
-            self.mir.types.get(target),
-        ) && let Some(adapter) = self.structural_record_to_string_dict_adapter(
-            &self.operand_expr(operand)?,
-            self.operand_ty(operand)?,
-            *target_key,
-            *target_value,
-                    scope,
-        )? {
-            return Ok(adapter);
-        }
-        if matches!(self.mir.types.get(target), Some(Type::String))
-            && let Some(Type::Class { name, .. }) = self.mir.types.get(self.operand_ty(operand)?)
-            && self.is_regexp_class_symbol(*name)?
-        {
-            return Ok(Self::regexp_literal_expr(&self.operand_expr(operand)?));
-        }
-        if matches!(
-            self.mir.types.get(target),
-            Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)?
-        ) && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::String)
-        {
-            return Ok(RustExpr::atom(format!(
-                "SmeltRegExp::new({}, String::new())",
-                self.operand_expr(operand)?
-            )));
-        }
-        // A function stored into a callable-interface record fills its
-        // `__smelt_call` slot; it is asked before the no-adapter default below.
-        if let Some(wrapped) =
-            self.callable_interface_from_function_expr(&operand_expr, source_ty, target, scope)?
-        {
-            return Ok(wrapped);
-        }
-        if matches!(
-            self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::Function(_))
-        ) && !matches!(
-            self.mir.types.get(target),
-            Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) && !self.is_erased_class_type(target)
-        {
-            return self.default_value(target);
-        }
         if self.mir.types.get(target) == Some(&Type::Float)
             && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::Int)
         {
@@ -442,20 +394,11 @@ impl FunctionEmitter<'_> {
         if self.mir.types.get(target) == Some(&Type::Int)
             && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::Float)
         {
-            // Keep the inner parentheses around the `as f64` cast — `.trunc()`
-            // is a method call whose receiver must be grouped — but drop the
-            // redundant outer pair the whole `... as i64` expression carried,
-            // which produced `unused_parens` wherever the value stood alone.
+            // Keep the inner parentheses around the `as f64` cast: `.trunc()` is a
+            // method call whose receiver must be grouped.
             return Ok(RustExpr::loose(format!(
                 "({} as f64).trunc() as i64",
                 self.operand_expr(operand)?
-            )));
-        }
-        if self.mir.types.get(target) == Some(&Type::Float)
-            && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::String)
-        {
-            return Ok(RustExpr::from(crate::string_to_number_prelude::string_to_number_call(
-                &self.operand_expr(operand)?,
             )));
         }
         if matches!(self.mir.types.get(target), Some(Type::Function(_)))
@@ -485,22 +428,6 @@ impl FunctionEmitter<'_> {
             // `text` already renders an owned value here; a second clone would
             // deep-copy the temporary for nothing.
             return Ok(text.cloned_value());
-        }
-        if let Some(Type::Optional(inner)) = self.mir.types.get(self.operand_ty(operand)?)
-            && *inner == target
-            && matches!(self.mir.types.get(target), Some(Type::Function(_)))
-        {
-            // Clone the optional once (`operand_expr` already clones a place)
-            // and build the default callable only when the value is absent:
-            // an eager default allocated an adapter `Rc` on every read.
-            return Ok({ let receiver = self.operand_borrow_expr(operand)?; RustExpr::postfix_on(&receiver, format!("{receiver}.clone().unwrap_or_else(|| {})", self.default_value(target)?)) });
-        }
-        if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) = (
-            self.mir.types.get(self.operand_ty(operand)?),
-            self.mir.types.get(target),
-        ) && self.mir.types.get(*source_inner) == Some(&Type::Optional(*target_inner))
-        {
-            return Ok({ let receiver = self.operand_expr(operand)?; RustExpr::postfix_on(&receiver, format!("{receiver}.clone().flatten()")) });
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(self.operand_ty(operand)?)
             && *inner == target
@@ -587,85 +514,6 @@ impl FunctionEmitter<'_> {
                 self.value_at_type_in(operand, *target_item, scope)?
             )));
         }
-        if let (Some(Type::Dict(_, _)), Some(Type::List(target_item))) = (
-            self.mir.types.get(self.operand_ty(operand)?),
-            self.mir.types.get(target),
-        ) && matches!(self.mir.types.get(*target_item), Some(Type::Function(_)))
-        {
-            return Ok(RustExpr::atom("SmeltList::new(Vec::new())"));
-        }
-        if let (Some(Type::Dict(_, source_value)), Some(Type::List(target_item))) = (
-            self.mir.types.get(self.operand_ty(operand)?),
-            self.mir.types.get(target),
-        ) {
-            let value_text = self.rendered_at_type(&RustExpr::path("value"), *source_value, *target_item, scope)?;
-            return Ok({ let receiver = self.operand_expr(operand)?; RustExpr::atom_on(&receiver, format!("{receiver}.into_iter().map(|(_, value)| {value_text}).collect::<SmeltList<_>>()")) });
-        }
-        if let (Some(Type::List(source_item)), Some(Type::Dict(target_key, target_value))) = (
-            self.mir.types.get(self.operand_ty(operand)?),
-            self.mir.types.get(target),
-        ) {
-            let int_ty = self.type_id(Type::Int)?;
-            let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
-                "index.to_string()".to_owned()
-            } else {
-                self.rendered_at_type(&RustExpr::cast("index as i64"), int_ty, *target_key, scope)?.into_string()
-            };
-            let value_text = self.rendered_at_type(&RustExpr::path("value"), *source_item, *target_value, scope)?;
-            let target_text = self.collected_container_type(target, scope)?;
-            return Ok(RustExpr::opaque(format!(
-                "{}.into_iter().enumerate().map(|(index, value)| ({key_text}, {value_text})).collect::<{target_text}>()",
-                self.operand_expr(operand)?
-            )));
-        }
-        if let (Some(Type::List(source_item)), Some(Type::Tuple(target_items))) = (
-            self.mir.types.get(self.operand_ty(operand)?),
-            self.mir.types.get(target),
-        ) {
-            let value_text = self.operand_expr(operand)?;
-            return self.tuple_from_list_expr(&value_text, *source_item, target_items, scope);
-        }
-        if let (
-            Some(
-                source_map_ty @ (Type::Dict(source_key, source_value)
-                | Type::JsMap(source_key, source_value)),
-            ),
-            Some(
-                target_map_ty @ (Type::Dict(target_key, target_value)
-                | Type::JsMap(target_key, target_value)),
-            ),
-        ) = (
-            self.mir.types.get(self.operand_ty(operand)?),
-            self.mir.types.get(target),
-        ) && (source_key != target_key
-            || source_value != target_value
-            || self.map_backing_differs(source_map_ty, target_map_ty))
-        {
-            let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
-                self.property_key_to_string_expr(&RustExpr::path("key"), *source_key)?
-            } else {
-                self.rendered_at_type(&RustExpr::path("key"), *source_key, *target_key, scope)?
-            };
-            let mapped_value_text =
-                self.rendered_at_type(&RustExpr::path("value"), *source_value, *target_value, scope)?;
-            let target_text = self.collected_container_type(target, scope)?;
-            return Ok(RustExpr::opaque(format!(
-                "{}.into_iter().map(|(key, value)| ({key_text}, {mapped_value_text})).collect::<{target_text}>()",
-                self.operand_expr(operand)?
-            )));
-        }
-        if let (Some(Type::Dict(source_key, source_value)), Some(Type::Class { .. })) = (
-            self.mir.types.get(self.operand_ty(operand)?),
-            self.mir.types.get(target),
-        ) && let Some(adapter) = self.string_dict_record_adapter(
-            &self.operand_expr(operand)?,
-            *source_key,
-            *source_value,
-            target,
-                    scope,
-        )? {
-            return Ok(adapter);
-        }
         if let (Some(Type::Function(source)), Some(Type::Function(target_function))) = (
             self.mir.types.get(self.operand_ty(operand)?),
             self.mir.types.get(target),
@@ -680,9 +528,6 @@ impl FunctionEmitter<'_> {
             return self
                 .function_shape_adapter(operand, target, false, None)?
                 .ok_or_else(|| EmitError::new("function adapter was unexpectedly unavailable"));
-        }
-        if matches!(self.mir.types.get(target), Some(Type::Function(_))) {
-            return self.default_value(target);
         }
         // A value asked for at `bool` is a TRUTHINESS test — the same rule
         // `rendered_at_type` states, reached here because this operand entry
@@ -700,30 +545,7 @@ impl FunctionEmitter<'_> {
         {
             return self.value_truthy_expr(&operand_expr, source_ty);
         }
-        // The `string` sibling of the truthiness arm above, and stated in the
-        // same place and for the same reason: a value asked for at `string` is
-        // its STRING CONVERSION, which is what JavaScript does wherever a
-        // string is expected. See `rendered_at_type`'s copy for the shape
-        // that needs it (`never` flowing into a string slot, which TypeScript
-        // permits and which used to be handed back at its own type — text that
-        // does not compile, so nothing that worked is displaced).
-        if self.mir.types.get(target) == Some(&Type::String)
-            && matches!(
-                self.mir.types.get(source_ty),
-                Some(
-                    Type::Class { .. }
-                        | Type::List(_)
-                        | Type::Set(_)
-                        | Type::Dict(_, _)
-                        | Type::JsMap(_, _)
-                        | Type::Tuple(_)
-                )
-            )
-        {
-            let erased = self.erase_rendered(&operand_expr, source_ty)?;
-            return self.extract_rendered(&erased, target, scope);
-        }
-        self.operand_expr(operand)
+        self.rendered_at_type(&operand_expr, source_ty, target, scope)
     }
 
     /// Coerces a callable-object value into a function-typed destination by
