@@ -36,7 +36,6 @@ CRATES=(
   smelt-hir
   smelt-stdlib
   smelt-runtime
-  smelt-test
   smelt-specialize
   smelt-ts-model
   smelt-py-types

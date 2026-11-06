@@ -2276,10 +2276,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "smelt-python"
-version = "0.1.1"
-
-[[package]]
 name = "smelt-runtime"
 version = "0.1.1"
 
@@ -2301,10 +2297,6 @@ dependencies = [
  "serde",
  "serde_json",
 ]
-
-[[package]]
-name = "smelt-test"
-version = "0.1.1"
 
 [[package]]
 name = "smelt-transpiler"

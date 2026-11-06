@@ -91,11 +91,10 @@ Tests follow the same philosophy. Source-language tests should eventually lower 
 - Provides helpers for things that don't have a direct Rust equivalent and need glue (e.g. JS-style coercions, Python-ish dict helpers if needed).
 - Kept as small as possible — anything that can be lowered inline should be.
 
-### `smelt-test`
+### Generated tests
 
-- A small Rust crate for generated tests, added when `smelt test` lands.
-- Provides assertion helpers and limited pytest/Vitest/Jest compatibility glue.
-- Does not embed pytest, Vitest, Node, or CPython; frontends lower supported test APIs into native Rust tests.
+- Frontends lower supported pytest/Vitest/Jest APIs into native Rust tests; assertions are emitted inline, so generated crates depend on no test-helper crate.
+- Does not embed pytest, Vitest, Node, or CPython.
 
 ### `smelt-transpiler`
 
