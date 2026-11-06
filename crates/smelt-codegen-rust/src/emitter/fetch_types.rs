@@ -1041,7 +1041,7 @@ impl FunctionEmitter<'_> {
         if matches!(arg, Operand::Copy(_))
             && matches!(self.mir.types.get(ty), Some(Type::Function(_)))
         {
-            text = RustExpr::from(RustExpr::postfix_on(&text, format!("{text}.clone()")).ending_in_clone());
+            text = RustExpr::postfix_on(&text, format!("{text}.clone()")).ending_in_clone();
         }
         self.erase_rendered(&text, ty)
     }

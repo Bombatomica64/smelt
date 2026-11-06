@@ -1126,9 +1126,8 @@ impl Analysis<'_> {
     ) -> HashMap<LocalId, Interval> {
         // Each block is swept once, stopping at its definitions in statement
         // order: replaying the prefix per definition is quadratic in a long block.
-        let mut by_block: HashMap<usize, Vec<(usize, usize, usize)>> = HashMap::new();
-        let mut values: Vec<Vec<Option<Option<Interval>>>> =
-            Vec::with_capacity(self.candidates.locals.len());
+        let mut by_block: HashMap<usize, Vec<DefinitionStop>> = HashMap::new();
+        let mut values: Vec<Vec<DefinitionValue>> = Vec::with_capacity(self.candidates.locals.len());
         for (position, local) in self.candidates.locals.iter().enumerate() {
             let local_definitions = definitions.get(local).map_or(&[][..], Vec::as_slice);
             values.push(vec![None; local_definitions.len()]);
@@ -1172,6 +1171,12 @@ impl Analysis<'_> {
         hulls
     }
 }
+
+/// A definition's statement, then its candidate's position and its ordinal there.
+type DefinitionStop = (usize, usize, usize);
+
+/// One definition's interval: `None` until a reachable sweep has evaluated it.
+type DefinitionValue = Option<Option<Interval>>;
 
 /// A `switch` condition resolved to the comparison it tests.
 struct Guard {

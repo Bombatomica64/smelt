@@ -1,4 +1,8 @@
 //! Orchestrates one crate root: the phases, in the order they write its text.
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible items are shared with the crate root and the emitter shards"
+)]
 
 use std::{collections::HashSet, marker::PhantomData};
 

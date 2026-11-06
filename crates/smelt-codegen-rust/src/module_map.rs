@@ -1,4 +1,8 @@
 //! Splits an emitted crate into source-shaped Rust modules.
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible items are shared with the crate root and the emitter shards"
+)]
 
 use std::collections::HashMap;
 

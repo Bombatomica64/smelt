@@ -55,7 +55,7 @@ impl FunctionEmitter<'_> {
         };
         let mut text = self.operand_expr(fetch)?;
         if matches!(fetch, Operand::Copy(_)) {
-            text = RustExpr::from(RustExpr::postfix_on(&text, format!("{text}.clone()")).ending_in_clone());
+            text = RustExpr::postfix_on(&text, format!("{text}.clone()")).ending_in_clone();
         }
         let request_by_reference = function.mutable_params.contains(&0)
             || self.callback_param_is_shared_reference(function, 0, request_ty);
@@ -97,7 +97,7 @@ impl FunctionEmitter<'_> {
         if matches!(handler, Operand::Copy(_))
             && matches!(self.mir.types.get(ty), Some(Type::Function(_)))
         {
-            text = RustExpr::from(RustExpr::postfix_on(&text, format!("{text}.clone()")).ending_in_clone());
+            text = RustExpr::postfix_on(&text, format!("{text}.clone()")).ending_in_clone();
         }
         // A handler declared as throwing already answers a `Result`; one that
         // is not answers its body's value directly. Both are discarded — Node
@@ -197,7 +197,7 @@ impl FunctionEmitter<'_> {
         if matches!(callback, Operand::Copy(_))
             && matches!(self.mir.types.get(ty), Some(Type::Function(_)))
         {
-            text = RustExpr::from(RustExpr::postfix_on(&text, format!("{text}.clone()")).ending_in_clone());
+            text = RustExpr::postfix_on(&text, format!("{text}.clone()")).ending_in_clone();
         }
         let call = if self.function_type_may_throw(ty) {
             "smelt_listening()?;"

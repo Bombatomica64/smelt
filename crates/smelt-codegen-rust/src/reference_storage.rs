@@ -1,5 +1,9 @@
 //! Storage of reference records: the `Rc<RefCell<_>>` handle newtype, its inner
 //! record and the impls that keep identity on the handle.
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible items are shared with the crate root and the emitter shards"
+)]
 
 use crate::rust::RustExpr;
 use std::collections::HashSet;

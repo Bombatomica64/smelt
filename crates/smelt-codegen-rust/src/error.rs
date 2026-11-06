@@ -1,4 +1,8 @@
 //! The backend's error type and the checked index conversions it fails through.
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible items are shared with the crate root and the emitter shards"
+)]
 
 /// An error encountered during code emission.
 #[derive(Clone, PartialEq, Eq)]

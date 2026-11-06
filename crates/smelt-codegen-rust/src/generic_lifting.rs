@@ -5,6 +5,10 @@
 //! the body only moves it, reaches a bound through the generated trait, or is
 //! inferable through a callback at every call site. `EmitContext` runs it before
 //! any body renders, so the definition and every call site agree on the shape.
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible items are shared with the crate root and the emitter shards"
+)]
 
 use std::{cell::RefCell, collections::{HashMap, HashSet}};
 

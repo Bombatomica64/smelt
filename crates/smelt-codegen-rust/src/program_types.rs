@@ -1,5 +1,9 @@
 //! Declarations of the program's own types: interfaces, classes, unions and
 //! JSON decoders.
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible items are shared with the crate root and the emitter shards"
+)]
 
 use std::collections::HashSet;
 

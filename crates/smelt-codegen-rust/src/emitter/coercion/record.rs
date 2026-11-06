@@ -424,12 +424,12 @@ fn erased_function_field_expr(
     {
         return None;
     }
-    let renderer = FunctionEmitter::type_renderer(mir, context, function_ty).ok()?;
+    let emitter = FunctionEmitter::type_renderer(mir, context, function_ty).ok()?;
     let borrowed = function
         .params
         .iter()
         .enumerate()
-        .map(|(index, param)| renderer.callback_param_is_shared_reference(function, index, *param))
+        .map(|(index, param)| emitter.callback_param_is_shared_reference(function, index, *param))
         .collect::<Vec<_>>();
     let args = borrowed
         .iter()
@@ -481,7 +481,7 @@ pub(crate) fn record_field_unknown_expr(mir: &Mir, value_text: &RustExpr, ty: Ty
         Some(Type::Bool) => RustExpr::atom(format!("SmeltUnknown::Bool({value_text})")),
         Some(Type::Int | Type::FixedInt(_) | Type::Float) => RustExpr::atom(format!("SmeltUnknown::Number({value_text} as f64)")),
         Some(Type::BigInt) => RustExpr::atom(format!("SmeltUnknown::BigInt(({value_text}).clone())")),
-        Some(Type::String) => RustExpr::from(erased_string(value_text)),
+        Some(Type::String) => erased_string(value_text),
         Some(Type::Optional(inner)) => {
             let inner_text = record_field_unknown_expr(mir, &RustExpr::path("value"), *inner)?;
             RustExpr::postfix_on(&value_text, format!("{value_text}.map_or(SmeltUnknown::Undefined, |value| {inner_text})"))

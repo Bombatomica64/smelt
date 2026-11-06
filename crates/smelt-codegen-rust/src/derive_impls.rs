@@ -1,5 +1,9 @@
 //! Hand-written and gated `derive` impls of generated storage types, and the
 //! predicates deciding which of them a type gets.
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible items are shared with the crate root and the emitter shards"
+)]
 
 use crate::rust::RustExpr;
 use std::collections::HashSet;

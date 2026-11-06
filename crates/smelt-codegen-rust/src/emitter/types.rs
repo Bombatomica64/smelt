@@ -2097,7 +2097,7 @@ impl FunctionEmitter<'_> {
         {
             Ok(RustType::raw(format!("Result<{inner}, {ERROR_BOX}>")))
         } else {
-            Ok(RustType::from(inner))
+            Ok(inner)
         }
     }
 

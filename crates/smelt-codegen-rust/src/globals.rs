@@ -1,4 +1,8 @@
 //! Module-level mutable globals: their thread-local cells and static names.
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible items are shared with the crate root and the emitter shards"
+)]
 
 use crate::rust::RustExpr;
 use smelt_hir::Type;

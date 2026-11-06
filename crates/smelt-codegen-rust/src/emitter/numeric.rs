@@ -275,7 +275,7 @@ impl FunctionEmitter<'_> {
         }
         let mut rendered = RustExpr::path("0.0f64");
         for arg in args {
-            rendered = RustExpr::from(RustExpr::from(RustExpr::postfix_on(&rendered, format!("{rendered}.hypot({})", self.float_operand_expr(arg)?))));
+            rendered = RustExpr::postfix_on(&rendered, format!("{rendered}.hypot({})", self.float_operand_expr(arg)?));
         }
         Ok(rendered)
     }

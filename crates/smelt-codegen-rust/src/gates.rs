@@ -1,4 +1,8 @@
 //! Checks a finished crate must pass before it is written.
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible items are shared with the crate root and the emitter shards"
+)]
 
 use crate::EmitError;
 #[cfg(debug_assertions)]
